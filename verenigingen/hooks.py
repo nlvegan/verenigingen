@@ -930,7 +930,7 @@ on_session_creation = "verenigingen.auth_hooks.on_session_creation"
 on_logout = "verenigingen.auth_hooks.on_logout"
 
 # Optional: Request hooks to enforce member portal access
-# before_request = "verenigingen.auth_hooks.before_request"
+before_request = "verenigingen.auth_hooks.validate_session_before_request"
 
 # Custom auth validation (if needed)
 # auth_hooks = [

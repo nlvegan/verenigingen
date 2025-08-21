@@ -4,6 +4,7 @@ Specialized clients for each Mollie backend service
 """
 
 from .balances_client import BalancesClient
+from .bulk_transaction_importer import BulkTransactionImporter
 from .chargebacks_client import ChargebacksClient
 from .invoices_client import InvoicesClient
 from .organizations_client import OrganizationsClient
@@ -17,4 +18,5 @@ __all__ = [
     "InvoicesClient",
     "OrganizationsClient",
     "ChargebacksClient",
+    "BulkTransactionImporter",
 ]

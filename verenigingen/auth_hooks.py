@@ -74,6 +74,42 @@ from frappe import _
 from verenigingen.utils.security_wrappers import safe_get_roles
 
 
+def validate_session_before_request():
+    """
+    Early session validation to prevent 'User None is disabled' errors
+
+    This function runs before each request to catch and handle corrupted
+    session data that could cause authentication failures.
+    """
+    try:
+        # Check if we have a valid session context
+        if not hasattr(frappe, "session") or not frappe.session:
+            return
+
+        # Check if the session user is valid
+        user = getattr(frappe.session, "user", None)
+
+        # If user is None, empty, or invalid, clear the session
+        if not user or not isinstance(user, str) or user.strip() in ["", "None", "null", "undefined"]:
+            frappe.logger().warning(f"Detected corrupted session with invalid user: {repr(user)}")
+
+            # Clear the problematic session
+            if hasattr(frappe, "local") and hasattr(frappe.local, "session_obj"):
+                try:
+                    if hasattr(frappe.local.session_obj, "delete"):
+                        frappe.local.session_obj.delete()
+                except Exception:
+                    pass  # Ignore errors during session cleanup
+
+            # Set to Guest user to prevent further issues
+            frappe.session.user = "Guest"
+
+    except Exception as e:
+        # Log the error but don't fail the request
+        frappe.logger().error(f"Session validation error: {e}")
+        pass  # Continue with request processing
+
+
 def on_session_creation(login_manager):
     """
     Hook called when a user session is created (login)

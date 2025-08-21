@@ -101,7 +101,10 @@ class ReconciliationEngine:
             # 5. Cross-validate components
             results["components"]["cross_validation"] = self._cross_validate()
 
-            # 6. Apply automatic corrections
+            # 6. Validate bulk import data if any recent imports exist
+            results["components"]["bulk_import_validation"] = self._validate_bulk_imports()
+
+            # 7. Apply automatic corrections
             if self.corrections:
                 results["corrections_applied"] = self._apply_corrections()
 
@@ -513,6 +516,159 @@ class ReconciliationEngine:
                     analysis["trend"] = "improving"
 
         return analysis
+
+    def _validate_bulk_imports(self) -> Dict:
+        """
+        Validate recent bulk imports for consistency and accuracy
+
+        Returns:
+            Dict with bulk import validation results
+        """
+        validation_results = {
+            "status": "success",
+            "recent_imports": [],
+            "validation_issues": [],
+            "statistics": {
+                "total_imports": 0,
+                "successful_imports": 0,
+                "failed_imports": 0,
+                "total_transactions_imported": 0,
+            },
+        }
+
+        try:
+            # Get recent bulk imports from the last 7 days
+            from frappe.utils import add_days, getdate
+
+            from_date = add_days(getdate(), -7)
+
+            # Query recent Mollie bulk imports
+            bulk_imports = frappe.get_all(
+                "MT940 Import",
+                filters={"import_type": "Mollie Bulk Import", "creation": [">=", from_date]},
+                fields=[
+                    "name",
+                    "import_status",
+                    "transactions_created",
+                    "transactions_skipped",
+                    "import_summary",
+                    "mollie_from_date",
+                    "mollie_to_date",
+                    "mollie_import_strategy",
+                    "creation",
+                ],
+                order_by="creation desc",
+                limit=20,
+            )
+
+            validation_results["statistics"]["total_imports"] = len(bulk_imports)
+
+            for import_record in bulk_imports:
+                import_info = {
+                    "name": import_record["name"],
+                    "status": import_record["import_status"],
+                    "transactions_created": import_record.get("transactions_created", 0),
+                    "transactions_skipped": import_record.get("transactions_skipped", 0),
+                    "date_range": f"{import_record.get('mollie_from_date', '')} to {import_record.get('mollie_to_date', '')}",
+                    "strategy": import_record.get("mollie_import_strategy", "unknown"),
+                    "validation_status": "pending",
+                }
+
+                # Update statistics
+                if import_record["import_status"] == "Completed":
+                    validation_results["statistics"]["successful_imports"] += 1
+                    validation_results["statistics"]["total_transactions_imported"] += import_record.get(
+                        "transactions_created", 0
+                    )
+                elif import_record["import_status"] == "Failed":
+                    validation_results["statistics"]["failed_imports"] += 1
+
+                # Validate import completeness
+                validation_issues = self._validate_single_bulk_import(import_record)
+                if validation_issues:
+                    validation_results["validation_issues"].extend(validation_issues)
+                    import_info["validation_status"] = "issues_found"
+                else:
+                    import_info["validation_status"] = "validated"
+
+                validation_results["recent_imports"].append(import_info)
+
+            # Check for patterns or recurring issues
+            if len(bulk_imports) > 0:
+                success_rate = (
+                    validation_results["statistics"]["successful_imports"]
+                    / validation_results["statistics"]["total_imports"]
+                ) * 100
+
+                if success_rate < 80:
+                    self.warnings.append(
+                        f"Bulk import success rate is low: {success_rate:.1f}% "
+                        f"({validation_results['statistics']['successful_imports']} of "
+                        f"{validation_results['statistics']['total_imports']} imports successful)"
+                    )
+
+        except Exception as e:
+            validation_results["status"] = "failed"
+            validation_results["error"] = str(e)
+            self.warnings.append(f"Bulk import validation error: {str(e)}")
+            frappe.log_error(f"Bulk import validation failed: {str(e)}", "Reconciliation Engine")
+
+        return validation_results
+
+    def _validate_single_bulk_import(self, import_record: Dict) -> List[Dict]:
+        """
+        Validate a single bulk import record
+
+        Args:
+            import_record: Import record data
+
+        Returns:
+            List of validation issues found
+        """
+        issues = []
+
+        try:
+            import_name = import_record.get("name")
+
+            # Check if import created a reasonable number of transactions
+            transactions_created = import_record.get("transactions_created", 0)
+            transactions_skipped = import_record.get("transactions_skipped", 0)
+
+            # Flag unusual ratios
+            if transactions_created > 0 and transactions_skipped > 0:
+                skip_ratio = transactions_skipped / (transactions_created + transactions_skipped)
+                if skip_ratio > 0.5:  # More than 50% skipped
+                    issues.append(
+                        {
+                            "import": import_name,
+                            "type": "high_skip_ratio",
+                            "message": f"High skip ratio: {skip_ratio:.1%} of transactions were skipped",
+                            "recommendation": "Check for duplicate detection issues or data quality problems",
+                        }
+                    )
+
+            # Check for failed imports with no explanation
+            if import_record.get("import_status") == "Failed":
+                issues.append(
+                    {
+                        "import": import_name,
+                        "type": "failed_import",
+                        "message": f"Import failed: {import_record.get('import_summary', 'No error details available')}",
+                        "recommendation": "Review import logs and retry if necessary",
+                    }
+                )
+
+        except Exception as e:
+            issues.append(
+                {
+                    "import": import_record.get("name", "unknown"),
+                    "type": "validation_error",
+                    "message": f"Error validating import: {str(e)}",
+                    "recommendation": "Review import record manually",
+                }
+            )
+
+        return issues
 
 
 # Scheduled task for daily reconciliation

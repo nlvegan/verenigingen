@@ -7,11 +7,48 @@
     <div class="row">
         <div class="col-md-8 col-md-offset-2">
             <div class="page-header">
-                <h1>{{ _("Import MT940 Bank Statement") }}</h1>
-                <p class="text-muted">{{ _("Upload MT940 bank statement files to import transactions into ERPNext") }}</p>
+                <h1>{{ _("Import Bank Transactions") }}</h1>
+                <p class="text-muted">{{ _("Import transactions from MT940 files or Mollie backend") }}</p>
             </div>
 
+            <!-- Import Type Selection -->
             <div class="panel panel-default">
+                <div class="panel-heading">
+                    <h4>{{ _("Import Type") }}</h4>
+                </div>
+                <div class="panel-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="import-type-option" id="mt940-option">
+                                <div class="card" style="cursor: pointer; border: 2px solid #ddd; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                                    <div class="text-center">
+                                        <i class="fa fa-file-text-o fa-3x text-primary"></i>
+                                        <h4>MT940 File Import</h4>
+                                        <p class="text-muted">Upload MT940 bank statement files</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="import-type-option" id="mollie-option">
+                                <div class="card" style="cursor: pointer; border: 2px solid #ddd; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                                    <div class="text-center">
+                                        <i class="fa fa-cloud fa-3x text-success"></i>
+                                        <h4>Mollie Bulk Import</h4>
+                                        <p class="text-muted">Import transactions from Mollie backend API</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MT940 Import Panel -->
+            <div class="panel panel-default" id="mt940-panel">
+                <div class="panel-heading">
+                    <h4>{{ _("MT940 File Import") }}</h4>
+                </div>
                 <div class="panel-body">
                     <form id="mt940-import-form" enctype="multipart/form-data">
 
@@ -86,20 +123,152 @@
                 </div>
             </div>
 
-            <!-- Help Section -->
-            <div class="panel panel-info">
+            <!-- Mollie Bulk Import Panel -->
+            <div class="panel panel-default" id="mollie-panel" style="display: none;">
                 <div class="panel-heading">
-                    <h4>{{ _("What is MT940?") }}</h4>
+                    <h4>{{ _("Mollie Bulk Import") }}</h4>
                 </div>
                 <div class="panel-body">
-                    <p>{{ _("MT940 is a standard format for electronic bank statements used by banks worldwide. It contains:") }}</p>
-                    <ul>
-                        <li>{{ _("Transaction details (date, amount, description)") }}</li>
-                        <li>{{ _("Account information (IBAN, account number)") }}</li>
-                        <li>{{ _("Balance information (opening and closing balances)") }}</li>
-                        <li>{{ _("Reference numbers and additional transaction data") }}</li>
-                    </ul>
-                    <p><strong>{{ _("Note:") }}</strong> {{ _("This import creates Bank Transaction records. You'll need to reconcile them with your accounting entries separately.") }}</p>
+                    <form id="mollie-import-form">
+
+                        <!-- Bank Account Selection (shared) -->
+                        <div class="form-group">
+                            <label for="mollie_bank_account">{{ _("Bank Account") }}</label>
+                            <select class="form-control" id="mollie_bank_account" name="mollie_bank_account" required>
+                                <option value="">{{ _("Select Bank Account") }}</option>
+                                {% for account in bank_accounts %}
+                                <option value="{{ account.name }}">
+                                    {{ account.account_name }}
+                                    {% if account.bank %}({{ account.bank }}){% endif %}
+                                    {% if account.iban %}- {{ account.iban }}{% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <!-- Date Range -->
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="mollie_from_date">{{ _("From Date") }}</label>
+                                    <input type="date" class="form-control" id="mollie_from_date" name="mollie_from_date" required>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="mollie_to_date">{{ _("To Date") }}</label>
+                                    <input type="date" class="form-control" id="mollie_to_date" name="mollie_to_date" required>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Import Strategy -->
+                        <div class="form-group">
+                            <label for="mollie_strategy">{{ _("Import Strategy") }}</label>
+                            <select class="form-control" id="mollie_strategy" name="mollie_strategy">
+                                <option value="hybrid">{{ _("Hybrid (Settlements + Payments) - Recommended") }}</option>
+                                <option value="settlements">{{ _("Settlements Only - Faster, Less Detail") }}</option>
+                                <option value="payments">{{ _("Individual Payments - Detailed, Slower") }}</option>
+                            </select>
+                            <small class="help-text text-muted">
+                                {{ _("Hybrid combines settlement data for bulk periods with individual payments for recent transactions") }}
+                            </small>
+                        </div>
+
+                        <!-- Import Size Estimate -->
+                        <div id="mollie-estimate-section" style="display: none;">
+                            <div class="alert alert-info" id="mollie-estimate-result">
+                                <h5><i class="fa fa-info-circle"></i> {{ _("Import Estimate") }}</h5>
+                                <div id="mollie-estimate-content"></div>
+                            </div>
+                        </div>
+
+                        <!-- Submit Buttons -->
+                        <div class="form-group">
+                            <button type="button" class="btn btn-info" id="mollie-estimate-btn">
+                                <i class="fa fa-calculator"></i> {{ _("Estimate Import Size") }}
+                            </button>
+                            <button type="submit" class="btn btn-success" id="mollie-import-btn" disabled>
+                                <i class="fa fa-cloud-download"></i> {{ _("Start Bulk Import") }}
+                            </button>
+                            <button type="button" class="btn btn-default" id="mollie-back-btn">
+                                {{ _("Back to Import Type") }}
+                            </button>
+                        </div>
+
+                    </form>
+
+                    <!-- Mollie Progress Indicator -->
+                    <div id="mollie-progress-section" style="display: none;">
+                        <div class="progress">
+                            <div class="progress-bar progress-bar-striped active" role="progressbar" style="width: 100%">
+                                {{ _("Processing Mollie bulk import...") }}
+                            </div>
+                        </div>
+                        <p class="text-muted text-center">{{ _("This may take a few minutes for large date ranges") }}</p>
+                    </div>
+
+                    <!-- Mollie Results Section -->
+                    <div id="mollie-results-section" style="display: none;">
+                        <div class="alert" id="mollie-results-alert">
+                            <div id="mollie-results-content"></div>
+                        </div>
+                    </div>
+
+                    <!-- Mollie Import History -->
+                    <div id="mollie-history-section" style="display: none;">
+                        <h4>{{ _("Recent Bulk Imports") }}</h4>
+                        <div class="table-responsive">
+                            <table class="table table-bordered" id="mollie-history-table">
+                                <thead>
+                                    <tr>
+                                        <th>{{ _("Import Name") }}</th>
+                                        <th>{{ _("Date Range") }}</th>
+                                        <th>{{ _("Status") }}</th>
+                                        <th>{{ _("Transactions") }}</th>
+                                        <th>{{ _("Actions") }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="mollie-history-body">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- Help Section -->
+            <div class="panel panel-info" id="help-section">
+                <div class="panel-heading">
+                    <h4>{{ _("Import Methods") }}</h4>
+                </div>
+                <div class="panel-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h5>{{ _("MT940 File Import") }}</h5>
+                            <p>{{ _("MT940 is a standard format for electronic bank statements used by banks worldwide. It contains:") }}</p>
+                            <ul>
+                                <li>{{ _("Transaction details (date, amount, description)") }}</li>
+                                <li>{{ _("Account information (IBAN, account number)") }}</li>
+                                <li>{{ _("Balance information (opening and closing balances)") }}</li>
+                                <li>{{ _("Reference numbers and additional transaction data") }}</li>
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <h5>{{ _("Mollie Bulk Import") }}</h5>
+                            <p>{{ _("Import transaction data directly from Mollie's backend API:") }}</p>
+                            <ul>
+                                <li>{{ _("Historical data backfill for any date range") }}</li>
+                                <li>{{ _("Settlement data for bulk financial periods") }}</li>
+                                <li>{{ _("Individual payment details with full metadata") }}</li>
+                                <li>{{ _("Hybrid strategy for optimal performance") }}</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="alert alert-info" style="margin-top: 15px;">
+                        <strong>{{ _("Note:") }}</strong> {{ _("Both import methods create Bank Transaction records. You'll need to reconcile them with your accounting entries separately.") }}
+                    </div>
                 </div>
             </div>
 
@@ -144,10 +313,53 @@
     margin-top: 0;
     color: #495057;
 }
+
+/* Import type selection */
+.import-type-option .card {
+    transition: all 0.3s ease;
+}
+
+.import-type-option .card:hover {
+    border-color: #007bff !important;
+    box-shadow: 0 4px 8px rgba(0, 123, 255, 0.2);
+}
+
+.import-type-option.selected .card {
+    border-color: #28a745 !important;
+    background-color: #f8fff9;
+}
+
+/* Initially hide both import panels */
+#mt940-panel, #mollie-panel {
+    display: none;
+}
+
+/* Mollie specific styles */
+.mollie-estimate-item {
+    padding: 8px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.mollie-estimate-item:last-child {
+    border-bottom: none;
+}
+
+.mollie-warning {
+    color: #856404;
+    background-color: #fff3cd;
+    border-color: #ffeaa7;
+}
 </style>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // Import type selection elements
+    const mt940Option = document.getElementById('mt940-option');
+    const mollieOption = document.getElementById('mollie-option');
+    const mt940Panel = document.getElementById('mt940-panel');
+    const molliePanel = document.getElementById('mollie-panel');
+
+    // MT940 form elements
     const bankAccountSelect = document.getElementById('bank_account');
     const form = document.getElementById('mt940-import-form');
     const importBtn = document.getElementById('import-btn');
@@ -159,6 +371,61 @@ document.addEventListener('DOMContentLoaded', function() {
     const resultsSection = document.getElementById('results-section');
     const resultsAlert = document.getElementById('results-alert');
     const resultsContent = document.getElementById('results-content');
+
+    // Mollie form elements
+    const mollieForm = document.getElementById('mollie-import-form');
+    const mollieBankAccountSelect = document.getElementById('mollie_bank_account');
+    const mollieFromDate = document.getElementById('mollie_from_date');
+    const mollieToDate = document.getElementById('mollie_to_date');
+    const mollieStrategy = document.getElementById('mollie_strategy');
+    const mollieEstimateBtn = document.getElementById('mollie-estimate-btn');
+    const mollieImportBtn = document.getElementById('mollie-import-btn');
+    const mollieBackBtn = document.getElementById('mollie-back-btn');
+    const mollieEstimateSection = document.getElementById('mollie-estimate-section');
+    const mollieEstimateContent = document.getElementById('mollie-estimate-content');
+    const mollieProgressSection = document.getElementById('mollie-progress-section');
+    const mollieResultsSection = document.getElementById('mollie-results-section');
+    const mollieResultsAlert = document.getElementById('mollie-results-alert');
+    const mollieResultsContent = document.getElementById('mollie-results-content');
+
+    // Import type selection handlers
+    mt940Option.addEventListener('click', function() {
+        selectImportType('mt940');
+    });
+
+    mollieOption.addEventListener('click', function() {
+        selectImportType('mollie');
+    });
+
+    function selectImportType(type) {
+        // Reset selections
+        mt940Option.classList.remove('selected');
+        mollieOption.classList.remove('selected');
+        mt940Panel.style.display = 'none';
+        molliePanel.style.display = 'none';
+
+        if (type === 'mt940') {
+            mt940Option.classList.add('selected');
+            mt940Panel.style.display = 'block';
+        } else if (type === 'mollie') {
+            mollieOption.classList.add('selected');
+            molliePanel.style.display = 'block';
+            // Load Mollie import history when panel is shown
+            loadMollieImportHistory();
+        }
+    }
+
+    // Mollie back button
+    mollieBackBtn.addEventListener('click', function() {
+        mollieOption.classList.remove('selected');
+        molliePanel.style.display = 'none';
+        // Reset Mollie form
+        mollieForm.reset();
+        mollieImportBtn.disabled = true;
+        mollieEstimateSection.style.display = 'none';
+        mollieProgressSection.style.display = 'none';
+        mollieResultsSection.style.display = 'none';
+    });
 
     // Bank account is always required now
 
@@ -215,6 +482,95 @@ document.addEventListener('DOMContentLoaded', function() {
         };
 
         reader.readAsBinaryString(file);
+    });
+
+    // Mollie estimate button
+    mollieEstimateBtn.addEventListener('click', function() {
+        const fromDate = mollieFromDate.value;
+        const toDate = mollieToDate.value;
+        const strategy = mollieStrategy.value;
+
+        if (!fromDate || !toDate) {
+            frappe.msgprint('Please select from and to dates');
+            return;
+        }
+
+        if (new Date(fromDate) >= new Date(toDate)) {
+            frappe.msgprint('From date must be before to date');
+            return;
+        }
+
+        mollieEstimateBtn.disabled = true;
+
+        frappe.call({
+            method: 'verenigingen.verenigingen.doctype.mt940_import.mt940_import.estimate_mollie_bulk_import',
+            args: {
+                from_date: fromDate,
+                to_date: toDate,
+                strategy: strategy
+            },
+            callback: function(r) {
+                mollieEstimateBtn.disabled = false;
+
+                if (r.message && !r.message.error) {
+                    showMollieEstimate(r.message);
+                    mollieImportBtn.disabled = false; // Enable import after successful estimate
+                } else {
+                    frappe.msgprint('Estimate failed: ' + (r.message?.error || 'Unknown error'));
+                }
+            },
+            error: function(err) {
+                mollieEstimateBtn.disabled = false;
+                frappe.msgprint('Estimate failed: ' + (err.message || 'Unknown error'));
+            }
+        });
+    });
+
+    // Mollie form submission
+    mollieForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        const fromDate = mollieFromDate.value;
+        const toDate = mollieToDate.value;
+        const strategy = mollieStrategy.value;
+        const bankAccount = mollieBankAccountSelect.value;
+
+        if (!bankAccount) {
+            frappe.msgprint('Please select a bank account');
+            return;
+        }
+
+        // Show progress
+        mollieImportBtn.disabled = true;
+        mollieProgressSection.style.display = 'block';
+        mollieResultsSection.style.display = 'none';
+
+        // Create and submit the import
+        frappe.call({
+            method: 'verenigingen.verenigingen.doctype.mt940_import.mt940_import.create_mollie_bulk_import',
+            args: {
+                from_date: fromDate,
+                to_date: toDate,
+                strategy: strategy,
+                company: '{{ company }}',
+                bank_account: bankAccount
+            },
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    // Import document created, now submit it to start processing
+                    submitMollieImport(r.message.import_doc_name);
+                } else {
+                    mollieImportBtn.disabled = false;
+                    mollieProgressSection.style.display = 'none';
+                    frappe.msgprint('Failed to create import: ' + (r.message?.error || 'Unknown error'));
+                }
+            },
+            error: function(err) {
+                mollieImportBtn.disabled = false;
+                mollieProgressSection.style.display = 'none';
+                frappe.msgprint('Import creation failed: ' + (err.message || 'Unknown error'));
+            }
+        });
     });
 
     // Debug button functionality
@@ -672,6 +1028,143 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         resultsContent.innerHTML = html;
+    }
+
+    // Mollie-specific functions
+    function submitMollieImport(importDocName) {
+        frappe.call({
+            method: 'verenigingen.verenigingen.doctype.mt940_import.mt940_import.submit_import',
+            args: {
+                import_name: importDocName
+            },
+            callback: function(r) {
+                mollieImportBtn.disabled = false;
+                mollieProgressSection.style.display = 'none';
+
+                if (r.message) {
+                    showMollieResults(r.message);
+                    loadMollieImportHistory(); // Refresh history
+                } else {
+                    mollieResultsSection.style.display = 'block';
+                    mollieResultsAlert.className = 'alert alert-warning';
+                    mollieResultsContent.innerHTML = '<h4>Import Started</h4><p>Import document created: ' + importDocName + '</p><p>Check the document status for progress updates.</p>';
+                }
+            },
+            error: function(err) {
+                mollieImportBtn.disabled = false;
+                mollieProgressSection.style.display = 'none';
+                mollieResultsSection.style.display = 'block';
+                mollieResultsAlert.className = 'alert alert-danger';
+                mollieResultsContent.innerHTML = '<h4>Submit Failed</h4><p>' + (err.message || 'Unknown error') + '</p>';
+            }
+        });
+    }
+
+    function showMollieEstimate(estimate) {
+        let html = '';
+
+        if (estimate.error) {
+            html = '<div class="alert alert-danger">' + estimate.error + '</div>';
+        } else {
+            html += '<div class="mollie-estimate-item"><strong>Date Range:</strong> ' + estimate.date_range.days + ' days (' + estimate.date_range.from.split('T')[0] + ' to ' + estimate.date_range.to.split('T')[0] + ')</div>';
+            html += '<div class="mollie-estimate-item"><strong>Strategy:</strong> ' + estimate.strategy.charAt(0).toUpperCase() + estimate.strategy.slice(1) + '</div>';
+            html += '<div class="mollie-estimate-item"><strong>Estimated Transactions:</strong> ~' + estimate.estimated_transactions + '</div>';
+
+            if (estimate.settlements_count !== undefined) {
+                html += '<div class="mollie-estimate-item"><strong>Settlements Found:</strong> ' + estimate.settlements_count + '</div>';
+            }
+
+            if (estimate.estimated_payments !== undefined) {
+                html += '<div class="mollie-estimate-item"><strong>Estimated Payments:</strong> ~' + estimate.estimated_payments + '</div>';
+            }
+
+            if (estimate.warnings && estimate.warnings.length > 0) {
+                html += '<div class="alert alert-warning mollie-warning" style="margin-top: 15px;"><strong>Warnings:</strong><ul>';
+                for (let warning of estimate.warnings) {
+                    html += '<li>' + warning + '</li>';
+                }
+                html += '</ul></div>';
+            }
+        }
+
+        mollieEstimateContent.innerHTML = html;
+        mollieEstimateSection.style.display = 'block';
+    }
+
+    function showMollieResults(result) {
+        mollieResultsSection.style.display = 'block';
+
+        let html = '<h4><i class="fa fa-check-circle"></i> Mollie Bulk Import Results</h4>';
+
+        if (result.import_status === 'Completed') {
+            mollieResultsAlert.className = 'alert alert-success';
+            html += '<p><strong>Status:</strong> ' + result.import_status + '</p>';
+            html += '<p><strong>Import Summary:</strong> ' + (result.import_summary || 'Import completed successfully') + '</p>';
+
+            if (result.transactions_created) {
+                html += '<p><strong>Transactions Created:</strong> ' + result.transactions_created + '</p>';
+            }
+
+            if (result.transactions_skipped) {
+                html += '<p><strong>Transactions Skipped:</strong> ' + result.transactions_skipped + '</p>';
+            }
+
+            html += '<p class="text-muted"><strong>Next Step:</strong> Review and reconcile the imported transactions.</p>';
+            html += '<a href="/app/bank-transaction" class="btn btn-default">View Bank Transactions</a>';
+            html += ' <a href="/app/mt940-import/' + result.name + '" class="btn btn-info">View Import Details</a>';
+
+        } else {
+            mollieResultsAlert.className = 'alert alert-danger';
+            html += '<p><strong>Status:</strong> ' + result.import_status + '</p>';
+            html += '<p><strong>Error:</strong> ' + (result.import_summary || 'Import failed') + '</p>';
+        }
+
+        mollieResultsContent.innerHTML = html;
+    }
+
+    function loadMollieImportHistory() {
+        frappe.call({
+            method: 'verenigingen.verenigingen.doctype.mt940_import.mt940_import.get_mollie_bulk_import_history',
+            args: { days: 30 },
+            callback: function(r) {
+                if (r.message && r.message.length > 0) {
+                    displayMollieHistory(r.message);
+                } else {
+                    document.getElementById('mollie-history-section').style.display = 'none';
+                }
+            },
+            error: function(err) {
+                console.log('Failed to load Mollie import history:', err);
+            }
+        });
+    }
+
+    function displayMollieHistory(imports) {
+        const historySection = document.getElementById('mollie-history-section');
+        const historyBody = document.getElementById('mollie-history-body');
+
+        let html = '';
+        for (let imp of imports.slice(0, 10)) { // Show last 10 imports
+            const dateRange = imp.mollie_from_date && imp.mollie_to_date ?
+                imp.mollie_from_date + ' to ' + imp.mollie_to_date : 'N/A';
+
+            let statusClass = '';
+            if (imp.import_status === 'Completed') statusClass = 'success';
+            else if (imp.import_status === 'Failed') statusClass = 'danger';
+            else if (imp.import_status === 'In Progress') statusClass = 'info';
+            else statusClass = 'default';
+
+            html += '<tr>';
+            html += '<td>' + (imp.descriptive_name || imp.name) + '</td>';
+            html += '<td>' + dateRange + '</td>';
+            html += '<td><span class="label label-' + statusClass + '">' + imp.import_status + '</span></td>';
+            html += '<td>' + (imp.transactions_created || 0) + ' created, ' + (imp.transactions_skipped || 0) + ' skipped</td>';
+            html += '<td><a href="/app/mt940-import/' + imp.name + '" class="btn btn-xs btn-default">View</a></td>';
+            html += '</tr>';
+        }
+
+        historyBody.innerHTML = html;
+        historySection.style.display = 'block';
     }
 });
 </script>
