@@ -3044,30 +3044,53 @@ function display_chapter_join_requests(frm) {
 		},
 		callback(r) {
 			if (r.message && r.message.length > 0) {
-				// Create container using secure DOM manipulation
-				const container = document.createElement('div');
-				container.style.marginBottom = '20px';
-				container.setAttribute('data-chapter-requests', 'true');
+				// Filter out approved requests older than one week
+				const oneWeekAgo = new Date();
+				oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
 
-				// Create header
-				const header = document.createElement('h5');
-				header.style.cssText = 'margin-bottom: 15px; color: var(--text-color); border-bottom: 1px solid var(--border-color); padding-bottom: 5px;';
+				const filteredRequests = r.message.filter(request => {
+					// Always show non-approved requests (pending, rejected, etc.)
+					if (request.status !== 'Approved') {
+						return true;
+					}
 
-				// Create icon element safely
-				const headerIcon = document.createElement('i');
-				headerIcon.className = 'fa fa-users';
-				header.appendChild(headerIcon);
-				header.appendChild(document.createTextNode(' Chapter Join Requests'));
-				container.appendChild(header);
+					// For approved requests, only show if approved within the last week
+					if (request.review_date) {
+						const reviewDate = new Date(request.review_date);
+						return reviewDate >= oneWeekAgo;
+					}
 
-				// Process each request securely
-				r.message.forEach(request => {
-					const requestCard = create_member_request_card(request);
-					container.appendChild(requestCard);
+					// If no review date but status is approved, show it (edge case)
+					return true;
 				});
 
-				// Secure DOM injection - try to place after amendment section
-				inject_member_requests_safely(frm, container);
+				// Only display if we have requests to show after filtering
+				if (filteredRequests.length > 0) {
+					// Create container using secure DOM manipulation
+					const container = document.createElement('div');
+					container.style.marginBottom = '20px';
+					container.setAttribute('data-chapter-requests', 'true');
+
+					// Create header
+					const header = document.createElement('h5');
+					header.style.cssText = 'margin-bottom: 15px; color: var(--text-color); border-bottom: 1px solid var(--border-color); padding-bottom: 5px;';
+
+					// Create icon element safely
+					const headerIcon = document.createElement('i');
+					headerIcon.className = 'fa fa-users';
+					header.appendChild(headerIcon);
+					header.appendChild(document.createTextNode(' Chapter Join Requests'));
+					container.appendChild(header);
+
+					// Process each filtered request securely
+					filteredRequests.forEach(request => {
+						const requestCard = create_member_request_card(request);
+						container.appendChild(requestCard);
+					});
+
+					// Secure DOM injection - try to place after amendment section
+					inject_member_requests_safely(frm, container);
+				}
 			}
 		}
 	});

@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\":\"MigrationHeader\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>E-Boekhouden Integration</b></span>\",\"col\":12}},{\"id\":\"MigrationCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Migration & Settings\",\"col\":4}},{\"id\":\"MappingCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Mapping & Configuration\",\"col\":4}},{\"id\":\"MonitoringCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Monitoring & Logs\",\"col\":4}}]",
+ "content": "[]",
  "creation": "2025-08-15 11:52:35.542514",
  "custom_blocks": [],
  "docstatus": 0,

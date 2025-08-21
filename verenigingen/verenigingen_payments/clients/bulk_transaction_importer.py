@@ -3,9 +3,8 @@ Mollie Bulk Transaction Importer
 Hybrid bulk import combining Balance Transactions and Individual Payments
 """
 
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal
-from typing import Dict, List, Optional, Tuple
+from datetime import datetime, timezone
+from typing import Dict, List, Optional
 
 import frappe
 from frappe import _
@@ -565,6 +564,41 @@ class BulkTransactionImporter(MollieBaseClient):
             deposit = amount if amount > 0 else 0
             withdrawal = abs(amount) if amount < 0 else 0
 
+            # Extract consumer details for iDEAL and other payment methods
+            consumer_name = None
+            consumer_account = None
+            consumer_iban = None
+            payment_details = payment.get("details", {})
+
+            if payment.get("method") == "ideal" and payment_details:
+                consumer_name = payment_details.get("consumerName")
+                consumer_account = payment_details.get("consumerAccount")
+            elif payment.get("method") == "banktransfer" and payment_details:
+                # Use standard Mollie API field names (not bankHolderName/bankAccount)
+                consumer_name = payment_details.get("consumerName")
+                consumer_account = payment_details.get("consumerAccount")
+                consumer_iban = consumer_account if self._validate_iban_format(consumer_account) else None
+            elif payment.get("method") == "directdebit" and payment_details:
+                consumer_name = payment_details.get("consumerName")
+                consumer_account = payment_details.get("consumerAccount")
+                consumer_account_raw = payment_details.get("consumerAccount")
+                consumer_iban = (
+                    consumer_account_raw if self._validate_iban_format(consumer_account_raw) else None
+                )
+
+            # Determine party information and attempt member matching
+            party_type = None
+            party = None
+
+            # Try to match with existing Member based on IBAN or name
+            if consumer_iban or consumer_account:
+                matched_member = self._find_member_by_payment_details(
+                    consumer_name, consumer_iban or consumer_account
+                )
+                if matched_member:
+                    party_type = "Member"
+                    party = matched_member
+
             # Create Bank Transaction
             bank_transaction = frappe.new_doc("Bank Transaction")
             bank_transaction.update(
@@ -578,6 +612,12 @@ class BulkTransactionImporter(MollieBaseClient):
                     "description": payment.get("description", f"Mollie Payment {payment.get('id', '')}"),
                     "reference_number": payment.get("id"),
                     "transaction_type": "Mollie Payment",
+                    # Standard Bank Transaction party fields
+                    "party_type": party_type,
+                    "party": party,
+                    "bank_party_name": consumer_name,
+                    "bank_party_iban": consumer_iban,
+                    "bank_party_account_number": consumer_account,
                     # Add Mollie-specific fields
                     "custom_mollie_payment_id": payment.get("id"),
                     "custom_mollie_status": payment.get("status"),
@@ -649,6 +689,8 @@ class BulkTransactionImporter(MollieBaseClient):
             "custom_mollie_reference",
             "custom_mollie_status",
             "custom_mollie_method",
+            "custom_mollie_consumer_name",
+            "custom_mollie_consumer_account",
             "custom_mollie_import_source",
             "custom_import_batch_id",
         ]
@@ -802,10 +844,16 @@ class BulkTransactionImporter(MollieBaseClient):
                     "company": company_value,
                     "import_date": getdate(),
                     "import_status": results["status"].title().replace("_", " "),
-                    "import_summary": f"Bulk import {results['import_id']}: {results['transactions']['total_imported']} transactions imported",
+                    "import_summary": (
+                        f"Bulk import {results['import_id']}: "
+                        f"{results['transactions']['total_imported']} transactions imported"
+                    ),
                     "transactions_created": results["transactions"]["total_imported"],
                     "transactions_skipped": results["transactions"]["duplicates_skipped"],
-                    "descriptive_name": f"Mollie Bulk Import - {formatdate(getdate())} ({results['transactions']['total_imported']} txns)",
+                    "descriptive_name": (
+                        f"Mollie Bulk Import - {formatdate(getdate())} "
+                        f"({results['transactions']['total_imported']} txns)"
+                    ),
                     "statement_from_date": getdate(results["date_range"]["from"]),
                     "statement_to_date": getdate(results["date_range"]["to"]),
                     # Add required Mollie fields for validation
@@ -922,6 +970,225 @@ class BulkTransactionImporter(MollieBaseClient):
             estimates["error"] = f"Could not estimate import size: {str(e)}"
 
         return estimates
+
+    def _validate_iban_format(self, account_number: str) -> bool:
+        """
+        Validate if account number is a valid IBAN format with comprehensive checks
+
+        Args:
+            account_number: Account number to validate
+
+        Returns:
+            True if valid IBAN format, False otherwise
+        """
+        if not account_number:
+            return False
+
+        # Remove spaces, hyphens and standardize
+        clean_account = account_number.replace(" ", "").replace("-", "").upper()
+
+        # Length must be between 15-34 characters
+        if len(clean_account) < 15 or len(clean_account) > 34:
+            return False
+
+        # Must start with 2 letters (country code) + 2 digits (check digits)
+        if not (clean_account[:2].isalpha() and clean_account[2:4].isdigit()):
+            return False
+
+        # Rest must be alphanumeric only
+        if not clean_account[4:].isalnum():
+            return False
+
+        # Validate against known European country codes
+        valid_country_codes = {
+            "AD",
+            "AE",
+            "AL",
+            "AT",
+            "AZ",
+            "BA",
+            "BE",
+            "BG",
+            "BH",
+            "BR",
+            "BY",
+            "CH",
+            "CR",
+            "CY",
+            "CZ",
+            "DE",
+            "DK",
+            "DO",
+            "EE",
+            "EG",
+            "ES",
+            "FI",
+            "FO",
+            "FR",
+            "GB",
+            "GE",
+            "GI",
+            "GL",
+            "GR",
+            "GT",
+            "HR",
+            "HU",
+            "IE",
+            "IL",
+            "IS",
+            "IT",
+            "JO",
+            "KW",
+            "KZ",
+            "LB",
+            "LC",
+            "LI",
+            "LT",
+            "LU",
+            "LV",
+            "MC",
+            "MD",
+            "ME",
+            "MK",
+            "MR",
+            "MT",
+            "MU",
+            "NL",
+            "NO",
+            "PK",
+            "PL",
+            "PS",
+            "PT",
+            "QA",
+            "RO",
+            "RS",
+            "SA",
+            "SE",
+            "SI",
+            "SK",
+            "SM",
+            "TN",
+            "TR",
+            "UA",
+            "VG",
+            "XK",
+        }
+
+        country_code = clean_account[:2]
+        if country_code not in valid_country_codes:
+            return False
+
+        # Country-specific length validation for common European countries
+        country_lengths = {
+            "AD": 24,
+            "AT": 20,
+            "BE": 16,
+            "BG": 22,
+            "CH": 21,
+            "CY": 28,
+            "CZ": 24,
+            "DE": 22,
+            "DK": 18,
+            "EE": 20,
+            "ES": 24,
+            "FI": 18,
+            "FR": 27,
+            "GB": 22,
+            "GR": 27,
+            "HR": 21,
+            "HU": 28,
+            "IE": 22,
+            "IS": 26,
+            "IT": 27,
+            "LI": 21,
+            "LT": 20,
+            "LU": 20,
+            "LV": 21,
+            "MC": 27,
+            "ME": 22,
+            "MK": 19,
+            "MT": 31,
+            "NL": 18,
+            "NO": 15,
+            "PL": 28,
+            "PT": 25,
+            "RO": 24,
+            "RS": 22,
+            "SE": 24,
+            "SI": 19,
+            "SK": 24,
+            "SM": 27,
+        }
+
+        expected_length = country_lengths.get(country_code)
+        if expected_length and len(clean_account) != expected_length:
+            return False
+
+        return True
+
+    def _find_member_by_payment_details(self, consumer_name: str = None, consumer_iban: str = None) -> str:
+        """
+        Find a Member record based on consumer payment details
+
+        Args:
+            consumer_name: Consumer name from payment details
+            consumer_iban: Consumer IBAN/account from payment details
+
+        Returns:
+            Member name if found, None otherwise
+        """
+        try:
+            # First try to match by IBAN in SEPA Mandates
+            if consumer_iban and self._validate_iban_format(consumer_iban):
+                # Clean and standardize IBAN format
+                clean_iban = consumer_iban.replace(" ", "").upper()
+
+                # Look for SEPA Mandate with matching IBAN (secure SQL query)
+                sepa_mandates = frappe.db.sql(
+                    """
+                    SELECT member, iban
+                    FROM `tabSEPA Mandate`
+                    WHERE UPPER(REPLACE(iban, ' ', '')) = %s AND status = %s
+                    LIMIT 1
+                """,
+                    (clean_iban, "Active"),
+                    as_dict=True,
+                )
+
+                if sepa_mandates and sepa_mandates[0].member:
+                    frappe.logger().info(f"Member matched by IBAN: {sepa_mandates[0].member}")
+                    return sepa_mandates[0].member
+
+            # Second, try to match by consumer name if provided
+            if consumer_name:
+                # Try exact match on full_name
+                member_by_name = frappe.db.get_value("Member", {"full_name": consumer_name}, "name")
+                if member_by_name:
+                    frappe.logger().info(f"Member matched by exact name: {member_by_name}")
+                    return member_by_name
+
+                # Try partial match on full_name (fuzzy matching)
+                members = frappe.get_all(
+                    "Member",
+                    filters={"full_name": ["like", f"%{consumer_name}%"]},
+                    fields=["name", "full_name"],
+                    limit=5,
+                )
+
+                if len(members) == 1:
+                    # Single fuzzy match found
+                    frappe.logger().info(f"Member matched by name similarity: {members[0].name}")
+                    return members[0].name
+                elif len(members) > 1:
+                    # Multiple matches - log for manual review but don't auto-assign
+                    member_names = [m.name for m in members]
+                    frappe.logger().info(f"Multiple members matched name '{consumer_name}': {member_names}")
+
+            return None
+
+        except Exception as e:
+            frappe.log_error(f"Error in member matching: {str(e)}", "Member Payment Matching")
+            return None
 
 
 # API endpoints for bulk import functionality
