@@ -691,7 +691,7 @@ class TestDataFactory {
 		return { ...baseData, ...overrides };
 	}
 
-	createMemberCSVImportData(overrides = {}) {
+	createMijnroodCSVImportData(overrides = {}) {
 		const baseData = {
 			name: `MCI-${new Date().getFullYear()}-${String(this.memberCounter++).padStart(3, '0')}`,
 			csv_file: '/files/members.csv',

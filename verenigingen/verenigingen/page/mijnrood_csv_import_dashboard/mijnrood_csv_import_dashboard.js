@@ -1,5 +1,5 @@
 /**
- * @fileoverview Member CSV Import Page for Verenigingen Association Management
+ * @fileoverview Mijnrood CSV Import Dashboard Page for Verenigingen Association Management
  *
  * This page provides a user-friendly interface for importing member data from CSV files
  * with preview, validation, and guided import workflow.
@@ -16,11 +16,11 @@ frappe.pages['mijnrood-csv-import-dashboard'].on_page_load = function (wrapper) 
 		single_column: true
 	});
 
-	const member_import = new MemberCSVImportPage(page);
+	const member_import = new MijnroodCSVImportPage(page);
 	member_import.make();
 };
 
-class MemberCSVImportPage {
+class MijnroodCSVImportPage {
 	constructor(page) {
 		this.page = page;
 		this.wrapper = this.page.main;
@@ -226,7 +226,7 @@ class MemberCSVImportPage {
 }
 
 // Add custom CSS
-frappe.provide('frappe.pages["member-csv-import"]');
+frappe.provide('frappe.pages["mijnrood-csv-import-dashboard"]');
 frappe.pages['mijnrood-csv-import-dashboard'].on_page_show = function () {
 	if (!document.querySelector('#member-import-page-styles')) {
 		const style = document.createElement('style');

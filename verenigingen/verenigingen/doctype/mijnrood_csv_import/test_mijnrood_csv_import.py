@@ -8,10 +8,10 @@ from unittest.mock import mock_open, patch
 
 import frappe
 
-from verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import import MemberCSVImport
+from verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import import MijnroodCSVImport
 
 
-class TestMemberCSVImport(unittest.TestCase):
+class TestMijnroodCSVImport(unittest.TestCase):
     """Test cases for Member CSV Import functionality."""
 
     def setUp(self):
@@ -61,7 +61,7 @@ class TestMemberCSVImport(unittest.TestCase):
         mock_file.return_value.read.return_value = self.create_test_csv_content()
 
         doc = frappe.get_doc(
-            {"doctype": "Member CSV Import", "csv_file": "/test/path/test.csv", "encoding": "utf-8"}
+            {"doctype": "Mijnrood CSV Import", "csv_file": "/test/path/test.csv", "encoding": "utf-8"}
         )
 
         # Mock the file path resolution
@@ -74,7 +74,7 @@ class TestMemberCSVImport(unittest.TestCase):
 
     def test_field_mapping(self):
         """Test CSV field mapping to Member fields."""
-        doc = frappe.get_doc({"doctype": "Member CSV Import"})
+        doc = frappe.get_doc({"doctype": "Mijnrood CSV Import"})
 
         field_mapping = {"voornaam": "first_name", "achternaam": "last_name", "e-mailadres": "email"}
 
@@ -88,7 +88,7 @@ class TestMemberCSVImport(unittest.TestCase):
 
     def test_email_validation(self):
         """Test email validation."""
-        doc = frappe.get_doc({"doctype": "Member CSV Import"})
+        doc = frappe.get_doc({"doctype": "Mijnrood CSV Import"})
 
         # Valid emails
         self.assertTrue(doc._is_valid_email("test@example.com"))
@@ -101,7 +101,7 @@ class TestMemberCSVImport(unittest.TestCase):
 
     def test_iban_validation(self):
         """Test IBAN validation."""
-        doc = frappe.get_doc({"doctype": "Member CSV Import"})
+        doc = frappe.get_doc({"doctype": "Mijnrood CSV Import"})
 
         # Valid IBANs
         self.assertTrue(doc._is_valid_iban("NL91ABNA0417164300"))
@@ -114,7 +114,7 @@ class TestMemberCSVImport(unittest.TestCase):
 
     def test_date_parsing(self):
         """Test date parsing functionality."""
-        doc = frappe.get_doc({"doctype": "Member CSV Import"})
+        doc = frappe.get_doc({"doctype": "Mijnrood CSV Import"})
 
         # Test various date formats
         self.assertEqual(doc._parse_date("1990-01-15"), "1990-01-15")
@@ -127,7 +127,7 @@ class TestMemberCSVImport(unittest.TestCase):
 
     def test_value_cleaning(self):
         """Test value cleaning for different field types."""
-        doc = frappe.get_doc({"doctype": "Member CSV Import"})
+        doc = frappe.get_doc({"doctype": "Mijnrood CSV Import"})
 
         # Currency cleaning
         self.assertEqual(doc._clean_value("€ 25,50", "dues_rate"), 25.50)
@@ -146,7 +146,7 @@ class TestMemberCSVImport(unittest.TestCase):
 
     def test_row_validation(self):
         """Test row validation logic."""
-        doc = frappe.get_doc({"doctype": "Member CSV Import"})
+        doc = frappe.get_doc({"doctype": "Mijnrood CSV Import"})
 
         # Valid row
         valid_row = {
@@ -202,7 +202,7 @@ def test_mijnrood_csv_import_integration():
 
     # Create test import document
     doc = frappe.get_doc(
-        {"doctype": "Member CSV Import", "import_date": frappe.utils.today(), "test_mode": 1}
+        {"doctype": "Mijnrood CSV Import", "import_date": frappe.utils.today(), "test_mode": 1}
     )
 
     # Test basic document creation
@@ -216,12 +216,12 @@ def test_mijnrood_csv_import_integration():
     doc.delete()
 
 
-class TestMemberCSVImportSecurity(unittest.TestCase):
+class TestMijnroodCSVImportSecurity(unittest.TestCase):
     """Security-focused test cases for Member CSV Import."""
 
     def setUp(self):
         """Set up security test data."""
-        self.doc = frappe.get_doc({"doctype": "Member CSV Import"})
+        self.doc = frappe.get_doc({"doctype": "Mijnrood CSV Import"})
 
     def test_path_traversal_prevention(self):
         """Test that path traversal attacks are prevented."""
@@ -290,7 +290,7 @@ class TestMemberCSVImportSecurity(unittest.TestCase):
             self.assertFalse(self.doc._is_valid_iban(invalid_iban), f"Invalid IBAN accepted: {invalid_iban}")
 
 
-class TestMemberCSVImportIntegration(unittest.TestCase):
+class TestMijnroodCSVImportIntegration(unittest.TestCase):
     """Integration test cases for Member CSV Import."""
 
     def setUp(self):
@@ -313,7 +313,7 @@ class TestMemberCSVImportIntegration(unittest.TestCase):
         # Create import document
         doc = frappe.get_doc(
             {
-                "doctype": "Member CSV Import",
+                "doctype": "Mijnrood CSV Import",
                 "import_date": frappe.utils.today(),
                 "test_mode": 1,
                 "csv_file": "/files/test.csv",
@@ -353,7 +353,9 @@ class TestMemberCSVImportIntegration(unittest.TestCase):
             },
         ]
 
-        doc = frappe.get_doc({"doctype": "Member CSV Import", "test_mode": 1, "csv_file": "/files/test.csv"})
+        doc = frappe.get_doc(
+            {"doctype": "Mijnrood CSV Import", "test_mode": 1, "csv_file": "/files/test.csv"}
+        )
         doc.insert()
 
         # Test validation catches errors
@@ -375,7 +377,9 @@ class TestMemberCSVImportIntegration(unittest.TestCase):
                 {"Voornaam": f"User{i}", "Achternaam": "Test", "E-mailadres": f"user{i}@test.com"}
             )
 
-        doc = frappe.get_doc({"doctype": "Member CSV Import", "test_mode": 1, "csv_file": "/files/test.csv"})
+        doc = frappe.get_doc(
+            {"doctype": "Mijnrood CSV Import", "test_mode": 1, "csv_file": "/files/test.csv"}
+        )
         doc.insert()
 
         with patch.object(doc, "_read_csv_file") as mock_read:
@@ -388,7 +392,7 @@ class TestMemberCSVImportIntegration(unittest.TestCase):
         doc.delete()
 
 
-class TestMemberCSVImportPerformance(unittest.TestCase):
+class TestMijnroodCSVImportPerformance(unittest.TestCase):
     """Performance test cases for Member CSV Import."""
 
     def test_validation_performance(self):
@@ -411,7 +415,7 @@ class TestMemberCSVImportPerformance(unittest.TestCase):
                 }
             )
 
-        doc = frappe.get_doc({"doctype": "Member CSV Import"})
+        doc = frappe.get_doc({"doctype": "Mijnrood CSV Import"})
 
         start_time = time.time()
         mapped_data, errors = doc._validate_and_map_data(test_data)

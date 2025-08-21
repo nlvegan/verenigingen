@@ -1,17 +1,17 @@
 /**
- * @fileoverview Comprehensive Member CSV Import DocType JavaScript Test Suite
+ * @fileoverview Comprehensive Mijnrood CSV Import DocType JavaScript Test Suite
  */
 
 const TestDataFactory = require('../factories/test-data-factory');
 
-describe('Member CSV Import DocType - Comprehensive Test Suite', () => {
+describe('Mijnrood CSV Import DocType - Comprehensive Test Suite', () => {
 	let testFactory;
 	let mockFrm;
 	let mockDoc;
 
 	beforeEach(() => {
 		testFactory = new TestDataFactory(45012);
-		mockDoc = testFactory.createMemberCSVImportData();
+		mockDoc = testFactory.createMijnroodCSVImportData();
 		mockFrm = createMockForm(mockDoc);
 		setupGlobalMocks();
 	});

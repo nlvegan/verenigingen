@@ -1,11 +1,11 @@
 /**
- * @fileoverview Member CSV Import DocType Controller for Verenigingen Association Management
+ * @fileoverview Mijnrood CSV Import DocType Controller for Verenigingen Association Management
  *
  * This controller manages the import and processing of member data from CSV files,
  * providing comprehensive member import capabilities with validation and preview.
  *
  * @description Business Context:
- * Member CSV Import enables bulk import of member data from standardized CSV files:
+ * Mijnrood CSV Import enables bulk import of member data from standardized CSV files:
  * - Automated member data import from CSV files
  * - Field mapping and validation
  * - Preview functionality before import
@@ -30,7 +30,7 @@
 // Copyright (c) 2025, Frappe Technologies and contributors
 // For license information, please see license.txt
 
-frappe.ui.form.on('Member CSV Import', {
+frappe.ui.form.on('Mijnrood CSV Import', {
 	refresh(frm) {
 		// Add custom buttons based on status
 		if (frm.doc.docstatus === 0) {
@@ -208,7 +208,7 @@ frappe.ui.form.on('Member CSV Import', {
 });
 
 // Add custom CSS for better preview display
-frappe.ui.form.on('Member CSV Import', {
+frappe.ui.form.on('Mijnrood CSV Import', {
 	onload(_frm) {
 		// Add custom CSS for preview formatting
 		if (!document.querySelector('#member-import-styles')) {

@@ -21,7 +21,7 @@ except ImportError:
     PANDAS_AVAILABLE = False
 
 
-class MemberCSVImport(Document):
+class MijnroodCSVImport(Document):
     """DocType for importing member data from CSV files with validation and preview."""
 
     def validate(self):

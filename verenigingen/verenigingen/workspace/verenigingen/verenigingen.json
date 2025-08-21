@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[]",
+ "content": "[{\"id\": \"card_0\", \"type\": \"card\", \"data\": {\"card_name\": \"Memberships\", \"col\": 4}}, {\"id\": \"card_1\", \"type\": \"card\", \"data\": {\"card_name\": \"Billing & Dues\", \"col\": 4}}, {\"id\": \"card_2\", \"type\": \"card\", \"data\": {\"card_name\": \"Applications & Requests\", \"col\": 4}}, {\"id\": \"spacer_0\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"card_3\", \"type\": \"card\", \"data\": {\"card_name\": \"Accounting (Misc.)\", \"col\": 4}}, {\"id\": \"card_4\", \"type\": \"card\", \"data\": {\"card_name\": \"Chapters\", \"col\": 4}}, {\"id\": \"card_5\", \"type\": \"card\", \"data\": {\"card_name\": \"Payment Processing\", \"col\": 4}}, {\"id\": \"spacer_1\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"card_6\", \"type\": \"card\", \"data\": {\"card_name\": \"Donations\", \"col\": 4}}, {\"id\": \"card_7\", \"type\": \"card\", \"data\": {\"card_name\": \"Member Reports\", \"col\": 4}}, {\"id\": \"card_8\", \"type\": \"card\", \"data\": {\"card_name\": \"Financial Reports\", \"col\": 4}}, {\"id\": \"spacer_2\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"card_9\", \"type\": \"card\", \"data\": {\"card_name\": \"Administrative Reports\", \"col\": 4}}, {\"id\": \"card_10\", \"type\": \"card\", \"data\": {\"card_name\": \"Teams and Commissions\", \"col\": 4}}, {\"id\": \"card_11\", \"type\": \"card\", \"data\": {\"card_name\": \"Banking\", \"col\": 4}}, {\"id\": \"spacer_3\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"card_12\", \"type\": \"card\", \"data\": {\"card_name\": \"Settings\", \"col\": 4}}, {\"id\": \"card_13\", \"type\": \"card\", \"data\": {\"card_name\": \"Volunteers\", \"col\": 4}}, {\"id\": \"card_14\", \"type\": \"card\", \"data\": {\"card_name\": \"Expenses\", \"col\": 4}}]",
  "creation": "2025-08-15 12:08:13.082966",
  "custom_blocks": [
   {
@@ -787,16 +787,6 @@
    "label": "Membership Analytics Dashboard",
    "link_count": 0,
    "link_to": "membership-analytics",
-   "link_type": "Page",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Member CSV Import",
-   "link_count": 0,
-   "link_to": "member-csv-import",
    "link_type": "Page",
    "onboard": 0,
    "type": "Link"
