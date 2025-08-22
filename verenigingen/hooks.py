@@ -930,7 +930,8 @@ fixtures = [
 # --------------------------------
 
 # Session hooks for member portal redirects
-on_session_creation = "verenigingen.auth_hooks.on_session_creation"
+# TEMPORARILY DISABLED: Causing "User None is disabled" errors during session resumption
+# on_session_creation = "verenigingen.auth_hooks.on_session_creation"
 on_logout = "verenigingen.auth_hooks.on_logout"
 
 # Optional: Request hooks to enforce member portal access

@@ -57,6 +57,14 @@ class PaymentsClient(MollieBaseClient):
             if from_date or to_date:
                 filtered_payments = []
 
+                # Ensure filter dates are timezone-aware for comparison
+                from ..utils.timezone_utils import ensure_timezone_aware
+
+                if from_date:
+                    from_date = ensure_timezone_aware(from_date)
+                if to_date:
+                    to_date = ensure_timezone_aware(to_date)
+
                 for payment in response:
                     payment_date = None
 
@@ -69,7 +77,7 @@ class PaymentsClient(MollieBaseClient):
                             continue
 
                     if payment_date:
-                        # Apply date filter using date comparison
+                        # Apply date filter using timezone-aware comparison
                         if from_date and payment_date < from_date:
                             continue
                         if to_date and payment_date > to_date:

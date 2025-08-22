@@ -53,6 +53,40 @@ class FinancialDashboard:
         # Cache for payments data to prevent redundant API calls
         self._payments_cache = None
 
+    def _safe_datetime_to_isoformat(self, dt_value):
+        """
+        Safely convert a datetime value to ISO format string.
+        Handles both datetime objects and string values from Mollie API.
+
+        Args:
+            dt_value: datetime object, string, or None
+
+        Returns:
+            str: ISO format string or None if input is None/invalid
+        """
+        if dt_value is None:
+            return None
+
+        # If it's already a string, return as-is (assuming it's already in ISO format)
+        if isinstance(dt_value, str):
+            return dt_value
+
+        # If it's a datetime object, convert to ISO format
+        if isinstance(dt_value, datetime):
+            # Use timezone utilities to ensure proper handling
+            from ..utils.timezone_utils import ensure_timezone_naive
+
+            try:
+                # Convert to timezone-naive datetime for consistent formatting
+                dt_naive = ensure_timezone_naive(dt_value)
+                return dt_naive.isoformat() if dt_naive else None
+            except Exception as e:
+                frappe.logger().warning(f"Failed to convert datetime to ISO format: {e}")
+                return None
+
+        # For other types, try to convert to string
+        return str(dt_value) if dt_value is not None else None
+
     def _get_settlements_data(self) -> List[Dict]:
         """Get settlements data with caching to prevent redundant API calls"""
         if self._settlements_cache is None:
@@ -446,13 +480,13 @@ class FinancialDashboard:
                     "status": next_settlement.status,
                     "created_at": next_settlement.created_at,
                     "settled_at": next_settlement.settled_at,
-                    # Add parsed datetime for easier frontend handling
-                    "created_at_datetime": next_settlement.created_at_datetime.isoformat()
-                    if hasattr(next_settlement, "created_at_datetime") and next_settlement.created_at_datetime
-                    else None,
-                    "settled_at_datetime": next_settlement.settled_at_datetime.isoformat()
-                    if hasattr(next_settlement, "settled_at_datetime") and next_settlement.settled_at_datetime
-                    else None,
+                    # Add parsed datetime for easier frontend handling - safe timezone conversion
+                    "created_at_datetime": self._safe_datetime_to_isoformat(
+                        getattr(next_settlement, "created_at_datetime", None)
+                    ),
+                    "settled_at_datetime": self._safe_datetime_to_isoformat(
+                        getattr(next_settlement, "settled_at_datetime", None)
+                    ),
                 }
 
             open_settlement = self.settlements_client.get_open_settlement()

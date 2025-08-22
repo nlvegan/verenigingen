@@ -2,6 +2,7 @@
 bandit*.*
 one-off-test-debug-folder
 *.pyc
+.playwright-mcp/
 *.egg-info
 *.swp
 tags

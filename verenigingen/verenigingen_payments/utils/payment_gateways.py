@@ -86,9 +86,24 @@ class MollieGateway(PaymentGateway):
         Args:
             gateway_name (str): Name of Mollie Settings configuration to use
         """
+        frappe.logger().error("🏗️ MollieGateway.__init__ called")
         self.gateway_name = gateway_name
-        self.settings = self._get_mollie_settings()
-        self.client = self._get_mollie_client()
+
+        frappe.logger().error("🏗️ Getting Mollie settings...")
+        try:
+            self.settings = self._get_mollie_settings()
+            frappe.logger().error("✅ Mollie settings loaded successfully")
+        except Exception as e:
+            frappe.logger().error(f"❌ Failed to load Mollie settings: {str(e)}")
+            raise e
+
+        frappe.logger().error("🏗️ Getting Mollie client...")
+        try:
+            self.client = self._get_mollie_client()
+            frappe.logger().error("✅ Mollie client loaded successfully")
+        except Exception as e:
+            frappe.logger().error(f"❌ Failed to load Mollie client: {str(e)}")
+            raise e
 
     def process_payment(self, donation, form_data):
         """
@@ -103,6 +118,17 @@ class MollieGateway(PaymentGateway):
         """
         try:
             frappe.logger().info(f"🎯 MollieGateway.process_payment() started for {donation.name}")
+            frappe.logger().info(f"📋 Donation object type: {type(donation)}")
+            frappe.logger().info(f"📋 Donation attributes: {dir(donation)}")
+            frappe.logger().info(f"📋 Form data: {form_data}")
+
+            # Debug donation object fields
+            for attr in ["amount", "currency", "name", "doctype"]:
+                try:
+                    value = getattr(donation, attr, "NOT_FOUND")
+                    frappe.logger().info(f"📋 donation.{attr}: {value} (type: {type(value)})")
+                except Exception as e:
+                    frappe.logger().error(f"📋 Error accessing donation.{attr}: {e}")
 
             # Validate currency support - ensure we have a valid currency
             currency = getattr(donation, "currency", "EUR") or "EUR"
@@ -142,7 +168,7 @@ class MollieGateway(PaymentGateway):
             # Create payment with Mollie
             frappe.logger().info("🚀 Calling Mollie API: client.payments.create()")
             payment = self.client.payments.create(payment_data)
-            frappe.logger().info(f"✅ Mollie API responded successfully")
+            frappe.logger().info("✅ Mollie API responded successfully")
 
             # Log payment response structure for debugging
             frappe.logger().info(f"💳 Payment ID: {payment.id}")
@@ -174,11 +200,24 @@ class MollieGateway(PaymentGateway):
                 f"🎉 Successfully created Mollie payment {payment.id} for donation {donation.name}"
             )
 
+            # Handle timezone-aware expires_at from Mollie API
+            from ..utils.timezone_utils import ensure_timezone_naive, parse_mollie_datetime
+
+            # Parse and convert timezone-aware datetime to naive for Frappe compatibility
+            expires_at_aware = (
+                parse_mollie_datetime(payment.expires_at)
+                if isinstance(payment.expires_at, str)
+                else payment.expires_at
+            )
+            expires_at_naive = ensure_timezone_naive(expires_at_aware)
+
             return {
                 "status": "redirect_required",
                 "payment_url": checkout_url,
                 "payment_id": payment.id,
-                "expires_at": payment.expires_at,
+                "expires_at": expires_at_naive.isoformat()
+                if expires_at_naive
+                else None,  # Convert to string for JSON serialization
                 "message": _("Redirecting to Mollie for payment..."),
             }
 
@@ -689,16 +728,62 @@ class PaymentGatewayFactory:
 def mollie_webhook():
     """Handle Mollie webhook notifications"""
     try:
+        # Get raw payload from request
         payload = frappe.request.get_data(as_text=True)
-        data = frappe.parse_json(payload) if payload else {}
 
+        # Enhanced logging for webhook debugging
+        frappe.logger().info("🪝 Mollie webhook received")
+        frappe.logger().info(f"📊 Payload length: {len(payload) if payload else 0}")
+        frappe.logger().info(f"📋 Headers: {dict(frappe.request.headers)}")
+
+        # Validate payload exists and is not empty
+        if not payload or not payload.strip():
+            frappe.logger().warning("⚠️ Mollie webhook received empty payload")
+            return {"status": "ignored", "reason": "Empty payload received"}
+
+        # Safe JSON parsing with enhanced error handling and recovery
+        try:
+            data = frappe.parse_json(payload)
+            frappe.logger().info("✅ Successfully parsed JSON payload")
+        except (ValueError, TypeError) as json_error:
+            frappe.logger().error(f"❌ JSON parsing failed: {str(json_error)}")
+            frappe.logger().error(f"🔍 Payload length: {len(payload)}")
+            frappe.logger().error(f"🔍 Raw payload start: {repr(payload[:200])}")
+            frappe.logger().error(f"🔍 Raw payload end: {repr(payload[-200:])}")
+
+            # Check if payload looks truncated (ends with incomplete JSON)
+            is_truncated = (
+                payload.endswith("{")
+                or payload.endswith(",")
+                or payload.count("{") > payload.count("}")
+                or payload.count("[") > payload.count("]")
+            )
+
+            if is_truncated:
+                frappe.logger().error("⚠️ Payload appears to be truncated - possible size limit issue")
+                error_msg = f"Webhook payload appears truncated: {str(json_error)}"
+            else:
+                error_msg = f"Invalid JSON in webhook payload: {str(json_error)}"
+
+            frappe.log_error(
+                f"Mollie webhook JSON parsing failed: {error_msg}\nFull payload: {repr(payload)}",
+                "Mollie Webhook JSON Error",
+            )
+            return {"status": "error", "message": "Invalid JSON payload"}
+
+        # Process webhook with gateway
         gateway = PaymentGatewayFactory.get_gateway("Mollie")
         result = gateway.handle_webhook(data)
 
+        frappe.logger().info("✅ Webhook processed successfully")
         return {"status": "success", "result": result}
 
     except Exception as e:
-        frappe.log_error(f"Mollie webhook error: {str(e)}", "Payment Gateway Webhook")
+        frappe.logger().error(f"💥 Mollie webhook processing failed: {str(e)}")
+        frappe.log_error(
+            f"Mollie webhook error: {str(e)}\nPayload: {repr(payload[:1000]) if 'payload' in locals() else 'N/A'}",
+            "Payment Gateway Webhook",
+        )
         return {"status": "error", "message": str(e)}
 
 
@@ -713,8 +798,49 @@ def mollie_subscription_webhook():
     3. Updating member subscription status
     """
     try:
+        # Get raw payload from request
         payload = frappe.request.get_data(as_text=True)
-        data = frappe.parse_json(payload) if payload else {}
+
+        # Enhanced logging for webhook debugging
+        frappe.logger().info("🔄 Mollie subscription webhook received")
+        frappe.logger().info(f"📊 Payload length: {len(payload) if payload else 0}")
+
+        # Validate payload exists and is not empty
+        if not payload or not payload.strip():
+            frappe.logger().warning("⚠️ Mollie subscription webhook received empty payload")
+            return {"status": "ignored", "reason": "Empty payload received"}
+
+        # Safe JSON parsing with enhanced error handling
+        try:
+            data = frappe.parse_json(payload)
+            frappe.logger().info("✅ Successfully parsed subscription JSON payload")
+        except (ValueError, TypeError) as json_error:
+            frappe.logger().error(f"❌ Subscription JSON parsing failed: {str(json_error)}")
+            frappe.logger().error(f"🔍 Payload length: {len(payload)}")
+            frappe.logger().error(f"🔍 Raw payload start: {repr(payload[:200])}")
+            frappe.logger().error(f"🔍 Raw payload end: {repr(payload[-200:])}")
+
+            # Check if payload looks truncated (ends with incomplete JSON)
+            is_truncated = (
+                payload.endswith("{")
+                or payload.endswith(",")
+                or payload.count("{") > payload.count("}")
+                or payload.count("[") > payload.count("]")
+            )
+
+            if is_truncated:
+                frappe.logger().error(
+                    "⚠️ Subscription payload appears to be truncated - possible size limit issue"
+                )
+                error_msg = f"Subscription webhook payload appears truncated: {str(json_error)}"
+            else:
+                error_msg = f"Invalid JSON in subscription webhook payload: {str(json_error)}"
+
+            frappe.log_error(
+                f"Mollie subscription webhook JSON parsing failed: {error_msg}\nFull payload: {repr(payload)}",
+                "Mollie Subscription Webhook JSON Error",
+            )
+            return {"status": "error", "message": "Invalid JSON payload"}
 
         # Extract subscription information
         subscription_id = data.get("id")

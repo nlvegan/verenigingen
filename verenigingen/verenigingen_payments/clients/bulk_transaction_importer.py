@@ -76,6 +76,12 @@ class BulkTransactionImporter(MollieBaseClient):
         frappe.logger().error(f"🔍   company: '{company}'")
         frappe.logger().error(f"🔍   bank_account: '{bank_account}'")
 
+        # Ensure dates are timezone-aware before using them
+        from ..utils.timezone_utils import ensure_timezone_aware
+
+        from_date = ensure_timezone_aware(from_date)
+        to_date = ensure_timezone_aware(to_date)
+
         self.import_id = frappe.generate_hash(length=10)
         self.start_time = datetime.now()
         self.errors = []
