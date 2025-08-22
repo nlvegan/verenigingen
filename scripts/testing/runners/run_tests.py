@@ -307,7 +307,7 @@ class TestValidator:
         print(f"{Colors.BOLD}{'='*60}{Colors.ENDC}")
 
         # Save report to file
-        report_file = project_root / "validation_report.json"
+        report_file = project_root / "reports" / "validation" / "validation_report.json"
         with open(report_file, "w") as f:
             json.dump(self.results, f, indent=2)
         print_info(f"Detailed report saved to: {report_file}")

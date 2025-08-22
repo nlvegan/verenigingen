@@ -252,7 +252,7 @@ class SecurityValidationSuite:
 def main():
     """Main execution function"""
     # Load the security scan report to get secured files list
-    scanner_report_path = "/home/frappe/frappe-bench/apps/verenigingen/security_scan_report.json"
+    scanner_report_path = "/home/frappe/frappe-bench/apps/verenigingen/reports/security/security_scan_report.json"
     
     if not Path(scanner_report_path).exists():
         print("❌ Security scan report not found. Please run automated_security_scanner.py first.")

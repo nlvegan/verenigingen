@@ -109,7 +109,7 @@ class ContractCoverageValidator {
 			criticalMethods
 		};
 
-		fs.writeFileSync('contract-coverage-report.json', JSON.stringify(report, null, 2));
+		fs.writeFileSync('reports/coverage/contract-coverage-report.json', JSON.stringify(report, null, 2));
 
 		// Final result
 		console.log('\n🏁 Coverage Validation Result:');
