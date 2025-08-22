@@ -1,0 +1,1 @@
+# Monkey patches for Frappe core functionality

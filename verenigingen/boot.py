@@ -84,5 +84,13 @@ def boot_session(bootinfo):
         # Log that test mode is active
         frappe.logger().info("Verenigingen: Test mode active - emails are mocked")
 
-    # Add any other boot session setup here
-    pass
+    # Apply session patches to prevent "User None is disabled" errors
+    # This must run early to intercept session resumption issues
+    try:
+        from verenigingen.monkey_patches.session_patch import apply_session_patches
+        apply_session_patches()
+    except Exception as e:
+        frappe.logger().error(f"Failed to apply session patches: {str(e)}")
+    
+    # Return bootinfo for framework
+    return bootinfo

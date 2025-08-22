@@ -86,7 +86,6 @@
   "sepa_strict_period_mode",
   "contact_email",
   "default_periodic_donation_type",
-  "mollie_api_key",
   "sepa_allowed_ips",
   "default_cash_account",
   "auto_submit_membership_invoices",
@@ -647,12 +646,6 @@
    "fieldtype": "Link",
    "label": "Default Periodic Donation Type",
    "options": "Donation Type"
-  },
-  {
-   "description": "API key for Mollie payment gateway integration",
-   "fieldname": "mollie_api_key",
-   "fieldtype": "Password",
-   "label": "Mollie API Key"
   },
   {
    "description": "Comma-separated list of IP addresses allowed for SEPA operations (for security)",
