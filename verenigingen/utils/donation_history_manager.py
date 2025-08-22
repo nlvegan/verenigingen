@@ -93,7 +93,7 @@ class DonationHistoryManager:
                 existing_entry.donation_date = donation_doc.donation_date
                 existing_entry.donation_amount = donation_doc.amount
                 existing_entry.payment_method = donation_doc.payment_method
-                existing_entry.donation_status = donation_doc.donation_status
+                existing_entry.donation_status = donation_doc.status
                 existing_entry.fund_designation = donation_doc.fund_designation
                 existing_entry.donation_purpose = donation_doc.donation_purpose
                 existing_entry.paid = donation_doc.paid
@@ -105,7 +105,7 @@ class DonationHistoryManager:
                         "donation_date": donation_doc.donation_date,
                         "donation_amount": donation_doc.amount,
                         "payment_method": donation_doc.payment_method,
-                        "donation_status": donation_doc.donation_status,
+                        "donation_status": donation_doc.status,
                         "fund_designation": donation_doc.fund_designation,
                         "donation_purpose": donation_doc.donation_purpose,
                         "paid": donation_doc.paid,

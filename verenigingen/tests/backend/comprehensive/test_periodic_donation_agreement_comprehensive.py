@@ -597,7 +597,7 @@ class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
         self.assertEqual(donation.anbi_agreement_number, agreement.agreement_number)
         self.assertEqual(donation.anbi_agreement_date, agreement.agreement_date)
         self.assertEqual(donation.belastingdienst_reportable, 1)
-        self.assertEqual(donation.donation_status, "Recurring")
+        self.assertEqual(donation.status, "Recurring")
         
         # Test 2: Wrong donor
         donation2 = frappe.new_doc("Donation")

@@ -93,7 +93,7 @@ class ANBITestPersonas:
             donation.sepa_mandate = mandate.name
             donation.donation_type = "General"
             donation.periodic_donation_agreement = agreement.name
-            donation.donation_status = "Recurring"
+            donation.status = "Recurring"
             donation.paid = 1
             donation.payment_id = f"SEPA-ANNA-{donation_date.strftime('%Y%m')}"
             donation.belastingdienst_reportable = 1
@@ -166,7 +166,7 @@ class ANBITestPersonas:
                 donation.bank_reference = f"GROEN-{donation_date.strftime('%Y-Q%m')}"
                 donation.donation_type = "Environmental Projects"
                 donation.periodic_donation_agreement = agreement.name
-                donation.donation_status = "Recurring"
+                donation.status = "Recurring"
                 donation.donation_purpose_type = "Specific Goal"
                 donation.specific_goal_description = "Reforestation projects in Netherlands"
                 donation.paid = 1
@@ -236,7 +236,7 @@ class ANBITestPersonas:
             donation.bank_reference = f"JB-{donation_date.year}"
             donation.donation_type = "General"
             donation.periodic_donation_agreement = agreement.name
-            donation.donation_status = "Recurring"
+            donation.status = "Recurring"
             donation.paid = 1
             donation.belastingdienst_reportable = 1
             donation.insert()
@@ -290,7 +290,7 @@ class ANBITestPersonas:
             donation.payment_method = "Mollie"
             donation.payment_id = f"mol_{frappe.utils.random_string(12)}"
             donation.donation_type = "Innovation Support"
-            donation.donation_status = "One-time"
+            donation.status = "One-time"
             donation.donation_purpose_type = "Campaign"
             donation.campaign_reference = "Tech4Good Campaign"
             donation.paid = 1

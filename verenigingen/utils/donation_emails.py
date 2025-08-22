@@ -178,7 +178,7 @@ def get_email_context(donation, donor):
         "donation_amount": flt(donation.amount),
         "donation_date": format_date(donation.date),
         "donation_type": donation.donation_type,
-        "donation_status": donation.donation_status,
+        "donation_status": donation.status,
         "earmarking": earmarking,
         "donation_notes": donation.donation_notes or "",
         # Donor details

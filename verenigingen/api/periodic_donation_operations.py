@@ -337,7 +337,7 @@ def create_donation_from_agreement(agreement_name):
             frappe.db.get_single_value("Verenigingen Settings", "default_periodic_donation_type")
             or "Periodic Donation"
         )
-        donation.donation_status = "Recurring"
+        donation.status = "Recurring"
         donation.periodic_donation_agreement = agreement_name
         donation.belastingdienst_reportable = 1
         donation.anbi_agreement_number = agreement.agreement_number

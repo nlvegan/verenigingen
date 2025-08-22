@@ -88,7 +88,7 @@ class TestANBIClarityLifecycle(unittest.TestCase):
         # Verify ANBI fields are populated
         self.assertEqual(donation.anbi_agreement_number, agreement.agreement_number)
         self.assertEqual(donation.belastingdienst_reportable, 1)
-        self.assertEqual(donation.donation_status, "Recurring")
+        self.assertEqual(donation.status, "Recurring")
         
         # Step 5: Test tax receipt generation readiness
         self.assertTrue(agreement.anbi_eligible)
@@ -131,7 +131,7 @@ class TestANBIClarityLifecycle(unittest.TestCase):
         donation.insert()
         
         # Verify standard donation handling (no special ANBI benefits)
-        self.assertEqual(donation.donation_status, "Recurring")
+        self.assertEqual(donation.status, "Recurring")
         # Still reportable for standard tax purposes
         self.assertEqual(donation.belastingdienst_reportable, 1)
     

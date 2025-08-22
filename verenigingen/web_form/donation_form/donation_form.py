@@ -109,11 +109,11 @@ def create_donation(donor, data):
     donation.date = data.get("date") or frappe.utils.today()
     donation.amount = float(data.get("amount"))
     donation.payment_method = data.get("payment_method")
-    donation.donation_status = data.get("donation_status", "One-time")
+    donation.status = data.get("donation_status", "One-time")
     donation.donation_purpose_type = data.get("donation_purpose_type", "General")
 
     # Set recurring frequency if applicable
-    if donation.donation_status == "Recurring":
+    if donation.status == "Recurring":
         donation.recurring_frequency = data.get("recurring_frequency")
 
     # Set purpose-specific fields

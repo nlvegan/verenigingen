@@ -640,7 +640,7 @@ class SEPAGateway(PaymentGateway):
                     "iban": formatted_iban,
                     "bic": bic,
                     "account_holder_name": form_data.get("donor_name", donor.donor_name),
-                    "mandate_type": "RCUR" if donation.donation_status == "Recurring" else "OOFF",
+                    "mandate_type": "RCUR" if donation.status == "Recurring" else "OOFF",
                     "status": "Active",
                     "mandate_reference": "MAND-{donation.name}",
                     "signature_date": getdate(),
@@ -741,35 +741,60 @@ def mollie_webhook():
             frappe.logger().warning("⚠️ Mollie webhook received empty payload")
             return {"status": "ignored", "reason": "Empty payload received"}
 
-        # Safe JSON parsing with enhanced error handling and recovery
+        # Parse payload - handle both JSON and form-encoded data
         try:
+            # First try JSON parsing
             data = frappe.parse_json(payload)
             frappe.logger().info("✅ Successfully parsed JSON payload")
         except (ValueError, TypeError) as json_error:
-            frappe.logger().error(f"❌ JSON parsing failed: {str(json_error)}")
-            frappe.logger().error(f"🔍 Payload length: {len(payload)}")
-            frappe.logger().error(f"🔍 Raw payload start: {repr(payload[:200])}")
-            frappe.logger().error(f"🔍 Raw payload end: {repr(payload[-200:])}")
+            frappe.logger().info(f"🔄 JSON parsing failed, trying form-encoded parsing: {str(json_error)}")
 
-            # Check if payload looks truncated (ends with incomplete JSON)
-            is_truncated = (
-                payload.endswith("{")
-                or payload.endswith(",")
-                or payload.count("{") > payload.count("}")
-                or payload.count("[") > payload.count("]")
-            )
+            # Check if it looks like form-encoded data (key=value format)
+            if "=" in payload and not payload.strip().startswith("{"):
+                try:
+                    # Parse form-encoded data
+                    from urllib.parse import parse_qs, unquote_plus
 
-            if is_truncated:
-                frappe.logger().error("⚠️ Payload appears to be truncated - possible size limit issue")
-                error_msg = f"Webhook payload appears truncated: {str(json_error)}"
+                    # Handle single key=value or multiple key=value&key=value
+                    if "&" in payload:
+                        # Multiple parameters
+                        parsed_data = parse_qs(payload)
+                        # Convert lists to single values for simple cases
+                        data = {k: (v[0] if len(v) == 1 else v) for k, v in parsed_data.items()}
+                    else:
+                        # Single parameter like 'id=tr_abc123'
+                        key, value = payload.split("=", 1)
+                        data = {unquote_plus(key): unquote_plus(value)}
+
+                    frappe.logger().info(f"✅ Successfully parsed form-encoded payload: {data}")
+
+                except Exception as form_error:
+                    frappe.logger().error(f"❌ Form-encoded parsing also failed: {str(form_error)}")
+                    frappe.log_error(
+                        f"Mollie webhook parsing failed: Neither JSON nor form-encoded\nJSON error: {str(json_error)}\nForm error: {str(form_error)}\nFull payload: {repr(payload)}",
+                        "Mollie Webhook Parsing Error",
+                    )
+                    return {"status": "error", "message": "Invalid payload format"}
             else:
-                error_msg = f"Invalid JSON in webhook payload: {str(json_error)}"
+                # Check if payload looks truncated (ends with incomplete JSON)
+                is_truncated = (
+                    payload.endswith("{")
+                    or payload.endswith(",")
+                    or payload.count("{") > payload.count("}")
+                    or payload.count("[") > payload.count("]")
+                )
 
-            frappe.log_error(
-                f"Mollie webhook JSON parsing failed: {error_msg}\nFull payload: {repr(payload)}",
-                "Mollie Webhook JSON Error",
-            )
-            return {"status": "error", "message": "Invalid JSON payload"}
+                if is_truncated:
+                    frappe.logger().error("⚠️ Payload appears to be truncated - possible size limit issue")
+                    error_msg = f"Webhook payload appears truncated: {str(json_error)}"
+                else:
+                    error_msg = f"Invalid JSON in webhook payload: {str(json_error)}"
+
+                frappe.log_error(
+                    f"Mollie webhook JSON parsing failed: {error_msg}\nFull payload: {repr(payload)}",
+                    "Mollie Webhook JSON Error",
+                )
+                return {"status": "error", "message": "Invalid JSON payload"}
 
         # Process webhook with gateway
         gateway = PaymentGatewayFactory.get_gateway("Mollie")
@@ -810,37 +835,66 @@ def mollie_subscription_webhook():
             frappe.logger().warning("⚠️ Mollie subscription webhook received empty payload")
             return {"status": "ignored", "reason": "Empty payload received"}
 
-        # Safe JSON parsing with enhanced error handling
+        # Parse payload - handle both JSON and form-encoded data
         try:
+            # First try JSON parsing
             data = frappe.parse_json(payload)
             frappe.logger().info("✅ Successfully parsed subscription JSON payload")
         except (ValueError, TypeError) as json_error:
-            frappe.logger().error(f"❌ Subscription JSON parsing failed: {str(json_error)}")
-            frappe.logger().error(f"🔍 Payload length: {len(payload)}")
-            frappe.logger().error(f"🔍 Raw payload start: {repr(payload[:200])}")
-            frappe.logger().error(f"🔍 Raw payload end: {repr(payload[-200:])}")
-
-            # Check if payload looks truncated (ends with incomplete JSON)
-            is_truncated = (
-                payload.endswith("{")
-                or payload.endswith(",")
-                or payload.count("{") > payload.count("}")
-                or payload.count("[") > payload.count("]")
+            frappe.logger().info(
+                f"🔄 Subscription JSON parsing failed, trying form-encoded: {str(json_error)}"
             )
 
-            if is_truncated:
-                frappe.logger().error(
-                    "⚠️ Subscription payload appears to be truncated - possible size limit issue"
-                )
-                error_msg = f"Subscription webhook payload appears truncated: {str(json_error)}"
+            # Check if it looks like form-encoded data (key=value format)
+            if "=" in payload and not payload.strip().startswith("{"):
+                try:
+                    # Parse form-encoded data
+                    from urllib.parse import parse_qs, unquote_plus
+
+                    # Handle single key=value or multiple key=value&key=value
+                    if "&" in payload:
+                        # Multiple parameters
+                        parsed_data = parse_qs(payload)
+                        # Convert lists to single values for simple cases
+                        data = {k: (v[0] if len(v) == 1 else v) for k, v in parsed_data.items()}
+                    else:
+                        # Single parameter like 'id=sub_abc123'
+                        key, value = payload.split("=", 1)
+                        data = {unquote_plus(key): unquote_plus(value)}
+
+                    frappe.logger().info(f"✅ Successfully parsed subscription form-encoded payload: {data}")
+
+                except Exception as form_error:
+                    frappe.logger().error(
+                        f"❌ Subscription form-encoded parsing also failed: {str(form_error)}"
+                    )
+                    frappe.log_error(
+                        f"Mollie subscription webhook parsing failed: Neither JSON nor form-encoded\nJSON error: {str(json_error)}\nForm error: {str(form_error)}\nFull payload: {repr(payload)}",
+                        "Mollie Subscription Webhook Parsing Error",
+                    )
+                    return {"status": "error", "message": "Invalid payload format"}
             else:
-                error_msg = f"Invalid JSON in subscription webhook payload: {str(json_error)}"
+                # Check if payload looks truncated (ends with incomplete JSON)
+                is_truncated = (
+                    payload.endswith("{")
+                    or payload.endswith(",")
+                    or payload.count("{") > payload.count("}")
+                    or payload.count("[") > payload.count("]")
+                )
 
-            frappe.log_error(
-                f"Mollie subscription webhook JSON parsing failed: {error_msg}\nFull payload: {repr(payload)}",
-                "Mollie Subscription Webhook JSON Error",
-            )
-            return {"status": "error", "message": "Invalid JSON payload"}
+                if is_truncated:
+                    frappe.logger().error(
+                        "⚠️ Subscription payload appears to be truncated - possible size limit issue"
+                    )
+                    error_msg = f"Subscription webhook payload appears truncated: {str(json_error)}"
+                else:
+                    error_msg = f"Invalid JSON in subscription webhook payload: {str(json_error)}"
+
+                frappe.log_error(
+                    f"Mollie subscription webhook JSON parsing failed: {error_msg}\nFull payload: {repr(payload)}",
+                    "Mollie Subscription Webhook JSON Error",
+                )
+                return {"status": "error", "message": "Invalid JSON payload"}
 
         # Extract subscription information
         subscription_id = data.get("id")
