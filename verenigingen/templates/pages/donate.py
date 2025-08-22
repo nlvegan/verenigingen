@@ -317,6 +317,7 @@ def create_donation_record(donor, form_data):
         donation_doc.anbi_agreement_date = getdate(form_data.get("anbi_agreement_date", getdate()))
 
     donation_doc.insert(ignore_permissions=True)
+    donation_doc.submit()
     return donation_doc
 
 
@@ -744,9 +745,14 @@ def test_donation_submission():
         if result.get("success"):
             # Verify the donation was created
             donation_id = result.get("donation_id")
-            frappe.get_doc("Donation", donation_id)
+            donation_doc = frappe.get_doc("Donation", donation_id)
 
-            # Clean up the test donation
+            # Check if donation is in submitted status
+            status_text = {0: "DRAFT", 1: "SUBMITTED", 2: "CANCELLED"}.get(donation_doc.docstatus, "UNKNOWN")
+
+            # Clean up the test donation (cancel first since it's submitted)
+            if donation_doc.docstatus == 1:
+                donation_doc.cancel()
             frappe.delete_doc("Donation", donation_id)
 
             # Check if a donor was created and clean it up too
@@ -758,6 +764,8 @@ def test_donation_submission():
                 "status": "success",
                 "message": "Donation submission test passed",
                 "donation_created": True,
+                "donation_status": status_text,
+                "docstatus": donation_doc.docstatus,
                 "payment_info": result.get("payment_info", {}),
                 "cleanup": "completed",
             }
