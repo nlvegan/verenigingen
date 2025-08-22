@@ -1,0 +1,406 @@
+{% extends "templates/base_portal.html" %}
+
+{% block title %}{{ _("Payment Status") }}{% endblock %}
+
+{% block style %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
+<style>
+.payment-status-container {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 40px 20px;
+    text-align: center;
+}
+
+.status-icon {
+    font-size: 64px;
+    margin-bottom: 20px;
+}
+
+.status-completed {
+    color: #28a745;
+}
+
+.status-pending {
+    color: #ffc107;
+}
+
+.status-error,
+.status-cancelled,
+.status-failed {
+    color: #dc3545;
+}
+
+.status-unknown {
+    color: #6c757d;
+}
+
+.payment-details {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+    margin: 30px 0;
+    text-align: left;
+}
+
+.detail-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.detail-row:last-child {
+    margin-bottom: 0;
+    border-bottom: none;
+}
+
+.next-steps {
+    margin-top: 40px;
+}
+
+.step-card {
+    background-color: white;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 15px;
+    text-align: left;
+    transition: box-shadow 0.3s ease;
+}
+
+.step-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.step-title {
+    font-weight: bold;
+    color: #495057;
+    margin-bottom: 8px;
+}
+
+.step-description {
+    color: #6c757d;
+    margin-bottom: 15px;
+}
+
+.btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    text-decoration: none;
+    display: inline-block;
+    transition: all 0.3s ease;
+}
+
+.btn-primary {
+    background-color: #cf3131;
+    color: white;
+}
+
+.btn-primary:hover {
+    background-color: #b02727;
+    color: white;
+    text-decoration: none;
+}
+
+.btn-secondary {
+    background-color: #6c757d;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background-color: #5a6268;
+    color: white;
+    text-decoration: none;
+}
+
+.refresh-button {
+    margin-top: 20px;
+}
+
+.loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #cf3131;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-right: 10px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@media (max-width: 768px) {
+    .payment-status-container {
+        padding: 20px 15px;
+    }
+
+    .detail-row {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .detail-row span:first-child {
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+}
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="payment-status-container">
+    <!-- Status Icon and Message -->
+    <div class="status-icon status-{{ payment_status }}">
+        {% if payment_status == "completed" %}
+        ✅
+        {% elif payment_status == "pending" %}
+        ⏳
+        {% elif payment_status in ["error", "cancelled", "failed"] %}
+        ❌
+        {% else %}
+        ❓
+        {% endif %}
+    </div>
+
+    <h1>
+        {% if payment_status == "completed" %}
+        {{ _("Payment Successful!") }}
+        {% elif payment_status == "pending" %}
+        {{ _("Payment Processing") }}
+        {% elif payment_status in ["cancelled", "expired"] %}
+        {{ _("Payment Cancelled") }}
+        {% elif payment_status == "failed" %}
+        {{ _("Payment Failed") }}
+        {% else %}
+        {{ _("Payment Status Unknown") }}
+        {% endif %}
+    </h1>
+
+    <p class="lead">{{ payment_message }}</p>
+
+    <!-- Payment Details -->
+    {% if document_info %}
+    <div class="payment-details">
+        <h4>{{ _("Payment Details") }}</h4>
+
+        {% if document_info.doctype %}
+        <div class="detail-row">
+            <span>{{ _("Type") }}:</span>
+            <span>{{ _(document_info.doctype) }}</span>
+        </div>
+        {% endif %}
+
+        {% if document_info.title and document_info.title != document_info.docname %}
+        <div class="detail-row">
+            <span>{{ _("Reference") }}:</span>
+            <span>{{ document_info.title }}</span>
+        </div>
+        {% endif %}
+
+        <div class="detail-row">
+            <span>{{ _("ID") }}:</span>
+            <span>{{ document_info.docname }}</span>
+        </div>
+
+        {% if document_info.amount %}
+        <div class="detail-row">
+            <span>{{ _("Amount") }}:</span>
+            <span><strong>€{{ "%.2f"|format(document_info.amount) }}</strong></span>
+        </div>
+        {% endif %}
+
+        <div class="detail-row">
+            <span>{{ _("Status") }}:</span>
+            <span>
+                {% if document_info.paid %}
+                <span style="color: #28a745;">{{ _("Paid") }}</span>
+                {% else %}
+                <span style="color: #ffc107;">{{ _("Pending") }}</span>
+                {% endif %}
+            </span>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Refresh Button for Pending Payments -->
+    {% if payment_status == "pending" %}
+    <div class="refresh-button">
+        <button type="button" class="btn btn-secondary" onclick="refreshPaymentStatus()" id="refresh-btn">
+            <span id="refresh-text">{{ _("Refresh Status") }}</span>
+            <span id="refresh-loading" style="display: none;">
+                <span class="spinner"></span>{{ _("Checking...") }}
+            </span>
+        </button>
+    </div>
+    {% endif %}
+
+    <!-- Next Steps -->
+    {% if next_steps %}
+    <div class="next-steps">
+        <h3>{{ _("What's Next?") }}</h3>
+
+        {% for step in next_steps %}
+        <div class="step-card">
+            <div class="step-title">{{ step.title }}</div>
+            <div class="step-description">{{ step.description }}</div>
+
+            {% if step.action %}
+            <a href="{{ step.action }}" class="btn btn-primary">
+                {% if step.action.startswith('mailto:') %}
+                {{ _("Contact Support") }}
+                {% elif '/donate' in step.action %}
+                {{ _("Make Donation") }}
+                {% else %}
+                {{ _("Continue") }}
+                {% endif %}
+            </a>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Footer Actions -->
+    <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #dee2e6;">
+        <a href="/" class="btn btn-secondary">{{ _("Return to Homepage") }}</a>
+    </div>
+</div>
+
+<script>
+// Auto-refresh for pending payments
+{% if payment_status == "pending" %}
+let autoRefreshInterval = setInterval(function() {
+    refreshPaymentStatus(true);
+}, 10000); // Check every 10 seconds
+
+// Stop auto-refresh after 5 minutes
+setTimeout(function() {
+    if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+        autoRefreshInterval = null;
+    }
+}, 300000); // 5 minutes
+{% endif %}
+
+function refreshPaymentStatus(isAutoRefresh = false) {
+    {% if document_info.doctype and document_info.docname %}
+
+    if (!isAutoRefresh) {
+        const refreshBtn = document.getElementById('refresh-btn');
+        const refreshText = document.getElementById('refresh-text');
+        const refreshLoading = document.getElementById('refresh-loading');
+
+        refreshBtn.disabled = true;
+        refreshText.style.display = 'none';
+        refreshLoading.style.display = 'inline-block';
+    }
+
+    // Use frappe.call if available, otherwise use fetch
+    if (typeof frappe !== 'undefined' && frappe.call) {
+        frappe.call({
+            method: 'verenigingen.templates.pages.payment_success.refresh_payment_status',
+            args: {
+                doctype: '{{ document_info.doctype }}',
+                docname: '{{ document_info.docname }}',
+                payment_id: '{{ frappe.form_dict.get("payment_id", "") }}'
+            },
+            callback(response) {
+                handleRefreshResponse(response.message, isAutoRefresh);
+            },
+            error() {
+                if (!isAutoRefresh) {
+                    resetRefreshButton();
+                }
+            }
+        });
+    } else {
+        // Fallback to fetch for guest users
+        fetch('/api/method/verenigingen.templates.pages.payment_success.refresh_payment_status', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                doctype: '{{ document_info.doctype }}',
+                docname: '{{ document_info.docname }}',
+                payment_id: '{{ frappe.form_dict.get("payment_id", "") }}'
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            handleRefreshResponse(data.message, isAutoRefresh);
+        })
+        .catch(() => {
+            if (!isAutoRefresh) {
+                resetRefreshButton();
+            }
+        });
+    }
+
+    {% endif %}
+}
+
+function handleRefreshResponse(data, isAutoRefresh) {
+    if (data && data.success) {
+        if (data.status === 'Completed' || data.is_paid) {
+            // Payment completed - reload page to show success state
+            window.location.reload();
+        } else if (!isAutoRefresh) {
+            // Manual refresh - show updated message
+            showMessage(data.message || 'Status updated', 'info');
+        }
+    }
+
+    if (!isAutoRefresh) {
+        resetRefreshButton();
+    }
+}
+
+function resetRefreshButton() {
+    const refreshBtn = document.getElementById('refresh-btn');
+    const refreshText = document.getElementById('refresh-text');
+    const refreshLoading = document.getElementById('refresh-loading');
+
+    if (refreshBtn) {
+        refreshBtn.disabled = false;
+        refreshText.style.display = 'inline-block';
+        refreshLoading.style.display = 'none';
+    }
+}
+
+function showMessage(message, type = 'info') {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `alert alert-${type}`;
+    messageDiv.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 1000; max-width: 300px;';
+    messageDiv.innerHTML = `
+        ${message}
+        <button type="button" style="float: right; background: none; border: none; font-size: 18px; line-height: 1; opacity: 0.7;" onclick="this.parentElement.remove()">×</button>
+    `;
+
+    document.body.appendChild(messageDiv);
+
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        if (messageDiv.parentElement) {
+            messageDiv.remove();
+        }
+    }, 5000);
+}
+</script>
+{% endblock %}

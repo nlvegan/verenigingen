@@ -485,6 +485,8 @@ doc_events = {
 # ---------------
 scheduler_events = {
     "daily": [
+        # Authentication system monitoring
+        "verenigingen.utils.auth_monitoring.alert_if_auth_issues",
         # Member financial history refresh - runs once daily
         "verenigingen.verenigingen.doctype.member.scheduler.refresh_all_member_financial_histories",
         # Membership duration updates - runs once daily
@@ -565,6 +567,8 @@ scheduler_events = {
         "verenigingen.tasks.address_optimization.refresh_member_address_displays",
         # Expense history integrity validation
         "verenigingen.utils.expense_history_batch_processor.validate_expense_history_integrity",
+        # Session cleanup to prevent "User None is disabled" errors
+        "verenigingen.utils.session_cleanup_enhanced.scheduled_session_cleanup",
     ],
     "monthly": [
         # Address data cleanup

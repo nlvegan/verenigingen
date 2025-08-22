@@ -108,6 +108,7 @@ def get_context(context):
             context.existing_donor = {
                 "name": donor_doc.name,
                 "donor_name": donor_doc.donor_name,
+                "donor_email": donor_doc.donor_email,
                 "phone": getattr(donor_doc, "phone", ""),
                 "donor_type": donor_doc.donor_type,
             }
@@ -119,8 +120,13 @@ def get_context(context):
 def submit_donation(**kwargs):
     """Process donation form submission"""
     try:
+        frappe.logger().info("🎯 Donation form submission started")
+
         # Parse form data
         form_data = frappe._dict(kwargs)
+        frappe.logger().info(
+            f"📝 Form data received: amount={form_data.get('amount')}, payment_method={form_data.get('payment_method')}, email={form_data.get('donor_email')}"
+        )
 
         # Validate required fields
         required_fields = ["donor_name", "donor_email", "amount", "payment_method"]
@@ -141,17 +147,25 @@ def submit_donation(**kwargs):
             return {"success": False, "message": _("Donation amount must be greater than zero")}
 
         # Create or get donor
+        frappe.logger().info("👤 Creating/getting donor record...")
         donor = get_or_create_donor(form_data)
         if not donor:
+            frappe.logger().error("❌ Failed to create donor record")
             return {"success": False, "message": _("Failed to create donor record")}
+        frappe.logger().info(f"✅ Donor ready: {donor.name}")
 
         # Create donation
+        frappe.logger().info("💰 Creating donation record...")
         donation = create_donation_record(donor, form_data)
         if not donation:
+            frappe.logger().error("❌ Failed to create donation record")
             return {"success": False, "message": _("Failed to create donation record")}
+        frappe.logger().info(f"✅ Donation created: {donation.name}")
 
         # Process payment based on method
+        frappe.logger().info(f"💳 Processing payment method: {form_data.payment_method}")
         payment_result = process_payment_method(donation, form_data)
+        frappe.logger().info(f"💳 Payment processing result: {payment_result.get('status')}")
 
         return {
             "success": True,
@@ -191,15 +205,19 @@ def get_or_create_donor(form_data):
         if not donor_type:
             donor_type = getattr(settings, "default_donor_type", None)
 
+        # Ensure donor_type is not None (fallback to Individual)
+        if not donor_type:
+            donor_type = "Individual"
+
         donor_doc = frappe.new_doc("Donor")
         donor_doc.update(
             {
                 "donor_name": form_data.donor_name,
                 "donor_email": form_data.donor_email,
-                "phone": form_data.get("donor_phone", "Not provided"),
+                "phone": form_data.get("donor_phone", ""),
+                "address": form_data.get("donor_address", ""),
                 "donor_type": donor_type,
                 "contact_person": form_data.donor_name,  # Use same name as contact person
-                "contact_person_address": form_data.get("donor_address", "Not provided"),
                 "donor_category": "Regular Donor",  # Default category
             }
         )
@@ -215,6 +233,19 @@ def create_donation_record(donor, form_data):
     # Determine donation type
     donation_type = form_data.get("donation_type") or settings.default_donation_type
 
+    # Ensure we have a valid donation type
+    if not donation_type:
+        # Create or get default donation type
+        if not frappe.db.exists("Donation Type", "General Donation"):
+            frappe.get_doc(
+                {
+                    "doctype": "Donation Type",
+                    "donation_type": "General Donation",
+                    "description": "General donation without specific purpose",
+                }
+            ).insert(ignore_permissions=True)
+        donation_type = "General Donation"
+
     # Determine purpose and earmarking
     purpose_type = form_data.get("donation_purpose_type", "General")
 
@@ -226,7 +257,7 @@ def create_donation_record(donor, form_data):
         {
             "company": settings.donation_company,
             "donor": donor.name,
-            "date": getdate(),
+            "donation_date": getdate(),
             "amount": flt(form_data.amount),
             "donation_type": donation_type,
             "payment_method": form_data.payment_method,
@@ -303,13 +334,58 @@ def process_sepa_direct_debit(donation, form_data):
 
 
 def process_mollie_payment(donation, form_data):
-    """Handle Mollie payment (placeholder for future integration)"""
-    return {
-        "status": "redirect_required",
-        "message": _("Redirecting to payment provider"),
-        "next_step": "mollie_redirect",
-        "info": _("You will be redirected to complete payment with Mollie"),
-    }
+    """Handle Mollie payment using the integrated gateway"""
+    try:
+        frappe.logger().info(f"🔄 Starting Mollie payment processing for donation {donation.name}")
+        frappe.logger().info(f"💰 Amount: €{donation.amount}, Method: {form_data.get('payment_method')}")
+
+        # Import the payment gateway factory
+        from verenigingen.verenigingen_payments.utils.payment_gateways import PaymentGatewayFactory
+
+        frappe.logger().info("🏭 Loading PaymentGatewayFactory...")
+        # Get the Mollie gateway
+        gateway = PaymentGatewayFactory.get_gateway("Mollie", "Default")
+        frappe.logger().info(f"✅ Mollie gateway loaded: {type(gateway)}")
+
+        # Process payment using the gateway
+        frappe.logger().info("🚀 Calling gateway.process_payment()...")
+        result = gateway.process_payment(donation, form_data)
+        frappe.logger().info(
+            f"📥 Gateway result: status={result.get('status')}, has_payment_url={bool(result.get('payment_url'))}"
+        )
+
+        if result["status"] == "redirect_required":
+            frappe.logger().info(f"✅ Payment URL generated successfully: {result['payment_id']}")
+            return {
+                "status": "redirect_required",
+                "payment_url": result["payment_url"],
+                "payment_id": result["payment_id"],
+                "message": _("Redirecting to Mollie for secure payment"),
+                "info": _(
+                    "You will be redirected to complete payment with iDEAL, credit card, or other methods"
+                ),
+                "expires_at": result.get("expires_at"),
+            }
+        else:
+            frappe.logger().error(f"❌ Gateway returned error status: {result.get('status')}")
+            frappe.logger().error(f"❌ Error message: {result.get('message')}")
+            return {
+                "status": "error",
+                "message": result.get("message", _("Payment setup failed")),
+                "info": _("Please try a different payment method or contact support"),
+            }
+
+    except Exception as e:
+        frappe.logger().error(f"💥 Exception in process_mollie_payment: {str(e)}")
+        frappe.log_error(
+            f"Mollie payment processing error for donation {donation.name}: {str(e)}\nFull traceback: {frappe.get_traceback()}",
+            "Mollie Payment Error",
+        )
+        return {
+            "status": "error",
+            "message": _("Payment provider temporarily unavailable"),
+            "info": _("Please try again later or use a different payment method"),
+        }
 
 
 def process_cash_payment(donation, form_data):

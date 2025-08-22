@@ -404,7 +404,8 @@
                               placeholder="{{ _('Any additional message or instructions') }}"></textarea>
                 </div>
 
-                <!-- ANBI Section -->
+                <!-- ANBI Section - TEMPORARILY DISABLED -->
+                {% if false %}  {# Disabling tax deduction benefits section for now #}
                 <div class="form-group" style="margin-top: 30px;">
                     <h4>{{ _("Tax Deduction (ANBI)") }}</h4>
                     <p class="text-muted">{{ _("For donations of €%s or more, we can provide tax deduction benefits") | format(settings.anbi_minimum_reportable_amount) }}</p>
@@ -430,6 +431,7 @@
                         </div>
                     </div>
                 </div>
+                {% endif %}
             </div>
 
             <div style="display: flex; justify-content: space-between;">

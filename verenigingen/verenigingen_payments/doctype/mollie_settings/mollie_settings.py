@@ -216,7 +216,7 @@ class MollieSettings(Document):
         Returns:
             str: Complete webhook URL
         """
-        return get_url("/api/method/verenigingen.utils.payment_gateways.mollie_webhook")
+        return get_url("/api/method/verenigingen.verenigingen_payments.utils.payment_gateways.mollie_webhook")
 
     def get_subscription_webhook_url(self):
         """
@@ -227,13 +227,14 @@ class MollieSettings(Document):
         """
         return get_url("/api/method/verenigingen.utils.payment_gateways.mollie_subscription_webhook")
 
-    def get_redirect_url(self, reference_doctype, reference_docname):
+    def get_redirect_url(self, reference_doctype, reference_docname, payment_id=None):
         """
         Get redirect URL after payment completion
 
         Args:
             reference_doctype (str): DocType of the document being paid for
             reference_docname (str): Name of the document being paid for
+            payment_id (str): Payment ID for status checking
 
         Returns:
             str: Redirect URL
@@ -241,8 +242,12 @@ class MollieSettings(Document):
         if self.redirect_url:
             return self.redirect_url
 
-        # Default redirect to success page
-        return get_url(f"payment-success?doctype={reference_doctype}&docname={reference_docname}")
+        # Default redirect to success page with payment tracking
+        url_params = f"doctype={reference_doctype}&docname={reference_docname}"
+        if payment_id:
+            url_params += f"&payment_id={payment_id}"
+
+        return get_url(f"payment-success?{url_params}")
 
     def create_subscription(self, customer_data, subscription_data):
         """

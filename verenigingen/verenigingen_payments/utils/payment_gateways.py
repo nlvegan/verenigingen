@@ -102,16 +102,26 @@ class MollieGateway(PaymentGateway):
             dict: Payment processing result with status and redirect information
         """
         try:
-            # Validate currency support
-            currency = getattr(donation, "currency", "EUR")
-            self.settings.validate_transaction_currency(currency)
+            frappe.logger().info(f"🎯 MollieGateway.process_payment() started for {donation.name}")
 
-            # Prepare payment data
+            # Validate currency support - ensure we have a valid currency
+            currency = getattr(donation, "currency", "EUR") or "EUR"
+            frappe.logger().info(f"💴 Using currency: {currency}")
+            self.settings.validate_transaction_currency(currency)
+            frappe.logger().info("✅ Currency validation passed")
+
+            # Prepare payment data with redirect URL
+            frappe.logger().info("🌐 Generating redirect and webhook URLs...")
+            redirect_url = self.settings.get_redirect_url(donation.doctype, donation.name)
+            webhook_url = self.settings.get_webhook_url()
+            frappe.logger().info(f"🔗 Redirect URL: {redirect_url}")
+            frappe.logger().info(f"🪝 Webhook URL: {webhook_url}")
+
             payment_data = {
-                "amount": {"currency": currency, "value": f"{float(donation.amount):.2f}"},
+                "amount": {"value": f"{float(donation.amount):.2f}", "currency": currency},
                 "description": f"Donation {donation.name}",
-                "redirectUrl": self._get_redirect_url(donation),
-                "webhookUrl": self.settings.get_webhook_url(),
+                "redirectUrl": redirect_url,
+                "webhookUrl": webhook_url,
                 "metadata": {
                     "donation_id": donation.name,
                     "reference_doctype": donation.doctype,
@@ -123,29 +133,74 @@ class MollieGateway(PaymentGateway):
             email = self._get_email_from_form_or_doc(donation, form_data)
             if email:
                 payment_data["billingAddress"] = {"email": email}
+                frappe.logger().info(f"📧 Added billing email: {email}")
+
+            frappe.logger().info(
+                f"📋 Payment data prepared: amount={payment_data['amount']}, description='{payment_data['description']}'"
+            )
 
             # Create payment with Mollie
+            frappe.logger().info("🚀 Calling Mollie API: client.payments.create()")
             payment = self.client.payments.create(payment_data)
+            frappe.logger().info(f"✅ Mollie API responded successfully")
 
-            # Update donation with payment details
-            donation.db_set("payment_id", payment.id)
-            if hasattr(donation, "payment_status"):
-                donation.db_set("payment_status", "Open")
+            # Log payment response structure for debugging
+            frappe.logger().info(f"💳 Payment ID: {payment.id}")
+            frappe.logger().info(f"📊 Payment status: {payment.status}")
+            frappe.logger().info(f"⏰ Expires at: {payment.expires_at}")
+
+            # Extract checkout URL according to Mollie spec
+            checkout_url = None
+            if hasattr(payment, "checkout_url"):
+                checkout_url = payment.checkout_url
+                frappe.logger().info(f"🔗 Using payment.checkout_url: {checkout_url}")
+            elif hasattr(payment, "_links") and hasattr(payment._links, "checkout"):
+                checkout_url = payment._links.checkout.href
+                frappe.logger().info(f"🔗 Using payment._links.checkout.href: {checkout_url}")
+            else:
+                frappe.logger().error("❌ No checkout URL found in Mollie response!")
+                frappe.logger().error(f"❌ Payment object attributes: {dir(payment)}")
+                raise Exception("No checkout URL found in Mollie payment response")
+
+            # Update donation with payment details (only if it's a real document)
+            if hasattr(donation, "db_set") and callable(donation.db_set):
+                donation.db_set("payment_id", payment.id)
+                if hasattr(donation, "payment_status"):
+                    donation.db_set("payment_status", "Open")
+                frappe.logger().info("📝 Updated donation with payment details")
 
             # Log payment creation
-            frappe.logger().info(f"Created Mollie payment {payment.id} for donation {donation.name}")
+            frappe.logger().info(
+                f"🎉 Successfully created Mollie payment {payment.id} for donation {donation.name}"
+            )
 
             return {
                 "status": "redirect_required",
-                "payment_url": payment.checkout_url,
+                "payment_url": checkout_url,
                 "payment_id": payment.id,
-                "expires_at": payment.expires_at.isoformat() if payment.expires_at else None,
+                "expires_at": payment.expires_at,
                 "message": _("Redirecting to Mollie for payment..."),
             }
 
         except Exception as e:
+            frappe.logger().error(f"💥 Exception in MollieGateway.process_payment: {str(e)}")
+            frappe.logger().error(
+                f"📋 Payment data that failed: {payment_data if 'payment_data' in locals() else 'Not yet created'}"
+            )
+
+            # Enhanced error logging with full traceback
+            import traceback
+
+            full_traceback = traceback.format_exc()
+            frappe.logger().error(f"🔍 Full Python traceback:\n{full_traceback}")
+
+            # Also log donation object details for debugging
+            frappe.logger().error(f"🗃️ Donation object type: {type(donation)}")
+            frappe.logger().error(f"🗃️ Donation object attributes: {dir(donation)}")
+
             frappe.log_error(
-                f"Mollie payment creation failed for {donation.name}: {str(e)}", "Mollie Payment Error"
+                f"Mollie payment creation failed for {donation.name}: {str(e)}\nFull traceback: {full_traceback}",
+                "Mollie Payment Error",
             )
             return {
                 "status": "error",
@@ -291,7 +346,7 @@ class MollieGateway(PaymentGateway):
                 get_mollie_settings,
             )
 
-            return get_mollie_settings(self.gateway_name)
+            return get_mollie_settings()
         except Exception as e:
             frappe.throw(_("Mollie gateway '{0}' not configured: {1}").format(self.gateway_name, str(e)))
 

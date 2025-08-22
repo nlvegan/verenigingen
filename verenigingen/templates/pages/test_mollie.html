@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mollie Payment Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+    </style>
+</head>
+<body>
+    <h1>Mollie Payment Test</h1>
+    <p>This page tests the Mollie payment integration directly.</p>
+
+    <form id="mollieTestForm">
+        <div class="form-group">
+            <label for="amount">Amount (€)</label>
+            <input type="number" id="amount" name="amount" value="25.00" step="0.01" required>
+        </div>
+
+        <div class="form-group">
+            <label for="donor_name">Donor Name</label>
+            <input type="text" id="donor_name" name="donor_name" value="Test Donor" required>
+        </div>
+
+        <div class="form-group">
+            <label for="donor_email">Email</label>
+            <input type="email" id="donor_email" name="donor_email" value="test@example.com" required>
+        </div>
+
+        <div class="form-group">
+            <label for="description">Description</label>
+            <input type="text" id="description" name="description" value="Test donation">
+        </div>
+
+        <button type="button" onclick="testMollieSettings()">1. Test Mollie Settings</button>
+        <button type="button" onclick="testMollieClient()">2. Test Mollie Client</button>
+        <button type="button" onclick="testPaymentCreation()">3. Test Payment Creation</button>
+        <button type="button" onclick="testFullDonation()">4. Test Full Donation</button>
+    </form>
+
+    <div id="result"></div>
+
+    <script>
+        function showResult(message, type = 'info') {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = `<div class="result ${type}"><pre>${message}</pre></div>`;
+        }
+
+        function getFormData() {
+            return {
+                amount: document.getElementById('amount').value,
+                donor_name: document.getElementById('donor_name').value,
+                donor_email: document.getElementById('donor_email').value,
+                description: document.getElementById('description').value,
+                payment_method: 'Mollie'
+            };
+        }
+
+        async function testMollieSettings() {
+            showResult('Testing Mollie Settings configuration...', 'info');
+
+            try {
+                const response = await fetch('/api/method/verenigingen.templates.pages.test_mollie.test_mollie_settings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (data.message) {
+                    showResult(JSON.stringify(data.message, null, 2), data.message.success ? 'success' : 'error');
+                } else {
+                    showResult('Error: ' + JSON.stringify(data, null, 2), 'error');
+                }
+            } catch (error) {
+                showResult('Network Error: ' + error.message, 'error');
+            }
+        }
+
+        async function testMollieClient() {
+            showResult('Testing Mollie Client creation...', 'info');
+
+            try {
+                const response = await fetch('/api/method/verenigingen.templates.pages.test_mollie.test_mollie_client', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+                showResult(JSON.stringify(data.message, null, 2), data.message.success ? 'success' : 'error');
+            } catch (error) {
+                showResult('Network Error: ' + error.message, 'error');
+            }
+        }
+
+        async function testPaymentCreation() {
+            showResult('Testing Mollie Payment creation...', 'info');
+
+            const formData = getFormData();
+
+            try {
+                const response = await fetch('/api/method/verenigingen.templates.pages.test_mollie.test_payment_creation', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                const data = await response.json();
+                showResult(JSON.stringify(data.message, null, 2), data.message.success ? 'success' : 'error');
+            } catch (error) {
+                showResult('Network Error: ' + error.message, 'error');
+            }
+        }
+
+        async function testFullDonation() {
+            showResult('Testing full donation submission...', 'info');
+
+            const formData = getFormData();
+
+            try {
+                const response = await fetch('/api/method/verenigingen.templates.pages.donate.submit_donation', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                const data = await response.json();
+                showResult(JSON.stringify(data.message, null, 2), data.message.success ? 'success' : 'error');
+            } catch (error) {
+                showResult('Network Error: ' + error.message, 'error');
+            }
+        }
+    </script>
+</body>
+</html>

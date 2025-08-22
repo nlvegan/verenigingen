@@ -51,9 +51,9 @@
  */
 
 // Global state management for donation form
-let currentStep = 1;
-const totalSteps = 5;
-const formData = {};
+window.currentStep = 1;
+window.totalSteps = 5;
+window.formData = {};
 
 /**
  * Document Ready Event Handler
@@ -74,7 +74,11 @@ const formData = {};
  * // - Progress tracking initialization
  */
 document.addEventListener('DOMContentLoaded', () => {
-	// Initialize form
+	// Initialize form state
+	window.currentStep = 1;
+
+	// Ensure step 1 is visible and others are hidden
+	showStep(1);
 	updateProgress();
 
 	// Set up form validation
@@ -82,6 +86,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	// Initialize payment method handlers
 	initializePaymentMethods();
+
+	console.log('Donation form initialized, currentStep:', window.currentStep);
 });
 
 /**
@@ -106,19 +112,25 @@ document.addEventListener('DOMContentLoaded', () => {
  * nextStep();
  */
 function nextStep() {
+	console.log('nextStep called, current step:', window.currentStep);
+
 	if (validateCurrentStep()) {
+		console.log('Validation passed, advancing step');
 		collectStepData();
 
-		if (currentStep < totalSteps) {
-			currentStep++;
-			showStep(currentStep);
+		if (window.currentStep < window.totalSteps) {
+			window.currentStep++;
+			console.log('New step:', window.currentStep);
+			showStep(window.currentStep);
 			updateProgress();
 
 			// Special handling for confirmation step
-			if (currentStep === 5) {
+			if (window.currentStep === 5) {
 				populateConfirmation();
 			}
 		}
+	} else {
+		console.log('Validation failed, staying on current step');
 	}
 }
 
@@ -140,26 +152,73 @@ function nextStep() {
  * prevStep();
  */
 function prevStep() {
-	if (currentStep > 1) {
-		currentStep--;
-		showStep(currentStep);
+	if (window.currentStep > 1) {
+		window.currentStep--;
+		showStep(window.currentStep);
 		updateProgress();
 	}
 }
 
 function showStep(stepNumber) {
-	// Hide all steps
+	console.log('showStep called with:', stepNumber, 'type:', typeof stepNumber);
+
+	// Hide all form steps (use .form-step class, not just any element with data-step)
 	document.querySelectorAll('.form-step').forEach(step => {
+		step.style.display = 'none';
 		step.classList.remove('active');
 	});
 
-	// Show current step
-	const currentStepElement = document.querySelector(`[data-step="${stepNumber}"]`);
-	if (currentStepElement) {
-		currentStepElement.classList.add('active');
+	// Show current step - handle both numbered steps and special steps like 'success'
+	let currentStepElement;
+
+	// Check for success step - handle both string and any truthy value
+	if (stepNumber === 'success' || stepNumber === 6) {
+		console.log('Looking for success step...');
+		// Find success step by data-step attribute
+		currentStepElement = document.querySelector('.form-step[data-step="success"]');
+		if (!currentStepElement) {
+			console.warn('Success step not found with data-step="success", trying step 6...');
+			// Try as step 6 since it's the 6th form step
+			currentStepElement = document.querySelector('.form-step[data-step="6"]');
+		}
+		if (!currentStepElement) {
+			console.warn('Still not found, checking all form steps...');
+			// Log all available form steps for debugging
+			const allSteps = document.querySelectorAll('.form-step');
+			console.log('Available form steps:', allSteps.length);
+			allSteps.forEach((step, i) => {
+				console.log(`Step ${i}:`, step.getAttribute('data-step'), step.id || 'no-id');
+			});
+		}
+	} else {
+		// Regular numbered step
+		currentStepElement = document.querySelector(`.form-step[data-step="${stepNumber}"]`);
 	}
 
-	// Update step indicators
+	if (currentStepElement) {
+		currentStepElement.style.display = 'block';
+		currentStepElement.classList.add('active');
+		console.log(`Successfully activated form step ${stepNumber}`);
+	} else {
+		console.error(`Form step ${stepNumber} not found in DOM. Available steps:`,
+			Array.from(document.querySelectorAll('.form-step')).map(s => s.getAttribute('data-step')));
+		// As a fallback for success, just show a simple success message
+		if (stepNumber === 'success') {
+			console.log('Creating fallback success message...');
+			const container = document.querySelector('.donation-form-container');
+			if (container) {
+				container.innerHTML = `
+					<div style="text-align: center; padding: 50px;">
+						<h2 style="color: #28a745;">Thank You!</h2>
+						<p>Your donation has been submitted successfully.</p>
+						<p>You will receive a confirmation email shortly.</p>
+					</div>
+				`;
+			}
+		}
+	}
+
+	// Update step indicators in the progress bar
 	document.querySelectorAll('.step').forEach((step, index) => {
 		step.classList.remove('active', 'completed');
 		if (index + 1 < stepNumber) {
@@ -171,35 +230,47 @@ function showStep(stepNumber) {
 }
 
 function updateProgress() {
-	const progress = (currentStep / totalSteps) * 100;
+	const progress = (window.currentStep / window.totalSteps) * 100;
 	document.getElementById('form-progress').style.width = `${progress}%`;
 }
 
 function validateCurrentStep() {
-	const currentStepElement = document.querySelector(`[data-step="${currentStep}"]`);
+	// Get the correct form step element (not the progress indicator)
+	const formSteps = document.querySelectorAll('.form-step');
+	const currentStepElement = formSteps[window.currentStep - 1]; // Convert 1-indexed to 0-indexed
+
+	if (!currentStepElement) {
+		console.error('Current step element not found:', window.currentStep);
+		return false;
+	}
+
 	const requiredFields = currentStepElement.querySelectorAll('[required]');
 	let isValid = true;
 
 	// Clear previous errors
 	clearErrors();
 
+	console.log(`Validating step ${window.currentStep}, found ${requiredFields.length} required fields`);
+
 	requiredFields.forEach(field => {
 		if (!field.value.trim()) {
+			console.log('Required field missing value:', field.name || field.id);
 			showFieldError(field, __('This field is required'));
 			isValid = false;
 		}
 	});
 
 	// Step-specific validation
-	if (currentStep === 1) {
+	if (window.currentStep === 1) {
 		const amount = parseFloat(document.getElementById('amount').value);
-		if (amount <= 0) {
+		console.log('Step 1 validation - amount:', amount);
+		if (!amount || amount <= 0) {
 			showFieldError(document.getElementById('amount'), __('Amount must be greater than zero'));
 			isValid = false;
 		}
 	}
 
-	if (currentStep === 3) {
+	if (window.currentStep === 3) {
 		const email = document.querySelector('[name="donor_email"]').value;
 		if (!isValidEmail(email)) {
 			showFieldError(document.querySelector('[name="donor_email"]'), __('Please enter a valid email address'));
@@ -207,7 +278,7 @@ function validateCurrentStep() {
 		}
 	}
 
-	if (currentStep === 4) {
+	if (window.currentStep === 4) {
 		const selectedPayment = document.querySelector('[name="payment_method"]:checked');
 		if (!selectedPayment) {
 			showAlert(__('Please select a payment method'), 'danger');
@@ -215,7 +286,7 @@ function validateCurrentStep() {
 		}
 	}
 
-	if (currentStep === 5) {
+	if (window.currentStep === 5) {
 		const termsAccepted = document.getElementById('terms_accepted').checked;
 		const privacyAccepted = document.getElementById('privacy_accepted').checked;
 
@@ -234,20 +305,66 @@ function validateCurrentStep() {
 }
 
 function collectStepData() {
-	const currentStepElement = document.querySelector(`[data-step="${currentStep}"]`);
+	// Get the correct form step element (not the progress indicator)
+	const formSteps = document.querySelectorAll('.form-step');
+	const currentStepElement = formSteps[window.currentStep - 1]; // Convert 1-indexed to 0-indexed
+
+	if (!currentStepElement) {
+		console.error('Could not find current step element for step:', window.currentStep);
+		return;
+	}
+
 	const inputs = currentStepElement.querySelectorAll('input, select, textarea');
+	console.log(`Collecting data from step ${window.currentStep}, found ${inputs.length} inputs`);
 
 	inputs.forEach(input => {
-		if (input.type === 'checkbox') {
-			formData[input.name] = input.checked;
-		} else if (input.type === 'radio') {
-			if (input.checked) {
-				formData[input.name] = input.value;
+		if (input.name) { // Only collect inputs that have a name attribute
+			if (input.type === 'checkbox') {
+				window.formData[input.name] = input.checked;
+				console.log(`Collected ${input.name}: ${input.checked} (checkbox)`);
+			} else if (input.type === 'radio') {
+				if (input.checked) {
+					window.formData[input.name] = input.value;
+					console.log(`Collected ${input.name}: ${input.value} (radio)`);
+				}
+			} else {
+				window.formData[input.name] = input.value;
+				console.log(`Collected ${input.name}: ${input.value} (${input.type})`);
 			}
-		} else {
-			formData[input.name] = input.value;
 		}
 	});
+
+	console.log('Current formData:', window.formData);
+}
+
+function collectAllStepData() {
+	// Collect data from all form steps, not just the current one
+	const formSteps = document.querySelectorAll('.form-step');
+
+	console.log('Collecting data from all steps...');
+
+	formSteps.forEach((step, index) => {
+		const stepNumber = index + 1;
+		const inputs = step.querySelectorAll('input, select, textarea');
+
+		console.log(`Step ${stepNumber}: found ${inputs.length} inputs`);
+
+		inputs.forEach(input => {
+			if (input.name) { // Only collect inputs that have a name attribute
+				if (input.type === 'checkbox') {
+					window.formData[input.name] = input.checked;
+				} else if (input.type === 'radio') {
+					if (input.checked) {
+						window.formData[input.name] = input.value;
+					}
+				} else if (input.value) { // Only collect non-empty values
+					window.formData[input.name] = input.value;
+				}
+			}
+		});
+	});
+
+	console.log('All form data collected:', window.formData);
 }
 
 function setupFormValidation() {
@@ -360,22 +477,41 @@ function showPaymentDetails(method) {
 }
 
 function populateConfirmation() {
-	// Collect all form data
-	collectStepData();
+	// Collect data from all form steps before showing confirmation
+	collectAllStepData();
 
-	// Generate summary
+	// Generate summary with better error handling
+	const amount = parseFloat(window.formData.amount || 0);
+	const donationType = window.formData.donation_type || 'Not specified';
+	const donationStatus = window.formData.donation_status || 'One-time';
+	const donorName = window.formData.donor_name || 'Not provided';
+	const donorEmail = window.formData.donor_email || 'Not provided';
+
+	// Get payment method text
+	let paymentMethodText = window.formData.payment_method || 'Not selected';
+	const selectedPaymentElement = document.querySelector('[name="payment_method"]:checked');
+	if (selectedPaymentElement) {
+		const paymentMethodContainer = selectedPaymentElement.closest('.payment-method');
+		if (paymentMethodContainer) {
+			const labelElement = paymentMethodContainer.querySelector('h5');
+			if (labelElement) {
+				paymentMethodText = labelElement.textContent;
+			}
+		}
+	}
+
 	const summaryHtml = `
         <div class="summary-row">
             <span>${__('Donation Amount')}:</span>
-            <span><strong>€${parseFloat(formData.amount || 0).toFixed(2)}</strong></span>
+            <span><strong>€${amount.toFixed(2)}</strong></span>
         </div>
         <div class="summary-row">
             <span>${__('Donation Type')}:</span>
-            <span>${document.querySelector('[name="donation_type"] option:checked').textContent}</span>
+            <span>${donationType}</span>
         </div>
         <div class="summary-row">
             <span>${__('Frequency')}:</span>
-            <span>${document.querySelector('[name="donation_status"] option:checked').textContent}</span>
+            <span>${donationStatus}</span>
         </div>
         <div class="summary-row">
             <span>${__('Purpose')}:</span>
@@ -383,31 +519,32 @@ function populateConfirmation() {
         </div>
         <div class="summary-row">
             <span>${__('Donor')}:</span>
-            <span>${formData.donor_name || ''} (${formData.donor_email || ''})</span>
+            <span>${donorName} (${donorEmail})</span>
         </div>
         <div class="summary-row">
             <span>${__('Payment Method')}:</span>
-            <span>${document.querySelector('[name="payment_method"]:checked + h5')?.textContent || formData.payment_method}</span>
+            <span>${paymentMethodText}</span>
         </div>
         <div class="summary-row">
             <span>${__('Total Amount')}:</span>
-            <span><strong>€${parseFloat(formData.amount || 0).toFixed(2)}</strong></span>
+            <span><strong>€${amount.toFixed(2)}</strong></span>
         </div>
     `;
 
 	document.getElementById('donation-summary').innerHTML = summaryHtml;
+	console.log('Populated confirmation with data:', window.formData);
 }
 
 function getPurposeSummary() {
-	const purposeType = formData.donation_purpose_type || 'General';
+	const purposeType = window.formData.donation_purpose_type || 'General';
 
 	switch (purposeType) {
 		case 'Campaign':
-			return `${__('Campaign')}: ${formData.campaign_reference || __('Not specified')}`;
+			return `${__('Campaign')}: ${window.formData.campaign_reference || __('Not specified')}`;
 		case 'Chapter':
-			return `${__('Chapter')}: ${formData.chapter_reference || __('Not specified')}`;
+			return `${__('Chapter')}: ${window.formData.chapter_reference || __('Not specified')}`;
 		case 'Specific Goal':
-			return `${__('Specific Goal')}: ${formData.specific_goal_description || __('Not specified')}`;
+			return `${__('Specific Goal')}: ${window.formData.specific_goal_description || __('Not specified')}`;
 		default:
 			return __('General Fund');
 	}
@@ -427,13 +564,14 @@ function submitDonation() {
 	submitText.style.display = 'none';
 	submitLoading.style.display = 'inline-block';
 
-	// Collect final form data
-	collectStepData();
+	// Collect final form data from all steps
+	collectAllStepData();
 
 	// Submit to backend
 	frappe.call({
 		method: 'verenigingen.templates.pages.donate.submit_donation',
-		args: formData,
+		args: window.formData,
+		type: 'POST',
 		callback(response) {
 			submitBtn.disabled = false;
 			submitText.style.display = 'inline-block';
@@ -458,7 +596,7 @@ function submitDonation() {
 
 function showSuccessStep(response) {
 	// Show success step
-	currentStep = 'success';
+	window.currentStep = 'success';
 	showStep('success');
 
 	// Update progress to 100%
@@ -468,7 +606,7 @@ function showSuccessStep(response) {
 	let successContent = `
         <div class="alert alert-success">
             <strong>${__('Donation ID')}:</strong> ${response.donation_id}<br>
-            <strong>${__('Amount')}:</strong> €${parseFloat(formData.amount).toFixed(2)}
+            <strong>${__('Amount')}:</strong> €${parseFloat(window.formData.amount).toFixed(2)}
         </div>
     `;
 
@@ -488,6 +626,27 @@ function showSuccessStep(response) {
                 </div>
                 <p class="text-info">${response.payment_info.instructions}</p>
             `;
+		} else if (response.payment_info.status === 'redirect_required' && response.payment_info.payment_url) {
+			// Handle Mollie payment redirect
+			successContent += `
+                <div class="alert alert-info">
+                    <h5>${__('Redirecting to Payment Provider')}</h5>
+                    <p>${response.payment_info.message}</p>
+                    <p>${response.payment_info.info}</p>
+                    <div style="margin-top: 15px;">
+                        <button type="button" class="btn btn-primary" onclick="window.open('${response.payment_info.payment_url}', '_self')">
+                            ${__('Complete Payment')} →
+                        </button>
+                    </div>
+                    ${response.payment_info.expires_at ? `<p class="text-muted"><small>${__('Payment link expires')}: ${new Date(response.payment_info.expires_at).toLocaleString()}</small></p>` : ''}
+                </div>
+            `;
+
+			// Auto-redirect after a short delay
+			setTimeout(() => {
+				window.open(response.payment_info.payment_url, '_self');
+			}, 3000);
+
 		} else {
 			successContent += `
                 <div class="alert alert-info">
@@ -620,6 +779,36 @@ function copyToClipboard(text) {
 	});
 }
 
+// Initialize the donation form when DOM is ready
+function initializeDonationForm() {
+	// Initialize global variables
+	window.currentStep = 1;
+	window.formData = {};
+
+	// Show step 1
+	showStep(1);
+
+	// Set up form validation
+	setupFormValidation();
+
+	// Initialize payment methods
+	initializePaymentMethods();
+
+	console.log('Donation form initialized successfully');
+}
+
+// Initialize on DOM content loaded
+document.addEventListener('DOMContentLoaded', function() {
+	initializeDonationForm();
+});
+
+// Also initialize if DOM is already loaded (for dynamic loading)
+if (document.readyState === 'loading') {
+	document.addEventListener('DOMContentLoaded', initializeDonationForm);
+} else {
+	initializeDonationForm();
+}
+
 // Expose functions globally for inline event handlers
 window.nextStep = nextStep;
 window.prevStep = prevStep;
@@ -629,3 +818,4 @@ window.togglePurposeFields = togglePurposeFields;
 window.toggleAnbiFields = toggleAnbiFields;
 window.submitDonation = submitDonation;
 window.copyToClipboard = copyToClipboard;
+window.initializeDonationForm = initializeDonationForm;

@@ -90,7 +90,7 @@ class DonationHistoryManager:
 
             # Update existing entry or create new one
             if existing_entry:
-                existing_entry.donation_date = donation_doc.date
+                existing_entry.donation_date = donation_doc.donation_date
                 existing_entry.donation_amount = donation_doc.amount
                 existing_entry.payment_method = donation_doc.payment_method
                 existing_entry.donation_status = donation_doc.donation_status
@@ -102,7 +102,7 @@ class DonationHistoryManager:
                     "donor_history",
                     {
                         "donation_reference": donation_doc.name,
-                        "donation_date": donation_doc.date,
+                        "donation_date": donation_doc.donation_date,
                         "donation_amount": donation_doc.amount,
                         "payment_method": donation_doc.payment_method,
                         "donation_status": donation_doc.donation_status,

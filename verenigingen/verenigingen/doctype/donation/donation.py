@@ -219,7 +219,7 @@ class Donation(Document):
         if self.donation_purpose_type == "General":
             return "General Fund"
         elif self.donation_purpose_type == "Campaign":
-            return f"Campaign: {self.donation_campaign}"
+            return f"Campaign: {self.campaign}"
         elif self.donation_purpose_type == "Chapter":
             chapter_name = frappe.db.get_value("Chapter", self.chapter_reference, "name")
             return f"Chapter: {chapter_name or self.chapter_reference}"
@@ -928,9 +928,9 @@ def create_donation_allocation_report(chapter=None, from_date=None, to_date=None
 
 def update_campaign_progress(doc, method):
     """Update campaign progress when donation is created/updated"""
-    if doc.donation_campaign and doc.paid:
+    if doc.campaign and doc.paid:
         from verenigingen.verenigingen.doctype.donation_campaign.donation_campaign import (
             update_campaign_progress,
         )
 
-        update_campaign_progress(doc.donation_campaign)
+        update_campaign_progress(doc.campaign)

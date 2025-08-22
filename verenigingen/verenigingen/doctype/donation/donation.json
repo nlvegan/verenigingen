@@ -189,7 +189,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "fetch_from": "donor.contact_person_address",
+   "fetch_from": "donor.address",
    "fieldname": "donor_address",
    "fieldtype": "Data",
    "label": "Donor Address",
@@ -211,7 +211,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "fetch_from": "donor.preferred_communication_method",
+   "fetch_from": "donor.communication_preference",
    "fieldname": "preferred_communication_method",
    "fieldtype": "Data",
    "label": "Preferred Communication Method",
