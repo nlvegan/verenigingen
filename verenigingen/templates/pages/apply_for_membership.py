@@ -46,7 +46,7 @@ def get_context(context):
 
     # Get membership types with enhanced contribution options
     try:
-        from verenigingen.api.membership_application import get_membership_types_for_application
+        from verenigingen.api.enhanced_membership_application import get_membership_types_for_application
 
         context.enhanced_membership_types = get_membership_types_for_application()
     except Exception as e:
