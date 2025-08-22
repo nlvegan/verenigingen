@@ -80,15 +80,22 @@ def handle_membership_type_templates():
 
     for mt in membership_types:
         if not mt.dues_schedule_template:
-            # Create a default template for this membership type
-            try:
-                template_name = create_default_dues_schedule_template(mt.name)
-                if template_name:
-                    # Update the membership type
-                    frappe.db.set_value("Membership Type", mt.name, "dues_schedule_template", template_name)
-                    print(f"Created default dues schedule template for {mt.name}: {template_name}")
-            except Exception as e:
-                print(f"Warning: Could not create template for {mt.name}: {str(e)}")
+            # Check if fixture template exists first (preferred approach)
+            fixture_template_name = f"{mt.membership_type_name} Template"
+            if frappe.db.exists("Membership Dues Schedule", fixture_template_name):
+                # Use fixture template
+                frappe.db.set_value("Membership Type", mt.name, "dues_schedule_template", fixture_template_name)
+                print(f"Linked existing fixture template for {mt.name}: {fixture_template_name}")
+            else:
+                # Only create if no fixture exists (legacy fallback)
+                try:
+                    template_name = create_default_dues_schedule_template(mt.name)
+                    if template_name:
+                        # Update the membership type
+                        frappe.db.set_value("Membership Type", mt.name, "dues_schedule_template", template_name)
+                        print(f"Created fallback dues schedule template for {mt.name}: {template_name}")
+                except Exception as e:
+                    print(f"Warning: Could not create template for {mt.name}: {str(e)}")
 
 
 def create_default_dues_schedule_template(membership_type_name):

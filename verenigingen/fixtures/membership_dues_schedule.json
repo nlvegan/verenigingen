@@ -18,6 +18,7 @@
   "minimum_amount": 3.0,
   "suggested_amount": 3.0,
   "uses_custom_amount": 0,
+  "is_active": 1,
   "notes": "Standard monthly membership template - €3 per month",
   "billing_schedule_notes": "Monthly billing on the 1st of each month"
  },
@@ -40,6 +41,7 @@
   "minimum_amount": 9.0,
   "suggested_amount": 9.0,
   "uses_custom_amount": 0,
+  "is_active": 1,
   "notes": "Standard quarterly membership template - €9 per quarter",
   "billing_schedule_notes": "Quarterly billing every three months"
  },
@@ -62,6 +64,7 @@
   "minimum_amount": 30.0,
   "suggested_amount": 30.0,
   "uses_custom_amount": 0,
+  "is_active": 1,
   "notes": "Standard annual membership template - €30 per year (discount vs monthly)",
   "billing_schedule_notes": "Annual billing on membership anniversary"
  }

@@ -203,21 +203,33 @@ class MembershipType(Document):
             self.create_dues_schedule_template()
 
     def create_dues_schedule_template(self):
-        """Create or update the dues schedule template for this membership type"""
-        # Check if template already exists
+        """Get or create the dues schedule template for this membership type
+        
+        Uses fixture-based templates first, falls back to creation only if needed.
+        Standardizes on '[Type] Membership Template' naming pattern.
+        """
+        # First, check if fixture template exists (preferred pattern)
+        fixture_template_name = f"{self.membership_type_name} Template"
+        if frappe.db.exists("Membership Dues Schedule", fixture_template_name):
+            # Update membership type to use fixture template
+            if self.dues_schedule_template != fixture_template_name:
+                frappe.db.set_value("Membership Type", self.name, "dues_schedule_template", fixture_template_name)
+            return fixture_template_name
+        
+        # Check if any template already exists for this membership type
         existing_template = frappe.db.get_value(
             "Membership Dues Schedule", {"membership_type": self.name, "is_template": 1}, "name"
         )
 
         if existing_template:
-            # Update existing template
-            template = frappe.get_doc("Membership Dues Schedule", existing_template)
+            # Use existing template
+            return existing_template
         else:
-            # Create new template with explicit naming
+            # Only create if no fixture and no existing template found
             template = frappe.new_doc("Membership Dues Schedule")
             template.is_template = 1
-            # Use explicit template naming with timestamp to avoid conflicts
-            template.schedule_name = f"Dues Schedule Template for {self.membership_type_name}"
+            # Use fixture naming pattern for consistency
+            template.schedule_name = fixture_template_name
             template.membership_type = self.name
             template.status = "Active"
             # Set required fields to avoid validation errors during creation

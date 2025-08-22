@@ -84,13 +84,9 @@ def boot_session(bootinfo):
         # Log that test mode is active
         frappe.logger().info("Verenigingen: Test mode active - emails are mocked")
 
-    # Apply session patches to prevent "User None is disabled" errors
-    # This must run early to intercept session resumption issues
-    try:
-        from verenigingen.monkey_patches.session_patch import apply_session_patches
-        apply_session_patches()
-    except Exception as e:
-        frappe.logger().error(f"Failed to apply session patches: {str(e)}")
+    # Authentication issue resolved via CSRF secret key in site config
+    # The "User None is disabled" error was fixed by adding csrf_secret_key
+    # to prevent session corruption during tab switching
     
     # Return bootinfo for framework
     return bootinfo
