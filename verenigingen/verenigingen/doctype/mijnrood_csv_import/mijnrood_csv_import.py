@@ -13,6 +13,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import cstr, flt, getdate, today
 
+from verenigingen.utils.member_account_service import bulk_create_user_accounts
+
 try:
     import pandas as pd
 
@@ -749,19 +751,26 @@ class MijnroodCSVImport(Document):
             updated_count = 0
             skipped_count = 0
             error_log = []
+            processed_members = []  # Track successfully processed members for user account creation
 
             # Process members with proper error isolation
             for row in mapped_data:
-                result = self._process_single_member(row, error_log)
+                result, member_name = self._process_single_member(row, error_log)
                 if result == "created":
                     created_count += 1
+                    if member_name:
+                        processed_members.append(member_name)
                 elif result == "updated":
                     updated_count += 1
+                    if member_name:
+                        processed_members.append(member_name)
                 else:
                     skipped_count += 1
 
             # Update import results
-            self._finalize_import_results(created_count, updated_count, skipped_count, error_log)
+            self._finalize_import_results(
+                created_count, updated_count, skipped_count, error_log, processed_members
+            )
 
         except Exception as e:
             self.import_status = "Failed"
@@ -769,40 +778,171 @@ class MijnroodCSVImport(Document):
             self.save()
             frappe.log_error(f"Member CSV Import failed: {str(e)}", "CSV Import System Error")
 
-    def _process_single_member(self, row: Dict, error_log: List[str]) -> str:
+    def _process_single_member(self, row: Dict, error_log: List[str]) -> tuple:
         """Process a single member with proper error handling and transaction isolation."""
         try:
             # Use Frappe's transaction context for individual member processing
-            return self._create_or_update_member(row)
+            result, member_name = self._create_or_update_member(row)
+            return result, member_name
         except frappe.ValidationError as ve:
             error_log.append(f"Row {row.get('row_number', '?')}: Validation error - {str(ve)}")
             frappe.log_error(f"Import validation error: {str(ve)}", "CSV Import Row Validation")
-            return "skipped"
+            return "skipped", None
         except frappe.DuplicateEntryError as de:
             error_log.append(f"Row {row.get('row_number', '?')}: Duplicate entry - {str(de)}")
             frappe.log_error(f"Import duplicate error: {str(de)}", "CSV Import Duplicate")
-            return "skipped"
+            return "skipped", None
         except Exception as e:
             error_log.append(f"Row {row.get('row_number', '?')}: Unexpected error - {str(e)}")
             frappe.log_error(f"Import unexpected error: {str(e)}", "CSV Import Unexpected Error")
-            return "skipped"
+            return "skipped", None
 
     def _finalize_import_results(
-        self, created_count: int, updated_count: int, skipped_count: int, error_log: List[str]
+        self,
+        created_count: int,
+        updated_count: int,
+        skipped_count: int,
+        error_log: List[str],
+        processed_members: List[str] = None,
     ):
         """Finalize import results and update document status."""
         self.members_created = created_count
         self.members_updated = updated_count
         self.members_skipped = skipped_count
+
+        # Process user account creation if enabled
+        user_account_summary = ""
+        if self.create_user_accounts and processed_members:
+            user_account_summary = self._process_user_account_creation(processed_members)
+
+        # Validate Mollie subscription data preservation
+        mollie_validation_summary = ""
+        if processed_members:
+            mollie_issues = self._validate_mollie_data_preservation(processed_members)
+            if mollie_issues:
+                mollie_validation_summary = (
+                    f". Mollie validation: {len(mollie_issues)} issues found (see Error Log)"
+                )
+            else:
+                mollie_validation_summary = ". Mollie data: preserved correctly"
+
         self.import_status = "Completed"
-        self.import_summary = f"Import completed successfully. Created: {created_count}, Updated: {updated_count}, Skipped: {skipped_count}"
+        base_summary = f"Import completed successfully. Created: {created_count}, Updated: {updated_count}, Skipped: {skipped_count}"
+        self.import_summary = f"{base_summary}{user_account_summary}{mollie_validation_summary}"
 
         if error_log:
             self.error_log = "\\n".join(error_log[:50])  # Limit error log size
 
         self.save()
 
-    def _create_or_update_member(self, row_data: Dict) -> str:
+    def _process_user_account_creation(self, processed_members: List[str]) -> str:
+        """Create user accounts for successfully imported members"""
+        try:
+            frappe.logger().info(f"Processing user account creation for {len(processed_members)} members")
+
+            # Use the shared bulk user account creation service
+            results = bulk_create_user_accounts(
+                member_names=processed_members,
+                send_welcome_emails=self.send_welcome_emails,
+                continue_on_error=True,
+            )
+
+            # Create summary for import results
+            summary_parts = []
+            if results["success"] > 0:
+                summary_parts.append(f"{results['success']} user accounts created")
+            if results["failed"] > 0:
+                summary_parts.append(f"{results['failed']} user account failures")
+            if results["skipped"] > 0:
+                summary_parts.append(f"{results['skipped']} user accounts skipped")
+
+            if summary_parts:
+                summary = f". User Accounts: {', '.join(summary_parts)}"
+            else:
+                summary = ". No user accounts processed"
+
+            # Log detailed results for troubleshooting
+            frappe.logger().info(f"User account creation results: {results}")
+
+            # Add any critical failures to error log
+            critical_failures = [
+                detail
+                for detail in results["details"]
+                if detail["status"] == "failed" and "permission" in detail.get("error", "").lower()
+            ]
+            if critical_failures:
+                frappe.log_error(
+                    f"Critical user account creation failures: {critical_failures}",
+                    "Mijnrood Import User Account Creation",
+                )
+
+            return summary
+
+        except Exception as e:
+            error_msg = f"Error during user account creation: {str(e)}"
+            frappe.log_error(frappe.get_traceback(), "Mijnrood User Account Creation Error")
+            frappe.logger().error(error_msg)
+            return f". User account creation failed: {str(e)}"
+
+    def _validate_mollie_data_preservation(self, processed_members: List[str]) -> List[str]:
+        """Validate that Mollie subscription data was properly preserved during import"""
+        validation_issues = []
+
+        try:
+            # Check processed members for Mollie data consistency
+            for member_name in processed_members:
+                member = frappe.get_doc("Member", member_name)
+
+                # If member has Mollie subscription data, validate it's complete
+                if member.mollie_customer_id or member.mollie_subscription_id:
+                    issues = []
+
+                    # Validate Mollie Customer ID format
+                    if member.mollie_customer_id:
+                        if not member.mollie_customer_id.startswith("cst_"):
+                            issues.append(f"Invalid Mollie Customer ID format: {member.mollie_customer_id}")
+
+                    # Validate Mollie Subscription ID format
+                    if member.mollie_subscription_id:
+                        if not member.mollie_subscription_id.startswith("sub_"):
+                            issues.append(
+                                f"Invalid Mollie Subscription ID format: {member.mollie_subscription_id}"
+                            )
+
+                    # Check that payment method is set to Mollie if subscription data exists
+                    if (
+                        member.mollie_customer_id or member.mollie_subscription_id
+                    ) and member.payment_method != "Mollie":
+                        issues.append(
+                            f"Payment method should be 'Mollie' when subscription data exists, found: {member.payment_method}"
+                        )
+
+                    # Check for incomplete subscription data
+                    if member.mollie_customer_id and not member.mollie_subscription_id:
+                        issues.append("Has Mollie Customer ID but missing Subscription ID")
+                    elif member.mollie_subscription_id and not member.mollie_customer_id:
+                        issues.append("Has Mollie Subscription ID but missing Customer ID")
+
+                    if issues:
+                        validation_issues.append(f"Member {member_name}: {'; '.join(issues)}")
+
+        except Exception as e:
+            frappe.log_error(f"Error validating Mollie data preservation: {str(e)}", "Mollie Data Validation")
+            validation_issues.append(f"Validation error: {str(e)}")
+
+        if validation_issues:
+            frappe.logger().warning(f"Mollie data validation found {len(validation_issues)} issues")
+            # Log issues for review but don't fail the import
+            frappe.log_error(
+                "Mollie data preservation issues:\n" + "\n".join(validation_issues),
+                "Mollie Data Preservation Validation",
+            )
+        else:
+            frappe.logger().info("Mollie data preservation validation passed")
+
+        return validation_issues
+
+    def _create_or_update_member(self, row_data: Dict) -> tuple:
         """Create or update a member record."""
         # Check if member exists by member_id or email
         existing_member = None
@@ -829,7 +969,7 @@ class MijnroodCSVImport(Document):
             # Update/create dues schedule and membership if data was provided
             self._create_related_records(member, row_data)
 
-            return "updated"
+            return "updated", member.name
         else:
             # Create new member
             member = frappe.new_doc("Member")
@@ -851,7 +991,7 @@ class MijnroodCSVImport(Document):
             # Create related records after successful member creation
             self._create_related_records(member, row_data)
 
-            return "created"
+            return "created", member.name
 
     def _update_member_fields(self, member_doc: Document, row_data: Dict):
         """Update member document fields from row data."""

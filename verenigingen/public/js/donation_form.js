@@ -86,8 +86,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	// Initialize payment method handlers
 	initializePaymentMethods();
-
-	console.log('Donation form initialized, currentStep:', window.currentStep);
 });
 
 /**
@@ -112,15 +110,11 @@ document.addEventListener('DOMContentLoaded', () => {
  * nextStep();
  */
 function nextStep() {
-	console.log('nextStep called, current step:', window.currentStep);
-
 	if (validateCurrentStep()) {
-		console.log('Validation passed, advancing step');
 		collectStepData();
 
 		if (window.currentStep < window.totalSteps) {
 			window.currentStep++;
-			console.log('New step:', window.currentStep);
 			showStep(window.currentStep);
 			updateProgress();
 
@@ -129,8 +123,6 @@ function nextStep() {
 				populateConfirmation();
 			}
 		}
-	} else {
-		console.log('Validation failed, staying on current step');
 	}
 }
 
@@ -160,8 +152,6 @@ function prevStep() {
 }
 
 function showStep(stepNumber) {
-	console.log('showStep called with:', stepNumber, 'type:', typeof stepNumber);
-
 	// Hide all form steps (use .form-step class, not just any element with data-step)
 	document.querySelectorAll('.form-step').forEach(step => {
 		step.style.display = 'none';
@@ -173,22 +163,11 @@ function showStep(stepNumber) {
 
 	// Check for success step - handle both string and any truthy value
 	if (stepNumber === 'success' || stepNumber === 6) {
-		console.log('Looking for success step...');
 		// Find success step by data-step attribute
 		currentStepElement = document.querySelector('.form-step[data-step="success"]');
 		if (!currentStepElement) {
-			console.warn('Success step not found with data-step="success", trying step 6...');
 			// Try as step 6 since it's the 6th form step
 			currentStepElement = document.querySelector('.form-step[data-step="6"]');
-		}
-		if (!currentStepElement) {
-			console.warn('Still not found, checking all form steps...');
-			// Log all available form steps for debugging
-			const allSteps = document.querySelectorAll('.form-step');
-			console.log('Available form steps:', allSteps.length);
-			allSteps.forEach((step, i) => {
-				console.log(`Step ${i}:`, step.getAttribute('data-step'), step.id || 'no-id');
-			});
 		}
 	} else {
 		// Regular numbered step
@@ -198,13 +177,9 @@ function showStep(stepNumber) {
 	if (currentStepElement) {
 		currentStepElement.style.display = 'block';
 		currentStepElement.classList.add('active');
-		console.log(`Successfully activated form step ${stepNumber}`);
 	} else {
-		console.error(`Form step ${stepNumber} not found in DOM. Available steps:`,
-			Array.from(document.querySelectorAll('.form-step')).map(s => s.getAttribute('data-step')));
 		// As a fallback for success, just show a simple success message
 		if (stepNumber === 'success') {
-			console.log('Creating fallback success message...');
 			const container = document.querySelector('.donation-form-container');
 			if (container) {
 				container.innerHTML = `
@@ -240,7 +215,6 @@ function validateCurrentStep() {
 	const currentStepElement = formSteps[window.currentStep - 1]; // Convert 1-indexed to 0-indexed
 
 	if (!currentStepElement) {
-		console.error('Current step element not found:', window.currentStep);
 		return false;
 	}
 
@@ -250,11 +224,8 @@ function validateCurrentStep() {
 	// Clear previous errors
 	clearErrors();
 
-	console.log(`Validating step ${window.currentStep}, found ${requiredFields.length} required fields`);
-
 	requiredFields.forEach(field => {
 		if (!field.value.trim()) {
-			console.log('Required field missing value:', field.name || field.id);
 			showFieldError(field, __('This field is required'));
 			isValid = false;
 		}
@@ -263,7 +234,6 @@ function validateCurrentStep() {
 	// Step-specific validation
 	if (window.currentStep === 1) {
 		const amount = parseFloat(document.getElementById('amount').value);
-		console.log('Step 1 validation - amount:', amount);
 		if (!amount || amount <= 0) {
 			showFieldError(document.getElementById('amount'), __('Amount must be greater than zero'));
 			isValid = false;
@@ -310,44 +280,32 @@ function collectStepData() {
 	const currentStepElement = formSteps[window.currentStep - 1]; // Convert 1-indexed to 0-indexed
 
 	if (!currentStepElement) {
-		console.error('Could not find current step element for step:', window.currentStep);
 		return;
 	}
 
 	const inputs = currentStepElement.querySelectorAll('input, select, textarea');
-	console.log(`Collecting data from step ${window.currentStep}, found ${inputs.length} inputs`);
 
 	inputs.forEach(input => {
 		if (input.name) { // Only collect inputs that have a name attribute
 			if (input.type === 'checkbox') {
 				window.formData[input.name] = input.checked;
-				console.log(`Collected ${input.name}: ${input.checked} (checkbox)`);
 			} else if (input.type === 'radio') {
 				if (input.checked) {
 					window.formData[input.name] = input.value;
-					console.log(`Collected ${input.name}: ${input.value} (radio)`);
 				}
 			} else {
 				window.formData[input.name] = input.value;
-				console.log(`Collected ${input.name}: ${input.value} (${input.type})`);
 			}
 		}
 	});
-
-	console.log('Current formData:', window.formData);
 }
 
 function collectAllStepData() {
 	// Collect data from all form steps, not just the current one
 	const formSteps = document.querySelectorAll('.form-step');
 
-	console.log('Collecting data from all steps...');
-
 	formSteps.forEach((step, index) => {
-		const stepNumber = index + 1;
 		const inputs = step.querySelectorAll('input, select, textarea');
-
-		console.log(`Step ${stepNumber}: found ${inputs.length} inputs`);
 
 		inputs.forEach(input => {
 			if (input.name) { // Only collect inputs that have a name attribute
@@ -363,8 +321,6 @@ function collectAllStepData() {
 			}
 		});
 	});
-
-	console.log('All form data collected:', window.formData);
 }
 
 function setupFormValidation() {
@@ -532,7 +488,6 @@ function populateConfirmation() {
     `;
 
 	document.getElementById('donation-summary').innerHTML = summaryHtml;
-	console.log('Populated confirmation with data:', window.formData);
 }
 
 function getPurposeSummary() {
@@ -589,7 +544,6 @@ function submitDonation() {
 			submitLoading.style.display = 'none';
 
 			showAlert(__('An error occurred while submitting your donation. Please try again.'), 'danger');
-			console.error('Donation submission error:', error);
 		}
 	});
 }
@@ -793,8 +747,6 @@ function initializeDonationForm() {
 
 	// Initialize payment methods
 	initializePaymentMethods();
-
-	console.log('Donation form initialized successfully');
 }
 
 // Initialize on DOM content loaded

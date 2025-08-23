@@ -116,7 +116,25 @@ def get_or_create_item_improved(
         )
         account_code = "MISC"
 
-    # Step 1: Check for existing item by description (enhanced approach)
+    # Step 1: Bank Cost Pattern Detection (check first, higher priority)
+    if _is_bank_cost_transaction(description, account_code):
+        # For bank costs, use a standardized bank cost item
+        bank_cost_item = get_or_create_bank_cost_item(company)
+        frappe.logger().info(
+            f"E-Boekhouden Item Creation: Using Bank Cost item for bank fee: {bank_cost_item}"
+        )
+        return bank_cost_item
+
+    # Step 2: Row-level pattern detection for WooCommerce sales
+    if _is_event_ticket_row(description, account_code, price):
+        # For event ticket sales rows, use standardized item
+        event_ticket_item = get_or_create_event_ticket_item(company)
+        frappe.logger().info(
+            f"E-Boekhouden Item Creation: Using Event Ticket item for product sale: {event_ticket_item}"
+        )
+        return event_ticket_item
+
+    # Step 2: Check for existing item by description (enhanced approach)
     if description:
         existing_by_desc = frappe.db.get_value("Item", {"description": description}, "name")
         if existing_by_desc:
@@ -125,7 +143,7 @@ def get_or_create_item_improved(
             )
             return existing_by_desc
 
-    # Step 2: Check if there's a mapping in the DocType
+    # Step 3: Check if there's a mapping in the DocType
     from verenigingen.e_boekhouden.doctype.e_boekhouden_item_mapping.e_boekhouden_item_mapping import (
         get_item_for_account,
     )
@@ -188,7 +206,7 @@ def get_or_create_item_improved(
             f"E-Boekhouden Item Creation: Using fallback item name '{item_name}' for account {account_code}"
         )
 
-    # Step 3: Generate item code and apply smart categorization
+    # Step 4: Generate item code and apply smart categorization
     if description:
         # For descriptions, do minimal cleaning - just make it safe for item codes
         import re
@@ -213,7 +231,7 @@ def get_or_create_item_improved(
         frappe.logger().info(f"E-Boekhouden Item Creation: Item '{item_name}' already exists, reusing")
         return item_name
 
-    # Step 4: Smart item group determination
+    # Step 5: Smart item group determination
     item_group = determine_smart_item_group(description, btw_code, account_code, price, account_info)
 
     # Create new item with enhanced categorization
@@ -508,3 +526,209 @@ def migrate_existing_items():
 
     frappe.db.commit()
     return {"success": True, "updated": updated_count}
+
+
+def _is_event_ticket_row(description, account_code, price):
+    """
+    Detect if a row represents the main product sale (event tickets) in WooCommerce
+
+    Simple logic: if it's not bank costs, and has substantial value, it's likely the main product
+    """
+    # If it's already detected as bank costs, it's not an event ticket
+    if _is_bank_cost_transaction(description, account_code):
+        return False
+
+    # If price is provided, use it as signal
+    # Event tickets typically have substantial amounts (> €1.00)
+    if price and float(price) > 1.0:
+        return True
+
+    # For small amounts that aren't bank costs, still could be event tickets
+    return True
+
+
+def _is_bank_cost_transaction(description, account_code):
+    """
+    Detect if a transaction represents bank costs/fees
+
+    Check both description and account code (via account mapping lookup) for bank cost patterns
+    """
+    if not description and not account_code:
+        return False
+
+    # Check description patterns
+    if description:
+        description_lower = description.lower()
+        description_patterns = [
+            "bankkosten",
+            "bank charges",
+            "bank fee",
+            "banking fees",
+            "bank cost",
+            "transaction fee",
+            "transactiekosten",
+            "provisie bank",
+            "bank commission",
+        ]
+
+        if any(pattern in description_lower for pattern in description_patterns):
+            return True
+
+    # Check account code by looking up the ledger name from E-Boekhouden Ledger Mapping
+    if account_code:
+        try:
+            # Look up the ledger name from E-Boekhouden Ledger Mapping table
+            ledger_mapping = frappe.db.sql(
+                """
+                SELECT ledger_name, ledger_code, erpnext_account
+                FROM `tabE-Boekhouden Ledger Mapping`
+                WHERE ledger_id = %s
+                LIMIT 1
+            """,
+                [str(account_code)],
+            )
+
+            if ledger_mapping and ledger_mapping[0]:
+                ledger_name = ledger_mapping[0][0] or ""
+                ledger_code = ledger_mapping[0][1] or ""
+                erpnext_account = ledger_mapping[0][2] or ""
+
+                frappe.logger().info(
+                    f"E-Boekhouden Bank Cost Check: Found ledger '{ledger_name}' (code: {ledger_code}) for id {account_code}"
+                )
+
+                # Check if the ledger name contains bank cost indicators
+                bank_cost_patterns = ["bankkosten", "bank cost", "bank fee", "banking fee", "transaction fee"]
+
+                ledger_name_lower = ledger_name.lower()
+                for pattern in bank_cost_patterns:
+                    if pattern in ledger_name_lower:
+                        frappe.logger().info(
+                            f"E-Boekhouden Bank Cost: Detected pattern '{pattern}' in ledger name '{ledger_name}'"
+                        )
+                        return True
+
+                # Also check the ERPNext account name if available
+                if erpnext_account:
+                    erpnext_account_lower = erpnext_account.lower()
+                    for pattern in bank_cost_patterns:
+                        if pattern in erpnext_account_lower:
+                            frappe.logger().info(
+                                f"E-Boekhouden Bank Cost: Detected pattern '{pattern}' in ERPNext account '{erpnext_account}'"
+                            )
+                            return True
+            else:
+                frappe.logger().info(
+                    f"E-Boekhouden Bank Cost Check: No ledger mapping found for id {account_code}"
+                )
+
+        except Exception as e:
+            # If lookup fails, log the error
+            frappe.logger().error(f"Failed to lookup ledger for {account_code}: {e}")
+            pass
+
+    return False
+
+
+def get_or_create_bank_cost_item(company):
+    """
+    Get or create a standardized Bank Costs item
+    """
+    item_code = "Bank-Costs"
+    item_name = "Bank Costs"
+
+    # Check if item already exists
+    if frappe.db.exists("Item", item_code):
+        frappe.logger().info(f"E-Boekhouden Bank Costs: Using existing item: {item_code}")
+        return item_code
+
+    # Create new bank costs item
+    try:
+        item = frappe.new_doc("Item")
+        item.item_code = item_code
+        item.item_name = item_name
+        item.description = "Bank transaction fees and costs"
+
+        # Set appropriate item group
+        if frappe.db.exists("Item Group", "Banking"):
+            item.item_group = "Banking"
+        elif frappe.db.exists("Item Group", "Services"):
+            item.item_group = "Services"
+        else:
+            # Use any available non-group item group as fallback
+            item.item_group = frappe.db.get_value("Item Group", {"is_group": 0}, "name") or "Services"
+
+        item.stock_uom = "Unit"
+        item.is_stock_item = 0  # Service item, not tracked inventory
+        item.maintain_stock = 0
+        item.is_sales_item = 1  # Can appear on sales invoices (as negative fees)
+        item.is_purchase_item = 1  # Can appear on purchase invoices (as expenses)
+
+        # Add metadata for E-Boekhouden items
+        if hasattr(item, "custom_eboekhouden_account_code"):
+            item.custom_eboekhouden_account_code = "BANK_COSTS"
+
+        item.insert()
+
+        frappe.logger().info(f"E-Boekhouden Bank Costs: Created item: {item_code}")
+        return item_code
+
+    except Exception as e:
+        frappe.log_error(
+            title="E-Boekhouden Bank Costs: Item Creation Failed",
+            message=f"Failed to create Bank Costs item: {str(e)}. Falling back to generic item creation.",
+        )
+        # Fallback to generic item creation
+        return get_or_create_generic_item(company)
+
+
+def get_or_create_event_ticket_item(company):
+    """
+    Get or create a standardized Event Ticket item for WooCommerce imports
+    """
+    item_code = "Event-Ticket"
+    item_name = "Event Ticket"
+
+    # Check if item already exists
+    if frappe.db.exists("Item", item_code):
+        frappe.logger().info(f"E-Boekhouden WooCommerce: Using existing Event Ticket item: {item_code}")
+        return item_code
+
+    # Create new event ticket item
+    try:
+        item = frappe.new_doc("Item")
+        item.item_code = item_code
+        item.item_name = item_name
+        item.description = "Event tickets sold through WooCommerce"
+
+        # Set appropriate item group - try Event Items first, fallback to Services
+        if frappe.db.exists("Item Group", "Event Items"):
+            item.item_group = "Event Items"
+        elif frappe.db.exists("Item Group", "Services"):
+            item.item_group = "Services"
+        else:
+            # Use any available non-group item group as fallback
+            item.item_group = frappe.db.get_value("Item Group", {"is_group": 0}, "name") or "Services"
+
+        item.stock_uom = "Unit"
+        item.is_stock_item = 0  # Service item, not tracked inventory
+        item.maintain_stock = 0
+        item.is_sales_item = 1  # Event tickets are sold
+        item.is_purchase_item = 0  # We don't purchase event tickets
+
+        # Add metadata for E-Boekhouden items
+        if hasattr(item, "custom_eboekhouden_account_code"):
+            item.custom_eboekhouden_account_code = "WOOCOMMERCE_EVENT"
+
+        item.insert()
+
+        frappe.logger().info(f"E-Boekhouden WooCommerce: Created Event Ticket item: {item_code}")
+        return item_code
+
+    except Exception as e:
+        frappe.log_error(
+            title="E-Boekhouden WooCommerce: Event Ticket Item Creation Failed",
+            message=f"Failed to create Event Ticket item: {str(e)}. Falling back to generic item creation.",
+        )
+        # Fallback to generic item creation
+        return get_or_create_generic_item(company)

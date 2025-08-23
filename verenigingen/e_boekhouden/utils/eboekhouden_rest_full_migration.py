@@ -2297,10 +2297,40 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
             mutation_detail = _convert_mutation_detail_amount(mutation_detail, debug_info)
         create_single_line_fallback(si, mutation_detail, cost_center, debug_info)
 
+    # Enhanced Sales Invoice naming to include invoice number for better identification
+    _enhance_sales_invoice_title(si, invoice_number, description, debug_info)
+
     si.save()
     si.submit()
     debug_info.append(f"Created enhanced Sales Invoice {si.name} with {len(si.items)} line items")
     return si
+
+
+def _enhance_sales_invoice_title(sales_invoice, invoice_number, description, debug_info):
+    """
+    Enhance Sales Invoice title to include invoice number for better identification
+
+    Args:
+        sales_invoice: The Sales Invoice document
+        invoice_number: The eBoekhouden invoice number (factuurnummer)
+        description: The transaction description
+        debug_info: List to append debug messages to
+    """
+    if not invoice_number:
+        debug_info.append("No invoice number available for title enhancement")
+        return
+
+    try:
+        # Extract customer name for context
+        customer_name = sales_invoice.customer_name or sales_invoice.customer
+
+        # For all invoices, use clean format: Customer - Factuur Number
+        invoice_num = str(invoice_number).replace("/", "-").replace("\\", "-")
+        sales_invoice.title = f"{customer_name} - Factuur {invoice_num}"
+        debug_info.append(f"Enhanced sales invoice title: {sales_invoice.title}")
+
+    except Exception as e:
+        debug_info.append(f"Warning: Failed to enhance sales invoice title: {str(e)}")
 
 
 def _detect_credit_note_improved(mutation_detail, debug_info):

@@ -1,45 +1,45 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="jest tests" tests="20" failures="0" errors="0" time="0.982">
-  <testsuite name="Membership Termination Request Controller (Focused Tests)" errors="0" failures="0" skipped="0" timestamp="2025-08-22T19:58:42" time="0.567" tests="20">
-    <testcase classname="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should load controller successfully" name="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should load controller successfully" time="0.005">
+<testsuites name="jest tests" tests="20" failures="0" errors="0" time="0.983">
+  <testsuite name="Membership Termination Request Controller (Focused Tests)" errors="0" failures="0" skipped="0" timestamp="2025-08-23T21:43:31" time="0.569" tests="20">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should load controller successfully" name="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should load controller successfully" time="0.008">
     </testcase>
-    <testcase classname="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should have all expected event handlers" name="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should have all expected event handlers" time="0.003">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should have all expected event handlers" name="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should have all expected event handlers" time="0.005">
     </testcase>
-    <testcase classname="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should execute refresh handler without errors" name="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should execute refresh handler without errors" time="0.003">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should execute refresh handler without errors" name="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should execute refresh handler without errors" time="0.004">
     </testcase>
-    <testcase classname="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should execute onload handler without errors" name="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should execute onload handler without errors" time="0.003">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should execute onload handler without errors" name="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should execute onload handler without errors" time="0.002">
     </testcase>
-    <testcase classname="Membership Termination Request Controller (Focused Tests) Form Field Management should handle termination_type changes" name="Membership Termination Request Controller (Focused Tests) Form Field Management should handle termination_type changes" time="0.003">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Form Field Management should handle termination_type changes" name="Membership Termination Request Controller (Focused Tests) Form Field Management should handle termination_type changes" time="0.004">
     </testcase>
     <testcase classname="Membership Termination Request Controller (Focused Tests) Form Field Management should handle member field changes" name="Membership Termination Request Controller (Focused Tests) Form Field Management should handle member field changes" time="0.003">
     </testcase>
     <testcase classname="Membership Termination Request Controller (Focused Tests) Form Field Management should handle before_save validation for voluntary termination" name="Membership Termination Request Controller (Focused Tests) Form Field Management should handle before_save validation for voluntary termination" time="0.003">
     </testcase>
-    <testcase classname="Membership Termination Request Controller (Focused Tests) Form Field Management should require documentation for disciplinary terminations" name="Membership Termination Request Controller (Focused Tests) Form Field Management should require documentation for disciplinary terminations" time="0.04">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Form Field Management should require documentation for disciplinary terminations" name="Membership Termination Request Controller (Focused Tests) Form Field Management should require documentation for disciplinary terminations" time="0.043">
     </testcase>
-    <testcase classname="Membership Termination Request Controller (Focused Tests) Form Field Management should allow disciplinary termination with proper documentation" name="Membership Termination Request Controller (Focused Tests) Form Field Management should allow disciplinary termination with proper documentation" time="0.002">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Form Field Management should allow disciplinary termination with proper documentation" name="Membership Termination Request Controller (Focused Tests) Form Field Management should allow disciplinary termination with proper documentation" time="0.003">
     </testcase>
     <testcase classname="Membership Termination Request Controller (Focused Tests) Form State Management should set default values for new documents" name="Membership Termination Request Controller (Focused Tests) Form State Management should set default values for new documents" time="0.003">
     </testcase>
-    <testcase classname="Membership Termination Request Controller (Focused Tests) Form State Management should not override existing values for saved documents" name="Membership Termination Request Controller (Focused Tests) Form State Management should not override existing values for saved documents" time="0.001">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Form State Management should not override existing values for saved documents" name="Membership Termination Request Controller (Focused Tests) Form State Management should not override existing values for saved documents" time="0.002">
     </testcase>
     <testcase classname="Membership Termination Request Controller (Focused Tests) Form State Management should clear member_name when member is cleared" name="Membership Termination Request Controller (Focused Tests) Form State Management should clear member_name when member is cleared" time="0.002">
     </testcase>
-    <testcase classname="Membership Termination Request Controller (Focused Tests) Performance and Error Handling should execute all handlers quickly" name="Membership Termination Request Controller (Focused Tests) Performance and Error Handling should execute all handlers quickly" time="0.003">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Performance and Error Handling should execute all handlers quickly" name="Membership Termination Request Controller (Focused Tests) Performance and Error Handling should execute all handlers quickly" time="0.002">
     </testcase>
     <testcase classname="Membership Termination Request Controller (Focused Tests) Performance and Error Handling should handle missing frappe utilities gracefully" name="Membership Termination Request Controller (Focused Tests) Performance and Error Handling should handle missing frappe utilities gracefully" time="0.002">
     </testcase>
     <testcase classname="Membership Termination Request Controller (Focused Tests) Performance and Error Handling should handle form API errors gracefully" name="Membership Termination Request Controller (Focused Tests) Performance and Error Handling should handle form API errors gracefully" time="0.002">
     </testcase>
-    <testcase classname="Membership Termination Request Controller (Focused Tests) Business Logic Validation should handle all termination types correctly" name="Membership Termination Request Controller (Focused Tests) Business Logic Validation should handle all termination types correctly" time="0.007">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Business Logic Validation should handle all termination types correctly" name="Membership Termination Request Controller (Focused Tests) Business Logic Validation should handle all termination types correctly" time="0.002">
     </testcase>
-    <testcase classname="Membership Termination Request Controller (Focused Tests) Business Logic Validation should distinguish between disciplinary and non-disciplinary types" name="Membership Termination Request Controller (Focused Tests) Business Logic Validation should distinguish between disciplinary and non-disciplinary types" time="0.002">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Business Logic Validation should distinguish between disciplinary and non-disciplinary types" name="Membership Termination Request Controller (Focused Tests) Business Logic Validation should distinguish between disciplinary and non-disciplinary types" time="0.008">
     </testcase>
     <testcase classname="Membership Termination Request Controller (Focused Tests) Integration Points should set appropriate query filters for secondary_approver" name="Membership Termination Request Controller (Focused Tests) Integration Points should set appropriate query filters for secondary_approver" time="0.002">
     </testcase>
-    <testcase classname="Membership Termination Request Controller (Focused Tests) Integration Points should make audit_trail read-only on refresh" name="Membership Termination Request Controller (Focused Tests) Integration Points should make audit_trail read-only on refresh" time="0.003">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Integration Points should make audit_trail read-only on refresh" name="Membership Termination Request Controller (Focused Tests) Integration Points should make audit_trail read-only on refresh" time="0.002">
     </testcase>
-    <testcase classname="Membership Termination Request Controller (Focused Tests) Integration Points should add View Member button when member is set" name="Membership Termination Request Controller (Focused Tests) Integration Points should add View Member button when member is set" time="0.003">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Integration Points should add View Member button when member is set" name="Membership Termination Request Controller (Focused Tests) Integration Points should add View Member button when member is set" time="0.002">
     </testcase>
   </testsuite>
 </testsuites>

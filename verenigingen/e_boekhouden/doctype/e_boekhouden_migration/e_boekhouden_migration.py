@@ -3108,14 +3108,59 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
 
         # Delete existing document if overwrite is enabled
         if existing_doc and overwrite_existing:
-            if existing_je:
-                frappe.delete_doc("Journal Entry", existing_je, force=True)
-            if existing_si:
-                frappe.delete_doc("Sales Invoice", existing_si, force=True)
-            if existing_pi:
-                frappe.delete_doc("Purchase Invoice", existing_pi, force=True)
-            if existing_pe:
-                frappe.delete_doc("Payment Entry", existing_pe, force=True)
+            docs_to_delete = [
+                ("Journal Entry", existing_je),
+                ("Sales Invoice", existing_si),
+                ("Purchase Invoice", existing_pi),
+                ("Payment Entry", existing_pe),
+            ]
+
+            for doctype, docname in docs_to_delete:
+                if docname:
+                    try:
+                        # Get the document to check its status
+                        doc = frappe.get_doc(doctype, docname)
+
+                        # If document is submitted, cancel it first
+                        if doc.docstatus == 1:  # Submitted
+                            # For Sales/Purchase Invoices, check for linked Payment Entries that need to be cancelled first
+                            if doctype in ["Sales Invoice", "Purchase Invoice"]:
+                                linked_payments = frappe.get_all(
+                                    "Payment Entry",
+                                    filters={
+                                        "reference_doctype": doctype,
+                                        "reference_name": docname,
+                                        "docstatus": 1,
+                                    },
+                                    fields=["name"],
+                                )
+
+                                for payment in linked_payments:
+                                    payment_doc = frappe.get_doc("Payment Entry", payment.name)
+                                    payment_doc.cancel()
+                                    frappe.logger().info(
+                                        f"Cancelled linked Payment Entry {payment.name} before deleting {doctype} {docname}"
+                                    )
+
+                            doc.cancel()
+                            frappe.logger().info(f"Cancelled {doctype} {docname} before deletion")
+
+                        # Now delete the document
+                        frappe.delete_doc(doctype, docname, force=True)
+                        frappe.logger().info(
+                            f"Deleted {doctype} {docname} for mutation {mutation_id} overwrite"
+                        )
+
+                    except Exception as e:
+                        # Log the error but continue with the import
+                        frappe.log_error(
+                            title=f"Failed to delete {doctype} {docname}",
+                            message=f"Error during overwrite deletion: {str(e)}",
+                        )
+                        return {
+                            "success": False,
+                            "error": f"Failed to delete existing {doctype} {docname}: {str(e)}. Please cancel it manually first.",
+                        }
 
         # Fetch mutation from eBoekhouden API
         from verenigingen.e_boekhouden.utils.eboekhouden_api import EBoekhoudenAPI

@@ -84,9 +84,17 @@ def boot_session(bootinfo):
         # Log that test mode is active
         frappe.logger().info("Verenigingen: Test mode active - emails are mocked")
 
+    # Apply Firefox session cache corruption fix
+    try:
+        from verenigingen.session_cache_fix import apply_firefox_cache_fix
+
+        # Fix is auto-applied on import
+    except Exception as e:
+        frappe.logger().error(f"Could not load Firefox cache fix: {e}")
+
     # Authentication issue resolved via CSRF secret key in site config
     # The "User None is disabled" error was fixed by adding csrf_secret_key
     # to prevent session corruption during tab switching
-    
+
     # Return bootinfo for framework
     return bootinfo

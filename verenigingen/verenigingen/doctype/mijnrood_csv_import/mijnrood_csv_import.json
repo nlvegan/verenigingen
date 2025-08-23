@@ -14,6 +14,9 @@
   "import_status",
   "test_mode",
   "auto_create_chapters",
+  "user_account_section",
+  "create_user_accounts",
+  "send_welcome_emails",
   "section_break_mapping",
   "field_mapping_instructions",
   "preview_section",
@@ -77,6 +80,27 @@
    "fieldname": "auto_create_chapters",
    "fieldtype": "Check",
    "label": "Auto-create Chapters"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "user_account_section",
+   "fieldtype": "Section Break",
+   "label": "User Account Creation"
+  },
+  {
+   "default": "0",
+   "description": "Create portal user accounts for imported members. This allows them to login and access self-service features. Preserves existing Mollie subscription data.",
+   "fieldname": "create_user_accounts",
+   "fieldtype": "Check",
+   "label": "Create User Accounts"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.create_user_accounts == 1",
+   "description": "Send welcome emails to newly created user accounts with login instructions",
+   "fieldname": "send_welcome_emails",
+   "fieldtype": "Check",
+   "label": "Send Welcome Emails"
   },
   {
    "collapsible": 1,

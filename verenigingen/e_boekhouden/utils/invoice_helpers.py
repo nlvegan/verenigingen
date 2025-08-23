@@ -219,10 +219,24 @@ def process_line_items(invoice, regels, invoice_type, cost_center, debug_info):
             account_code, invoice_type, debug_info, allow_fallback=False
         )
 
+        # For standardized items (Event-Ticket, Bank-Costs), use clean item details instead of ugly transaction description
+        if item_code in ["Event-Ticket", "Bank-Costs"]:
+            # Get clean details from the actual Item master
+            item_doc = frappe.get_doc("Item", item_code)
+            clean_item_name = item_doc.item_name
+            clean_description = item_doc.description
+            debug_info.append(
+                f"Using clean {item_code} item details: name='{clean_item_name}', description='{clean_description}'"
+            )
+        else:
+            # Use original transaction description for other items
+            clean_item_name = description[:140]
+            clean_description = description
+
         line_item = {
             "item_code": item_code,
-            "item_name": description[:140],  # Limit to ERPNext's item_name field limit
-            "description": description,  # Full description can be longer
+            "item_name": clean_item_name,
+            "description": clean_description,
             "qty": quantity,
             "uom": map_unit_of_measure(unit),
             "rate": price,
@@ -716,10 +730,24 @@ def create_single_line_fallback(invoice, mutation_detail, cost_center, debug_inf
         description=line_dict["description"],
     )
 
+    # For standardized items (Event-Ticket, Bank-Costs), use clean item details instead of ugly transaction description
+    if item_code in ["Event-Ticket", "Bank-Costs"]:
+        # Get clean details from the actual Item master
+        item_doc = frappe.get_doc("Item", item_code)
+        clean_item_name = item_doc.item_name
+        clean_description = item_doc.description
+        debug_info.append(
+            f"Fallback: Using clean {item_code} item details: name='{clean_item_name}', description='{clean_description}'"
+        )
+    else:
+        # Use original transaction description for other items
+        clean_item_name = line_dict["description"]
+        clean_description = line_dict["description"]
+
     line_item = {
         "item_code": item_code,
-        "item_name": line_dict["description"],  # Use description as item name
-        "description": line_dict["description"],
+        "item_name": clean_item_name,
+        "description": clean_description,
         "qty": line_dict["qty"],
         "rate": line_dict["rate"],
         "amount": line_dict["amount"],

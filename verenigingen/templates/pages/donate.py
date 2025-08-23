@@ -120,13 +120,8 @@ def get_context(context):
 def submit_donation(**kwargs):
     """Process donation form submission"""
     try:
-        frappe.logger().info("🎯 Donation form submission started")
-
         # Parse form data
         form_data = frappe._dict(kwargs)
-        frappe.logger().info(
-            f"📝 Form data received: amount={form_data.get('amount')}, payment_method={form_data.get('payment_method')}, email={form_data.get('donor_email')}"
-        )
 
         # Validate required fields
         required_fields = ["donor_name", "donor_email", "amount", "payment_method"]
@@ -147,51 +142,19 @@ def submit_donation(**kwargs):
             return {"success": False, "message": _("Donation amount must be greater than zero")}
 
         # Create or get donor
-        frappe.logger().info("👤 Creating/getting donor record...")
         donor = get_or_create_donor(form_data)
         if not donor:
-            frappe.logger().error("❌ Failed to create donor record")
             return {"success": False, "message": _("Failed to create donor record")}
-        frappe.logger().info(f"✅ Donor ready: {donor.name}")
 
         # Create donation
-        frappe.logger().info("💰 Creating donation record...")
         donation = create_donation_record(donor, form_data)
         if not donation:
-            frappe.logger().error("❌ Failed to create donation record")
             return {"success": False, "message": _("Failed to create donation record")}
-        frappe.logger().info(f"✅ Donation created: {donation.name}")
 
         # Process payment based on method
-        frappe.logger().info(f"💳 Processing payment method: {form_data.payment_method}")
-
-        # Debug to file before calling process_payment_method
-        import os
-        from datetime import datetime as dt
-
-        debug_file = "/tmp/submit_donation_debug.log"
-        try:
-            with open(debug_file, "a") as f:
-                f.write(f"\n{'=' * 80}\n")
-                f.write("ABOUT TO CALL process_payment_method\n")
-                f.write(f"Timestamp: {dt.now().isoformat()}\n")
-                f.write(f"Donation created: {donation.name}\n")
-                f.write(f"Payment method: {form_data.payment_method}\n")
-        except Exception as debug_e:
-            with open("/tmp/debug_error.log", "a") as f:
-                f.write(f"Debug write error: {str(debug_e)}\n")
-
         try:
             payment_result = process_payment_method(donation, form_data)
-            with open(debug_file, "a") as f:
-                f.write("process_payment_method returned successfully\n")
-                f.write(f"Result: {payment_result}\n")
-        except Exception as payment_e:
-            with open(debug_file, "a") as f:
-                f.write(f"ERROR in process_payment_method: {str(payment_e)}\n")
-                import traceback
-
-                f.write(f"Traceback:\n{traceback.format_exc()}\n")
+        except Exception:
             # Return error response instead of re-raising
             return {
                 "success": True,  # Donation was created successfully
@@ -203,8 +166,6 @@ def submit_donation(**kwargs):
                     "info": "Please try a different payment method or contact support",
                 },
             }
-
-        frappe.logger().info(f"💳 Payment processing result: {payment_result.get('status')}")
 
         return {
             "success": True,
@@ -323,76 +284,25 @@ def create_donation_record(donor, form_data):
 
 def process_payment_method(donation, form_data):
     """Process payment based on selected method"""
-    # Debug to file to bypass logging issues
-    import os
-    from datetime import datetime
-
-    debug_file = "/tmp/payment_routing_debug.log"
-    try:
-        with open(debug_file, "a") as f:
-            f.write(f"\n{'=' * 80}\n")
-            f.write("FUNCTION ENTRY: process_payment_method\n")
-            f.write(f"Timestamp: {datetime.now().isoformat()}\n")
-            f.write(f"Donation: {getattr(donation, 'name', 'NO NAME')}\n")
-            f.write(f"Form data type: {type(form_data)}\n")
-            f.write(f"Form data keys: {form_data.keys() if hasattr(form_data, 'keys') else 'NO KEYS'}\n")
-            f.write(f"payment_method attr exists: {hasattr(form_data, 'payment_method')}\n")
-    except Exception:
-        # If file writing fails, continue anyway
-        pass
-
     payment_method = form_data.payment_method
 
-    try:
-        with open(debug_file, "a") as f:
-            f.write(f"Payment method extracted: '{payment_method}'\n")
-    except:
-        pass
-
-    frappe.logger().error(f"🔀 PAYMENT METHOD ROUTING: payment_method='{payment_method}'")
-    frappe.logger().error("🔀 Available methods: Bank Transfer, SEPA Direct Debit, Mollie, Cash")
-
     if payment_method == "Bank Transfer":
-        frappe.logger().error("🏦 Routing to Bank Transfer")
         return process_bank_transfer(donation, form_data)
     elif payment_method == "SEPA Direct Debit":
-        frappe.logger().error("🇪🇺 Routing to SEPA Direct Debit")
         return process_sepa_direct_debit(donation, form_data)
     elif payment_method == "Mollie":
-        frappe.logger().error("🟠 Routing to Mollie payment processing")
         try:
             result = process_mollie_payment(donation, form_data)
-            frappe.logger().error(f"🟠 Mollie payment result: {result}")
             return result
-        except Exception as e:
-            frappe.logger().error(f"💥 Exception in process_mollie_payment: {str(e)}")
-            import traceback
-
-            full_traceback = traceback.format_exc()
-            frappe.logger().error(f"💥 Full traceback: {full_traceback}")
-
-            # Also write to a debug file since logger might not be working
-            from datetime import datetime
-
-            debug_file = "/tmp/mollie_payment_debug.log"
-            with open(debug_file, "a") as f:
-                f.write(f"\n{'=' * 80}\n")
-                f.write(f"Timestamp: {datetime.now().isoformat()}\n")
-                f.write(f"Donation: {donation.name if donation else 'N/A'}\n")
-                f.write(f"Exception: {str(e)}\n")
-                f.write(f"Full traceback:\n{full_traceback}\n")
-                f.write(f"{'=' * 80}\n")
-
+        except Exception:
             return {
                 "status": "error",
                 "message": "Payment setup failed. Please try again or contact support.",
                 "info": "Please try a different payment method or contact support",
             }
     elif payment_method == "Cash":
-        frappe.logger().error("💵 Routing to Cash")
         return process_cash_payment(donation, form_data)
     else:
-        frappe.logger().error(f"❓ Unknown payment method: {payment_method}")
         return {"status": "pending", "message": _("Payment method not yet implemented")}
 
 
@@ -434,103 +344,17 @@ def process_sepa_direct_debit(donation, form_data):
 
 def process_mollie_payment(donation, form_data):
     """Handle Mollie payment using the integrated gateway"""
-    # Debug to file immediately on entry
-    import os
-    from datetime import datetime
-
-    debug_file = "/tmp/mollie_payment_debug.log"
-    with open(debug_file, "a") as f:
-        f.write(f"\n{'=' * 80}\n")
-        f.write("FUNCTION ENTRY: process_mollie_payment\n")
-        f.write(f"Timestamp: {datetime.now().isoformat()}\n")
-        f.write(f"Donation type: {type(donation)}\n")
-        f.write(f"Donation name: {getattr(donation, 'name', 'NO NAME ATTR')}\n")
-        f.write(f"Form data type: {type(form_data)}\n")
-
-    # FIRST LOG - Ensure this function is being called
-    frappe.logger().error("🚀 ENTRY: process_mollie_payment function called!")
-
     try:
-        frappe.logger().error(f"🔄 Starting Mollie payment processing for donation {donation.name}")
-        frappe.logger().error(f"💰 Amount: €{donation.amount}, Method: {form_data.get('payment_method')}")
-
-        # DETAILED DATA INSPECTION - Debug the exact data being passed
-        frappe.logger().info("=" * 80)
-        frappe.logger().info("🔍 DETAILED DATA INSPECTION FOR PAYMENT HANDLER")
-        frappe.logger().info("=" * 80)
-
-        # Debug donation object
-        frappe.logger().info(f"📋 Donation object type: {type(donation)}")
-        frappe.logger().info(f"📋 Donation DocType: {getattr(donation, 'doctype', 'NOT_SET')}")
-        frappe.logger().info(f"📋 Donation name: {getattr(donation, 'name', 'NOT_SET')}")
-
-        # Check all donation fields systematically
-        donation_fields = [
-            "amount",
-            "donation_date",
-            "donor",
-            "donor_email",
-            "donor_phone",
-            "payment_method",
-            "status",
-            "donation_type",
-            "donation_purpose_type",
-        ]
-
-        for field in donation_fields:
-            try:
-                value = getattr(donation, field, "FIELD_NOT_FOUND")
-                field_type = type(value)
-                frappe.logger().info(f"📋 donation.{field}: {value} (type: {field_type})")
-
-                # Special check for date fields that might cause isoformat issues
-                if field in ["donation_date"] and value != "FIELD_NOT_FOUND":
-                    frappe.logger().info(f"📅 {field} detailed analysis:")
-                    frappe.logger().info(f"   - String representation: '{str(value)}'")
-                    frappe.logger().info(f"   - Has isoformat method: {hasattr(value, 'isoformat')}")
-                    if hasattr(value, "isoformat"):
-                        try:
-                            iso_value = value.isoformat()
-                            frappe.logger().info(f"   - isoformat() result: {iso_value}")
-                        except Exception as iso_e:
-                            frappe.logger().error(f"   - isoformat() ERROR: {iso_e}")
-            except Exception as e:
-                frappe.logger().error(f"📋 Error accessing donation.{field}: {e}")
-
-        # Debug form_data
-        frappe.logger().info(f"📝 Form data type: {type(form_data)}")
-        frappe.logger().info(
-            f"📝 Form data keys: {list(form_data.keys()) if isinstance(form_data, dict) else 'NOT_DICT'}"
-        )
-        frappe.logger().info(f"📝 Full form data: {form_data}")
-
-        # Check for any timezone-related data
-        for key, value in form_data.items() if isinstance(form_data, dict) else []:
-            if isinstance(value, str) and ("T" in value or "Z" in value or "+" in value[-6:]):
-                frappe.logger().info(f"🕐 Potential datetime string in form_data['{key}']: {value}")
-
-        frappe.logger().info("=" * 80)
-
         # Import the payment gateway factory
         from verenigingen.verenigingen_payments.utils.payment_gateways import PaymentGatewayFactory
 
-        frappe.logger().info("🏭 Loading PaymentGatewayFactory...")
         # Get the Mollie gateway
         gateway = PaymentGatewayFactory.get_gateway("Mollie", "Default")
-        frappe.logger().info(f"✅ Mollie gateway loaded: {type(gateway)}")
 
         # Process payment using the gateway
-        frappe.logger().info("🚀 Calling gateway.process_payment()...")
-        frappe.logger().info(
-            f"🚀 About to call: gateway.process_payment(donation={donation.name}, form_data_keys={list(form_data.keys()) if isinstance(form_data, dict) else 'not_dict'})"
-        )
         result = gateway.process_payment(donation, form_data)
-        frappe.logger().info(
-            f"📥 Gateway result: status={result.get('status')}, has_payment_url={bool(result.get('payment_url'))}"
-        )
 
         if result["status"] == "redirect_required":
-            frappe.logger().info(f"✅ Payment URL generated successfully: {result['payment_id']}")
             return {
                 "status": "redirect_required",
                 "payment_url": result["payment_url"],
@@ -542,8 +366,6 @@ def process_mollie_payment(donation, form_data):
                 "expires_at": result.get("expires_at"),
             }
         else:
-            frappe.logger().error(f"❌ Gateway returned error status: {result.get('status')}")
-            frappe.logger().error(f"❌ Error message: {result.get('message')}")
             return {
                 "status": "error",
                 "message": result.get("message", _("Payment setup failed")),
@@ -551,7 +373,6 @@ def process_mollie_payment(donation, form_data):
             }
 
     except Exception as e:
-        frappe.logger().error(f"💥 Exception in process_mollie_payment: {str(e)}")
         frappe.log_error(
             f"Mollie payment processing error for donation {donation.name}: {str(e)}\nFull traceback: {frappe.get_traceback()}",
             "Mollie Payment Error",
