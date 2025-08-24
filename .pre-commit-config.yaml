@@ -185,8 +185,8 @@ repos:
         exclude: '^(tests/|test_|.*_test\.js|debug_|.*_debug\.js|scripts/testing/|scripts/debug/|frontend_tests/|node_modules/)'
 
       - id: eslint
-        name: ESLint JavaScript validation
-        entry: bash -c 'npx eslint --fix --max-warnings=1000 "$@" || true'
+        name: 🔧 ESLint JavaScript validation
+        entry: bash -c 'echo "Running ESLint on JavaScript files..."; npx eslint --fix --max-warnings=1000 "$@"; echo "✅ ESLint completed (auto-fixed issues where possible)"'
         language: system
         files: \.js$
         stages: [pre-commit]
@@ -418,45 +418,45 @@ repos:
       - id: api-contract-validation
         name: 🔍 API Contract Validation (Pre-commit)
         description: Run API contract validation tests
-        entry: bash -c 'npm test -- --testPathPattern="api-contract-simple" --silent --no-coverage --passWithNoTests || exit 1'
+        entry: scripts/testing/jest-precommit-wrapper.sh --pattern api-contract-simple --type "API Contract Validation"
         language: system
         pass_filenames: false
         files: '\.(js|py)$'
         stages: [pre-commit]
-        exclude: '^(node_modules/|archived_.*)'
+        exclude: '^(node_modules/|archived_.*|test-results/)'
         always_run: false
 
       - id: controller-testing-focused
         name: 🎮 Controller Testing (Pre-commit)
         description: Run focused controller tests to validate form behavior
-        entry: bash -c 'npm test -- --testPathPattern="focused" --silent --no-coverage --passWithNoTests || exit 1'
+        entry: scripts/testing/jest-precommit-wrapper.sh --pattern focused --type "Controller Testing"
         language: system
         pass_filenames: false
         files: '\.(js|py)$'
         stages: [pre-commit]
-        exclude: '^(node_modules/|archived_.*)'
+        exclude: '^(node_modules/|archived_.*|test-results/)'
         always_run: false
 
       - id: external-api-contracts
         name: 🏦 External API Contracts (Pre-push)
         description: Validate eBoekhouden and Mollie API contracts
-        entry: bash -c 'npm test -- --testPathPattern="external-api-contracts" --silent --no-coverage --passWithNoTests || exit 1'
+        entry: scripts/testing/jest-precommit-wrapper.sh --pattern external-api-contracts --type "External API Contract Validation"
         language: system
         pass_filenames: false
         files: '\.(js|py)$'
         stages: [pre-push]
-        exclude: '^(node_modules/|archived_.*)'
+        exclude: '^(node_modules/|archived_.*|test-results/)'
         always_run: false
 
       - id: performance-benchmarking
         name: ⚡ Performance Benchmarking (Pre-push)
         description: Run performance benchmark tests for regression detection
-        entry: bash -c 'npm test -- --testPathPattern="api-contract-performance" --silent --no-coverage --passWithNoTests || exit 1'
+        entry: scripts/testing/jest-precommit-wrapper.sh --pattern api-contract-performance --type "Performance Benchmarking"
         language: system
         pass_filenames: false
         files: '\.(js|py)$'
         stages: [pre-push]
-        exclude: '^(node_modules/|archived_.*)'
+        exclude: '^(node_modules/|archived_.*|test-results/)'
         always_run: false
 
       # JavaScript Testing

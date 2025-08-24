@@ -1,42 +1,290 @@
 [
  {
-  "block_modules": [],
-  "docstatus": 0,
   "doctype": "Module Profile",
-  "modified": "2025-07-10 23:53:31.729847",
+  "docstatus": 0,
+  "name": "Verenigingen Basic Access",
   "module_profile_name": "Verenigingen Basic Access",
-  "name": "Verenigingen Basic Access"
+  "modules": [
+   {
+    "module": "Verenigingen"
+   },
+   {
+    "module": "Portal"
+   },
+   {
+    "module": "Communication"
+   },
+   {
+    "module": "Desk"
+   }
+  ]
  },
  {
-  "block_modules": [],
-  "docstatus": 0,
   "doctype": "Module Profile",
-  "modified": "2025-07-10 23:53:31.736375",
+  "docstatus": 0,
+  "name": "Verenigingen Volunteer Access",
   "module_profile_name": "Verenigingen Volunteer Access",
-  "name": "Verenigingen Volunteer Access"
+  "modules": [
+   {
+    "module": "Verenigingen"
+   },
+   {
+    "module": "Portal"
+   },
+   {
+    "module": "Communication"
+   },
+   {
+    "module": "Projects"
+   },
+   {
+    "module": "Support"
+   },
+   {
+    "module": "Activity"
+   },
+   {
+    "module": "Desk"
+   }
+  ]
  },
  {
-  "block_modules": [],
-  "docstatus": 0,
   "doctype": "Module Profile",
-  "modified": "2025-07-10 23:53:31.749471",
+  "docstatus": 0,
+  "name": "Verenigingen Team Management Access",
+  "module_profile_name": "Verenigingen Team Management Access",
+  "modules": [
+   {
+    "module": "Verenigingen"
+   },
+   {
+    "module": "Portal"
+   },
+   {
+    "module": "Communication"
+   },
+   {
+    "module": "Projects"
+   },
+   {
+    "module": "Support"
+   },
+   {
+    "module": "HR"
+   },
+   {
+    "module": "Activity"
+   },
+   {
+    "module": "Calendar"
+   },
+   {
+    "module": "Desk"
+   }
+  ]
+ },
+ {
+  "doctype": "Module Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Financial Access",
   "module_profile_name": "Verenigingen Financial Access",
-  "name": "Verenigingen Financial Access"
+  "modules": [
+   {
+    "module": "Verenigingen"
+   },
+   {
+    "module": "Portal"
+   },
+   {
+    "module": "Communication"
+   },
+   {
+    "module": "Accounts"
+   },
+   {
+    "module": "Banking"
+   },
+   {
+    "module": "Selling"
+   },
+   {
+    "module": "Desk"
+   },
+   {
+    "module": "Payroll"
+   }
+  ]
  },
  {
-  "block_modules": [],
-  "docstatus": 0,
   "doctype": "Module Profile",
-  "modified": "2025-07-10 23:53:31.762394",
+  "docstatus": 0,
+  "name": "Verenigingen Communications Access",
+  "module_profile_name": "Verenigingen Communications Access",
+  "modules": [
+   {
+    "module": "Verenigingen"
+   },
+   {
+    "module": "Portal"
+   },
+   {
+    "module": "Communication"
+   },
+   {
+    "module": "Website"
+   },
+   {
+    "module": "Blog"
+   },
+   {
+    "module": "Newsletter"
+   },
+   {
+    "module": "Social"
+   },
+   {
+    "module": "Desk"
+   }
+  ]
+ },
+ {
+  "doctype": "Module Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Management Access",
   "module_profile_name": "Verenigingen Management Access",
-  "name": "Verenigingen Management Access"
+  "modules": [
+   {
+    "module": "Verenigingen"
+   },
+   {
+    "module": "Portal"
+   },
+   {
+    "module": "Communication"
+   },
+   {
+    "module": "Projects"
+   },
+   {
+    "module": "CRM"
+   },
+   {
+    "module": "Support"
+   },
+   {
+    "module": "Accounts"
+   },
+   {
+    "module": "Banking"
+   },
+   {
+    "module": "Selling"
+   },
+   {
+    "module": "HR"
+   },
+   {
+    "module": "Payroll"
+   },
+   {
+    "module": "Assets"
+   },
+   {
+    "module": "Setup"
+   },
+   {
+    "module": "Reports"
+   },
+   {
+    "module": "Desk"
+   }
+  ]
  },
  {
-  "block_modules": [],
-  "docstatus": 0,
   "doctype": "Module Profile",
-  "modified": "2025-07-10 23:53:31.775367",
+  "docstatus": 0,
+  "name": "Verenigingen Finance Management Access",
+  "module_profile_name": "Verenigingen Finance Management Access",
+  "modules": [
+   {
+    "module": "Verenigingen"
+   },
+   {
+    "module": "Portal"
+   },
+   {
+    "module": "Communication"
+   },
+   {
+    "module": "Accounts"
+   },
+   {
+    "module": "Banking"
+   },
+   {
+    "module": "Selling"
+   },
+   {
+    "module": "Buying"
+   },
+   {
+    "module": "Stock"
+   },
+   {
+    "module": "Payroll"
+   },
+   {
+    "module": "Assets"
+   },
+   {
+    "module": "Reports"
+   },
+   {
+    "module": "Desk"
+   }
+  ]
+ },
+ {
+  "doctype": "Module Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Audit Access",
   "module_profile_name": "Verenigingen Audit Access",
-  "name": "Verenigingen Audit Access"
+  "modules": [
+   {
+    "module": "Verenigingen"
+   },
+   {
+    "module": "Portal"
+   },
+   {
+    "module": "Communication"
+   },
+   {
+    "module": "Accounts"
+   },
+   {
+    "module": "Quality Management"
+   },
+   {
+    "module": "Reports"
+   },
+   {
+    "module": "Desk"
+   }
+  ]
+ },
+ {
+  "doctype": "Module Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Guest Access",
+  "module_profile_name": "Verenigingen Guest Access",
+  "modules": [
+   {
+    "module": "Portal"
+   },
+   {
+    "module": "Website"
+   }
+  ]
  }
 ]

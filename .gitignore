@@ -50,3 +50,4 @@ cypress.env.json
 *_backup
 .secret
 .password
+test-results/
