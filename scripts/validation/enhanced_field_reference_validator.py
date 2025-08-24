@@ -839,6 +839,13 @@ class ContextAwareFieldValidator:
         
         print(f"📊 Checked {files_checked} Python files")
         return violations
+    
+    def validate_directory(self, pre_commit: bool = False) -> List[ValidationIssue]:
+        """
+        Validate directory - wrapper around validate_app for compatibility.
+        This method exists to maintain compatibility with validation_suite_runner.py
+        """
+        return self.validate_app(pre_commit=pre_commit)
         
     def generate_report(self, violations: List[ValidationIssue]) -> str:
         """Generate comprehensive report with false positive analysis"""

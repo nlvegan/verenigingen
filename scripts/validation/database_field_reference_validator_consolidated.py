@@ -161,7 +161,7 @@ class DatabaseFieldValidator:
             first_arg = node.args[0]
             if isinstance(first_arg, ast.Constant):
                 return first_arg.value
-            elif isinstance(first_arg, ast.Str):  # Python 3.7 compatibility
+            elif hasattr(first_arg, 's'):  # ast.Str fallback for older Python versions
                 return first_arg.s
         return None
         
@@ -172,7 +172,7 @@ class DatabaseFieldValidator:
         # Check for field in second argument (get_value pattern)
         if len(node.args) > 1:
             second_arg = node.args[1]
-            if isinstance(second_arg, (ast.Constant, ast.Str)):
+            if isinstance(second_arg, ast.Constant) or hasattr(second_arg, 's'):
                 value = second_arg.value if isinstance(second_arg, ast.Constant) else second_arg.s
                 if value != "*":  # Skip wildcard selections
                     fields.append(value)
@@ -181,7 +181,7 @@ class DatabaseFieldValidator:
         for keyword in node.keywords:
             if keyword.arg == 'filters' and isinstance(keyword.value, ast.Dict):
                 for key in keyword.value.keys:
-                    if isinstance(key, (ast.Constant, ast.Str)):
+                    if isinstance(key, ast.Constant) or hasattr(key, 's'):
                         field = key.value if isinstance(key, ast.Constant) else key.s
                         fields.append(field)
                         
