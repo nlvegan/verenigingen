@@ -145,7 +145,7 @@ def validate_current_session():
             issues.append("Session user is empty string")
         else:
             # User looks valid, check if it exists in database
-            if user != "Guest" and not frappe.db.exists("User", user):
+            if user != "Guest" and user not in ["Administrator"] and not frappe.db.exists("User", user):
                 warnings.append(f"Session user '{user}' does not exist in database")
 
         # Check session ID

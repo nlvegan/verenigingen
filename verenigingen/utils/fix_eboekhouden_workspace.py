@@ -76,7 +76,7 @@ def fix_eboekhouden_payment_mapping_link():
     )
 
     if updated_links:
-        print(f"✅ Successfully updated link:")
+        print("✅ Successfully updated link:")
         for link in updated_links:
             print(f"   Label: {link.label} → {link.link_to} ({link.link_type})")
         return {"success": True, "links_updated": updated_links}

@@ -170,7 +170,7 @@ def fix_invalid_links(workspace_name, dry_run=True):
                     print(f"  Possible alternatives: {[s[0] for s in similar]}")
 
         if not fixed:
-            print(f"  ❌ No automatic fix available")
+            print("  ❌ No automatic fix available")
 
     if not dry_run:
         print("🚫 Automatic fixes not implemented yet - manual intervention required")

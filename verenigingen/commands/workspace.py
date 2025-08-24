@@ -215,12 +215,12 @@ def fix_workspace(context, workspace_name, dry_run, backup, content_only, links_
             click.echo("   Use 'workspace validate --links-only' to identify specific issues")
 
         if dry_run:
-            click.echo(f"\n🚫 Dry run complete - no changes made")
+            click.echo("\n🚫 Dry run complete - no changes made")
         elif fixed_any:
-            click.echo(f"\n✅ Workspace fixes applied")
+            click.echo("\n✅ Workspace fixes applied")
             click.echo("   Run 'bench clear-cache' to refresh workspace rendering")
         else:
-            click.echo(f"\n✅ No fixes needed")
+            click.echo("\n✅ No fixes needed")
 
     except Exception as e:
         click.echo(f"❌ Fix error: {str(e)}")

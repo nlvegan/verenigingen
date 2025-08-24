@@ -221,7 +221,7 @@ def add_index_if_not_exists(table_name: str, column_name: str, index_name: str):
             [column_name],
         )
 
-        if column_exists == []:
+        if not column_exists:
             print(f"  - Column {column_name} does not exist in {table_name}, skipping index")
             return
 
@@ -269,7 +269,7 @@ def add_composite_index_if_not_exists(table_name: str, column_names: list, index
                 [column_name],
             )
 
-            if column_exists == []:
+            if not column_exists:
                 print(f"  - Column {column_name} does not exist in {table_name}, skipping composite index")
                 return
 

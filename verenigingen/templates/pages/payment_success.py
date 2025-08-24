@@ -154,7 +154,7 @@ def get_next_steps(status, doctype, docname):
                 "description": _(
                     "Your payment was not completed. You can try again with the same or different payment method."
                 ),
-                "action": f"/donate",
+                "action": "/donate",
             }
         )
 
