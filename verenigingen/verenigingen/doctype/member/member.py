@@ -3068,65 +3068,12 @@ def create_member_user_account(member_name, send_welcome_email=True):
 
 
 def add_member_roles_to_user(user_name):
-    """Add appropriate roles for a member user to access portal pages"""
+    """Add appropriate role profile for a member user to access portal pages"""
     try:
-        # Define the roles that members need for portal access
-        member_roles = [
-            "Verenigingen Member",  # Primary member role for all member access
-            "All",  # Standard role for basic system access
-        ]
+        # Use the shared member account service for consistency
+        from verenigingen.utils.member_account_service import add_member_roles_to_user as service_add_roles
 
-        # Check if Verenigingen Member role exists, create if not
-        if not frappe.db.exists("Role", "Verenigingen Member"):
-            create_verenigingen_member_role()
-
-        # Add roles to user
-        user = frappe.get_doc("User", user_name)
-
-        # Clear existing roles first to avoid conflicts
-        user.roles = []
-
-        for role in member_roles:
-            if not frappe.db.exists("Role", role):
-                frappe.logger().warning(f"Role {role} does not exist, skipping")
-                continue
-            # Always add the role since we cleared roles above
-            user.append("roles", {"role": role})
-
-        # Ensure user is enabled
-        if not user.enabled:
-            user.enabled = 1
-
-        # Save with validation handling
-        try:
-            # System operation: automated role assignment during user setup
-            user.save(ignore_permissions=True)  # JUSTIFIED: System operation
-            frappe.db.commit()  # Force immediate commit
-            frappe.logger().info(f"Added member roles to user {user_name}: {[r.role for r in user.roles]}")
-
-            # Force reload to ensure consistency
-            user.reload()
-
-            # Verify roles were saved
-            final_roles = [r.role for r in user.roles]
-            if len(final_roles) == 0:
-                frappe.logger().error(
-                    f"No roles found after saving user {user_name} - possible validation issue"
-                )
-                return None
-
-            return user.name
-
-        except Exception as save_error:
-            frappe.log_error(f"Error saving user {user_name} with roles: {str(save_error)}")
-            # Try to save without roles as fallback
-            user.roles = []
-            user.append("roles", {"role": "All"})  # Minimal role
-            # System operation: fallback role assignment during error recovery
-            user.save(ignore_permissions=True)  # JUSTIFIED: System operation
-            frappe.logger().warning(f"Saved user {user_name} with minimal roles due to error")
-            return user.name
-
+        return service_add_roles(user_name)
     except Exception as e:
         frappe.log_error(f"Error adding roles to user {user_name}: {str(e)}")
         return None

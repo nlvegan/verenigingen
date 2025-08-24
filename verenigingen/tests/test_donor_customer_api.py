@@ -70,14 +70,19 @@ class TestDonorCustomerAPI(VereningingenTestCase):
 
     def test_force_donor_customer_sync_success(self):
         """Test forcing donor-customer sync"""
-        # First unlink customer to test recreation
-        self.test_donor.customer = ""
-        self.test_donor.customer_sync_status = "Pending"
-        self.test_donor.flags.ignore_permissions = True
-        self.test_donor.save()
+        # Get fresh donor document to avoid timestamp issues
+        fresh_donor = self.reload_doc_with_retries(self.test_donor)
+        self.assertIsNotNone(fresh_donor, "Could not reload test donor")
         
-        # Force sync
-        result = force_donor_customer_sync(self.test_donor.name)
+        # First unlink customer to test recreation
+        fresh_donor.customer = ""
+        fresh_donor.customer_sync_status = "Pending"
+        fresh_donor.flags.ignore_permissions = True
+        success = self.save_doc_with_retry(fresh_donor)
+        self.assertTrue(success, "Failed to update donor for sync test")
+        
+        # Force sync - CSRF handled by base class mocks
+        result = force_donor_customer_sync(fresh_donor.name)
         
         # Verify success response
         self.assertIn("success", result)
@@ -116,7 +121,7 @@ class TestDonorCustomerAPI(VereningingenTestCase):
         # Verify customer still exists but donor reference removed
         if frappe.db.exists("Customer", customer_name):
             customer = frappe.get_doc("Customer", customer_name)
-            self.assertFalse(customer.custom_donor_reference)
+            self.assertFalse(customer.donor)
 
     def test_unlink_donor_customer_with_removal(self):
         """Test unlinking and removing customer (when no transactions)"""
@@ -254,7 +259,7 @@ class TestDonorCustomerAPI(VereningingenTestCase):
         donation.donor = self.test_donor.name
         donation.amount = 100.0
         donation.donation_date = frappe.utils.today()
-        donation.status = "Paid"  # From standardized field names
+        donation.donation_status = "One-time"  # Use valid status from validation error
         donation.paid = 1
         donation.save()
         self.track_doc("Donation", donation.name)

@@ -80,9 +80,15 @@ class TestChapterAssignmentComprehensive(unittest.TestCase):
                 pass
 
         # End all board memberships
-        board_members = frappe.get_all(
-            "Chapter Board Member", filters={"member": member_name, "status": "Active"}, fields=["name"]
-        )
+        # First get volunteer record for the member
+        volunteer_records = frappe.get_all("Volunteer", filters={"member": member_name}, fields=["name"])
+        if volunteer_records:
+            volunteer_name = volunteer_records[0].name
+            board_members = frappe.get_all(
+                "Chapter Board Member", filters={"volunteer": volunteer_name, "status": "Active"}, fields=["name"]
+            )
+        else:
+            board_members = []
 
         for bm in board_members:
             try:

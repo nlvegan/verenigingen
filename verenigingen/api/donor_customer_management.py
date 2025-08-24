@@ -147,7 +147,7 @@ def unlink_donor_customer(donor_name, remove_customer=False):
 
         # Remove donor reference from customer
         if frappe.db.exists("Customer", customer_name):
-            frappe.db.set_value("Customer", customer_name, "custom_donor_reference", "")
+            frappe.db.set_value("Customer", customer_name, "donor", "")
 
             # Delete customer if requested and it has no transactions
             if remove_customer:

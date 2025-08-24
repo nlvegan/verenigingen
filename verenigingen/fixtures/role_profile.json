@@ -2,14 +2,18 @@
   {
     "doctype": "Role Profile",
     "docstatus": 0,
-    "name": "Verenigingen Chapter Board",
-    "role_profile": "Verenigingen Chapter Board",
+    "name": "Verenigingen Board Member",
+    "role_profile": "Verenigingen Board Member",
+    "module_profile": "Verenigingen Board Member",
     "roles": [
       {
         "role": "Verenigingen Member"
       },
       {
         "role": "Verenigingen Chapter Board Member"
+      },
+      {
+        "role": "Verenigingen Volunteer"
       },
       {
         "role": "Employee"
@@ -19,6 +23,12 @@
       },
       {
         "role": "Projects User"
+      },
+      {
+        "role": "Projects Manager"
+      },
+      {
+        "role": "Expense Approver"
       }
     ]
   },
@@ -27,9 +37,13 @@
     "docstatus": 0,
     "name": "Verenigingen Auditor",
     "role_profile": "Verenigingen Auditor",
+    "module_profile": "Verenigingen Auditor",
     "roles": [
       {
         "role": "Verenigingen Member"
+      },
+      {
+        "role": "Verenigingen Volunteer"
       },
       {
         "role": "Employee"
@@ -44,6 +58,7 @@
     "docstatus": 0,
     "name": "Verenigingen Volunteer",
     "role_profile": "Verenigingen Volunteer",
+    "module_profile": "Verenigingen Volunteer",
     "roles": [
       {
         "role": "Verenigingen Member"
@@ -56,6 +71,9 @@
       },
       {
         "role": "Employee Self Service"
+      },
+      {
+        "role": "Projects User"
       }
     ]
   },
@@ -84,12 +102,13 @@
     "docstatus": 0,
     "name": "Verenigingen Member",
     "role_profile": "Verenigingen Member",
+    "module_profile": "Verenigingen Member",
     "roles": [
       {
         "role": "Verenigingen Member"
       },
       {
-        "role": "Employee"
+        "role": "All"
       }
     ]
   },
@@ -98,6 +117,7 @@
     "docstatus": 0,
     "name": "Verenigingen Treasurer",
     "role_profile": "Verenigingen Treasurer",
+    "module_profile": "Verenigingen Treasurer",
     "roles": [
       {
         "role": "Verenigingen Member"
@@ -106,7 +126,25 @@
         "role": "Verenigingen Staff"
       },
       {
-        "role": "Accounts User"
+        "role": "Accounts Manager"
+      },
+      {
+        "role": "Purchase Manager"
+      },
+      {
+        "role": "Sales Manager"
+      },
+      {
+        "role": "Stock Manager"
+      },
+      {
+        "role": "Verenigingen Chapter Board Member"
+      },
+      {
+        "role": "Verenigingen National Board Member"
+      },
+      {
+        "role": "Projects Manager"
       },
       {
         "role": "Employee"
@@ -115,18 +153,22 @@
         "role": "Employee Self Service"
       },
       {
-        "role": "Sales User"
+        "role": "Verenigingen Financial Manager"
       },
       {
-        "role": "Verenigingen Financial Manager"
+        "role": "Dashboard Manager"
+      },
+      {
+        "role": "Expense Approver"
       }
     ]
   },
   {
     "doctype": "Role Profile",
     "docstatus": 0,
-    "name": "Verenigingen Chapter Administrator",
-    "role_profile": "Verenigingen Chapter Administrator",
+    "name": "Verenigingen National Board Member",
+    "role_profile": "Verenigingen National Board Member",
+    "module_profile": "Verenigingen National Board Member",
     "roles": [
       {
         "role": "Verenigingen Member"
@@ -138,6 +180,9 @@
         "role": "Verenigingen Chapter Board Member"
       },
       {
+        "role": "Verenigingen Volunteer"
+      },
+      {
         "role": "Employee"
       },
       {
@@ -147,7 +192,16 @@
         "role": "Projects User"
       },
       {
+        "role": "Projects Manager"
+      },
+      {
+        "role": "Expense Approver"
+      },
+      {
         "role": "Website Manager"
+      },
+      {
+        "role": "Auditor"
       }
     ]
   },
@@ -235,6 +289,55 @@
       },
       {
         "role": "Verenigingen Kascommissie"
+      }
+    ]
+  },
+  {
+    "doctype": "Role Profile",
+    "docstatus": 0,
+    "name": "Verenigingen Administrator",
+    "role_profile": "Verenigingen Administrator",
+    "roles": [
+      {
+        "role": "Verenigingen Administrator"
+      },
+      {
+        "role": "Verenigingen Member"
+      },
+      {
+        "role": "Verenigingen Staff"
+      },
+      {
+        "role": "Employee"
+      },
+      {
+        "role": "System Manager"
+      }
+    ]
+  },
+  {
+    "doctype": "Role Profile",
+    "docstatus": 0,
+    "name": "Verenigingen Staff",
+    "role_profile": "Verenigingen Staff",
+    "roles": [
+      {
+        "role": "Verenigingen Staff"
+      },
+      {
+        "role": "Verenigingen Member"
+      },
+      {
+        "role": "Employee"
+      },
+      {
+        "role": "Employee Self Service"
+      },
+      {
+        "role": "Projects User"
+      },
+      {
+        "role": "Support Team"
       }
     ]
   }

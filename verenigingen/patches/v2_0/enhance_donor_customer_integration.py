@@ -80,11 +80,11 @@ def link_existing_customers_to_donors():
         """
         SELECT
             c.name as customer_name,
-            c.custom_donor_reference as donor_name
+            c.donor as donor_name
         FROM `tabCustomer` c
-        LEFT JOIN `tabDonor` d ON d.name = c.custom_donor_reference
-        WHERE c.custom_donor_reference IS NOT NULL
-        AND c.custom_donor_reference != ''
+        LEFT JOIN `tabDonor` d ON d.name = c.donor
+        WHERE c.donor IS NOT NULL
+        AND c.donor != ''
         AND (d.customer IS NULL OR d.customer = '')
     """,
         as_dict=True,

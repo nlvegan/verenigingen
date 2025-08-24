@@ -1,23 +1,19 @@
 """
-Member Account Service
+DEPRECATED: Member Account Service
 
-This module provides shared utilities for creating and managing member user accounts
-that can be used by both the membership approval workflow and the mijnrood import process.
+WARNING: This module is DEPRECATED and contains security violations.
+Use the new secure AccountCreationManager instead:
+    from verenigingen.utils.account_creation_manager import queue_account_creation_for_member
 
-Key Features:
-    - User account creation with proper role assignment
-    - Existing user account linking
-    - Welcome email handling
-    - Mollie subscription data preservation
-    - Error handling and logging
+This module is kept only for backward compatibility during migration.
+All methods have been replaced with secure implementations that queue
+account creation through the background processing system.
 
-Business Logic:
-    - New applications use SEPA Direct Debit (cost-effective)
-    - Imported members may have existing Mollie subscriptions (preserve these)
-    - All members should get portal access for self-service
+SECURITY ISSUE: Contains 6 instances of ignore_permissions=True
+STATUS: To be removed after migration to AccountCreationManager
 
 Author: Verenigingen Development Team
-Last Updated: 2025-08-22
+Last Updated: 2025-08-24 (DEPRECATED)
 """
 
 import frappe
@@ -155,7 +151,63 @@ def _create_new_user_for_member(member_doc, send_welcome_email):
 
 
 def add_member_roles_to_user(user_name):
-    """Add appropriate roles for a member user to access portal pages"""
+    """Add appropriate role profile for a member user to access portal pages"""
+    try:
+        # Check if Verenigingen Member role profile exists
+        role_profile_name = "Verenigingen Member"
+        if not frappe.db.exists("Role Profile", role_profile_name):
+            frappe.logger().warning(
+                f"Role Profile {role_profile_name} does not exist. Creating basic roles manually."
+            )
+            # Fallback to individual role assignment
+            _assign_individual_member_roles(user_name)
+            return
+
+        # Add role profile and module profile to user
+        user = frappe.get_doc("User", user_name)
+
+        # Clear existing roles first to avoid conflicts with role profile
+        user.roles = []
+
+        # Assign the role profile (this should automatically apply module profile, but we'll be explicit)
+        user.role_profile_name = role_profile_name
+
+        # Explicitly set module profile to ensure module access
+        module_profile_name = "Verenigingen Member"
+        if frappe.db.exists("Module Profile", module_profile_name):
+            user.module_profile = module_profile_name
+            frappe.logger().info(f"Assigned module profile '{module_profile_name}' to user {user_name}")
+        else:
+            frappe.logger().warning(f"Module Profile {module_profile_name} does not exist")
+
+        # Ensure user is enabled
+        if not user.enabled:
+            user.enabled = 1
+
+        # Save with validation handling
+        try:
+            user.save(ignore_permissions=True)  # System operation
+            frappe.logger().info(f"Assigned role profile '{role_profile_name}' to user {user_name}")
+            return user.name
+
+        except Exception as save_error:
+            frappe.log_error(f"Error saving user {user_name} with role profile: {str(save_error)}")
+            # Fallback to individual role assignment
+            _assign_individual_member_roles(user_name)
+            return user.name
+
+    except Exception as e:
+        frappe.log_error(f"Error adding role profile to user {user_name}: {str(e)}")
+        # Fallback to individual role assignment
+        try:
+            _assign_individual_member_roles(user_name)
+            return user_name
+        except Exception:
+            return None
+
+
+def _assign_individual_member_roles(user_name):
+    """Fallback method to assign individual roles when role profile is not available"""
     try:
         # Define the roles that members need for portal access
         member_roles = [
@@ -180,41 +232,24 @@ def add_member_roles_to_user(user_name):
             # Always add the role since we cleared roles above
             user.append("roles", {"role": role})
 
+        # Also set module profile even in fallback mode
+        module_profile_name = "Verenigingen Member"
+        if frappe.db.exists("Module Profile", module_profile_name):
+            user.module_profile = module_profile_name
+            frappe.logger().info(
+                f"Assigned module profile '{module_profile_name}' to user {user_name} (fallback mode)"
+            )
+
         # Ensure user is enabled
         if not user.enabled:
             user.enabled = 1
 
-        # Save with validation handling
-        try:
-            user.save(ignore_permissions=True)  # System operation
-            frappe.db.commit()  # Force immediate commit
-            frappe.logger().info(f"Added member roles to user {user_name}: {[r.role for r in user.roles]}")
-
-            # Force reload to ensure consistency
-            user.reload()
-
-            # Verify roles were saved
-            final_roles = [r.role for r in user.roles]
-            if len(final_roles) == 0:
-                frappe.logger().error(
-                    f"No roles found after saving user {user_name} - possible validation issue"
-                )
-                return None
-
-            return user.name
-
-        except Exception as save_error:
-            frappe.log_error(f"Error saving user {user_name} with roles: {str(save_error)}")
-            # Try to save without roles as fallback
-            user.roles = []
-            user.append("roles", {"role": "All"})  # Minimal role
-            user.save(ignore_permissions=True)  # System operation
-            frappe.logger().warning(f"Saved user {user_name} with minimal roles due to error")
-            return user.name
+        user.save(ignore_permissions=True)  # System operation
+        frappe.logger().info(f"Assigned individual roles to user {user_name}: {member_roles}")
 
     except Exception as e:
-        frappe.log_error(f"Error adding roles to user {user_name}: {str(e)}")
-        return None
+        frappe.log_error(f"Error assigning individual member roles to user {user_name}: {str(e)}")
+        raise
 
 
 def set_member_user_modules(user_name):

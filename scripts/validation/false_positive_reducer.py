@@ -222,7 +222,7 @@ class FalsePositiveReducer(UltimateFieldValidator):
         # Only exclude specific known test fields that are commonly problematic
         known_test_fields = {
             'approved_date', 'submission_date', 'paid_date', 'payment_reference', 
-            'custom_donor_reference', 'ensure_donor_customer_group'
+            'donor', 'ensure_donor_customer_group'
         }
         
         # Only if it's a known test field AND in a test assertion context

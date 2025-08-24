@@ -182,14 +182,17 @@ class ChapterJoinRequest(Document):
         try:
             # Get chapter board members
             board_members = frappe.get_all(
-                "Chapter Board Member", filters={"parent": self.chapter, "enabled": 1}, fields=["member"]
+                "Chapter Board Member", filters={"parent": self.chapter, "enabled": 1}, fields=["volunteer"]
             )
 
             recipients = []
             for board_member in board_members:
-                member_email = frappe.db.get_value("Member", board_member.member, "email")
-                if member_email:
-                    recipients.append(member_email)
+                # Get the member from the volunteer record
+                volunteer_member = frappe.db.get_value("Volunteer", board_member.volunteer, "member")
+                if volunteer_member:
+                    member_email = frappe.db.get_value("Member", volunteer_member, "email")
+                    if member_email:
+                        recipients.append(member_email)
 
             # Also notify chapter managers
             managers = frappe.get_all(

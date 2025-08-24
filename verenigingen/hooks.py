@@ -483,6 +483,18 @@ doc_events = {
     "Volunteer Expense": {
         "before_submit": "verenigingen.utils.chapter_role_events.before_volunteer_expense_submit",
     },
+    # Team Member role profile automation
+    "Team Member": {
+        "after_insert": "verenigingen.utils.team_role_profile_manager.on_team_member_add",
+        "before_delete": "verenigingen.utils.team_role_profile_manager.on_team_member_remove",
+        "on_update": "verenigingen.utils.team_role_profile_manager.on_team_member_update",
+    },
+    # Chapter Board Member role profile automation
+    "Chapter Board Member": {
+        "after_insert": "verenigingen.utils.chapter_role_profile_manager.on_chapter_board_member_add",
+        "before_delete": "verenigingen.utils.chapter_role_profile_manager.on_chapter_board_member_remove",
+        "on_update": "verenigingen.utils.chapter_role_profile_manager.on_chapter_board_member_update",
+    },
 }
 
 # Scheduled Tasks
@@ -811,11 +823,12 @@ fixtures = [
                 "name",
                 "in",
                 [
-                    "Verenigingen Basic Access",
-                    "Verenigingen Volunteer Access",
-                    "Verenigingen Financial Access",
-                    "Verenigingen Management Access",
-                    "Verenigingen Audit Access",
+                    "Verenigingen Member",
+                    "Verenigingen Volunteer",
+                    "Verenigingen Board Member",
+                    "Verenigingen Auditor",
+                    "Verenigingen National Board Member",
+                    "Verenigingen Treasurer",
                 ],
             ]
         ],

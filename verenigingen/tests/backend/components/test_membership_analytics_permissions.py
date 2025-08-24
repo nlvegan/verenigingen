@@ -25,7 +25,7 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
         ])
         
         cls.board_member_user = cls.create_test_user("board@test.com", [
-            "National Board Member"
+            "Verenigingen National Board Member"
         ])
         
         cls.regular_member_user = cls.create_test_user("member@test.com", [

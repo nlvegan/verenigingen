@@ -194,7 +194,7 @@ def has_existing_donor(customer_name):
         return True
 
     # Check by customer reference field
-    if frappe.db.exists("Customer", {"name": customer_name, "custom_donor_reference": ("!=", "")}):
+    if frappe.db.exists("Customer", {"name": customer_name, "donor": ("!=", "")}):
         return True
 
     return False
@@ -260,10 +260,10 @@ def create_donor_from_customer(customer_doc, donation_amount, reference_doc):
 
         # Update customer with donor reference (if field exists)
         try:
-            frappe.db.set_value("Customer", customer_doc.name, "custom_donor_reference", donor.name)
+            frappe.db.set_value("Customer", customer_doc.name, "donor", donor.name)
         except Exception as e:
             frappe.logger().warning(
-                f"Could not set custom_donor_reference on customer {customer_doc.name}: {str(e)}"
+                f"Could not set donor reference on customer {customer_doc.name}: {str(e)}"
             )
 
         frappe.logger().info(

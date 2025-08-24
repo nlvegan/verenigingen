@@ -3,12 +3,12 @@
   "doctype": "Team",
   "name": "Kascommissie",
   "team_name": "Kascommissie",
-  "description": "Audit committee responsible for financial oversight, reviewing accounting practices, ensuring compliance with financial regulations, and providing independent financial audit services for the association.",
+  "description": "Audit committee responsible for financial oversight, reviewing accounting practices, ensuring compliance with financial regulations, and providing independent financial audit services for the association. Members automatically receive the 'Verenigingen Auditor' role profile for read-only financial access.",
   "status": "Active",
   "team_type": "Committee",
   "is_association_wide": 1,
   "start_date": "2024-01-01",
-  "objectives": "<p>The Kascommissie (Audit Committee) provides independent oversight of the association's financial operations, ensuring:</p><ul><li>Accuracy and completeness of financial records</li><li>Compliance with accounting standards and regulations</li><li>Proper internal controls and risk management</li><li>Independent review of financial statements</li><li>Oversight of external audit processes</li><li>Detection and prevention of financial irregularities</li></ul>",
+  "objectives": "<p>The Kascommissie (Audit Committee) provides independent oversight of the association's financial operations, ensuring:</p><ul><li>Accuracy and completeness of financial records</li><li>Compliance with accounting standards and regulations</li><li>Proper internal controls and risk management</li><li>Independent review of financial statements</li><li>Oversight of external audit processes</li><li>Detection and prevention of financial irregularities</li></ul><p><strong>Automatic Role Assignment:</strong> Team members automatically receive the 'Verenigingen Auditor' role profile, providing read-only access to financial data and volunteer participation capabilities.</p>",
   "team_members": [],
   "key_responsibilities": [
    {

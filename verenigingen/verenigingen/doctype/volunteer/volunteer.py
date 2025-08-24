@@ -173,11 +173,13 @@ class Volunteer(Document):
 
     def after_insert(self):
         """Actions after inserting new volunteer record"""
-        # Automatically create employee record for expense functionality
-        self.create_employee_if_needed()
-
-        # Assign Volunteer role to the user
-        self.assign_volunteer_role()
+        # Queue secure account creation instead of immediate processing
+        if self.email:
+            self.queue_secure_account_creation()
+        else:
+            frappe.logger().warning(
+                f"No email provided for volunteer {self.name} - skipping account creation"
+            )
 
     def update_status(self):
         """Update volunteer status based on assignments"""
@@ -868,92 +870,7 @@ class Volunteer(Document):
 
         return total_hours
 
-    @frappe.whitelist()
-    def create_minimal_employee(self):
-        """Create a minimal employee record for ERPNext integration using native ERPNext system"""
-        try:
-            # Check if employee already exists
-            if self.employee_id:
-                if frappe.db.exists("Employee", self.employee_id):
-                    return self.employee_id
-                else:
-                    # Employee ID exists but record is missing - clear it
-                    self.employee_id = None
-
-            # Get default company
-            default_company = frappe.defaults.get_global_default("company")
-            if not default_company:
-                companies = frappe.get_all("Company", limit=1, fields=["name"])
-                default_company = companies[0].name if companies else None
-
-            if not default_company:
-                frappe.throw(_("No company configured in the system. Please contact the administrator."))
-
-            # Parse volunteer name for first/last name
-            name_parts = self.volunteer_name.split() if self.volunteer_name else ["Volunteer"]
-            first_name = name_parts[0] if name_parts else "Volunteer"
-            last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
-
-            # Get expense approver based on volunteer's board positions and teams (native ERPNext approach)
-            expense_approver = self.get_expense_approver_from_assignments()
-
-            # Create minimal employee record with required fields
-            employee_data = {
-                "doctype": "Employee",
-                "employee_name": self.volunteer_name,
-                "first_name": first_name,  # Required field
-                "last_name": last_name,
-                "company": default_company,
-                "status": "Active",
-                "gender": "Prefer not to say",  # Required field with default
-                "date_of_birth": "1990-01-01",  # Required field with default
-                "date_of_joining": frappe.utils.today(),  # Required field with today's date
-                "expense_approver": expense_approver,  # Direct approver assignment (native ERPNext)
-            }
-
-            # Add optional fields if available
-            if self.email:
-                employee_data["personal_email"] = self.email
-
-            if self.personal_email:
-                employee_data["company_email"] = self.personal_email
-
-            # Create employee record
-            employee = frappe.get_doc(employee_data)
-            employee.insert(ignore_permissions=True)
-
-            # Assign limited employee role for expense declarations
-            self.assign_employee_role(employee.name)
-
-            # Update volunteer record with employee ID
-            self.employee_id = employee.name
-            self.save(ignore_permissions=True)
-
-            # Also update linked Member record with employee ID
-            if self.member:
-                try:
-                    member_doc = frappe.get_doc("Member", self.member)
-                    member_doc.employee = employee.name
-                    member_doc.save(ignore_permissions=True)
-                    frappe.logger().info(f"Updated Member {self.member} with employee ID {employee.name}")
-                except Exception as e:
-                    frappe.log_error(
-                        f"Error updating Member {self.member} with employee ID: {str(e)}",
-                        "Member Update Error",
-                    )
-
-            frappe.logger().info(
-                f"Created minimal employee {employee.name} for volunteer {self.name} with approver {expense_approver}"
-            )
-
-            return employee.name
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error creating minimal employee for volunteer {self.name}: {str(e)}",
-                "Employee Creation Error",
-            )
-            frappe.throw(_("Unable to create employee record: {0}").format(str(e)))
+    # Removed create_minimal_employee method - now handled by secure AccountCreationManager
 
     def get_expense_approver_from_assignments(self):
         """Get appropriate expense approver based on volunteer's assignments (native ERPNext approach)"""
@@ -1053,114 +970,55 @@ class Volunteer(Document):
 
         return None
 
-    def ensure_user_has_expense_approver_role(self, user_email):
-        """Ensure user has expense approver role for ERPNext expense claims"""
+    # Removed ensure_user_has_expense_approver_role method - now handled by secure AccountCreationManager
+
+    # Removed assign_employee_role method - now handled by secure AccountCreationManager
+
+    def queue_secure_account_creation(self):
+        """Queue secure account creation through the AccountCreationManager"""
         try:
-            user = frappe.get_doc("User", user_email)
-            user_roles = [r.role for r in user.roles]
+            # Import the account creation manager
+            from verenigingen.utils.account_creation_manager import queue_account_creation_for_volunteer
 
-            if "Expense Approver" not in user_roles:
-                user.append("roles", {"role": "Expense Approver"})
-                user.save(ignore_permissions=True)
-                frappe.logger().info(f"Added Expense Approver role to user {user_email}")
-        except Exception as e:
-            frappe.log_error(
-                f"Error adding expense approver role to {user_email}: {str(e)}", "Role Assignment Error"
-            )
+            frappe.logger().info(f"Queueing secure account creation for volunteer {self.name}")
 
-    def assign_employee_role(self, employee_id):
-        """Assign limited employee role to the user for expense declarations"""
-        try:
-            if not self.email:
-                frappe.logger().warning(f"No email for volunteer {self.name}, cannot assign employee role")
-                return
+            # Queue account creation with proper security validation
+            result = queue_account_creation_for_volunteer(volunteer_name=self.name, priority="Normal")
 
-            # Check if user exists
-            if not frappe.db.exists("User", self.email):
-                frappe.logger().warning(f"User {self.email} does not exist, cannot assign employee role")
-                return
+            frappe.logger().info(f"Account creation queued successfully: {result['request_name']}")
 
-            user_doc = frappe.get_doc("User", self.email)
-
-            # Define the limited employee role
-            employee_role = "Employee"
-
-            # Check if user already has the role
-            existing_roles = [role.role for role in user_doc.roles]
-            if employee_role not in existing_roles:
-                # Add the employee role
-                user_doc.append("roles", {"role": employee_role})
-                user_doc.save(ignore_permissions=True)
-                frappe.logger().info(
-                    f"Assigned {employee_role} role to user {self.email} for volunteer {self.name}"
+            # Optionally notify the user about the process
+            if frappe.session.user != "Administrator":
+                frappe.publish_realtime(
+                    "volunteer_account_creation_queued",
+                    {
+                        "volunteer_name": self.name,
+                        "request_name": result["request_name"],
+                        "message": "Account creation has been queued and will be processed shortly",
+                    },
+                    user=frappe.session.user,
                 )
-            else:
-                frappe.logger().info(f"User {self.email} already has {employee_role} role")
 
         except Exception as e:
+            # Don't fail volunteer creation if account creation queueing fails
+            frappe.logger().error(f"Failed to queue account creation for volunteer {self.name}: {str(e)}")
             frappe.log_error(
-                f"Error assigning employee role for volunteer {self.name}: {str(e)}", "Role Assignment Error"
+                f"Account creation queueing failed for volunteer {self.name}: {str(e)}",
+                "Volunteer Account Creation Queue Error",
             )
-            # Don't throw here as this is not critical for volunteer creation
 
-    def assign_volunteer_role(self):
-        """Assign Volunteer role to the user when volunteer record is created"""
-        try:
-            if not self.email:
-                frappe.logger().warning(f"No email for volunteer {self.name}, cannot assign Volunteer role")
-                return
 
-            # Check if user exists
-            if not frappe.db.exists("User", self.email):
-                frappe.logger().warning(f"User {self.email} does not exist, cannot assign Volunteer role")
-                return
+@frappe.whitelist()
+def create_from_member(member):
+    """Wrapper function for JavaScript compatibility
 
-            user_doc = frappe.get_doc("User", self.email)
+    Args:
+        member: Member name to create volunteer from
 
-            # Check if user already has Volunteer role
-            if "Volunteer" not in [role.role for role in user_doc.roles]:
-                # Add Volunteer role
-                user_doc.append("roles", {"role": "Volunteer"})
-                user_doc.save(ignore_permissions=True)
-                frappe.logger().info(f"Assigned Volunteer role to {self.email}")
-            else:
-                frappe.logger().info(f"User {self.email} already has Volunteer role")
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error assigning Volunteer role for volunteer {self.name}: {str(e)}", "Role Assignment Error"
-            )
-            # Don't throw here as this is not critical for volunteer creation
-
-    def create_employee_if_needed(self):
-        """Create employee record if it doesn't exist, for automatic expense functionality"""
-        try:
-            # Only create employee if volunteer has email and no existing employee
-            if self.email and not self.employee_id:
-                # Check if this volunteer is linked to a member with pending application
-                if self.member:
-                    member = frappe.get_doc("Member", self.member)
-                    if member.application_status == "Pending":
-                        frappe.logger().info(
-                            f"Skipping employee creation for volunteer {self.name} - member application still pending approval"
-                        )
-                        return
-
-                frappe.logger().info(f"Auto-creating employee record for new volunteer: {self.name}")
-                # Use enhanced employee creation that includes user linking
-                from verenigingen.utils.employee_user_link import enhanced_create_minimal_employee
-
-                employee_id = enhanced_create_minimal_employee(self)
-                if employee_id:
-                    frappe.logger().info(
-                        f"Successfully auto-created employee {employee_id} for volunteer {self.name}"
-                    )
-                else:
-                    frappe.logger().warning(f"Failed to auto-create employee for volunteer {self.name}")
-        except Exception as e:
-            frappe.log_error(
-                f"Error creating employee for volunteer {self.name}: {str(e)}", "Employee Creation Error"
-            )
+    Returns:
+        dict: Result from create_volunteer_from_member
+    """
+    return create_volunteer_from_member(member)
 
 
 @frappe.whitelist()
@@ -1275,34 +1133,9 @@ def create_volunteer_from_member(member_name, volunteer_name=None, status="New",
                             },
                         )
 
-        # Save volunteer with proper permissions
-        try:
-            # Try to insert with normal permissions first
-            volunteer.insert()
-        except frappe.PermissionError:
-            # If permission is denied, check if user should be allowed to create this volunteer
-            current_user = frappe.session.user
-            user_roles = frappe.get_roles(current_user)
-
-            # Allow if user has management roles or is creating for themselves
-            management_roles = [
-                "System Manager",
-                "Verenigingen Administrator",
-                "Verenigingen Volunteer Manager",
-                "Verenigingen Chapter Board Member",
-                "Volunteer Coordinator",
-            ]
-
-            user_member = frappe.db.get_value("Member", {"user": current_user}, "name")
-            is_creating_for_self = user_member == member.name
-            has_management_role = any(role in user_roles for role in management_roles)
-
-            if is_creating_for_self or has_management_role:
-                # Use ignore_permissions only when we've verified the user should have access
-                volunteer.insert(ignore_permissions=True)
-            else:
-                # Re-raise the permission error if user truly shouldn't have access
-                raise
+        # Save volunteer with proper permissions - no bypasses
+        # User must have proper permissions to create volunteer records
+        volunteer.insert()
 
         return {
             "success": True,

@@ -457,16 +457,11 @@ class EnhancedTestDataFactory:
             # Continue without meta validation - let document validation catch issues
         
         try:
-            skill = frappe.get_doc({
-                "doctype": "Volunteer Skill",
-                "parent": volunteer_name,
-                "parenttype": "Verenigingen Volunteer",
-                "parentfield": "skills_and_qualifications",
-                **data
-            })
-            
-            skill.insert()
-            return skill
+            # Follow Frappe best practices: create child table through parent document
+            volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
+            skill_row = volunteer_doc.append("skills_and_qualifications", data)
+            volunteer_doc.save()
+            return skill_row
         except Exception as e:
             raise Exception(f"Failed to create volunteer skill: {e}")
             
@@ -732,6 +727,193 @@ class EnhancedTestDataFactory:
         team.save()
         
         return team.team_members[-1]  # Return the added team member record
+    
+    def create_account_creation_request(self, source_record=None, request_type="Member", **kwargs):
+        """Create account creation request with validation"""
+        # Create source record if not provided
+        if not source_record:
+            if request_type == "Member":
+                member = self.create_member()
+                source_record = member.name
+                email = member.email
+                full_name = member.full_name
+            elif request_type == "Volunteer":
+                member = self.create_member()
+                volunteer = self.create_volunteer(member_name=member.name)
+                source_record = volunteer.name
+                email = volunteer.email
+                full_name = volunteer.volunteer_name
+            else:
+                raise ValueError(f"Unsupported request type: {request_type}")
+        else:
+            # Get email and name from source record
+            source_doc = frappe.get_doc(request_type, source_record)
+            if request_type == "Member":
+                email = source_doc.email
+                full_name = source_doc.full_name
+            elif request_type == "Volunteer":
+                email = source_doc.email
+                full_name = source_doc.volunteer_name
+        
+        # Validate fields
+        for field in kwargs.keys():
+            self.validate_field_exists("Account Creation Request", field)
+            
+        defaults = {
+            "request_type": request_type,
+            "source_record": source_record,
+            "email": email,
+            "full_name": full_name,
+            "priority": "Normal",
+            "business_justification": f"Test account creation for {request_type.lower()}",
+        }
+        
+        # Set default roles based on request type
+        if request_type == "Member":
+            defaults["role_profile"] = "Verenigingen Member"
+            default_roles = [{"role": "Verenigingen Member"}]
+        elif request_type == "Volunteer":
+            defaults["role_profile"] = "Verenigingen Volunteer"
+            default_roles = [
+                {"role": "Verenigingen Volunteer"},
+                {"role": "Employee"},
+                {"role": "Employee Self Service"}
+            ]
+        else:
+            default_roles = []
+            
+        data = {**defaults, **kwargs}
+        
+        try:
+            request = frappe.get_doc({
+                "doctype": "Account Creation Request",
+                **data
+            })
+            
+            # Add requested roles if not provided in kwargs
+            if "requested_roles" not in kwargs and default_roles:
+                for role_data in default_roles:
+                    request.append("requested_roles", role_data)
+            
+            request.insert()
+            return request
+        except Exception as e:
+            raise Exception(f"Failed to create account creation request: {e}")
+    
+    def create_user_with_roles(self, email=None, roles=None, **kwargs):
+        """Create user with specific roles for testing"""
+        if not email:
+            email = self.generate_test_email("user")
+            
+        if not roles:
+            roles = ["Verenigingen Member"]
+            
+        # Validate fields
+        for field in kwargs.keys():
+            self.validate_field_exists("User", field)
+            
+        defaults = {
+            "email": email,
+            "first_name": self.generate_test_name("User").split()[1],
+            "last_name": self.generate_test_name("User").split()[2],
+            "enabled": 1,
+            "user_type": "System User"
+        }
+        
+        data = {**defaults, **kwargs}
+        
+        try:
+            user = frappe.get_doc({
+                "doctype": "User",
+                **data
+            })
+            
+            # Add roles
+            for role in roles:
+                user.append("roles", {"role": role})
+            
+            # Set administrator context for test data creation
+            current_user = frappe.session.user
+            try:
+                frappe.set_user("Administrator")
+                user.insert()
+                return user
+            finally:
+                frappe.set_user(current_user)
+        except Exception as e:
+            raise Exception(f"Failed to create user: {e}")
+    
+    def mock_redis_queue(self):
+        """Context manager for mocking Redis queue operations"""
+        from unittest.mock import patch
+        return patch('frappe.enqueue')
+    
+    def simulate_background_job_failure(self, error_type="timeout"):
+        """Simulate background job processing failures"""
+        error_messages = {
+            "timeout": "Connection timeout occurred",
+            "permission": "Permission denied for operation",
+            "validation": "Validation error in user creation",
+            "database": "Database connection error",
+            "network": "Network error occurred"
+        }
+        
+        return error_messages.get(error_type, f"Unknown error: {error_type}")
+    
+    def create_test_role_profile(self, profile_name, roles=None):
+        """Create role profile for testing"""
+        if frappe.db.exists("Role Profile", profile_name):
+            return frappe.get_doc("Role Profile", profile_name)
+            
+        if not roles:
+            roles = ["Verenigingen Member"]
+            
+        role_profile = frappe.get_doc({
+            "doctype": "Role Profile",
+            "role_profile": profile_name,
+        })
+        
+        for role in roles:
+            role_profile.append("roles", {"role": role})
+            
+        # Set administrator context for test data creation
+        current_user = frappe.session.user
+        try:
+            frappe.set_user("Administrator")
+            role_profile.insert()
+            return role_profile
+        finally:
+            frappe.set_user(current_user)
+    
+    def create_permission_test_scenario(self, authorized_roles=None, unauthorized_roles=None):
+        """Create comprehensive permission testing scenario"""
+        if not authorized_roles:
+            authorized_roles = ["System Manager", "Verenigingen Administrator"]
+        if not unauthorized_roles:
+            unauthorized_roles = ["Verenigingen Member", "Guest"]
+            
+        scenario = {
+            "authorized_users": [],
+            "unauthorized_users": []
+        }
+        
+        # Create authorized users
+        for role in authorized_roles:
+            user = self.create_user_with_roles(
+                email=self.generate_test_email(f"auth_{role.lower().replace(' ', '_')}"),
+                roles=[role]
+            )
+            scenario["authorized_users"].append(user)
+            
+        # Create unauthorized users
+        for role in unauthorized_roles:
+            user = self.create_user_with_roles(
+                email=self.generate_test_email(f"unauth_{role.lower().replace(' ', '_')}"),
+                roles=[role]
+            )
+            scenario["unauthorized_users"].append(user)
+            
+        return scenario
 
 
 class EnhancedTestCase(FrappeTestCase):
@@ -776,6 +958,30 @@ class EnhancedTestCase(FrappeTestCase):
         """Convenience method for ensuring team roles exist"""
         return self.factory.ensure_team_role(role_name, attributes)
         
+    def create_test_account_creation_request(self, source_record=None, request_type="Member", **kwargs):
+        """Convenience method for creating account creation requests"""
+        return self.factory.create_account_creation_request(source_record, request_type, **kwargs)
+        
+    def create_test_user_with_roles(self, email=None, roles=None, **kwargs):
+        """Convenience method for creating users with specific roles"""
+        return self.factory.create_user_with_roles(email, roles, **kwargs)
+        
+    def mock_redis_queue(self):
+        """Context manager for mocking Redis queue operations"""
+        return self.factory.mock_redis_queue()
+        
+    def simulate_background_job_failure(self, error_type="timeout"):
+        """Simulate background job processing failures"""
+        return self.factory.simulate_background_job_failure(error_type)
+        
+    def create_test_role_profile(self, profile_name, roles=None):
+        """Convenience method for creating role profiles"""
+        return self.factory.create_test_role_profile(profile_name, roles)
+        
+    def create_permission_test_scenario(self, authorized_roles=None, unauthorized_roles=None):
+        """Create comprehensive permission testing scenario"""
+        return self.factory.create_permission_test_scenario(authorized_roles, unauthorized_roles)
+        
     def assertBusinessRuleViolation(self, callable_obj, *args, **kwargs):
         """Assert that a business rule violation occurs"""
         with self.assertRaises(BusinessRuleError):
@@ -785,6 +991,11 @@ class EnhancedTestCase(FrappeTestCase):
         """Assert that a field validation error occurs"""
         from verenigingen.tests.fixtures.field_validator import FieldValidationError
         with self.assertRaises(FieldValidationError):
+            callable_obj(*args, **kwargs)
+            
+    def assertPermissionError(self, callable_obj, *args, **kwargs):
+        """Assert that a permission error occurs"""
+        with self.assertRaises(frappe.PermissionError):
             callable_obj(*args, **kwargs)
 
 

@@ -425,7 +425,7 @@ class Donation(Document):
         donor_doc = frappe.get_doc("Donor", self.donor)
 
         # Check if customer already exists for this donor
-        existing_customer = frappe.db.get_value("Customer", filters={"custom_donor_reference": self.donor})
+        existing_customer = frappe.db.get_value("Customer", filters={"donor": self.donor})
 
         if existing_customer:
             return existing_customer
@@ -438,7 +438,7 @@ class Donation(Document):
         customer.customer_group = "Donors"
 
         # Link back to donor
-        customer.custom_donor_reference = self.donor
+        customer.donor = self.donor
 
         # Copy contact information
         if hasattr(donor_doc, "donor_email") and donor_doc.donor_email:

@@ -249,9 +249,9 @@ class PerformanceTester:
                         volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
                         if volunteer_doc.member:
                             # Board assignments
-                            frappe.get_all("Chapter Board Member", filters={"member": volunteer_doc.member})
+                            frappe.get_all("Chapter Board Member", filters={"volunteer": volunteer_name})
                             # Team assignments
-                            frappe.get_all("Team Member", filters={"member": volunteer_doc.member})
+                            frappe.get_all("Team Member", filters={"volunteer": volunteer_name})
                             # Activities
                             frappe.get_all("Volunteer Activity", filters={"volunteer": volunteer_name})
 

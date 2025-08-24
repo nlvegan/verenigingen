@@ -88,7 +88,7 @@ def get_chapter_join_context(chapter_name):
                 "chapter": {
                     "name": chapter.name,
                     "route": chapter.route,
-                    "title": chapter.chapter_name or chapter.name,
+                    "title": chapter.name,
                 },
                 "already_member": False,
                 "user_logged_in": False,
@@ -203,9 +203,15 @@ def get_user_chapter_requests():
         return {"chapters": []}
 
     # Get chapters where user is a board member
-    board_memberships = frappe.get_all(
-        "Chapter Board Member", filters={"member": member, "enabled": 1}, fields=["parent"]
-    )
+    # First get volunteer record for the member
+    volunteer_records = frappe.get_all("Volunteer", filters={"member": member}, fields=["name"])
+
+    board_memberships = []
+    if volunteer_records:
+        volunteer_name = volunteer_records[0].name
+        board_memberships = frappe.get_all(
+            "Chapter Board Member", filters={"volunteer": volunteer_name, "enabled": 1}, fields=["parent"]
+        )
 
     chapter_names = [bm.parent for bm in board_memberships]
 

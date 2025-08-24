@@ -118,5 +118,7 @@ def validate_approver_permissions(approver_user):
 
             if not is_national_board:
                 frappe.throw(
-                    _("Secondary approver must be Verenigingen Administrator or National Board Member")
+                    _(
+                        "Secondary approver must be Verenigingen Administrator or Verenigingen National Board Member"
+                    )
                 )

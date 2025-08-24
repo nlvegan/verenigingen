@@ -96,16 +96,16 @@ def setup_verenigingen():
     make_custom_records()
     make_custom_fields()
 
-    has_domain = frappe.get_doc(
-        {
-            "doctype": "Has Domain",
-            "parent": "Domain Settings",
-            "parentfield": "active_domains",
-            "parenttype": "Domain Settings",
-            "domain": "Verenigingen",
-        }
-    )
-    has_domain.save()
+    # Follow Frappe best practices: create child table through parent document
+    try:
+        domain_settings = frappe.get_doc("Domain Settings")
+        # Check if domain already exists
+        existing_domain = any(domain.domain == "Verenigingen" for domain in domain_settings.active_domains)
+        if not existing_domain:
+            domain_settings.append("active_domains", {"domain": "Verenigingen"})
+            domain_settings.save()
+    except frappe.DoesNotExistError:
+        frappe.logger().warning("Domain Settings not found - skipping domain setup")
 
     domain = frappe.get_doc("Domain", "Verenigingen")
     domain.setup_domain()
@@ -147,8 +147,8 @@ def get_custom_fields():
         ],
         "Customer": [
             {
-                "fieldname": "custom_donor_reference",
-                "label": "Donor Reference",
+                "fieldname": "donor",
+                "label": "Donor",
                 "fieldtype": "Link",
                 "options": "Donor",
                 "insert_after": "customer_group",

@@ -178,7 +178,12 @@ class Donor(Document):
 
     def sync_with_customer(self):
         """Create or sync with corresponding Customer record"""
-        if self.flags.in_test or self.flags.ignore_customer_sync:
+        # Skip sync if explicitly disabled (to prevent loops)
+        if self.flags.ignore_customer_sync:
+            return
+
+        # During tests, only sync if explicitly enabled
+        if frappe.flags.get("in_test") and not self.flags.get("enable_customer_sync_in_test"):
             return
 
         try:
@@ -223,7 +228,7 @@ class Donor(Document):
             return self.customer
 
         # Look for customer with donor reference
-        existing_customer = frappe.db.get_value("Customer", {"custom_donor_reference": self.name}, "name")
+        existing_customer = frappe.db.get_value("Customer", {"donor": self.name}, "name")
 
         if existing_customer:
             return existing_customer
@@ -234,7 +239,7 @@ class Donor(Document):
 
             if email_customer:
                 # Link existing customer to this donor
-                frappe.db.set_value("Customer", email_customer, "custom_donor_reference", self.name)
+                frappe.db.set_value("Customer", email_customer, "donor", self.name)
                 return email_customer
 
         # Create new customer
@@ -266,7 +271,7 @@ class Donor(Document):
                 customer.mobile_no = self.phone
 
             # Link back to donor
-            customer.custom_donor_reference = self.name
+            customer.donor = self.name
 
             # Set flags to prevent validation loops
             customer.flags.ignore_mandatory = True
@@ -315,8 +320,8 @@ class Donor(Document):
                 changes_made = True
 
             # Ensure donor reference is set
-            if customer_doc.custom_donor_reference != self.name:
-                customer_doc.custom_donor_reference = self.name
+            if customer_doc.donor != self.name:
+                customer_doc.donor = self.name
                 changes_made = True
 
             # Save if changes were made

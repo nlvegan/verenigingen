@@ -1079,6 +1079,16 @@ class MembershipDuesSchedule(Document):
         invoice.custom_coverage_start_date = coverage_start
         invoice.custom_coverage_end_date = coverage_end
 
+        # ✅ FIX: Set membership-related fields for proper field visibility
+        invoice.is_membership_invoice = 1
+        invoice.membership_dues_schedule_display = self.name
+        invoice.custom_contribution_mode = getattr(self, "contribution_mode", "Regular")
+
+        # Link to member and membership records
+        invoice.member = self.member
+        if self.current_membership:
+            invoice.membership = self.current_membership
+
         # Set proper due date - use payment terms or default to 30 days from posting date
         from frappe.utils import add_days
 

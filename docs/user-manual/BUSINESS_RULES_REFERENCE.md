@@ -219,7 +219,7 @@ This reference guide documents all business rules, validation requirements, and 
 - **Administrative**: Can be processed by staff without additional approval
 
 #### Secondary Approver Validation
-- **Required roles**: System Manager, Verenigingen Administrator, or National Board Member
+- **Required roles**: System Manager, Verenigingen Administrator, or Verenigingen National Board Member
 - **Verification process**: System validates approver permissions before processing
 - **Documentation requirements**: All disciplinary terminations must include supporting documentation
 - **Timeline requirements**: Disciplinary terminations must be processed within configured timeframe

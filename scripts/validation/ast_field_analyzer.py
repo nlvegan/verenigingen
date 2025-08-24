@@ -170,7 +170,11 @@ def main():
     if medium_plus:
         print(f"Found {len(medium_plus)} medium+ confidence issues:")
         for issue in medium_plus:
-            print(f"  Line {issue.line}: {issue.field} ({issue.confidence.value}) - {issue.message}")
+            # Extract relative path from the file field for cleaner output
+            file_path = issue.file
+            if file_path.startswith('/home/frappe/frappe-bench/apps/verenigingen/'):
+                file_path = file_path.replace('/home/frappe/frappe-bench/apps/verenigingen/', '')
+            print(f"  {file_path}:{issue.line}: {issue.field} ({issue.confidence.value}) - {issue.message}")
     else:
         print("✅ No medium+ confidence issues found!")
     

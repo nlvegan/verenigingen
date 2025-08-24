@@ -27,7 +27,11 @@ def execute():
         page.roles = []
 
         # Add roles
-        for role in ["Verenigingen Administrator", "Verenigingen Manager", "National Board Member"]:
+        for role in [
+            "Verenigingen Administrator",
+            "Verenigingen Manager",
+            "Verenigingen National Board Member",
+        ]:
             page.append("roles", {"role": role})
 
         page.flags.ignore_permissions = True
@@ -114,7 +118,7 @@ def create_default_alert_rules():
                     filters={"enabled": 1},
                     or_filters=[
                         ["User Role", "role", "=", "Verenigingen Administrator"],
-                        ["User Role", "role", "=", "National Board Member"],
+                        ["User Role", "role", "=", "Verenigingen National Board Member"],
                     ],
                     fields=["name"],
                     distinct=True,

@@ -52,11 +52,11 @@ def sync_customer_to_donor(doc, method=None):
         return
 
     # Only sync if this customer has a donor reference
-    if not hasattr(doc, "custom_donor_reference") or not doc.custom_donor_reference:
+    if not hasattr(doc, "donor") or not doc.donor:
         return
 
     try:
-        donor_name = doc.custom_donor_reference
+        donor_name = doc.donor
 
         # Check if donor exists
         if not frappe.db.exists("Donor", donor_name):
