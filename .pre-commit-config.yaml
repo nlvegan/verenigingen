@@ -304,6 +304,16 @@ repos:
         stages: [pre-commit]
         exclude: '^(tests/|test_|.*_test\.(html|htm)|debug_|.*_debug\.(html|htm)|scripts/testing/|scripts/debug/|node_modules/)'
 
+      - id: child-table-creation-validator
+        name: 👥 Child Table Creation Validator
+        description: Detect incorrect child table creation patterns (frappe.get_doc with child tables)
+        entry: python scripts/validation/child_table_creation_validator.py --pre-commit
+        language: system
+        pass_filenames: true
+        files: '\.(py)$'
+        stages: [pre-commit]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
+
       # JavaScript Parameter Validation
       - id: js-python-parameter-validator
         name: 🔗 JS-Python Parameter Validator

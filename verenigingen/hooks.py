@@ -405,6 +405,7 @@ doc_events = {
         "on_update": "verenigingen.utils.donor_customer_sync.sync_donor_to_customer",
     },
     "Customer": {
+        "validate": "verenigingen.utils.mollie_data_validator.validate_mollie_customer_data",
         "after_save": [
             "verenigingen.utils.donor_customer_sync.sync_customer_to_donor",
             "verenigingen.utils.cache_invalidation.on_document_update",  # Cache invalidation
@@ -419,6 +420,9 @@ doc_events = {
     # Account Group Project Framework - validate and apply defaults
     "Journal Entry": {
         "validate": "verenigingen.utils.account_group_validation_hooks.validate_journal_entry",
+        "on_submit": "verenigingen.utils.donor_auto_creation.process_payment_for_donor_creation",
+    },
+    "Bank Transaction": {
         "on_submit": "verenigingen.utils.donor_auto_creation.process_payment_for_donor_creation",
     },
     "Expense Claim": {
@@ -841,7 +845,7 @@ fixtures = [
     {
         "doctype": "Custom Field",
         "filters": [
-            ["fieldname", "=", "eboekhouden_grootboek_nummer"],
+            ["fieldname", "=", "custom_eboekhouden_grootboek_nummer"],
         ],
     },
     # Membership Types

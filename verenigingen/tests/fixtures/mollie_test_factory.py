@@ -89,9 +89,9 @@ class MollieTestDataFactory(EnhancedTestDataFactory):
         # Generate Mollie-specific fields
         mollie_data = {
             "payment_method": "Mollie",
-            "mollie_customer_id": self.generate_mollie_customer_id(),
-            "subscription_status": "active",
-            "next_payment_date": add_months(getdate(), 1)
+            "custom_mollie_customer_id": self.generate_mollie_customer_id(),
+            "custom_subscription_status": "active",
+            "custom_next_payment_date": add_months(getdate(), 1)
         }
         
         # Merge with provided kwargs
@@ -210,7 +210,7 @@ class MollieTestDataFactory(EnhancedTestDataFactory):
             {
                 "name": "expired_subscription",
                 "description": "Payment for expired subscription",
-                "subscription_status": "cancelled",
+                "custom_subscription_status": "cancelled",
                 "expected_behavior": "payment_rejected"
             },
             {
@@ -377,9 +377,9 @@ class MollieTestCase(EnhancedTestCase):
     def assertMemberSubscriptionActive(self, member_name: str):
         """Assert that member has active subscription status"""
         member = frappe.get_doc("Member", member_name)
-        self.assertEqual(member.subscription_status, "active",
+        self.assertEqual(member.custom_subscription_status, "active",
                         f"Member {member_name} should have active subscription")
-        self.assertIsNotNone(member.mollie_customer_id,
+        self.assertIsNotNone(member.custom_mollie_customer_id,
                            f"Member {member_name} should have Mollie customer ID")
                            
     def assertWebhookProcessingTime(self, processing_time_ms: int, max_time_ms: int = 1000):

@@ -87,7 +87,7 @@ class MembershipType(Document):
         item = frappe.new_doc("Item")
         item.item_name = f"{self.membership_type_name} Membership"
         item.item_code = f"MEM-{self.membership_type_name}".upper().replace(" ", "-")
-        item.item_group = "Membership"  # Create this item group if it doesn't exist
+        item.item_group = "Memberships"  # Create this item group if it doesn't exist
         item.is_stock_item = 0
         item.include_item_in_manufacturing = 0
         item.is_service_item = 1
@@ -204,7 +204,7 @@ class MembershipType(Document):
 
     def create_dues_schedule_template(self):
         """Get or create the dues schedule template for this membership type
-        
+
         Uses fixture-based templates first, falls back to creation only if needed.
         Standardizes on '[Type] Membership Template' naming pattern.
         """
@@ -213,9 +213,11 @@ class MembershipType(Document):
         if frappe.db.exists("Membership Dues Schedule", fixture_template_name):
             # Update membership type to use fixture template
             if self.dues_schedule_template != fixture_template_name:
-                frappe.db.set_value("Membership Type", self.name, "dues_schedule_template", fixture_template_name)
+                frappe.db.set_value(
+                    "Membership Type", self.name, "dues_schedule_template", fixture_template_name
+                )
             return fixture_template_name
-        
+
         # Check if any template already exists for this membership type
         existing_template = frappe.db.get_value(
             "Membership Dues Schedule", {"membership_type": self.name, "is_template": 1}, "name"

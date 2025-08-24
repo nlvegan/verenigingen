@@ -378,8 +378,8 @@ class MijnroodCSVImport(Document):
             "contributiebedrag": "dues_rate",
             "betaalperiode": "payment_period",
             "betaald": "payment_status",
-            "mollie cid": "mollie_customer_id",
-            "mollie sid": "mollie_subscription_id",
+            "mollie cid": "custom_mollie_customer_id",
+            "mollie sid": "custom_mollie_subscription_id",
             "privacybeleid geaccepteerd": "privacy_accepted",
             "lidmaatschapstype": "membership_type",
         }
@@ -434,9 +434,13 @@ class MijnroodCSVImport(Document):
         if value in ["-", "N/A", "n/a", "N.A.", "n.a.", "NULL", "null", "UNKNOWN", "unknown", "?"]:
             return None
 
-        # SECURITY: Prevent CSV injection attacks (but allow single "-" as it's now handled above)
+        # SECURITY: Prevent CSV injection attacks - reject dangerous content
         if value.startswith(("=", "+", "@", "\t", "\r")) or (value.startswith("-") and len(value) > 1):
-            value = "'" + value  # Escape formula starters
+            frappe.throw(
+                _(
+                    "Security: Field contains potentially dangerous content that could be interpreted as formula: {0}"
+                ).format(value[:50])
+            )
 
         # SECURITY: Limit field length to prevent memory issues
         if len(value) > 2000:  # Reasonable limit for most fields
@@ -636,13 +640,13 @@ class MijnroodCSVImport(Document):
                 errors.append(f"Row {row_num}: Invalid dues rate format: {row['dues_rate']}")
 
         # Mollie ID format validation
-        if row.get("mollie_customer_id"):
-            mollie_cid = str(row["mollie_customer_id"]).strip()
+        if row.get("custom_mollie_customer_id"):
+            mollie_cid = str(row["custom_mollie_customer_id"]).strip()
             if mollie_cid and not mollie_cid.startswith("cst_"):
                 errors.append(f"Row {row_num}: Mollie Customer ID should start with 'cst_': {mollie_cid}")
 
-        if row.get("mollie_subscription_id"):
-            mollie_sid = str(row["mollie_subscription_id"]).strip()
+        if row.get("custom_mollie_subscription_id"):
+            mollie_sid = str(row["custom_mollie_subscription_id"]).strip()
             if mollie_sid and not mollie_sid.startswith("sub_"):
                 errors.append(f"Row {row_num}: Mollie Subscription ID should start with 'sub_': {mollie_sid}")
 
@@ -893,38 +897,44 @@ class MijnroodCSVImport(Document):
             for member_name in processed_members:
                 member = frappe.get_doc("Member", member_name)
 
-                # If member has Mollie subscription data, validate it's complete
-                if member.mollie_customer_id or member.mollie_subscription_id:
-                    issues = []
+                # If member has customer with Mollie subscription data, validate it's complete
+                if member.customer:
+                    customer = frappe.get_doc("Customer", member.customer)
+                    if customer.custom_mollie_customer_id or customer.custom_mollie_subscription_id:
+                        issues = []
 
-                    # Validate Mollie Customer ID format
-                    if member.mollie_customer_id:
-                        if not member.mollie_customer_id.startswith("cst_"):
-                            issues.append(f"Invalid Mollie Customer ID format: {member.mollie_customer_id}")
+                        # Validate Mollie Customer ID format
+                        if customer.custom_mollie_customer_id:
+                            if not customer.custom_mollie_customer_id.startswith("cst_"):
+                                issues.append(
+                                    f"Invalid Mollie Customer ID format: {customer.custom_mollie_customer_id}"
+                                )
 
-                    # Validate Mollie Subscription ID format
-                    if member.mollie_subscription_id:
-                        if not member.mollie_subscription_id.startswith("sub_"):
+                        # Validate Mollie Subscription ID format
+                        if customer.custom_mollie_subscription_id:
+                            if not customer.custom_mollie_subscription_id.startswith("sub_"):
+                                issues.append(
+                                    f"Invalid Mollie Subscription ID format: {customer.custom_mollie_subscription_id}"
+                                )
+
+                        # Check that payment method is set to Mollie if subscription data exists
+                        if (
+                            customer.custom_mollie_customer_id or customer.custom_mollie_subscription_id
+                        ) and member.payment_method != "Mollie":
                             issues.append(
-                                f"Invalid Mollie Subscription ID format: {member.mollie_subscription_id}"
+                                f"Payment method should be 'Mollie' when subscription data exists, found: {member.payment_method}"
                             )
 
-                    # Check that payment method is set to Mollie if subscription data exists
-                    if (
-                        member.mollie_customer_id or member.mollie_subscription_id
-                    ) and member.payment_method != "Mollie":
-                        issues.append(
-                            f"Payment method should be 'Mollie' when subscription data exists, found: {member.payment_method}"
-                        )
+                        # Check for incomplete subscription data
+                        if customer.custom_mollie_customer_id and not customer.custom_mollie_subscription_id:
+                            issues.append("Has Mollie Customer ID but missing Subscription ID")
+                        elif (
+                            customer.custom_mollie_subscription_id and not customer.custom_mollie_customer_id
+                        ):
+                            issues.append("Has Mollie Subscription ID but missing Customer ID")
 
-                    # Check for incomplete subscription data
-                    if member.mollie_customer_id and not member.mollie_subscription_id:
-                        issues.append("Has Mollie Customer ID but missing Subscription ID")
-                    elif member.mollie_subscription_id and not member.mollie_customer_id:
-                        issues.append("Has Mollie Subscription ID but missing Customer ID")
-
-                    if issues:
-                        validation_issues.append(f"Member {member_name}: {'; '.join(issues)}")
+                        if issues:
+                            validation_issues.append(f"Member {member_name}: {'; '.join(issues)}")
 
         except Exception as e:
             frappe.log_error(f"Error validating Mollie data preservation: {str(e)}", "Mollie Data Validation")
@@ -1024,11 +1034,8 @@ class MijnroodCSVImport(Document):
         member_doc.flags.ignore_validate = False  # Still validate but with flags
         member_doc.flags.ignore_mandatory = False  # Don't ignore mandatory fields
 
-        # Temporarily disable phone validation for CSV imports by clearing the options field
-        if hasattr(member_doc.meta, "get_field"):
-            phone_field = member_doc.meta.get_field("contact_number")
-            if phone_field and phone_field.options == "Phone":
-                phone_field.options = None  # Temporarily disable phone validation
+        # Phone numbers are cleaned and validated in _clean_phone_number method
+        # No need to bypass framework validation
 
         # Basic member information
         if row_data.get("member_id"):
@@ -1068,12 +1075,18 @@ class MijnroodCSVImport(Document):
                 "override_reason": "Import from mijnrood",
             }
 
-        # Mollie information
-        if row_data.get("mollie_customer_id"):
-            member_doc.mollie_customer_id = row_data["mollie_customer_id"]
+        # Store Mollie information for later - will be set on Customer record
+        # Set payment method on Member if Mollie data exists
+        if row_data.get("custom_mollie_customer_id") or row_data.get("custom_mollie_subscription_id"):
             member_doc.payment_method = "Mollie"
-        if row_data.get("mollie_subscription_id"):
-            member_doc.mollie_subscription_id = row_data["mollie_subscription_id"]
+            # Store Mollie data temporarily for later Customer update
+            member_doc._mollie_data = {
+                "custom_mollie_customer_id": row_data.get("custom_mollie_customer_id"),
+                "custom_mollie_subscription_id": row_data.get("custom_mollie_subscription_id"),
+                "custom_subscription_status": "active"
+                if row_data.get("custom_mollie_subscription_id")
+                else None,
+            }
 
         # Store address information for later creation (after Customer is created)
         member_doc._pending_address_data = (
@@ -1177,9 +1190,60 @@ class MijnroodCSVImport(Document):
 
         return any(role in user_roles for role in authorized_roles)
 
+    def _update_customer_mollie_data(self, member_doc: Document, mollie_data: dict):
+        """Update the Customer record with Mollie subscription data."""
+        try:
+            # Validate Mollie data before processing
+            from verenigingen.utils.mollie_data_validator import get_mollie_validator
+
+            validator = get_mollie_validator()
+            is_valid, errors, warnings = validator.validate_customer_data(mollie_data)
+
+            if not is_valid:
+                frappe.throw(f"Invalid Mollie data in CSV import: {'; '.join(errors)}")
+
+            # Log warnings
+            for warning in warnings:
+                frappe.logger().warning(f"CSV import Mollie data warning: {warning}")
+
+            # First ensure customer exists (create if needed)
+            if not member_doc.customer:
+                # Create customer using Member's create_customer method
+                member_doc._suppress_customer_messages = True  # Suppress message during import
+                customer_name = member_doc.create_customer()
+                member_doc.customer = customer_name
+
+            # Update the Customer with Mollie data
+            if member_doc.customer:
+                customer = frappe.get_doc("Customer", member_doc.customer)
+
+                # Update Mollie fields
+                if mollie_data.get("custom_mollie_customer_id"):
+                    customer.custom_mollie_customer_id = mollie_data["custom_mollie_customer_id"]
+                if mollie_data.get("custom_mollie_subscription_id"):
+                    customer.custom_mollie_subscription_id = mollie_data["custom_mollie_subscription_id"]
+                if mollie_data.get("subscription_status"):
+                    customer.custom_subscription_status = mollie_data["custom_subscription_status"]
+
+                # Save customer with Mollie data
+                customer.save()
+
+                frappe.logger().info(
+                    f"Updated Customer {customer.name} with Mollie data for Member {member_doc.name}"
+                )
+
+        except Exception as e:
+            frappe.logger().error(
+                f"Failed to update Customer with Mollie data for Member {member_doc.name}: {str(e)}"
+            )
+
     def _create_related_records(self, member_doc: Document, row_data: Dict = None):
         """Create related records (address, termination) after successful member creation."""
         try:
+            # Update Customer with Mollie data if present
+            if hasattr(member_doc, "_mollie_data") and member_doc._mollie_data:
+                self._update_customer_mollie_data(member_doc, member_doc._mollie_data)
+
             # Create address if address data was provided
             if hasattr(member_doc, "_pending_address_data") and member_doc._pending_address_data:
                 self._create_or_update_address(member_doc, member_doc._pending_address_data)
@@ -1260,28 +1324,34 @@ class MijnroodCSVImport(Document):
                     )
                     return
 
-            # Create chapter membership using the same logic as in membership approval
-            # Check if chapter membership already exists
-            existing_membership = frappe.db.exists(
-                "Chapter Member", {"member": member_doc.name, "parent": chapter_name, "enabled": 1}
-            )
-
-            if not existing_membership:
-                chapter_member = frappe.get_doc(
-                    {
-                        "doctype": "Chapter Member",
-                        "parent": chapter_name,
-                        "parenttype": "Chapter",
-                        "parentfield": "members",
+            # Create chapter membership using proper parent.append() pattern
+            # Get chapter document and add member to its members child table
+            try:
+                chapter_doc = frappe.get_doc("Chapter", chapter_name)
+                
+                # Check if member is already in the chapter
+                existing_membership = False
+                for existing_member in chapter_doc.members:
+                    if existing_member.member == member_doc.name and existing_member.enabled:
+                        existing_membership = True
+                        break
+                
+                if not existing_membership:
+                    # Add member to chapter's members child table
+                    chapter_doc.append("members", {
                         "member": member_doc.name,
                         "enabled": 1,
-                        "chapter_join_date": member_doc.member_since or today(),
-                    }
-                )
-                chapter_member.insert()
-                frappe.logger().info(
-                    f"Successfully assigned member {member_doc.name} to chapter {chapter_name}"
-                )
+                        "status": "Active",
+                        "chapter_join_date": member_doc.member_since or today()
+                    })
+                    chapter_doc.save(ignore_permissions=True)
+                    frappe.logger().info(
+                        f"Successfully assigned member {member_doc.name} to chapter {chapter_name}"
+                    )
+                else:
+                    frappe.logger().info(f"Member {member_doc.name} already exists in chapter {chapter_name}")
+            except Exception as e:
+                frappe.logger().warning(f"Could not assign member {member_doc.name} to chapter {chapter_name}: {str(e)}")
             else:
                 frappe.logger().info(
                     f"Member {member_doc.name} is already assigned to chapter {chapter_name}"

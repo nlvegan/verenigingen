@@ -12,6 +12,7 @@ from pathlib import Path
 from enhanced_field_reference_validator import ContextAwareFieldValidator
 from template_variable_validator import ModernTemplateValidator
 from loop_context_field_validator import LoopContextFieldValidator, load_doctypes
+from child_table_creation_validator import ChildTableCreationValidator
 
 
 class ValidationSuite:
@@ -200,6 +201,67 @@ class ValidationSuite:
             self.log(f"❌ Loop context validation failed: {e}", force=True)
             return False
     
+    def run_child_table_validation(self) -> bool:
+        """Run child table creation pattern validation with timing"""
+        start_time = time.time()
+        
+        self.log("\n4️⃣ Child Table Creation Pattern Validation")
+        self.log("-" * 40)
+        
+        try:
+            # Find bench path - go up from app path to find bench root
+            bench_path = self.app_path.parent.parent
+            if not (bench_path / 'apps' / 'sites').exists():
+                # Try alternative bench path detection
+                bench_path = self.app_path
+                while bench_path.parent != bench_path:
+                    if (bench_path / 'apps').exists() and (bench_path / 'sites').exists():
+                        break
+                    bench_path = bench_path.parent
+                else:
+                    bench_path = self.app_path.parent.parent  # Fallback
+            
+            validator = ChildTableCreationValidator(bench_path)
+            issues = validator.validate_directory(self.app_path)
+            
+            # Filter to high confidence for suite validation
+            high_confidence_issues = [i for i in issues if i.confidence == 'high']
+            child_table_passed = len(high_confidence_issues) == 0
+            
+            duration = time.time() - start_time
+            self.results['child_table_validation'] = {
+                'passed': child_table_passed,
+                'duration': duration,
+                'error': None,
+                'issues_found': len(issues),
+                'high_confidence_issues': len(high_confidence_issues)
+            }
+            
+            if not child_table_passed and not self.quiet:
+                self.log(f"⚠️ Found {len(high_confidence_issues)} high-confidence child table creation issues")
+                for issue in high_confidence_issues[:3]:  # Show first 3
+                    rel_path = Path(issue.file).relative_to(self.app_path)
+                    self.log(f"   {rel_path}:{issue.line}: {issue.message}")
+                if len(high_confidence_issues) > 3:
+                    self.log(f"   ... and {len(high_confidence_issues) - 3} more")
+            
+            if not self.quiet:
+                self.log(f"⏱️ Child table validation completed in {duration:.2f}s")
+                if len(issues) > len(high_confidence_issues):
+                    self.log(f"   (Found {len(issues) - len(high_confidence_issues)} additional lower-confidence issues)")
+                
+            return child_table_passed
+            
+        except Exception as e:
+            duration = time.time() - start_time
+            self.results['child_table_validation'] = {
+                'passed': False,
+                'duration': duration,
+                'error': str(e)
+            }
+            self.log(f"❌ Child table validation failed: {e}", force=True)
+            return False
+    
     def run_comprehensive_validation(self) -> bool:
         """Run all validations with performance monitoring"""
         total_start = time.time()
@@ -211,8 +273,9 @@ class ValidationSuite:
         field_passed = self.run_field_validation()
         template_passed = self.run_template_validation()
         loop_context_passed = self.run_loop_context_validation()
+        child_table_passed = self.run_child_table_validation()
         
-        all_passed = field_passed and template_passed and loop_context_passed
+        all_passed = field_passed and template_passed and loop_context_passed and child_table_passed
         total_duration = time.time() - total_start
         
         # Summary
@@ -229,6 +292,7 @@ class ValidationSuite:
         field_time = self.results.get('field_validation', {}).get('duration', 0)
         template_time = self.results.get('template_validation', {}).get('duration', 0)
         loop_context_time = self.results.get('loop_context_validation', {}).get('duration', 0)
+        child_table_time = self.results.get('child_table_validation', {}).get('duration', 0)
         
         self.log(f"\n⏱️ Total validation time: {total_duration:.2f}s", force=True)
         self.log(f"   • Field validation: {field_time:.2f}s", force=True)
@@ -236,6 +300,7 @@ class ValidationSuite:
             self.log(f"   • Template validation: {template_time:.2f}s", force=True)
         if not self.skip_loop_context:
             self.log(f"   • Loop context validation: {loop_context_time:.2f}s", force=True)
+        self.log(f"   • Child table validation: {child_table_time:.2f}s", force=True)
         
         self.log("=" * 60, force=True)
         

@@ -159,7 +159,7 @@
             "type": "string",
             "enum": ["pending", "active", "canceled", "suspended", "completed"]
           },
-          "next_payment_date": {
+          "custom_next_payment_date": {
             "type": "string",
             "format": "date"
           },

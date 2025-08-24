@@ -97,26 +97,34 @@ def approve_membership_application(
 
     # Update chapter if provided
     if chapter:
-        # Note: current_chapter_display is an HTML field, actual chapter assignment
-        # is handled through Chapter Member doctype
+        # Assign member to chapter by adding to Chapter's members child table
         try:
-            # Create chapter membership if it doesn't exist
-            existing_membership = frappe.db.exists(
-                "Chapter Member", {"member": member.name, "parent": chapter, "enabled": 1}
-            )
-            if not existing_membership:
-                chapter_member = frappe.get_doc(
-                    {
-                        "doctype": "Chapter Member",
-                        "parent": chapter,
-                        "parenttype": "Chapter",
-                        "parentfield": "members",
+            # Validate chapter exists
+            if not frappe.db.exists("Chapter", chapter):
+                frappe.logger().warning(f"Chapter {chapter} does not exist, skipping assignment")
+            else:
+                # Get chapter document
+                chapter_doc = frappe.get_doc("Chapter", chapter)
+                
+                # Check if member is already in the chapter
+                existing_membership = False
+                for existing_member in chapter_doc.members:
+                    if existing_member.member == member.name and existing_member.enabled:
+                        existing_membership = True
+                        break
+                
+                if not existing_membership:
+                    # Add member to chapter's members child table
+                    chapter_doc.append("members", {
                         "member": member.name,
                         "enabled": 1,
-                        "chapter_join_date": today(),
-                    }
-                )
-                chapter_member.insert()
+                        "status": "Active",
+                        "chapter_join_date": today()
+                    })
+                    chapter_doc.save(ignore_permissions=True)
+                    frappe.logger().info(f"Added member {member.name} to chapter {chapter}")
+                else:
+                    frappe.logger().info(f"Member {member.name} already exists in chapter {chapter}")
         except Exception as e:
             frappe.logger().warning(f"Could not create chapter membership for {member.name}: {str(e)}")
 
