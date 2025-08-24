@@ -1,0 +1,1478 @@
+{
+  "summary": {
+    "total_fields": 19,
+    "total_references": 16214,
+    "files_affected": 755
+  },
+  "field_breakdown": {
+    "Sales Invoice.member": {
+      "reference_count": 7078,
+      "files_affected": 697,
+      "file_types": [
+        "python",
+        "javascript",
+        "template",
+        "json"
+      ],
+      "references": [
+        {
+          "file": "verenigingen/test_chapter_join_request_comprehensive.py",
+          "line": 28,
+          "content": "self.active_member = self.create_test_member(",
+          "type": "python",
+          "pattern": "`?member`?\\s*="
+        },
+        {
+          "file": "verenigingen/test_chapter_join_request_comprehensive.py",
+          "line": 32,
+          "content": "self.another_member = self.create_test_member(",
+          "type": "python",
+          "pattern": "`?member`?\\s*="
+        },
+        {
+          "file": "verenigingen/test_chapter_join_request_comprehensive.py",
+          "line": 36,
+          "content": "self.suspended_member = self.create_test_member(",
+          "type": "python",
+          "pattern": "`?member`?\\s*="
+        },
+        {
+          "file": "verenigingen/test_chapter_join_request_comprehensive.py",
+          "line": 93,
+          "content": "\"member\": self.active_member.name,",
+          "type": "python",
+          "pattern": "[\"\\']?member[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/test_chapter_join_request_comprehensive.py",
+          "line": 111,
+          "content": "\"member\": self.active_member.name,",
+          "type": "python",
+          "pattern": "[\"\\']?member[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/test_chapter_join_request_comprehensive.py",
+          "line": 125,
+          "content": "\"member\": self.suspended_member.name,",
+          "type": "python",
+          "pattern": "[\"\\']?member[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/test_chapter_join_request_comprehensive.py",
+          "line": 140,
+          "content": "\"member\": self.active_member.name,",
+          "type": "python",
+          "pattern": "[\"\\']?member[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/test_chapter_join_request_comprehensive.py",
+          "line": 152,
+          "content": "\"member\": self.active_member.name,",
+          "type": "python",
+          "pattern": "[\"\\']?member[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/test_chapter_join_request_comprehensive.py",
+          "line": 166,
+          "content": "\"member\": self.another_member.name,",
+          "type": "python",
+          "pattern": "[\"\\']?member[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/test_chapter_join_request_comprehensive.py",
+          "line": 215,
+          "content": "\"member\": self.active_member.name,",
+          "type": "python",
+          "pattern": "[\"\\']?member[\"\\']?\\s*:"
+        }
+      ]
+    },
+    "Customer.member": {
+      "reference_count": 7078,
+      "files_affected": 697,
+      "file_types": [
+        "python",
+        "javascript",
+        "template",
+        "json"
+      ],
+      "references": [
+        {
+          "file": "verenigingen/test_chapter_join_request_comprehensive.py",
+          "line": 28,
+          "content": "self.active_member = self.create_test_member(",
+          "type": "python",
+          "pattern": "`?member`?\\s*="
+        },
+        {
+          "file": "verenigingen/test_chapter_join_request_comprehensive.py",
+          "line": 32,
+          "content": "self.another_member = self.create_test_member(",
+          "type": "python",
+          "pattern": "`?member`?\\s*="
+        },
+        {
+          "file": "verenigingen/test_chapter_join_request_comprehensive.py",
+          "line": 36,
+          "content": "self.suspended_member = self.create_test_member(",
+          "type": "python",
+          "pattern": "`?member`?\\s*="
+        },
+        {
+          "file": "verenigingen/test_chapter_join_request_comprehensive.py",
+          "line": 93,
+          "content": "\"member\": self.active_member.name,",
+          "type": "python",
+          "pattern": "[\"\\']?member[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/test_chapter_join_request_comprehensive.py",
+          "line": 111,
+          "content": "\"member\": self.active_member.name,",
+          "type": "python",
+          "pattern": "[\"\\']?member[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/test_chapter_join_request_comprehensive.py",
+          "line": 125,
+          "content": "\"member\": self.suspended_member.name,",
+          "type": "python",
+          "pattern": "[\"\\']?member[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/test_chapter_join_request_comprehensive.py",
+          "line": 140,
+          "content": "\"member\": self.active_member.name,",
+          "type": "python",
+          "pattern": "[\"\\']?member[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/test_chapter_join_request_comprehensive.py",
+          "line": 152,
+          "content": "\"member\": self.active_member.name,",
+          "type": "python",
+          "pattern": "[\"\\']?member[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/test_chapter_join_request_comprehensive.py",
+          "line": 166,
+          "content": "\"member\": self.another_member.name,",
+          "type": "python",
+          "pattern": "[\"\\']?member[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/test_chapter_join_request_comprehensive.py",
+          "line": 215,
+          "content": "\"member\": self.active_member.name,",
+          "type": "python",
+          "pattern": "[\"\\']?member[\"\\']?\\s*:"
+        }
+      ]
+    },
+    "Sales Invoice.membership": {
+      "reference_count": 1077,
+      "files_affected": 189,
+      "file_types": [
+        "python",
+        "javascript",
+        "template",
+        "json"
+      ],
+      "references": [
+        {
+          "file": "verenigingen/debug_coverage.py",
+          "line": 219,
+          "content": "f\"    Membership: {member.current_membership_type} ({member.membership_status})\"",
+          "type": "python",
+          "pattern": "[\"\\']?membership[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/validations.py",
+          "line": 113,
+          "content": "board_membership = frappe.db.exists(",
+          "type": "python",
+          "pattern": "`?membership`?\\s*="
+        },
+        {
+          "file": "verenigingen/hooks.py",
+          "line": 303,
+          "content": "\"Membership\": \"public/js/membership.js\",",
+          "type": "python",
+          "pattern": "[\"\\']?membership[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/hooks.py",
+          "line": 321,
+          "content": "\"Membership\": {",
+          "type": "python",
+          "pattern": "[\"\\']?membership[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/hooks.py",
+          "line": 323,
+          "content": "\"on_submit\": \"verenigingen.verenigingen.doctype.membership.membership.on_submit\",",
+          "type": "python",
+          "pattern": "\\b\\w+\\.membership\\b"
+        },
+        {
+          "file": "verenigingen/hooks.py",
+          "line": 324,
+          "content": "\"on_cancel\": \"verenigingen.verenigingen.doctype.membership.membership.on_cancel\",",
+          "type": "python",
+          "pattern": "\\b\\w+\\.membership\\b"
+        },
+        {
+          "file": "verenigingen/hooks.py",
+          "line": 503,
+          "content": "\"verenigingen.verenigingen.doctype.membership.scheduler.process_expired_memberships\",",
+          "type": "python",
+          "pattern": "\\b\\w+\\.membership\\b"
+        },
+        {
+          "file": "verenigingen/hooks.py",
+          "line": 504,
+          "content": "\"verenigingen.verenigingen.doctype.membership.scheduler.send_renewal_reminders\",",
+          "type": "python",
+          "pattern": "\\b\\w+\\.membership\\b"
+        },
+        {
+          "file": "verenigingen/hooks.py",
+          "line": 505,
+          "content": "# \"verenigingen.verenigingen.doctype.membership.scheduler.process_auto_renewals\",  # Deprecated - renewal handled by billing system",
+          "type": "python",
+          "pattern": "\\b\\w+\\.membership\\b"
+        },
+        {
+          "file": "verenigingen/hooks.py",
+          "line": 507,
+          "content": "\"verenigingen.verenigingen.doctype.membership.scheduler.notify_about_orphaned_records\",",
+          "type": "python",
+          "pattern": "\\b\\w+\\.membership\\b"
+        }
+      ]
+    },
+    "Sales Invoice.is_membership_invoice": {
+      "reference_count": 141,
+      "files_affected": 22,
+      "file_types": [
+        "python",
+        "json"
+      ],
+      "references": [
+        {
+          "file": "verenigingen/tests/test_invoice_edge_cases.py",
+          "line": 43,
+          "content": "is_membership_invoice=1,",
+          "type": "python",
+          "pattern": "`?is_membership_invoice`?\\s*="
+        },
+        {
+          "file": "verenigingen/tests/test_invoice_edge_cases.py",
+          "line": 57,
+          "content": "self.assertTrue(zero_invoice.is_membership_invoice)",
+          "type": "python",
+          "pattern": "\\b\\w+\\.is_membership_invoice\\b"
+        },
+        {
+          "file": "verenigingen/tests/test_invoice_edge_cases.py",
+          "line": 64,
+          "content": "is_membership_invoice=1",
+          "type": "python",
+          "pattern": "`?is_membership_invoice`?\\s*="
+        },
+        {
+          "file": "verenigingen/tests/test_invoice_edge_cases.py",
+          "line": 82,
+          "content": "is_membership_invoice=1",
+          "type": "python",
+          "pattern": "`?is_membership_invoice`?\\s*="
+        },
+        {
+          "file": "verenigingen/tests/test_invoice_edge_cases.py",
+          "line": 112,
+          "content": "is_membership_invoice=1,",
+          "type": "python",
+          "pattern": "`?is_membership_invoice`?\\s*="
+        },
+        {
+          "file": "verenigingen/tests/test_invoice_edge_cases.py",
+          "line": 124,
+          "content": "is_membership_invoice=1,",
+          "type": "python",
+          "pattern": "`?is_membership_invoice`?\\s*="
+        },
+        {
+          "file": "verenigingen/tests/test_invoice_edge_cases.py",
+          "line": 138,
+          "content": "is_membership_invoice=1",
+          "type": "python",
+          "pattern": "`?is_membership_invoice`?\\s*="
+        },
+        {
+          "file": "verenigingen/tests/test_invoice_edge_cases.py",
+          "line": 157,
+          "content": "is_membership_invoice=1",
+          "type": "python",
+          "pattern": "`?is_membership_invoice`?\\s*="
+        },
+        {
+          "file": "verenigingen/tests/test_invoice_edge_cases.py",
+          "line": 179,
+          "content": "is_membership_invoice=1,",
+          "type": "python",
+          "pattern": "`?is_membership_invoice`?\\s*="
+        },
+        {
+          "file": "verenigingen/tests/test_invoice_edge_cases.py",
+          "line": 186,
+          "content": "is_membership_invoice=1,",
+          "type": "python",
+          "pattern": "`?is_membership_invoice`?\\s*="
+        }
+      ]
+    },
+    "Sales Invoice.eboekhouden_mutation_nr": {
+      "reference_count": 126,
+      "files_affected": 38,
+      "file_types": [
+        "python",
+        "json"
+      ],
+      "references": [
+        {
+          "file": "verenigingen/tests/test_payment_api_mutations.py",
+          "line": 117,
+          "content": "filters={\"eboekhouden_mutation_nr\": mutation_id},",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_mutation_nr[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/tests/test_payment_entry_handler.py",
+          "line": 127,
+          "content": "self.assertEqual(pe.eboekhouden_mutation_nr, \"12345\")",
+          "type": "python",
+          "pattern": "\\b\\w+\\.eboekhouden_mutation_nr\\b"
+        },
+        {
+          "file": "verenigingen/fixes/correct_implementation_example.py",
+          "line": 80,
+          "content": "si.custom_eboekhouden_mutation_nr = str(mutation.get(\"id\"))",
+          "type": "python",
+          "pattern": "`?eboekhouden_mutation_nr`?\\s*="
+        },
+        {
+          "file": "verenigingen/fixes/correct_implementation_example.py",
+          "line": 153,
+          "content": "pi.custom_eboekhouden_mutation_nr = str(mutation.get(\"id\"))",
+          "type": "python",
+          "pattern": "`?eboekhouden_mutation_nr`?\\s*="
+        },
+        {
+          "file": "verenigingen/fixes/step1_fix_data_fetching.py",
+          "line": 65,
+          "content": "si.custom_eboekhouden_mutation_nr = str(mutation_detail.get(\"id\"))",
+          "type": "python",
+          "pattern": "`?eboekhouden_mutation_nr`?\\s*="
+        },
+        {
+          "file": "verenigingen/fixes/step1_fix_data_fetching.py",
+          "line": 164,
+          "content": "pi.custom_eboekhouden_mutation_nr = str(mutation_detail.get(\"id\"))",
+          "type": "python",
+          "pattern": "`?eboekhouden_mutation_nr`?\\s*="
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 929,
+          "content": "\"fieldname\": \"eboekhouden_mutation_nr\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_mutation_nr\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 986,
+          "content": "\"fieldname\": \"eboekhouden_mutation_nr\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_mutation_nr\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1099,
+          "content": "\"fieldname\": \"eboekhouden_mutation_nr\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_mutation_nr\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1384,
+          "content": "\"fieldname\": \"eboekhouden_mutation_nr\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_mutation_nr\""
+        }
+      ]
+    },
+    "Purchase Invoice.eboekhouden_mutation_nr": {
+      "reference_count": 126,
+      "files_affected": 38,
+      "file_types": [
+        "python",
+        "json"
+      ],
+      "references": [
+        {
+          "file": "verenigingen/tests/test_payment_api_mutations.py",
+          "line": 117,
+          "content": "filters={\"eboekhouden_mutation_nr\": mutation_id},",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_mutation_nr[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/tests/test_payment_entry_handler.py",
+          "line": 127,
+          "content": "self.assertEqual(pe.eboekhouden_mutation_nr, \"12345\")",
+          "type": "python",
+          "pattern": "\\b\\w+\\.eboekhouden_mutation_nr\\b"
+        },
+        {
+          "file": "verenigingen/fixes/correct_implementation_example.py",
+          "line": 80,
+          "content": "si.custom_eboekhouden_mutation_nr = str(mutation.get(\"id\"))",
+          "type": "python",
+          "pattern": "`?eboekhouden_mutation_nr`?\\s*="
+        },
+        {
+          "file": "verenigingen/fixes/correct_implementation_example.py",
+          "line": 153,
+          "content": "pi.custom_eboekhouden_mutation_nr = str(mutation.get(\"id\"))",
+          "type": "python",
+          "pattern": "`?eboekhouden_mutation_nr`?\\s*="
+        },
+        {
+          "file": "verenigingen/fixes/step1_fix_data_fetching.py",
+          "line": 65,
+          "content": "si.custom_eboekhouden_mutation_nr = str(mutation_detail.get(\"id\"))",
+          "type": "python",
+          "pattern": "`?eboekhouden_mutation_nr`?\\s*="
+        },
+        {
+          "file": "verenigingen/fixes/step1_fix_data_fetching.py",
+          "line": 164,
+          "content": "pi.custom_eboekhouden_mutation_nr = str(mutation_detail.get(\"id\"))",
+          "type": "python",
+          "pattern": "`?eboekhouden_mutation_nr`?\\s*="
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 929,
+          "content": "\"fieldname\": \"eboekhouden_mutation_nr\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_mutation_nr\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 986,
+          "content": "\"fieldname\": \"eboekhouden_mutation_nr\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_mutation_nr\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1099,
+          "content": "\"fieldname\": \"eboekhouden_mutation_nr\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_mutation_nr\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1384,
+          "content": "\"fieldname\": \"eboekhouden_mutation_nr\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_mutation_nr\""
+        }
+      ]
+    },
+    "Journal Entry.eboekhouden_mutation_nr": {
+      "reference_count": 126,
+      "files_affected": 38,
+      "file_types": [
+        "python",
+        "json"
+      ],
+      "references": [
+        {
+          "file": "verenigingen/tests/test_payment_api_mutations.py",
+          "line": 117,
+          "content": "filters={\"eboekhouden_mutation_nr\": mutation_id},",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_mutation_nr[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/tests/test_payment_entry_handler.py",
+          "line": 127,
+          "content": "self.assertEqual(pe.eboekhouden_mutation_nr, \"12345\")",
+          "type": "python",
+          "pattern": "\\b\\w+\\.eboekhouden_mutation_nr\\b"
+        },
+        {
+          "file": "verenigingen/fixes/correct_implementation_example.py",
+          "line": 80,
+          "content": "si.custom_eboekhouden_mutation_nr = str(mutation.get(\"id\"))",
+          "type": "python",
+          "pattern": "`?eboekhouden_mutation_nr`?\\s*="
+        },
+        {
+          "file": "verenigingen/fixes/correct_implementation_example.py",
+          "line": 153,
+          "content": "pi.custom_eboekhouden_mutation_nr = str(mutation.get(\"id\"))",
+          "type": "python",
+          "pattern": "`?eboekhouden_mutation_nr`?\\s*="
+        },
+        {
+          "file": "verenigingen/fixes/step1_fix_data_fetching.py",
+          "line": 65,
+          "content": "si.custom_eboekhouden_mutation_nr = str(mutation_detail.get(\"id\"))",
+          "type": "python",
+          "pattern": "`?eboekhouden_mutation_nr`?\\s*="
+        },
+        {
+          "file": "verenigingen/fixes/step1_fix_data_fetching.py",
+          "line": 164,
+          "content": "pi.custom_eboekhouden_mutation_nr = str(mutation_detail.get(\"id\"))",
+          "type": "python",
+          "pattern": "`?eboekhouden_mutation_nr`?\\s*="
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 929,
+          "content": "\"fieldname\": \"eboekhouden_mutation_nr\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_mutation_nr\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 986,
+          "content": "\"fieldname\": \"eboekhouden_mutation_nr\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_mutation_nr\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1099,
+          "content": "\"fieldname\": \"eboekhouden_mutation_nr\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_mutation_nr\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1384,
+          "content": "\"fieldname\": \"eboekhouden_mutation_nr\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_mutation_nr\""
+        }
+      ]
+    },
+    "Payment Entry.eboekhouden_mutation_nr": {
+      "reference_count": 126,
+      "files_affected": 38,
+      "file_types": [
+        "python",
+        "json"
+      ],
+      "references": [
+        {
+          "file": "verenigingen/tests/test_payment_api_mutations.py",
+          "line": 117,
+          "content": "filters={\"eboekhouden_mutation_nr\": mutation_id},",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_mutation_nr[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/tests/test_payment_entry_handler.py",
+          "line": 127,
+          "content": "self.assertEqual(pe.eboekhouden_mutation_nr, \"12345\")",
+          "type": "python",
+          "pattern": "\\b\\w+\\.eboekhouden_mutation_nr\\b"
+        },
+        {
+          "file": "verenigingen/fixes/correct_implementation_example.py",
+          "line": 80,
+          "content": "si.custom_eboekhouden_mutation_nr = str(mutation.get(\"id\"))",
+          "type": "python",
+          "pattern": "`?eboekhouden_mutation_nr`?\\s*="
+        },
+        {
+          "file": "verenigingen/fixes/correct_implementation_example.py",
+          "line": 153,
+          "content": "pi.custom_eboekhouden_mutation_nr = str(mutation.get(\"id\"))",
+          "type": "python",
+          "pattern": "`?eboekhouden_mutation_nr`?\\s*="
+        },
+        {
+          "file": "verenigingen/fixes/step1_fix_data_fetching.py",
+          "line": 65,
+          "content": "si.custom_eboekhouden_mutation_nr = str(mutation_detail.get(\"id\"))",
+          "type": "python",
+          "pattern": "`?eboekhouden_mutation_nr`?\\s*="
+        },
+        {
+          "file": "verenigingen/fixes/step1_fix_data_fetching.py",
+          "line": 164,
+          "content": "pi.custom_eboekhouden_mutation_nr = str(mutation_detail.get(\"id\"))",
+          "type": "python",
+          "pattern": "`?eboekhouden_mutation_nr`?\\s*="
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 929,
+          "content": "\"fieldname\": \"eboekhouden_mutation_nr\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_mutation_nr\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 986,
+          "content": "\"fieldname\": \"eboekhouden_mutation_nr\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_mutation_nr\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1099,
+          "content": "\"fieldname\": \"eboekhouden_mutation_nr\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_mutation_nr\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1384,
+          "content": "\"fieldname\": \"eboekhouden_mutation_nr\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_mutation_nr\""
+        }
+      ]
+    },
+    "Sales Invoice.eboekhouden_invoice_number": {
+      "reference_count": 51,
+      "files_affected": 16,
+      "file_types": [
+        "python",
+        "json"
+      ],
+      "references": [
+        {
+          "file": "verenigingen/fixes/correct_implementation_example.py",
+          "line": 81,
+          "content": "si.custom_eboekhouden_invoice_number = mutation.get(\"invoiceNumber\")",
+          "type": "python",
+          "pattern": "`?eboekhouden_invoice_number`?\\s*="
+        },
+        {
+          "file": "verenigingen/fixes/step1_fix_data_fetching.py",
+          "line": 66,
+          "content": "si.custom_eboekhouden_invoice_number = mutation_detail.get(\"invoiceNumber\")",
+          "type": "python",
+          "pattern": "`?eboekhouden_invoice_number`?\\s*="
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1156,
+          "content": "\"fieldname\": \"eboekhouden_invoice_number\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_invoice_number\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1213,
+          "content": "\"fieldname\": \"eboekhouden_invoice_number\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_invoice_number\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1725,
+          "content": "\"fieldname\": \"eboekhouden_invoice_number\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_invoice_number\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1793,
+          "content": "\"insert_after\": \"eboekhouden_invoice_number\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_invoice_number\""
+        },
+        {
+          "file": "verenigingen/api/get_unreconciled_payments.py",
+          "line": 67,
+          "content": "je.eboekhouden_invoice_number as invoice_no,",
+          "type": "python",
+          "pattern": "\\b\\w+\\.eboekhouden_invoice_number\\b"
+        },
+        {
+          "file": "verenigingen/utils/investigate_overpaid_invoice.py",
+          "line": 15,
+          "content": "\"Sales Invoice\", {\"eboekhouden_invoice_number\": invoice_number}, \"name\"",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_invoice_number[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/utils/debug/clarify_invoice_numbers.py",
+          "line": 34,
+          "content": "{\"eboekhouden_invoice_number\": num},",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_invoice_number[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/utils/debug/clarify_invoice_numbers.py",
+          "line": 39,
+          "content": "print(f\"✓ Found as Sales Invoice eboekhouden_invoice_number: {si_by_eb_invoice}\")",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_invoice_number[\"\\']?\\s*:"
+        }
+      ]
+    },
+    "Purchase Invoice.eboekhouden_invoice_number": {
+      "reference_count": 51,
+      "files_affected": 16,
+      "file_types": [
+        "python",
+        "json"
+      ],
+      "references": [
+        {
+          "file": "verenigingen/fixes/correct_implementation_example.py",
+          "line": 81,
+          "content": "si.custom_eboekhouden_invoice_number = mutation.get(\"invoiceNumber\")",
+          "type": "python",
+          "pattern": "`?eboekhouden_invoice_number`?\\s*="
+        },
+        {
+          "file": "verenigingen/fixes/step1_fix_data_fetching.py",
+          "line": 66,
+          "content": "si.custom_eboekhouden_invoice_number = mutation_detail.get(\"invoiceNumber\")",
+          "type": "python",
+          "pattern": "`?eboekhouden_invoice_number`?\\s*="
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1156,
+          "content": "\"fieldname\": \"eboekhouden_invoice_number\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_invoice_number\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1213,
+          "content": "\"fieldname\": \"eboekhouden_invoice_number\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_invoice_number\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1725,
+          "content": "\"fieldname\": \"eboekhouden_invoice_number\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_invoice_number\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1793,
+          "content": "\"insert_after\": \"eboekhouden_invoice_number\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_invoice_number\""
+        },
+        {
+          "file": "verenigingen/api/get_unreconciled_payments.py",
+          "line": 67,
+          "content": "je.eboekhouden_invoice_number as invoice_no,",
+          "type": "python",
+          "pattern": "\\b\\w+\\.eboekhouden_invoice_number\\b"
+        },
+        {
+          "file": "verenigingen/utils/investigate_overpaid_invoice.py",
+          "line": 15,
+          "content": "\"Sales Invoice\", {\"eboekhouden_invoice_number\": invoice_number}, \"name\"",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_invoice_number[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/utils/debug/clarify_invoice_numbers.py",
+          "line": 34,
+          "content": "{\"eboekhouden_invoice_number\": num},",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_invoice_number[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/utils/debug/clarify_invoice_numbers.py",
+          "line": 39,
+          "content": "print(f\"✓ Found as Sales Invoice eboekhouden_invoice_number: {si_by_eb_invoice}\")",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_invoice_number[\"\\']?\\s*:"
+        }
+      ]
+    },
+    "Journal Entry.eboekhouden_invoice_number": {
+      "reference_count": 51,
+      "files_affected": 16,
+      "file_types": [
+        "python",
+        "json"
+      ],
+      "references": [
+        {
+          "file": "verenigingen/fixes/correct_implementation_example.py",
+          "line": 81,
+          "content": "si.custom_eboekhouden_invoice_number = mutation.get(\"invoiceNumber\")",
+          "type": "python",
+          "pattern": "`?eboekhouden_invoice_number`?\\s*="
+        },
+        {
+          "file": "verenigingen/fixes/step1_fix_data_fetching.py",
+          "line": 66,
+          "content": "si.custom_eboekhouden_invoice_number = mutation_detail.get(\"invoiceNumber\")",
+          "type": "python",
+          "pattern": "`?eboekhouden_invoice_number`?\\s*="
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1156,
+          "content": "\"fieldname\": \"eboekhouden_invoice_number\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_invoice_number\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1213,
+          "content": "\"fieldname\": \"eboekhouden_invoice_number\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_invoice_number\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1725,
+          "content": "\"fieldname\": \"eboekhouden_invoice_number\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_invoice_number\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1793,
+          "content": "\"insert_after\": \"eboekhouden_invoice_number\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_invoice_number\""
+        },
+        {
+          "file": "verenigingen/api/get_unreconciled_payments.py",
+          "line": 67,
+          "content": "je.eboekhouden_invoice_number as invoice_no,",
+          "type": "python",
+          "pattern": "\\b\\w+\\.eboekhouden_invoice_number\\b"
+        },
+        {
+          "file": "verenigingen/utils/investigate_overpaid_invoice.py",
+          "line": 15,
+          "content": "\"Sales Invoice\", {\"eboekhouden_invoice_number\": invoice_number}, \"name\"",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_invoice_number[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/utils/debug/clarify_invoice_numbers.py",
+          "line": 34,
+          "content": "{\"eboekhouden_invoice_number\": num},",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_invoice_number[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/utils/debug/clarify_invoice_numbers.py",
+          "line": 39,
+          "content": "print(f\"✓ Found as Sales Invoice eboekhouden_invoice_number: {si_by_eb_invoice}\")",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_invoice_number[\"\\']?\\s*:"
+        }
+      ]
+    },
+    "Customer.eboekhouden_relation_code": {
+      "reference_count": 42,
+      "files_affected": 9,
+      "file_types": [
+        "python",
+        "json"
+      ],
+      "references": [
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1270,
+          "content": "\"fieldname\": \"eboekhouden_relation_code\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_relation_code\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1327,
+          "content": "\"fieldname\": \"eboekhouden_relation_code\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_relation_code\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1669,
+          "content": "\"fieldname\": \"eboekhouden_relation_code\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_relation_code\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1737,
+          "content": "\"insert_after\": \"eboekhouden_relation_code\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_relation_code\""
+        },
+        {
+          "file": "verenigingen/utils/debug/debug_mutation_6427.py",
+          "line": 147,
+          "content": "\"Customer\", {\"eboekhouden_relation_code\": \"60657073\"}, [\"name\", \"customer_name\"], as_dict=True",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_relation_code[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/party_extractor.py",
+          "line": 271,
+          "content": "doctype, {\"eboekhouden_relation_code\": str(relation_id)}, \"name\"",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_relation_code[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/party_resolver.py",
+          "line": 38,
+          "content": "{\"eboekhouden_relation_code\": str(relation_id)},",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_relation_code[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/party_resolver.py",
+          "line": 85,
+          "content": "{\"eboekhouden_relation_code\": str(relation_id)},",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_relation_code[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/party_resolver.py",
+          "line": 241,
+          "content": "customer.eboekhouden_relation_code = str(relation_details[\"id\"])",
+          "type": "python",
+          "pattern": "\\b\\w+\\.eboekhouden_relation_code\\b"
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/party_resolver.py",
+          "line": 241,
+          "content": "customer.eboekhouden_relation_code = str(relation_details[\"id\"])",
+          "type": "python",
+          "pattern": "`?eboekhouden_relation_code`?\\s*="
+        }
+      ]
+    },
+    "Account.eboekhouden_grootboek_nummer": {
+      "reference_count": 39,
+      "files_affected": 14,
+      "file_types": [
+        "python",
+        "javascript",
+        "json"
+      ],
+      "references": [
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 872,
+          "content": "\"fieldname\": \"eboekhouden_grootboek_nummer\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_grootboek_nummer\""
+        },
+        {
+          "file": "verenigingen/api/smart_mapping_deployment_guide.py",
+          "line": 18,
+          "content": "\"Account\", {\"company\": \"Ned Ver Vegan\", \"eboekhouden_grootboek_nummer\": [\"!=\", \"\"]}",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_grootboek_nummer[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/api/smart_mapping_deployment_guide.py",
+          "line": 116,
+          "content": "\"Account\", {\"company\": \"Ned Ver Vegan\", \"eboekhouden_grootboek_nummer\": [\"!=\", \"\"]}",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_grootboek_nummer[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/api/full_migration_summary.py",
+          "line": 93,
+          "content": "\"Account\", {\"company\": \"Ned Ver Vegan\", \"eboekhouden_grootboek_nummer\": [\"!=\", \"\"]}",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_grootboek_nummer[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/api/full_migration_summary.py",
+          "line": 163,
+          "content": "\"Account\", {\"company\": \"Ned Ver Vegan\", \"eboekhouden_grootboek_nummer\": [\"!=\", \"\"]}",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_grootboek_nummer[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/api/check_account_types.py",
+          "line": 144,
+          "content": "account_code = account.get(\"eboekhouden_grootboek_nummer\") or account.get(\"account_number\", \"\")",
+          "type": "python",
+          "pattern": "\\.get\\([\"\\']?eboekhouden_grootboek_nummer[\"\\']?\\)"
+        },
+        {
+          "file": "verenigingen/api/create_smart_item_mapping.py",
+          "line": 66,
+          "content": "eb_code = account.eboekhouden_grootboek_nummer",
+          "type": "python",
+          "pattern": "\\b\\w+\\.eboekhouden_grootboek_nummer\\b"
+        },
+        {
+          "file": "verenigingen/api/create_smart_item_mapping.py",
+          "line": 310,
+          "content": "#         \"eboekhouden_grootboek_nummer\": account_code",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_grootboek_nummer[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/utils/link_ledger_to_accounts.py",
+          "line": 42,
+          "content": "{\"company\": \"Ned Ver Vegan\", \"eboekhouden_grootboek_nummer\": mapping.ledger_code},",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_grootboek_nummer[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/utils/smart_tegenrekening_mapper.py",
+          "line": 187,
+          "content": "\"Account\", {\"company\": self.company, \"eboekhouden_grootboek_nummer\": account_code}, \"name\"",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_grootboek_nummer[\"\\']?\\s*:"
+        }
+      ]
+    },
+    "Journal Entry.eboekhouden_section": {
+      "reference_count": 2,
+      "files_affected": 1,
+      "file_types": [
+        "json"
+      ],
+      "references": [
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1043,
+          "content": "\"fieldname\": \"eboekhouden_section\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_section\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1111,
+          "content": "\"insert_after\": \"eboekhouden_section\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_section\""
+        }
+      ]
+    },
+    "Journal Entry.eboekhouden_relation_code": {
+      "reference_count": 42,
+      "files_affected": 9,
+      "file_types": [
+        "python",
+        "json"
+      ],
+      "references": [
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1270,
+          "content": "\"fieldname\": \"eboekhouden_relation_code\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_relation_code\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1327,
+          "content": "\"fieldname\": \"eboekhouden_relation_code\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_relation_code\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1669,
+          "content": "\"fieldname\": \"eboekhouden_relation_code\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_relation_code\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1737,
+          "content": "\"insert_after\": \"eboekhouden_relation_code\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_relation_code\""
+        },
+        {
+          "file": "verenigingen/utils/debug/debug_mutation_6427.py",
+          "line": 147,
+          "content": "\"Customer\", {\"eboekhouden_relation_code\": \"60657073\"}, [\"name\", \"customer_name\"], as_dict=True",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_relation_code[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/party_extractor.py",
+          "line": 271,
+          "content": "doctype, {\"eboekhouden_relation_code\": str(relation_id)}, \"name\"",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_relation_code[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/party_resolver.py",
+          "line": 38,
+          "content": "{\"eboekhouden_relation_code\": str(relation_id)},",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_relation_code[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/party_resolver.py",
+          "line": 85,
+          "content": "{\"eboekhouden_relation_code\": str(relation_id)},",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_relation_code[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/party_resolver.py",
+          "line": 241,
+          "content": "customer.eboekhouden_relation_code = str(relation_details[\"id\"])",
+          "type": "python",
+          "pattern": "\\b\\w+\\.eboekhouden_relation_code\\b"
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/party_resolver.py",
+          "line": 241,
+          "content": "customer.eboekhouden_relation_code = str(relation_details[\"id\"])",
+          "type": "python",
+          "pattern": "`?eboekhouden_relation_code`?\\s*="
+        }
+      ]
+    },
+    "Journal Entry.eboekhouden_main_ledger_id": {
+      "reference_count": 6,
+      "files_affected": 2,
+      "file_types": [
+        "python",
+        "json"
+      ],
+      "references": [
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1781,
+          "content": "\"fieldname\": \"eboekhouden_main_ledger_id\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_main_ledger_id\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1849,
+          "content": "\"insert_after\": \"eboekhouden_main_ledger_id\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_main_ledger_id\""
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/eboekhouden_rest_full_migration.py",
+          "line": 2650,
+          "content": "pe.eboekhouden_main_ledger_id = str(ledger_id) if ledger_id else \"\"",
+          "type": "python",
+          "pattern": "\\b\\w+\\.eboekhouden_main_ledger_id\\b"
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/eboekhouden_rest_full_migration.py",
+          "line": 2650,
+          "content": "pe.eboekhouden_main_ledger_id = str(ledger_id) if ledger_id else \"\"",
+          "type": "python",
+          "pattern": "`?eboekhouden_main_ledger_id`?\\s*="
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/eboekhouden_rest_full_migration.py",
+          "line": 2984,
+          "content": "je.eboekhouden_main_ledger_id = str(ledger_id) if ledger_id else \"\"",
+          "type": "python",
+          "pattern": "\\b\\w+\\.eboekhouden_main_ledger_id\\b"
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/eboekhouden_rest_full_migration.py",
+          "line": 2984,
+          "content": "je.eboekhouden_main_ledger_id = str(ledger_id) if ledger_id else \"\"",
+          "type": "python",
+          "pattern": "`?eboekhouden_main_ledger_id`?\\s*="
+        }
+      ]
+    },
+    "Journal Entry.eboekhouden_mutation_type": {
+      "reference_count": 5,
+      "files_affected": 3,
+      "file_types": [
+        "python",
+        "json"
+      ],
+      "references": [
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1441,
+          "content": "\"fieldname\": \"eboekhouden_mutation_type\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_mutation_type\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1837,
+          "content": "\"fieldname\": \"eboekhouden_mutation_type\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_mutation_type\""
+        },
+        {
+          "file": "verenigingen/utils/inspect_journal_entry.py",
+          "line": 56,
+          "content": "AND (eboekhouden_mutation_type = '7' OR title LIKE '%Memorial%' OR title LIKE '%Memoriaal%')",
+          "type": "python",
+          "pattern": "`?eboekhouden_mutation_type`?\\s*="
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/payment_processing/payment_entry_handler.py",
+          "line": 461,
+          "content": "pe.eboekhouden_mutation_type = str(mutation.get(\"type\"))",
+          "type": "python",
+          "pattern": "\\b\\w+\\.eboekhouden_mutation_type\\b"
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/payment_processing/payment_entry_handler.py",
+          "line": 461,
+          "content": "pe.eboekhouden_mutation_type = str(mutation.get(\"type\"))",
+          "type": "python",
+          "pattern": "`?eboekhouden_mutation_type`?\\s*="
+        }
+      ]
+    },
+    "Supplier.eboekhouden_relation_code": {
+      "reference_count": 42,
+      "files_affected": 9,
+      "file_types": [
+        "python",
+        "json"
+      ],
+      "references": [
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1270,
+          "content": "\"fieldname\": \"eboekhouden_relation_code\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_relation_code\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1327,
+          "content": "\"fieldname\": \"eboekhouden_relation_code\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_relation_code\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1669,
+          "content": "\"fieldname\": \"eboekhouden_relation_code\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_relation_code\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1737,
+          "content": "\"insert_after\": \"eboekhouden_relation_code\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_relation_code\""
+        },
+        {
+          "file": "verenigingen/utils/debug/debug_mutation_6427.py",
+          "line": 147,
+          "content": "\"Customer\", {\"eboekhouden_relation_code\": \"60657073\"}, [\"name\", \"customer_name\"], as_dict=True",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_relation_code[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/party_extractor.py",
+          "line": 271,
+          "content": "doctype, {\"eboekhouden_relation_code\": str(relation_id)}, \"name\"",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_relation_code[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/party_resolver.py",
+          "line": 38,
+          "content": "{\"eboekhouden_relation_code\": str(relation_id)},",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_relation_code[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/party_resolver.py",
+          "line": 85,
+          "content": "{\"eboekhouden_relation_code\": str(relation_id)},",
+          "type": "python",
+          "pattern": "[\"\\']?eboekhouden_relation_code[\"\\']?\\s*:"
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/party_resolver.py",
+          "line": 241,
+          "content": "customer.eboekhouden_relation_code = str(relation_details[\"id\"])",
+          "type": "python",
+          "pattern": "\\b\\w+\\.eboekhouden_relation_code\\b"
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/party_resolver.py",
+          "line": 241,
+          "content": "customer.eboekhouden_relation_code = str(relation_details[\"id\"])",
+          "type": "python",
+          "pattern": "`?eboekhouden_relation_code`?\\s*="
+        }
+      ]
+    },
+    "Payment Entry.eboekhouden_mutation_type": {
+      "reference_count": 5,
+      "files_affected": 3,
+      "file_types": [
+        "python",
+        "json"
+      ],
+      "references": [
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1441,
+          "content": "\"fieldname\": \"eboekhouden_mutation_type\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_mutation_type\""
+        },
+        {
+          "file": "verenigingen/fixtures/custom_field.json",
+          "line": 1837,
+          "content": "\"fieldname\": \"eboekhouden_mutation_type\",",
+          "type": "json",
+          "pattern": "\"eboekhouden_mutation_type\""
+        },
+        {
+          "file": "verenigingen/utils/inspect_journal_entry.py",
+          "line": 56,
+          "content": "AND (eboekhouden_mutation_type = '7' OR title LIKE '%Memorial%' OR title LIKE '%Memoriaal%')",
+          "type": "python",
+          "pattern": "`?eboekhouden_mutation_type`?\\s*="
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/payment_processing/payment_entry_handler.py",
+          "line": 461,
+          "content": "pe.eboekhouden_mutation_type = str(mutation.get(\"type\"))",
+          "type": "python",
+          "pattern": "\\b\\w+\\.eboekhouden_mutation_type\\b"
+        },
+        {
+          "file": "verenigingen/e_boekhouden/utils/payment_processing/payment_entry_handler.py",
+          "line": 461,
+          "content": "pe.eboekhouden_mutation_type = str(mutation.get(\"type\"))",
+          "type": "python",
+          "pattern": "`?eboekhouden_mutation_type`?\\s*="
+        }
+      ]
+    }
+  },
+  "risk_assessment": {
+    "Sales Invoice.member": {
+      "risk_level": "EXTREME",
+      "reference_count": 7078,
+      "justification": "7078 references across 697 files"
+    },
+    "Customer.member": {
+      "risk_level": "EXTREME",
+      "reference_count": 7078,
+      "justification": "7078 references across 697 files"
+    },
+    "Sales Invoice.membership": {
+      "risk_level": "EXTREME",
+      "reference_count": 1077,
+      "justification": "1077 references across 189 files"
+    },
+    "Sales Invoice.is_membership_invoice": {
+      "risk_level": "EXTREME",
+      "reference_count": 141,
+      "justification": "141 references across 22 files"
+    },
+    "Sales Invoice.eboekhouden_mutation_nr": {
+      "risk_level": "EXTREME",
+      "reference_count": 126,
+      "justification": "126 references across 38 files"
+    },
+    "Purchase Invoice.eboekhouden_mutation_nr": {
+      "risk_level": "EXTREME",
+      "reference_count": 126,
+      "justification": "126 references across 38 files"
+    },
+    "Journal Entry.eboekhouden_mutation_nr": {
+      "risk_level": "EXTREME",
+      "reference_count": 126,
+      "justification": "126 references across 38 files"
+    },
+    "Payment Entry.eboekhouden_mutation_nr": {
+      "risk_level": "EXTREME",
+      "reference_count": 126,
+      "justification": "126 references across 38 files"
+    },
+    "Sales Invoice.eboekhouden_invoice_number": {
+      "risk_level": "HIGH",
+      "reference_count": 51,
+      "justification": "51 references across 16 files"
+    },
+    "Purchase Invoice.eboekhouden_invoice_number": {
+      "risk_level": "HIGH",
+      "reference_count": 51,
+      "justification": "51 references across 16 files"
+    },
+    "Journal Entry.eboekhouden_invoice_number": {
+      "risk_level": "HIGH",
+      "reference_count": 51,
+      "justification": "51 references across 16 files"
+    },
+    "Customer.eboekhouden_relation_code": {
+      "risk_level": "HIGH",
+      "reference_count": 42,
+      "justification": "42 references across 9 files"
+    },
+    "Account.eboekhouden_grootboek_nummer": {
+      "risk_level": "HIGH",
+      "reference_count": 39,
+      "justification": "39 references across 14 files"
+    },
+    "Journal Entry.eboekhouden_section": {
+      "risk_level": "LOW",
+      "reference_count": 2,
+      "justification": "2 references across 1 files"
+    },
+    "Journal Entry.eboekhouden_relation_code": {
+      "risk_level": "HIGH",
+      "reference_count": 42,
+      "justification": "42 references across 9 files"
+    },
+    "Journal Entry.eboekhouden_main_ledger_id": {
+      "risk_level": "MEDIUM",
+      "reference_count": 6,
+      "justification": "6 references across 2 files"
+    },
+    "Journal Entry.eboekhouden_mutation_type": {
+      "risk_level": "LOW",
+      "reference_count": 5,
+      "justification": "5 references across 3 files"
+    },
+    "Supplier.eboekhouden_relation_code": {
+      "risk_level": "HIGH",
+      "reference_count": 42,
+      "justification": "42 references across 9 files"
+    },
+    "Payment Entry.eboekhouden_mutation_type": {
+      "risk_level": "LOW",
+      "reference_count": 5,
+      "justification": "5 references across 3 files"
+    }
+  }
+}

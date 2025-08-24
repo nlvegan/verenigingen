@@ -19,7 +19,7 @@ def create_sepa_indexes():
                 "status",
                 "outstanding_amount",
                 "posting_date",
-                "custom_membership_dues_schedule",
+                "membership_dues_schedule_display",
             ],
             "description": "Optimizes SEPA invoice batch queries",
         },
@@ -61,7 +61,7 @@ def create_sepa_indexes():
         {
             "table": "tabSales Invoice",
             "name": "idx_sales_invoice_payment_method",
-            "columns": ["status", "outstanding_amount", "custom_membership_dues_schedule"],
+            "columns": ["status", "outstanding_amount", "membership_dues_schedule_display"],
             "description": "Optimizes unpaid invoice queries for SEPA batches",
         },
         # Direct debit batch status optimization

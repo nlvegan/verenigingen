@@ -17,7 +17,7 @@ for chart in dashboard.charts:  # charts is Dashboard Chart Link, not Workspace 
 
 ### 2. **Custom Fields**
 **Problem**: Fields starting with `custom_` are added dynamically and not in JSON definitions
-**Example**: `custom_membership_dues_schedule`
+**Example**: `membership_dues_schedule_display`
 **Solution**: 
 - Query database for custom fields at runtime
 - Or whitelist all `custom_*` fields by default

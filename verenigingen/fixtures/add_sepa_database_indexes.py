@@ -15,7 +15,7 @@ def create_sepa_indexes():
         {
             "table": "`tabSales Invoice`",
             "name": "idx_sepa_invoice_lookup",
-            "columns": ["custom_membership_dues_schedule", "docstatus", "status", "outstanding_amount"],
+            "columns": ["membership_dues_schedule_display", "docstatus", "status", "outstanding_amount"],
             "description": "Optimize SEPA invoice lookup queries",
         },
         {
@@ -27,7 +27,7 @@ def create_sepa_indexes():
         {
             "table": "`tabSales Invoice`",
             "name": "idx_dues_schedule_member",
-            "columns": ["custom_membership_dues_schedule", "custom_paying_for_member"],
+            "columns": ["membership_dues_schedule_display", "custom_paying_for_member"],
             "description": "Optimize dues schedule and partner payment lookups",
         },
         # Membership Dues Schedule indexes

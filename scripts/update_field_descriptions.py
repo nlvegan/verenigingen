@@ -9,7 +9,7 @@ with open('/home/frappe/frappe-bench/apps/verenigingen/verenigingen/fixtures/cus
 descriptions = {
     "Journal Entry-eboekhouden_relation_code": "E-Boekhouden relation code for linking with customer/supplier",
     "Journal Entry-eboekhouden_invoice_number": "Original invoice number from E-Boekhouden system",
-    "Journal Entry-custom_eboekhouden_main_ledger_id": "E-Boekhouden main ledger account identifier",
+    "Journal Entry-eboekhouden_main_ledger_id": "E-Boekhouden main ledger account identifier",
     "Customer-eboekhouden_relation_code": "Unique E-Boekhouden relation code for this customer",
     "Supplier-eboekhouden_relation_code": "Unique E-Boekhouden relation code for this supplier",
     "Sales Invoice-eboekhouden_invoice_number": "E-Boekhouden invoice number for tracking",

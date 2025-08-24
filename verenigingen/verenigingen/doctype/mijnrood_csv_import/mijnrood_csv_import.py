@@ -1328,22 +1328,25 @@ class MijnroodCSVImport(Document):
             # Get chapter document and add member to its members child table
             try:
                 chapter_doc = frappe.get_doc("Chapter", chapter_name)
-                
+
                 # Check if member is already in the chapter
                 existing_membership = False
                 for existing_member in chapter_doc.members:
                     if existing_member.member == member_doc.name and existing_member.enabled:
                         existing_membership = True
                         break
-                
+
                 if not existing_membership:
                     # Add member to chapter's members child table
-                    chapter_doc.append("members", {
-                        "member": member_doc.name,
-                        "enabled": 1,
-                        "status": "Active",
-                        "chapter_join_date": member_doc.member_since or today()
-                    })
+                    chapter_doc.append(
+                        "members",
+                        {
+                            "member": member_doc.name,
+                            "enabled": 1,
+                            "status": "Active",
+                            "chapter_join_date": member_doc.member_since or today(),
+                        },
+                    )
                     chapter_doc.save(ignore_permissions=True)
                     frappe.logger().info(
                         f"Successfully assigned member {member_doc.name} to chapter {chapter_name}"
@@ -1351,7 +1354,9 @@ class MijnroodCSVImport(Document):
                 else:
                     frappe.logger().info(f"Member {member_doc.name} already exists in chapter {chapter_name}")
             except Exception as e:
-                frappe.logger().warning(f"Could not assign member {member_doc.name} to chapter {chapter_name}: {str(e)}")
+                frappe.logger().warning(
+                    f"Could not assign member {member_doc.name} to chapter {chapter_name}: {str(e)}"
+                )
             else:
                 frappe.logger().info(
                     f"Member {member_doc.name} is already assigned to chapter {chapter_name}"

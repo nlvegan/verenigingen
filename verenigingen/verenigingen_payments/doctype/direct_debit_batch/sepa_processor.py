@@ -132,7 +132,7 @@ class SEPAProcessor:
             "Sales Invoice",
             filters={
                 "customer": schedule.member,
-                "custom_membership_dues_schedule": schedule.name,
+                "membership_dues_schedule_display": schedule.name,
                 "custom_coverage_start_date": schedule.last_invoice_coverage_start,
                 "docstatus": ["!=", 2],  # Not cancelled
                 "status": ["in", ["Unpaid", "Overdue"]],  # Only unpaid invoices
@@ -226,7 +226,7 @@ class SEPAProcessor:
             )
 
             # Add custom fields for tracking
-            invoice.custom_membership_dues_schedule = schedule.name
+            invoice.membership_dues_schedule_display = schedule.name
             invoice.custom_coverage_start_date = schedule.last_invoice_coverage_start
             invoice.custom_coverage_end_date = schedule.last_invoice_coverage_end
             invoice.custom_contribution_mode = schedule.contribution_mode
@@ -419,8 +419,10 @@ class SEPAProcessor:
         try:
             # Get the dues schedule
             invoice = frappe.get_doc("Sales Invoice", invoice_item.invoice)
-            if invoice.custom_membership_dues_schedule:
-                schedule = frappe.get_doc("Membership Dues Schedule", invoice.custom_membership_dues_schedule)
+            if invoice.membership_dues_schedule_display:
+                schedule = frappe.get_doc(
+                    "Membership Dues Schedule", invoice.membership_dues_schedule_display
+                )
 
                 # Increment failure count
                 schedule.consecutive_failures = (schedule.consecutive_failures or 0) + 1
@@ -529,7 +531,7 @@ Organization
                     COUNT(si.name) as invoice_count
                 FROM `tabMembership Dues Schedule` mds
                 LEFT JOIN `tabSales Invoice` si ON (
-                    si.custom_membership_dues_schedule = mds.name
+                    si.membership_dues_schedule_display = mds.name
                     AND si.custom_coverage_start_date = mds.last_invoice_coverage_start
                     AND si.custom_coverage_end_date = mds.last_invoice_coverage_end
                     AND si.docstatus != 2

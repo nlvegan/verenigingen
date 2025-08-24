@@ -105,22 +105,25 @@ def approve_membership_application(
             else:
                 # Get chapter document
                 chapter_doc = frappe.get_doc("Chapter", chapter)
-                
+
                 # Check if member is already in the chapter
                 existing_membership = False
                 for existing_member in chapter_doc.members:
                     if existing_member.member == member.name and existing_member.enabled:
                         existing_membership = True
                         break
-                
+
                 if not existing_membership:
                     # Add member to chapter's members child table
-                    chapter_doc.append("members", {
-                        "member": member.name,
-                        "enabled": 1,
-                        "status": "Active",
-                        "chapter_join_date": today()
-                    })
+                    chapter_doc.append(
+                        "members",
+                        {
+                            "member": member.name,
+                            "enabled": 1,
+                            "status": "Active",
+                            "chapter_join_date": today(),
+                        },
+                    )
                     chapter_doc.save(ignore_permissions=True)
                     frappe.logger().info(f"Added member {member.name} to chapter {chapter}")
                 else:

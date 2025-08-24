@@ -28,10 +28,10 @@ class PreciseFieldScanner:
             'eboekhouden_relation_code': ['Customer', 'Supplier', 'Journal Entry'], 
             'member': ['Customer', 'Sales Invoice'],
             'eboekhouden_invoice_number': ['Journal Entry', 'Purchase Invoice', 'Sales Invoice'],
-            'custom_eboekhouden_main_ledger_id': ['Journal Entry'],
+            'eboekhouden_main_ledger_id': ['Journal Entry'],
             'eboekhouden_mutation_nr': ['Journal Entry', 'Payment Entry', 'Purchase Invoice', 'Sales Invoice'],
             'eboekhouden_mutation_type': ['Journal Entry', 'Payment Entry'],
-            'custom_eboekhouden_section': ['Journal Entry'],
+            'eboekhouden_section': ['Journal Entry'],
             'is_membership_invoice': ['Sales Invoice'],
             'membership': ['Sales Invoice']
         }

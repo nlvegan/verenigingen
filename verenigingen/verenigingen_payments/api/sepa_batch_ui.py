@@ -58,7 +58,7 @@ def load_unpaid_invoices(date_range="overdue", membership_type=None, limit=100):
             "outstanding_amount as amount",
             "currency",
             "due_date",
-            "custom_membership_dues_schedule as membership",
+            "membership_dues_schedule_display as membership",
         ],
         order_by="due_date",
         limit=limit,
@@ -150,7 +150,7 @@ def get_invoice_mandate_info(invoice):
         """
         SELECT
             si.name as invoice,
-            si.custom_membership_dues_schedule as membership,
+            si.membership_dues_schedule_display as membership,
             mem.name as member,
             mem.full_name as member_name,
             sm.iban,
@@ -159,7 +159,7 @@ def get_invoice_mandate_info(invoice):
             sm.sign_date,
             sm.status as mandate_status
         FROM `tabSales Invoice` si
-        LEFT JOIN `tabMembership Dues Schedule` mds ON si.custom_membership_dues_schedule = mds.name
+        LEFT JOIN `tabMembership Dues Schedule` mds ON si.membership_dues_schedule_display = mds.name
         LEFT JOIN `tabMember` mem ON mds.member = mem.name
         LEFT JOIN `tabSEPA Mandate` sm ON sm.member = mem.name AND sm.status = 'Active'
         WHERE si.name = %(invoice)s

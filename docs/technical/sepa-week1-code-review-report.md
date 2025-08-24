@@ -62,7 +62,7 @@ The Week 1 SEPA billing improvements have been successfully implemented with sol
 ```sql
 DROP INDEX `idx_sepa_invoice_lookup` ON `tabSales Invoice`;
 CREATE INDEX `idx_sepa_invoice_lookup` ON `tabSales Invoice`
-(`docstatus`, `status`, `outstanding_amount`, `posting_date`, `custom_membership_dues_schedule`);
+(`docstatus`, `status`, `outstanding_amount`, `posting_date`, `membership_dues_schedule_display`);
 ```
 
 **Validation**: Query optimizer confirmed using complete index (261 rows examined)

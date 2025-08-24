@@ -15,7 +15,7 @@ def setup_dues_fields():
     sales_invoice_meta = frappe.get_meta("Sales Invoice")
     existing_fields = [field.fieldname for field in sales_invoice_meta.fields]
 
-    if "custom_membership_dues_schedule" in existing_fields and "is_membership_invoice" in existing_fields:
+    if "membership_dues_schedule_display" in existing_fields and "is_membership_invoice" in existing_fields:
         print("✅ Custom fields already exist!")
         return verify_fields()
 
@@ -56,7 +56,7 @@ def setup_dues_fields():
                 "module": "Verenigingen",
             },
             {
-                "fieldname": "custom_membership_dues_schedule",
+                "fieldname": "membership_dues_schedule_display",
                 "label": "Membership Dues Schedule",
                 "fieldtype": "Link",
                 "options": "Membership Dues Schedule",
@@ -68,7 +68,7 @@ def setup_dues_fields():
             {
                 "fieldname": "dues_schedule_column_break",
                 "fieldtype": "Column Break",
-                "insert_after": "custom_membership_dues_schedule",
+                "insert_after": "membership_dues_schedule_display",
             },
             {
                 "fieldname": "custom_contribution_mode",
@@ -84,7 +84,7 @@ def setup_dues_fields():
                 "fieldtype": "Section Break",
                 "insert_after": "custom_contribution_mode",
                 "collapsible": 1,
-                "depends_on": "eval:doc.custom_membership_dues_schedule",
+                "depends_on": "eval:doc.membership_dues_schedule_display",
             },
             {
                 "fieldname": "custom_coverage_start_date",
@@ -171,7 +171,7 @@ def verify_fields():
         "is_membership_invoice",
         "membership",
         "member",
-        "custom_membership_dues_schedule",
+        "membership_dues_schedule_display",
         "custom_contribution_mode",
         "coverage_period_section",
         "custom_coverage_start_date",
@@ -209,7 +209,7 @@ def get_custom_field_status():
         "is_membership_invoice",
         "membership",
         "member",
-        "custom_membership_dues_schedule",
+        "membership_dues_schedule_display",
         "custom_coverage_start_date",
         "custom_coverage_end_date",
     ]

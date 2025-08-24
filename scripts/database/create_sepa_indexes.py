@@ -17,7 +17,7 @@ def create_sepa_indexes():
         {
             "table": "tabSales Invoice",
             "name": "idx_sepa_invoice_lookup", 
-            "columns": ["docstatus", "status", "outstanding_amount", "posting_date", "custom_membership_dues_schedule"],
+            "columns": ["docstatus", "status", "outstanding_amount", "posting_date", "membership_dues_schedule_display"],
             "description": "Optimizes SEPA invoice batch queries"
         },
         
@@ -57,7 +57,7 @@ def create_sepa_indexes():
         {
             "table": "tabSales Invoice",
             "name": "idx_sales_invoice_payment_method",
-            "columns": ["status", "outstanding_amount", "custom_membership_dues_schedule"],
+            "columns": ["status", "outstanding_amount", "membership_dues_schedule_display"],
             "description": "Optimizes unpaid invoice queries for SEPA batches"
         },
         
@@ -192,7 +192,7 @@ def analyze_sepa_query_performance():
         {
             "name": "SEPA Invoice Lookup",
             "sql": """
-                EXPLAIN SELECT si.name, si.customer, si.outstanding_amount, si.custom_membership_dues_schedule
+                EXPLAIN SELECT si.name, si.customer, si.outstanding_amount, si.membership_dues_schedule_display
                 FROM `tabSales Invoice` si 
                 WHERE si.docstatus = 1 
                 AND si.status IN ('Unpaid', 'Overdue')

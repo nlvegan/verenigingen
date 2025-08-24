@@ -128,7 +128,7 @@ def create_other_missing_custom_fields():
     additional_fields = [
         {
             "dt": "Sales Invoice",
-            "fieldname": "custom_membership_dues_schedule",
+            "fieldname": "membership_dues_schedule_display",
             "label": "Membership Dues Schedule",
             "fieldtype": "Link",
             "options": "Membership Dues Schedule",
@@ -146,7 +146,7 @@ def create_other_missing_custom_fields():
             "fieldtype": "Select",
             "options": "Tier\nCalculator\nCustom\nFixed",
             "description": "Tracks contribution type",
-            "insert_after": "custom_membership_dues_schedule",
+            "insert_after": "membership_dues_schedule_display",
             "module": "Verenigingen",
             "read_only": 1,
             "no_copy": 1,

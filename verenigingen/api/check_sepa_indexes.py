@@ -22,7 +22,7 @@ def check_sepa_indexes():
                 "status",
                 "outstanding_amount",
                 "posting_date",
-                "custom_membership_dues_schedule",
+                "membership_dues_schedule_display",
             ],
         },
         {
@@ -54,7 +54,7 @@ def check_sepa_indexes():
         {
             "table": "tabSales Invoice",
             "name": "idx_sales_invoice_payment_method",
-            "expected_columns": ["status", "outstanding_amount", "custom_membership_dues_schedule"],
+            "expected_columns": ["status", "outstanding_amount", "membership_dues_schedule_display"],
         },
         {
             "table": "tabDirect Debit Batch",

@@ -243,14 +243,14 @@ class SEPAConflictDetector:
                 """
                 SELECT
                     si.name as invoice,
-                    si.custom_membership_dues_schedule as schedule_id,
+                    si.membership_dues_schedule_display as schedule_id,
                     mds.member,
                     mds.next_invoice_date,
                     mds.billing_frequency,
                     mds.status as schedule_status,
                     mem.full_name as member_name
                 FROM `tabSales Invoice` si
-                LEFT JOIN `tabMembership Dues Schedule` mds ON si.custom_membership_dues_schedule = mds.name
+                LEFT JOIN `tabMembership Dues Schedule` mds ON si.membership_dues_schedule_display = mds.name
                 LEFT JOIN `tabMember` mem ON mds.member = mem.name
                 WHERE si.name IN %(invoices)s
                 AND mds.name IS NOT NULL

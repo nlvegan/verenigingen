@@ -174,7 +174,7 @@ for invoice in invoices:
 ```sql
 -- SEPA invoice lookup optimization
 CREATE INDEX idx_sepa_invoice_lookup ON `tabSales Invoice`
-(docstatus, status, outstanding_amount, posting_date, custom_membership_dues_schedule);
+(docstatus, status, outstanding_amount, posting_date, membership_dues_schedule_display);
 
 -- Mandate lookup optimization
 CREATE INDEX idx_sepa_mandate_member_status ON `tabSEPA Mandate`

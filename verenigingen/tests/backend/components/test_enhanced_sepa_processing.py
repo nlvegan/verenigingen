@@ -80,7 +80,7 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
             # Validate invoice details
             self.assertEqual(invoice.customer, dues_schedule.member)
             self.assertEqual(invoice.grand_total, dues_schedule.dues_rate)
-            self.assertIsNotNone(invoice.custom_membership_dues_schedule)
+            self.assertIsNotNone(invoice.membership_dues_schedule_display)
             self.assertIsNotNone(invoice.custom_coverage_start_date)
             self.assertIsNotNone(invoice.custom_coverage_end_date)
             

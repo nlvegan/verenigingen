@@ -96,7 +96,7 @@ def fetch_and_compare_mutation_6316():
                     je.total_debit,
                     je.total_credit,
                     je.eboekhouden_mutation_nr,
-                    je.eboekhouden_main_ledger_id,
+                    je.custom_eboekhouden_main_ledger_id,
                     jea.account,
                     jea.debit_in_account_currency,
                     jea.credit_in_account_currency,
@@ -117,7 +117,7 @@ def fetch_and_compare_mutation_6316():
                 print(f"Total Debit: {je.total_debit}")
                 print(f"Total Credit: {je.total_credit}")
                 print(f"eBoekhouden Mutation Nr: {je.eboekhouden_mutation_nr}")
-                print(f"eBoekhouden Main Ledger ID: {je.eboekhouden_main_ledger_id}")
+                print(f"eBoekhouden Main Ledger ID: {je.custom_eboekhouden_main_ledger_id}")
 
                 print(f"\nJournal Entry Accounts ({len(je_data)} entries):")
                 for i, acc in enumerate(je_data, 1):

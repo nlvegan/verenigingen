@@ -145,11 +145,11 @@ class TestSEPAPerformanceRegression(VereningingenTestCase):
         # Test Sales Invoice query with custom fields (should use indexes)
         start_time = time.time()
         invoices = frappe.db.sql("""
-            SELECT si.name, si.custom_membership_dues_schedule
+            SELECT si.name, si.membership_dues_schedule_display
             FROM `tabSales Invoice` si
             WHERE si.docstatus = 1
               AND si.status IN ('Unpaid', 'Overdue')
-              AND si.custom_membership_dues_schedule IS NOT NULL
+              AND si.membership_dues_schedule_display IS NOT NULL
             LIMIT 100
         """, as_dict=True)
         query_time = time.time() - start_time

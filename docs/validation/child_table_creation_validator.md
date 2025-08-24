@@ -47,7 +47,7 @@ chapter_doc.save()
 ### Confidence Levels
 
 - **HIGH**: Clear child table creation with parenttype/parentfield parameters
-- **MEDIUM**: Known child table DocType created without obvious parent context  
+- **MEDIUM**: Known child table DocType created without obvious parent context
 - **LOW**: Child table DocType with unclear context or edge cases
 
 ### Integration Points
@@ -75,7 +75,7 @@ The validator is integrated into `validation_suite_runner.py` as the 4th validat
 # Validate specific file
 python scripts/validation/child_table_creation_validator.py path/to/file.py
 
-# Validate directory  
+# Validate directory
 python scripts/validation/child_table_creation_validator.py path/to/directory/
 
 # Pre-commit mode (high confidence only)
@@ -161,7 +161,7 @@ This validator would have caught the Chapter Member assignment bug that occurred
 
 ### Integration Benefits
 
-- **Pre-commit Protection**: Stops bugs before they reach the repository  
+- **Pre-commit Protection**: Stops bugs before they reach the repository
 - **Developer Education**: Teaches proper Frappe ORM patterns through suggestions
 - **Code Quality**: Enforces architectural consistency across the codebase
 - **Runtime Reliability**: Prevents a class of relationship and data integrity errors
@@ -201,7 +201,7 @@ The validator automatically loads all child table DocTypes from the Frappe appli
 
 The validator includes performance metrics in validation suite output:
 - Load time for child table metadata
-- AST parsing time per file  
+- AST parsing time per file
 - Issue detection and confidence scoring time
 - Total validation duration
 

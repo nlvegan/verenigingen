@@ -77,9 +77,12 @@ class TeamMember(Document):
                 if frappe.has_permission("User", "write", user) or frappe.session.user == "Administrator":
                     # Create the role assignment via parent document
                     user_doc = frappe.get_doc("User", user)
-                    user_doc.append("roles", {
-                        "role": "Team Lead",
-                    })
+                    user_doc.append(
+                        "roles",
+                        {
+                            "role": "Team Lead",
+                        },
+                    )
                     user_doc.save()
                     frappe.logger().info(f"Assigned Team Lead role to {user}")
                 else:

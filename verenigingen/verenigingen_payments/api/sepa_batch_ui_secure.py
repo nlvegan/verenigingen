@@ -92,7 +92,7 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type=None, limi
         # Get memberships of this type
         memberships = frappe.get_all("Membership", filters={"membership_type": membership_type}, pluck="name")
         if memberships:
-            filters["custom_membership_dues_schedule"] = ["in", memberships]
+            filters["membership_dues_schedule_display"] = ["in", memberships]
 
     # Get invoices with optimized query
     invoices = frappe.get_all(
@@ -104,7 +104,7 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type=None, limi
             "outstanding_amount as amount",
             "currency",
             "due_date",
-            "custom_membership_dues_schedule",
+            "membership_dues_schedule_display",
         ],
         order_by="due_date",
         limit=limit,
@@ -113,7 +113,7 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type=None, limi
     # Optimized: Get member and mandate information in single batch query
     if invoices:
         membership_ids = [
-            inv.custom_membership_dues_schedule for inv in invoices if inv.custom_membership_dues_schedule
+            inv.membership_dues_schedule_display for inv in invoices if inv.membership_dues_schedule_display
         ]
 
         if membership_ids:
@@ -148,10 +148,10 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type=None, limi
             # Apply data to invoices in single loop
             for invoice in invoices:
                 if (
-                    invoice.custom_membership_dues_schedule
-                    and invoice.custom_membership_dues_schedule in member_data_lookup
+                    invoice.membership_dues_schedule_display
+                    and invoice.membership_dues_schedule_display in member_data_lookup
                 ):
-                    data = member_data_lookup[invoice.custom_membership_dues_schedule]
+                    data = member_data_lookup[invoice.membership_dues_schedule_display]
                     invoice.update(
                         {
                             "member": data.member,
@@ -219,7 +219,7 @@ def get_invoice_mandate_info_secure(invoice):
         """
         SELECT
             si.name as invoice,
-            si.custom_membership_dues_schedule as membership,
+            si.membership_dues_schedule_display as membership,
             mem.name as member,
             mem.full_name as member_name,
             sm.iban,
@@ -228,7 +228,7 @@ def get_invoice_mandate_info_secure(invoice):
             sm.sign_date,
             sm.status as mandate_status
         FROM `tabSales Invoice` si
-        LEFT JOIN `tabMembership Dues Schedule` mds ON si.custom_membership_dues_schedule = mds.name
+        LEFT JOIN `tabMembership Dues Schedule` mds ON si.membership_dues_schedule_display = mds.name
         LEFT JOIN `tabMember` mem ON mds.member = mem.name
         LEFT JOIN `tabSEPA Mandate` sm ON sm.member = mem.name AND sm.status = 'Active'
         WHERE si.name = %(invoice)s

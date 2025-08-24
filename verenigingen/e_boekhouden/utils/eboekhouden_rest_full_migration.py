@@ -2647,7 +2647,7 @@ def _create_zero_amount_payment_entry(mutation, company, cost_center, debug_info
         pe.company = company
         pe.posting_date = mutation.get("date")
         pe.eboekhouden_mutation_nr = str(mutation_id)
-        pe.custom_eboekhouden_main_ledger_id = str(ledger_id) if ledger_id else ""
+        pe.eboekhouden_main_ledger_id = str(ledger_id) if ledger_id else ""
         pe.reference_no = f"EBH-Zero-{mutation_id}"
         pe.reference_date = mutation.get("date")
 
@@ -2981,7 +2981,7 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
     je.posting_date = mutation.get("date")
     je.voucher_type = "Journal Entry"
     je.eboekhouden_mutation_nr = str(mutation_id)
-    je.custom_eboekhouden_main_ledger_id = str(ledger_id) if ledger_id else ""
+    je.eboekhouden_main_ledger_id = str(ledger_id) if ledger_id else ""
     je.user_remark = description
 
     # Set descriptive name and title using enhanced naming functions

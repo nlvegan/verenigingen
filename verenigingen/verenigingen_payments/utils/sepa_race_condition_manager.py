@@ -535,7 +535,7 @@ class SEPABatchRaceConditionManager:
                     si.status,
                     si.outstanding_amount,
                     si.docstatus,
-                    si.custom_membership_dues_schedule as membership,
+                    si.membership_dues_schedule_display as membership,
                     si.posting_date,
                     si.due_date
                 FROM `tabSales Invoice` si

@@ -207,7 +207,7 @@ def check_database_fields():
             FROM INFORMATION_SCHEMA.COLUMNS
             WHERE TABLE_NAME = 'tabSales Invoice'
             AND TABLE_SCHEMA = DATABASE()
-            AND COLUMN_NAME IN ('custom_coverage_start_date', 'custom_coverage_end_date', 'custom_membership_dues_schedule')
+            AND COLUMN_NAME IN ('custom_coverage_start_date', 'custom_coverage_end_date', 'membership_dues_schedule_display')
         """,
             as_dict=True,
         )

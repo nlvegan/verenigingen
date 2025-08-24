@@ -151,7 +151,7 @@ class SEPAMandateService:
                 si.currency,
                 si.posting_date,
                 si.due_date,
-                si.custom_membership_dues_schedule as schedule_name,
+                si.membership_dues_schedule_display as schedule_name,
                 si.custom_coverage_start_date,
                 si.custom_coverage_end_date,
                 si.custom_paying_for_member,
@@ -164,7 +164,7 @@ class SEPAMandateService:
                 sm.mandate_id as mandate_reference
             FROM
                 `tabSales Invoice` si USE INDEX (idx_sepa_invoice_lookup)
-            JOIN `tabMembership Dues Schedule` mds ON si.custom_membership_dues_schedule = mds.name
+            JOIN `tabMembership Dues Schedule` mds ON si.membership_dues_schedule_display = mds.name
             JOIN `tabMember` mem ON mds.member = mem.name
             LEFT JOIN `tabMember` paying_member ON si.custom_paying_for_member = paying_member.name
             JOIN `tabSEPA Mandate` sm ON sm.member = mem.name AND sm.status = 'Active'

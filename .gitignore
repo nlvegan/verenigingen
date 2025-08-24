@@ -17,10 +17,12 @@ cypress/downloads/
 
 # Test logs
 test-logs/
+test-results/
 __pycache__
 .pytest_cache/
 .coverage
 htmlcov/
+jest-junit.xml
 *.log
 *.bak
 *.orig

@@ -11,7 +11,7 @@
 {% block page_content %}
 <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        
+
         <!-- Header -->
         <div class="text-center mb-8 animate-fade-in">
             {% if brand_logo %}
@@ -254,7 +254,7 @@
         grid-template-columns: repeat(1, minmax(0, 1fr));
         gap: 1rem;
     }
-    
+
     .form-body .grid {
         gap: 1rem;
     }
@@ -269,7 +269,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (skillInput && !skillInput.value) {
         skillInput.focus();
     }
-    
+
     // Add smooth scroll to results when searching
     const searchForm = document.querySelector('form');
     if (searchForm) {
@@ -282,7 +282,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }, 100);
         });
     }
-    
+
     // Add keyboard navigation for skill cards
     document.querySelectorAll('.bg-white.border.border-gray-200').forEach((card, index) => {
         card.setAttribute('tabindex', '0');

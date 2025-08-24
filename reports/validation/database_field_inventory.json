@@ -143,7 +143,7 @@
       "count": 11,
       "missing_fields": [
         "name as invoice",
-        "custom_membership_dues_schedule as membership",
+        "membership_dues_schedule_display as membership",
         "custom_dues_schedule",
         "outstanding_amount as amount"
       ],
@@ -532,7 +532,7 @@
       "file": "verenigingen/api/sepa_batch_ui.py",
       "file_type": "api_endpoint",
       "line": 52,
-      "field": "custom_membership_dues_schedule as membership",
+      "field": "membership_dues_schedule_display as membership",
       "doctype": "Sales Invoice",
       "context": "invoices = frappe.get_all(",
       "issue_type": "select_field",
@@ -884,7 +884,7 @@
       "file": "verenigingen/api/sepa_batch_ui.py",
       "file_type": "api_endpoint",
       "line": 52,
-      "field": "custom_membership_dues_schedule as membership",
+      "field": "membership_dues_schedule_display as membership",
       "doctype": "Sales Invoice",
       "context": "invoices = frappe.get_all(",
       "issue_type": "select_field",

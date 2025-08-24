@@ -47,9 +47,9 @@ def check_scheduler_and_dues_schedules():
         "Sales Invoice",
         filters={
             "creation": [">=", add_days(now_datetime(), -7)],
-            "custom_membership_dues_schedule": ["!=", ""]
+            "membership_dues_schedule_display": ["!=", ""]
         },
-        fields=["name", "customer", "posting_date", "custom_membership_dues_schedule", "grand_total"],
+        fields=["name", "customer", "posting_date", "membership_dues_schedule_display", "grand_total"],
         order_by="creation desc",
         limit=10
     )
@@ -59,9 +59,9 @@ def check_scheduler_and_dues_schedules():
         "Sales Invoice",
         filters={
             "creation": [">=", add_days(now_datetime(), -7)],
-            "custom_membership_dues_schedule": ["!=", ""]
+            "membership_dues_schedule_display": ["!=", ""]
         },
-        fields=["name", "custom_membership_dues_schedule", "docstatus", "creation"],
+        fields=["name", "membership_dues_schedule_display", "docstatus", "creation"],
         order_by="creation desc",
         limit=10
     )

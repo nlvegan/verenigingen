@@ -50,7 +50,7 @@ const memberApiContractTests = {
     'API Contract Validation': (getControllerTest) => {
         it('should validate API calls', () => {
             const controllerTest = getControllerTest();
-            
+
             // Track API calls made by controller
             const capturedCalls = [];
             global.frappe.call = jest.fn((options) => {
@@ -59,10 +59,10 @@ const memberApiContractTests = {
                     args: options.args || {}
                 });
             });
-            
+
             // Trigger controller events
             controllerTest.testEvent('refresh');
-            
+
             // Validate all captured API calls
             capturedCalls.forEach(call => {
                 expect(call.args).toMatchAPIContract(call.method);
@@ -132,7 +132,7 @@ Current schema coverage includes:
 ```javascript
 it('should validate member payment API call', () => {
     const validArgs = { member: 'ASSOC-MEMBER-2025-001' };
-    
+
     expect(validArgs).toMatchAPIContract(
         'verenigingen.verenigingen.doctype.member.member.process_payment'
     );
@@ -146,7 +146,7 @@ it('should generate valid test data', () => {
     const testData = tester.generateValidTestData(
         'verenigingen.verenigingen.doctype.member.member.process_payment'
     );
-    
+
     expect(testData.member).toMatch(/^[A-Z]+-[A-Z]+-[0-9]+-[0-9]+$/);
 });
 ```
@@ -156,7 +156,7 @@ it('should generate valid test data', () => {
 ```javascript
 it('should detect parameter mismatches', () => {
     const invalidArgs = { member_id: 'WRONG-PARAM' }; // Should be 'member'
-    
+
     expect(() => {
         expect(invalidArgs).toMatchAPIContract(
             'verenigingen.verenigingen.doctype.member.member.process_payment'
@@ -179,14 +179,14 @@ const apiContractTests = {
     'API Validation': (getControllerTest) => {
         it('validates controller API calls', () => {
             const test = getControllerTest();
-            
+
             // Mock and capture API calls
             const calls = [];
             global.frappe.call = jest.fn((opts) => calls.push(opts));
-            
+
             // Trigger controller
             test.testEvent('refresh');
-            
+
             // Validate contracts
             calls.forEach(call => {
                 if (tester.getMethodSchema(call.method)) {
@@ -197,7 +197,7 @@ const apiContractTests = {
     }
 };
 
-describe('Member Controller', 
+describe('Member Controller',
     createControllerTestSuite(memberControllerConfig, apiContractTests)
 );
 ```
@@ -322,7 +322,7 @@ if (!result.valid) {
 **API Contract Testing has been approved for production deployment after comprehensive review:**
 
 - **Code Quality**: 8.5/10 rating from professional code review
-- **Security Assessment**: Zero critical vulnerabilities identified  
+- **Security Assessment**: Zero critical vulnerabilities identified
 - **Test Coverage**: 28 passing tests with 100% success rate
 - **Performance**: <50ms per validation, suitable for CI/CD pipelines
 - **Documentation**: Complete with examples and troubleshooting guides
@@ -336,6 +336,6 @@ if (!result.valid) {
 
 *For questions or contributions, contact the Verenigingen Development Team.*
 
-**Last Updated**: January 2025  
-**Version**: 1.0.0  
+**Last Updated**: January 2025
+**Version**: 1.0.0
 **Status**: Production Approved (Double-Reviewed)

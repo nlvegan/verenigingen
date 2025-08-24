@@ -16,7 +16,7 @@ def check_sepa_indexes():
         {
             "table": "tabSales Invoice",
             "name": "idx_sepa_invoice_lookup",
-            "expected_columns": ["docstatus", "status", "outstanding_amount", "posting_date", "custom_membership_dues_schedule"]
+            "expected_columns": ["docstatus", "status", "outstanding_amount", "posting_date", "membership_dues_schedule_display"]
         },
         {
             "table": "tabSEPA Mandate",
@@ -41,7 +41,7 @@ def check_sepa_indexes():
         {
             "table": "tabSales Invoice",
             "name": "idx_sales_invoice_payment_method",
-            "expected_columns": ["status", "outstanding_amount", "custom_membership_dues_schedule"]
+            "expected_columns": ["status", "outstanding_amount", "membership_dues_schedule_display"]
         },
         {
             "table": "tabDirect Debit Batch",
@@ -124,11 +124,11 @@ def check_sepa_indexes():
     try:
         # Query that should use idx_sepa_invoice_lookup
         query_plan = frappe.db.sql("""
-            EXPLAIN SELECT name, customer, outstanding_amount, currency, due_date, custom_membership_dues_schedule 
+            EXPLAIN SELECT name, customer, outstanding_amount, currency, due_date, membership_dues_schedule_display 
             FROM `tabSales Invoice`
             WHERE docstatus = 1 
             AND status IN ('Unpaid', 'Overdue')
-            AND custom_membership_dues_schedule IS NOT NULL
+            AND membership_dues_schedule_display IS NOT NULL
             LIMIT 10
         """, as_dict=True)
         

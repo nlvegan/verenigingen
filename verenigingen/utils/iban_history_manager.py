@@ -40,15 +40,18 @@ def create_initial_iban_history(member_name):
 
         # Create IBAN history record via parent document
         member_doc = frappe.get_doc("Member", member_name)
-        member_doc.append("iban_history", {
-            "iban": member.iban,
-            "bic": getattr(member, "bic", None),
-            "bank_account_name": getattr(member, "bank_account_name", None),
-            "from_date": today(),
-            "is_active": 1,
-            "changed_by": frappe.session.user,
-            "change_reason": reason,
-        })
+        member_doc.append(
+            "iban_history",
+            {
+                "iban": member.iban,
+                "bic": getattr(member, "bic", None),
+                "bank_account_name": getattr(member, "bank_account_name", None),
+                "from_date": today(),
+                "is_active": 1,
+                "changed_by": frappe.session.user,
+                "change_reason": reason,
+            },
+        )
         member_doc.save(ignore_permissions=True)
 
         frappe.logger().info(f"Created initial IBAN history for member {member_name}")
@@ -121,15 +124,18 @@ def track_iban_change(member_doc):
                 frappe.db.set_value("Member IBAN History", record.name, {"is_active": 0, "to_date": today()})
 
             # Add new IBAN history record via parent document
-            member_doc.append("iban_history", {
-                "iban": member_doc.iban,
-                "bic": getattr(member_doc, "bic", None),
-                "bank_account_name": getattr(member_doc, "bank_account_name", None),
-                "from_date": today(),
-                "is_active": 1,
-                "changed_by": frappe.session.user,
-                "change_reason": "Bank Change",
-            })
+            member_doc.append(
+                "iban_history",
+                {
+                    "iban": member_doc.iban,
+                    "bic": getattr(member_doc, "bic", None),
+                    "bank_account_name": getattr(member_doc, "bank_account_name", None),
+                    "from_date": today(),
+                    "is_active": 1,
+                    "changed_by": frappe.session.user,
+                    "change_reason": "Bank Change",
+                },
+            )
             member_doc.save(ignore_permissions=True)
 
             # Log the change

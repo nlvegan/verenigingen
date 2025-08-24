@@ -148,7 +148,7 @@ def add_custom_fields_indexes():
     print("Adding custom fields performance indexes...")
 
     # Sales Invoice custom fields
-    add_index_if_not_exists("tabSales Invoice", "custom_membership_dues_schedule", "idx_si_membership_dues")
+    add_index_if_not_exists("tabSales Invoice", "membership_dues_schedule_display", "idx_si_membership_dues")
     add_index_if_not_exists("tabSales Invoice", "custom_coverage_start_date", "idx_si_coverage_start")
     add_index_if_not_exists("tabSales Invoice", "custom_coverage_end_date", "idx_si_coverage_end")
     add_index_if_not_exists("tabSales Invoice", "eboekhouden_mutation_nr", "idx_si_eboekhouden_mutation")

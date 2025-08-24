@@ -52,7 +52,7 @@ def fix_sepa_invoice_index():
         create_sql = """
             CREATE INDEX `idx_sepa_invoice_lookup`
             ON `tabSales Invoice`
-            (`docstatus`, `status`, `outstanding_amount`, `posting_date`, `custom_membership_dues_schedule`)
+            (`docstatus`, `status`, `outstanding_amount`, `posting_date`, `membership_dues_schedule_display`)
         """
 
         frappe.db.sql(create_sql)
@@ -75,7 +75,7 @@ def fix_sepa_invoice_index():
                 "status",
                 "outstanding_amount",
                 "posting_date",
-                "custom_membership_dues_schedule",
+                "membership_dues_schedule_display",
             ]
             actual_columns = [col.Column_name for col in sorted(new_index, key=lambda x: x.Seq_in_index)]
 

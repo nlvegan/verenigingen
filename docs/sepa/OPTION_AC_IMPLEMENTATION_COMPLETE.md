@@ -21,7 +21,7 @@ The Enhanced SEPA Processor with Option A+C workflow has been **successfully imp
 Added comprehensive custom fields to Sales Invoice:
 
 **Membership Dues Tracking:**
-- `custom_membership_dues_schedule` - Links invoice to specific dues schedule
+- `membership_dues_schedule_display` - Links invoice to specific dues schedule
 - `custom_coverage_start_date` - Billing period start date
 - `custom_coverage_end_date` - Billing period end date
 - `custom_contribution_mode` - Tracks contribution type (Tier, Calculator, Custom)
@@ -112,7 +112,7 @@ def get_sepa_batch_preview(collection_date=None)
 ### **Sales Invoice Custom Fields Added:**
 ```sql
 -- Membership dues tracking
-ALTER TABLE `tabSales Invoice` ADD `custom_membership_dues_schedule` VARCHAR(140);
+ALTER TABLE `tabSales Invoice` ADD `membership_dues_schedule_display` VARCHAR(140);
 ALTER TABLE `tabSales Invoice` ADD `custom_coverage_start_date` DATE;
 ALTER TABLE `tabSales Invoice` ADD `custom_coverage_end_date` DATE;
 ALTER TABLE `tabSales Invoice` ADD `custom_contribution_mode` VARCHAR(140);

@@ -13,7 +13,7 @@ def check_eboekhouden_fields():
         ("Journal Entry", "eboekhouden_mutation_nr"),
         ("Journal Entry", "eboekhouden_relation_code"),
         ("Journal Entry", "eboekhouden_invoice_number"),
-        ("Journal Entry", "custom_eboekhouden_main_ledger_id"),
+        ("Journal Entry", "eboekhouden_main_ledger_id"),
         ("Journal Entry", "eboekhouden_mutation_type"),
         ("Sales Invoice", "eboekhouden_mutation_nr"),
         ("Sales Invoice", "eboekhouden_invoice_number"),
