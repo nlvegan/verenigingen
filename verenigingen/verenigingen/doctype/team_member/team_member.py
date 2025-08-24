@@ -75,16 +75,12 @@ class TeamMember(Document):
             try:
                 # Create the role assignment with proper permission check
                 if frappe.has_permission("User", "write", user) or frappe.session.user == "Administrator":
-                    role_doc = frappe.get_doc(
-                        {
-                            "doctype": "Has Role",
-                            "parent": user,
-                            "parenttype": "User",
-                            "parentfield": "roles",
-                            "role": "Team Lead",
-                        }
-                    )
-                    role_doc.insert()
+                    # Create the role assignment via parent document
+                    user_doc = frappe.get_doc("User", user)
+                    user_doc.append("roles", {
+                        "role": "Team Lead",
+                    })
+                    user_doc.save()
                     frappe.logger().info(f"Assigned Team Lead role to {user}")
                 else:
                     frappe.logger().warning(f"Insufficient permissions to assign Team Lead role to {user}")

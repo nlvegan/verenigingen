@@ -141,7 +141,7 @@ class FrappeCallVisitor(ast.NodeVisitor):
         # Handle string literal: frappe.get_doc("DocType", ...)
         if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
             return first_arg.value
-        elif hasattr(ast, 'Str') and isinstance(first_arg, ast.Str):  # Python < 3.8 compatibility
+        elif hasattr(first_arg, 's'):  # ast.Str fallback for older Python versions
             return first_arg.s
         
         # Handle dict: frappe.get_doc({"doctype": "DocType", ...})
@@ -150,13 +150,13 @@ class FrappeCallVisitor(ast.NodeVisitor):
                 key_value = None
                 if isinstance(key, ast.Constant):
                     key_value = key.value
-                elif hasattr(ast, 'Str') and isinstance(key, ast.Str):
+                elif hasattr(key, 's'):  # ast.Str fallback for older Python versions
                     key_value = key.s
                 
                 if key_value == 'doctype':
                     if isinstance(value, ast.Constant) and isinstance(value.value, str):
                         return value.value
-                    elif hasattr(ast, 'Str') and isinstance(value, ast.Str):
+                    elif hasattr(value, 's'):  # ast.Str fallback for older Python versions
                         return value.s
         
         return None
@@ -207,7 +207,7 @@ class FrappeCallVisitor(ast.NodeVisitor):
             for key in first_arg.keys:
                 if isinstance(key, ast.Constant) and isinstance(key.value, str):
                     keys.append(key.value)
-                elif hasattr(ast, 'Str') and isinstance(key, ast.Str):
+                elif hasattr(key, 's'):  # ast.Str fallback for older Python versions
                     keys.append(key.s)
             
             return any(field in keys for field in ['parent', 'parenttype', 'parentfield'])

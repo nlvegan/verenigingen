@@ -51,16 +51,12 @@ class ChapterBoardMember(Document):
         )
 
         if not existing_role:
-            # Create the role assignment
-            frappe.get_doc(
-                {
-                    "doctype": "Has Role",
-                    "parent": user,
-                    "parenttype": "User",
-                    "parentfield": "roles",
-                    "role": "Verenigingen Chapter Board Member",
-                }
-            ).insert(ignore_permissions=True)
+            # Create the role assignment via parent document
+            user_doc = frappe.get_doc("User", user)
+            user_doc.append("roles", {
+                "role": "Verenigingen Chapter Board Member",
+            })
+            user_doc.save(ignore_permissions=True)
 
             frappe.msgprint(f"Assigned Chapter Board Member role to {user}")
 
