@@ -95,7 +95,7 @@ def create_eboekhouden_tracking_fields():
                 "allow_on_submit": 1,
             },
             {
-                "fieldname": "eboekhouden_main_ledger_id",
+                "fieldname": "custom_eboekhouden_main_ledger_id",
                 "label": "E-Boekhouden Main Ledger ID",
                 "fieldtype": "Data",
                 "insert_after": "eboekhouden_invoice_number",
@@ -106,7 +106,7 @@ def create_eboekhouden_tracking_fields():
                 "label": "E-Boekhouden Mutation Type",
                 "fieldtype": "Select",
                 "options": "\n0\n1\n2\n3\n4\n5\n6\n7",
-                "insert_after": "eboekhouden_main_ledger_id",
+                "insert_after": "custom_eboekhouden_main_ledger_id",
                 "allow_on_submit": 1,
                 "description": "0=Opening, 1=PurchInv, 2=SalesInv, 3=CustPayment, 4=SuppPayment, 5=MoneyReceived, 6=MoneySent, 7=Memorial",
             },

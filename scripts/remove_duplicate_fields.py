@@ -12,7 +12,7 @@ cleaned_fields = []
 # Fields to keep (legitimate new additions for Journal Entry)
 new_fields_to_keep = {
     "Journal Entry-eboekhouden_invoice_number",
-    "Journal Entry-eboekhouden_main_ledger_id", 
+    "Journal Entry-custom_eboekhouden_main_ledger_id", 
     "Journal Entry-eboekhouden_mutation_type",
     "Journal Entry-eboekhouden_relation_code"
 }
