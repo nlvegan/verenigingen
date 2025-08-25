@@ -474,7 +474,7 @@ def create_mollie_bulk_import(from_date, to_date, strategy="hybrid", company=Non
 
         # Validate bank account exists before inserting
         if not frappe.db.exists("Bank Account", bank_account):
-            frappe.throw(f"Bank Account '{bank_account}' does not exist in the system")
+            frappe.throw(f"Bank Account '{bank_account}' not found")
 
         # Double-check the document fields before insertion
         frappe.logger().info(

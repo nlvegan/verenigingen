@@ -1,0 +1,25 @@
+{
+ "creation": "2025-08-25 12:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2025-08-25 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "bulk-operations-monitor",
+ "owner": "Administrator",
+ "page_name": "Bulk Operations Monitor",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Verenigingen Administrator"
+  }
+ ],
+ "script": "",
+ "standard": "Yes",
+ "style": "",
+ "system_page": 0,
+ "title": "Bulk Operations Monitor"
+}

@@ -13,7 +13,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import cstr, flt, getdate, today
 
-from verenigingen.utils.member_account_service import bulk_create_user_accounts
+from verenigingen.utils.account_creation_manager import queue_bulk_account_creation_for_members
 
 try:
     import pandas as pd
@@ -840,51 +840,88 @@ class MijnroodCSVImport(Document):
         self.save()
 
     def _process_user_account_creation(self, processed_members: List[str]) -> str:
-        """Create user accounts for successfully imported members"""
+        """Queue bulk user account creation for successfully imported members using AccountCreationManager"""
         try:
-            frappe.logger().info(f"Processing user account creation for {len(processed_members)} members")
+            frappe.logger().info(f"Queuing bulk account creation for {len(processed_members)} members")
 
-            # Use the shared bulk user account creation service
-            results = bulk_create_user_accounts(
+            # Use the secure AccountCreationManager bulk processing system
+            result = queue_bulk_account_creation_for_members(
                 member_names=processed_members,
-                send_welcome_emails=self.send_welcome_emails,
-                continue_on_error=True,
+                roles=["Verenigingen Member"],
+                role_profile="Verenigingen Member",
+                batch_size=50,  # Process in batches of 50
+                priority="Low",  # Don't block individual member approvals
             )
 
-            # Create summary for import results
+            if not result.get("success"):
+                error_msg = result.get("error", "Unknown error during bulk queue operation")
+                frappe.log_error(
+                    f"Bulk account creation queue failed: {error_msg}", "Mijnrood Bulk Account Creation Error"
+                )
+                return f". User account creation failed: {error_msg}"
+
+            # Create summary based on queue results
             summary_parts = []
-            if results["success"] > 0:
-                summary_parts.append(f"{results['success']} user accounts created")
-            if results["failed"] > 0:
-                summary_parts.append(f"{results['failed']} user account failures")
-            if results["skipped"] > 0:
-                summary_parts.append(f"{results['skipped']} user accounts skipped")
+
+            # Requests successfully created and queued
+            requests_created = result.get("requests_created", 0)
+            if requests_created > 0:
+                summary_parts.append(f"{requests_created} user account requests queued")
+
+            # Validation errors (members that couldn't be queued)
+            validation_errors = result.get("validation_errors_count", 0)
+            if validation_errors > 0:
+                summary_parts.append(f"{validation_errors} members skipped (validation errors)")
+
+            # Creation errors (request creation failures)
+            creation_errors = result.get("creation_errors_count", 0)
+            if creation_errors > 0:
+                summary_parts.append(f"{creation_errors} request creation failures")
+
+            # Batch information
+            batch_count = result.get("batch_count", 0)
+            if batch_count > 0:
+                summary_parts.append(f"{batch_count} processing batches")
 
             if summary_parts:
                 summary = f". User Accounts: {', '.join(summary_parts)}"
             else:
-                summary = ". No user accounts processed"
+                summary = ". No user account requests created"
 
-            # Log detailed results for troubleshooting
-            frappe.logger().info(f"User account creation results: {results}")
+            # Log detailed queue results for monitoring
+            tracker_info = f"Tracker: {result.get('tracker_name', 'Unknown')}"
+            frappe.logger().info(
+                f"Bulk account creation queued: {requests_created} requests, "
+                f"{batch_count} batches, {validation_errors} validation errors, "
+                f"{creation_errors} creation errors, {tracker_info}"
+            )
 
-            # Add any critical failures to error log
-            critical_failures = [
-                detail
-                for detail in results["details"]
-                if detail["status"] == "failed" and "permission" in detail.get("error", "").lower()
-            ]
-            if critical_failures:
-                frappe.log_error(
-                    f"Critical user account creation failures: {critical_failures}",
-                    "Mijnrood Import User Account Creation",
-                )
+            # Store request tracking information for follow-up monitoring
+            if result.get("request_names"):
+                # Store first 10 request names for tracking (avoid overwhelming the log)
+                sample_requests = result["request_names"][:10]
+                frappe.logger().info(f"Sample account creation requests: {sample_requests}")
+
+                # Log any batches that failed to queue
+                failed_batches = [
+                    batch for batch in result.get("batches", []) if batch.get("status") == "failed"
+                ]
+                if failed_batches:
+                    frappe.log_error(
+                        f"Failed to queue {len(failed_batches)} batches: {failed_batches}",
+                        "Mijnrood Batch Queue Failures",
+                    )
+
+            # Add tracker information to summary if available
+            if result.get("tracker_name"):
+                tracker_name = result["tracker_name"]
+                summary_parts.append(f"progress tracker: {tracker_name}")
 
             return summary
 
         except Exception as e:
-            error_msg = f"Error during user account creation: {str(e)}"
-            frappe.log_error(frappe.get_traceback(), "Mijnrood User Account Creation Error")
+            error_msg = f"Error during bulk account creation queueing: {str(e)}"
+            frappe.log_error(frappe.get_traceback(), "Mijnrood Bulk Account Creation Error")
             frappe.logger().error(error_msg)
             return f". User account creation failed: {str(e)}"
 

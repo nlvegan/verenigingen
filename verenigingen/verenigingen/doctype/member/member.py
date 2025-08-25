@@ -3070,13 +3070,86 @@ def create_member_user_account(member_name, send_welcome_email=True):
 def add_member_roles_to_user(user_name):
     """Add appropriate role profile for a member user to access portal pages"""
     try:
-        # Use the shared member account service for consistency
-        from verenigingen.utils.member_account_service import add_member_roles_to_user as service_add_roles
+        # Check if user has permission to modify roles
+        if not frappe.has_permission("User", "write"):
+            frappe.throw(_("Insufficient permissions to modify user roles"))
 
-        return service_add_roles(user_name)
+        # Check if Verenigingen Member role profile exists
+        role_profile_name = "Verenigingen Member"
+        if not frappe.db.exists("Role Profile", role_profile_name):
+            frappe.logger().warning(
+                f"Role Profile {role_profile_name} does not exist. Creating basic roles manually."
+            )
+            # Fallback to individual role assignment
+            return _assign_individual_member_roles(user_name)
+
+        # Add role profile to user
+        user = frappe.get_doc("User", user_name)
+
+        # Clear existing roles first to avoid conflicts with role profile
+        user.roles = []
+
+        # Assign the role profile
+        user.role_profile_name = role_profile_name
+
+        # Ensure user is enabled
+        if not user.enabled:
+            user.enabled = 1
+
+        # Save with proper permissions (no bypass)
+        user.save()
+        frappe.logger().info(f"Assigned role profile '{role_profile_name}' to user {user_name}")
+
+        return user.name
+
     except Exception as e:
         frappe.log_error(f"Error adding roles to user {user_name}: {str(e)}")
         return None
+
+
+def _assign_individual_member_roles(user_name):
+    """Fallback method to assign individual roles when role profile is not available"""
+    try:
+        # Check permissions
+        if not frappe.has_permission("User", "write"):
+            frappe.throw(_("Insufficient permissions to modify user roles"))
+
+        # Define the roles that members need for portal access
+        member_roles = [
+            "Verenigingen Member",  # Primary member role for all member access
+            "All",  # Standard role for basic system access
+        ]
+
+        # Check if Verenigingen Member role exists, create if not
+        if not frappe.db.exists("Role", "Verenigingen Member"):
+            create_verenigingen_member_role()
+
+        # Add roles to user
+        user = frappe.get_doc("User", user_name)
+
+        # Clear existing roles first to avoid conflicts
+        user.roles = []
+
+        for role in member_roles:
+            if not frappe.db.exists("Role", role):
+                frappe.logger().warning(f"Role {role} does not exist, skipping")
+                continue
+            # Always add the role since we cleared roles above
+            user.append("roles", {"role": role})
+
+        # Ensure user is enabled
+        if not user.enabled:
+            user.enabled = 1
+
+        # Save with proper permissions (no bypass)
+        user.save()
+        frappe.logger().info(f"Assigned individual roles to user {user_name}: {member_roles}")
+
+        return user.name
+
+    except Exception as e:
+        frappe.log_error(f"Error assigning individual member roles to user {user_name}: {str(e)}")
+        raise
 
 
 # Removed create_member_portal_role - consolidated into Verenigingen Member

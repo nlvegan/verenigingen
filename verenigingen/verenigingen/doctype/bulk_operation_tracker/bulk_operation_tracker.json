@@ -1,0 +1,226 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2025-08-25 20:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "operation_type",
+  "source_import",
+  "column_break_1",
+  "status",
+  "priority",
+  "section_break_2",
+  "total_records",
+  "processed_records",
+  "successful_records",
+  "failed_records",
+  "column_break_3",
+  "current_batch",
+  "total_batches",
+  "batch_size",
+  "section_break_4",
+  "started_at",
+  "completed_at",
+  "column_break_5",
+  "estimated_completion",
+  "processing_rate_per_minute",
+  "section_break_6",
+  "error_summary",
+  "retry_queue",
+  "batch_details"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "BULK-OP-.YYYY.-",
+   "reqd": 1
+  },
+  {
+   "fieldname": "operation_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Operation Type",
+   "options": "Account Creation\nData Import\nBulk Email\nBulk Update",
+   "reqd": 1
+  },
+  {
+   "fieldname": "source_import",
+   "fieldtype": "Link",
+   "label": "Source Import",
+   "options": "Mijnrood CSV Import"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Queued\nProcessing\nCompleted\nFailed\nCancelled",
+   "reqd": 1
+  },
+  {
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "label": "Priority",
+   "options": "Low\nNormal\nHigh",
+   "default": "Normal"
+  },
+  {
+   "fieldname": "section_break_2",
+   "fieldtype": "Section Break",
+   "label": "Progress Tracking"
+  },
+  {
+   "fieldname": "total_records",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Total Records",
+   "reqd": 1
+  },
+  {
+   "fieldname": "processed_records",
+   "fieldtype": "Int",
+   "label": "Processed Records",
+   "default": "0"
+  },
+  {
+   "fieldname": "successful_records",
+   "fieldtype": "Int",
+   "label": "Successful Records",
+   "default": "0"
+  },
+  {
+   "fieldname": "failed_records",
+   "fieldtype": "Int",
+   "label": "Failed Records",
+   "default": "0"
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "current_batch",
+   "fieldtype": "Int",
+   "label": "Current Batch",
+   "default": "0"
+  },
+  {
+   "fieldname": "total_batches",
+   "fieldtype": "Int",
+   "label": "Total Batches",
+   "reqd": 1
+  },
+  {
+   "fieldname": "batch_size",
+   "fieldtype": "Int",
+   "label": "Batch Size",
+   "default": "50"
+  },
+  {
+   "fieldname": "section_break_4",
+   "fieldtype": "Section Break",
+   "label": "Timing Information"
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At"
+  },
+  {
+   "fieldname": "completed_at",
+   "fieldtype": "Datetime",
+   "label": "Completed At"
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "estimated_completion",
+   "fieldtype": "Datetime",
+   "label": "Estimated Completion",
+   "read_only": 1
+  },
+  {
+   "fieldname": "processing_rate_per_minute",
+   "fieldtype": "Float",
+   "label": "Processing Rate (per minute)",
+   "read_only": 1,
+   "precision": 2
+  },
+  {
+   "fieldname": "section_break_6",
+   "fieldtype": "Section Break",
+   "label": "Details & Error Tracking"
+  },
+  {
+   "fieldname": "error_summary",
+   "fieldtype": "Long Text",
+   "label": "Error Summary"
+  },
+  {
+   "fieldname": "retry_queue",
+   "fieldtype": "Long Text",
+   "label": "Retry Queue (JSON)",
+   "description": "JSON array of failed record identifiers for retry processing"
+  },
+  {
+   "fieldname": "batch_details",
+   "fieldtype": "Long Text",
+   "label": "Batch Details (JSON)",
+   "description": "JSON array of batch processing results and status"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-08-25 20:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Bulk Operation Tracker",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Verenigingen Manager"
+  }
+ ],
+ "search_fields": "operation_type,source_import,status",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "operation_type",
+ "track_changes": 1
+}

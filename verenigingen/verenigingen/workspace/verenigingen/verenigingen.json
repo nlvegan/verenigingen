@@ -849,6 +849,16 @@
    "link_type": "Page",
    "onboard": 0,
    "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Bulk Operations Monitor",
+   "link_count": 0,
+   "link_to": "bulk-operations-monitor",
+   "link_type": "Page",
+   "onboard": 0,
+   "type": "Link"
   }
  ],
  "modified": "2025-08-20 00:46:37.742225",

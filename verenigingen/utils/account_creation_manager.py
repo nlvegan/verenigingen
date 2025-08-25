@@ -525,6 +525,377 @@ def queue_account_creation_for_volunteer(volunteer_name, priority="Normal"):
     return {"request_name": request.name, "result": result}
 
 
+# Bulk processing functions
+
+
+@frappe.whitelist()
+def queue_bulk_account_creation_for_members(
+    member_names, roles=None, role_profile=None, batch_size=50, priority="Low"
+):
+    """
+    Queue bulk account creation for multiple members with efficient batch processing.
+
+    This function implements the bulk processing path for large imports (500-4700+ members)
+    while maintaining individual accountability and retry capability.
+
+    Args:
+        member_names: List of member names to process
+        roles: Default roles to assign (defaults to ["Verenigingen Member"])
+        role_profile: Role profile to assign (defaults to "Verenigingen Member")
+        batch_size: Number of members to process in each batch (default 50)
+        priority: Processing priority ("Low", "Normal", "High")
+
+    Returns:
+        dict: Summary with batch info, request names, and processing details
+    """
+    if not frappe.has_permission("User", "create"):
+        frappe.throw(_("Insufficient permissions to create user accounts"))
+
+    if not member_names:
+        return {"success": False, "error": "No member names provided"}
+
+    frappe.logger().info(f"Starting bulk account creation for {len(member_names)} members")
+
+    # Set defaults
+    if not roles:
+        roles = ["Verenigingen Member"]
+    if not role_profile:
+        role_profile = "Verenigingen Member"
+
+    # Validate all members exist and have email addresses
+    validation_errors = []
+    valid_members = []
+
+    for member_name in member_names:
+        try:
+            if not frappe.db.exists("Member", member_name):
+                validation_errors.append(f"Member {member_name} does not exist")
+                continue
+
+            member = frappe.get_doc("Member", member_name)
+            if not member.email:
+                validation_errors.append(f"Member {member_name} has no email address")
+                continue
+
+            # Check for existing requests
+            existing_request = frappe.db.exists(
+                "Account Creation Request",
+                {"source_record": member_name, "status": ["not in", ["Completed", "Cancelled"]]},
+            )
+
+            if existing_request:
+                validation_errors.append(
+                    f"Account creation request already exists for {member_name}: {existing_request}"
+                )
+                continue
+
+            valid_members.append(member)
+
+        except Exception as e:
+            validation_errors.append(f"Error validating member {member_name}: {str(e)}")
+
+    if validation_errors:
+        frappe.logger().warning(f"Bulk validation found {len(validation_errors)} errors")
+        for error in validation_errors[:10]:  # Log first 10 errors
+            frappe.logger().warning(f"Validation error: {error}")
+
+    if not valid_members:
+        return {
+            "success": False,
+            "error": "No valid members found for processing",
+            "validation_errors": validation_errors[:50],  # Return first 50 errors
+        }
+
+    # Create account creation requests for all valid members with chunked processing
+    created_requests = []
+    creation_errors = []
+
+    # Process in chunks to avoid memory exhaustion and database locks
+    chunk_size = 100
+    for chunk_start in range(0, len(valid_members), chunk_size):
+        chunk_end = min(chunk_start + chunk_size, len(valid_members))
+        chunk_members = valid_members[chunk_start:chunk_end]
+
+        # Start transaction for this chunk
+        frappe.db.begin()
+
+        try:
+            for member in chunk_members:
+                try:
+                    request = frappe.get_doc(
+                        {
+                            "doctype": "Account Creation Request",
+                            "request_type": "Member",
+                            "source_record": member.name,
+                            "email": member.email,
+                            "full_name": member.full_name,
+                            "priority": priority,
+                            "role_profile": role_profile,
+                            "business_justification": "Bulk member import - account creation for portal access",
+                        }
+                    )
+
+                    # Add requested roles
+                    for role in roles:
+                        request.append("requested_roles", {"role": role})
+
+                    request.insert()
+                    created_requests.append(request.name)
+
+                except Exception as e:
+                    creation_errors.append(f"Failed to create request for {member.name}: {str(e)}")
+                    # Continue with other members in chunk even if one fails
+                    continue
+
+            # Commit this chunk if successful
+            frappe.db.commit()
+            frappe.logger().info(
+                f"Created requests for chunk {chunk_start // chunk_size + 1}: {len(chunk_members)} members"
+            )
+
+        except Exception as e:
+            # Rollback this chunk on any unexpected error
+            frappe.db.rollback()
+            frappe.logger().error(f"Failed to process chunk {chunk_start // chunk_size + 1}: {str(e)}")
+            for member in chunk_members:
+                creation_errors.append(f"Failed to create request for {member.name}: Chunk processing error")
+
+    if creation_errors:
+        frappe.logger().error(f"Bulk request creation had {len(creation_errors)} errors")
+        for error in creation_errors[:10]:  # Log first 10 errors
+            frappe.logger().error(f"Creation error: {error}")
+
+    if not created_requests:
+        return {
+            "success": False,
+            "error": "No account creation requests could be created",
+            "creation_errors": creation_errors[:50],
+        }
+
+    # Create progress tracker for this bulk operation
+    from verenigingen.verenigingen.doctype.bulk_operation_tracker.bulk_operation_tracker import (
+        BulkOperationTracker,
+    )
+
+    tracker = BulkOperationTracker.create_tracker(
+        operation_type="Account Creation",
+        total_records=len(created_requests),
+        batch_size=batch_size,
+        priority=priority,
+    )
+
+    # Queue processing in batches using dedicated bulk processor
+    batch_results = []
+    total_requests = len(created_requests)
+
+    for i in range(0, total_requests, batch_size):
+        batch = created_requests[i : i + batch_size]
+        batch_number = i // batch_size + 1
+        batch_id = f"bulk_batch_{batch_number}"
+
+        # Queue this batch for processing using dedicated bulk queue
+        try:
+            frappe.enqueue(
+                "verenigingen.utils.account_creation_manager.process_bulk_account_creation_batch",
+                request_names=batch,
+                batch_id=batch_id,
+                batch_number=batch_number,
+                tracker_name=tracker.name,
+                queue="bulk",  # Use dedicated bulk queue
+                timeout=3600,  # 1 hour timeout for batch processing
+                job_name=f"bulk_account_creation_{batch_id}",
+            )
+
+            batch_results.append(
+                {
+                    "batch_id": batch_id,
+                    "batch_number": batch_number,
+                    "request_count": len(batch),
+                    "status": "queued",
+                }
+            )
+
+            frappe.logger().info(f"Queued batch {batch_id} with {len(batch)} requests")
+
+        except Exception as e:
+            batch_results.append(
+                {
+                    "batch_id": batch_id,
+                    "batch_number": batch_number,
+                    "request_count": len(batch),
+                    "status": "failed",
+                    "error": str(e),
+                }
+            )
+            frappe.logger().error(f"Failed to queue batch {batch_id}: {str(e)}")
+
+    # Start the operation tracking
+    tracker.start_operation()
+
+    # Return comprehensive summary
+    result = {
+        "success": True,
+        "total_members_provided": len(member_names),
+        "validation_errors_count": len(validation_errors),
+        "valid_members_count": len(valid_members),
+        "requests_created": len(created_requests),
+        "creation_errors_count": len(creation_errors),
+        "batch_count": len(batch_results),
+        "batch_size": batch_size,
+        "batches": batch_results,
+        "request_names": created_requests,
+        "tracker_name": tracker.name,
+        "tracker_url": f"/app/bulk-operation-tracker/{tracker.name}",
+    }
+
+    frappe.logger().info(
+        f"Bulk account creation queued: {len(created_requests)} requests in {len(batch_results)} batches"
+    )
+
+    return result
+
+
+@frappe.whitelist()
+def process_bulk_account_creation_batch(request_names, batch_id, batch_number, tracker_name):
+    """
+    Process a batch of account creation requests with parallel processing and enhanced error handling.
+
+    This is the background job that processes individual batches created by the
+    bulk queue function. Requests are processed in parallel (up to 5 at a time)
+    to meet performance requirements while maintaining error isolation.
+
+    Args:
+        request_names: List of Account Creation Request names to process
+        batch_id: Batch identifier for logging
+        batch_number: Batch number for progress tracking (1-indexed)
+        tracker_name: Name of BulkOperationTracker document
+
+    Returns:
+        dict: Batch processing results with success/failure counts
+    """
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    frappe.logger().info(
+        f"Starting parallel batch processing for {batch_id} with {len(request_names)} requests"
+    )
+
+    batch_results = {
+        "batch_id": batch_id,
+        "batch_number": batch_number,
+        "total_requests": len(request_names),
+        "completed": 0,
+        "failed": 0,
+        "errors": [],
+        "completed_requests": [],
+        "failed_requests": [],
+    }
+
+    # Thread-safe locks for updating results
+    results_lock = threading.Lock()
+
+    def process_single_request_safe(request_name):
+        """Process a single request with error handling, transaction safety, and new database connection."""
+        try:
+            # Each thread needs its own database connection
+            frappe.connect()
+
+            # Start transaction for this request
+            frappe.db.begin()
+
+            try:
+                # Process individual request using existing AccountCreationManager
+                manager = AccountCreationManager(request_name)
+                manager.process_complete_pipeline()
+
+                # Commit transaction on success
+                frappe.db.commit()
+
+                frappe.logger().info(f"Batch {batch_id}: Completed request {request_name}")
+                return {"success": True, "request_name": request_name}
+
+            except Exception as processing_error:
+                # Rollback transaction on any processing error
+                frappe.db.rollback()
+                frappe.logger().error(
+                    f"Batch {batch_id}: Processing failed for {request_name}, rolled back: {str(processing_error)}"
+                )
+                return {"success": False, "request_name": request_name, "error": str(processing_error)}
+
+        except Exception as e:
+            # Handle connection or other system errors
+            frappe.logger().error(f"Batch {batch_id}: System error for {request_name}: {str(e)}")
+            return {"success": False, "request_name": request_name, "error": f"System error: {str(e)}"}
+        finally:
+            # Clean up database connection
+            try:
+                frappe.db.close()
+            except:
+                pass  # Ignore cleanup errors
+
+    # Process requests in parallel with controlled concurrency
+    max_workers = min(5, len(request_names))  # Up to 5 parallel workers, but not more than requests
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all requests to the thread pool
+        future_to_request = {
+            executor.submit(process_single_request_safe, request_name): request_name
+            for request_name in request_names
+        }
+
+        # Process completed futures as they finish
+        for future in as_completed(future_to_request):
+            request_name = future_to_request[future]
+            try:
+                result = future.result(timeout=300)  # 5-minute timeout per request
+
+                # Update results with thread-safe lock
+                with results_lock:
+                    if result["success"]:
+                        batch_results["completed"] += 1
+                        batch_results["completed_requests"].append(request_name)
+                    else:
+                        batch_results["failed"] += 1
+                        batch_results["failed_requests"].append(request_name)
+                        batch_results["errors"].append(
+                            f"{request_name}: {result.get('error', 'Unknown error')}"
+                        )
+
+            except Exception as e:
+                # Handle timeout or other execution errors
+                with results_lock:
+                    batch_results["failed"] += 1
+                    batch_results["failed_requests"].append(request_name)
+                    batch_results["errors"].append(f"{request_name}: Execution error - {str(e)}")
+
+                frappe.logger().error(f"Batch {batch_id}: Execution error for {request_name}: {str(e)}")
+
+    # Update progress tracker
+    try:
+        tracker = frappe.get_doc("Bulk Operation Tracker", tracker_name)
+        tracker.update_progress(batch_number, batch_results)
+        frappe.logger().info(f"Updated tracker {tracker_name} with batch {batch_number} results")
+    except Exception as e:
+        frappe.logger().error(f"Failed to update tracker {tracker_name}: {str(e)}")
+        # Don't fail the batch processing if tracker update fails
+
+    # Log batch completion summary
+    frappe.logger().info(
+        f"Batch {batch_id} completed: {batch_results['completed']} success, "
+        f"{batch_results['failed']} failed out of {batch_results['total_requests']} total"
+    )
+
+    # If there were failures, log them for administrative review
+    if batch_results["failed"] > 0:
+        frappe.log_error(
+            f"Batch {batch_id} had {batch_results['failed']} failures:\n"
+            + "\n".join(batch_results["errors"][:10]),  # Log first 10 errors
+            "Bulk Account Creation Batch Errors",
+        )
+
+    return batch_results
+
+
 # Administrative functions
 
 

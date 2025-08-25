@@ -501,8 +501,6 @@ doc_events = {
 # ---------------
 scheduler_events = {
     "daily": [
-        # Authentication system monitoring
-        "verenigingen.utils.auth_monitoring.alert_if_auth_issues",
         # Member financial history refresh - runs once daily
         "verenigingen.verenigingen.doctype.member.scheduler.refresh_all_member_financial_histories",
         # Membership duration updates - runs once daily
@@ -565,6 +563,12 @@ scheduler_events = {
         "verenigingen.utils.alert_manager.run_daily_checks",
         # Address optimization maintenance
         "verenigingen.tasks.address_optimization.update_all_member_address_fingerprints",
+        # Authentication system monitoring
+        "verenigingen.utils.auth_monitoring.alert_if_auth_issues",
+        # Bulk operations performance monitoring
+        "verenigingen.utils.bulk_performance_monitor.run_performance_monitoring",
+        # Bulk queue health monitoring
+        "verenigingen.utils.bulk_queue_config.monitor_bulk_queue_health",
     ],
     "hourly": [
         # Check analytics alert rules
@@ -573,6 +577,8 @@ scheduler_events = {
         "verenigingen.utils.alert_manager.run_hourly_checks",
         # Payment history validation and repair (reduced from every 4 hours)
         "verenigingen.utils.payment_history_validator.validate_payment_history_integrity",
+        # Bulk account creation retry processing
+        "verenigingen.utils.bulk_retry_processor.process_retry_queues",
     ],
     "weekly": [
         # Termination reports and reviews
