@@ -26,7 +26,7 @@ def analyze_invoice_numbers():
         if si_by_name:
             print(f"✓ Found as Sales Invoice name: {si_by_name}")
         else:
-            print(f"❌ Not found as Sales Invoice name")
+            print("❌ Not found as Sales Invoice name")
 
         # Check as Sales Invoice eboekhouden_invoice_number
         si_by_eb_invoice = frappe.db.get_value(
@@ -38,7 +38,7 @@ def analyze_invoice_numbers():
         if si_by_eb_invoice:
             print(f"✓ Found as Sales Invoice eboekhouden_invoice_number: {si_by_eb_invoice}")
         else:
-            print(f"❌ Not found as Sales Invoice eboekhouden_invoice_number")
+            print("❌ Not found as Sales Invoice eboekhouden_invoice_number")
 
         # Check as Sales Invoice eboekhouden_mutation_nr
         si_by_mutation = frappe.db.get_value(
@@ -50,7 +50,7 @@ def analyze_invoice_numbers():
         if si_by_mutation:
             print(f"✓ Found as Sales Invoice eboekhouden_mutation_nr: {si_by_mutation}")
         else:
-            print(f"❌ Not found as Sales Invoice eboekhouden_mutation_nr")
+            print("❌ Not found as Sales Invoice eboekhouden_mutation_nr")
 
         # Check Purchase Invoices similarly
         pi_by_name = frappe.db.get_value(
@@ -62,7 +62,7 @@ def analyze_invoice_numbers():
         if pi_by_name:
             print(f"✓ Found as Purchase Invoice name: {pi_by_name}")
         else:
-            print(f"❌ Not found as Purchase Invoice name")
+            print("❌ Not found as Purchase Invoice name")
 
         pi_by_eb_invoice = frappe.db.get_value(
             "Purchase Invoice",
@@ -73,7 +73,7 @@ def analyze_invoice_numbers():
         if pi_by_eb_invoice:
             print(f"✓ Found as Purchase Invoice eboekhouden_invoice_number: {pi_by_eb_invoice}")
         else:
-            print(f"❌ Not found as Purchase Invoice eboekhouden_invoice_number")
+            print("❌ Not found as Purchase Invoice eboekhouden_invoice_number")
 
         pi_by_mutation = frappe.db.get_value(
             "Purchase Invoice",
@@ -84,13 +84,13 @@ def analyze_invoice_numbers():
         if pi_by_mutation:
             print(f"✓ Found as Purchase Invoice eboekhouden_mutation_nr: {pi_by_mutation}")
         else:
-            print(f"❌ Not found as Purchase Invoice eboekhouden_mutation_nr")
+            print("❌ Not found as Purchase Invoice eboekhouden_mutation_nr")
 
 
 def examine_payment_mutation_structure():
     """Examine how payment mutations reference invoices"""
 
-    print(f"\n=== Examining Payment Mutation Structure ===")
+    print("\n=== Examining Payment Mutation Structure ===")
 
     # Look at the failing payment mutations 880, 881, 882
     failing_mutations = ["880", "881", "882"]
@@ -129,7 +129,7 @@ def examine_payment_mutation_structure():
 def check_eboekhouden_cache_data():
     """Check the original E-Boekhouden mutation data"""
 
-    print(f"\n=== Checking E-Boekhouden Cache Data ===")
+    print("\n=== Checking E-Boekhouden Cache Data ===")
 
     # Check cached mutation data for the failing mutations
     cache_data = frappe.db.sql(
@@ -169,7 +169,7 @@ def check_eboekhouden_cache_data():
 def show_invoice_lookup_logic():
     """Show how the system looks up invoices"""
 
-    print(f"\n=== Invoice Lookup Logic ===")
+    print("\n=== Invoice Lookup Logic ===")
 
     print("The payment handler looks for invoices in this order:")
     print("1. Parse invoice numbers from mutation.invoiceNumber field")
@@ -177,7 +177,7 @@ def show_invoice_lookup_logic():
     print("3. Look for Purchase Invoice with matching name")
     print("4. If not found, create unallocated payment")
 
-    print(f"\nFrom the error logs:")
+    print("\nFrom the error logs:")
     print("- 'No invoice found for number: 646' means no Sales/Purchase Invoice with name='646'")
     print("- This is checking ERPNext document names, not E-Boekhouden mutation numbers")
     print("- The numbers 646, 673, 670 are likely E-Boekhouden invoice numbers that don't exist in ERPNext")

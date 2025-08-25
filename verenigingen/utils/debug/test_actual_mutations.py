@@ -64,7 +64,7 @@ def test_mutation_880():
 
             # Check the created payment entry
             pe = frappe.get_doc("Payment Entry", result)
-            print(f"✓ Payment Entry details:")
+            print("✓ Payment Entry details:")
             print(f"  - Name: {pe.name}")
             print(f"  - Status: {pe.docstatus}")
             print(f"  - Type: {pe.payment_type}")

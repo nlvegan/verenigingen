@@ -174,7 +174,7 @@ def run_comprehensive_regression_tests():
         if passed == total:
             all_results.append("🎉 All regression tests PASSED - no regressions detected")
         else:
-            all_results.append(f"⚠️  Some regression tests FAILED - investigation needed")
+            all_results.append("⚠️  Some regression tests FAILED - investigation needed")
 
         return {
             "success": passed == total,

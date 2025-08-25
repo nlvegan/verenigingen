@@ -345,7 +345,7 @@ def debug_coverage_analysis_original():
             results.append(f"Membership periods found: {len(periods)}")
 
             for i, (start, end) in enumerate(periods):
-                results.append(f"  Period {i+1}: {start} to {end}")
+                results.append(f"  Period {i + 1}: {start} to {end}")
 
             if periods:
                 # Test get_member_invoices_with_coverage
@@ -372,7 +372,7 @@ def debug_coverage_analysis_original():
 
                 coverage_analysis = calculate_coverage_timeline(sample_member)
                 stats = coverage_analysis["stats"]
-                results.append(f"\nCoverage Analysis Results:")
+                results.append("\nCoverage Analysis Results:")
                 results.append(f"  - Total Active Days: {stats['total_active_days']}")
                 results.append(f"  - Covered Days: {stats['covered_days']}")
                 results.append(f"  - Gap Days: {stats['gap_days']}")

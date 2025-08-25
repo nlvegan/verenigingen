@@ -434,6 +434,10 @@ class VereningingenTestCase(FrappeTestCase):
         """
         for attempt in range(max_retries):
             try:
+                # Debug retry attempts
+                if frappe.flags.get("in_test") and attempt > 0:
+                    print(f"⚠️ Retry attempt {attempt} for {doc.doctype} {doc.name}")
+                
                 # For timestamp issues, reload first
                 if attempt > 0:
                     fresh_doc = self.reload_doc_with_retries(doc, max_retries=1)
@@ -442,6 +446,12 @@ class VereningingenTestCase(FrappeTestCase):
                         for field in doc.meta.get_valid_columns():
                             if field != 'modified':
                                 setattr(fresh_doc, field, getattr(doc, field, None))
+                        
+                        # Preserve important flags that control sync behavior
+                        if hasattr(doc, 'flags'):
+                            fresh_doc.flags.enable_customer_sync_in_test = doc.flags.get('enable_customer_sync_in_test')
+                            fresh_doc.flags.ignore_customer_sync = doc.flags.get('ignore_customer_sync')
+                        
                         doc = fresh_doc
                         
                 doc.save()

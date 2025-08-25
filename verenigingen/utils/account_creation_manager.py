@@ -216,6 +216,21 @@ class AccountCreationManager:
 
                 user_doc.role_profile_name = self.request.role_profile
 
+                # Check if there's a corresponding module profile and assign it
+                role_profile_doc = frappe.get_doc("Role Profile", self.request.role_profile)
+                if hasattr(role_profile_doc, "module_profile") and role_profile_doc.module_profile:
+                    if frappe.db.exists("Module Profile", role_profile_doc.module_profile):
+                        user_doc.module_profile = role_profile_doc.module_profile
+                        frappe.logger().info(f"Assigned module profile: {role_profile_doc.module_profile}")
+                    else:
+                        frappe.logger().warning(
+                            f"Module profile {role_profile_doc.module_profile} does not exist"
+                        )
+                else:
+                    frappe.logger().info(
+                        f"No module profile specified for role profile {self.request.role_profile}"
+                    )
+
             # Save with proper permissions - NO ignore_permissions=True
             if roles_added or self.request.role_profile:
                 user_doc.save()

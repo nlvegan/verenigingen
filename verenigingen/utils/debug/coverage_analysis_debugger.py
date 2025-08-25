@@ -87,13 +87,13 @@ def debug_database_structure():
 
         # Show custom fields that do exist
         if custom_fields:
-            results.append(f"\nFound custom fields (first 15):")
+            results.append("\nFound custom fields (first 15):")
             for col in custom_fields[:15]:
                 results.append(f"  - {col['Field']} ({col['Type']})")
 
         # Show coverage-related fields
         if coverage_fields:
-            results.append(f"\nCoverage-related fields:")
+            results.append("\nCoverage-related fields:")
             for col in coverage_fields:
                 results.append(f"  - {col['Field']} ({col['Type']})")
 
@@ -179,7 +179,7 @@ def debug_sample_data():
                     )
                     results.append(f"  - Last Invoice: {dues_schedule.last_invoice_date}")
                 else:
-                    results.append(f"  - ❌ No active dues schedule")
+                    results.append("  - ❌ No active dues schedule")
 
         if not sample_members:
             results.append("❌ No active members with customers found!")
@@ -238,7 +238,7 @@ def debug_function_flow():
         results.append(f"Testing with member: {member_name} (customer: {customer})")
 
         # Test 1: get_membership_periods
-        results.append(f"\n1. Testing get_membership_periods...")
+        results.append("\n1. Testing get_membership_periods...")
         try:
             periods = get_membership_periods(member_name)
             results.append(f"   ✓ Found {len(periods)} membership periods")
@@ -249,7 +249,7 @@ def debug_function_flow():
             results.append(f"   ❌ Error: {e}")
 
         # Test 2: get_member_invoices_with_coverage
-        results.append(f"\n2. Testing get_member_invoices_with_coverage...")
+        results.append("\n2. Testing get_member_invoices_with_coverage...")
         try:
             coverage_invoices = get_member_invoices_with_coverage(customer)
             results.append(f"   ✓ Found {len(coverage_invoices)} invoices with coverage")
@@ -260,20 +260,20 @@ def debug_function_flow():
             # This is likely where the issue is - missing coverage fields
 
         # Test 3: calculate_coverage_timeline
-        results.append(f"\n3. Testing calculate_coverage_timeline...")
+        results.append("\n3. Testing calculate_coverage_timeline...")
         try:
             coverage_analysis = calculate_coverage_timeline(member_name)
             stats = coverage_analysis["stats"]
-            results.append(f"   ✓ Coverage analysis completed")
+            results.append("   ✓ Coverage analysis completed")
             results.append(f"   - Total Active Days: {stats['total_active_days']}")
             results.append(f"   - Covered Days: {stats['covered_days']}")
             results.append(f"   - Gap Days: {stats['gap_days']}")
             results.append(f"   - Coverage %: {stats['coverage_percentage']:.1f}%")
 
             if stats["total_active_days"] == 0:
-                results.append(f"   ❌ ISSUE: No active days calculated!")
+                results.append("   ❌ ISSUE: No active days calculated!")
             if stats["covered_days"] == 0 and stats["total_active_days"] > 0:
-                results.append(f"   ❌ ISSUE: No covered days found despite active membership!")
+                results.append("   ❌ ISSUE: No covered days found despite active membership!")
 
         except Exception as e:
             results.append(f"   ❌ Error: {e}")
@@ -299,32 +299,32 @@ def debug_coverage_field_issues():
         has_start = frappe.db.has_column("tabSales Invoice", "custom_coverage_start_date")
         has_end = frappe.db.has_column("tabSales Invoice", "custom_coverage_end_date")
 
-        results.append(f"Custom coverage fields status:")
+        results.append("Custom coverage fields status:")
         results.append(f"  - custom_coverage_start_date: {has_start}")
         results.append(f"  - custom_coverage_end_date: {has_end}")
 
         if not has_start or not has_end:
-            results.append(f"\n❌ CRITICAL ISSUE: Coverage fields missing!")
-            results.append(f"The report depends on these fields but they don't exist in the database.")
+            results.append("\n❌ CRITICAL ISSUE: Coverage fields missing!")
+            results.append("The report depends on these fields but they don't exist in the database.")
 
             # Check for similar fields
             columns = frappe.db.sql("DESCRIBE `tabSales Invoice`", as_dict=True)
             date_fields = [col for col in columns if "date" in col["Field"].lower()]
 
-            results.append(f"\nAvailable date fields in Sales Invoice:")
+            results.append("\nAvailable date fields in Sales Invoice:")
             for col in date_fields:
                 results.append(f"  - {col['Field']} ({col['Type']})")
 
             # Check for other coverage-related fields
             coverage_fields = [col for col in columns if "coverage" in col["Field"].lower()]
             if coverage_fields:
-                results.append(f"\nOther coverage-related fields:")
+                results.append("\nOther coverage-related fields:")
                 for col in coverage_fields:
                     results.append(f"  - {col['Field']} ({col['Type']})")
 
         else:
             # Fields exist - check if they have data
-            results.append(f"\n✓ Coverage fields exist, checking data...")
+            results.append("\n✓ Coverage fields exist, checking data...")
 
             coverage_count = frappe.db.sql(
                 """
@@ -339,7 +339,7 @@ def debug_coverage_field_issues():
             results.append(f"Invoices with coverage data: {coverage_count}")
 
             if coverage_count == 0:
-                results.append(f"❌ ISSUE: No invoices have coverage dates set!")
+                results.append("❌ ISSUE: No invoices have coverage dates set!")
 
                 # Show sample invoices
                 sample_invoices = frappe.db.sql(
@@ -352,7 +352,7 @@ def debug_coverage_field_issues():
                     as_dict=True,
                 )
 
-                results.append(f"\nSample invoices (without coverage):")
+                results.append("\nSample invoices (without coverage):")
                 for inv in sample_invoices:
                     results.append(f"  - {inv.name}: {inv.customer} - €{inv.grand_total}")
 
@@ -369,7 +369,7 @@ def debug_coverage_field_issues():
                     as_dict=True,
                 )
 
-                results.append(f"\nSample invoices with coverage:")
+                results.append("\nSample invoices with coverage:")
                 for inv in sample_coverage:
                     results.append(
                         f"  - {inv.name}: {inv.custom_coverage_start_date} to {inv.custom_coverage_end_date}"
@@ -511,7 +511,7 @@ def quick_coverage_test(member_name=None):
         coverage = calculate_coverage_timeline(member_name)
         stats = coverage["stats"]
 
-        results.append(f"\nCoverage Analysis:")
+        results.append("\nCoverage Analysis:")
         results.append(f"  - Total Active Days: {stats['total_active_days']}")
         results.append(f"  - Covered Days: {stats['covered_days']}")
         results.append(f"  - Gap Days: {stats['gap_days']}")
@@ -527,7 +527,7 @@ def quick_coverage_test(member_name=None):
                     f"  - {gap['gap_start']} to {gap['gap_end']}: {gap['gap_days']} days ({gap['gap_type']})"
                 )
         else:
-            results.append(f"\nNo gaps found")
+            results.append("\nNo gaps found")
 
     except Exception as e:
         results.append(f"\n❌ Error: {e}")
@@ -698,7 +698,7 @@ def populate_coverage_dates():
                 error_count += 1
                 results.append(f"❌ Error updating {invoice_data.name}: {e}")
 
-        results.append(f"\nSummary:")
+        results.append("\nSummary:")
         results.append(f"✓ Updated: {updated_count} invoices")
         results.append(f"❌ Errors: {error_count} invoices")
 

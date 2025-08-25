@@ -1353,6 +1353,13 @@ class ASTFieldAnalyzer:
                 print(f"  ✓ Skipped enum/constant access: {obj_name}.{field_name}")
             return True
         
+        # 13. Skip Python date/datetime object properties
+        # Common date properties: .day, .month, .year, .weekday, .hour, .minute, .second
+        if self._is_date_time_property(obj_name, field_name, context_line):
+            if self.verbose:
+                print(f"  ✓ Skipped date/datetime property: {obj_name}.{field_name}")
+            return True
+        
         return False
     
     def _is_enum_or_constant_access(self, obj_name: str, field_name: str, context_line: str) -> bool:
@@ -1393,6 +1400,54 @@ class ASTFieldAnalyzer:
             for pattern in comparison_patterns:
                 if f'{obj_name}.{field_name}' in context_line and pattern in context_line:
                     return True
+        
+        return False
+    
+    def _is_date_time_property(self, obj_name: str, field_name: str, context_line: str) -> bool:
+        """Detect Python date/datetime object property access patterns"""
+        
+        # Common date/datetime properties
+        date_properties = {
+            'day', 'month', 'year', 'weekday', 'isoweekday', 'date', 'time',
+            'hour', 'minute', 'second', 'microsecond', 'tzinfo', 'fold',
+            'days', 'seconds', 'microseconds', 'total_seconds'
+        }
+        
+        if field_name not in date_properties:
+            return False
+        
+        # Look for patterns that suggest the variable is a date/datetime object
+        date_patterns = [
+            # getdate() function calls
+            rf'{re.escape(obj_name)}\s*=.*getdate\(',
+            rf'{re.escape(obj_name)}\s*=.*get_datetime\(',
+            # datetime module usage
+            rf'{re.escape(obj_name)}\s*=.*datetime\.',
+            rf'{re.escape(obj_name)}\s*=.*date\(',
+            rf'{re.escape(obj_name)}\s*=.*time\(',
+            # Common date variable naming patterns
+            rf'{re.escape(obj_name)}.*date',
+            rf'{re.escape(obj_name)}.*time',
+            # Date arithmetic operations (timedelta results)
+            rf'{re.escape(obj_name)}\s*=.*\+.*days?\b',
+            rf'{re.escape(obj_name)}\s*=.*-.*days?\b',
+            # Date/time method calls that return date objects
+            rf'{re.escape(obj_name)}\s*=.*\.date\(\)',
+            rf'{re.escape(obj_name)}\s*=.*\.time\(\)',
+            rf'{re.escape(obj_name)}\s*=.*\.now\(\)',
+            rf'{re.escape(obj_name)}\s*=.*\.today\(\)',
+        ]
+        
+        # Check if the variable name or assignment pattern suggests a date object
+        for pattern in date_patterns:
+            if re.search(pattern, context_line, re.IGNORECASE):
+                return True
+        
+        # Check if the variable name itself suggests a date (case insensitive)
+        date_name_patterns = ['date', 'time', 'created', 'modified', 'start', 'end', 'due', 'expiry']
+        obj_lower = obj_name.lower()
+        if any(date_word in obj_lower for date_word in date_name_patterns):
+            return True
         
         return False
     

@@ -31,7 +31,7 @@ class Donor(Document):
         if self.anbi_consent and not self.anbi_consent_date:
             self.anbi_consent_date = frappe.utils.now()
 
-        # NOTE: Customer sync handled by document event handlers in hooks.py
+        # NOTE: Customer sync handled by document event handlers in hooks.py after save
 
     def before_save(self):
         """Encrypt sensitive fields before saving"""
@@ -176,42 +176,85 @@ class Donor(Document):
 
     # ========== Customer Integration Methods ==========
 
+    def _calculate_sync_hash(self):
+        """Calculate a hash of the syncable donor fields to detect changes"""
+        import hashlib
+
+        # Include fields that should trigger customer sync
+        sync_data = f"{self.donor_name}|{self.donor_email}|{getattr(self, 'phone', '')}"
+        return hashlib.md5(sync_data.encode()).hexdigest()
+
     def sync_with_customer(self):
         """Create or sync with corresponding Customer record"""
+        # Debug logging during tests
+        if frappe.flags.get("in_test"):
+            print(f"🚀 sync_with_customer called for donor {self.name}")
+            print(f"   flags.ignore_customer_sync: {self.flags.get('ignore_customer_sync')}")
+            print(f"   in_test: {frappe.flags.get('in_test')}")
+            print(f"   flags.enable_customer_sync_in_test: {self.flags.get('enable_customer_sync_in_test')}")
+
         # Skip sync if explicitly disabled (to prevent loops)
         if self.flags.ignore_customer_sync:
+            if frappe.flags.get("in_test"):
+                print("❌ Sync skipped: ignore_customer_sync flag is set")
             return
+
+        # Check if donor data has changed since last sync to determine if we need to sync again
+        current_sync_hash = self._calculate_sync_hash()
+        last_sync_hash = getattr(self, "_last_sync_hash", None)
+
+        if (
+            hasattr(self, "_sync_already_done")
+            and self._sync_already_done
+            and current_sync_hash == last_sync_hash
+        ):
+            if frappe.flags.get("in_test"):
+                print("❌ Sync skipped: already completed in this transaction with same data")
+            return
+
+        # Clear sync flag if data has changed
+        if current_sync_hash != last_sync_hash:
+            if frappe.flags.get("in_test"):
+                print("🔄 Data changed, clearing sync deduplication flag")
+            self._sync_already_done = False
+            self._last_sync_hash = current_sync_hash
 
         # During tests, only sync if explicitly enabled
         if frappe.flags.get("in_test") and not self.flags.get("enable_customer_sync_in_test"):
+            if frappe.flags.get("in_test"):
+                print("❌ Sync skipped: enable_customer_sync_in_test flag not set")
             return
 
         try:
             # Find existing customer by donor reference or create new one
             customer_name = self.get_or_create_customer()
 
-            if customer_name and customer_name != self.customer:
-                # Update donor's customer link
-                self.customer = customer_name
+            # Debug logging during tests
+            if frappe.flags.get("in_test"):
+                print(f"🔄 sync_with_customer called for donor {self.name}, found customer: {customer_name}")
 
-                # Sync data to customer (without triggering validation loop)
+            if customer_name:
+                # Update donor's customer link if it changed
+                if customer_name != self.customer:
+                    self.customer = customer_name
+                    if frappe.flags.get("in_test"):
+                        print(f"🔗 Donor customer link updated to: {customer_name}")
+
+                # Always sync data to customer to ensure it's up to date
+                if frappe.flags.get("in_test"):
+                    print(f"📤 Syncing data from donor {self.name} to customer {customer_name}")
                 self.sync_data_to_customer(customer_name)
 
                 # Update sync status
                 self.customer_sync_status = "Synced"
                 self.last_customer_sync = frappe.utils.now()
 
-                # Save the donor with the updated customer link
-                # Use db update to avoid triggering hooks again
-                frappe.db.set_value(
-                    "Donor",
-                    self.name,
-                    {
-                        "customer": self.customer,
-                        "customer_sync_status": self.customer_sync_status,
-                        "last_customer_sync": self.last_customer_sync,
-                    },
-                )
+                # Mark sync as completed to prevent duplicate syncs in same transaction
+                self._sync_already_done = True
+
+                # DON'T save here - just update the in-memory object
+                # The calling code will handle the save
+                # This avoids timestamp mismatch errors
 
         except Exception as e:
             # Update sync status on error
@@ -264,15 +307,6 @@ class Donor(Document):
             donor_group = self._get_donor_customer_group()
             customer.customer_group = donor_group
 
-            # Copy contact information
-            if self.donor_email:
-                customer.email_id = self.donor_email
-            if hasattr(self, "phone") and self.phone:
-                customer.mobile_no = self.phone
-
-            # Link back to donor
-            customer.donor = self.name
-
             # Set flags to prevent validation loops
             customer.flags.ignore_mandatory = True
             customer.flags.ignore_permissions = True
@@ -280,13 +314,34 @@ class Donor(Document):
 
             customer.insert()
 
+            # Now set the donor link after both documents exist
+            if self.name:  # Only if donor has been saved
+                frappe.db.set_value("Customer", customer.name, "donor", self.name)
+
+            # Create Contact record for email/mobile (Customer fields are read-only)
+            contact = self.create_new_customer_contact(customer.name)
+            if not contact and frappe.flags.get("in_test"):
+                print("⚠️ Warning: Could not create Contact during customer creation")
+
             frappe.logger().info(f"Created customer {customer.name} for donor {self.name}")
             return customer.name
 
         except Exception as e:
+            # Enhanced error logging for debugging
+            import traceback
+
+            error_details = traceback.format_exc()
             frappe.log_error(
-                f"Error creating customer for donor {self.name}: {str(e)}", "Donor Customer Creation Error"
+                f"Error creating customer for donor {self.name}:\n"
+                f"Error: {str(e)}\n"
+                f"Full traceback:\n{error_details}",
+                "Donor Customer Creation Error",
             )
+            # Also print to console during tests for immediate feedback
+            if frappe.flags.get("in_test"):
+                print(f"❌ Customer creation failed for donor {self.name}")
+                print(f"❌ Error: {str(e)}")
+                print(f"❌ Full traceback:\n{error_details}")
             return None
 
     def sync_data_to_customer(self, customer_name):
@@ -297,21 +352,38 @@ class Donor(Document):
         try:
             customer_doc = frappe.get_doc("Customer", customer_name)
 
+            # Debug logging during tests
+            if frappe.flags.get("in_test"):
+                print(f"📋 Comparing values for sync (Donor: {self.name}):")
+                print(f"  customer_name: '{customer_doc.customer_name}' vs donor_name: '{self.donor_name}'")
+                print(f"  email_id: '{customer_doc.email_id}' vs donor_email: '{self.donor_email}'")
+                if hasattr(self, "phone"):
+                    print(f"  mobile_no: '{customer_doc.mobile_no}' vs phone: '{self.phone}'")
+
             # Track if any changes were made
             changes_made = False
 
             # Sync basic information
             if customer_doc.customer_name != self.donor_name:
+                if frappe.flags.get("in_test"):
+                    print(f"✏️ Updating customer_name: '{customer_doc.customer_name}' -> '{self.donor_name}'")
                 customer_doc.customer_name = self.donor_name
                 changes_made = True
 
-            if self.donor_email and customer_doc.email_id != self.donor_email:
-                customer_doc.email_id = self.donor_email
-                changes_made = True
+            # Handle contact info via Contact record (Customer email/mobile are read-only)
+            contact_updated = self.sync_donor_to_customer_contact(customer_name)
+            if frappe.flags.get("in_test"):
+                print(f"📞 Contact sync returned: contact_updated={contact_updated}")
 
-            if hasattr(self, "phone") and self.phone and customer_doc.mobile_no != self.phone:
-                customer_doc.mobile_no = self.phone
+            # Always trigger Customer save if we have contact info to sync
+            # This ensures fetch_from fields are refreshed from Contact
+            has_contact_info = bool(self.donor_email or (hasattr(self, "phone") and self.phone))
+            if contact_updated or has_contact_info:
                 changes_made = True
+                if frappe.flags.get("in_test"):
+                    print(
+                        f"📞 Marking Customer for save due to contact info (contact_updated={contact_updated}, has_contact_info={has_contact_info})"
+                    )
 
             # Sync customer type
             expected_type = "Company" if self.donor_type == "Organization" else "Individual"
@@ -324,19 +396,298 @@ class Donor(Document):
                 customer_doc.donor = self.name
                 changes_made = True
 
-            # Save if changes were made
-            if changes_made:
+            # Check if Customer was already saved during Contact sync
+            customer_already_saved = getattr(frappe.local, "_contact_triggered_customer_save", {}).get(
+                customer_name, False
+            )
+
+            # Save if changes were made and Customer wasn't already saved during Contact sync
+            if changes_made and not customer_already_saved:
+                if frappe.flags.get("in_test"):
+                    print(f"💾 Saving customer changes (changes_made: {changes_made})")
                 customer_doc.flags.ignore_mandatory = True
                 customer_doc.flags.ignore_permissions = True
                 customer_doc.flags.from_donor_sync = True
-                customer_doc.save()
+
+                try:
+                    # Debug: Check field values just before save
+                    if frappe.flags.get("in_test"):
+                        print("🔍 Pre-save field values:")
+                        print(f"   customer_name: '{customer_doc.customer_name}'")
+                        print(f"   email_id: '{customer_doc.email_id}'")
+                        print(f"   mobile_no: '{customer_doc.mobile_no}'")
+
+                        # Check for any validation errors that might prevent save
+                        customer_doc.validate()
+                        print("✅ Customer validation passed")
+
+                    customer_doc.save()
+
+                    # Commit during tests to ensure visibility
+                    if frappe.flags.get("in_test"):
+                        frappe.db.commit()
+                        print("✅ Customer saved and committed successfully!")
+
+                        # Verify the save actually worked by reloading
+                        customer_doc.reload()
+                        print("🔍 Post-save verification:")
+                        print(f"   customer_name: '{customer_doc.customer_name}'")
+                        print(f"   email_id: '{customer_doc.email_id}'")
+                        print(f"   mobile_no: '{customer_doc.mobile_no}'")
+
+                except Exception as e:
+                    if frappe.flags.get("in_test"):
+                        print(f"❌ Customer save failed: {str(e)}")
+                    # Re-raise to preserve original behavior
+                    raise
 
                 frappe.logger().info(f"Synced donor {self.name} data to customer {customer_name}")
+            elif customer_already_saved:
+                if frappe.flags.get("in_test"):
+                    print("⏭️ Customer already saved during Contact sync, skipping duplicate save")
+            else:
+                if frappe.flags.get("in_test"):
+                    print("⏭️ No changes made, skipping customer save")
 
         except Exception as e:
             frappe.log_error(
                 f"Error syncing data from donor {self.name} to customer {customer_name}: {str(e)}",
                 "Donor-Customer Data Sync Error",
+            )
+
+    def sync_donor_to_customer_contact(self, customer_name):
+        """
+        Create or update Contact record for Customer with donor contact info.
+        Returns True if contact was updated, False otherwise.
+        """
+        try:
+            # Find existing primary contact for this customer
+            contact = self.get_or_create_customer_contact(customer_name)
+            if not contact:
+                return False
+
+            changes_made = False
+
+            # Update contact with donor information using child tables
+            if self.donor_email and contact.email_id != self.donor_email:
+                if frappe.flags.get("in_test"):
+                    print(f"📧 Updating Contact email: '{contact.email_id}' -> '{self.donor_email}'")
+
+                # Clear existing emails and add new primary email
+                contact.email_ids = []
+                contact.append("email_ids", {"email_id": self.donor_email, "is_primary": 1})
+                changes_made = True
+
+            if hasattr(self, "phone") and self.phone and contact.mobile_no != self.phone:
+                if frappe.flags.get("in_test"):
+                    print(f"📱 Updating Contact mobile: '{contact.mobile_no}' -> '{self.phone}'")
+
+                # Clear existing phone numbers and add new primary mobile
+                contact.phone_nos = []
+                contact.append("phone_nos", {"phone": self.phone, "is_primary_mobile_no": 1})
+                changes_made = True
+
+            # Update contact name based on donor name
+            expected_first_name, expected_last_name = self.parse_donor_name_for_contact()
+            if contact.first_name != expected_first_name or contact.last_name != expected_last_name:
+                if frappe.flags.get("in_test"):
+                    print(
+                        f"👤 Updating Contact name: '{contact.first_name} {contact.last_name}' -> '{expected_first_name} {expected_last_name}'"
+                    )
+                contact.first_name = expected_first_name
+                contact.last_name = expected_last_name
+                changes_made = True
+
+            # Save contact if changes were made
+            if changes_made:
+                contact.flags.ignore_permissions = True
+                contact.save()
+
+                # Debug: Check contact data right after save
+                if frappe.flags.get("in_test"):
+                    # Force commit to ensure data is saved
+                    frappe.db.commit()
+                    # Check what was actually saved
+                    saved_contact_data = frappe.db.get_value(
+                        "Contact", contact.name, ["email_id", "mobile_no"], as_dict=True
+                    )
+                    print(f"📋 Contact {contact.name} after save: {saved_contact_data}")
+
+                # Trigger Customer field refresh from Contact
+                # This saves the Customer, so mark it to prevent double-save later
+                # Pass the customer_doc to ensure pending changes are included
+                self.refresh_customer_from_contact(customer_name, contact.name, customer_doc)
+
+                # Set flag to prevent double Customer save in main sync logic
+                if hasattr(frappe.local, "_contact_triggered_customer_save"):
+                    frappe.local._contact_triggered_customer_save[customer_name] = True
+                else:
+                    frappe.local._contact_triggered_customer_save = {customer_name: True}
+
+                if frappe.flags.get("in_test"):
+                    print(f"✅ Contact {contact.name} updated successfully")
+
+            return changes_made
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error syncing donor {self.name} contact info to customer {customer_name}: {str(e)}",
+                "Donor-Customer Contact Sync Error",
+            )
+            return False
+
+    def get_or_create_customer_contact(self, customer_name):
+        """Get existing or create new primary contact for customer"""
+        try:
+            # First, check if customer already has a primary contact
+            customer = frappe.get_doc("Customer", customer_name)
+            if customer.customer_primary_contact:
+                return frappe.get_doc("Contact", customer.customer_primary_contact)
+
+            # Look for existing contact linked to this customer
+            contacts = frappe.get_all(
+                "Dynamic Link",
+                filters={"link_doctype": "Customer", "link_name": customer_name, "parenttype": "Contact"},
+                fields=["parent"],
+            )
+
+            if contacts:
+                # Use the first existing contact
+                contact = frappe.get_doc("Contact", contacts[0].parent)
+                # Set as primary contact on customer if not already set
+                if not customer.customer_primary_contact:
+                    frappe.db.set_value("Customer", customer_name, "customer_primary_contact", contact.name)
+                return contact
+
+            # Create new contact
+            return self.create_new_customer_contact(customer_name)
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error getting/creating contact for customer {customer_name}: {str(e)}",
+                "Customer Contact Creation Error",
+            )
+            return None
+
+    def create_new_customer_contact(self, customer_name):
+        """Create a new Contact record for the customer"""
+        try:
+            first_name, last_name = self.parse_donor_name_for_contact()
+
+            contact = frappe.new_doc("Contact")
+            contact.first_name = first_name
+            contact.last_name = last_name
+
+            # Add email to email_ids child table (don't set read-only email_id field)
+            if self.donor_email:
+                contact.append("email_ids", {"email_id": self.donor_email, "is_primary": 1})
+
+            # Add phone to phone_nos child table (don't set read-only mobile_no field)
+            if hasattr(self, "phone") and self.phone:
+                contact.append("phone_nos", {"phone": self.phone, "is_primary_mobile_no": 1})
+
+            # Link to customer
+            contact.append("links", {"link_doctype": "Customer", "link_name": customer_name})
+
+            contact.flags.ignore_permissions = True
+            contact.insert()
+
+            # Set as primary contact on customer
+            frappe.db.set_value("Customer", customer_name, "customer_primary_contact", contact.name)
+
+            if frappe.flags.get("in_test"):
+                print(f"✨ Created new Contact {contact.name} for customer {customer_name}")
+
+            return contact
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error creating new contact for customer {customer_name}: {str(e)}",
+                "New Contact Creation Error",
+            )
+            return None
+
+    def parse_donor_name_for_contact(self):
+        """Parse donor name into first/last name for Contact record"""
+        if not self.donor_name:
+            return "", ""
+
+        # Simple parsing - split on last space
+        name_parts = self.donor_name.strip().split()
+        if len(name_parts) == 1:
+            return name_parts[0], ""
+        else:
+            return " ".join(name_parts[:-1]), name_parts[-1]
+
+    def refresh_customer_from_contact(self, customer_name, contact_name, customer_doc=None):
+        """
+        Refresh Customer's fetch_from fields after Contact update.
+        Uses Frappe's fetch mechanism to manually trigger field updates.
+
+        Args:
+            customer_name: Customer name
+            contact_name: Contact name
+            customer_doc: Optional Customer document with pending changes
+        """
+        try:
+            from frappe.model.utils import get_fetch_values
+
+            # Use provided customer_doc if available, otherwise fetch fresh
+            customer = customer_doc if customer_doc else frappe.get_doc("Customer", customer_name)
+
+            # Set the primary contact reference if needed
+            if customer.customer_primary_contact != contact_name:
+                customer.customer_primary_contact = contact_name
+                customer.flags.ignore_permissions = True
+                customer.flags.from_donor_sync = True
+                customer.save()
+                customer.reload()
+
+            # Debug: Check the actual Contact data before trying to fetch
+            if frappe.flags.get("in_test"):
+                contact_data = frappe.db.get_value(
+                    "Contact", contact_name, ["email_id", "mobile_no"], as_dict=True
+                )
+                print(f"🔍 Contact {contact_name} actual data: {contact_data}")
+
+            # Manual fetch_from trigger using Frappe's built-in mechanism
+            fetch_values = get_fetch_values("Customer", "customer_primary_contact", contact_name)
+
+            if frappe.flags.get("in_test"):
+                print(f"🔍 Fetch values for {customer_name}: {fetch_values}")
+
+            # Apply fetch values to customer if they contain data
+            changes_made = False
+            for field, value in fetch_values.items():
+                if value and getattr(customer, field) != value:
+                    setattr(customer, field, value)
+                    changes_made = True
+                    if frappe.flags.get("in_test"):
+                        print(f"   Setting {field} = '{value}'")
+
+            # Always save customer to trigger fetch_from mechanism, even if no manual changes
+            # The fetch_from fields should be populated automatically by ERPNext
+            if changes_made or (fetch_values and any(fetch_values.values())):
+                customer.flags.ignore_permissions = True
+                customer.flags.from_donor_sync = True
+                customer.save()
+                if frappe.flags.get("in_test"):
+                    print("   Customer saved to trigger fetch_from update")
+
+            # Force reload to get updated fetch_from values
+            customer.reload()
+            if frappe.flags.get("in_test"):
+                print(f"   After reload - email_id: '{customer.email_id}', mobile_no: '{customer.mobile_no}'")
+
+            if frappe.flags.get("in_test"):
+                print(f"🔄 Customer {customer_name} refreshed from Contact {contact_name}")
+                print(f"   Final email_id: '{customer.email_id}'")
+                print(f"   Final mobile_no: '{customer.mobile_no}'")
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error refreshing customer {customer_name} from contact {contact_name}: {str(e)}",
+                "Customer Contact Refresh Error",
             )
 
     def _get_donor_customer_group(self):
@@ -430,7 +781,12 @@ class Donor(Document):
     def refresh_customer_sync(self):
         """Manual refresh of customer synchronization"""
         self.flags.ignore_customer_sync = False
+        # Ensure sync works even in test environment
+        if frappe.flags.get("in_test"):
+            self.flags.enable_customer_sync_in_test = True
         self.sync_with_customer()
+        # Save the donor to persist any customer link updates
+        self.save()
         # Reload document to get updated values from database
         self.reload()
         return {"message": "Customer synchronization refreshed successfully"}

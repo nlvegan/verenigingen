@@ -349,18 +349,28 @@ def approve_membership_application(
     if hasattr(member, "interested_in_volunteering") and member.interested_in_volunteering:
         activate_volunteer_record(member)
 
-    # Create user account for portal access
-    user_creation_result = create_user_account_for_member(member)
+    # Create user account for portal access using secure AccountCreationManager
+    user_creation_result = create_secure_user_account_for_member(member)
 
     # Force refresh user document to sync roles if user was created/linked
-    if user_creation_result.get("success") and user_creation_result.get("user"):
+    # Skip this for queued account creation as user doesn't exist yet
+    if (
+        user_creation_result.get("success")
+        and user_creation_result.get("user")
+        and user_creation_result.get("action") not in ["queued_secure"]
+    ):
         # Note: Frappe automatically commits changes
         try:
             # Force reload user document to ensure role changes are reflected
             user_doc = frappe.get_doc("User", user_creation_result["user"])
             user_doc.reload()
+            frappe.logger().info(f"Successfully refreshed user document for {user_creation_result['user']}")
         except Exception as e:
             frappe.log_error(f"Error reloading user after role assignment: {str(e)}")
+    elif user_creation_result.get("action") == "queued_secure":
+        frappe.logger().info(
+            f"User account creation queued for member {member.name} - skipping immediate user document refresh"
+        )
 
     # Send approval email with payment link
     send_approval_notification(member, invoice, membership_type_doc)
@@ -407,15 +417,40 @@ def approve_membership_application(
         "low",
     )
 
-    # Prepare response message
+    # Prepare response message with enhanced user feedback
     message = _("Application approved. Invoice sent to applicant.")
+    user_account_status = "pending"
+
     if user_creation_result.get("success"):
-        if user_creation_result.get("action") == "created_new":
+        if user_creation_result.get("action") in ["created_new", "created_new_immediate"]:
             message += _(" User account created for portal access.")
+            user_account_status = "created"
+            if user_creation_result.get("action") == "created_new_immediate":
+                # Show success message for immediate processing
+                frappe.msgprint(
+                    _("✅ User account created successfully! The member can now log in to the portal."),
+                    title=_("Account Created"),
+                    indicator="green",
+                )
         elif user_creation_result.get("action") == "linked_existing":
             message += _(" Linked to existing user account.")
+            user_account_status = "linked"
+        elif user_creation_result.get("action") == "queued_secure":
+            message += _(
+                " User account creation queued for secure background processing - member will receive portal access within 2-3 minutes."
+            )
+            user_account_status = "queued"
+            # Add specific timing expectations
+            frappe.msgprint(
+                _(
+                    "User account creation is being processed securely in the background. The member will receive login credentials via email within 2-3 minutes."
+                ),
+                title=_("Account Creation in Progress"),
+                indicator="blue",
+            )
     else:
         message += _(" Note: Could not create user account - member will need manual account creation.")
+        user_account_status = "failed"
 
     return {
         "success": True,
@@ -423,17 +458,151 @@ def approve_membership_application(
         "invoice": invoice.name,
         "amount": billing_amount,
         "user_account": user_creation_result,
+        "user_account_status": user_account_status,
+        # Enhanced progress tracking for better UX
+        "progress_tracking": {
+            "account_request_id": user_creation_result.get("account_request"),
+            "estimated_completion": "2-3 minutes" if user_account_status == "queued" else None,
+            "tracking_url": f"/app/account-creation-request/{user_creation_result.get('account_request')}"
+            if user_creation_result.get("account_request")
+            else None,
+        },
     }
 
 
 def create_user_account_for_member(member):
-    """Create user account for approved member"""
+    """DEPRECATED: Create user account for approved member
+
+    This function is deprecated in favor of create_secure_user_account_for_member
+    which uses the secure AccountCreationManager system.
+    """
     try:
         from verenigingen.verenigingen.doctype.member.member import create_member_user_account
 
         return create_member_user_account(member.name, send_welcome_email=True)
     except Exception as e:
         frappe.log_error(f"Error creating user account for member {member.name}: {str(e)}")
+        return {"success": False, "error": str(e)}
+
+
+def create_secure_user_account_for_member(member):
+    """Create user account for approved member using secure AccountCreationManager with proper role profiles"""
+    try:
+        from verenigingen.utils.account_creation_manager import (
+            AccountCreationManager,
+            queue_account_creation_for_member,
+        )
+
+        # Simplified logic - determine the appropriate role profile
+        role_profile = "Verenigingen Member"  # Default role profile
+        additional_roles = []  # Only for roles not covered by role profiles
+
+        # Check if member is a volunteer - this determines the base role profile
+        volunteer_record = frappe.db.get_value("Volunteer", {"member": member.name}, ["name", "status"])
+        if volunteer_record and volunteer_record[1] in ["Active", "Pending"]:
+            role_profile = "Verenigingen Volunteer"  # Automatically includes all volunteer roles
+            volunteer_name = volunteer_record[0]
+            frappe.logger().info(f"Member {member.name} is a volunteer, using Verenigingen Volunteer profile")
+
+            # Check if volunteer is a board member - this requires additional role assignment
+            board_member_chapters = frappe.get_all(
+                "Chapter Board Member", filters={"volunteer": volunteer_name, "enabled": 1}, fields=["parent"]
+            )
+            if board_member_chapters:
+                additional_roles.append("Verenigingen Chapter Board Member")
+                frappe.logger().info(
+                    f"Member {member.name} is board member of {len(board_member_chapters)} chapters - adding board member role"
+                )
+
+        # Check if member has chapter memberships - may need additional role
+        # Note: Regular members might need Chapter Member role, volunteers already have broader access
+        chapter_memberships = frappe.get_all(
+            "Chapter Member", filters={"member": member.name, "status": "Active"}, fields=["parent"]
+        )
+        if chapter_memberships and role_profile == "Verenigingen Member":
+            # Only add Chapter Member role for regular members, volunteers have broader permissions
+            additional_roles.append("Verenigingen Chapter Member")
+            frappe.logger().info(
+                f"Member {member.name} belongs to {len(chapter_memberships)} chapters - adding chapter member role"
+            )
+
+        frappe.logger().info(
+            f"Creating secure user account for member {member.name} with role_profile: {role_profile}, additional_roles: {additional_roles}"
+        )
+
+        # PERFORMANCE OPTIMIZATION: Try immediate processing for simple cases
+        try:
+            # Check if user already exists (quick check)
+            if frappe.db.exists("User", member.email):
+                frappe.logger().info(f"User already exists for {member.email}, using existing account")
+                return {
+                    "success": True,
+                    "message": "Linked to existing user account",
+                    "user": member.email,
+                    "action": "linked_existing",
+                }
+
+            # For simple cases (standard role profiles with no additional roles), try immediate processing
+            if len(additional_roles) == 0:
+                frappe.logger().info(
+                    f"Simple role profile assignment for {member.name} - attempting immediate processing"
+                )
+
+                # Create request but process immediately
+                account_request = queue_account_creation_for_member(
+                    member_name=member.name,
+                    roles=additional_roles if additional_roles else None,
+                    role_profile=role_profile,
+                    priority="High",
+                )
+
+                if account_request:
+                    # Process immediately for better UX
+                    manager = AccountCreationManager(account_request.name)
+                    manager.process_complete_pipeline()
+
+                    # Check if processing succeeded
+                    account_request.reload()
+                    if account_request.status == "Completed" and account_request.created_user:
+                        frappe.logger().info(f"✅ Immediate account creation successful for {member.name}")
+                        return {
+                            "success": True,
+                            "message": "User account created immediately via secure system",
+                            "user": account_request.created_user,
+                            "action": "created_new_immediate",
+                            "account_request": account_request.name,
+                        }
+
+        except Exception as immediate_error:
+            frappe.logger().warning(
+                f"Immediate processing failed for {member.name}, falling back to queue: {str(immediate_error)}"
+            )
+            # Fall through to queue processing
+
+        # FALLBACK: Standard queue processing for complex cases or if immediate processing fails
+        account_request = queue_account_creation_for_member(
+            member_name=member.name,
+            roles=additional_roles if additional_roles else None,
+            role_profile=role_profile,
+            priority="High",  # Member approval is high priority
+        )
+
+        # Return compatible response structure for existing code
+        if account_request:
+            return {
+                "success": True,
+                "message": "User account creation queued successfully via secure system",
+                "user": None,  # Will be set when background job completes
+                "action": "queued_secure",
+                "account_request": account_request.name
+                if hasattr(account_request, "name")
+                else str(account_request),
+            }
+        else:
+            return {"success": False, "error": "Failed to queue account creation request"}
+
+    except Exception as e:
+        frappe.log_error(f"Error creating secure user account for member {member.name}: {str(e)}")
         return {"success": False, "error": str(e)}
 
 

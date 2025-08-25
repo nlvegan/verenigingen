@@ -31,14 +31,14 @@ def check_custom_fields():
                 if field.options:
                     print(f"    Options: {field.options}")
                 if field.reqd:
-                    print(f"    Required: Yes")
+                    print("    Required: Yes")
                 if field.read_only:
-                    print(f"    Read Only: Yes")
+                    print("    Read Only: Yes")
         else:
             print(f"  No custom fields found for {doctype}")
 
     # Also check for specific problem fields
-    print(f"\n=== Checking Specific Problem Fields ===")
+    print("\n=== Checking Specific Problem Fields ===")
 
     # Check Sales Invoice for membership field
     si_fields = frappe.db.sql(

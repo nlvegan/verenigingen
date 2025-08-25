@@ -79,21 +79,50 @@ class TestDonorCustomerIntegration(VereningingenTestCase):
         original_customer = donor.customer
         self.assertIsNotNone(original_customer, "Customer should be created during donor creation")
         
-        # Update donor information using retry logic
+        # Update donor information 
         donor.donor_name = "Updated Name"
         donor.donor_email = "updated@example.com"
         donor.phone = "+31687654321"
         
-        success = self.save_doc_with_retry(donor)
-        self.assertTrue(success, "Failed to save donor updates")
+        # Re-enable sync flag for update (flags are cleared after each save)
+        donor.flags.enable_customer_sync_in_test = True
         
-        # Wait for sync to complete
-        sync_completed = self.wait_for_sync_completion(donor)
-        self.assertTrue(sync_completed, "Donor-customer sync did not complete in time")
+        # Debug: Check values before save
+        print(f"🐛 About to save donor with:")
+        print(f"   donor_name: '{donor.donor_name}'")
+        print(f"   donor_email: '{donor.donor_email}'")
+        print(f"   phone: '{getattr(donor, 'phone', 'NOT SET')}'")
         
-        # Verify customer was updated - reload to get latest data
+        # Simple save without retry mechanism to avoid complications
+        donor.save()
+        
+        # Debug: Check values after save
+        print(f"🐛 After save, donor has:")
+        print(f"   donor_name: '{donor.donor_name}'")
+        print(f"   donor_email: '{donor.donor_email}'")
+        print(f"   phone: '{getattr(donor, 'phone', 'NOT SET')}'")
+        
+        # Also check database values
+        db_values = frappe.db.get_value("Donor", donor.name, ["donor_name", "donor_email", "phone"], as_dict=True)
+        print(f"🐛 Database values after save:")
+        print(f"   donor_name: '{db_values.donor_name}'" if db_values else "NOT FOUND")
+        print(f"   donor_email: '{db_values.donor_email}'" if db_values else "NOT FOUND")
+        print(f"   phone: '{db_values.phone}'" if db_values else "NOT FOUND")
+        
+        # Commit to ensure visibility
+        frappe.db.commit()
+        
+        # Verify customer was updated - reload the document properly
         customer = frappe.get_doc("Customer", original_customer)
-        customer.reload()  # Force reload from database
+        customer.reload()  # Force refresh from database
+        
+        # Debug output to understand what's happening
+        print(f"\n🔍 DEBUG: Customer data from reloaded document:")
+        print(f"   Original customer name: {original_customer}")
+        print(f"   Current customer_name: {customer.customer_name}")
+        print(f"   Current email_id: {customer.email_id}")
+        print(f"   Current mobile_no: {customer.mobile_no}")
+        
         self.assertEqual(customer.customer_name, "Updated Name")
         self.assertEqual(customer.email_id, "updated@example.com")
         self.assertEqual(customer.mobile_no, "+31687654321")
@@ -109,15 +138,33 @@ class TestDonorCustomerIntegration(VereningingenTestCase):
         customer_name = donor.customer
         self.assertIsNotNone(customer_name, "Customer should be created with donor")
         
-        # Update customer directly
+        # Update customer and its contact properly
         customer = frappe.get_doc("Customer", customer_name)
         customer.customer_name = "Customer Updated Name"
-        customer.email_id = "customerupdated@example.com"
-        customer.mobile_no = "+31600000000"
         
         # Clear problematic Mollie fields that cause validation errors
         customer.subscription_status = ""
         customer.mollie_subscription_id = ""
+        
+        # Update the Contact record instead of read-only Customer fields
+        if customer.customer_primary_contact:
+            contact = frappe.get_doc("Contact", customer.customer_primary_contact)
+            
+            # Update contact email via child table
+            contact.email_ids = []
+            contact.append("email_ids", {
+                "email_id": "customerupdated@example.com",
+                "is_primary": 1
+            })
+            
+            # Update contact phone via child table  
+            contact.phone_nos = []
+            contact.append("phone_nos", {
+                "phone": "+31612345678",
+                "is_primary_mobile_no": 1
+            })
+            
+            contact.save()
         
         success = self.save_doc_with_retry(customer)
         self.assertTrue(success, "Failed to save customer updates")
@@ -133,7 +180,7 @@ class TestDonorCustomerIntegration(VereningingenTestCase):
         # Verify reverse sync worked
         self.assertEqual(fresh_donor.donor_name, "Customer Updated Name")
         self.assertEqual(fresh_donor.donor_email, "customerupdated@example.com")
-        self.assertEqual(fresh_donor.phone, "+31600000000")
+        self.assertEqual(fresh_donor.phone, "+31612345678")
 
     def test_existing_customer_linking_by_email(self):
         """Test that existing customers are linked by email instead of creating duplicates"""
@@ -233,14 +280,12 @@ class TestDonorCustomerIntegration(VereningingenTestCase):
 
     def test_get_customer_info(self):
         """Test getting customer information from donor"""
-        # Create donor with customer
-        donor = frappe.new_doc("Donor")
-        donor.donor_name = "Info Test Donor"
-        donor.donor_type = "Individual"
-        donor.donor_email = "info@example.com"
-        donor.save()
-        self.track_doc("Donor", donor.name)
-        self.track_doc("Customer", donor.customer)
+        # Create donor with customer using factory method
+        donor = self.create_test_donor_with_sync(
+            donor_name="Info Test Donor",
+            donor_type="Individual",
+            donor_email="info@example.com"
+        )
         
         # Get customer info
         customer_info = donor.get_customer_info()
@@ -254,13 +299,12 @@ class TestDonorCustomerIntegration(VereningingenTestCase):
 
     def test_donor_customer_loop_prevention(self):
         """Test that sync loops are prevented between donor and customer"""
-        # Create donor
-        donor = frappe.new_doc("Donor")
-        donor.donor_name = "Loop Prevention Test"
-        donor.donor_type = "Individual"
-        donor.donor_email = "looptest@example.com"
-        donor.save()
-        self.track_doc("Donor", donor.name)
+        # Create donor using factory method with sync enabled
+        donor = self.create_test_donor_with_sync(
+            donor_name="Loop Prevention Test",
+            donor_type="Individual",
+            donor_email="looptest@example.com"
+        )
         
         customer_name = donor.customer
         self.track_doc("Customer", customer_name)
@@ -279,12 +323,11 @@ class TestDonorCustomerIntegration(VereningingenTestCase):
 
     def test_donor_with_special_characters_in_name(self):
         """Test donor names with special characters sync correctly"""
-        donor = frappe.new_doc("Donor")
-        donor.donor_name = "José María O'Connor-Smith & Co."
-        donor.donor_type = "Organization"
-        donor.donor_email = "jose@example.com"
-        donor.save()
-        self.track_doc("Donor", donor.name)
+        donor = self.create_test_donor_with_sync(
+            donor_name="José María O'Connor-Smith & Co.",
+            donor_type="Organization",
+            donor_email="jose@example.com"
+        )
         
         # Verify customer was created with special characters
         customer = frappe.get_doc("Customer", donor.customer)
