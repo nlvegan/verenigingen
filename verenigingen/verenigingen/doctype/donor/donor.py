@@ -569,43 +569,67 @@ class Donor(Document):
             )
             return None
 
-    def create_new_customer_contact(self, customer_name):
-        """Create a new Contact record for the customer"""
-        try:
-            first_name, last_name = self.parse_donor_name_for_contact()
+    def create_new_customer_contact(self, customer_name, max_retries=3):
+        """Create a new Contact record for the customer with retry logic"""
+        import time
 
-            contact = frappe.new_doc("Contact")
-            contact.first_name = first_name
-            contact.last_name = last_name
+        for attempt in range(max_retries):
+            try:
+                first_name, last_name = self.parse_donor_name_for_contact()
 
-            # Add email to email_ids child table (don't set read-only email_id field)
-            if self.donor_email:
-                contact.append("email_ids", {"email_id": self.donor_email, "is_primary": 1})
+                contact = frappe.new_doc("Contact")
+                contact.first_name = first_name
+                contact.last_name = last_name
 
-            # Add phone to phone_nos child table (don't set read-only mobile_no field)
-            if hasattr(self, "phone") and self.phone:
-                contact.append("phone_nos", {"phone": self.phone, "is_primary_mobile_no": 1})
+                # Add email to email_ids child table (don't set read-only email_id field)
+                if self.donor_email:
+                    contact.append("email_ids", {"email_id": self.donor_email, "is_primary": 1})
 
-            # Link to customer
-            contact.append("links", {"link_doctype": "Customer", "link_name": customer_name})
+                # Add phone to phone_nos child table (don't set read-only mobile_no field)
+                if hasattr(self, "phone") and self.phone:
+                    contact.append("phone_nos", {"phone": self.phone, "is_primary_mobile_no": 1})
 
-            contact.flags.ignore_permissions = True
-            contact.insert()
+                # Link to customer
+                contact.append("links", {"link_doctype": "Customer", "link_name": customer_name})
 
-            # Set as primary contact on customer
-            frappe.db.set_value("Customer", customer_name, "customer_primary_contact", contact.name)
+                contact.flags.ignore_permissions = True
+                contact.insert()
 
-            if frappe.flags.get("in_test"):
-                print(f"✨ Created new Contact {contact.name} for customer {customer_name}")
+                # Set as primary contact on customer
+                frappe.db.set_value("Customer", customer_name, "customer_primary_contact", contact.name)
 
-            return contact
+                if frappe.flags.get("in_test"):
+                    print(f"✨ Created new Contact {contact.name} for customer {customer_name}")
 
-        except Exception as e:
-            frappe.log_error(
-                f"Error creating new contact for customer {customer_name}: {str(e)}",
-                "New Contact Creation Error",
-            )
-            return None
+                return contact
+
+            except Exception as e:
+                attempt_num = attempt + 1
+                is_last_attempt = attempt_num == max_retries
+
+                if frappe.flags.get("in_test"):
+                    print(f"❌ Contact creation attempt {attempt_num}/{max_retries} failed: {str(e)}")
+
+                if is_last_attempt:
+                    # Final failure - log comprehensive error
+                    frappe.log_error(
+                        f"Error creating contact for customer {customer_name} and donor {self.name} "
+                        f"after {max_retries} attempts: {str(e)}",
+                        "Donor Customer Contact Creation Error",
+                    )
+                    if frappe.flags.get("in_test"):
+                        print(
+                            f"❌ All {max_retries} Contact creation attempts failed for customer {customer_name}"
+                        )
+                    return None
+                else:
+                    # Wait before retry with exponential backoff (0.5s, 1s, 2s)
+                    wait_time = 0.5 * (2**attempt)
+                    if frappe.flags.get("in_test"):
+                        print(f"⏳ Retrying Contact creation in {wait_time}s...")
+                    time.sleep(wait_time)
+
+        return None
 
     def parse_donor_name_for_contact(self):
         """Parse donor name into first/last name for Contact record"""
@@ -621,8 +645,7 @@ class Donor(Document):
 
     def refresh_customer_from_contact(self, customer_name, contact_name, customer_doc=None):
         """
-        Refresh Customer's fetch_from fields after Contact update.
-        Uses Frappe's fetch mechanism to manually trigger field updates.
+        Set Customer's primary contact reference - ERPNext handles fetch_from automatically.
 
         Args:
             customer_name: Customer name
@@ -630,68 +653,27 @@ class Donor(Document):
             customer_doc: Optional Customer document with pending changes
         """
         try:
-            from frappe.model.utils import get_fetch_values
-
             # Use provided customer_doc if available, otherwise fetch fresh
             customer = customer_doc if customer_doc else frappe.get_doc("Customer", customer_name)
 
-            # Set the primary contact reference if needed
+            # Set the primary contact reference - ERPNext will handle fetch_from automatically
             if customer.customer_primary_contact != contact_name:
                 customer.customer_primary_contact = contact_name
-                customer.flags.ignore_permissions = True
                 customer.flags.from_donor_sync = True
                 customer.save()
-                customer.reload()
 
-            # Debug: Check the actual Contact data before trying to fetch
-            if frappe.flags.get("in_test"):
-                contact_data = frappe.db.get_value(
-                    "Contact", contact_name, ["email_id", "mobile_no"], as_dict=True
-                )
-                print(f"🔍 Contact {contact_name} actual data: {contact_data}")
-
-            # Manual fetch_from trigger using Frappe's built-in mechanism
-            fetch_values = get_fetch_values("Customer", "customer_primary_contact", contact_name)
-
-            if frappe.flags.get("in_test"):
-                print(f"🔍 Fetch values for {customer_name}: {fetch_values}")
-
-            # Apply fetch values to customer if they contain data
-            changes_made = False
-            for field, value in fetch_values.items():
-                if value and getattr(customer, field) != value:
-                    setattr(customer, field, value)
-                    changes_made = True
-                    if frappe.flags.get("in_test"):
-                        print(f"   Setting {field} = '{value}'")
-
-            # Always save customer to trigger fetch_from mechanism, even if no manual changes
-            # The fetch_from fields should be populated automatically by ERPNext
-            if changes_made or (fetch_values and any(fetch_values.values())):
-                customer.flags.ignore_permissions = True
-                customer.flags.from_donor_sync = True
-                customer.save()
                 if frappe.flags.get("in_test"):
-                    print("   Customer saved to trigger fetch_from update")
-
-            # Force reload to get updated fetch_from values
-            customer.reload()
-            if frappe.flags.get("in_test"):
-                print(f"   After reload - email_id: '{customer.email_id}', mobile_no: '{customer.mobile_no}'")
-
-            if frappe.flags.get("in_test"):
-                print(f"🔄 Customer {customer_name} refreshed from Contact {contact_name}")
-                print(f"   Final email_id: '{customer.email_id}'")
-                print(f"   Final mobile_no: '{customer.mobile_no}'")
+                    print(f"🔄 Set Customer {customer_name} primary contact to {contact_name}")
+                    print("   ERPNext will handle fetch_from fields automatically")
 
         except Exception as e:
             frappe.log_error(
-                f"Error refreshing customer {customer_name} from contact {contact_name}: {str(e)}",
-                "Customer Contact Refresh Error",
+                f"Error setting customer {customer_name} primary contact to {contact_name}: {str(e)}",
+                "Customer Contact Link Error",
             )
 
     def _get_donor_customer_group(self):
-        """Get donor customer group from configuration"""
+        """Get donor customer group from configuration with auto-repair"""
         # Check Verenigingen Settings for donor customer group configuration
         try:
             settings = frappe.get_single("Verenigingen Settings")
@@ -699,8 +681,13 @@ class Donor(Document):
                 if frappe.db.exists("Customer Group", settings.donor_customer_group):
                     return settings.donor_customer_group
                 else:
+                    if frappe.flags.get("in_test"):
+                        print(
+                            f"⚠️ Configured donor customer group '{settings.donor_customer_group}' does not exist"
+                        )
                     frappe.log_error(
-                        f"Configured donor customer group '{settings.donor_customer_group}' does not exist",
+                        f"Configured donor customer group '{settings.donor_customer_group}' does not exist, "
+                        f"falling back to auto-creation",
                         "Donor Customer Group Configuration Error",
                     )
         except Exception:
@@ -710,32 +697,66 @@ class Donor(Document):
         if frappe.db.exists("Customer Group", "Donors"):
             return "Donors"
 
-        # Get selling settings default
+        # Auto-create "Donors" customer group proactively
+        if frappe.flags.get("in_test"):
+            print("🔧 Auto-creating 'Donors' customer group")
+        try:
+            self._create_donor_customer_group()
+            return "Donors"
+        except Exception as e:
+            if frappe.flags.get("in_test"):
+                print(f"❌ Failed to auto-create 'Donors' customer group: {str(e)}")
+            frappe.log_error(
+                f"Failed to auto-create 'Donors' customer group: {str(e)}",
+                "Customer Group Auto-Creation Error",
+            )
+
+        # Get selling settings default as secondary fallback
         default_group = frappe.db.get_single_value("Selling Settings", "customer_group")
         if default_group and frappe.db.exists("Customer Group", default_group):
+            if frappe.flags.get("in_test"):
+                print(f"📋 Using Selling Settings default customer group: {default_group}")
             return default_group
 
         # Final fallback with validation
         if frappe.db.exists("Customer Group", "All Customer Groups"):
+            if frappe.flags.get("in_test"):
+                print("📋 Using final fallback customer group: All Customer Groups")
             return "All Customer Groups"
 
+        # This should rarely happen now due to auto-creation
         frappe.throw(
             "No suitable customer group found for donors. Please either:\n"
             "1. Configure 'donor_customer_group' in Verenigingen Settings\n"
-            "2. Create a 'Donors' customer group\n"
+            "2. Create a 'Donors' customer group manually\n"
             "3. Configure default customer group in Selling Settings\n"
             "4. Ensure 'All Customer Groups' exists"
         )
 
     def ensure_donor_customer_group(self):
-        """Ensure 'Donors' customer group exists"""
+        """Ensure 'Donors' customer group exists - legacy method, calls _create_donor_customer_group"""
+        self._create_donor_customer_group()
+
+    def _create_donor_customer_group(self):
+        """Create 'Donors' customer group if it doesn't exist"""
         if not frappe.db.exists("Customer Group", "Donors"):
-            donor_group = frappe.new_doc("Customer Group")
-            donor_group.customer_group_name = "Donors"
-            donor_group.parent_customer_group = "All Customer Groups"
-            donor_group.is_group = 0
-            donor_group.flags.ignore_permissions = True
-            donor_group.insert()
+            try:
+                donor_group = frappe.new_doc("Customer Group")
+                donor_group.customer_group_name = "Donors"
+                donor_group.parent_customer_group = "All Customer Groups"
+                donor_group.is_group = 0
+                donor_group.flags.ignore_permissions = True
+                donor_group.insert()
+
+                if frappe.flags.get("in_test"):
+                    print("✅ Successfully created 'Donors' customer group")
+
+                frappe.logger().info("Auto-created 'Donors' customer group for donor-customer integration")
+
+            except Exception as e:
+                if frappe.flags.get("in_test"):
+                    print(f"❌ Error creating 'Donors' customer group: {str(e)}")
+                raise
 
     def get_customer_info(self):
         """Get related customer information for display"""

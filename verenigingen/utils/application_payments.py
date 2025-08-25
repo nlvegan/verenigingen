@@ -108,35 +108,60 @@ def create_membership_invoice_with_amount(member, membership, amount):
 
 
 def create_customer_for_member(member):
-    """Create customer record for member"""
-    customer = frappe.get_doc(
-        {
-            "doctype": "Customer",
-            "customer_name": member.full_name,
-            "customer_type": "Individual",
-            "customer_group": frappe.db.get_single_value("Selling Settings", "customer_group")
-            or "Individual",
-            "territory": frappe.db.get_single_value("Selling Settings", "territory") or "All Territories",
-            "email_id": member.email,
-            "mobile_no": member.contact_number or "",
-            "member": member.name,  # Direct link to member record
-        }
-    )
-    customer.insert(ignore_permissions=True)
-    return customer
+    """Create customer record for member with proper Contact integration"""
+    # Validate permissions
+    if not frappe.has_permission("Customer", "create"):
+        frappe.throw(_("Insufficient permissions to create Customer"))
+
+    if not frappe.has_permission("Contact", "create"):
+        frappe.throw(_("Insufficient permissions to create Contact"))
+
+    # Use transaction management for data integrity
+    try:
+        frappe.db.begin()
+
+        # Create Customer record (without direct email/mobile - these come from Contact via fetch_from)
+        customer = frappe.get_doc(
+            {
+                "doctype": "Customer",
+                "customer_name": member.full_name,
+                "customer_type": "Individual",
+                "customer_group": frappe.db.get_single_value("Selling Settings", "customer_group")
+                or "Individual",
+                "territory": frappe.db.get_single_value("Selling Settings", "territory") or "All Territories",
+                "member": member.name,  # Direct link to member record
+            }
+        )
+        customer.insert()
+
+        # Create Contact record using existing Dutch name utilities
+        contact = create_contact_for_customer(customer, member)
+        if not contact:
+            frappe.db.rollback()
+            frappe.throw(_("Failed to create Contact for Customer"))
+
+        # Set primary contact - ERPNext will automatically populate email_id/mobile_no via fetch_from
+        customer.db_set("customer_primary_contact", contact.name, update_modified=False)
+
+        frappe.db.commit()
+        frappe.logger().info(
+            f"Created Customer {customer.name} with Contact {contact.name} for Member {member.name}"
+        )
+
+        return customer
+
+    except Exception as e:
+        frappe.db.rollback()
+        frappe.log_error(
+            f"Failed to create Customer for Member {member.name}: {str(e)}", "Customer Creation Error"
+        )
+        raise
 
 
 def get_membership_item(membership_type):
     """Get membership item for membership type - requires explicit creation"""
-    # Check if membership type has a configured item
-    if hasattr(membership_type, "membership_item") and membership_type.membership_item:
-        if frappe.db.exists("Item", membership_type.membership_item):
-            return membership_type.membership_item
-        else:
-            frappe.throw(
-                f"Membership Type '{membership_type.membership_type_name}' references non-existent item '{membership_type.membership_item}'. "
-                "Please configure a valid membership item or use the membership type's get_or_create_membership_item() method."
-            )
+    # Note: membership_item field does not exist in current Membership Type DocType
+    # Item creation is handled through membership type controller methods
 
     # Fallback to membership type's own method if available
     if hasattr(membership_type, "get_or_create_membership_item"):
@@ -145,7 +170,7 @@ def get_membership_item(membership_type):
     # If no explicit configuration, require manual setup
     frappe.throw(
         f"No membership item configured for membership type '{membership_type.membership_type_name}'. "
-        "Please either configure the 'membership_item' field in the membership type or create the item manually. "
+        "Please create the item manually through the membership type controller. "
         "Auto-creation has been disabled to ensure proper item configuration."
     )
 
@@ -317,29 +342,9 @@ def calculate_membership_amount_with_discounts(membership_type, data):
     final_amount = base_amount
     discounts_applied = []
 
-    # Student discount
-    if data.get("is_student") and membership_type.student_discount_percentage:
-        discount_amount = base_amount * (membership_type.student_discount_percentage / 100)
-        final_amount -= discount_amount
-        discounts_applied.append(
-            {
-                "type": "Student Discount",
-                "percentage": membership_type.student_discount_percentage,
-                "amount": discount_amount,
-            }
-        )
-
-    # Early bird discount
-    if data.get("early_bird_eligible") and membership_type.early_bird_discount:
-        discount_amount = base_amount * (membership_type.early_bird_discount / 100)
-        final_amount -= discount_amount
-        discounts_applied.append(
-            {
-                "type": "Early Bird Discount",
-                "percentage": membership_type.early_bird_discount,
-                "amount": discount_amount,
-            }
-        )
+    # Note: Discount logic has been moved to the Dues Schedule Template system
+    # Custom amounts and adjustments are handled through the dues schedule contribution system
+    # Legacy student_discount_percentage and early_bird_discount fields do not exist in current Membership Type DocType
 
     # Ensure minimum amount
     if final_amount < 1:
@@ -391,3 +396,45 @@ def create_membership_invoice(member, membership, membership_type, amount=None):
 def format_currency_for_display(amount, currency="EUR"):
     """Format currency amount for display"""
     return frappe.utils.fmt_money(amount, currency=currency)
+
+
+def create_contact_for_customer(customer, member):
+    """Create Contact record for Customer with proper Dutch name handling"""
+    try:
+        from verenigingen.utils.dutch_name_utils import get_full_last_name
+
+        contact = frappe.new_doc("Contact")
+
+        # Use Member's Dutch name fields properly
+        contact.first_name = member.first_name
+        if hasattr(member, "middle_name") and member.middle_name:
+            contact.middle_name = member.middle_name
+
+        # Combine tussenvoegsel + last_name using existing utility
+        contact.last_name = get_full_last_name(member.last_name, getattr(member, "tussenvoegsel", None))
+
+        # Add email to email_ids child table (this populates the read-only email_id field via ERPNext)
+        if member.email:
+            contact.append("email_ids", {"email_id": member.email, "is_primary": 1})
+
+        # Add phone to phone_nos child table (this populates the read-only mobile_no field via ERPNext)
+        if member.contact_number:
+            contact.append("phone_nos", {"phone": member.contact_number, "is_primary_mobile_no": 1})
+
+        # Link to customer
+        contact.append("links", {"link_doctype": "Customer", "link_name": customer.name})
+
+        # Insert with proper permissions (no bypass)
+        contact.insert()
+
+        frappe.logger().info(
+            f"Created Contact {contact.name} for Customer {customer.name} (Member: {member.name})"
+        )
+        return contact
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error creating Contact for Customer {customer.name} (Member: {member.name}): {str(e)}",
+            "Customer Contact Creation Error",
+        )
+        return None

@@ -4,7 +4,6 @@
     "docstatus": 0,
     "name": "Verenigingen Board Member",
     "role_profile": "Verenigingen Board Member",
-    "module_profile": "Verenigingen Board Member",
     "roles": [
       {
         "role": "Verenigingen Member"
@@ -37,7 +36,6 @@
     "docstatus": 0,
     "name": "Verenigingen Auditor",
     "role_profile": "Verenigingen Auditor",
-    "module_profile": "Verenigingen Auditor",
     "roles": [
       {
         "role": "Verenigingen Member"
@@ -58,7 +56,6 @@
     "docstatus": 0,
     "name": "Verenigingen Volunteer",
     "role_profile": "Verenigingen Volunteer",
-    "module_profile": "Verenigingen Volunteer",
     "roles": [
       {
         "role": "Verenigingen Member"
@@ -102,7 +99,6 @@
     "docstatus": 0,
     "name": "Verenigingen Member",
     "role_profile": "Verenigingen Member",
-    "module_profile": "Verenigingen Member",
     "roles": [
       {
         "role": "Verenigingen Member"
@@ -117,7 +113,6 @@
     "docstatus": 0,
     "name": "Verenigingen Treasurer",
     "role_profile": "Verenigingen Treasurer",
-    "module_profile": "Verenigingen Treasurer",
     "roles": [
       {
         "role": "Verenigingen Member"
@@ -168,7 +163,6 @@
     "docstatus": 0,
     "name": "Verenigingen National Board Member",
     "role_profile": "Verenigingen National Board Member",
-    "module_profile": "Verenigingen National Board Member",
     "roles": [
       {
         "role": "Verenigingen Member"

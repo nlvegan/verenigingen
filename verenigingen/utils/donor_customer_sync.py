@@ -44,9 +44,26 @@ def sync_donor_to_customer(doc, method=None):
         doc.sync_with_customer()
 
     except Exception as e:
+        # Enhanced error logging with operational context
+        error_context = {
+            "donor_name": doc.name,
+            "donor_display_name": getattr(doc, "donor_name", "Unknown"),
+            "donor_email": getattr(doc, "donor_email", "No email"),
+            "current_customer": getattr(doc, "customer", "No customer"),
+            "sync_method": "donor_to_customer_hook",
+        }
+
         frappe.log_error(
-            f"Error in donor-customer sync hook for {doc.name}: {str(e)}", "Donor-Customer Sync Hook Error"
+            f"Error in donor-customer sync hook:\n"
+            f"Donor: {error_context['donor_name']} ({error_context['donor_display_name']})\n"
+            f"Email: {error_context['donor_email']}\n"
+            f"Current Customer: {error_context['current_customer']}\n"
+            f"Error: {str(e)}",
+            "Donor-Customer Sync Hook Error",
         )
+
+        if frappe.flags.get("in_test"):
+            print(f"❌ Hook error for donor {doc.name}: {str(e)}")
 
 
 def sync_customer_to_donor(doc, method=None):
@@ -144,7 +161,23 @@ def sync_customer_to_donor(doc, method=None):
             import traceback
 
             traceback.print_exc()
-        frappe.log_error(f"Error syncing customer {doc.name} to donor: {str(e)}", "Customer-Donor Sync Error")
+        # Enhanced error logging with operational context
+        error_context = {
+            "customer_name": doc.name,
+            "customer_display_name": getattr(doc, "customer_name", "Unknown"),
+            "customer_email": getattr(doc, "email_id", "No email"),
+            "linked_donor": getattr(doc, "donor", "No donor"),
+            "sync_method": "customer_to_donor_hook",
+        }
+
+        frappe.log_error(
+            f"Error in customer-donor sync hook:\n"
+            f"Customer: {error_context['customer_name']} ({error_context['customer_display_name']})\n"
+            f"Email: {error_context['customer_email']}\n"
+            f"Linked Donor: {error_context['linked_donor']}\n"
+            f"Error: {str(e)}",
+            "Customer-Donor Sync Error",
+        )
 
 
 @frappe.whitelist()
