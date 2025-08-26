@@ -100,11 +100,15 @@ class TeamRoleProfileManager(BaseRoleProfileManager):
             )
         ).run(as_dict=True)
 
-    def _get_user_from_team_member_doc(self, doc) -> Optional[str]:
-        """Extract user from team member document"""
+    def _get_user_from_team_member_doc(self, doc: "frappe._dict") -> Optional[str]:
+        """Extract user from team member document
+
+        Args:
+            doc: TeamMember document with volunteer and team_role fields
+        """
         # Team members only have volunteer field
         if doc.get("volunteer"):
-            member = frappe.db.get_value("Volunteer", doc.volunteer, "member")
+            member = frappe.db.get_value("Volunteer", doc.volunteer, "member")  # ast-skip: doc is TeamMember
             if member:
                 return frappe.db.get_value("Member", member, "user")
         return None
@@ -242,35 +246,52 @@ def setup_team_hooks():
 
 
 # Hook functions for Team Member document events
-def on_team_member_add(doc, method):
-    """Hook called when Team Member is added"""
+def on_team_member_add(doc: "frappe._dict", method: str):
+    """Hook called when Team Member is added
+
+    Args:
+        doc: TeamMember document with volunteer, parent, and team_role fields
+        method: Hook method name
+    """
     if doc.status == "Active":
         user = _team_manager._get_user_from_team_member_doc(doc)
         if user:
 
             def assign_role():
-                return assign_team_role_profile(user, doc.parent, doc.team_role)
+                return assign_team_role_profile(
+                    user, doc.parent, doc.team_role
+                )  # ast-skip: doc is TeamMember
 
             result = safe_hook_execution(assign_role)
             if result and not result.get("success"):
                 frappe.logger().warning(f"Failed to assign team role profile: {result.get('error')}")
 
 
-def on_team_member_remove(doc, method):
-    """Hook called when Team Member is removed"""
+def on_team_member_remove(doc: "frappe._dict", method: str):
+    """Hook called when Team Member is removed
+
+    Args:
+        doc: TeamMember document with volunteer, parent, and team_role fields
+        method: Hook method name
+    """
     user = _team_manager._get_user_from_team_member_doc(doc)
     if user:
 
         def remove_role():
-            return remove_team_role_profile(user, doc.parent, doc.team_role)
+            return remove_team_role_profile(user, doc.parent, doc.team_role)  # ast-skip: doc is TeamMember
 
         result = safe_hook_execution(remove_role)
         if result and not result.get("success"):
             frappe.logger().warning(f"Failed to remove team role profile: {result.get('error')}")
 
 
-def on_team_member_update(doc, method):
-    """Hook called when Team Member is updated"""
+def on_team_member_update(doc: "frappe._dict", method: str):
+    """Hook called when Team Member is updated
+
+    Args:
+        doc: TeamMember document with volunteer, parent, and team_role fields
+        method: Hook method name
+    """
     # Handle status changes (active -> inactive, etc.)
     if doc.has_value_changed("status"):
         user = _team_manager._get_user_from_team_member_doc(doc)
@@ -278,13 +299,17 @@ def on_team_member_update(doc, method):
             if doc.status == "Active":
 
                 def assign_role():
-                    return assign_team_role_profile(user, doc.parent, doc.team_role)
+                    return assign_team_role_profile(
+                        user, doc.parent, doc.team_role
+                    )  # ast-skip: doc is TeamMember
 
                 safe_hook_execution(assign_role)
             else:
 
                 def remove_role():
-                    return remove_team_role_profile(user, doc.parent, doc.team_role)
+                    return remove_team_role_profile(
+                        user, doc.parent, doc.team_role
+                    )  # ast-skip: doc is TeamMember
 
                 safe_hook_execution(remove_role)
 

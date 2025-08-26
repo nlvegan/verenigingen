@@ -1179,6 +1179,12 @@ class ASTFieldAnalyzer:
                     # Get line context
                     context_line = source_lines[line_num - 1].strip() if 1 <= line_num <= len(source_lines) else ""
                     
+                    # Check for suppression comment
+                    if "# ast-skip:" in context_line:
+                        if self.verbose:
+                            print(f"  ✓ Skipped due to ast-skip comment: {obj_name}.{field_name}")
+                        continue
+                    
                     # Enhanced false positive detection
                     if self._is_false_positive(obj_name, field_name, context_line, file_context):
                         continue
