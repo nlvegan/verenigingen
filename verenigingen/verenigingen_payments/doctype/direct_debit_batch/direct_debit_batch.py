@@ -748,7 +748,7 @@ class DirectDebitBatch(Document):
             # If member has linked customer, try to get address from there
             if member.customer and not address_info.get("address_line_1"):
                 try:
-                    customer = frappe.get_doc("Customer", member.customer)
+                    # customer = frappe.get_doc("Customer", member.customer)  # Unused variable
                     # Get primary address for customer
                     addresses = frappe.get_all(
                         "Dynamic Link",

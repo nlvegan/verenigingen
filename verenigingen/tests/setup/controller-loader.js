@@ -88,6 +88,20 @@ function loadFrappeController(controllerPath) {
 			setInterval,
 			clearInterval,
 
+			// Utility globals that controllers depend on
+			UIUtils: global.UIUtils,
+			ChapterUtils: global.ChapterUtils,
+			PaymentUtils: global.PaymentUtils,
+			setup_dutch_naming_fields: global.setup_dutch_naming_fields,
+			validate_postal_codes: global.validate_postal_codes,
+			validate_chapter_form: global.validate_chapter_form,
+
+			// Chapter controller specific functions
+			setup_chapter_buttons: global.setup_chapter_buttons || jest.fn(),
+			update_chapter_ui: global.update_chapter_ui || jest.fn(),
+			setup_board_grid: global.setup_board_grid || jest.fn(),
+			display_chapter_join_requests: global.display_chapter_join_requests || jest.fn(),
+
 			global: {
 				_frappe_form_handlers: global._frappe_form_handlers
 			}
@@ -148,6 +162,28 @@ function setupMinimalFrappeEnvironment() {
 			handlers
 		};
 	};
+
+	// Ensure utility globals are available during controller execution
+	global.UIUtils = global.UIUtils || {
+		add_custom_css: jest.fn(),
+		setup_payment_history_grid: jest.fn(),
+		setup_member_id_display: jest.fn(),
+		setup_action_buttons: jest.fn(),
+		setup_grid_enhancements: jest.fn()
+	};
+
+	global.ChapterUtils = global.ChapterUtils || {
+		setup_chapter_display: jest.fn(),
+		load_chapter_assignment_with_dates: jest.fn()
+	};
+
+	global.PaymentUtils = global.PaymentUtils || {
+		setup_payment_integration: jest.fn()
+	};
+
+	global.setup_dutch_naming_fields = global.setup_dutch_naming_fields || jest.fn();
+	global.validate_postal_codes = global.validate_postal_codes || jest.fn();
+	global.validate_chapter_form = global.validate_chapter_form || jest.fn();
 
 	// Mock other required Frappe globals
 	global.__ = global.__ || ((text) => text);

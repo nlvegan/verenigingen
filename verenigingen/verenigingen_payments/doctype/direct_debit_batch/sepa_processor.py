@@ -720,7 +720,7 @@ Organization
                 mandate_data = processed.get("mandate_data")
                 invoice_data = processed.get("invoice_data")
                 member_data = processed.get("member_data")
-                address_data = processed.get("address_data")
+                # address_data = processed.get("address_data")  # Unused variable
 
                 if not mandate_data or not invoice_data or not member_data:
                     frappe.logger().warning(

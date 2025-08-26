@@ -9,12 +9,11 @@ const { TextEncoder, TextDecoder } = require('util');
 global.TextEncoder = TextEncoder;
 global.TextDecoder = TextDecoder;
 
-// Setup fetch API polyfill for testing
-global.fetch = jest.fn(() => Promise.resolve({
-	ok: true,
-	json: () => Promise.resolve({}),
-	text: () => Promise.resolve('')
-}));
+// MSW setup is handled individually by tests that need it
+// via the msw-setup.js utility module
+
+// Setup fetch API polyfill for testing and MSW compatibility
+require('whatwg-fetch');
 
 // Mock DOM APIs that JSDOM doesn't fully support
 Object.defineProperty(window, 'matchMedia', {

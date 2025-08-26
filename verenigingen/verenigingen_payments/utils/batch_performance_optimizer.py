@@ -79,7 +79,7 @@ class BatchPerformanceOptimizer:
                     "name": row["member_name"],
                     "full_name": row["member_full_name"],
                     "customer": row["customer"],
-                    "active_mandate": row["mandate_name"],  # Reference to active mandate if exists
+                    "active_sepa_mandate": row["mandate_name"],  # Reference to active mandate if exists
                     "status": row["member_status"],
                 },
                 "mandate_data": {
@@ -141,15 +141,15 @@ class BatchPerformanceOptimizer:
                 si.membership_dues_schedule_display,
                 si.custom_coverage_start_date,
                 si.custom_coverage_end_date,
-                COALESCE(si.custom_paying_for_member, si.custom_member) as member_reference,
+                COALESCE(si.custom_paying_for_member, si.member) as member_reference,
                 c.customer_name,
                 c.email_id as customer_email,
-                m.membership as membership_name,
+                m.name as membership_name,
                 m.membership_type,
                 m.status as membership_status
             FROM `tabSales Invoice` si
             LEFT JOIN `tabCustomer` c ON si.customer = c.name
-            LEFT JOIN `tabMembership` m ON si.custom_membership = m.name
+            LEFT JOIN `tabMembership` m ON si.membership = m.name
             WHERE si.name IN %(invoice_names)s
             AND si.docstatus = 1
             AND si.status IN ('Unpaid', 'Overdue')
@@ -208,30 +208,33 @@ class BatchPerformanceOptimizer:
         if not member_names:
             return {}
 
-        # Get member address data in bulk
+        # Get member address data in bulk using proper Address link fields
         member_addresses = frappe.db.sql(
             """
             SELECT
                 m.name as member_name,
-                m.address_line_1,
-                m.address_line_2,
-                m.postal_code,
-                m.city,
-                m.country,
                 m.customer,
-                -- Try to get address from linked customer if member address is empty
-                addr.address_line1 as customer_address_line1,
-                addr.address_line2 as customer_address_line2,
-                addr.pincode as customer_postal_code,
-                addr.city as customer_city,
-                addr.country as customer_country
+                m.primary_address,
+                -- Get address details from primary address
+                primary_addr.address_line1 as primary_address_line1,
+                primary_addr.address_line2 as primary_address_line2,
+                primary_addr.pincode as primary_postal_code,
+                primary_addr.city as primary_city,
+                primary_addr.country as primary_country,
+                -- Get address from linked customer as fallback
+                cust_addr.address_line1 as customer_address_line1,
+                cust_addr.address_line2 as customer_address_line2,
+                cust_addr.pincode as customer_postal_code,
+                cust_addr.city as customer_city,
+                cust_addr.country as customer_country
             FROM `tabMember` m
+            LEFT JOIN `tabAddress` primary_addr ON m.primary_address = primary_addr.name
             LEFT JOIN `tabDynamic Link` dl ON (
                 dl.link_doctype = 'Customer'
                 AND dl.link_name = m.customer
                 AND dl.parenttype = 'Address'
             )
-            LEFT JOIN `tabAddress` addr ON dl.parent = addr.name
+            LEFT JOIN `tabAddress` cust_addr ON dl.parent = cust_addr.name
             WHERE m.name IN %(member_names)s
         """,
             {"member_names": member_names},
@@ -240,13 +243,13 @@ class BatchPerformanceOptimizer:
 
         result = {}
         for row in member_addresses:
-            # Prefer member address, fall back to customer address
+            # Prefer primary address, fall back to customer address
             address_info = {
-                "address_line_1": row["address_line_1"] or row["customer_address_line1"],
-                "address_line_2": row["address_line_2"] or row["customer_address_line2"],
-                "postal_code": row["postal_code"] or row["customer_postal_code"],
-                "town": row["city"] or row["customer_city"],
-                "country": row["country"] or row["customer_country"] or "NL",
+                "address_line_1": row["primary_address_line1"] or row["customer_address_line1"],
+                "address_line_2": row["primary_address_line2"] or row["customer_address_line2"],
+                "postal_code": row["primary_postal_code"] or row["customer_postal_code"],
+                "town": row["primary_city"] or row["customer_city"],
+                "country": row["primary_country"] or row["customer_country"] or "NL",
             }
 
             # Only include if we have minimum required fields (town and country)

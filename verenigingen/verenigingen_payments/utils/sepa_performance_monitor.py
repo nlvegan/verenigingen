@@ -21,7 +21,7 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import frappe
 import psutil
@@ -76,7 +76,7 @@ class SEPAPerformanceMonitor:
     def end_operation(self, operation_id: str, additional_data: Dict[str, Any] = None) -> PerformanceMetric:
         """End monitoring and record performance metrics"""
         if operation_id not in self.current_operations:
-            frappe.logger().warning(f"Operation {operation_id} not found in current operations")
+            frappe.logger().warning(f"Operation {operation_id} not found among current operations")
             return None
 
         operation_data = self.current_operations.pop(operation_id)
@@ -280,9 +280,9 @@ class SEPAPerformanceMonitor:
                     "duration_ms": metric.duration_ms,
                     "memory_mb": metric.memory_mb,
                     "queries": metric.query_count,
-                    "throughput_items_per_second": batch_size / (metric.duration_ms / 1000)
-                    if metric.duration_ms > 0
-                    else 0,
+                    "throughput_items_per_second": (
+                        batch_size / (metric.duration_ms / 1000) if metric.duration_ms > 0 else 0
+                    ),
                 }
 
             except Exception as e:

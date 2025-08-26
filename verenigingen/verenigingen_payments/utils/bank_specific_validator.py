@@ -90,7 +90,7 @@ class BankSpecificValidator:
 
         for i, line in enumerate(address_lines):
             if line and len(line) > 70:
-                errors.append(f"Address line {i+1} exceeds 70 characters")
+                errors.append(f"Address line {i + 1} exceeds 70 characters")
 
         return {"errors": errors, "warnings": warnings}
 

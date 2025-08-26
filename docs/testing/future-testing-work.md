@@ -36,7 +36,7 @@ The Verenigingen testing infrastructure has reached production maturity with 132
 #### **Priority APIs for Manual Schema Expansion:**
 Focus on APIs with high business impact and integration complexity:
 - Member onboarding workflow APIs
-- Payment reconciliation endpoints  
+- Payment reconciliation endpoints
 - External system synchronization methods
 - Financial reporting data APIs
 
@@ -81,7 +81,7 @@ Focus on APIs with high business impact and integration complexity:
 Manual JSON Schema Definition
          ↓
     AJV Validation
-         ↓  
+         ↓
   Jest Test Execution
          ↓
 Contract Compliance Verification
@@ -136,18 +136,18 @@ const mollieTestServer = setupServer(
     // Payment creation endpoint
     rest.post('https://api.mollie.com/v2/payments', (req, res, ctx) => {
         const body = req.body;
-        
+
         // Test different scenarios
         if (body.amount.value === '0.01') {
             return res(ctx.status(422), ctx.json({ error: 'Amount too small' }));
         }
-        
+
         return res(ctx.json({
             id: `tr_${Date.now()}`,
             status: 'open',
             amount: body.amount,
             _links: {
-                checkout: { 
+                checkout: {
                     href: 'https://checkout.mollie.com/test',
                     type: 'text/html'
                 }
@@ -168,11 +168,11 @@ const mollieTestServer = setupServer(
 
 **Phase 2: eBoekhouden Integration Testing**
 ```javascript
-// eboekhouden-api-mock.js  
+// eboekhouden-api-mock.js
 const eboekhoudenHandlers = [
     rest.post('https://secure.e-boekhouden.nl/bh/api.asp', (req, res, ctx) => {
         const action = req.body.get('ACTION');
-        
+
         switch(action) {
             case 'ADD_INVOICE':
                 return res(ctx.xml(`
@@ -209,7 +209,7 @@ const eboekhoudenHandlers = [
 // Priority evaluation criteria
 const apiPriority = {
     financial_operations: 'HIGH',     // Payment processing, invoicing
-    member_lifecycle: 'HIGH',         // Onboarding, status changes  
+    member_lifecycle: 'HIGH',         // Onboarding, status changes
     external_integrations: 'MEDIUM',  // Chapter management, reporting
     administrative: 'LOW'             // Settings, preferences
 };
@@ -224,14 +224,14 @@ const newApiSchema = {
             type: 'object',
             properties: {
                 // Define expected parameters with business validation
-                member_id: { 
-                    type: 'string', 
-                    pattern: '^(Assoc-)?Member-\\d{4}-\\d{2}-\\d{4}$' 
+                member_id: {
+                    type: 'string',
+                    pattern: '^(Assoc-)?Member-\\d{4}-\\d{2}-\\d{4}$'
                 },
-                amount: { 
-                    type: 'number', 
-                    minimum: 0.01, 
-                    maximum: 999999.99 
+                amount: {
+                    type: 'number',
+                    minimum: 0.01,
+                    maximum: 999999.99
                 }
             },
             required: ['member_id'],
@@ -258,7 +258,7 @@ describe('API Contract: method_name', () => {
         const validArgs = { member_id: 'Member-2025-01-0001', amount: 25.00 };
         expect(validArgs).toMatchAPIContract('verenigingen.module.doctype.method_name');
     });
-    
+
     it('should reject invalid parameters', () => {
         const invalidArgs = { member_id: 'invalid-format' };
         expect(() => {
@@ -424,26 +424,26 @@ Team Adoption Metrics:
 // Implementation priority: Payment gateway testing
 // Files to create:
 // - tests/external-apis/mollie-api.test.js
-// - tests/mocks/mollie-handlers.js  
+// - tests/mocks/mollie-handlers.js
 // - tests/scenarios/payment-flow-testing.js
 
 describe('Mollie Payment Integration', () => {
     beforeAll(() => {
         mollieTestServer.listen();
     });
-    
+
     it('should handle payment creation', async () => {
         const paymentData = {
             amount: { value: '25.00', currency: 'EUR' },
             description: 'Membership dues',
             redirectUrl: 'https://dev.veganisme.net/payment/return'
         };
-        
+
         const result = await createMolliePayment(paymentData);
         expect(result.id).toMatch(/^tr_/);
         expect(result.status).toBe('open');
     });
-    
+
     it('should handle webhook notifications', async () => {
         const webhookData = { id: 'tr_test123' };
         const result = await processMollieWebhook(webhookData);
@@ -462,7 +462,7 @@ describe('eBoekhouden API Integration', () => {
             amount: 25.00,
             description: 'Membership dues'
         };
-        
+
         const result = await syncToEBoekhouden(invoiceData);
         expect(result.invoice_id).toBeDefined();
         expect(result.success).toBe(true);
@@ -476,7 +476,7 @@ describe('eBoekhouden API Integration', () => {
 #### **Target APIs for Schema Addition:**
 - Member onboarding workflow methods
 - Payment reconciliation endpoints
-- Chapter management operations  
+- Chapter management operations
 - Financial reporting APIs
 - Volunteer management methods
 
@@ -555,7 +555,7 @@ describe('eBoekhouden API Integration', () => {
 
 ---
 
-**Document Version**: 2.0  
-**Last Updated**: August 2025  
-**Status**: Pragmatic Implementation Ready  
+**Document Version**: 2.0
+**Last Updated**: August 2025
+**Status**: Pragmatic Implementation Ready
 **Focus**: Real-world value over technical complexity

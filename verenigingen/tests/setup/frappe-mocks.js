@@ -447,6 +447,41 @@ function setupTestMocks() {
 	global.set_approval_requirements = jest.fn();
 	global.set_default_dates = jest.fn();
 	global.validate_required_fields = jest.fn();
+
+	// Setup utility modules that Member and Chapter controllers depend on
+	global.window = global.window || {};
+
+	// Member controller utility mocks
+	global.UIUtils = {
+		add_custom_css: jest.fn(),
+		setup_payment_history_grid: jest.fn(),
+		setup_member_id_display: jest.fn(),
+		setup_action_buttons: jest.fn(),
+		setup_grid_enhancements: jest.fn()
+	};
+	global.window.UIUtils = global.UIUtils;
+
+	global.ChapterUtils = {
+		setup_chapter_display: jest.fn(),
+		load_chapter_assignment_with_dates: jest.fn()
+	};
+	global.window.ChapterUtils = global.ChapterUtils;
+
+	global.PaymentUtils = {
+		setup_payment_integration: jest.fn()
+	};
+	global.window.PaymentUtils = global.PaymentUtils;
+
+	// Member/Chapter controller function mocks
+	global.setup_dutch_naming_fields = jest.fn();
+	global.validate_postal_codes = jest.fn();
+	global.validate_chapter_form = jest.fn();
+
+	// Chapter controller specific functions
+	global.setup_chapter_buttons = jest.fn();
+	global.update_chapter_ui = jest.fn();
+	global.setup_board_grid = jest.fn();
+	global.display_chapter_join_requests = jest.fn();
 	global.submit_for_approval = jest.fn();
 	global.can_approve_request = jest.fn(() => true);
 	global.approve_request = jest.fn();
