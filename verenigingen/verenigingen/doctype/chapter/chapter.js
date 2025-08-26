@@ -180,6 +180,30 @@ frappe.ui.form.on('Chapter', {
 	 */
 	published(frm) {
 		handle_published_change(frm);
+	},
+
+	// ==================== ROLE PROFILE EVENT HANDLERS ====================
+
+	/**
+	 * Enable Board Role-Specific Profiles Change Handler
+	 *
+	 * Handles toggle for board role-specific profile configuration.
+	 *
+	 * @param {Object} frm - Form object
+	 */
+	enable_board_role_specific_profiles(frm) {
+		handle_board_role_specific_profiles_toggle(frm);
+	},
+
+	/**
+	 * Default Board Role Profile Change Handler
+	 *
+	 * Validates default board role profile selection.
+	 *
+	 * @param {Object} frm - Form object
+	 */
+	default_board_role_profile(frm) {
+		validate_default_board_role_profile(frm);
 	}
 });
 
@@ -354,11 +378,46 @@ frappe.ui.form.on('Chapter Member', {
 	}
 });
 
+/**
+ * Chapter Role Profile Mapping Child Table Event Handlers
+ *
+ * Manages the board role profile mapping child table interactions including
+ * chapter role assignments, role profile validation, and configuration management.
+ */
+frappe.ui.form.on('Chapter Role Profile Mapping', {
+	/**
+	 * Chapter Role Field Change Handler
+	 *
+	 * Validates chapter role selection and checks for duplicates.
+	 *
+	 * @param {Object} frm - Parent chapter form object
+	 * @param {string} cdt - Child DocType name ('Chapter Role Profile Mapping')
+	 * @param {string} cdn - Child document name/ID
+	 */
+	chapter_role(frm, cdt, cdn) {
+		validate_chapter_role_assignment(frm, cdt, cdn);
+	},
+
+	/**
+	 * Role Profile Field Change Handler
+	 *
+	 * Validates role profile selection for chapter role.
+	 *
+	 * @param {Object} frm - Parent form object
+	 * @param {string} cdt - Child DocType name
+	 * @param {string} cdn - Child document name/ID
+	 */
+	role_profile(frm, cdt, cdn) {
+		validate_chapter_role_profile_assignment(frm, cdt, cdn);
+	}
+});
+
 // Helper Functions
 function setup_chapter_form(frm) {
 	// Set up form-level functionality
 	setup_postal_code_validation(frm);
 	setup_member_filters(frm);
+	setup_chapter_role_profile_ui(frm);
 }
 
 function setup_chapter_buttons(frm) {
@@ -388,6 +447,15 @@ function setup_chapter_buttons(frm) {
 
 		frm.add_custom_button(__('Sync with Volunteer System'), () => {
 			sync_board_with_volunteers(frm);
+		}, __('Board'));
+
+		// Add board role profile management button
+		frm.add_custom_button(__('Manage Board Role Profiles'), () => {
+			show_board_role_profile_management_dialog(frm);
+		}, __('Board'));
+
+		frm.add_custom_button(__('Apply Role Profiles to Board'), () => {
+			apply_role_profiles_to_board_members(frm);
 		}, __('Board'));
 	}
 }
@@ -1151,3 +1219,231 @@ function inject_chapter_requests_safely(frm, container) {
 		frappe.msgprint(__('Unable to display chapter join requests. Please refresh the page.'));
 	}
 }
+
+// ==================== CHAPTER ROLE PROFILE FUNCTIONS ====================
+
+/**
+ * Setup Chapter Role Profile UI Components
+ * @param {Object} frm - Form object
+ */
+function setup_chapter_role_profile_ui(frm) {
+	// Set conditional visibility for board role-specific profiles table
+	frm.toggle_display('board_role_specific_profiles', frm.doc.enable_board_role_specific_profiles);
+
+	// Add helpful descriptions
+	if (frm.doc.enable_board_role_specific_profiles) {
+		frm.set_df_property('board_role_specific_profiles', 'description',
+			__('Configure different role profiles for different board roles. This overrides the default board role profile for specific roles.'));
+	}
+}
+
+/**
+ * Handle Board Role-Specific Profiles Toggle
+ * @param {Object} frm - Form object
+ */
+function handle_board_role_specific_profiles_toggle(frm) {
+	frm.toggle_display('board_role_specific_profiles', frm.doc.enable_board_role_specific_profiles);
+
+	if (frm.doc.enable_board_role_specific_profiles) {
+		frappe.show_alert({
+			message: __('You can now configure different role profiles for different board roles'),
+			indicator: 'blue'
+		}, 5);
+
+		// Refresh the child table
+		frm.refresh_field('board_role_specific_profiles');
+	} else {
+		// Clear board role-specific profiles if disabled
+		if (frm.doc.board_role_specific_profiles && frm.doc.board_role_specific_profiles.length > 0) {
+			frappe.confirm(__('This will clear all board role-specific profile assignments. Continue?'), () => {
+				frm.clear_table('board_role_specific_profiles');
+				frm.refresh_field('board_role_specific_profiles');
+			});
+		}
+	}
+}
+
+/**
+ * Validate Default Board Role Profile
+ * @param {Object} frm - Form object
+ */
+function validate_default_board_role_profile(frm) {
+	if (frm.doc.default_board_role_profile) {
+		// Validate that the role profile exists and is active
+		frappe.db.get_value('Role Profile', frm.doc.default_board_role_profile, 'disabled', (r) => {
+			if (r && r.disabled) {
+				frappe.msgprint({
+					title: __('Invalid Role Profile'),
+					message: __('The selected role profile is disabled. Please choose an active role profile.'),
+					indicator: 'orange'
+				});
+				frm.set_value('default_board_role_profile', '');
+			}
+		});
+	}
+}
+
+/**
+ * Validate Chapter Role Assignment
+ * @param {Object} frm - Form object
+ * @param {string} cdt - Child DocType
+ * @param {string} cdn - Child document name
+ */
+function validate_chapter_role_assignment(frm, cdt, cdn) {
+	const row = locals[cdt][cdn];
+	if (!row.chapter_role) { return; }
+
+	// Check for duplicate role assignments
+	const existing_assignment = frm.doc.board_role_specific_profiles.find(r =>
+		r.name !== cdn && r.chapter_role === row.chapter_role
+	);
+
+	if (existing_assignment) {
+		frappe.msgprint({
+			title: __('Duplicate Role Assignment'),
+			message: __('This chapter role already has a role profile assignment. Please choose a different role.'),
+			indicator: 'red'
+		});
+		frappe.model.set_value(cdt, cdn, 'chapter_role', '');
+		return;
+	}
+
+	// Auto-suggest description based on role
+	if (row.chapter_role && !row.description) {
+		frappe.model.set_value(cdt, cdn, 'description',
+			__('Role profile assignment for {0} role', [row.chapter_role]));
+	}
+}
+
+/**
+ * Validate Chapter Role Profile Assignment
+ * @param {Object} frm - Form object
+ * @param {string} cdt - Child DocType
+ * @param {string} cdn - Child document name
+ */
+function validate_chapter_role_profile_assignment(frm, cdt, cdn) {
+	const row = locals[cdt][cdn];
+	if (!row.role_profile) { return; }
+
+	// Validate that the role profile is active
+	frappe.db.get_value('Role Profile', row.role_profile, 'disabled', (r) => {
+		if (r && r.disabled) {
+			frappe.msgprint({
+				title: __('Invalid Role Profile'),
+				message: __('The selected role profile is disabled. Please choose an active role profile.'),
+				indicator: 'orange'
+			});
+			frappe.model.set_value(cdt, cdn, 'role_profile', '');
+		}
+	});
+}
+
+/**
+ * Show Board Role Profile Management Dialog
+ * @param {Object} frm - Form object
+ */
+function show_board_role_profile_management_dialog(frm) {
+	const d = new frappe.ui.Dialog({
+		title: __('Board Role Profile Management'),
+		fields: [
+			{
+				fieldtype: 'HTML',
+				options: generate_board_role_profile_summary_html(frm)
+			},
+			{
+				fieldtype: 'Section Break'
+			},
+			{
+				label: __('Actions'),
+				fieldtype: 'HTML',
+				options: `
+					<button class="btn btn-primary btn-sm" onclick="cur_dialog.hide(); cur_frm.scroll_to_field('default_board_role_profile');">
+						<i class="fa fa-edit"></i> ${__('Edit Configuration')}
+					</button>
+					<button class="btn btn-success btn-sm" onclick="apply_role_profiles_to_board_members(cur_frm); cur_dialog.hide();">
+						<i class="fa fa-users"></i> ${__('Apply to Board')}
+					</button>
+				`
+			}
+		],
+		primary_action_label: __('Close'),
+		primary_action() {
+			d.hide();
+		}
+	});
+
+	d.show();
+}
+
+/**
+ * Generate Board Role Profile Summary HTML
+ * @param {Object} frm - Form object
+ * @returns {string} HTML content
+ */
+function generate_board_role_profile_summary_html(frm) {
+	let html = '<div class="board-role-profile-summary">';
+
+	// Default board role profile
+	html += `<h5>${__('Default Board Role Profile')}</h5>`;
+	if (frm.doc.default_board_role_profile) {
+		html += `<p class="text-success"><i class="fa fa-check"></i> ${frm.doc.default_board_role_profile}</p>`;
+	} else {
+		html += `<p class="text-muted"><i class="fa fa-info-circle"></i> ${__('No default board role profile configured')}</p>`;
+	}
+
+	// Board role-specific profiles
+	html += `<h5>${__('Board Role-Specific Profiles')}</h5>`;
+	if (frm.doc.enable_board_role_specific_profiles && frm.doc.board_role_specific_profiles?.length > 0) {
+		html += '<ul class="list-unstyled">';
+		frm.doc.board_role_specific_profiles.forEach(assignment => {
+			html += `<li class="text-info"><i class="fa fa-user"></i> ${assignment.chapter_role}: ${assignment.role_profile}</li>`;
+		});
+		html += '</ul>';
+	} else {
+		html += `<p class="text-muted"><i class="fa fa-info-circle"></i> ${__('No board role-specific profiles configured')}</p>`;
+	}
+
+	html += '</div>';
+	return html;
+}
+
+/**
+ * Apply Role Profiles to Board Members
+ * @param {Object} frm - Form object
+ */
+function apply_role_profiles_to_board_members(frm) {
+	if (!frm.doc.name || frm.doc.__islocal) {
+		frappe.msgprint(__('Please save the chapter first'));
+		return;
+	}
+
+	frappe.confirm(
+		__('This will apply role profiles to all chapter board members based on your configuration. Continue?'),
+		() => {
+			frappe.call({
+				method: 'verenigingen.utils.chapter_role_profile_manager.bulk_assign_chapter_board_role_profiles',
+				args: {
+					chapter_name: frm.doc.name
+				},
+				freeze: true,
+				freeze_message: __('Applying role profiles to board...'),
+				callback(r) {
+					if (r.message && r.message.success) {
+						frappe.show_alert({
+							message: __('Role profiles applied successfully to {0} board members', [r.message.members_updated || 0]),
+							indicator: 'green'
+						}, 5);
+					} else {
+						frappe.msgprint(__('No board members were updated. Please check your chapter configuration.'));
+					}
+				},
+				error(r) {
+					frappe.msgprint(__('Error applying role profiles: {0}', [r.message]));
+				}
+			});
+		}
+	);
+}
+
+// Make apply_role_profiles_to_board_members globally accessible for dialog
+window.apply_role_profiles_to_board_members = apply_role_profiles_to_board_members;

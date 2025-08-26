@@ -4,7 +4,7 @@
 # Verenigingen Cypress JavaScript Controller Test Suite Runner
 # =============================================================================
 #
-# Comprehensive test runner for all 25 DocType JavaScript controller tests
+# Comprehensive test runner for all 32 DocType JavaScript controller tests
 # in the Verenigingen association management system.
 #
 # Features:
@@ -16,7 +16,7 @@
 # - CI/CD integration support
 #
 # Usage:
-#   scripts/testing/runners/run_controller_tests.sh [options]
+#   ./run_controller_tests.sh [options]
 #
 # Options:
 #   --all              Run all controller tests (default)
@@ -65,16 +65,25 @@ readonly HIGH_PRIORITY_TESTS=(
     "membership-dues-schedule-controller.spec.js"
     "member-payment-history-controller.spec.js"
     "direct-debit-batch-controller.spec.js"
+    "sepa-payment-retry-controller.spec.js"
+    "sepa-audit-log-controller.spec.js"
+    "mollie-settings-controller.spec.js"
 )
 
 readonly MEDIUM_PRIORITY_TESTS=(
     "chapter-controller.spec.js"
     "chapter-board-member-controller.spec.js"
     "chapter-join-request-controller.spec.js"
-    "volunteer-team-controller.spec.js"
+    "chapter-management-controller.spec.js"
+    "team-controller.spec.js"
     "verenigingen-settings-controller.spec.js"
     "member-application-controller.spec.js"
     "volunteer-expense-controller.spec.js"
+    "volunteer-management-controller.spec.js"
+    "membership-dues-controller.spec.js"
+    "e-boekhouden-settings-controller.spec.js"
+    "donation-controller.spec.js"
+    "periodic-donation-agreement-controller.spec.js"
 )
 
 readonly LOWER_PRIORITY_TESTS=(
@@ -84,6 +93,10 @@ readonly LOWER_PRIORITY_TESTS=(
     "board-member-controller.spec.js"
     "event-controller.spec.js"
     "campaign-controller.spec.js"
+    "sepa-javascript-controller.spec.js"
+    "chapter-role-profile-controller.spec.js"
+    "team-role-profile-controller.spec.js"
+    "role-profile-child-tables-controller.spec.js"
 )
 
 # Default options
@@ -147,10 +160,10 @@ show_help() {
 Usage: $0 [options]
 
 OPTIONS:
-    --all              Run all 25 DocType controller tests (default)
-    --high-priority    Run 6 high-priority tests (financial operations)
-    --medium-priority  Run 7 medium-priority tests (reporting and admin)
-    --lower-priority   Run 12 lower-priority tests (extended functionality)
+    --all              Run all 32 DocType controller tests (default)
+    --high-priority    Run 9 high-priority tests (financial operations)
+    --medium-priority  Run 13 medium-priority tests (reporting and admin)
+    --lower-priority   Run 10 lower-priority tests (extended functionality)
 
     --parallel         Execute tests in parallel for faster completion
     --sequential       Execute tests sequentially for stability (default)
@@ -189,15 +202,24 @@ High Priority (Financial & Core Operations):
     • Membership Dues Schedule Controller
     • Member Payment History Controller
     • Direct Debit Batch Controller
+    • SEPA Payment Retry Controller
+    • SEPA Audit Log Controller
+    • Mollie Settings Controller
 
 Medium Priority (Reporting & Administration):
     • Chapter Controller
     • Chapter Board Member Controller
     • Chapter Join Request Controller
+    • Chapter Management Controller
     • Volunteer Team Controller
     • Verenigingen Settings Controller
     • Member Application Controller
     • Volunteer Expense Controller
+    • Volunteer Management Controller
+    • Membership Dues Controller
+    • E-Boekhouden Settings Controller
+    • Donation Controller
+    • Periodic Donation Agreement Controller
 
 Lower Priority (Extended Functionality):
     • Member Controller
@@ -206,6 +228,10 @@ Lower Priority (Extended Functionality):
     • Board Member Controller
     • Event Controller
     • Campaign Controller
+    • SEPA JavaScript Controller
+    • Chapter Role Profile Controller
+    • Team Role Profile Controller
+    • Role Profile Child Tables Controller
 
 For more information, see: cypress/README-JAVASCRIPT-TESTING.md
 EOF

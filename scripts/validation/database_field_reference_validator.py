@@ -373,8 +373,42 @@ class DatabaseFieldReferenceValidator:
         return result
     
     def extract_sql_fields(self, node: ast.Call, source_lines: List[str], func_name: str) -> Optional[Dict]:
-        """Basic SQL field extraction (limited) - same as improved validator"""
-        # Skip SQL validation for now as it's complex
+        """SQL field extraction using SQLGlot parser"""
+        if not node.args:
+            return None
+            
+        # Get the SQL query string from the first argument
+        sql_string = self.extract_string_value(node.args[0])
+        if not sql_string:
+            return None
+            
+        # Initialize SQL field extractor if needed
+        if not hasattr(self, '_sql_extractor'):
+            try:
+                from sql_field_extractor import SQLFieldExtractor
+                # Enable debug mode only for strict validation level
+                debug_mode = self.config.level == ValidationLevel.STRICT
+                self._sql_extractor = SQLFieldExtractor(self.doctype_loader, debug_mode=debug_mode)
+            except ImportError:
+                if self.config.level == ValidationLevel.STRICT:
+                    print("⚠️ SQLGlot not available - SQL validation disabled")
+                return None
+        
+        # Extract field references from SQL
+        field_refs = self._sql_extractor.extract_from_frappe_sql_call(sql_string, self.current_file)
+        
+        if not field_refs:
+            return None
+            
+        # Validate field references and convert to violations
+        violations = self._sql_extractor.validate_field_references(field_refs)
+        
+        if violations:
+            return {
+                'sql_field_violations': violations,
+                'field_count': len(field_refs)
+            }
+            
         return None
     
     def extract_string_value(self, node: ast.AST) -> Optional[str]:
@@ -449,6 +483,9 @@ class DatabaseFieldReferenceValidator:
         violations = []
         
         try:
+            # Set current file for SQL validation
+            self.current_file = str(file_path)
+            
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
                 
@@ -458,6 +495,25 @@ class DatabaseFieldReferenceValidator:
                 # Skip excluded queries
                 if query.get('excluded', False):
                     continue
+                
+                # Handle SQL field violations directly (they don't have doctype structure)
+                if 'sql_field_violations' in query:
+                    for sql_violation in query['sql_field_violations']:
+                        violations.append({
+                            'file': str(file_path.relative_to(self.app_path)),
+                            'line': sql_violation.get('line_number', query['line']),
+                            'field': sql_violation['context'].get('table_alias', '') + '.' + 
+                                   sql_violation['message'].split("'")[1],  # Extract field name from message
+                            'doctype': sql_violation['message'].split(' on ')[-1],  # Extract doctype from message
+                            'context': sql_violation['context']['sql_context'],
+                            'issue_type': 'sql_field_reference',
+                            'function': query['function'],
+                            'error': sql_violation['message'],
+                            'suggestions': sql_violation['context']['suggested_fields'][:5],
+                            'validation_level': self.config.level.value,
+                            'severity': sql_violation['severity']
+                        })
+                    continue  # Skip the rest of processing for SQL queries
                     
                 doctype = query['doctype']
                 

@@ -1,21 +1,29 @@
 /**
- * @fileoverview Volunteer Team JavaScript Controller Tests
+ * @fileoverview Team DocType JavaScript Controller Tests for Role Profile System
  *
- * Tests the Volunteer Team DocType JavaScript controller functionality,
- * including team formation, member assignments, project coordination,
- * skill matching, and integration with volunteer management workflows.
+ * Tests the Team DocType JavaScript controller functionality with comprehensive
+ * testing of the role profile system refactoring. Focuses on database-driven
+ * role profile configuration, dynamic UI interactions, and role assignment workflows.
  *
  * Business Context:
- * Volunteer teams organize members around specific projects or ongoing
- * initiatives. The system must coordinate team formation, manage member
- * assignments, track contributions, and facilitate effective teamwork.
+ * Teams organize volunteers around specific projects or ongoing initiatives.
+ * The role profile system enables automatic assignment of appropriate permissions
+ * and access levels based on team roles, replacing hardcoded mappings with
+ * flexible database-driven configuration.
+ *
+ * Key Role Profile Features:
+ * - Default role profile assignment for all team members
+ * - Role-specific profile overrides for specialized positions
+ * - Dynamic UI showing/hiding role-specific configuration
+ * - Child table management for role profile assignments
+ * - Integration with team member addition workflows
  *
  * @author Verenigingen Development Team
- * @version 1.0.0
- * @since 2025-08-19
+ * @version 2.0.0
+ * @since 2025-08-26
  */
 
-describe('Volunteer Team JavaScript Controller Tests', () => {
+describe('Team DocType JavaScript Controller Tests - Role Profile System', () => {
 	beforeEach(() => {
 		const user = Cypress.env('ADMIN_USER');
 		const pass = Cypress.env('ADMIN_PASSWORD');

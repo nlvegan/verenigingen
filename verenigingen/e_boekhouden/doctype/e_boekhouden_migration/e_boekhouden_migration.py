@@ -3125,15 +3125,23 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
                         if doc.docstatus == 1:  # Submitted
                             # For Sales/Purchase Invoices, check for linked Payment Entries that need to be cancelled first
                             if doctype in ["Sales Invoice", "Purchase Invoice"]:
-                                linked_payments = frappe.get_all(
-                                    "Payment Entry",
+                                # Find Payment Entries linked to this invoice through Payment Entry Reference child table
+                                linked_payment_refs = frappe.get_all(
+                                    "Payment Entry Reference",
                                     filters={
                                         "reference_doctype": doctype,
                                         "reference_name": docname,
-                                        "docstatus": 1,
                                     },
-                                    fields=["name"],
+                                    fields=["parent"],
                                 )
+
+                                linked_payments = []
+                                for ref in linked_payment_refs:
+                                    payment_entry = frappe.db.get_value(
+                                        "Payment Entry", {"name": ref.parent, "docstatus": 1}, "name"
+                                    )
+                                    if payment_entry:
+                                        linked_payments.append({"name": payment_entry})
 
                                 for payment in linked_payments:
                                     payment_doc = frappe.get_doc("Payment Entry", payment.name)

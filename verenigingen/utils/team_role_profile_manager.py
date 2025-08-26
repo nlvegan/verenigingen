@@ -2,7 +2,7 @@
 Team Role Profile Manager
 
 Automatically assigns role profiles when users join/leave teams based on team configuration.
-This provides a reusable, maintainable way to manage team-based role assignments.
+This implementation uses the BaseRoleProfileManager for shared functionality.
 
 Business Rules:
 - When a user joins a team, they get the team's associated role profile
@@ -11,22 +11,132 @@ Business Rules:
 - Users can have multiple role profiles from different teams
 
 Author: Verenigingen Development Team
-Last Updated: 2025-08-24
+Last Updated: 2025-08-26
 """
 
 from typing import Dict, List, Optional
 
 import frappe
 from frappe import _
+from frappe.query_builder import DocType
 
-# Team to Role Profile Mapping
-TEAM_ROLE_PROFILE_MAPPING = {
-    "Kascommissie": "Verenigingen Auditor",
-    # Add more teams as needed:
-    # "Communications Team": "Verenigingen Communications Manager",
-    # "Finance Team": "Verenigingen Treasurer",
-    # "Board": "Verenigingen Board Member",
-}
+from verenigingen.utils.base_role_profile_manager import (
+    BaseRoleProfileManager,
+    EntityConfig,
+    _is_system_operation_authorized,
+    safe_hook_execution,
+)
+
+# Team-specific configuration
+TEAM_CONFIG = EntityConfig(
+    entity_type="team",
+    entity_label="Team",
+    doctype="Team",
+    member_doctype="Team Member",
+    role_doctype="Team Role",
+    default_profile_field="default_role_profile",
+    enable_specific_field="enable_role_specific_profiles",
+    specific_profiles_field="role_specific_profiles",
+    child_table_doctype="Team Role Profile Assignment",
+    role_field_in_child="team_role",
+    member_enabled_field=None,
+    member_status_field="status",
+    member_status_active_value="Active",
+    member_role_field="team_role",
+    log_context="Team Role Profile Manager",
+)
+
+
+class TeamRoleProfileManager(BaseRoleProfileManager):
+    """Team-specific implementation of role profile management"""
+
+    def __init__(self):
+        """Initialize with team configuration"""
+        super().__init__(TEAM_CONFIG)
+
+    def _user_still_in_other_entities(self, user: str, other_entities: List[str]) -> bool:
+        """Check if user is still active in other teams"""
+        # Check if user is still in any of those teams
+        user_member = frappe.db.get_value("Member", {"user": user}, "name")
+        if user_member:
+            # Get user's volunteer record
+            volunteer = frappe.db.get_value("Volunteer", {"member": user_member}, "name")
+            if volunteer:
+                still_in_other_teams = frappe.db.exists(
+                    "Team Member",
+                    {
+                        "volunteer": volunteer,
+                        "parent": ["in", other_entities],
+                        "status": "Active",
+                    },
+                )
+                return bool(still_in_other_teams)
+
+        return False
+
+    def _get_bulk_members_data(self, entity_name: str) -> List[Dict]:
+        """Get team members data for bulk operations"""
+        TM = DocType("Team Member")
+        Volunteer = DocType("Volunteer")
+        Member = DocType("Member")
+        User = DocType("User")
+
+        return (
+            frappe.qb.from_(TM)
+            .left_join(Volunteer)
+            .on(TM.volunteer == Volunteer.name)
+            .left_join(Member)
+            .on(Volunteer.member == Member.name)
+            .left_join(User)
+            .on(Member.user == User.name)
+            .select(
+                TM.volunteer, TM.team_role, Volunteer.member, Member.user, User.enabled.as_("user_enabled")
+            )
+            .where(
+                (TM.parent == entity_name)
+                & (TM.status == "Active")
+                & (Member.user.isnotnull())
+                & (User.enabled == 1)
+            )
+        ).run(as_dict=True)
+
+    def _get_user_from_team_member_doc(self, doc) -> Optional[str]:
+        """Extract user from team member document"""
+        # Team members only have volunteer field
+        if doc.get("volunteer"):
+            member = frappe.db.get_value("Volunteer", doc.volunteer, "member")
+            if member:
+                return frappe.db.get_value("Member", member, "user")
+        return None
+
+
+# Global instance for convenience
+_team_manager = TeamRoleProfileManager()
+
+
+# Public API Functions (maintain backward compatibility)
+def get_team_role_profile_config(team_name):
+    """
+    Get role profile configuration for a team from database.
+
+    Returns:
+        dict: Configuration with default_profile and role_specific_profiles
+    """
+    return _team_manager.get_entity_role_profile_config(team_name)
+
+
+def determine_role_profile_for_team_member(team_name, team_role=None):
+    """
+    Determine which role profile should be assigned to a team member.
+
+    Args:
+        team_name: Name of the team
+        team_role: Specific team role (optional)
+
+    Returns:
+        str: Role profile name or None
+    """
+    return _team_manager.determine_role_profile_for_member(team_name, team_role)
 
 
 @frappe.whitelist()
@@ -42,51 +152,7 @@ def assign_team_role_profile(user, team_name, team_role=None):
     Returns:
         dict: Success/failure result
     """
-    try:
-        role_profile = TEAM_ROLE_PROFILE_MAPPING.get(team_name)
-        if not role_profile:
-            # No automatic role profile for this team
-            return {"success": True, "message": f"No automatic role profile for team {team_name}"}
-
-        # Check if role profile exists
-        if not frappe.db.exists("Role Profile", role_profile):
-            frappe.logger().warning(f"Role Profile {role_profile} does not exist for team {team_name}")
-            return {"success": False, "error": f"Role Profile {role_profile} does not exist"}
-
-        # Get user document
-        user_doc = frappe.get_doc("User", user)
-
-        # Assign the role profile if not already assigned
-        if user_doc.role_profile_name != role_profile:
-            # Store previous role profile for rollback if needed
-            previous_role_profile = user_doc.role_profile_name
-
-            user_doc.role_profile_name = role_profile
-            user_doc.save(ignore_permissions=True)  # System operation
-
-            frappe.logger().info(
-                f"Team Role Profile Manager: Assigned '{role_profile}' to user {user} "
-                f"for team {team_name} (team role: {team_role or 'N/A'})"
-            )
-
-            return {
-                "success": True,
-                "message": f"Assigned role profile '{role_profile}' to user",
-                "role_profile": role_profile,
-                "previous_role_profile": previous_role_profile,
-                "action": "assigned",
-            }
-        else:
-            return {
-                "success": True,
-                "message": f"User already has role profile '{role_profile}'",
-                "action": "already_assigned",
-            }
-
-    except Exception as e:
-        error_msg = f"Error assigning role profile for team {team_name}: {str(e)}"
-        frappe.log_error(frappe.get_traceback(), "Team Role Profile Assignment Error")
-        return {"success": False, "error": error_msg}
+    return _team_manager.assign_role_profile(user, team_name, team_role)
 
 
 @frappe.whitelist()
@@ -102,71 +168,60 @@ def remove_team_role_profile(user, team_name, team_role=None):
     Returns:
         dict: Success/failure result
     """
-    try:
-        role_profile = TEAM_ROLE_PROFILE_MAPPING.get(team_name)
-        if not role_profile:
-            # No automatic role profile for this team
-            return {"success": True, "message": f"No automatic role profile for team {team_name}"}
+    return _team_manager.remove_role_profile(user, team_name, team_role)
 
-        # Check if user still belongs to other teams that require this role profile
-        other_teams_with_same_profile = [
-            team
-            for team, profile in TEAM_ROLE_PROFILE_MAPPING.items()
-            if profile == role_profile and team != team_name
-        ]
 
-        if other_teams_with_same_profile:
-            # Check if user is still in any of those teams
-            user_member = frappe.db.get_value("Member", {"user": user}, "name")
-            if user_member:
-                # Get user's volunteer record
-                volunteer = frappe.db.get_value("Volunteer", {"member": user_member}, "name")
-                if volunteer:
-                    still_in_other_teams = frappe.db.exists(
-                        "Team Member",
-                        {
-                            "volunteer": volunteer,
-                            "parent": ["in", other_teams_with_same_profile],
-                            "status": "Active",
-                        },
-                    )
+@frappe.whitelist()
+def bulk_assign_team_role_profiles(team_name):
+    """
+    Bulk assign role profiles to all existing members of a team
+    Useful for initial setup or fixing missing assignments
+    """
+    return _team_manager.bulk_assign_role_profiles(team_name)
 
-                    if still_in_other_teams:
-                        return {
-                            "success": True,
-                            "message": f"User still in other teams requiring '{role_profile}', keeping role profile",
-                            "action": "kept",
-                        }
 
-        # Safe to remove role profile
-        user_doc = frappe.get_doc("User", user)
-        if user_doc.role_profile_name == role_profile:
-            previous_role_profile = user_doc.role_profile_name
-            user_doc.role_profile_name = None  # or set to default member profile
-            user_doc.save(ignore_permissions=True)  # System operation
+@frappe.whitelist()
+def get_team_role_profile_mapping():
+    """Get the current team to role profile mapping for admin reference"""
+    mapping = {}
 
-            frappe.logger().info(
-                f"Team Role Profile Manager: Removed '{role_profile}' from user {user} "
-                f"for team {team_name} (team role: {team_role or 'N/A'})"
-            )
+    # Get configured team mappings only
+    teams = frappe.get_all(
+        "Team", filters={"default_role_profile": ["is", "set"]}, fields=["name", "default_role_profile"]
+    )
 
-            return {
-                "success": True,
-                "message": f"Removed role profile '{role_profile}' from user",
-                "previous_role_profile": previous_role_profile,
-                "action": "removed",
-            }
-        else:
-            return {
-                "success": True,
-                "message": f"User does not have role profile '{role_profile}'",
-                "action": "not_assigned",
-            }
+    for team in teams:
+        if team.default_role_profile:
+            mapping[team.name] = team.default_role_profile
 
-    except Exception as e:
-        error_msg = f"Error removing role profile for team {team_name}: {str(e)}"
-        frappe.log_error(frappe.get_traceback(), "Team Role Profile Removal Error")
-        return {"success": False, "error": error_msg}
+    return mapping
+
+
+def get_teams_requiring_role_profile(role_profile, exclude_team=None):
+    """
+    Get list of teams that require a specific role profile.
+
+    Args:
+        role_profile: Role profile name to search for
+        exclude_team: Team to exclude from results
+
+    Returns:
+        list: Team names that require this role profile
+    """
+    return _team_manager.get_entities_requiring_role_profile(role_profile, exclude_team)
+
+
+def get_teams_for_role_profile(role_profile):
+    """
+    Get all teams that are configured to use a specific role profile.
+
+    Args:
+        role_profile: Role profile name to search for
+
+    Returns:
+        List of dicts with team info: [{"name": team_name, "entity_label": team_name, "usage_type": type}]
+    """
+    return _team_manager.get_entities_using_role_profile(role_profile)
 
 
 def setup_team_hooks():
@@ -186,81 +241,55 @@ def setup_team_hooks():
     pass
 
 
+# Hook functions for Team Member document events
 def on_team_member_add(doc, method):
     """Hook called when Team Member is added"""
-    if doc.status == "Active" and doc.volunteer:
-        # Get user from volunteer -> member -> user
-        member = frappe.db.get_value("Volunteer", doc.volunteer, "member")
-        if member:
-            user = frappe.db.get_value("Member", member, "user")
-            if user:
-                result = assign_team_role_profile(user, doc.parent, doc.team_role)
-                if not result.get("success"):
-                    frappe.logger().warning(f"Failed to assign role profile: {result.get('error')}")
+    if doc.status == "Active":
+        user = _team_manager._get_user_from_team_member_doc(doc)
+        if user:
+
+            def assign_role():
+                return assign_team_role_profile(user, doc.parent, doc.team_role)
+
+            result = safe_hook_execution(assign_role)
+            if result and not result.get("success"):
+                frappe.logger().warning(f"Failed to assign team role profile: {result.get('error')}")
 
 
 def on_team_member_remove(doc, method):
     """Hook called when Team Member is removed"""
-    if doc.volunteer:
-        # Get user from volunteer -> member -> user
-        member = frappe.db.get_value("Volunteer", doc.volunteer, "member")
-        if member:
-            user = frappe.db.get_value("Member", member, "user")
-            if user:
-                result = remove_team_role_profile(user, doc.parent, doc.team_role)
-                if not result.get("success"):
-                    frappe.logger().warning(f"Failed to remove role profile: {result.get('error')}")
+    user = _team_manager._get_user_from_team_member_doc(doc)
+    if user:
+
+        def remove_role():
+            return remove_team_role_profile(user, doc.parent, doc.team_role)
+
+        result = safe_hook_execution(remove_role)
+        if result and not result.get("success"):
+            frappe.logger().warning(f"Failed to remove team role profile: {result.get('error')}")
 
 
 def on_team_member_update(doc, method):
     """Hook called when Team Member is updated"""
     # Handle status changes (active -> inactive, etc.)
     if doc.has_value_changed("status"):
-        member = frappe.db.get_value("Volunteer", doc.volunteer, "member")
-        if member:
-            user = frappe.db.get_value("Member", member, "user")
-            if user:
-                if doc.status == "Active":
-                    assign_team_role_profile(user, doc.parent, doc.team_role)
-                else:
-                    remove_team_role_profile(user, doc.parent, doc.team_role)
+        user = _team_manager._get_user_from_team_member_doc(doc)
+        if user:
+            if doc.status == "Active":
+
+                def assign_role():
+                    return assign_team_role_profile(user, doc.parent, doc.team_role)
+
+                safe_hook_execution(assign_role)
+            else:
+
+                def remove_role():
+                    return remove_team_role_profile(user, doc.parent, doc.team_role)
+
+                safe_hook_execution(remove_role)
 
 
-@frappe.whitelist()
-def get_team_role_profile_mapping():
-    """Get the current team to role profile mapping for admin reference"""
-    return TEAM_ROLE_PROFILE_MAPPING
-
-
-@frappe.whitelist()
-def bulk_assign_team_role_profiles(team_name):
-    """
-    Bulk assign role profiles to all existing members of a team
-    Useful for initial setup or fixing missing assignments
-    """
-    try:
-        role_profile = TEAM_ROLE_PROFILE_MAPPING.get(team_name)
-        if not role_profile:
-            return {"success": False, "error": f"No role profile mapping for team {team_name}"}
-
-        # Get all active team members
-        team_members = frappe.get_all(
-            "Team Member",
-            filters={"parent": team_name, "status": "Active"},
-            fields=["volunteer", "team_role"],
-        )
-
-        results = []
-        for tm in team_members:
-            if tm.volunteer:
-                member = frappe.db.get_value("Volunteer", tm.volunteer, "member")
-                if member:
-                    user = frappe.db.get_value("Member", member, "user")
-                    if user:
-                        result = assign_team_role_profile(user, team_name, tm.team_role)
-                        results.append({"user": user, "volunteer": tm.volunteer, "result": result})
-
-        return {"success": True, "message": f"Processed {len(results)} team members", "results": results}
-
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+# For backward compatibility - maintain the old validation function
+def _validate_role_assignment_inputs(user, entity_name, role, entity_type):
+    """Legacy validation function for backward compatibility"""
+    return _team_manager._validate_role_assignment_inputs(user, entity_name, role)

@@ -1492,9 +1492,7 @@ def submit_expense(expense_data):
         expense_type = get_or_create_expense_type(expense_data.get("category"))
 
         # Get payable account from company settings
-        payable_account = frappe.db.get_value(
-            "Company", default_company, "default_expense_claim_payable_account"
-        )
+        payable_account = frappe.db.get_value("Company", default_company, "default_payable_account")
         if not payable_account:
             # Fallback to default payable account
             payable_account = frappe.db.get_value("Company", default_company, "default_payable_account")
@@ -1502,7 +1500,7 @@ def submit_expense(expense_data):
         if not payable_account:
             frappe.throw(
                 _(
-                    "No payable account configured for company {0}. Please set default_expense_claim_payable_account or default_payable_account in Company settings."
+                    "No payable account configured for company {0}. Please set default_payable_account in Company settings."
                 ).format(default_company)
             )
 
@@ -2104,19 +2102,16 @@ def setup_expense_claim_types():
             expense_account = company_doc.default_expense_account
             print(f"   Using company default expense account: {expense_account}")
 
-        # Second, check for expense claim specific account
-        elif (
-            hasattr(company_doc, "default_expense_claim_payable_account")
-            and company_doc.default_expense_claim_payable_account
-        ):
-            expense_account = company_doc.default_expense_claim_payable_account
-            print(f"   Using expense claim payable account: {expense_account}")
+        # Second, check for default payable account
+        elif hasattr(company_doc, "default_payable_account") and company_doc.default_payable_account:
+            expense_account = company_doc.default_payable_account
+            print(f"   Using default payable account: {expense_account}")
 
         # If no explicit configuration found, require explicit setup
         if not expense_account:
             frappe.throw(
                 f"No expense account configured for company {default_company}. "
-                "Please configure 'default_expense_account' or 'default_expense_claim_payable_account' "
+                "Please configure 'default_expense_account' or 'default_payable_account' "
                 "in Company settings for proper expense claim processing. "
                 "Implicit account lookup has been disabled for data safety."
             )

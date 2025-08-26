@@ -11,8 +11,8 @@ def check_period_closing_vouchers():
     try:
         vouchers = frappe.get_all(
             "Period Closing Voucher",
-            fields=["name", "posting_date", "fiscal_year", "company", "docstatus"],
-            order_by="posting_date desc"
+            fields=["name", "period_start_date", "fiscal_year", "company", "docstatus"],
+            order_by="period_start_date desc"
         )
         
         return {

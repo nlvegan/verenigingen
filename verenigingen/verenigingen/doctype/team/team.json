@@ -21,6 +21,10 @@
   "cost_center",
   "team_members_section",
   "team_members",
+  "role_profile_section",
+  "default_role_profile",
+  "enable_role_specific_profiles",
+  "role_specific_profiles",
   "team_details_section",
   "objectives",
   "key_responsibilities"
@@ -109,6 +113,33 @@
    "fieldtype": "Table",
    "label": "Team Members",
    "options": "Team Member"
+  },
+  {
+   "fieldname": "role_profile_section",
+   "fieldtype": "Section Break",
+   "label": "Role Profile Configuration",
+   "description": "Configure which role profiles are automatically assigned to team members"
+  },
+  {
+   "fieldname": "default_role_profile",
+   "fieldtype": "Link",
+   "label": "Default Role Profile",
+   "options": "Role Profile",
+   "description": "Role profile assigned to all team members (unless overridden by role-specific configuration)"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_role_specific_profiles",
+   "fieldtype": "Check",
+   "label": "Enable Role-Specific Profiles",
+   "description": "Allow different role profiles for different team roles"
+  },
+  {
+   "depends_on": "enable_role_specific_profiles",
+   "fieldname": "role_specific_profiles",
+   "fieldtype": "Table",
+   "label": "Role-Specific Profile Assignments",
+   "options": "Team Role Profile Assignment"
   },
   {
    "fieldname": "team_details_section",

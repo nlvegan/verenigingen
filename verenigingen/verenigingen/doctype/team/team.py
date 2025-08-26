@@ -11,6 +11,7 @@ class Team(Document):
     def validate(self):
         self.validate_dates()
         self.validate_team_members()
+        self.validate_role_profile_configuration()
         self.update_team_lead()
 
     def validate_dates(self):
@@ -107,6 +108,39 @@ class Team(Document):
 
         # Update the team_lead field
         self.team_lead = current_leader
+
+    def validate_role_profile_configuration(self):
+        """Validate role profile configuration"""
+        # Validate default role profile exists
+        if self.default_role_profile and not frappe.db.exists("Role Profile", self.default_role_profile):
+            frappe.throw(_("Default Role Profile '{0}' does not exist").format(self.default_role_profile))
+
+        # Validate role-specific profiles if enabled
+        if self.enable_role_specific_profiles:
+            if not self.default_role_profile:
+                frappe.msgprint(
+                    _(
+                        "Warning: Role-specific profiles are enabled but no default role profile is set. Team members without specific role assignments will not get any role profile."
+                    )
+                )
+
+            # Check for duplicate role assignments
+            role_assignments = {}
+            for row in self.role_specific_profiles or []:
+                if row.team_role:
+                    if row.team_role in role_assignments:
+                        frappe.throw(
+                            _("Duplicate role profile assignment for Team Role '{0}'").format(row.team_role)
+                        )
+                    role_assignments[row.team_role] = row.role_profile
+
+                    # Validate that the role profile exists
+                    if row.role_profile and not frappe.db.exists("Role Profile", row.role_profile):
+                        frappe.throw(_("Role Profile '{0}' does not exist").format(row.role_profile))
+
+                    # Validate that the team role exists
+                    if not frappe.db.exists("Team Role", row.team_role):
+                        frappe.throw(_("Team Role '{0}' does not exist").format(row.team_role))
 
     def before_save(self):
         """Store document state before save for comparison"""
@@ -625,7 +659,9 @@ def test_team_member_removal():
                 break
 
         if active_assignment:
-            print(f"✅ Active assignment created: {active_assignment.role}")
+            # active_assignment is a Volunteer Assignment which has 'role' field
+            assignment_role = getattr(active_assignment, 'role', 'No role specified')
+            print(f"✅ Active assignment created: {assignment_role}")
         else:
             print("❌ No active assignment found")
             return {"success": False, "error": "No active assignment created"}
@@ -739,3 +775,70 @@ def get_team_permission_query_conditions(user=None):
     except Exception as e:
         frappe.log_error(f"Error in team permission query: {str(e)}")
         return "`tabTeam`.name = ''"  # Default to no access on error
+
+
+@frappe.whitelist()
+def get_role_profile_preview(team_name):
+    """Get preview of which role profiles would be assigned to team members"""
+    if not team_name or not frappe.db.exists("Team", team_name):
+        return {"error": "Team not found"}
+
+    team_doc = frappe.get_doc("Team", team_name)
+
+    preview = {
+        "team_name": team_name,
+        "default_profile": team_doc.get("default_role_profile"),
+        "role_specific_enabled": team_doc.get("enable_role_specific_profiles", False),
+        "role_specific_profiles": {},
+        "member_assignments": [],
+    }
+
+    # Build role-specific mapping
+    if preview["role_specific_enabled"] and team_doc.get("role_specific_profiles"):
+        for row in team_doc.role_specific_profiles:
+            if row.team_role and row.role_profile:
+                preview["role_specific_profiles"][row.team_role] = row.role_profile
+
+    # Preview assignments for current team members
+    from verenigingen.utils.team_role_profile_manager import determine_role_profile_for_team_member
+
+    for member in team_doc.team_members or []:
+        if member.volunteer and member.is_active:
+            assigned_profile = determine_role_profile_for_team_member(team_name, member.team_role)
+
+            member_info = {
+                "volunteer": member.volunteer,
+                "volunteer_name": member.volunteer_name,
+                "team_role": member.team_role,
+                "assigned_profile": assigned_profile,
+                "assignment_source": "none",
+            }
+
+            # Determine assignment source
+            if assigned_profile:
+                if preview["role_specific_enabled"] and member.team_role in preview["role_specific_profiles"]:
+                    member_info["assignment_source"] = "role_specific"
+                elif assigned_profile == preview["default_profile"]:
+                    member_info["assignment_source"] = "default"
+                else:
+                    member_info["assignment_source"] = "hardcoded_fallback"
+
+            preview["member_assignments"].append(member_info)
+
+    return preview
+
+
+@frappe.whitelist()
+def bulk_apply_team_role_profiles(team_name):
+    """Apply role profiles to all current team members based on team configuration"""
+    from verenigingen.utils.team_role_profile_manager import bulk_assign_team_role_profiles
+
+    if not team_name or not frappe.db.exists("Team", team_name):
+        return {"success": False, "error": "Team not found"}
+
+    try:
+        result = bulk_assign_team_role_profiles(team_name)
+        return result
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Bulk Team Role Profile Assignment Error")
+        return {"success": False, "error": str(e)}

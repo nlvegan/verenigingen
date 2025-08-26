@@ -98,6 +98,7 @@ class Chapter(WebsiteGenerator):
         # Basic validations
         self._ensure_route()
         self._auto_fix_required_fields()
+        self.validate_role_profile_configuration()
 
         # Comprehensive validation using validator - streamlined approach
         validation_result = self.validator.validate_before_save()
@@ -239,6 +240,45 @@ class Chapter(WebsiteGenerator):
     def get_board_members(self, include_inactive=False, role=None):
         """Get board members - delegates to BoardManager"""
         return self.board_manager.get_board_members(include_inactive, role)
+
+    def validate_role_profile_configuration(self):
+        """Validate board role profile configuration"""
+        # Validate default board role profile exists
+        if self.default_board_role_profile and not frappe.db.exists(
+            "Role Profile", self.default_board_role_profile
+        ):
+            frappe.throw(
+                _("Default Board Role Profile '{0}' does not exist").format(self.default_board_role_profile)
+            )
+
+        # Validate board role-specific profiles if enabled
+        if self.enable_board_role_specific_profiles:
+            if not self.default_board_role_profile:
+                frappe.msgprint(
+                    _(
+                        "Warning: Board role-specific profiles are enabled but no default board role profile is set. Board members without specific role assignments will not get any role profile."
+                    )
+                )
+
+            # Check for duplicate role assignments
+            role_assignments = {}
+            for row in self.board_role_specific_profiles or []:
+                if row.chapter_role:
+                    if row.chapter_role in role_assignments:
+                        frappe.throw(
+                            _("Duplicate role profile assignment for Chapter Role '{0}'").format(
+                                row.chapter_role
+                            )
+                        )
+                    role_assignments[row.chapter_role] = row.role_profile
+
+                    # Validate that the role profile exists
+                    if row.role_profile and not frappe.db.exists("Role Profile", row.role_profile):
+                        frappe.throw(_("Role Profile '{0}' does not exist").format(row.role_profile))
+
+                    # Validate that the chapter role exists
+                    if not frappe.db.exists("Chapter Role", row.chapter_role):
+                        frappe.throw(_("Chapter Role '{0}' does not exist").format(row.chapter_role))
 
     def is_board_member(self, member_name=None, user=None, volunteer_name=None):
         """Check if user is board member - delegates to BoardManager"""
@@ -1169,3 +1209,73 @@ def assign_member_to_chapter_with_cleanup(member, chapter, note=None):
     except Exception as e:
         frappe.logger().error(f"Error in assign_member_to_chapter_with_cleanup: {str(e)}")
         return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def get_board_role_profile_preview(chapter_name):
+    """Get preview of which role profiles would be assigned to chapter board members"""
+    if not chapter_name or not frappe.db.exists("Chapter", chapter_name):
+        return {"error": "Chapter not found"}
+
+    chapter_doc = frappe.get_doc("Chapter", chapter_name)
+
+    preview = {
+        "chapter_name": chapter_name,
+        "default_profile": chapter_doc.get("default_board_role_profile"),
+        "role_specific_enabled": chapter_doc.get("enable_board_role_specific_profiles", False),
+        "role_specific_profiles": {},
+        "member_assignments": [],
+    }
+
+    # Build role-specific mapping
+    if preview["role_specific_enabled"] and chapter_doc.get("board_role_specific_profiles"):
+        for row in chapter_doc.board_role_specific_profiles:
+            if row.chapter_role and row.role_profile:
+                preview["role_specific_profiles"][row.chapter_role] = row.role_profile
+
+    # Preview assignments for current board members
+    from verenigingen.utils.chapter_role_profile_manager import determine_role_profile_for_board_member
+
+    for member in chapter_doc.board_members or []:
+        if member.volunteer and member.is_active:
+            assigned_profile = determine_role_profile_for_board_member(chapter_name, member.chapter_role)
+
+            member_info = {
+                "volunteer": member.volunteer,
+                "volunteer_name": member.volunteer_name,
+                "chapter_role": member.chapter_role,
+                "assigned_profile": assigned_profile,
+                "assignment_source": "none",
+            }
+
+            # Determine assignment source
+            if assigned_profile:
+                if (
+                    preview["role_specific_enabled"]
+                    and member.chapter_role in preview["role_specific_profiles"]
+                ):
+                    member_info["assignment_source"] = "role_specific"
+                elif assigned_profile == preview["default_profile"]:
+                    member_info["assignment_source"] = "default"
+                else:
+                    member_info["assignment_source"] = "hardcoded_fallback"
+
+            preview["member_assignments"].append(member_info)
+
+    return preview
+
+
+@frappe.whitelist()
+def bulk_apply_chapter_board_role_profiles(chapter_name):
+    """Apply role profiles to all current chapter board members based on chapter configuration"""
+    from verenigingen.utils.chapter_role_profile_manager import bulk_assign_chapter_board_role_profiles
+
+    if not chapter_name or not frappe.db.exists("Chapter", chapter_name):
+        return {"success": False, "error": "Chapter not found"}
+
+    try:
+        result = bulk_assign_chapter_board_role_profiles(chapter_name)
+        return result
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Bulk Chapter Board Role Profile Assignment Error")
+        return {"success": False, "error": str(e)}

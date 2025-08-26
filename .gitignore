@@ -15,10 +15,10 @@ cypress/videos/
 cypress/screenshots/
 cypress/downloads/
 
-# Test logs
+# Test logs and results
 test-logs/
 test-results/
-__pycache__
+__pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
@@ -50,4 +50,3 @@ cypress.env.json
 *_backup
 .secret
 .password
-test-results/

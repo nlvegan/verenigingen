@@ -168,13 +168,13 @@ def check_existing_data():
     main_ledger = frappe.db.get_value(
         "E-Boekhouden Ledger Mapping",
         {"ledger_id": "43981046"},
-        ["erpnext_account", "account_name"],
+        ["erpnext_account", "ledger_name"],
         as_dict=True,
     )
 
     if main_ledger:
         print(
-            f"✓ Main ledger mapping exists: {main_ledger['ledger_id']} -> {main_ledger['erpnext_account']} ({main_ledger['account_name']})"
+            f"✓ Main ledger mapping exists: {main_ledger['ledger_id']} -> {main_ledger['erpnext_account']} ({main_ledger['ledger_name']})"
         )
     else:
         print("❌ Main ledger mapping missing for ledgerId 43981046")
@@ -182,13 +182,13 @@ def check_existing_data():
     row_ledger = frappe.db.get_value(
         "E-Boekhouden Ledger Mapping",
         {"ledger_id": "13201873"},
-        ["erpnext_account", "account_name"],
+        ["erpnext_account", "ledger_name"],
         as_dict=True,
     )
 
     if row_ledger:
         print(
-            f"✓ Row ledger mapping exists: {row_ledger['ledger_id']} -> {row_ledger['erpnext_account']} ({row_ledger['account_name']})"
+            f"✓ Row ledger mapping exists: {row_ledger['ledger_id']} -> {row_ledger['erpnext_account']} ({row_ledger['ledger_name']})"
         )
     else:
         print("❌ Row ledger mapping missing for ledgerId 13201873")

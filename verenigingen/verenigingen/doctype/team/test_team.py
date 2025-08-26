@@ -131,10 +131,9 @@ class TestTeam(unittest.TestCase):
             self.test_team.append(
                 "team_members",
                 {
-                    "member": self.test_members[0].name,
-                    "member_name": self.test_members[0].full_name,
                     "volunteer": self.test_volunteers[0].name,
                     "volunteer_name": self.test_volunteers[0].volunteer_name,
+                    "team_role": "Team Leader",  # Required field linking to Team Role DocType
                     "role_type": "Team Leader",
                     "role": "Committee Chair",
                     "from_date": today(),
@@ -148,10 +147,9 @@ class TestTeam(unittest.TestCase):
             self.test_team.append(
                 "team_members",
                 {
-                    "member": self.test_members[i].name,
-                    "member_name": self.test_members[i].full_name,
                     "volunteer": self.test_volunteers[i].name,
                     "volunteer_name": self.test_volunteers[i].volunteer_name,
+                    "team_role": "Team Member",  # Required field linking to Team Role DocType
                     "role_type": "Team Member",
                     "role": "Committee Member",
                     "from_date": today(),
@@ -201,8 +199,7 @@ class TestTeam(unittest.TestCase):
         for tm in team.team_members:
             self.assertTrue(tm.volunteer, "Team member should have linked volunteer")
             self.assertTrue(tm.volunteer_name, "Team member should have volunteer name")
-            self.assertTrue(tm.member, "Team member should have linked member")
-            self.assertTrue(tm.member_name, "Team member should have member name")
+            self.assertTrue(tm.team_role, "Team member should have team role")
 
         # Test volunteer assignment history tracking
         team_leader = next((m for m in team.team_members if m.role_type == "Team Leader"), None)
@@ -362,10 +359,9 @@ class TestTeam(unittest.TestCase):
         team.append(
             "team_members",
             {
-                "member": self.test_members[0].name,
-                "member_name": self.test_members[0].full_name,
                 "volunteer": self.test_volunteers[0].name,
                 "volunteer_name": self.test_volunteers[0].volunteer_name,
+                "team_role": "Team Leader",  # Required field linking to Team Role DocType
                 "role_type": "Team Leader",
                 "role": "Working Group Lead",
                 "from_date": today(),

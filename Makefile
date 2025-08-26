@@ -19,15 +19,15 @@ help:
 
 test:
 	@echo "Running comprehensive tests..."
-	@cd $(BENCH_DIR) && bench --site $(SITE) execute $(APP).tests.utils.test_runner_wrappers.run_all_tests
+	@cd $(BENCH_DIR) && python $(PWD)/verenigingen/tests/run_all_tests.py --all
 
 test-quick:
 	@echo "Running quick tests..."
-	@cd $(BENCH_DIR) && bench --site $(SITE) execute $(APP).tests.utils.quick_validation.run_quick_tests
+	@cd $(BENCH_DIR) && python $(PWD)/scripts/testing/runners/enhanced_test_runner.py --suite quick
 
 test-all:
 	@echo "Running all tests..."
-	@cd $(BENCH_DIR) && bench --site $(SITE) execute $(APP).tests.utils.test_runner_wrappers.run_all_tests
+	@cd $(BENCH_DIR) && python $(PWD)/scripts/testing/runners/enhanced_test_runner.py --suite all --all-reports
 
 coverage:
 	@echo "Running tests with coverage..."

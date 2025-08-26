@@ -19,6 +19,10 @@
   "postal_codes",
   "board_section",
   "board_members",
+  "board_role_profile_section",
+  "default_board_role_profile",
+  "enable_board_role_specific_profiles",
+  "board_role_specific_profiles",
   "introduction",
   "meetup_embed_html",
   "address",
@@ -80,6 +84,33 @@
    "label": "Board Members",
    "options": "Chapter Board Member",
    "permlevel": 1
+  },
+  {
+   "fieldname": "board_role_profile_section",
+   "fieldtype": "Section Break",
+   "label": "Board Role Profile Configuration",
+   "description": "Configure which role profiles are automatically assigned to chapter board members"
+  },
+  {
+   "fieldname": "default_board_role_profile",
+   "fieldtype": "Link",
+   "label": "Default Board Role Profile",
+   "options": "Role Profile",
+   "description": "Role profile assigned to all board members (unless overridden by role-specific configuration)"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_board_role_specific_profiles",
+   "fieldtype": "Check",
+   "label": "Enable Board Role-Specific Profiles",
+   "description": "Allow different role profiles for different board roles (Chair, Treasurer, etc.)"
+  },
+  {
+   "depends_on": "enable_board_role_specific_profiles",
+   "fieldname": "board_role_specific_profiles",
+   "fieldtype": "Table",
+   "label": "Board Role-Specific Profile Assignments",
+   "options": "Chapter Role Profile Mapping"
   },
   {
    "fieldname": "introduction",
