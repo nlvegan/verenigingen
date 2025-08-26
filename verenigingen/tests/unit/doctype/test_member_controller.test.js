@@ -20,14 +20,12 @@
  * @version 2.0.0 - Updated to use real controller loading
  */
 
-/* global describe, it, expect, jest, beforeEach, afterEach, beforeAll */
 
 // Import test setup utilities
 const {
 	setupTestMocks,
 	cleanupTestMocks,
-	createMockForm,
-	dutchTestData
+	createMockForm
 } = require('../../setup/frappe-mocks');
 const {
 	loadFrappeController,
@@ -43,7 +41,7 @@ const {
 setupTestMocks();
 
 // Mock jQuery for controller dependencies
-global.$ = jest.fn((selector) => ({
+global.$ = jest.fn((_selector) => ({
 	appendTo: jest.fn(() => global.$()),
 	find: jest.fn(() => global.$()),
 	click: jest.fn(),
@@ -133,7 +131,7 @@ describe('Real Member Controller', () => {
 			now_date: () => '2024-01-15',
 			user_to_str: (date) => date || '2024-01-15',
 			moment: (date) => ({
-				format: (fmt) => date || '2024-01-15'
+				format: (_fmt) => date || '2024-01-15'
 			})
 		};
 	});
@@ -202,9 +200,6 @@ describe('Real Member Controller', () => {
 			frm.doc.first_name = 'Maria';
 			frm.doc.tussenvoegsel = 'de';
 			frm.doc.last_name = 'Jong';
-
-			// Test name composition logic
-			const expectedFullName = 'Maria de Jong';
 
 			// If the controller has name updating logic, test it
 			if (memberHandlers.last_name) {
@@ -291,7 +286,7 @@ describe('Real Member Controller', () => {
 	describe('Payment Integration', () => {
 		beforeEach(() => {
 			// Mock payment-related API calls
-			global.frappe.call.mockImplementation(({ method, args, callback }) => {
+			global.frappe.call.mockImplementation(({ method, callback }) => {
 				if (method === 'get_member_payment_methods' && callback) {
 					callback({
 						message: {
@@ -368,7 +363,7 @@ describe('Real Member Controller', () => {
 	describe('Membership Management', () => {
 		beforeEach(() => {
 			// Mock membership-related API calls
-			global.frappe.call.mockImplementation(({ method, args, callback }) => {
+			global.frappe.call.mockImplementation(({ method, callback }) => {
 				if (method === 'get_current_membership' && callback) {
 					callback({
 						message: {
@@ -546,12 +541,6 @@ describe('Real Member Controller', () => {
 
 	describe('Data Consistency and Validation', () => {
 		it('should maintain data consistency during form operations', () => {
-			const originalData = {
-				first_name: frm.doc.first_name,
-				last_name: frm.doc.last_name,
-				email: frm.doc.email
-			};
-
 			testFormEvent('Member', 'refresh', frm, { Member: memberHandlers });
 
 			// Core data should remain consistent unless modified by controller

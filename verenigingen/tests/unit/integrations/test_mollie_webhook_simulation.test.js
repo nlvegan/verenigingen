@@ -20,7 +20,6 @@
 
 const { setupTestMocks, cleanupTestMocks } = require('../../setup/frappe-mocks');
 const { setupMSW, resetMSW, teardownMSW } = require('../../setup/msw-setup');
-const { rest } = require('msw');
 
 // Initialize test environment
 setupTestMocks();
