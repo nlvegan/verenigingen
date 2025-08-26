@@ -10,14 +10,14 @@ The Verenigingen testing infrastructure has reached production maturity with 132
 
 ## 🎯 Immediate Priorities (Next 1-3 Months)
 
-### 1. Expand API Contract Schema Coverage
-**Current State**: ✅ **COMPLETED** - 6 core API methods validated with robust schemas
-**Status**: Production-ready with 56/56 tests passing
-**Business Impact**: High - Successfully prevents integration regressions in financial operations
+### 1. Expand Manual API Contract Schema Coverage
+**Current State**: 6 core API methods with manually written schemas
+**Strategy**: Pragmatic expansion focused on business-critical APIs
+**Approach**: Manual schema definition (more reliable than auto-generation)
 
 #### **✅ Core APIs Already Covered:**
 ```
-✅ Financial Operations (COMPLETED):
+✅ Financial Operations:
 ├── verenigingen.verenigingen.doctype.member.member.process_payment
 ├── verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban
 ├── verenigingen.verenigingen_payments.utils.sepa_mandate.create_sepa_mandate
@@ -25,16 +25,20 @@ The Verenigingen testing infrastructure has reached production maturity with 132
 ├── verenigingen.verenigingen_payments.utils.direct_debit_batch.create_dd_batch
 └── verenigingen.verenigingen_payments.utils.mollie_integration.make_payment
 
-✅ Core Membership Operations (COMPLETED):
+✅ Core Membership Operations:
 ├── verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details
 └── verenigingen.templates.pages.donate.submit_donation
 
-✅ Chapter Management (COMPLETED):
+✅ Chapter Management:
 └── verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter_with_cleanup
 ```
 
-#### **Future API Expansion (Optional):**
-Additional APIs can be added on-demand basis when business requirements emerge. The current coverage provides robust protection for all critical financial and membership operations.
+#### **Priority APIs for Manual Schema Expansion:**
+Focus on APIs with high business impact and integration complexity:
+- Member onboarding workflow APIs
+- Payment reconciliation endpoints  
+- External system synchronization methods
+- Financial reporting data APIs
 
 #### **Schema Development Process:**
 ```javascript
@@ -58,42 +62,30 @@ Additional APIs can be added on-demand basis when business requirements emerge. 
 }
 ```
 
-### 2. API Contract Testing Architecture Decision
-**Status**: ✅ **COMPLETED** - Architectural assessment completed
-**Decision**: Maintain schema-focused approach without Python integration
-**Rationale**: Prevents code duplication and maintains clean separation of concerns
+### 2. Proven Architecture: Manual Schema Approach
+**Status**: ✅ **ESTABLISHED** - Manual schema validation approach proven effective
+**Decision**: Continue with pragmatic manual schema definition
+**Rationale**: Reliability over automation complexity
 
-#### **Architecture Assessment Findings:**
+#### **Architecture Benefits:**
 
-**✅ What Works Well:**
-- Schema validation provides excellent API contract protection
-- Validator caching delivers 50-80% performance improvement
-- Clean separation between JavaScript validation and Python business logic
-- 56/56 tests passing with robust error detection
+**✅ Manual Schema Advantages:**
+- Explicit contract definitions with clear business logic
+- Self-documenting API expectations
+- No dependency on Python code quality or type hints
+- Immediate validation without parsing overhead
+- Developer control over validation rules
 
-**❌ Integration Approach Rejected:**
+**✅ Current Architecture:**
 ```
-Initial Plan: Integrate Python Enhanced Test Factory with JavaScript
-
-Problems Identified:
-├── Code Duplication: Business rules maintained in two languages
-├── Environmental Complexity: Frappe initialization fragility
-├── Maintenance Burden: Multiple update points for rule changes
-└── Over-Engineering: Existing approach already provides core value
+Manual JSON Schema Definition
+         ↓
+    AJV Validation
+         ↓  
+  Jest Test Execution
+         ↓
+Contract Compliance Verification
 ```
-
-**✅ Final Architecture:**
-```
-Python Enhanced Test Factory: Business-rule-compliant test data
-                    ↓
-              Static JSON fixtures
-                    ↓
-JavaScript API Contract Tests: Pure schema validation
-```
-
-        return this.executeValidation(validator, callArgs);
-    }
-}
 ```
 
 ### 3. Complete Controller Test Coverage
@@ -127,137 +119,153 @@ Lower Priority (Extended Features):
 
 ---
 
-## 🔧 Technical Infrastructure Enhancements
+## 🔧 Practical Implementation Plan
 
-### 1. CI/CD Pipeline Integration
-**Objective**: Automated quality gates preventing contract violations
+### 1. External API Integration Testing with MSW
+**Objective**: Reliable testing of payment gateway and accounting integrations
 
-#### **Pipeline Configuration:**
-```yaml
-# .github/workflows/testing.yml
-name: Quality Assurance Pipeline
+#### **Implementation Priorities:**
 
-on: [push, pull_request]
-
-jobs:
-  api-contract-validation:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Run API Contract Tests
-        run: npm test -- --testPathPattern="api-contract"
-
-      - name: Validate Contract Coverage
-        run: npm run validate-contract-coverage
-
-      - name: Generate Contract Report
-        run: npm run generate-contract-report
-
-      - name: Upload Coverage Reports
-        uses: actions/upload-artifact@v3
-        with:
-          name: contract-coverage
-          path: coverage/contracts/
-```
-
-#### **Quality Gates:**
-- **API Contract Validation**: All contracts must pass validation
-- **Coverage Threshold**: Minimum 60% of API calls must have contracts
-- **Performance Benchmark**: Contract validation <100ms per test suite
-- **Security Scan**: No vulnerabilities in schema definitions
-
-### 2. Advanced Mock Service Worker Implementation
-**Current**: Simple validation without HTTP mocking
-**Enhancement**: Full HTTP contract testing with MSW
-
-#### **MSW Integration Architecture:**
+**Phase 1: Mollie Payment Gateway Testing**
 ```javascript
-// Enhanced contract testing with HTTP simulation
-class AdvancedAPIContractServer extends APIContractTestServer {
-    setupAdvancedHandlers() {
-        // Real HTTP request/response cycle testing
-        const handlers = Object.entries(API_SCHEMAS).map(([method, schema]) => {
-            return rest.post(`/api/method/${method}`, async (req, res, ctx) => {
-                // Parse request body
-                const requestBody = await req.json();
+// mollie-api-mock.js
+const { setupServer } = require('msw/node');
+const { rest } = require('msw');
 
-                // Validate against contract
-                const validation = this.validateRequestContract(method, requestBody);
-                if (!validation.valid) {
-                    return res(
-                        ctx.status(422),
-                        ctx.json({
-                            error: 'Contract Violation',
-                            details: validation.errors
-                        })
-                    );
+const mollieTestServer = setupServer(
+    // Payment creation endpoint
+    rest.post('https://api.mollie.com/v2/payments', (req, res, ctx) => {
+        const body = req.body;
+        
+        // Test different scenarios
+        if (body.amount.value === '0.01') {
+            return res(ctx.status(422), ctx.json({ error: 'Amount too small' }));
+        }
+        
+        return res(ctx.json({
+            id: `tr_${Date.now()}`,
+            status: 'open',
+            amount: body.amount,
+            _links: {
+                checkout: { 
+                    href: 'https://checkout.mollie.com/test',
+                    type: 'text/html'
                 }
+            }
+        }));
+    }),
 
-                // Generate realistic mock response
-                const mockResponse = this.generateRealisticResponse(method, requestBody);
-
-                // Simulate network conditions
-                await this.simulateNetworkDelay(method);
-
-                return res(ctx.json(mockResponse));
-            });
-        });
-
-        this.server = setupServer(...handlers);
-    }
-}
+    // Payment status check
+    rest.get('https://api.mollie.com/v2/payments/:paymentId', (req, res, ctx) => {
+        return res(ctx.json({
+            id: req.params.paymentId,
+            status: 'paid',
+            paidAt: new Date().toISOString()
+        }));
+    })
+);
 ```
 
-### 3. Auto-Schema Generation from Python Code
-**Vision**: Eliminate manual schema maintenance
-**Implementation**: Parse Python docstrings and type hints
-
-#### **Schema Generation Pipeline:**
-```python
-# schema_generator.py
-import ast
-import inspect
-from typing import get_type_hints
-
-class APISchemaGenerator:
-    def extract_api_schema(self, python_method):
-        """Extract JSON schema from Python method signature and docstring."""
-
-        # Get type hints
-        hints = get_type_hints(python_method)
-
-        # Parse docstring for parameter descriptions
-        docstring = inspect.getdoc(python_method)
-        param_docs = self.parse_docstring_params(docstring)
-
-        # Generate JSON schema
-        schema = {
-            'args': self.generate_args_schema(hints, param_docs),
-            'response': self.generate_response_schema(hints, docstring)
+**Phase 2: eBoekhouden Integration Testing**
+```javascript
+// eboekhouden-api-mock.js  
+const eboekhoudenHandlers = [
+    rest.post('https://secure.e-boekhouden.nl/bh/api.asp', (req, res, ctx) => {
+        const action = req.body.get('ACTION');
+        
+        switch(action) {
+            case 'ADD_INVOICE':
+                return res(ctx.xml(`
+                    <response>
+                        <success>1</success>
+                        <invoice_id>12345</invoice_id>
+                    </response>
+                `));
+            case 'GET_INVOICE':
+                return res(ctx.xml(`
+                    <response>
+                        <invoice>
+                            <id>12345</id>
+                            <amount>25.00</amount>
+                            <status>paid</status>
+                        </invoice>
+                    </response>
+                `));
+            default:
+                return res(ctx.status(400));
         }
+    })
+];
+```
 
-        return schema
+### 2. Manual Schema Expansion Strategy
+**Focus**: Pragmatic coverage of business-critical internal APIs
+**Approach**: Developer-friendly manual schema definition
 
-    def scan_frappe_app(self, app_path):
-        """Scan entire Frappe app for whitelisted API methods."""
-        schemas = {}
+#### **Schema Development Workflow:**
 
-        for file_path in self.find_python_files(app_path):
-            methods = self.extract_whitelisted_methods(file_path)
+**1. Identify High-Impact APIs**
+```javascript
+// Priority evaluation criteria
+const apiPriority = {
+    financial_operations: 'HIGH',     // Payment processing, invoicing
+    member_lifecycle: 'HIGH',         // Onboarding, status changes  
+    external_integrations: 'MEDIUM',  // Chapter management, reporting
+    administrative: 'LOW'             // Settings, preferences
+};
+```
 
-            for method_name, method_obj in methods.items():
-                schema = self.extract_api_schema(method_obj)
-                schemas[method_name] = schema
+**2. Manual Schema Template**
+```javascript
+// Standard schema structure for verenigingen APIs
+const newApiSchema = {
+    'verenigingen.module.doctype.method_name': {
+        args: {
+            type: 'object',
+            properties: {
+                // Define expected parameters with business validation
+                member_id: { 
+                    type: 'string', 
+                    pattern: '^(Assoc-)?Member-\\d{4}-\\d{2}-\\d{4}$' 
+                },
+                amount: { 
+                    type: 'number', 
+                    minimum: 0.01, 
+                    maximum: 999999.99 
+                }
+            },
+            required: ['member_id'],
+            additionalProperties: false
+        },
+        response: {
+            type: 'object',
+            properties: {
+                success: { type: 'boolean' },
+                message: { type: 'string' },
+                // Define expected response structure
+            },
+            required: ['success']
+        }
+    }
+};
+```
 
-        return schemas
+**3. Test Integration Pattern**
+```javascript
+// Standardized test structure
+describe('API Contract: method_name', () => {
+    it('should validate correct parameters', () => {
+        const validArgs = { member_id: 'Member-2025-01-0001', amount: 25.00 };
+        expect(validArgs).toMatchAPIContract('verenigingen.module.doctype.method_name');
+    });
+    
+    it('should reject invalid parameters', () => {
+        const invalidArgs = { member_id: 'invalid-format' };
+        expect(() => {
+            expect(invalidArgs).toMatchAPIContract('verenigingen.module.doctype.method_name');
+        }).toThrow();
+    });
+});
 ```
 
 ---
@@ -406,123 +414,148 @@ Team Adoption Metrics:
 
 ---
 
-## 🔮 Advanced Future Vision (6+ Months)
+## 📋 Implementation Roadmap
 
-### 1. Intelligent Testing Ecosystem
-**Vision**: AI-assisted test generation and maintenance
+### Phase 1: MSW External API Testing (Weeks 1-4)
+**Objective**: Implement reliable testing for Mollie and eBoekhouden integrations
 
-#### **Capabilities:**
-- **Auto-Test Generation**: Analyze controller code and generate comprehensive test suites
-- **Intelligent Mocking**: Generate realistic mock data based on production patterns
-- **Regression Prediction**: Identify areas likely to break based on code changes
-- **Test Optimization**: Automatically optimize test execution order and resource usage
-
-### 2. Real-Time Development Integration
-**Vision**: Seamless testing integration in development environment
-
-#### **IDE Extensions:**
-- **VSCode Extension**: Real-time API contract validation
-- **Inline Error Detection**: Highlight contract violations as you type
-- **Auto-Complete**: Suggest valid parameters based on contracts
-- **Test Generation**: Right-click to generate tests for selected code
-
-### 3. Cross-Framework Compatibility
-**Vision**: Reusable testing patterns beyond Frappe
-
-#### **Framework Abstraction:**
+#### **Week 1-2: Mollie Integration Testing**
 ```javascript
-// Generic controller testing framework
-const TestingFramework = {
-    frappe: FrappeControllerTester,
-    django: DjangoViewTester,
-    flask: FlaskRouteTester,
-    fastapi: FastAPIEndpointTester
-};
+// Implementation priority: Payment gateway testing
+// Files to create:
+// - tests/external-apis/mollie-api.test.js
+// - tests/mocks/mollie-handlers.js  
+// - tests/scenarios/payment-flow-testing.js
 
-// Unified API contract validation
-const contractTester = new UniversalAPIContractTester({
-    framework: 'frappe',
-    schemas: API_SCHEMAS,
-    environment: 'development'
+describe('Mollie Payment Integration', () => {
+    beforeAll(() => {
+        mollieTestServer.listen();
+    });
+    
+    it('should handle payment creation', async () => {
+        const paymentData = {
+            amount: { value: '25.00', currency: 'EUR' },
+            description: 'Membership dues',
+            redirectUrl: 'https://dev.veganisme.net/payment/return'
+        };
+        
+        const result = await createMolliePayment(paymentData);
+        expect(result.id).toMatch(/^tr_/);
+        expect(result.status).toBe('open');
+    });
+    
+    it('should handle webhook notifications', async () => {
+        const webhookData = { id: 'tr_test123' };
+        const result = await processMollieWebhook(webhookData);
+        expect(result.success).toBe(true);
+    });
 });
 ```
 
+#### **Week 3-4: eBoekhouden Integration Testing**
+```javascript
+// Implementation: Accounting system sync testing
+describe('eBoekhouden API Integration', () => {
+    it('should sync invoice creation', async () => {
+        const invoiceData = {
+            customer: 'Test Customer',
+            amount: 25.00,
+            description: 'Membership dues'
+        };
+        
+        const result = await syncToEBoekhouden(invoiceData);
+        expect(result.invoice_id).toBeDefined();
+        expect(result.success).toBe(true);
+    });
+});
+```
+
+### Phase 2: Manual Schema Expansion (Weeks 5-8)
+**Objective**: Add schemas for 10-15 additional high-priority APIs
+
+#### **Target APIs for Schema Addition:**
+- Member onboarding workflow methods
+- Payment reconciliation endpoints
+- Chapter management operations  
+- Financial reporting APIs
+- Volunteer management methods
+
+#### **Development Pattern:**
+1. **Identify API** through usage analysis
+2. **Define schema** using established template
+3. **Write tests** following standardized pattern
+4. **Document** in schema registry
+
 ---
 
-## 📊 Success Metrics & KPIs
+## 📊 Success Metrics & Practical Targets
 
-### Technical Metrics
-| Metric | Current | 3 Month Target | 6 Month Target |
+### Focused Technical Metrics
+| Metric | Current | 2 Month Target | 4 Month Target |
 |--------|---------|---------------|----------------|
-| **Total Test Coverage** | 132 tests | 200+ tests | 300+ tests |
-| **API Contract Coverage** | 6 methods | 20 methods | 50+ methods |
-| **Test Execution Time** | 2.2s | <3.0s | <5.0s |
-| **Code Quality Score** | 8.5/10 | 9.0/10 | 9.5/10 |
-| **Security Vulnerabilities** | 0 | 0 | 0 |
+| **Manual API Schemas** | 6 methods | 15 methods | 25 methods |
+| **External API Test Coverage** | 0% | 80% Mollie/eBoekhouden | 95% coverage |
+| **Test Execution Time** | 2.2s | <4.0s | <6.0s |
+| **Schema Validation Accuracy** | High | Maintain | Maintain |
 
-### Business Metrics
-| Metric | Baseline | 3 Month Target | 6 Month Target |
+### Business Impact Metrics
+| Metric | Baseline | 2 Month Target | 4 Month Target |
 |--------|----------|---------------|----------------|
-| **Production Bugs** | TBD | -50% | -75% |
-| **API Integration Issues** | TBD | -80% | -95% |
-| **Development Velocity** | TBD | +20% | +40% |
-| **Code Review Time** | TBD | -30% | -50% |
-| **Team Confidence** | TBD | High | Very High |
+| **Payment Integration Issues** | Current level | -60% | -80% |
+| **API Contract Violations** | Manual detection | Automated detection | Zero false positives |
+| **External Service Downtime Impact** | Unknown | Predictable | Mitigated by mocks |
 
 ---
 
-## 🛠️ Implementation Timeline
+## 🛠️ Practical Implementation Timeline
 
-### Phase 1: Foundation Expansion (Month 1-3)
-- **Week 1-2**: Deploy performance optimizations and validator caching
-- **Week 3-6**: Expand API contract coverage for financial operations
-- **Week 7-10**: Complete high-priority controller test coverage
-- **Week 11-12**: CI/CD pipeline integration and team training
+### Phase 1: External API Testing Foundation (Weeks 1-4)
+- **Week 1**: Set up MSW infrastructure for Mollie API testing
+- **Week 2**: Implement Mollie payment flow integration tests
+- **Week 3**: Add eBoekhouden API mock handlers and tests
+- **Week 4**: Create network condition simulation scenarios
 
-### Phase 2: Advanced Integration (Month 4-6)
-- **Week 13-16**: MSW integration for full HTTP contract testing
-- **Week 17-20**: Auto-schema generation prototype development
-- **Week 21-24**: IDE extension development and real-time validation
+### Phase 2: Manual Schema Expansion (Weeks 5-8)
+- **Week 5-6**: Add schemas for member onboarding and payment reconciliation APIs
+- **Week 7-8**: Expand coverage to chapter management and reporting endpoints
 
-### Phase 3: Ecosystem Maturity (Month 7-12)
-- **Week 25-32**: AI-assisted test generation implementation
-- **Week 33-40**: Cross-framework compatibility layer
-- **Week 41-48**: Advanced analytics and intelligent optimization
-- **Week 49-52**: Knowledge transfer and community contribution
+### Maintenance & Iteration (Ongoing)
+- **Monthly**: Review and add schemas for newly identified critical APIs
+- **Quarterly**: Assess external API test effectiveness and update scenarios
+- **Bi-annually**: Evaluate overall testing strategy and adjust priorities
 
 ---
 
-## 🎯 Call to Action
+## 🎯 Next Steps
 
-### Immediate Next Steps (This Week):
-1. **Schedule team training sessions** for API contract testing
-2. **Prioritize financial API schema development** (SEPA, Mollie)
-3. **Implement validator caching** for performance improvement
-4. **Set up CI/CD quality gates** for automated validation
+### Immediate Actions (This Week):
+1. **Begin MSW setup** for Mollie API testing infrastructure
+2. **Identify 5 high-priority APIs** for manual schema development
+3. **Review current external integration points** for testing priorities
+4. **Allocate development time** for pragmatic testing expansion
 
 ### Resource Requirements:
-- **Development Time**: 2-4 hours/week for schema expansion
-- **Training Investment**: 8 hours total team training over 4 weeks
-- **CI/CD Setup**: 1-2 days for pipeline configuration
-- **Ongoing Maintenance**: 1-2 hours/week for schema updates
+- **Development Time**: 3-5 hours/week for MSW and schema work
+- **Focus Areas**: External API reliability over internal automation
+- **Ongoing Maintenance**: 1-2 hours/week for schema updates as needed
 
-### Success Dependencies:
-- **Team Adoption**: Active usage of API contract testing in daily development
-- **Process Integration**: Updated code review and quality gates
-- **Continuous Improvement**: Regular assessment and optimization of testing practices
-- **Leadership Support**: Management backing for testing investment and team time allocation
-
----
-
-**The foundation is built. The infrastructure is deployed. The path forward is clear.**
-
-**Next step: Execute with precision and maintain momentum for sustained quality improvement.**
+### Success Indicators:
+- **Reliable external API testing** prevents integration failures
+- **Manual schema coverage** catches contract violations early
+- **Practical approach** delivers value without over-engineering
+- **Team adoption** of proven patterns over experimental automation
 
 ---
 
-*This document represents a strategic investment in software quality that will pay dividends in reduced bugs, faster development cycles, and increased team confidence in deploying robust, reliable code.*
+**Strategy: Focus on proven manual approaches over experimental automation.**
 
-**Document Version**: 1.0
-**Last Updated**: January 2025
-**Status**: Ready for Implementation
-**Approval Required**: Team Lead Review and Resource Allocation
+**Implementation: MSW for external APIs, manual schemas for internal contracts.**
+
+**Outcome: Reliable testing infrastructure that actually prevents production issues.**
+
+---
+
+**Document Version**: 2.0  
+**Last Updated**: August 2025  
+**Status**: Pragmatic Implementation Ready  
+**Focus**: Real-world value over technical complexity
