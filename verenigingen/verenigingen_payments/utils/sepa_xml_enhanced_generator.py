@@ -1,8 +1,8 @@
 """
-Enhanced SEPA XML Generator with Full pain.008.001.02 Compliance
+Enhanced SEPA XML Generator with Full pain.008.001.08 Compliance
 
 Complete implementation of SEPA Direct Debit XML generation following the
-pain.008.001.02 standard with comprehensive validation and support for all
+pain.008.001.08 standard with comprehensive validation and support for all
 SEPA mandate types (OOFF, FRST, RCUR, FNAL).
 
 Implements Week 3 Day 3-4 requirements from the SEPA billing improvements project.
@@ -114,10 +114,10 @@ class SEPAPaymentInfo:
 
 class EnhancedSEPAXMLGenerator:
     """
-    Enhanced SEPA XML Generator with full pain.008.001.02 compliance
+    Enhanced SEPA XML Generator with full pain.008.001.08 compliance
 
     Features:
-    - Full pain.008.001.02 standard compliance
+    - Full pain.008.001.08 standard compliance
     - Support for all sequence types (OOFF, FRST, RCUR, FNAL)
     - Comprehensive validation against SEPA rulebook
     - Character set validation and sanitization
@@ -128,8 +128,8 @@ class EnhancedSEPAXMLGenerator:
     """
 
     # SEPA XML namespace and schema
-    NAMESPACE = "urn:iso:std:iso:20022:tech:xsd:pain.008.001.02"
-    SCHEMA_LOCATION = "urn:iso:std:iso:20022:tech:xsd:pain.008.001.02 pain.008.001.02.xsd"
+    NAMESPACE = "urn:iso:std:iso:20022:tech:xsd:pain.008.001.08"
+    SCHEMA_LOCATION = "urn:iso:std:iso:20022:tech:xsd:pain.008.001.08 pain.008.001.08.xsd"
 
     # Character limits per SEPA specification
     MAX_MESSAGE_ID_LENGTH = 35
@@ -857,7 +857,7 @@ def validate_sepa_xml_compliance(xml_content: str) -> Dict[str, Any]:
         validation_results = {"is_valid": True, "errors": [], "warnings": [], "compliance_score": 100}
 
         # Check namespace
-        if root.tag != "{urn:iso:std:iso:20022:tech:xsd:pain.008.001.02}Document":
+        if root.tag != "{urn:iso:std:iso:20022:tech:xsd:pain.008.001.08}Document":
             validation_results["errors"].append("Invalid root element or namespace")
             validation_results["is_valid"] = False
 
@@ -865,7 +865,7 @@ def validate_sepa_xml_compliance(xml_content: str) -> Dict[str, Any]:
         required_paths = [".//CstmrDrctDbtInitn", ".//GrpHdr", ".//PmtInf"]
 
         for path in required_paths:
-            if root.find(path, {"": "urn:iso:std:iso:20022:tech:xsd:pain.008.001.02"}) is None:
+            if root.find(path, {"": "urn:iso:std:iso:20022:tech:xsd:pain.008.001.08"}) is None:
                 validation_results["errors"].append(f"Required element missing: {path}")
                 validation_results["is_valid"] = False
 

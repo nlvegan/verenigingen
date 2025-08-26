@@ -44,9 +44,46 @@ class SEPAConfigManager:
     Provides validated access to SEPA settings from multiple sources
     """
 
+    # Bank-specific configurations for Dutch banks (ING and Triodos focus)
+    BANK_SPECIFIC_CONFIGS = {
+        "INGBNL2A": {
+            "name": "ING Bank N.V.",
+            "requires_structured_address": True,
+            "max_remittance_length": 140,
+            "supports_supplementary_data": True,
+            "preferred_address_format": "structured",
+            "mandate_id_max_length": 35,
+            "creditor_id_validation": "strict",
+        },
+        "TRIONL2U": {
+            "name": "Triodos Bank N.V.",
+            "requires_structured_address": True,
+            "max_remittance_length": 140,
+            "supports_supplementary_data": True,
+            "preferred_address_format": "structured",
+            "mandate_id_max_length": 35,
+            "creditor_id_validation": "standard",
+            "ethical_screening": True,  # Triodos-specific feature
+        },
+        "ABNANL2A": {
+            "name": "ABN AMRO Bank N.V.",
+            "requires_structured_address": True,
+            "max_remittance_length": 140,
+            "supports_supplementary_data": True,
+            "requires_creditor_postal_code": True,
+        },
+        "RABONL2U": {
+            "name": "Rabobank",
+            "requires_structured_address": True,
+            "max_remittance_length": 140,
+            "supports_supplementary_data": True,
+        },
+    }
+
     def __init__(self):
         self._settings_cache = {}
         self._validation_cache = {}
+        self._bank_config_cache = {}
 
     def get_company_sepa_config(self) -> Dict[str, Any]:
         """Get SEPA configuration for the company"""
@@ -90,7 +127,7 @@ class SEPAConfigManager:
             "coverage_verification_enabled": getattr(settings, "coverage_verification_enabled", 1),
             "mandate_cache_timeout": getattr(settings, "mandate_cache_timeout", 300),  # 5 minutes
             # XML and file settings
-            "sepa_xml_version": getattr(settings, "sepa_xml_version", "pain.008.001.02"),
+            "sepa_xml_version": getattr(settings, "sepa_xml_version", "pain.008.001.08"),
             "output_directory": getattr(settings, "sepa_output_directory", ""),
             "backup_processed_files": getattr(settings, "backup_processed_files", 1),
         }
@@ -98,6 +135,40 @@ class SEPAConfigManager:
         # Cache the configuration
         self._settings_cache["company_sepa"] = config
         return config
+
+    def get_bank_specific_config(self, bic_code: str) -> Dict[str, Any]:
+        """Get bank-specific configuration for ING, Triodos, and other Dutch banks"""
+        if bic_code in self._bank_config_cache:
+            return self._bank_config_cache[bic_code]
+
+        # Get base configuration or default
+        bank_config = self.BANK_SPECIFIC_CONFIGS.get(
+            bic_code,
+            {
+                "name": f"Bank with BIC {bic_code}",
+                "requires_structured_address": True,  # Default for all banks as of 2025
+                "max_remittance_length": 140,
+                "supports_supplementary_data": True,
+                "preferred_address_format": "structured",
+            },
+        )
+
+        # Cache and return
+        self._bank_config_cache[bic_code] = bank_config
+        return bank_config
+
+    def get_xml_generation_config(self) -> Dict[str, Any]:
+        """Get XML generation configuration with 2019 version defaults"""
+        config = self.get_company_sepa_config()
+
+        return {
+            "xml_version": config.get("sepa_xml_version", "pain.008.001.08"),
+            "namespace": "urn:iso:std:iso:20022:tech:xsd:pain.008.001.08",
+            "schema_location": "urn:iso:std:iso:20022:tech:xsd:pain.008.001.08 pain.008.001.08.xsd",
+            "supports_structured_address": True,
+            "supports_supplementary_data": True,
+            "default_address_format": "structured",
+        }
 
     def get_batch_timing_config(self) -> Dict[str, Any]:
         """Get batch timing and scheduling configuration"""
@@ -164,7 +235,7 @@ class SEPAConfigManager:
         config = self.get_company_sepa_config()
 
         return {
-            "xml_version": config.get("sepa_xml_version", "pain.008.001.02"),
+            "xml_version": config.get("sepa_xml_version", "pain.008.001.08"),
             "output_directory": config.get("output_directory", ""),
             "backup_files": bool(config.get("backup_processed_files", 1)),
             "file_naming_pattern": "SEPA-{batch_name}-{date}.xml",

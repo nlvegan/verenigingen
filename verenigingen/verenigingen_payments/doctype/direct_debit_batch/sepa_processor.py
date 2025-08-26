@@ -9,6 +9,9 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, cstr, flt, getdate, today
 
+from verenigingen.verenigingen_payments.utils.batch_performance_optimizer import (
+    get_batch_performance_optimizer,
+)
 from verenigingen.verenigingen_payments.utils.sepa_config_manager import get_sepa_config_manager
 from verenigingen.verenigingen_payments.utils.sepa_error_handler import get_sepa_error_handler, sepa_retry
 from verenigingen.verenigingen_payments.utils.sepa_mandate_service import get_sepa_mandate_service
@@ -21,6 +24,7 @@ class SEPAProcessor:
         self.config_manager = get_sepa_config_manager()
         self.mandate_service = get_sepa_mandate_service()
         self.error_handler = get_sepa_error_handler()
+        self.performance_optimizer = get_batch_performance_optimizer()
 
         # Get company from centralized config
         company_config = self.config_manager.get_company_sepa_config()
@@ -686,10 +690,123 @@ Organization
         return batch
 
     def add_invoices_to_batch_optimized(self, batch, invoices):
-        """Add multiple invoices to batch with optimized sequence type determination"""
+        """Add multiple invoices to batch with performance-optimized processing"""
         if not invoices:
             return
 
+        # Extract invoice names for bulk processing
+        invoice_names = [inv.get("name") for inv in invoices if inv.get("name")]
+
+        if not invoice_names:
+            return
+
+        # Use performance optimizer to process batch invoices efficiently
+        try:
+            processed_invoices = self.performance_optimizer.process_batch_invoices_optimized(invoice_names)
+
+            # Prepare mandate-invoice pairs for batch sequence type lookup
+            mandate_invoice_pairs = []
+            for processed in processed_invoices:
+                mandate_data = processed.get("mandate_data")
+                if mandate_data and mandate_data.get("name"):
+                    mandate_invoice_pairs.append((mandate_data["name"], processed["invoice_name"]))
+
+            # Batch get sequence types
+            sequence_types = self.mandate_service.get_sequence_types_batch(mandate_invoice_pairs)
+
+            # Add invoices to batch with optimized data
+            successful_count = 0
+            for processed in processed_invoices:
+                mandate_data = processed.get("mandate_data")
+                invoice_data = processed.get("invoice_data")
+                member_data = processed.get("member_data")
+                address_data = processed.get("address_data")
+
+                if not mandate_data or not invoice_data or not member_data:
+                    frappe.logger().warning(
+                        f"Skipping invoice {processed.get('invoice_name')} - incomplete data"
+                    )
+                    continue
+
+                # Get sequence type from batch lookup
+                cache_key = f"{mandate_data['name']}:{processed['invoice_name']}"
+                sequence_type = sequence_types.get(cache_key, "RCUR")
+
+                try:
+                    # Use optimized invoice addition with pre-fetched data
+                    self.add_processed_invoice_to_batch(batch, processed, sequence_type)
+                    successful_count += 1
+                except Exception as e:
+                    frappe.log_error(
+                        f"Error adding invoice {processed.get('invoice_name')} to batch: {str(e)}",
+                        "Enhanced SEPA Processor - Batch Addition Error",
+                    )
+                    continue
+
+            frappe.logger().info(
+                f"Performance-optimized batch addition: {successful_count}/{len(invoice_names)} invoices processed"
+            )
+
+            # Log performance statistics
+            stats = self.performance_optimizer.get_performance_stats()
+            frappe.logger().info(
+                f"Performance stats - Cache hit rate: {stats['cache_stats']['hit_rate']:.2%}, "
+                f"Time saved: {stats['optimization_efficiency']['total_time_saved_seconds']:.1f}s"
+            )
+
+        except Exception as e:
+            frappe.log_error(
+                f"Performance optimizer failed, falling back to standard processing: {str(e)}",
+                "SEPA Performance Optimizer Error",
+            )
+            # Fallback to original logic
+            self._add_invoices_to_batch_fallback(batch, invoices)
+
+    def add_processed_invoice_to_batch(self, batch, processed_invoice, sequence_type):
+        """Add invoice to batch using pre-processed optimized data"""
+        invoice_data = processed_invoice["invoice_data"]
+        member_data = processed_invoice["member_data"]
+        mandate_data = processed_invoice["mandate_data"]
+
+        batch.append(
+            "invoices",
+            {
+                "invoice": invoice_data["name"],
+                "membership": invoice_data.get("membership", {}).get("name")
+                if invoice_data.get("membership")
+                else None,
+                "member": member_data["name"],
+                "member_name": member_data["full_name"],
+                "amount": invoice_data["grand_total"],
+                "currency": invoice_data["currency"],
+                "iban": mandate_data["iban"],
+                "mandate_reference": mandate_data["mandate_id"],
+                "status": "Pending",
+                "sequence_type": sequence_type,
+            },
+        )
+
+        # Create mandate usage record for tracking
+        try:
+            from verenigingen.verenigingen_payments.doctype.sepa_mandate_usage.sepa_mandate_usage import (
+                create_mandate_usage_record,
+            )
+
+            create_mandate_usage_record(
+                mandate_name=mandate_data["name"],
+                reference_doctype="Sales Invoice",
+                reference_name=invoice_data["name"],
+                amount=invoice_data["grand_total"],
+                sequence_type=sequence_type,
+            )
+        except Exception as e:
+            frappe.log_error(
+                f"Failed to create mandate usage record for {mandate_data['name']}: {str(e)}",
+                "Enhanced SEPA Processor - Mandate Usage Creation Error",
+            )
+
+    def _add_invoices_to_batch_fallback(self, batch, invoices):
+        """Fallback method using original logic when performance optimizer fails"""
         # Prepare mandate-invoice pairs for batch sequence type lookup
         mandate_invoice_pairs = []
         invoice_lookup = {}
@@ -723,7 +840,9 @@ Organization
                 )
                 continue
 
-        frappe.logger().info(f"Successfully added {successful_count}/{len(invoices)} invoices to batch")
+        frappe.logger().info(
+            f"Fallback processing: {successful_count}/{len(invoices)} invoices added to batch"
+        )
 
     def add_invoice_to_batch_with_sequence(self, batch, invoice_data, sequence_type):
         """Add single invoice to batch with pre-determined sequence type"""

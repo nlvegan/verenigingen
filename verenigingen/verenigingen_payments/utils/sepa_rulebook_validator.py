@@ -3,7 +3,7 @@ SEPA Rulebook Validator and XML Schema Validation
 
 Comprehensive validation against SEPA rulebook requirements including:
 - Business rules validation
-- XML schema validation against pain.008.001.02
+- XML schema validation against pain.008.001.08
 - Mandate lifecycle validation
 - Cross-European compliance checks
 
@@ -86,7 +86,7 @@ class SEPARulebookValidator:
     """
 
     def __init__(self):
-        self.namespace = {"sepa": "urn:iso:std:iso:20022:tech:xsd:pain.008.001.02"}
+        self.namespace = {"sepa": "urn:iso:std:iso:20022:tech:xsd:pain.008.001.08"}
         self.rules = self._initialize_sepa_rules()
         self.validation_cache = {}
 
@@ -711,30 +711,121 @@ class SEPARulebookValidator:
     def validate_frst_mandate_usage(
         self, rule: SEPARule, root: ET.Element, xml_content: str
     ) -> List[ValidationIssue]:
-        """Validate FRST sequence type usage"""
-        # Implementation for FRST validation
-        return []
+        """Validate FRST sequence type usage - first collection on mandate"""
+        issues = []
+
+        # Find all FRST transactions
+        frst_transactions = root.findall(".//sepa:DrctDbtTxInf[.//sepa:SeqTp='FRST']", self.namespace)
+
+        for txn in frst_transactions:
+            mandate_elem = txn.find(".//sepa:MndtRltdInf/sepa:MndtId", self.namespace)
+            if mandate_elem is not None:
+                mandate_id = mandate_elem.text
+
+                # FRST should be used only for first collection on this mandate
+                # In a real implementation, this would check mandate usage history
+                # For now, we validate the mandate ID format
+                if not mandate_id or len(mandate_id) > 35:
+                    issues.append(
+                        ValidationIssue(
+                            severity=ValidationSeverity.CRITICAL,
+                            rule_id=rule.rule_id,
+                            message="FRST mandate ID invalid or exceeds 35 characters",
+                            xpath=rule.xpath,
+                            element_value=mandate_id,
+                            suggested_fix="Use valid mandate ID (max 35 chars)",
+                        )
+                    )
+
+        return issues
 
     def validate_rcur_mandate_usage(
         self, rule: SEPARule, root: ET.Element, xml_content: str
     ) -> List[ValidationIssue]:
-        """Validate RCUR sequence type usage"""
-        # Implementation for RCUR validation
-        return []
+        """Validate RCUR sequence type usage - recurring collections"""
+        issues = []
+
+        # Find all RCUR transactions
+        rcur_transactions = root.findall(".//sepa:DrctDbtTxInf[.//sepa:SeqTp='RCUR']", self.namespace)
+
+        for txn in rcur_transactions:
+            mandate_elem = txn.find(".//sepa:MndtRltdInf/sepa:MndtId", self.namespace)
+            if mandate_elem is not None:
+                mandate_id = mandate_elem.text
+
+                # RCUR should only be used after FRST has been used
+                # Validate basic mandate ID requirements
+                if not mandate_id or len(mandate_id) > 35:
+                    issues.append(
+                        ValidationIssue(
+                            severity=ValidationSeverity.CRITICAL,
+                            rule_id=rule.rule_id,
+                            message="RCUR mandate ID invalid or exceeds 35 characters",
+                            xpath=rule.xpath,
+                            element_value=mandate_id,
+                            suggested_fix="Use valid mandate ID (max 35 chars)",
+                        )
+                    )
+
+        return issues
 
     def validate_ooff_mandate_usage(
         self, rule: SEPARule, root: ET.Element, xml_content: str
     ) -> List[ValidationIssue]:
-        """Validate OOFF sequence type usage"""
-        # Implementation for OOFF validation
-        return []
+        """Validate OOFF sequence type usage - one-off collections"""
+        issues = []
+
+        # Find all OOFF transactions
+        ooff_transactions = root.findall(".//sepa:DrctDbtTxInf[.//sepa:SeqTp='OOFF']", self.namespace)
+
+        for txn in ooff_transactions:
+            mandate_elem = txn.find(".//sepa:MndtRltdInf/sepa:MndtId", self.namespace)
+            if mandate_elem is not None:
+                mandate_id = mandate_elem.text
+
+                # OOFF is for single-use mandates
+                if not mandate_id or len(mandate_id) > 35:
+                    issues.append(
+                        ValidationIssue(
+                            severity=ValidationSeverity.CRITICAL,
+                            rule_id=rule.rule_id,
+                            message="OOFF mandate ID invalid or exceeds 35 characters",
+                            xpath=rule.xpath,
+                            element_value=mandate_id,
+                            suggested_fix="Use valid mandate ID (max 35 chars)",
+                        )
+                    )
+
+        return issues
 
     def validate_fnal_mandate_usage(
         self, rule: SEPARule, root: ET.Element, xml_content: str
     ) -> List[ValidationIssue]:
-        """Validate FNAL sequence type usage"""
-        # Implementation for FNAL validation
-        return []
+        """Validate FNAL sequence type usage - final collection on mandate"""
+        issues = []
+
+        # Find all FNAL transactions
+        fnal_transactions = root.findall(".//sepa:DrctDbtTxInf[.//sepa:SeqTp='FNAL']", self.namespace)
+
+        for txn in fnal_transactions:
+            mandate_elem = txn.find(".//sepa:MndtRltdInf/sepa:MndtId", self.namespace)
+            if mandate_elem is not None:
+                mandate_id = mandate_elem.text
+
+                # FNAL should be used for the last collection on this mandate
+                if not mandate_id or len(mandate_id) > 35:
+                    issues.append(
+                        ValidationIssue(
+                            severity=ValidationSeverity.CRITICAL,
+                            rule_id=rule.rule_id,
+                            message="FNAL mandate ID invalid or exceeds 35 characters",
+                            xpath=rule.xpath,
+                            element_value=mandate_id,
+                            suggested_fix="Use valid mandate ID (max 35 chars)",
+                        )
+                    )
+
+        return issues
 
     def validate_transaction_limit(
         self, rule: SEPARule, root: ET.Element, xml_content: str

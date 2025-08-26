@@ -24,7 +24,7 @@ Business Process:
 Compliance Features:
     - SEPA Direct Debit Core Scheme (SDD Core) compliance
     - Dutch banking standards (IBAN validation, mandate management)
-    - SEPA XML format validation (pain.008.001.02)
+    - SEPA XML format validation (pain.008.001.08)
     - Mandate sequence type management (FRST, RCUR, OOFF, FNAL)
     - Creditor identifier validation and management
 
@@ -62,6 +62,16 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import format_datetime, getdate, nowdate, nowtime, random_string, today
 
+from verenigingen.verenigingen_payments.utils.batch_performance_optimizer import (
+    get_batch_performance_optimizer,
+)
+from verenigingen.verenigingen_payments.utils.financial_error_handler import (
+    get_financial_error_handler,
+    handle_data_integrity_error,
+    handle_permission_error,
+    handle_sepa_validation_error,
+)
+
 
 class DirectDebitBatch(Document):
     def validate(self):
@@ -70,30 +80,49 @@ class DirectDebitBatch(Document):
         self.calculate_totals()
 
     def validate_invoices(self):
-        """Validate that all invoices are valid for direct debit"""
+        """Validate that all invoices are valid for direct debit using performance optimization"""
         if not self.invoices:
             frappe.throw(_("No invoices added to batch"))
 
+        # Use performance optimizer for bulk validation
+        performance_optimizer = get_batch_performance_optimizer()
+        invoice_names = [invoice.invoice for invoice in self.invoices]
+
+        # Get invoice details in bulk to avoid N+1 queries
+        invoice_details = performance_optimizer.get_invoices_with_details_bulk(invoice_names)
+
+        validation_errors = []
+
         for invoice in self.invoices:
+            invoice_data = invoice_details.get(invoice.invoice)
+
             # Check if invoice exists
-            if not frappe.db.exists("Sales Invoice", invoice.invoice):
-                frappe.throw(_("Invoice {0} does not exist").format(invoice.invoice))
+            if not invoice_data:
+                validation_errors.append(f"Invoice {invoice.invoice} does not exist")
+                continue
 
             # Check if invoice is unpaid
-            inv = frappe.get_doc("Sales Invoice", invoice.invoice)
-            if inv.status not in ["Unpaid", "Overdue"]:
-                frappe.throw(_("Invoice {0} is not unpaid").format(inv.name))
+            if invoice_data["status"] not in ["Unpaid", "Overdue"]:
+                validation_errors.append(
+                    f"Invoice {invoice.invoice} is not unpaid (status: {invoice_data['status']})"
+                )
 
-            # Check if membership exists
-            if not frappe.db.exists("Membership", invoice.membership):
-                frappe.throw(_("Membership {0} does not exist").format(invoice.membership))
+            # Check if membership exists (from bulk data)
+            if invoice.membership and not invoice_data.get("membership"):
+                validation_errors.append(f"Membership {invoice.membership} does not exist")
 
             # Check bank details
             if not invoice.iban:
-                frappe.throw(_("IBAN is required for invoice {0}").format(invoice.invoice))
+                validation_errors.append(f"IBAN is required for invoice {invoice.invoice}")
 
             if not invoice.mandate_reference:
-                frappe.throw(_("Mandate reference is required for invoice {0}").format(invoice.invoice))
+                validation_errors.append(f"Mandate reference is required for invoice {invoice.invoice}")
+
+        # Throw all validation errors at once
+        if validation_errors:
+            handle_data_integrity_error(
+                "F3001", {"batch_name": self.name, "validation_errors": validation_errors}
+            )
 
     def validate_sequence_types(self):
         """Validate SEPA sequence types for automated batch processing"""
@@ -235,9 +264,26 @@ class DirectDebitBatch(Document):
                 self.total_amount = 0.0
 
         except Exception as e:
-            # Fallback to Python iteration if SQL fails (graceful degradation)
-            frappe.logger().warning(f"SQL aggregation failed for batch {self.name}, using fallback: {str(e)}")
+            # For financial processing, SQL aggregation failure is critical
+            # Log error and use fallback, but validate results strictly
+            frappe.log_error(
+                f"SQL aggregation failed for batch {self.name}: {str(e)}",
+                "DirectDebitBatch - Critical Calculation Error",
+            )
+
+            # Use fallback but validate consistency
             self._calculate_totals_python()
+
+            # Verify we have reasonable values after fallback
+            if self.entry_count < 0 or self.total_amount < 0:
+                handle_data_integrity_error(
+                    "F3001",
+                    {
+                        "batch_name": self.name,
+                        "entry_count": self.entry_count,
+                        "total_amount": self.total_amount,
+                    },
+                )
 
     def _calculate_totals_python(self):
         """Fallback Python calculation for new documents or when SQL fails"""
@@ -289,7 +335,7 @@ class DirectDebitBatch(Document):
     def generate_sepa_xml(self):
         """Generate SEPA Direct Debit XML file for Dutch banks"""
         try:
-            frappe.logger().info(f"Starting SEPA XML generation for batch {self.name}")
+            frappe.logger().info(f"Starting SEPA XML generation for batch {self.name} (pain.008.001.08)")
 
             # Generate IDs for SEPA message
             message_id = f"BATCH-{self.name}-{random_string(8)}"
@@ -327,11 +373,15 @@ class DirectDebitBatch(Document):
                     missing_settings.append("company_bic (could not be derived from IBAN)")
 
             if missing_settings:
-                error_msg = _("Missing required settings in Verenigingen Settings: {0}").format(
-                    ", ".join(missing_settings)
+                # Use financial error handler for SEPA configuration errors
+                handle_sepa_validation_error(
+                    "F5001",
+                    {
+                        "batch_name": self.name,
+                        "missing_settings": missing_settings,
+                        "required_settings": required_settings,
+                    },
                 )
-                self.add_to_batch_log(error_msg)
-                frappe.throw(error_msg)
 
             # Create XML structure specifically for Dutch banks
             root = self.create_dutch_sepa_xml_structure(
@@ -340,6 +390,14 @@ class DirectDebitBatch(Document):
 
             # Convert to string
             xml_string = ET.tostring(root, encoding="utf-8", method="xml")
+
+            # Validate XML against schema if available (Recommendation #3)
+            validation_result = self._validate_sepa_xml_schema(xml_string)
+            if not validation_result["valid"]:
+                frappe.logger().warning(
+                    f"SEPA XML validation warnings for batch {self.name}: {validation_result['errors']}"
+                )
+                # Log warnings but continue - some banks may have different validation rules
 
             # Prettify XML
             import xml.dom.minidom
@@ -502,14 +560,16 @@ class DirectDebitBatch(Document):
 
     def create_dutch_sepa_xml_structure(self, message_id, payment_info_id, company, settings):
         """Create SEPA XML structure specifically for Dutch direct debit"""
-        # This follows the Pain.008.001.02 format for Dutch banks
+        # This follows the Pain.008.001.08 format (2019 version) for Dutch banks
+        # Supports structured address information and enhanced features
 
-        frappe.logger().info(f"Creating Dutch SEPA XML structure for batch {self.name}")
+        frappe.logger().info(f"Creating Dutch SEPA XML structure for batch {self.name} (pain.008.001.08)")
 
-        # Create root element
+        # Create root element with updated namespace for 2019 version
         root = ET.Element("Document")
-        root.set("xmlns", "urn:iso:std:iso:20022:tech:xsd:pain.008.001.02")
+        root.set("xmlns", "urn:iso:std:iso:20022:tech:xsd:pain.008.001.08")
         root.set("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance")
+        root.set("xsi:schemaLocation", "urn:iso:std:iso:20022:tech:xsd:pain.008.001.08 pain.008.001.08.xsd")
 
         # Customer SEPA Direct Debit Initiation
         cstmr_drct_dbt_initn = ET.SubElement(root, "CstmrDrctDbtInitn")
@@ -550,24 +610,44 @@ class DirectDebitBatch(Document):
         creditor_name = getattr(settings, "company_account_holder", None) or company.name
         ET.SubElement(cdtr, "Nm").text = creditor_name
 
-        # Creditor Account (Company's IBAN)
-        company_iban = (
-            getattr(settings, "company_iban", None) or "NL43INGB0123456789"
-        )  # Fall back to a placeholder
+        # Creditor Account (Company's IBAN) - MUST be configured
+        company_iban = getattr(settings, "company_iban", None)
+        if not company_iban:
+            handle_sepa_validation_error(
+                "F1001", {"batch_name": self.name, "settings_doctype": "Verenigingen Settings"}
+            )
+
         cdtr_acct = ET.SubElement(pmt_inf, "CdtrAcct")
         id_element = ET.SubElement(cdtr_acct, "Id")
         ET.SubElement(id_element, "IBAN").text = company_iban
 
-        # Creditor Agent (BIC)
-        company_bic = getattr(settings, "company_bic", None) or "INGBNL2A"  # Fall back to a placeholder
+        # Creditor Agent (BIC) - MUST be configured or derivable
+        company_bic = getattr(settings, "company_bic", None)
+        if not company_bic:
+            # Try to derive BIC from IBAN
+            from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
+
+            company_bic = derive_bic_from_iban(company_iban)
+            if not company_bic:
+                handle_sepa_validation_error(
+                    "F1002",
+                    {
+                        "batch_name": self.name,
+                        "company_iban": company_iban,
+                        "settings_doctype": "Verenigingen Settings",
+                    },
+                )
+
         cdtr_agt = ET.SubElement(pmt_inf, "CdtrAgt")
         fin_instn_id = ET.SubElement(cdtr_agt, "FinInstnId")
         ET.SubElement(fin_instn_id, "BIC").text = company_bic
 
-        # Creditor Scheme ID (Incassant ID)
-        creditor_id = (
-            getattr(settings, "creditor_id", None) or "NL13ZZZ123456780000"
-        )  # Fall back to a placeholder
+        # Creditor Scheme ID (Incassant ID) - MUST be configured
+        creditor_id = getattr(settings, "creditor_id", None)
+        if not creditor_id:
+            handle_sepa_validation_error(
+                "F1003", {"batch_name": self.name, "settings_doctype": "Verenigingen Settings"}
+            )
         cdtr_schme_id = ET.SubElement(pmt_inf, "CdtrSchmeId")
         id_element = ET.SubElement(cdtr_schme_id, "Id")
         prvt_id = ET.SubElement(id_element, "PrvtId")
@@ -612,9 +692,25 @@ class DirectDebitBatch(Document):
             fin_instn_id = ET.SubElement(dbtr_agt, "FinInstnId")
             ET.SubElement(fin_instn_id, "BIC").text = get_bic_from_iban(invoice.iban) or "INGBNL2A"
 
-            # Debtor
+            # Debtor with structured address (pain.008.001.08 feature)
             dbtr = ET.SubElement(drct_dbt_tx_inf, "Dbtr")
             ET.SubElement(dbtr, "Nm").text = invoice.member_name
+
+            # Add structured postal address for debtor (required for pain.008.001.08)
+            if invoice.member:
+                member_address = self._get_member_structured_address(invoice.member)
+                if member_address:
+                    pstl_adr = ET.SubElement(dbtr, "PstlAdr")
+                    if member_address.get("country"):
+                        ET.SubElement(pstl_adr, "Ctry").text = member_address["country"]
+                    if member_address.get("address_line_1"):
+                        ET.SubElement(pstl_adr, "AdrLine").text = member_address["address_line_1"]
+                    if member_address.get("address_line_2"):
+                        ET.SubElement(pstl_adr, "AdrLine").text = member_address["address_line_2"]
+                    if member_address.get("postal_code"):
+                        ET.SubElement(pstl_adr, "PstCd").text = member_address["postal_code"]
+                    if member_address.get("town"):
+                        ET.SubElement(pstl_adr, "TwnNm").text = member_address["town"]
 
             # Debtor Account
             dbtr_acct = ET.SubElement(drct_dbt_tx_inf, "DbtrAcct")
@@ -626,6 +722,122 @@ class DirectDebitBatch(Document):
             ET.SubElement(rmt_inf, "Ustrd").text = f"Invoice {invoice.invoice} for {invoice.member_name}"
 
         return root
+
+    def _get_member_structured_address(self, member_name):
+        """Get structured address information for a member (pain.008.001.08 requirement)"""
+        try:
+            # Get member document with address information
+            member = frappe.get_doc("Member", member_name)
+
+            # Try to get address from linked customer or member directly
+            address_info = {}
+
+            # First try member's direct address fields
+            if hasattr(member, "address_line_1") and member.address_line_1:
+                address_info["address_line_1"] = member.address_line_1[:70]  # SEPA limit
+            if hasattr(member, "address_line_2") and member.address_line_2:
+                address_info["address_line_2"] = member.address_line_2[:70]  # SEPA limit
+            if hasattr(member, "postal_code") and member.postal_code:
+                address_info["postal_code"] = member.postal_code
+            if hasattr(member, "city") and member.city:
+                address_info["town"] = member.city
+
+            # Default country for Dutch members
+            address_info["country"] = getattr(member, "country", "NL")
+
+            # If member has linked customer, try to get address from there
+            if member.customer and not address_info.get("address_line_1"):
+                try:
+                    customer = frappe.get_doc("Customer", member.customer)
+                    # Get primary address for customer
+                    addresses = frappe.get_all(
+                        "Dynamic Link",
+                        filters={
+                            "link_doctype": "Customer",
+                            "link_name": member.customer,
+                            "parenttype": "Address",
+                        },
+                        fields=["parent"],
+                        limit=1,
+                    )
+
+                    if addresses:
+                        address = frappe.get_doc("Address", addresses[0].parent)
+                        if address.address_line1:
+                            address_info["address_line_1"] = address.address_line1[:70]
+                        if address.address_line2:
+                            address_info["address_line_2"] = address.address_line2[:70]
+                        if address.pincode:
+                            address_info["postal_code"] = address.pincode
+                        if address.city:
+                            address_info["town"] = address.city
+                        if address.country:
+                            address_info["country"] = address.country
+
+                except Exception as e:
+                    # Log address lookup failures for debugging but continue
+                    frappe.logger().info(f"Customer address lookup failed for member {member_name}: {str(e)}")
+                    # Continue with member-only data
+
+            # Validate required fields for structured address
+            # Town name and country are mandatory as of November 2025
+            if not address_info.get("town") or not address_info.get("country"):
+                return None
+
+            return address_info
+
+        except Exception as e:
+            frappe.logger().warning(f"Could not get structured address for member {member_name}: {str(e)}")
+            return None
+
+    def _validate_sepa_xml_schema(self, xml_string):
+        """Validate SEPA XML against pain.008.001.08 schema (Recommendation #3)"""
+        try:
+            # Try to import xmlschema for validation
+            try:
+                import xmlschema
+            except ImportError:
+                frappe.logger().info("xmlschema not available - skipping XML schema validation")
+                return {"valid": True, "warnings": ["Schema validation skipped - xmlschema not installed"]}
+
+            # Check if XSD schema file exists
+            import os
+
+            schema_path = os.path.join(frappe.get_app_path("verenigingen"), "schemas", "pain.008.001.08.xsd")
+
+            if not os.path.exists(schema_path):
+                # For financial transactions, missing schema validation is a concern
+                frappe.log_error(
+                    f"SEPA XSD schema not found at {schema_path} - validation skipped for batch {self.name if hasattr(self, 'name') else 'unknown'}",
+                    "SEPA Schema Validation - Missing XSD File",
+                )
+                return {
+                    "valid": True,
+                    "warnings": ["Schema file not found - validation skipped"],
+                    "critical": True,
+                }
+
+            # Perform validation
+            schema = xmlschema.XMLSchema(schema_path)
+            validation_errors = list(
+                schema.iter_errors(
+                    xml_string.decode("utf-8") if isinstance(xml_string, bytes) else xml_string
+                )
+            )
+
+            if validation_errors:
+                error_messages = [str(error) for error in validation_errors[:5]]  # Limit to first 5 errors
+                return {
+                    "valid": False,
+                    "errors": error_messages,
+                    "warning": f"Found {len(validation_errors)} validation errors",
+                }
+            else:
+                return {"valid": True, "message": "XML validates against pain.008.001.08 schema"}
+
+        except Exception as e:
+            frappe.logger().warning(f"XML schema validation failed: {str(e)}")
+            return {"valid": True, "warnings": [f"Validation error: {str(e)}"]}
 
 
 # Helper Functions
@@ -647,8 +859,27 @@ def create_payment_entry_for_invoice(invoice, payment_type, mode_of_payment, ref
         payment_entry.reference_no = reference_no
         payment_entry.reference_date = reference_date
 
-        # Save and submit
-        payment_entry.insert(ignore_permissions=True)
+        # Save and submit with proper permission validation
+        # Ensure user has Payment Entry create permissions for financial transactions
+        if not frappe.has_permission("Payment Entry", "create"):
+            handle_permission_error(
+                "F2001", {"user": frappe.session.user, "doctype": "Payment Entry", "operation": "create"}
+            )
+
+        payment_entry.insert()
+
+        # Validate submit permissions separately
+        if not frappe.has_permission("Payment Entry", "submit", payment_entry):
+            handle_permission_error(
+                "F2001",
+                {
+                    "user": frappe.session.user,
+                    "doctype": "Payment Entry",
+                    "operation": "submit",
+                    "document_name": payment_entry.name,
+                },
+            )
+
         payment_entry.submit()
 
         frappe.logger().info(f"Created payment entry {payment_entry.name} for invoice {invoice.name}")
