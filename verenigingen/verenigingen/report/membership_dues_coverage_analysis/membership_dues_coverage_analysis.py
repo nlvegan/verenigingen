@@ -8,6 +8,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, cint, date_diff, flt, getdate, today
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 def execute(filters=None):
     """Main report execution function"""
@@ -991,7 +993,18 @@ def generate_catchup_invoices(members):
                         item_doc.item_name = "Membership Dues"
                         item_doc.item_group = "All Item Groups"  # Fallback group
                         item_doc.is_stock_item = 0
-                        item_doc.insert(ignore_permissions=True)
+                        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                        item_result = secure_document_operation(
+                            operation="insert",
+                            doc=item_doc,
+                            justification=f"Create default Membership Dues item for catch-up invoice generation - member {member_name}",
+                            required_permissions=["Item:create"],
+                        )
+                        if not item_result.success:
+                            error_msg = f"Failed to create Membership Dues item for {member_name}: {'; '.join(item_result.errors)}"
+                            frappe.log_error(error_msg, "Catch-up Invoice Generation")
+                            errors.append(error_msg)
+                            continue
                         item_code = item_doc.name
 
                 # Add invoice item
@@ -1031,9 +1044,22 @@ def generate_catchup_invoices(members):
                     # Try to delete the failed invoice
                     try:
                         if invoice.name:
-                            frappe.delete_doc("Sales Invoice", invoice.name, ignore_permissions=True)
-                    except:
-                        pass  # Ignore cleanup errors
+                            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                            delete_result = secure_document_operation(
+                                operation="delete",
+                                doc=invoice,
+                                justification=f"Cleanup failed catch-up invoice {invoice.name} for member {member_name} after creation error",
+                                required_permissions=["Sales Invoice:delete"],
+                            )
+                            if not delete_result.success:
+                                frappe.log_error(
+                                    f"Failed to cleanup invoice {invoice.name}: {'; '.join(delete_result.errors)}",
+                                    "Invoice Cleanup Error",
+                                )
+                    except Exception as cleanup_error:
+                        frappe.log_error(
+                            f"Invoice cleanup error: {str(cleanup_error)}", "Invoice Cleanup Error"
+                        )
 
         except Exception as e:
             error_msg = (

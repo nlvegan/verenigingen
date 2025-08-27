@@ -12,6 +12,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, get_datetime, now_datetime
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 from ..clients.balances_client import BalancesClient
 from ..clients.chargebacks_client import ChargebacksClient
 from ..clients.invoices_client import InvoicesClient
@@ -418,8 +420,20 @@ class ReconciliationEngine:
             record.error_count = len(self.errors)
             record.warning_count = len(self.warnings)
             record.correction_count = len(self.corrections)
-            record.insert(ignore_permissions=True)
-            frappe.db.commit()
+            result = secure_document_operation(
+                operation="insert",
+                doc=record,
+                justification=f"Create reconciliation log for automated daily reconciliation {self.reconciliation_id} - system maintenance operation with {len(self.errors)} errors, {len(self.warnings)} warnings",
+                required_permissions=["Mollie Reconciliation Log:create"],
+            )
+
+            if result.success:
+                frappe.db.commit()
+            else:
+                frappe.log_error(
+                    f"Failed to create reconciliation log: {'; '.join(result.errors)}",
+                    "Reconciliation Engine",
+                )
 
         except Exception as e:
             frappe.log_error(f"Failed to save reconciliation record: {str(e)}", "Reconciliation Engine")

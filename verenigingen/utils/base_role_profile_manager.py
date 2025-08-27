@@ -33,6 +33,8 @@ import frappe
 from frappe import _
 from frappe.query_builder import DocType
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 # Error codes for standardized API responses
 ERROR_CODES = {
     "VALIDATION_ERROR": "E001",
@@ -288,11 +290,20 @@ class BaseRoleProfileManager(ABC):
                 previous_role_profile = user_doc.role_profile_name
                 user_doc.role_profile_name = role_profile
 
-                # Save with appropriate permissions
-                if _is_system_operation_authorized():
-                    user_doc.save(ignore_permissions=True)
-                else:
-                    user_doc.save()
+                # Save with proper permission validation
+                result = secure_document_operation(
+                    operation="save",
+                    doc=user_doc,
+                    justification=f"Assign role profile '{role_profile}' to user {user} for {self.config.entity_type} {entity_name} - role profile management for organizational access control",
+                    required_permissions=["User:write"],
+                )
+                if not result.success:
+                    frappe.db.rollback()
+                    return self._create_response(
+                        success=False,
+                        error=f"Failed to assign role profile: {'; '.join(result.errors)}",
+                        error_code=ERROR_CODES["PERMISSION_ERROR"],
+                    )
 
                 # Clear user permissions cache to ensure new role profile takes effect
                 frappe.cache().delete_key(f"user_roles:{user}")
@@ -416,11 +427,20 @@ class BaseRoleProfileManager(ABC):
                 previous_role_profile = user_doc.role_profile_name
                 user_doc.role_profile_name = None
 
-                # Save with appropriate permissions
-                if _is_system_operation_authorized():
-                    user_doc.save(ignore_permissions=True)
-                else:
-                    user_doc.save()
+                # Save with proper permission validation
+                result = secure_document_operation(
+                    operation="save",
+                    doc=user_doc,
+                    justification=f"Remove role profile '{role_profile}' from user {user} for {self.config.entity_type} {entity_name} - role profile management cleanup for access control",
+                    required_permissions=["User:write"],
+                )
+                if not result.success:
+                    frappe.db.rollback()
+                    return self._create_response(
+                        success=False,
+                        error=f"Failed to remove role profile: {'; '.join(result.errors)}",
+                        error_code=ERROR_CODES["PERMISSION_ERROR"],
+                    )
 
                 # Clear user permissions cache to reflect role profile removal
                 frappe.cache().delete_key(f"user_roles:{user}")

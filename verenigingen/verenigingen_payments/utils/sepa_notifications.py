@@ -3,6 +3,8 @@ from frappe import _
 from frappe.core.doctype.communication.email import make
 from frappe.utils import add_days, getdate, today
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 class SEPAMandateNotificationManager:
     """Manages notifications for SEPA mandate status changes"""
@@ -217,7 +219,7 @@ class SEPAMandateNotificationManager:
 
             # Log the notification
             if member:
-                frappe.get_doc(
+                comment_doc = frappe.get_doc(
                     {
                         "doctype": "Comment",
                         "comment_type": "Info",
@@ -225,7 +227,19 @@ class SEPAMandateNotificationManager:
                         "reference_name": member,
                         "content": f"Notification sent: {subject}",
                     }
-                ).insert(ignore_permissions=True)
+                )
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                comment_result = secure_document_operation(
+                    operation="insert",
+                    doc=comment_doc,
+                    justification=f"Log SEPA notification sent to member {member}: {subject}",
+                    required_permissions=["Comment:create"],
+                )
+                if not comment_result.success:
+                    frappe.log_error(
+                        f"Failed to log notification comment for member {member}: {'; '.join(comment_result.errors)}",
+                        "SEPA Notification Log Error",
+                    )
 
         except Exception as e:
             frappe.log_error(

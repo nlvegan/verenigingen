@@ -5,6 +5,8 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 class BrandSettings(Document):
     def validate(self):
@@ -148,8 +150,15 @@ class BrandSettings(Document):
             if self.logo:
                 owl_settings.app_logo = self.logo
 
-            # Save the Owl Theme Settings
-            owl_settings.save(ignore_permissions=True)
+            # Save the Owl Theme Settings with secure operations
+            result = secure_document_operation(
+                operation="save",
+                doc=owl_settings,
+                justification="Sync brand settings to Owl Theme configuration - system branding and UI configuration management",
+                required_permissions=["System Settings:write"],
+            )
+            if not result.success:
+                frappe.throw(f"Failed to sync brand settings: {'; '.join(result.errors)}")
 
             frappe.msgprint(_("Successfully synced brand settings to Owl Theme"))
 
@@ -574,7 +583,15 @@ def create_default_brand_settings():
         }
     )
 
-    default_settings.insert(ignore_permissions=True)
+    result = secure_document_operation(
+        operation="insert",
+        doc=default_settings,
+        justification="Create default brand settings during system initialization - essential UI configuration setup",
+        required_permissions=["Brand Settings:create"],
+    )
+    if not result.success:
+        frappe.log_error(f"Failed to create default brand settings: {'; '.join(result.errors)}")
+        return False
     return True
 
 

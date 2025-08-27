@@ -65,6 +65,8 @@ import json
 import frappe
 from frappe.model.document import Document
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 class SEPAAuditLog(Document):
     """
@@ -316,9 +318,18 @@ class SEPAAuditLog(Document):
                     doc.reference_doctype = reference_doc.doctype
                     doc.reference_name = reference_doc.name
 
-            # Insert without permissions check (system operation)
-            doc.insert(ignore_permissions=True)
-            return doc
+            # Insert with secure audit trail operation
+            result = secure_document_operation(
+                operation="insert",
+                doc=doc,
+                justification=f"Create SEPA audit log entry for {process_type} action '{action}' - compliance-required audit trail for regulatory oversight",
+                required_permissions=["SEPA Audit Log:create"],
+            )
+            if result.success:
+                return result.doc
+            else:
+                frappe.log_error(f"SEPA audit logging failed due to permissions: {'; '.join(result.errors)}")
+                return None
 
         except Exception as e:
             frappe.log_error(f"SEPA audit logging failed: {str(e)}")

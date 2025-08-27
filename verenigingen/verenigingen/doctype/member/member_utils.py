@@ -139,7 +139,21 @@ def update_member_payment_history(doc, method=None):
         try:
             member = frappe.get_doc("Member", member_doc.name)
             member.load_payment_history()
-            member.save(ignore_permissions=True)
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            payment_result = secure_document_operation(
+                operation="save",
+                doc=member,
+                justification=f"Update payment history for member {member.name} after payment entry {doc.name}",
+                required_permissions=["Member:write"],
+            )
+
+            if not payment_result.success:
+                frappe.log_error(
+                    f"Failed to update payment history for Member {member.name}: {'; '.join(payment_result.errors)}",
+                    "Member Payment History Security",
+                )
+                continue
         except frappe.DoesNotExistError:
             frappe.log_error(
                 f"Member {member_doc.name} not found during payment history update", "Member Payment History"
@@ -172,7 +186,21 @@ def update_member_payment_history_from_invoice(doc, method=None):
         try:
             member = frappe.get_doc("Member", member_doc.name)
             member.load_payment_history()
-            member.save(ignore_permissions=True)
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            invoice_result = secure_document_operation(
+                operation="save",
+                doc=member,
+                justification=f"Update payment history for member {member.name} after invoice {doc.name}",
+                required_permissions=["Member:write"],
+            )
+
+            if not invoice_result.success:
+                frappe.log_error(
+                    f"Failed to update payment history for Member {member.name}: {'; '.join(invoice_result.errors)}",
+                    "Member Invoice History Security",
+                )
+                continue
         except frappe.DoesNotExistError:
             frappe.log_error(
                 f"Member {member_doc.name} not found during invoice payment history update",
@@ -349,96 +377,6 @@ def check_donor_exists(member):
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.UTILITY)
-def test_phone_validation_fix():
-    """Test that members without phone numbers can create donor records"""
-    try:
-        # Test case: Member without phone number (the original failing case)
-        test_member_data = {
-            "doctype": "Member",
-            "first_name": "Test",
-            "last_name": "PhoneValidation",
-            "email": f"test.phonefix.{frappe.utils.random_string(6)}@test.local",
-            "membership_type": "Individual"
-            # No contact_number - this was causing the original issue
-        }
-
-        member = frappe.new_doc("Member")
-        for key, value in test_member_data.items():
-            if key != "doctype":
-                setattr(member, key, value)
-
-        member.insert(ignore_permissions=True)
-
-        # Try to create donor using the fixed function
-        from verenigingen.verenigingen.doctype.member.member import create_donor_from_member
-
-        result = create_donor_from_member(member.name)
-
-        success = result.get("success", False)
-        message = (
-            "Phone validation fix working"
-            if success
-            else f"Still failing: {result.get('message', 'Unknown error')}"
-        )
-
-        # Cleanup
-        if success and result.get("donor_name"):
-            frappe.delete_doc("Donor", result["donor_name"], force=True)
-        frappe.delete_doc("Member", member.name, force=True)
-
-        return {
-            "test": "member_without_phone_creates_donor",
-            "success": success,
-            "message": message,
-            "result": result,
-        }
-
-    except Exception as e:
-        return {"test": "member_without_phone_creates_donor", "success": False, "error": str(e)}
-
-
-@frappe.whitelist()
-@standard_api(operation_type=OperationType.UTILITY)
-def test_donor_fixes():
-    """Test the fixed donor-related functions"""
-    results = {}
-
-    try:
-        # Test 1: Check that check_donor_exists function works
-        result = check_donor_exists("Assoc-Member-2025-06-0001")
-        results["check_donor_exists"] = {
-            "success": True,
-            "result": result,
-            "has_exists_key": "exists" in result,
-        }
-
-        # Test 2: Test field access doesn't cause database errors
-        try:
-            donor_name = create_donor_from_member("Assoc-Member-2025-06-0001")
-            results["create_donor_from_member"] = {"success": True, "donor_created": donor_name}
-            # Clean up
-            if donor_name:
-                frappe.delete_doc("Donor", donor_name, ignore_permissions=True)
-        except Exception as e:
-            error_msg = str(e)
-            results["create_donor_from_member"] = {
-                "success": "Unknown column" not in error_msg and "email.*WHERE" not in error_msg,
-                "error": error_msg,
-                "no_field_errors": "Unknown column" not in error_msg,
-            }
-
-        results["overall_success"] = all(
-            r.get("success", False) for r in results.values() if isinstance(r, dict)
-        )
-
-    except Exception as e:
-        results["error"] = str(e)
-        results["overall_success"] = False
-
-    return results
-
-
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def create_sepa_mandate_from_bank_details(
@@ -861,7 +799,21 @@ def create_and_link_mandate_enhanced(
             old_mandate.cancelled_reason = "Bank account change"
             if notes:
                 old_mandate.notes = (old_mandate.notes or "") + f"\nReplaced on {today()}: {notes}"
-            old_mandate.save(ignore_permissions=True)
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            cancel_result = secure_document_operation(
+                operation="save",
+                doc=old_mandate,
+                justification=f"Cancel SEPA mandate {replace_mandate} due to bank account change for member {member}",
+                required_permissions=["SEPA Mandate:write"],
+            )
+
+            if not cancel_result.success:
+                frappe.log_error(
+                    f"Failed to cancel SEPA mandate {replace_mandate}: {'; '.join(cancel_result.errors)}",
+                    "SEPA Mandate Cancellation Security",
+                )
+                # Don't throw here - this is cleanup logic, continue with new mandate creation
             frappe.logger().debug(f"Marked mandate {replace_mandate} as replaced")
         except Exception as e:
             frappe.logger().error(f"Error replacing mandate {replace_mandate}: {str(e)}")
@@ -892,7 +844,21 @@ def create_and_link_mandate_enhanced(
             mandate.is_active = 0
             mandate.superseded_date = today()
             mandate.superseded_by = mandate_id
-            mandate.save(ignore_permissions=True)
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            suspend_result = secure_document_operation(
+                operation="save",
+                doc=mandate,
+                justification=f"Supersede SEPA mandate {mandate.name} when creating new mandate {mandate_id} for member {member}",
+                required_permissions=["SEPA Mandate:write"],
+            )
+
+            if not suspend_result.success:
+                frappe.log_error(
+                    f"Failed to supersede SEPA mandate {mandate.name}: {'; '.join(suspend_result.errors)}",
+                    "SEPA Mandate Security",
+                )
+                continue
             frappe.logger().debug(f"Superseded mandate {mandate.name}")
 
     mandate = frappe.new_doc("SEPA Mandate")
@@ -928,7 +894,26 @@ def create_and_link_mandate_enhanced(
 
     mandate.notes = (mandate.notes + "\n" + creation_notes) if mandate.notes else creation_notes
 
-    mandate.insert(ignore_permissions=True)
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    mandate_result = secure_document_operation(
+        operation="insert",
+        doc=mandate,
+        justification=f"Create new SEPA mandate {mandate_id} for member {member} with IBAN {iban}",
+        required_permissions=["SEPA Mandate:create"],
+    )
+
+    if not mandate_result.success:
+        frappe.log_error(
+            f"Failed to create SEPA mandate {mandate_id}: {'; '.join(mandate_result.errors)}",
+            "SEPA Mandate Security",
+        )
+        frappe.throw(
+            _("Failed to create SEPA mandate: {0}").format(
+                mandate_result.errors[0] if mandate_result.errors else _("Unknown error")
+            )
+        )
+
+    mandate = mandate_result.doc
 
     frappe.db.delete("Member SEPA Mandate Link", {"parent": member, "sepa_mandate": mandate.name})
 
@@ -951,7 +936,24 @@ def create_and_link_mandate_enhanced(
         },
     )
 
-    member_doc.save(ignore_permissions=True)
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    member_result = secure_document_operation(
+        operation="save",
+        doc=member_doc,
+        justification=f"Link new SEPA mandate {mandate.name} to member {member_doc.name} after enhanced mandate creation",
+        required_permissions=["Member:write"],
+    )
+
+    if not member_result.success:
+        frappe.log_error(
+            f"Failed to link SEPA mandate to member {member_doc.name}: {'; '.join(member_result.errors)}",
+            "Member SEPA Link Security",
+        )
+        frappe.throw(
+            _("Failed to link mandate to member: {0}").format(
+                member_result.errors[0] if member_result.errors else _("Unknown error")
+            )
+        )
 
     frappe.logger().debug(f"Created and linked mandate {mandate.name} with ID {mandate_id}")
 
@@ -1039,7 +1041,18 @@ def check_and_handle_sepa_mandate(member, iban):
                 else:
                     mandate_link.is_current = 0
 
-            member_doc.save(ignore_permissions=True)
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            member_result = secure_document_operation(
+                operation="save",
+                doc=member_doc,
+                justification=f"Set existing SEPA mandate {mandate_doc.name} as current for member {member}",
+                required_permissions=["Member:write"],
+            )
+            if not member_result.success:
+                frappe.throw(
+                    _("Failed to update member mandate: {0}").format("; ".join(member_result.errors))
+                )
             return {"action": "use_existing", "mandate": mandate_doc.name}
         else:
             return {"action": "none_needed"}
@@ -1093,7 +1106,18 @@ def create_and_link_mandate(
             if mandate.used_for_memberships:
                 mandate.status = "Suspended"
                 mandate.is_active = 0
-                mandate.save(ignore_permissions=True)
+                from verenigingen.utils.secure_operations import secure_document_operation
+
+                suspend_result = secure_document_operation(
+                    operation="save",
+                    doc=mandate,
+                    justification=f"Suspend existing SEPA mandate {mandate.name} before creating new membership mandate for member {member}",
+                    required_permissions=["SEPA Mandate:write"],
+                )
+                if not suspend_result.success:
+                    frappe.throw(
+                        _("Failed to suspend existing mandate: {0}").format("; ".join(suspend_result.errors))
+                    )
 
     if used_for_donations:
         for mandate_data in existing_mandates:
@@ -1101,7 +1125,20 @@ def create_and_link_mandate(
             if mandate.used_for_donations and mandate.status == "Active":
                 mandate.status = "Suspended"
                 mandate.is_active = 0
-                mandate.save(ignore_permissions=True)
+                from verenigingen.utils.secure_operations import secure_document_operation
+
+                suspend_result = secure_document_operation(
+                    operation="save",
+                    doc=mandate,
+                    justification=f"Suspend existing donation SEPA mandate {mandate.name} for member {member}",
+                    required_permissions=["SEPA Mandate:write"],
+                )
+                if not suspend_result.success:
+                    frappe.throw(
+                        _("Failed to suspend existing donation mandate: {0}").format(
+                            "; ".join(suspend_result.errors)
+                        )
+                    )
 
     timestamp = now().replace(" ", "").replace("-", "").replace(":", "")[:14]
     mandate_id = f"M-{member_doc.member_id}-{timestamp}"
@@ -1123,7 +1160,21 @@ def create_and_link_mandate(
     mandate.status = "Active"
     mandate.is_active = 1
 
-    mandate.insert(ignore_permissions=True)
+    from verenigingen.utils.secure_operations import secure_document_operation
+
+    mandate_result = secure_document_operation(
+        operation="insert",
+        doc=mandate,
+        justification=f"Create new SEPA mandate {mandate_id} for member {member} with IBAN {iban}",
+        required_permissions=["SEPA Mandate:create"],
+    )
+    if not mandate_result.success:
+        error_details = "; ".join(mandate_result.errors)
+        frappe.throw(
+            _("Failed to create SEPA mandate {0} with IBAN {1} for member {2}: {3}").format(
+                mandate_id, iban, member, error_details
+            )
+        )
 
     frappe.db.delete("Member SEPA Mandate Link", {"parent": member, "sepa_mandate": mandate.name})
 
@@ -1146,7 +1197,19 @@ def create_and_link_mandate(
         },
     )
 
-    member_doc.save(ignore_permissions=True)
+    member_result = secure_document_operation(
+        operation="save",
+        doc=member_doc,
+        justification=f"Link new SEPA mandate {mandate.name} to member {member}",
+        required_permissions=["Member:write"],
+    )
+    if not member_result.success:
+        error_details = "; ".join(member_result.errors)
+        frappe.throw(
+            _("Failed to link SEPA mandate {0} to member {1}: {2}").format(
+                mandate.name, member, error_details
+            )
+        )
 
     return mandate.name
 

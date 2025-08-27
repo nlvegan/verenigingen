@@ -8,6 +8,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, today
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 def process_contact_request_automation():
     """
@@ -165,7 +167,20 @@ def escalate_contact_request(request, overdue_days):
             f"\n[{today()}] ESCALATED: Request overdue by {overdue_days} days. Managers notified."
         )
         doc.notes = current_notes + escalation_note
-        doc.save(ignore_permissions=True)
+
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        escalation_result = secure_document_operation(
+            operation="save",
+            doc=doc,
+            justification=f"Add escalation note to overdue contact request {request.name} ({overdue_days} days overdue)",
+            required_permissions=["Member Contact Request:write"],
+        )
+        if not escalation_result.success:
+            frappe.log_error(
+                f"Failed to escalate contact request {request.name}: {'; '.join(escalation_result.errors)}",
+                "Contact Request Escalation Error",
+            )
 
         frappe.logger().info(f"Escalated contact request {request.name} after {overdue_days} days")
 
@@ -198,7 +213,20 @@ def auto_close_resolved_requests():
             auto_close_note = f"\n[{today()}] AUTO-CLOSED: Request automatically closed after {grace_period_days} day grace period."
             doc.notes = current_notes + auto_close_note
 
-            doc.save(ignore_permissions=True)
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            close_result = secure_document_operation(
+                operation="save",
+                doc=doc,
+                justification=f"Auto-close resolved contact request {request.name} after {grace_period_days} day grace period",
+                required_permissions=["Member Contact Request:write"],
+            )
+            if not close_result.success:
+                frappe.log_error(
+                    f"Failed to auto-close contact request {request.name}: {'; '.join(close_result.errors)}",
+                    "Contact Request Auto-Close Error",
+                )
+                continue  # Skip to next request if this one fails
 
             # Notify member that their request has been closed
             member_doc = frappe.get_doc("Member", request.member)
@@ -218,7 +246,7 @@ def auto_close_resolved_requests():
                 """
 
                 frappe.sendmail(
-                    recipients=[member_doc.email_address],
+                    recipients=[member_doc.email],
                     subject=subject,
                     message=message,
                     reference_doctype="Member Contact Request",
@@ -259,7 +287,20 @@ def sync_crm_status_updates():
 
                 if lead_doc.status != new_lead_status:
                     lead_doc.status = new_lead_status
-                    lead_doc.save(ignore_permissions=True)
+                    from verenigingen.utils.secure_operations import secure_document_operation
+
+                    crm_result = secure_document_operation(
+                        operation="save",
+                        doc=lead_doc,
+                        justification=f"Sync CRM Lead {request.crm_lead} status to {new_lead_status} based on contact request {request.name}",
+                        required_permissions=["Lead:write"],
+                    )
+                    if not crm_result.success:
+                        frappe.log_error(
+                            f"Failed to sync CRM Lead status for {request.crm_lead}: {'; '.join(crm_result.errors)}",
+                            "CRM Sync Error",
+                        )
+                        continue
 
                     frappe.logger().info(
                         f"Synced status for CRM Lead {request.crm_lead} to {new_lead_status}"
@@ -304,11 +345,36 @@ def create_opportunity_from_contact_request(contact_request_name):
         }
 
         opportunity_doc = frappe.get_doc(opportunity_data)
-        opportunity_doc.insert(ignore_permissions=True)
+        # Create the opportunity with proper security validation
+        opp_result = secure_document_operation(
+            operation="insert",
+            doc=opportunity_doc,
+            justification=f"Create CRM opportunity from contact request {contact_request_name}",
+            required_permissions=["Opportunity:create"],
+        )
+        if not opp_result.success:
+            error_details = "; ".join(opp_result.errors)
+            frappe.throw(
+                _("Failed to create CRM opportunity from contact request {0}: {1}").format(
+                    contact_request_name, error_details
+                )
+            )
 
         # Link back to contact request
         contact_request.crm_opportunity = opportunity_doc.name
-        contact_request.save(ignore_permissions=True)
+        link_result = secure_document_operation(
+            operation="save",
+            doc=contact_request,
+            justification=f"Link CRM opportunity {opportunity_doc.name} to contact request {contact_request_name}",
+            required_permissions=["Member Contact Request:write"],
+        )
+        if not link_result.success:
+            error_details = "; ".join(link_result.errors)
+            frappe.throw(
+                _("Failed to link opportunity {0} to contact request {1}: {2}").format(
+                    opportunity_doc.name, contact_request_name, error_details
+                )
+            )
 
         return {
             "success": True,

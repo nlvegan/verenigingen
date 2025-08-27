@@ -4,6 +4,7 @@ Create or update onboarding steps for Verenigingen
 
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
@@ -23,7 +24,15 @@ def create_test_data_onboarding_step():
             onboarding.subtitle = "Get started with association management"
             onboarding.success_message = "Congratulations! Verenigingen is set up and ready to use."
             onboarding.documentation_url = "/generate_test_data"
-            onboarding.insert(ignore_permissions=True)
+            result = secure_document_operation(
+                operation="insert",
+                doc=onboarding,
+                justification="Create Verenigingen module onboarding for system setup - initial configuration for association management system",
+                required_permissions=["Module Onboarding:create"],
+            )
+            if not result.success:
+                return {"success": False, "error": f"Failed to create onboarding: {'; '.join(result.errors)}"}
+            onboarding = result.doc
         else:
             onboarding = frappe.get_doc("Module Onboarding", "Verenigingen")
 
@@ -43,11 +52,29 @@ def create_test_data_onboarding_step():
             step.is_single = 0
             step.is_mandatory = 0
             step.show_full_form = 0
-            step.insert(ignore_permissions=True)
+            result = secure_document_operation(
+                operation="insert",
+                doc=step,
+                justification="Create test data onboarding step for Verenigingen setup - system configuration assistance",
+                required_permissions=["Onboarding Step:create"],
+            )
+            if not result.success:
+                return {
+                    "success": False,
+                    "error": f"Failed to create onboarding step: {'; '.join(result.errors)}",
+                }
+            step = result.doc
 
             # Link to module onboarding
             onboarding.append("steps", {"step": step.name})
-            onboarding.save(ignore_permissions=True)
+            result = secure_document_operation(
+                operation="save",
+                doc=onboarding,
+                justification="Update module onboarding with test data step - complete system setup workflow",
+                required_permissions=["Module Onboarding:write"],
+            )
+            if not result.success:
+                return {"success": False, "error": f"Failed to update onboarding: {'; '.join(result.errors)}"}
 
             return {
                 "success": True,
@@ -84,23 +111,30 @@ def add_quick_start_card():
             workspace.title = "Verenigingen"
             workspace.module = "Verenigingen"
             workspace.icon = "users"
-            workspace.insert(ignore_permissions=True)
+            result = secure_document_operation(
+                operation="insert",
+                doc=workspace,
+                justification="Create Verenigingen workspace for system navigation - essential UI setup",
+                required_permissions=["Workspace:create"],
+            )
+            if not result.success:
+                return {"success": False, "error": f"Failed to create workspace: {'; '.join(result.errors)}"}
+            workspace = result.doc
         else:
             workspace = frappe.get_doc("Workspace", workspace_name)
 
-        # Check if quick start card exists
-        has_test_data_card = False
-        for card in workspace.cards:
-            if card.label == "Generate Test Data":
-                has_test_data_card = True
+        # Check if quick start shortcut exists
+        has_test_data_shortcut = False
+        for shortcut in workspace.shortcuts:
+            if shortcut.label == "Generate Test Data":
+                has_test_data_shortcut = True
                 break
 
-        if not has_test_data_card:
-            # Add quick start card
+        if not has_test_data_shortcut:
+            # Add quick start shortcut
             workspace.append(
-                "cards",
+                "shortcuts",
                 {
-                    "card_name": "Generate Test Data",
                     "label": "Generate Test Data",
                     "type": "Link",
                     "link_to": "/generate_test_data",
@@ -108,7 +142,14 @@ def add_quick_start_card():
                     "description": "Create sample membership applications to test the system",
                 },
             )
-            workspace.save(ignore_permissions=True)
+            result = secure_document_operation(
+                operation="save",
+                doc=workspace,
+                justification="Update Verenigingen workspace with quick start card - enhanced user onboarding experience",
+                required_permissions=["Workspace:write"],
+            )
+            if not result.success:
+                return {"success": False, "error": f"Failed to update workspace: {'; '.join(result.errors)}"}
 
             return {"success": True, "message": "Quick start card added to workspace"}
         else:

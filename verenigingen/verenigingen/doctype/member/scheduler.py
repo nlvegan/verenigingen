@@ -4,6 +4,8 @@ import frappe
 from frappe.utils import now
 from frappe.utils.background_jobs import enqueue
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 def refresh_all_member_financial_histories():
     """
@@ -376,7 +378,18 @@ def update_all_membership_durations():
                         member.flags.ignore_version = True
                         member.flags.ignore_links = True
                         member.flags.ignore_validate_update_after_submit = True
-                        member.save(ignore_permissions=True)
+
+                        duration_result = secure_document_operation(
+                            operation="save",
+                            doc=member,
+                            justification=f"Update membership duration statistics for member {member.name} - Total days: {new_total_days}",
+                            required_permissions=["Member:write"],
+                        )
+                        if not duration_result.success:
+                            errors.append(
+                                f"Failed to update duration for {member.name}: {'; '.join(duration_result.errors)}"
+                            )
+                            continue
                         total_updated += 1
 
                         if total_updated % 50 == 0:

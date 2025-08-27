@@ -8,6 +8,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, get_weekday, getdate, now_datetime
 
+from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -406,7 +407,18 @@ def create_system_notification(result):
         for user in finance_users:
             notification_copy = notification.copy()
             notification_copy.for_user = user
-            notification_copy.insert(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            notification_result = secure_document_operation(
+                operation="insert",
+                doc=notification_copy,
+                justification=f"Create system notification for batch creation - user {user} - {result['batches_created']} batches created",
+                required_permissions=["Notification Log:create"],
+            )
+            if not notification_result.success:
+                frappe.log_error(
+                    f"Failed to create notification for user {user}: {'; '.join(notification_result.errors)}",
+                    "Batch Notification Error",
+                )
 
     except Exception as e:
         frappe.log_error(f"Error creating system notification: {str(e)}", "System Notification Error")

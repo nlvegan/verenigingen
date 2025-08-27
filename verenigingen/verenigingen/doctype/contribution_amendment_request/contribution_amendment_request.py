@@ -3,6 +3,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import add_days, getdate, now_datetime, today
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 class ContributionAmendmentRequest(Document):
     def validate(self):
@@ -26,9 +28,20 @@ class ContributionAmendmentRequest(Document):
             frappe.throw(_("Can only create amendments for Active or Inactive memberships"))
 
     def validate_effective_date(self):
-        """Validate effective date is in the future"""
-        if self.effective_date and getdate(self.effective_date) < getdate(today()):
-            frappe.throw(_("Effective date cannot be in the past"))
+        """Validate effective date is today or in the future"""
+        if self.effective_date:
+            effective_date_parsed = getdate(self.effective_date)
+            today_date = getdate(today())
+            frappe.logger().info(
+                f"Effective date validation - effective_date: {effective_date_parsed}, today: {today_date}, is_past: {effective_date_parsed < today_date}"
+            )
+
+            if effective_date_parsed < today_date:
+                frappe.throw(
+                    _("Effective date cannot be in the past. Date provided: {0}, Today: {1}").format(
+                        effective_date_parsed, today_date
+                    )
+                )
 
     def validate_amount_changes(self):
         """Validate amount changes are reasonable"""
@@ -84,13 +97,13 @@ class ContributionAmendmentRequest(Document):
         if not self.member or not self.is_new():
             return  # Only check for new documents
 
-        # Check for existing pending or approved amendments
+        # Check for existing pending amendments (only "Pending Approval" should block new requests)
         existing_amendments = frappe.get_all(
             "Contribution Amendment Request",
             filters={
                 "member": self.member,
                 "name": ["!=", self.name],  # Exclude current amendment
-                "status": ["in", ["Pending Approval", "Approved"]],
+                "status": ["in", ["Pending Approval"]],  # Only truly pending requests should block
             },
             fields=["name", "status", "requested_amount"],
         )
@@ -102,8 +115,8 @@ class ContributionAmendmentRequest(Document):
 
             frappe.throw(
                 _(
-                    "Cannot create new amendment. Member {0} already has pending amendments: {1}. "
-                    "Please cancel or apply existing amendments before creating new ones."
+                    "Cannot create new amendment. Member {0} has pending amendments: {1}. "
+                    "Please wait for approval before creating new ones."
                 ).format(self.member, ", ".join(amendment_details))
             )
 
@@ -472,8 +485,19 @@ class ContributionAmendmentRequest(Document):
                 existing_doc.add_comment(
                     text=f"Cancelled and replaced by amendment {self.name}: €{self.requested_amount:.2f}"
                 )
-                existing_doc._ignore_permissions = True
-                existing_doc.save(ignore_permissions=True)
+                cancel_result = secure_document_operation(
+                    operation="save",
+                    doc=existing_doc,
+                    justification=f"Cancel existing dues schedule {existing_schedule} for amendment {self.name}",
+                    required_permissions=["Membership Dues Schedule:write"],
+                )
+                if not cancel_result.success:
+                    error_details = "; ".join(cancel_result.errors)
+                    frappe.throw(
+                        _("Failed to cancel dues schedule {0} during amendment {1}: {2}").format(
+                            existing_schedule, self.name, error_details
+                        )
+                    )
 
             # Create new dues schedule
             dues_schedule = frappe.new_doc("Membership Dues Schedule")
@@ -543,9 +567,22 @@ class ContributionAmendmentRequest(Document):
                 f"Created from amendment request {self.name} by {frappe.session.user} on {today()}"
             )
 
-            # Set flag to skip permission check and save with ignore_permissions
-            dues_schedule._ignore_permissions = True
-            dues_schedule.save(ignore_permissions=True)
+            # Create new dues schedule with proper security validation
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            create_result = secure_document_operation(
+                operation="save",
+                doc=dues_schedule,
+                justification=f"Create new dues schedule for amendment {self.name} - Rate: €{self.requested_amount:.2f}",
+                required_permissions=["Membership Dues Schedule:create"],
+            )
+            if not create_result.success:
+                error_details = "; ".join(create_result.errors)
+                frappe.throw(
+                    _("Failed to create dues schedule for amendment {0} with rate €{1}: {2}").format(
+                        self.name, self.requested_amount, error_details
+                    )
+                )
 
             # Add comment about the amendment
             dues_schedule.add_comment(
@@ -584,8 +621,18 @@ class ContributionAmendmentRequest(Document):
                 existing_doc.add_comment(
                     text=f"Cancelled due to membership type change via amendment {self.name}"
                 )
-                existing_doc._ignore_permissions = True
-                existing_doc.save(ignore_permissions=True)
+                cancel_result = secure_document_operation(
+                    operation="save",
+                    doc=existing_doc,
+                    justification=f"Cancel existing dues schedule for membership type change via amendment {self.name}",
+                    required_permissions=["Membership Dues Schedule:write"],
+                )
+                if not cancel_result.success:
+                    frappe.throw(
+                        _("Failed to cancel existing dues schedule: {0}").format(
+                            "; ".join(cancel_result.errors)
+                        )
+                    )
 
             # Create new dues schedule with new membership type settings
             dues_schedule_name = self.create_dues_schedule_for_amendment()
@@ -600,7 +647,16 @@ class ContributionAmendmentRequest(Document):
                 member_doc.fee_override_date = today()
                 member_doc.fee_override_by = frappe.session.user
                 member_doc._system_update = True
-                member_doc.save(ignore_permissions=True)
+                member_result = secure_document_operation(
+                    operation="save",
+                    doc=member_doc,
+                    justification=f"Update member fee override for membership type change amendment {self.name}",
+                    required_permissions=["Member:write"],
+                )
+                if not member_result.success:
+                    frappe.throw(
+                        _("Failed to update member fee override: {0}").format("; ".join(member_result.errors))
+                    )
 
             self.processing_notes = f"Membership type changed to {self.requested_membership_type}. New dues schedule {dues_schedule_name} created."
 
@@ -1363,7 +1419,14 @@ def fix_membership_type_billing_periods():
                 # Update the membership type
                 membership_type = frappe.get_doc("Membership Type", correction["name"])
                 membership_type.billing_period = correction["corrected_billing_period"]
-                membership_type.save(ignore_permissions=True)
+                type_result = secure_document_operation(
+                    operation="save",
+                    doc=membership_type,
+                    justification=f"Correct billing period for membership type {correction['name']} via amendment {self.name if hasattr(self, 'name') else 'system'}",
+                    required_permissions=["Membership Type:write"],
+                )
+                if not type_result.success:
+                    raise Exception(f"Failed to update membership type: {'; '.join(type_result.errors)}")
 
                 applied_corrections.append(
                     {
@@ -1439,7 +1502,16 @@ def fix_membership_dues_schedule_templates():
                 # Update the dues schedule template
                 schedule_doc = frappe.get_doc("Membership Dues Schedule", correction["name"])
                 schedule_doc.billing_frequency = correction["corrected_billing_frequency"]
-                schedule_doc.save(ignore_permissions=True)
+                schedule_result = secure_document_operation(
+                    operation="save",
+                    doc=schedule_doc,
+                    justification=f"Correct billing frequency for dues schedule template {correction['schedule_name']}",
+                    required_permissions=["Membership Dues Schedule:write"],
+                )
+                if not schedule_result.success:
+                    raise Exception(
+                        f"Failed to update dues schedule template: {'; '.join(schedule_result.errors)}"
+                    )
 
                 applied_corrections.append(
                     {
@@ -1503,7 +1575,16 @@ def fix_orphaned_schedule_templates():
                         schedule_doc = frappe.get_doc("Membership Dues Schedule", schedule.name)
                         old_frequency = schedule_doc.billing_frequency
                         schedule_doc.billing_frequency = membership_type.billing_period
-                        schedule_doc.save(ignore_permissions=True)
+                        template_result = secure_document_operation(
+                            operation="save",
+                            doc=schedule_doc,
+                            justification=f"Align template billing frequency with membership type {membership_type.name}",
+                            required_permissions=["Membership Dues Schedule:write"],
+                        )
+                        if not template_result.success:
+                            raise Exception(
+                                f"Failed to update template frequency: {'; '.join(template_result.errors)}"
+                            )
 
                         corrected_templates.append(
                             {
@@ -1522,7 +1603,19 @@ def fix_orphaned_schedule_templates():
         for orphan in orphaned_templates:
             try:
                 # Delete orphaned templates
-                frappe.delete_doc("Membership Dues Schedule", orphan["name"], ignore_permissions=True)
+                # Create a temporary document to represent the delete operation
+                orphan_doc = frappe.get_doc("Membership Dues Schedule", orphan["name"])
+                delete_result = secure_document_operation(
+                    operation="delete",
+                    doc=orphan_doc,
+                    justification=f"Delete orphaned dues schedule template {orphan['schedule_name']} - references non-existent membership type",
+                    required_permissions=["Membership Dues Schedule:delete"],
+                )
+                if not delete_result.success:
+                    raise Exception(f"Failed to delete orphaned template: {'; '.join(delete_result.errors)}")
+                # Use frappe.delete_doc if secure_document_operation doesn't handle delete properly
+                if orphan_doc.name:
+                    frappe.delete_doc("Membership Dues Schedule", orphan["name"], force=True)
                 cleanup_results.append(
                     {
                         "schedule_name": orphan["schedule_name"],

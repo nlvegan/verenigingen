@@ -7,6 +7,8 @@ import frappe
 from frappe import _
 from frappe.utils import cint
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 class MemberIDManager:
     """Manages member ID counter with atomic operations"""
@@ -142,7 +144,17 @@ class MemberIDManager:
                         "next_member_id": next_id + 1,  # Next available
                     }
                 )
-                counter_doc.insert(ignore_permissions=True, ignore_mandatory=True)
+                counter_result = secure_document_operation(
+                    operation="insert",
+                    doc=counter_doc,
+                    justification=f"Create system member counter document with next ID {next_id + 1}",
+                    required_permissions=["Member:create"],
+                )
+                if not counter_result.success:
+                    frappe.log_error(
+                        f"Failed to create member counter document: {'; '.join(counter_result.errors)}",
+                        "Member ID Counter",
+                    )
             else:
                 # Update existing counter document
                 frappe.db.set_value("Member", system_member, "next_member_id", next_id + 1)

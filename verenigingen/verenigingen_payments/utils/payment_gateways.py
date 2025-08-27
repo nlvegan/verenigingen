@@ -9,6 +9,8 @@ import frappe
 from frappe import _
 from frappe.utils import getdate
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 class PaymentGateway(ABC):
     """Abstract base class for payment gateways"""
@@ -649,7 +651,19 @@ class SEPAGateway(PaymentGateway):
                 }
             )
 
-            mandate.insert(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            mandate_result = secure_document_operation(
+                operation="insert",
+                doc=mandate,
+                justification=f"Create SEPA mandate for donation {donation.name} - {mandate.mandate_type} mandate for donor {form_data.get('donor_name', donor.donor_name)}",
+                required_permissions=["SEPA Mandate:create"],
+            )
+            if not mandate_result.success:
+                frappe.log_error(
+                    f"Failed to create SEPA mandate for donation {donation.name}: {'; '.join(mandate_result.errors)}",
+                    "SEPA Gateway Error",
+                )
+                return None
             return mandate
 
         except Exception as e:

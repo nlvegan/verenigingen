@@ -1,5 +1,7 @@
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 # Import security framework
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
@@ -51,10 +53,17 @@ def create_root_accounts():
             account.is_group = 1
             account.account_number = acc["account_number"]
 
-            # Special handling: Use save() which might handle root account validation differently
+            # Special handling: Use secure operation for root account creation
             account.flags.ignore_validate = True
             account.flags.ignore_mandatory = True
-            account.save(ignore_permissions=True)
+            result = secure_document_operation(
+                operation="save",
+                doc=account,
+                justification=f"Create root account '{acc['account_name']}' for company {company} - essential accounting structure setup for Dutch Grootboekschema",
+                required_permissions=["Account:create"],
+            )
+            if not result.success:
+                raise Exception(f"Failed to create root account: {'; '.join(result.errors)}")
             created.append(f"{acc['account_name']} ({acc['root_type']})")
             print(f"Created root account: {account.name}")
 
@@ -170,7 +179,15 @@ def create_standard_coa_groups():
                 }
             )
 
-            account.insert(ignore_permissions=True)
+            result = secure_document_operation(
+                operation="insert",
+                doc=account,
+                justification=f"Create account group '{grp['account_name']}' under '{grp['parent']}' for company {company} - structured chart of accounts organization",
+                required_permissions=["Account:create"],
+            )
+            if not result.success:
+                raise Exception(f"Failed to create account group: {'; '.join(result.errors)}")
+            account = result.doc
             created.append(f"{grp['account_name']} under {grp['parent']}")
             print(f"Created group: {account.name}")
 

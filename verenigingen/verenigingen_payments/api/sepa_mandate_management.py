@@ -2,6 +2,8 @@ import frappe
 from frappe import _
 from frappe.utils import nowdate, today
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 # Import security framework
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -105,7 +107,18 @@ def create_missing_sepa_mandates(dry_run=True):
                     }
                 )
 
-                mandate.insert(ignore_permissions=True)
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                mandate_result = secure_document_operation(
+                    operation="insert",
+                    doc=mandate,
+                    justification=f"Auto-create SEPA mandate {mandate_id} for member {member.name} with SEPA Direct Debit payment method",
+                    required_permissions=["SEPA Mandate:create"],
+                )
+                if not mandate_result.success:
+                    raise Exception(
+                        f"Failed to create SEPA mandate for {member.name}: {'; '.join(mandate_result.errors)}"
+                    )
+
                 mandate.submit()
 
                 # Link mandate to member
@@ -120,7 +133,17 @@ def create_missing_sepa_mandates(dry_run=True):
                         "valid_from": today(),
                     },
                 )
-                member_doc.save(ignore_permissions=True)
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                member_result = secure_document_operation(
+                    operation="save",
+                    doc=member_doc,
+                    justification=f"Link SEPA mandate {mandate_id} to member {member.name} child table after mandate creation",
+                    required_permissions=["Member:write"],
+                )
+                if not member_result.success:
+                    raise Exception(
+                        f"Failed to link mandate to member {member.name}: {'; '.join(member_result.errors)}"
+                    )
 
                 results["created"] += 1
                 results["mandates"].append(
@@ -334,7 +357,17 @@ def periodic_sepa_mandate_child_table_sync():
                             },
                         )
 
-                    member.save(ignore_permissions=True)
+                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                    sync_result = secure_document_operation(
+                        operation="save",
+                        doc=member,
+                        justification=f"Periodic sync of SEPA mandate child table for member {member_name} - {len(mandates)} mandates",
+                        required_permissions=["Member:write"],
+                    )
+                    if not sync_result.success:
+                        raise Exception(
+                            f"Failed to sync SEPA mandates for {member_name}: {'; '.join(sync_result.errors)}"
+                        )
                     results["successfully_synced"] += 1
 
                     results["details"].append(

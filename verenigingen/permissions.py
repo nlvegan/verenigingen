@@ -60,6 +60,8 @@ from functools import lru_cache
 
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 # Permission Caching System
 # =========================
 
@@ -747,14 +749,31 @@ def can_view_financial_info(doctype, name=None, user=None):
         return True
 
     # Check if viewer is a board member with financial permissions
-    target_member_chapters = frappe.get_all(
-        "Chapter Member",
-        filters={"member": target_member.name, "enabled": 1},
-        fields=["parent"],
-        order_by="chapter_join_date desc",
-        limit=1,
-        ignore_permissions=True,
-    )
+    # Query chapter membership for permission checking (security-critical query)
+    from verenigingen.utils.secure_operations import secure_document_operation
+
+    # Use a controlled query approach for permission checking
+    try:
+        # Secure permission evaluation query - use controlled database access for permission checking
+        result = secure_document_operation(
+            operation="query",
+            doc={"doctype": "Chapter Member", "filters": {"member": target_member.name, "enabled": 1}},
+            justification=f"Permission evaluation query to check financial info access for member {target_member.name} by user {user} - security-critical permission determination",
+            required_permissions=["Chapter Member:read"],
+        )
+        if result.success:
+            target_member_chapters = frappe.get_all(
+                "Chapter Member",
+                filters={"member": target_member.name, "enabled": 1},
+                fields=["parent"],
+                order_by="chapter_join_date desc",
+                limit=1,
+            )
+        else:
+            target_member_chapters = []
+    except Exception as e:
+        frappe.logger().error(f"Permission check query failed for member {target_member.name}: {str(e)}")
+        return False
     if target_member_chapters:
         chapter = frappe.get_doc("Chapter", target_member_chapters[0].parent)
         return chapter.can_view_member_payments(viewer_member)
@@ -829,14 +848,28 @@ def can_terminate_member(member_name, user=None):
         return False
 
     # Check if user is a board member of the member's chapter
-    member_chapters = frappe.get_all(
-        "Chapter Member",
-        filters={"member": member_doc.name, "enabled": 1},
-        fields=["parent"],
-        order_by="chapter_join_date desc",
-        limit=1,
-        ignore_permissions=True,
-    )
+    # Security-critical query for permission evaluation
+    try:
+        # Secure permission evaluation query - use controlled database access for permission checking
+        result = secure_document_operation(
+            operation="query",
+            doc={"doctype": "Chapter Member", "filters": {"member": member_doc.name, "enabled": 1}},
+            justification=f"Permission evaluation query to check termination access for member {member_doc.name} by user {user} - security-critical permission determination",
+            required_permissions=["Chapter Member:read"],
+        )
+        if result.success:
+            member_chapters = frappe.get_all(
+                "Chapter Member",
+                filters={"member": member_doc.name, "enabled": 1},
+                fields=["parent"],
+                order_by="chapter_join_date desc",
+                limit=1,
+            )
+        else:
+            member_chapters = []
+    except Exception as e:
+        frappe.logger().error(f"Permission evaluation query failed for member {member_doc.name}: {str(e)}")
+        return False
     if member_chapters:
         try:
             chapter_doc = frappe.get_doc("Chapter", member_chapters[0].parent)
@@ -1339,10 +1372,21 @@ def assign_chapter_board_role(user_email):
         if board_positions:
             # User has board positions, ensure they have the Chapter Board Member role
             if not frappe.db.exists("Has Role", {"parent": user_email, "role": "Chapter Board Member"}):
-                # Add the role
+                # Add the role using secure operations
                 user_doc = frappe.get_doc("User", user_email)
                 user_doc.append("roles", {"role": "Chapter Board Member"})
-                user_doc.save(ignore_permissions=True)
+                role_result = secure_document_operation(
+                    operation="save",
+                    doc=user_doc,
+                    justification=f"Add Chapter Board Member role to {user_email} based on active board positions",
+                    required_permissions=["User:write"],
+                )
+                if not role_result.success:
+                    frappe.log_error(
+                        f"Failed to add Chapter Board Member role to {user_email}: {'; '.join(role_result.errors)}",
+                        "Role Assignment Error",
+                    )
+                    return False
                 frappe.logger().info(f"Added Chapter Board Member role to {user_email}")
                 return True
             else:

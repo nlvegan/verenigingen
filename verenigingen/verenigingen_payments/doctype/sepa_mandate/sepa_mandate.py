@@ -6,6 +6,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import getdate, today
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 class SEPAMandate(Document):
     def validate(self):
@@ -271,7 +273,18 @@ class SEPAMandate(Document):
                     },
                 )
 
-            member.save(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            member_result = secure_document_operation(
+                operation="save",
+                doc=member,
+                justification=f"Update member {self.member} SEPA mandates child table after mandate {self.mandate_id} changes",
+                required_permissions=["Member:write"],
+            )
+            if not member_result.success:
+                frappe.log_error(
+                    f"Failed to update member SEPA mandates table for {self.member}: {'; '.join(member_result.errors)}",
+                    "SEPA Mandate Member Update Error",
+                )
 
         except Exception as e:
             frappe.log_error(

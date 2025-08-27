@@ -3,6 +3,12 @@ from frappe import _
 from frappe.utils import flt, formatdate, today
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.volunteer_expense_setup import (
+    create_default_cost_center,
+    get_fallback_cost_center,
+    get_or_create_expense_type,
+    setup_expense_claim_types,
+)
 
 
 def get_context(context):
@@ -68,6 +74,7 @@ def get_user_volunteer_record():
         return volunteer
 
     return None
+
 
 @frappe.whitelist()
 def create_volunteer_for_member(member_name):
@@ -652,6 +659,7 @@ def upload_expense_receipt():
         )
         return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
+
 @frappe.whitelist()
 def submit_expense(expense_data):
     """Submit a new expense from the portal"""
@@ -849,7 +857,7 @@ def submit_expense(expense_data):
         expense_result = secure_document_operation(
             operation="insert",
             doc=expense_claim,
-            justification=f"Create volunteer expense claim for {volunteer_name} - Amount: {flt(expense_data.get('amount'))}",
+            justification=f"Create volunteer expense claim for {volunteer.name} - Amount: {flt(expense_data.get('amount'))}",
             required_permissions=["Expense Claim:create"],
         )
 
@@ -887,7 +895,7 @@ def submit_expense(expense_data):
                     file_result = secure_document_operation(
                         operation="save",
                         doc=file_doc,
-                        justification=f"Attach receipt file {file_doc.name} to expense claim {expense_claim.name} for volunteer {volunteer_name}",
+                        justification=f"Attach receipt file {file_doc.name} to expense claim {expense_claim.name} for volunteer {volunteer.name}",
                         required_permissions=["File:write"],
                     )
 
@@ -929,7 +937,7 @@ def submit_expense(expense_data):
                     file_result = secure_document_operation(
                         operation="insert",
                         doc=file_doc,
-                        justification=f"Create receipt file {receipt_data.get('file_name')} for expense claim {expense_claim.name} - volunteer {volunteer_name}",
+                        justification=f"Create receipt file {receipt_data.get('file_name')} for expense claim {expense_claim.name} - volunteer {volunteer.name}",
                         required_permissions=["File:create"],
                     )
 
@@ -985,7 +993,7 @@ def submit_expense(expense_data):
         expense_result = secure_document_operation(
             operation="insert",
             doc=volunteer_expense,
-            justification=f"Create volunteer expense record for {volunteer_name} - Amount: {expense_data.get('amount')} - Category: {expense_data.get('category')}",
+            justification=f"Create volunteer expense record for {volunteer.name} - Amount: {expense_data.get('amount')} - Category: {expense_data.get('category')}",
             required_permissions=["Volunteer Expense:create"],
         )
 
@@ -1151,91 +1159,7 @@ def get_expense_details(expense_name):
         frappe.throw(_("Error retrieving expense details"))
 
 
-def setup_expense_claim_types():
-    """Set up expense claim types with proper account configuration"""
-    try:
-        # Get default company
-        default_company = frappe.defaults.get_global_default("company")
-        if not default_company:
-            companies = frappe.get_all("Company", limit=1, fields=["name"])
-            default_company = companies[0].name if companies else None
-
-        if not default_company:
-            print("   ⚠️ No default company found")
-            return "Travel"
-
-        print(f"   Company: {default_company}")
-
-        # Get expense account from explicit company configuration
-        expense_account = None
-
-        # First, check company's default expense account
-        company_doc = frappe.get_doc("Company", default_company)
-        if hasattr(company_doc, "default_expense_account") and company_doc.default_expense_account:
-            expense_account = company_doc.default_expense_account
-            print(f"   Using company default expense account: {expense_account}")
-
-        # Second, check for default payable account
-        elif hasattr(company_doc, "default_payable_account") and company_doc.default_payable_account:
-            expense_account = company_doc.default_payable_account
-            print(f"   Using default payable account: {expense_account}")
-
-        # If no explicit configuration found, require explicit setup
-        if not expense_account:
-            frappe.throw(
-                f"No expense account configured for company {default_company}. "
-                "Please configure 'default_expense_account' or 'default_payable_account' "
-                "in Company settings for proper expense claim processing. "
-                "Implicit account lookup has been disabled for data safety."
-            )
-
-        print(f"   Using configured expense account: {expense_account}")
-
-        # Create or update a Travel expense claim type
-        expense_type_name = "Travel"
-        if not frappe.db.exists("Expense Claim Type", expense_type_name):
-            expense_claim_type = frappe.get_doc(
-                {
-                    "doctype": "Expense Claim Type",
-                    "expense_type": expense_type_name,
-                    "description": "Travel and transportation expenses",
-                }
-            )
-        else:
-            expense_claim_type = frappe.get_doc("Expense Claim Type", expense_type_name)
-
-        # Set up the accounts field directly
-        try:
-            # Check if accounts table exists and add account entry
-            if hasattr(expense_claim_type, "accounts"):
-                # Clear existing accounts
-                expense_claim_type.accounts = []
-
-                # Add the account entry
-                expense_claim_type.append(
-                    "accounts", {"company": default_company, "default_account": expense_account}
-                )
-
-                expense_claim_type.save(ignore_permissions=True)
-                print(f"   ✅ Configured expense type '{expense_type_name}' with account '{expense_account}'")
-            else:
-                # Fallback: Create the basic expense claim type without accounts
-                expense_claim_type.save(ignore_permissions=True)
-                print(
-                    f"   ⚠️ Created basic expense type '{expense_type_name}' - accounts configuration not available"
-                )
-        except Exception as account_error:
-            print(f"   ⚠️ Could not configure accounts: {str(account_error)}")
-            expense_claim_type.save(ignore_permissions=True)
-
-        return expense_type_name
-
-    except Exception as e:
-        print(f"   ⚠️ Error setting up expense claim types: {str(e)}")
-        import traceback
-
-        traceback.print_exc()
-        return "Travel"
+# setup_expense_claim_types function moved to verenigingen.utils.volunteer_expense_setup
 
 
 def get_organization_cost_center(expense_data):
@@ -1302,47 +1226,10 @@ def get_organization_cost_center(expense_data):
         return get_fallback_cost_center()
 
 
-def create_default_cost_center(company):
-    """Create a default cost center for expenses"""
-    try:
-        cost_center_name = f"Volunteer Expenses - {frappe.db.get_value('Company', company, 'abbr')}"
-
-        if not frappe.db.exists("Cost Center", cost_center_name):
-            # Get parent cost center (usually company name)
-            parent_cost_center = frappe.db.get_value(
-                "Cost Center", filters={"company": company, "is_group": 1}, fieldname="name"
-            )
-
-            if not parent_cost_center:
-                parent_cost_center = company  # Use company as parent
-
-            cost_center_doc = frappe.get_doc(
-                {
-                    "doctype": "Cost Center",
-                    "cost_center_name": "Volunteer Expenses",
-                    "parent_cost_center": parent_cost_center,
-                    "company": company,
-                    "is_group": 0,
-                }
-            )
-            cost_center_doc.insert(ignore_permissions=True)
-            frappe.logger().info(f"Created default cost center: {cost_center_name}")
-            return cost_center_name
-        else:
-            return cost_center_name
-
-    except Exception as e:
-        frappe.log_error(f"Error creating default cost center: {str(e)}", "Cost Center Creation Error")
-        return get_fallback_cost_center()
+# create_default_cost_center function moved to verenigingen.utils.volunteer_expense_setup
 
 
-def get_fallback_cost_center():
-    """Get any available cost center as fallback"""
-    try:
-        cost_centers = frappe.get_all("Cost Center", filters={"is_group": 0}, fields=["name"], limit=1)
-        return cost_centers[0].name if cost_centers else None
-    except Exception:
-        return None
+# get_fallback_cost_center function moved to verenigingen.utils.volunteer_expense_setup
 
 
 def validate_volunteer_organization_access(volunteer_name, organization_type, organization_name):
@@ -1427,82 +1314,8 @@ def is_policy_covered_expense(category):
         # Default to requiring permission if we can't determine policy coverage
         return False
 
-def get_or_create_expense_type(category):
-    """Get or create expense claim type for category"""
-    try:
-        # Try to find existing expense claim type with same name as category
-        expense_type = frappe.db.get_value("Expense Claim Type", {"expense_type": category}, "name")
-        if expense_type:
-            return expense_type
 
-        # Get default company and accounts for setup
-        default_company = frappe.defaults.get_global_default("company")
-        if not default_company:
-            companies = frappe.get_all("Company", limit=1, fields=["name"])
-            default_company = companies[0].name if companies else None
-
-        if not default_company:
-            frappe.log_error("No default company found for expense claim type creation", "Expense Type Error")
-            return "General"
-
-        # Find a suitable expense account
-        expense_account = frappe.db.get_value(
-            "Account",
-            {
-                "company": default_company,
-                "account_type": ["in", ["Expense Account", "Cost of Goods Sold"]],
-                "is_group": 0,
-            },
-            "name",
-        )
-
-        if not expense_account:
-            # Try to find any expense account
-            expense_account = frappe.db.get_value(
-                "Account",
-                {"company": default_company, "account_name": ["like", "%expense%"], "is_group": 0},
-                "name",
-            )
-
-        if not expense_account:
-            # Create a basic expense account
-            expense_account_doc = frappe.get_doc(
-                {
-                    "doctype": "Account",
-                    "account_name": "Volunteer Expenses",
-                    "account_type": "Expense Account",
-                    "parent_account": frappe.db.get_value(
-                        "Account",
-                        {"company": default_company, "account_name": ["like", "%expense%"], "is_group": 1},
-                        "name",
-                    ),
-                    "company": default_company,
-                    "is_group": 0,
-                }
-            )
-            expense_account_doc.insert(ignore_permissions=True)
-            expense_account = expense_account_doc.name
-
-        # Create new expense claim type with proper account setup
-        expense_claim_type = frappe.get_doc(
-            {
-                "doctype": "Expense Claim Type",
-                "expense_type": category,
-                "description": f"Auto-created for volunteer expense category: {category}",
-                "accounts": [{"company": default_company, "default_account": expense_account}],
-            }
-        )
-        expense_claim_type.insert(ignore_permissions=True)
-        frappe.logger().info(f"Created expense claim type: {category} with account: {expense_account}")
-        return expense_claim_type.name
-
-    except Exception as e:
-        frappe.log_error(f"Error creating expense claim type: {str(e)}", "Expense Type Error")
-        # Try to return any existing expense claim type
-        existing_types = frappe.get_all("Expense Claim Type", limit=1, fields=["name"])
-        if existing_types:
-            return existing_types[0].name
-        return "Travel"  # This is a common default in ERPNext
+# get_or_create_expense_type function moved to verenigingen.utils.volunteer_expense_setup
 
 
 @frappe.whitelist(allow_guest=False)
