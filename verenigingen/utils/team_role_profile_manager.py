@@ -259,8 +259,8 @@ def on_team_member_add(doc: "frappe._dict", method: str):
 
             def assign_role():
                 return assign_team_role_profile(
-                    user, doc.parent, doc.team_role
-                )  # ast-skip: doc is TeamMember
+                    user, doc.parent, doc.team_role  # ast-skip: doc is TeamMember
+                )
 
             result = safe_hook_execution(assign_role)
             if result and not result.get("success"):
@@ -300,16 +300,16 @@ def on_team_member_update(doc: "frappe._dict", method: str):
 
                 def assign_role():
                     return assign_team_role_profile(
-                        user, doc.parent, doc.team_role
-                    )  # ast-skip: doc is TeamMember
+                        user, doc.parent, doc.team_role  # ast-skip: doc is TeamMember
+                    )
 
                 safe_hook_execution(assign_role)
             else:
 
                 def remove_role():
                     return remove_team_role_profile(
-                        user, doc.parent, doc.team_role
-                    )  # ast-skip: doc is TeamMember
+                        user, doc.parent, doc.team_role  # ast-skip: doc is TeamMember
+                    )
 
                 safe_hook_execution(remove_role)
 

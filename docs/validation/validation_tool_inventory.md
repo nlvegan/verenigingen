@@ -1084,13 +1084,17 @@ The validation infrastructure has been significantly enhanced through systematic
 - **Current Status**: Working pre-commit integration - lightweight and fast
 
 ### ast_field_analyzer.py
-- **Primary Purpose**: Deep AST analysis tool for field usage patterns and code flow analysis
-- **Technical Approach**: Advanced AST walking with control flow analysis and variable tracking
-- **Integration Status**: Core analysis engine used by other validation tools
-- **Actual Output**: Provides detailed field usage analysis and code flow information
-- **Business Value**: Powers other validators with sophisticated code analysis capabilities
+- **Primary Purpose**: Deep AST analysis tool for field usage patterns and code flow analysis with suppression support
+- **Technical Approach**: Advanced AST walking with control flow analysis, variable tracking, and `# ast-skip:` suppression comments
+- **Integration Status**: Core analysis engine used by other validation tools with enhanced false positive handling
+- **Actual Output**: Provides detailed field usage analysis and code flow information with suppression comment support
+- **Business Value**: Powers other validators with sophisticated code analysis capabilities while reducing false positives through targeted suppressions
 - **Dependencies**: Python AST libraries, complex control flow analysis
-- **Current Status**: Working core component - provides analysis for other tools
+- **Current Status**: **ENHANCED** - Working core component with suppression comment support and improved accuracy
+- **New Features (2025-08-26)**:
+  - **Suppression Comments**: `# ast-skip: reason` comments bypass validation for known false positives
+  - **Type Hint Awareness**: Better handling of typed function parameters for accurate DocType inference
+  - **Improved Accuracy**: Reduced false positives through better context understanding
 
 ### sql_field_reference_validator.py
 - **Primary Purpose**: SQL field validation with confidence scoring and pattern recognition

@@ -98,8 +98,8 @@ class ChapterRoleProfileManager(BaseRoleProfileManager):
         # Chapter board members have a volunteer field
         if doc.get("volunteer"):
             volunteer_member = frappe.db.get_value(
-                "Volunteer", doc.volunteer, "member"
-            )  # ast-skip: doc is ChapterBoardMember
+                "Volunteer", doc.volunteer, "member"  # ast-skip: doc is ChapterBoardMember
+            )
             if volunteer_member:
                 return frappe.db.get_value("Member", volunteer_member, "user")
         return None
@@ -235,8 +235,8 @@ def on_chapter_board_member_add(doc: "frappe._dict", method: str):
 
             def assign_role():
                 return assign_chapter_board_role_profile(
-                    user, doc.parent, doc.chapter_role
-                )  # ast-skip: doc is ChapterBoardMember
+                    user, doc.parent, doc.chapter_role  # ast-skip: doc is ChapterBoardMember
+                )
 
             result = safe_hook_execution(assign_role)
             if result and not result.get("success"):
@@ -255,8 +255,8 @@ def on_chapter_board_member_remove(doc: "frappe._dict", method: str):
 
         def remove_role():
             return remove_chapter_board_role_profile(
-                user, doc.parent, doc.chapter_role
-            )  # ast-skip: doc is ChapterBoardMember
+                user, doc.parent, doc.chapter_role  # ast-skip: doc is ChapterBoardMember
+            )
 
         result = safe_hook_execution(remove_role)
         if result and not result.get("success"):
@@ -278,16 +278,16 @@ def on_chapter_board_member_update(doc: "frappe._dict", method: str):
 
                 def assign_role():
                     return assign_chapter_board_role_profile(
-                        user, doc.parent, doc.chapter_role
-                    )  # ast-skip: doc is ChapterBoardMember
+                        user, doc.parent, doc.chapter_role  # ast-skip: doc is ChapterBoardMember
+                    )
 
                 safe_hook_execution(assign_role)
             else:
 
                 def remove_role():
                     return remove_chapter_board_role_profile(
-                        user, doc.parent, doc.chapter_role
-                    )  # ast-skip: doc is ChapterBoardMember
+                        user, doc.parent, doc.chapter_role  # ast-skip: doc is ChapterBoardMember
+                    )
 
                 safe_hook_execution(remove_role)
 
