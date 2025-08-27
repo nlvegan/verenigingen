@@ -45,7 +45,7 @@ class ExpulsionReportEntry(Document):
                 fields=["parent"],
                 order_by="chapter_join_date desc",
                 limit=1,
-                ignore_permissions=True,
+                # CORRECTED: Removed ignore_permissions as this is just data lookup
             )
             if member_chapters:
                 self.chapter_involved = member_chapters[0].parent

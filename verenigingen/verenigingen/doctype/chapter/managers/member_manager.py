@@ -8,6 +8,7 @@ from frappe import _
 from frappe.utils import now, today
 
 from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
+from verenigingen.utils.secure_operations import secure_document_operation
 
 from .base_manager import BaseManager
 
@@ -58,7 +59,16 @@ class MemberManager(BaseManager):
                     existing_member.enabled = 1
                     existing_member.leave_reason = None
 
-                    self.chapter_doc.save(ignore_permissions=True)
+                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                    save_result = secure_document_operation(
+                        operation="save",
+                        doc=self.chapter_doc,
+                        justification=f"Re-enable member {member_id} in chapter {self.chapter_name}",
+                        required_permissions=["Chapter:write"],
+                    )
+
+                    if not save_result.success:
+                        frappe.throw(_("Unable to re-enable member. Please check permissions."))
 
                     self.create_comment(
                         "Info", _("Re-enabled member {0}").format(self._get_member_name(member_id))
@@ -111,7 +121,17 @@ class MemberManager(BaseManager):
                             "enabled": enabled,
                         },
                     )
-                    self.chapter_doc.save(ignore_permissions=True)
+
+                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                    save_result = secure_document_operation(
+                        operation="save",
+                        doc=self.chapter_doc,
+                        justification=f"Retry member addition for {member_id} after concurrency error",
+                        required_permissions=["Chapter:write"],
+                    )
+
+                    if not save_result.success:
+                        frappe.throw(_("Unable to save chapter after retry. Please check permissions."))
 
             # Add membership history tracking
             ChapterMembershipHistoryManager.add_membership_history(
@@ -192,7 +212,17 @@ class MemberManager(BaseManager):
                     # Reactivate request
                     existing_member.status = "Pending"
                     existing_member.chapter_join_date = None
-                    self.chapter_doc.save(ignore_permissions=True)
+
+                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                    save_result = secure_document_operation(
+                        operation="save",
+                        doc=self.chapter_doc,
+                        justification=f"Reactivate membership request for {member_id} in chapter {self.chapter_name}",
+                        required_permissions=["Chapter:write"],
+                    )
+
+                    if not save_result.success:
+                        frappe.throw(_("Unable to reactivate membership request. Please check permissions."))
 
                     self.create_comment(
                         "Info",

@@ -165,7 +165,22 @@ def link_donation_to_agreement(donation, agreement):
 
         # Link donation
         donation_doc.periodic_donation_agreement = agreement
-        donation_doc.save(ignore_permissions=True)
+
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        # Secure donation update with explicit permission validation
+        donation_result = secure_document_operation(
+            operation="save",
+            doc=donation_doc,
+            justification=f"Link donation {donation} to periodic donation agreement {agreement}",
+            required_permissions=["Donation:write"],
+        )
+
+        if not donation_result.success:
+            frappe.throw(
+                _("Failed to link donation to agreement: {0}").format("; ".join(donation_result.errors))
+            )
 
         # Add to agreement's donation table
         agreement_doc.link_donation(donation)

@@ -6,6 +6,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, now_datetime, today
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 # Import security decorators
 from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
 
@@ -42,7 +44,20 @@ def assign_member_to_chapter(member, chapter):
                     "chapter_join_date": today(),
                 },
             )
-            chapter_doc.save()
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            chapter_result = secure_document_operation(
+                operation="save",
+                doc=chapter_doc,
+                justification=f"Assign member {member.name} to chapter {chapter}",
+                required_permissions=["Chapter:write"],
+            )
+
+            if not chapter_result.success:
+                frappe.log_error(
+                    f"Failed to assign member to chapter: {'; '.join(chapter_result.errors)}",
+                    "Chapter Assignment Security",
+                )
+                return
             frappe.logger().info(f"Added member {member.name} to chapter {chapter}")
         else:
             frappe.logger().info(f"Member {member.name} already exists in chapter {chapter}")
@@ -721,6 +736,7 @@ def activate_volunteer_record(member):
 
 
 @frappe.whitelist()
+@high_security_api()  # Member application rejection workflow
 def reject_membership_application(
     member_name,
     reason,
@@ -1316,6 +1332,7 @@ def get_pending_applications(chapter=None, days_overdue=None):
 
 
 @frappe.whitelist()
+@standard_api()  # Member data query
 def get_pending_reviews_for_member(member_name):
     """Get pending membership application reviews for a specific member"""
     try:
@@ -1347,6 +1364,7 @@ def get_pending_reviews_for_member(member_name):
 
 
 @frappe.whitelist()
+@standard_api()  # Debugging and diagnostic tool
 def debug_and_fix_member_approval(member_name):
     """Debug and fix member approval issues"""
     try:
@@ -1398,6 +1416,7 @@ def debug_and_fix_member_approval(member_name):
 
 
 @frappe.whitelist()
+@standard_api()  # Testing and diagnostic tool
 def test_member_approval(member_name):
     """Test member approval without actually approving"""
     try:
@@ -1433,6 +1452,7 @@ def test_member_approval(member_name):
 
 
 @frappe.whitelist()
+@critical_api()  # Administrative member status synchronization
 def sync_member_statuses():
     """Sync member application and status fields to ensure consistency"""
     try:
@@ -1482,6 +1502,7 @@ def sync_member_statuses():
 
 
 @frappe.whitelist()
+@critical_api()  # Administrative member status correction
 def fix_backend_member_statuses():
     """One-time fix for backend-created members showing as Pending"""
     try:
@@ -1592,6 +1613,7 @@ def get_application_stats():
 
 
 @frappe.whitelist()
+@critical_api()  # Administrative data migration
 def migrate_active_application_status():
     """Migrate members with 'Active' application_status to 'Approved'"""
     try:
@@ -1635,6 +1657,7 @@ def migrate_active_application_status():
 
 
 @frappe.whitelist()
+@standard_api()  # Member IBAN data validation
 def check_member_iban_data(member_name):
     """Check the current IBAN data for a member"""
     try:
@@ -1658,6 +1681,7 @@ def check_member_iban_data(member_name):
 
 
 @frappe.whitelist()
+@standard_api()  # Financial debugging tool
 def debug_custom_amount_flow(member_name):
     """Debug the custom amount flow for a specific member"""
     try:
@@ -1714,6 +1738,7 @@ def debug_custom_amount_flow(member_name):
 
 
 @frappe.whitelist()
+@standard_api()  # Notification sending utility
 def send_overdue_notifications(**kwargs):
     """Send notifications for overdue applications (> 2 weeks)"""
     # This would be called by a scheduled job
@@ -1737,6 +1762,7 @@ def send_overdue_notifications(**kwargs):
 
 
 @frappe.whitelist()
+@standard_api()  # Membership debugging tool
 def debug_membership_dues_schedule(membership_name):
     """Debug a specific membership and its dues schedule"""
     try:
@@ -1784,6 +1810,7 @@ def debug_membership_dues_schedule(membership_name):
 
 
 @frappe.whitelist()
+@standard_api()  # Configuration debugging tool
 def debug_membership_type_settings(membership_type_name):
     """Debug a membership type and its settings"""
     try:
@@ -1810,6 +1837,7 @@ def debug_membership_type_settings(membership_type_name):
 
 
 @frappe.whitelist()
+@standard_api()  # Invoice relationship validation
 def check_dues_schedule_invoice_relationship(invoice_name):
     """Check dues schedule invoice relationships"""
     try:
@@ -1928,6 +1956,7 @@ def notify_managers_of_overdue_applications(applications):
 
 
 @frappe.whitelist()
+@critical_api()  # System configuration management
 def create_default_email_templates():
     """Create default email templates for membership application management"""
     if not frappe.has_permission("Email Template", "create"):

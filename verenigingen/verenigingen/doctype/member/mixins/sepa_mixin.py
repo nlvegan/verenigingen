@@ -3,6 +3,8 @@ from typing import Any, Dict
 import frappe
 from frappe.utils import today
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 class SEPAMandateMixin:
     """Mixin for SEPA mandate-related functionality"""
@@ -84,7 +86,23 @@ class SEPAMandateMixin:
                 )
 
             # Save the updated member document
-            self.save(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            member_result = secure_document_operation(
+                operation="save",
+                doc=self,
+                justification=f"Refresh SEPA mandate history for member {self.name} with {len(mandates)} mandates",
+                required_permissions=["Member:write"],
+            )
+
+            if not member_result.success:
+                frappe.log_error(
+                    f"Failed to save SEPA mandate refresh: {'; '.join(member_result.errors)}",
+                    "Member SEPA Mandate Security",
+                )
+                return {
+                    "success": False,
+                    "error": f"Security error during mandate refresh: {'; '.join(member_result.errors)}",
+                }
 
             return {
                 "success": True,
@@ -606,7 +624,22 @@ def create_sepa_mandate_via_service(self, iban: str, bic: str = None) -> Dict[st
         )
 
         # Save member document
-        self.save(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        member_result = secure_document_operation(
+            operation="save",
+            doc=self,
+            justification=f"Update member {self.name} with new SEPA mandate {mandate.mandate_id} via service",
+            required_permissions=["Member:write"],
+        )
+
+        if not member_result.success:
+            frappe.log_error(
+                f"Failed to save SEPA mandate creation: {'; '.join(member_result.errors)}",
+                "Member SEPA Mandate Security",
+            )
+            frappe.throw(
+                _("Failed to update member with SEPA mandate: {0}").format("; ".join(member_result.errors))
+            )
 
         return {
             "success": True,

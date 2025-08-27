@@ -1227,6 +1227,9 @@ class Member(
 
         customer.flags.ignore_mandatory = True
 
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
         # Suppress all messages during customer creation if we're in application submission
         if getattr(self, "_suppress_customer_messages", False):
             customer.flags.ignore_messages = True
@@ -1234,18 +1237,46 @@ class Member(
             original_msgprint = frappe.msgprint
             frappe.msgprint = lambda *args, **kwargs: None
             try:
-                # System operation: automated customer creation during member setup
-                customer.insert(ignore_permissions=True)  # JUSTIFIED: System operation
+                # Secure customer creation with explicit permission validation
+                customer_result = secure_document_operation(
+                    operation="insert",
+                    doc=customer,
+                    justification=f"Automated customer creation for member {self.name} during application submission",
+                    required_permissions=["Customer:create"],
+                )
+
+                if not customer_result.success:
+                    frappe.throw(
+                        _("Failed to create customer: {0}").format("; ".join(customer_result.errors))
+                    )
+
             finally:
                 # Restore original msgprint function
                 frappe.msgprint = original_msgprint
         else:
-            # System operation: automated customer creation during member setup
-            customer.insert(ignore_permissions=True)  # JUSTIFIED: System operation
+            # Secure customer creation with explicit permission validation
+            customer_result = secure_document_operation(
+                operation="insert",
+                doc=customer,
+                justification=f"Automated customer creation for member {self.name}",
+                required_permissions=["Customer:create"],
+            )
+
+            if not customer_result.success:
+                frappe.throw(_("Failed to create customer: {0}").format("; ".join(customer_result.errors)))
 
         self.customer = customer.name
-        # System operation: updating member with created customer link
-        self.save(ignore_permissions=True)  # JUSTIFIED: System operation
+
+        # Secure member update with explicit permission validation
+        member_result = secure_document_operation(
+            operation="save",
+            doc=self,
+            justification=f"Member update to link customer {customer.name}",
+            required_permissions=["Member:write"],
+        )
+
+        if not member_result.success:
+            frappe.throw(_("Failed to update member: {0}").format("; ".join(member_result.errors)))
 
         # Only show success message if not during application submission
         if not getattr(self, "_suppress_customer_messages", False):
@@ -1288,9 +1319,19 @@ class Member(
         user.send_welcome_email = 1
         user.user_type = "System User"
 
-        # System operation: automated user creation during member setup
-        user.flags.ignore_permissions = True
-        user.insert(ignore_permissions=True)  # JUSTIFIED: System operation
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        # Secure user creation with explicit permission validation
+        user_result = secure_document_operation(
+            operation="insert",
+            doc=user,
+            justification=f"Automated user creation for member {self.name}",
+            required_permissions=["User:create"],
+        )
+
+        if not user_result.success:
+            frappe.throw(_("Failed to create user: {0}").format("; ".join(user_result.errors)))
 
         # Add member-specific roles after user is created
         add_member_roles_to_user(user.name)
@@ -1308,8 +1349,16 @@ class Member(
                 f"Transferred ownership of member {self.name} from {self.owner} to {user.name}"
             )
 
-        # System operation: updating member with created user link
-        self.save(ignore_permissions=True)  # JUSTIFIED: System operation
+        # Secure member update with explicit permission validation
+        member_result = secure_document_operation(
+            operation="save",
+            doc=self,
+            justification=f"Member update to link user {user.name}",
+            required_permissions=["Member:write"],
+        )
+
+        if not member_result.success:
+            frappe.throw(_("Failed to update member: {0}").format("; ".join(member_result.errors)))
 
         frappe.msgprint(_("User {0} created successfully").format(user.name))
         return user.name
@@ -1706,8 +1755,19 @@ class Member(
                 }
             )
 
-            # System operation: automated item creation for membership fees
-            item.insert(ignore_permissions=True)  # JUSTIFIED: System operation
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            item_result = secure_document_operation(
+                operation="insert",
+                doc=item,
+                justification=f"Automated membership item creation for member {self.name}",
+                required_permissions=["Item:create"],
+            )
+
+            if not item_result.success:
+                frappe.logger().error(f"Failed to create membership item: {'; '.join(item_result.errors)}")
+                return None
             frappe.log_error(f"Created membership item {item.name}")
             return item
 
@@ -3014,8 +3074,19 @@ def create_member_user_account(member_name, send_welcome_email=True):
         if existing_user:
             # Link the existing user to the member
             member.user = existing_user
-            # System operation: automated user linking during setup
-            member.save(ignore_permissions=True)  # JUSTIFIED: System operation
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            member_result = secure_document_operation(
+                operation="save",
+                doc=member,
+                justification=f"Link existing user {existing_user} to member {member.name}",
+                required_permissions=["Member:write"],
+            )
+
+            if not member_result.success:
+                frappe.logger().error(f"Failed to link user to member: {'; '.join(member_result.errors)}")
+                frappe.throw(_("Failed to link user to member: {0}").format("; ".join(member_result.errors)))
 
             # Add member roles to existing user
             add_member_roles_to_user(existing_user)
@@ -3039,8 +3110,19 @@ def create_member_user_account(member_name, send_welcome_email=True):
         user.user_type = "System User"
         user.enabled = 1
 
-        # System operation: automated user creation during member setup
-        user.insert(ignore_permissions=True)  # JUSTIFIED: System operation
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        user_result = secure_document_operation(
+            operation="insert",
+            doc=user,
+            justification=f"Automated user creation for member {member.name}",
+            required_permissions=["User:create"],
+        )
+
+        if not user_result.success:
+            frappe.logger().error(f"Failed to create user: {'; '.join(user_result.errors)}")
+            frappe.throw(_("Failed to create user: {0}").format("; ".join(user_result.errors)))
 
         # Set allowed modules for member users
         set_member_user_modules(user.name)
@@ -3050,8 +3132,23 @@ def create_member_user_account(member_name, send_welcome_email=True):
 
         # Link user to member
         member.user = user.name
-        # System operation: updating member with created user link
-        member.save(ignore_permissions=True)  # JUSTIFIED: System operation
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        member_link_result = secure_document_operation(
+            operation="save",
+            doc=member,
+            justification=f"Link newly created user {user.name} to member {member.name}",
+            required_permissions=["Member:write"],
+        )
+
+        if not member_link_result.success:
+            frappe.logger().error(
+                f"Failed to link new user to member: {'; '.join(member_link_result.errors)}"
+            )
+            frappe.throw(
+                _("Failed to link new user to member: {0}").format("; ".join(member_link_result.errors))
+            )
 
         frappe.logger().info(f"Created user account {user.name} for member {member.name}")
 
@@ -3162,8 +3259,23 @@ def create_verenigingen_member_role():
         role.role_name = "Verenigingen Member"
         role.desk_access = 0  # Portal users don't need desk access
         role.is_custom = 1  # This is a custom role for the app
-        # System operation: automated role creation during system setup
-        role.insert(ignore_permissions=True)  # JUSTIFIED: System operation
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        role_result = secure_document_operation(
+            operation="insert",
+            doc=role,
+            justification="Create Verenigingen Member role for member portal access",
+            required_permissions=["Role:create"],
+        )
+
+        if not role_result.success:
+            frappe.logger().error(
+                f"Failed to create Verenigingen Member role: {'; '.join(role_result.errors)}"
+            )
+            frappe.throw(
+                _("Failed to create Verenigingen Member role: {0}").format("; ".join(role_result.errors))
+            )
 
         frappe.logger().info(
             "Created Verenigingen Member role (consolidated from Member Portal User and Member)"
@@ -3199,8 +3311,19 @@ def set_member_user_modules(user_name):
             if module.name not in allowed_modules:
                 user.append("block_modules", {"module": module.name})
 
-        # System operation: automated module restriction setup during user creation
-        user.save(ignore_permissions=True)  # JUSTIFIED: System operation
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        module_result = secure_document_operation(
+            operation="save",
+            doc=user,
+            justification=f"Set module restrictions for user {user_name}",
+            required_permissions=["User:write"],
+        )
+
+        if not module_result.success:
+            frappe.logger().error(f"Failed to set module restrictions: {'; '.join(module_result.errors)}")
+            frappe.throw(_("Failed to set module restrictions: {0}").format("; ".join(module_result.errors)))
         frappe.logger().info(f"Set module restrictions for user {user_name}")
 
     except Exception as e:
@@ -3297,8 +3420,23 @@ def create_donor_from_member(member_name):
         # Link to the member record
         donor.member = member.name
 
-        # System operation: automated donor creation during member setup
-        donor.insert(ignore_permissions=True)  # JUSTIFIED: System operation
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        # Secure donor creation with explicit permission validation
+        donor_result = secure_document_operation(
+            operation="insert",
+            doc=donor,
+            justification=f"Automated donor creation for member {member.name}",
+            required_permissions=["Donor:create"],
+        )
+
+        if not donor_result.success:
+            return {
+                "success": False,
+                "error": "; ".join(donor_result.errors),
+                "message": _("Failed to create donor record: {0}").format("; ".join(donor_result.errors)),
+            }
 
         # Link the customer record if it exists
         if member.customer:
@@ -3307,8 +3445,20 @@ def create_donor_from_member(member_name):
                 customer_doc = frappe.get_doc("Customer", member.customer)
                 if hasattr(customer_doc, "donor"):
                     customer_doc.donor = donor.name
-                    # System operation: automated donor linking during setup
-                    customer_doc.save(ignore_permissions=True)  # JUSTIFIED: System operation
+
+                    # Secure customer update with explicit permission validation
+                    customer_result = secure_document_operation(
+                        operation="save",
+                        doc=customer_doc,
+                        justification=f"Link customer {member.customer} to donor {donor.name}",
+                        required_permissions=["Customer:write"],
+                    )
+
+                    if not customer_result.success:
+                        frappe.logger().warning(
+                            f"Could not link customer {member.customer} to donor {donor.name}: "
+                            f"{'; '.join(customer_result.errors)}"
+                        )
             except Exception as cust_e:
                 frappe.logger().warning(f"Could not link customer to donor: {str(cust_e)}")
 
@@ -3732,11 +3882,26 @@ def refresh_fee_change_history(member_name):
                 }
                 member_doc.add_fee_change_to_history(schedule_data)
 
-        # Save the member document to persist the changes
-        # System operation: updating fee change history after member setup
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        # Fee history updates are administrative operations that preserve audit trail
         member_doc.flags.ignore_validate_update_after_submit = True  # JUSTIFIED: Fee history update
-        member_doc.flags.ignore_permissions = True  # JUSTIFIED: System operation
-        member_doc.save()
+
+        fee_history_result = secure_document_operation(
+            operation="save",
+            doc=member_doc,
+            justification=f"Update fee change history for member {member_doc.name}",
+            required_permissions=["Member:write"],
+        )
+
+        if not fee_history_result.success:
+            frappe.logger().error(
+                f"Failed to update fee change history: {'; '.join(fee_history_result.errors)}"
+            )
+            frappe.throw(
+                _("Failed to update fee change history: {0}").format("; ".join(fee_history_result.errors))
+            )
 
         # Commit the changes to ensure they're saved
         frappe.db.commit()

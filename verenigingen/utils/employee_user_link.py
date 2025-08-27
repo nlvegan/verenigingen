@@ -17,7 +17,7 @@ def safe_log_error(message, title=None):
 
 
 def create_user_for_volunteer(volunteer_doc):
-    """Create a User account for a volunteer if it doesn't exist"""
+    """Create a User account for a volunteer if it doesn't exist - SECURE VERSION"""
     try:
         # Check if user already exists with this email
         if not volunteer_doc.email:
@@ -29,7 +29,15 @@ def create_user_for_volunteer(volunteer_doc):
             frappe.logger().info(f"User already exists for email {volunteer_doc.email}")
             return existing_user
 
-        # Create new user
+        # Validate current user has permission to create users
+        if not frappe.has_permission("User", "create"):
+            # Use AccountCreationManager for secure user creation instead
+            frappe.logger().info(
+                f"Using AccountCreationManager for secure user creation: {volunteer_doc.email}"
+            )
+            return _create_user_via_account_creation_manager(volunteer_doc)
+
+        # Create new user with proper permission validation
         user = frappe.new_doc("User")
         user.email = volunteer_doc.email
         user.first_name = (
@@ -45,36 +53,75 @@ def create_user_for_volunteer(volunteer_doc):
         user.send_welcome_email = 0  # Don't send welcome email yet
         user.enabled = 1
 
-        # Add appropriate roles
-        user.append("roles", {"role": "Employee"})
-        user.append("roles", {"role": "Verenigingen Volunteer"})
+        # Add appropriate roles (check if roles exist and can be assigned)
+        available_roles = [r.name for r in frappe.get_all("Role", fields=["name"])]
 
-        user.insert(ignore_permissions=True)
+        if "Employee" in available_roles:
+            try:
+                user.append("roles", {"role": "Employee"})
+                frappe.logger().info(f"Added Employee role for user {volunteer_doc.email}")
+            except Exception as e:
+                frappe.logger().warning(f"Could not add Employee role: {str(e)}")
+
+        if "Verenigingen Volunteer" in available_roles:
+            try:
+                user.append("roles", {"role": "Verenigingen Volunteer"})
+                frappe.logger().info(f"Added Verenigingen Volunteer role for user {volunteer_doc.email}")
+            except Exception as e:
+                frappe.logger().warning(f"Could not add Verenigingen Volunteer role: {str(e)}")
+
+        # Add basic roles that should always be assignable
+        try:
+            user.append("roles", {"role": "System User"})
+            frappe.logger().info(f"Added System User role for user {volunteer_doc.email}")
+        except Exception as e:
+            frappe.logger().warning(f"Could not add System User role: {str(e)}")
+
+        # Insert with proper permissions - NO ignore_permissions=True
+        user.insert()
         frappe.logger().info(f"Created user {user.name} for volunteer {volunteer_doc.name}")
 
         return user.name
 
     except Exception as e:
-        frappe.log_error(f"Error creating user for volunteer {volunteer_doc.name}: {str(e)}")
+        safe_log_error(f"Error creating user for volunteer {volunteer_doc.name}: {str(e)}")
         return None
 
 
 def update_employee_with_user(employee_name, user_id):
-    """Update employee record with user_id"""
+    """Update employee record with user_id - SECURE VERSION"""
     try:
+        # Validate current user has permission to modify employees
+        if not frappe.has_permission("Employee", "write"):
+            frappe.logger().warning(f"Insufficient permissions to update employee {employee_name}")
+            return False
+
         employee = frappe.get_doc("Employee", employee_name)
         employee.user_id = user_id
-        employee.save(ignore_permissions=True)
+
+        # Save with proper permissions - NO ignore_permissions=True
+        employee.save()
         frappe.logger().info(f"Updated employee {employee_name} with user_id {user_id}")
         return True
+
+    except frappe.PermissionError as e:
+        safe_log_error(f"Permission denied updating employee {employee_name}: {str(e)}")
+        return False
     except Exception as e:
         safe_log_error(f"Error updating employee {employee_name} with user_id: {str(e)}")
         return False
 
 
 def create_employee_for_approved_volunteer(volunteer_doc):
-    """Create employee for volunteer when membership is approved"""
+    """Create employee for volunteer when membership is approved - SECURE VERSION with proper permissions"""
     try:
+        # Validate current user has permission to create employees
+        if not frappe.has_permission("Employee", "create"):
+            frappe.logger().warning(
+                f"Insufficient permissions to create employee for volunteer {volunteer_doc.name}"
+            )
+            return None
+
         # Check if employee already exists
         if volunteer_doc.employee_id and frappe.db.exists("Employee", volunteer_doc.employee_id):
             frappe.logger().info(
@@ -86,7 +133,7 @@ def create_employee_for_approved_volunteer(volunteer_doc):
         member_doc = None
         first_name = "Unknown"
         last_name = ""
-        
+
         if volunteer_doc.member:
             member_doc = frappe.get_doc("Member", volunteer_doc.member)
             first_name = member_doc.first_name or "Unknown"
@@ -208,3 +255,55 @@ def enhanced_create_minimal_employee(volunteer_doc):
     except Exception as e:
         frappe.log_error(f"Error in enhanced employee creation: {str(e)}")
         raise
+
+
+def _create_user_via_account_creation_manager(volunteer_doc):
+    """Create user via secure AccountCreationManager when direct permissions insufficient"""
+    try:
+        from verenigingen.utils.account_creation_manager import AccountCreationManager
+        from verenigingen.utils.secure_context_manager import get_creation_user, secure_user_context
+
+        # Create account creation request with secure context
+        with secure_user_context(
+            get_creation_user(), f"volunteer_account_creation_{volunteer_doc.name}"
+        ) as ctx:
+            request_doc = frappe.get_doc(
+                {
+                    "doctype": "Account Creation Request",
+                    "request_type": "Volunteer",
+                    "source_record": volunteer_doc.name,
+                    "email": volunteer_doc.email,
+                    "full_name": volunteer_doc.volunteer_name or f"{volunteer_doc.name} Volunteer",
+                    "status": "Queued",
+                    "justification": "Volunteer user account creation via employee workflow",
+                    "requested_by": frappe.session.user,
+                }
+            )
+
+            # Add required roles for volunteers (check availability)
+            available_roles = [r.name for r in frappe.get_all("Role", fields=["name"])]
+
+            if "Employee" in available_roles:
+                request_doc.append("requested_roles", {"role": "Employee"})
+            if "Verenigingen Volunteer" in available_roles:
+                request_doc.append("requested_roles", {"role": "Verenigingen Volunteer"})
+
+            request_doc.insert()
+            ctx.log_operation("account_creation_request", request_doc.name)
+
+        # Process immediately if we have system permissions
+        if frappe.session.user in ["Administrator"] or frappe.has_permission("User", "create"):
+            manager = AccountCreationManager(request_doc.name)
+            manager.process_complete_pipeline()
+            return request_doc.created_user
+        else:
+            frappe.logger().info(
+                f"Account creation request {request_doc.name} queued for background processing"
+            )
+            return None
+
+    except Exception as e:
+        safe_log_error(
+            f"Error creating user via AccountCreationManager for volunteer {volunteer_doc.name}: {str(e)}"
+        )
+        return None

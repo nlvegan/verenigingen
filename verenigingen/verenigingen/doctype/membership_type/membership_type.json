@@ -96,7 +96,7 @@
    "fieldtype": "Link",
    "label": "Default Dues Schedule Template",
    "options": "Membership Dues Schedule",
-   "reqd": 1,
+   "reqd": 0,
    "get_query": "verenigingen.verenigingen.doctype.membership_type.membership_type.get_template_query",
    "description": "Template dues schedule to use for new memberships of this type"
   }

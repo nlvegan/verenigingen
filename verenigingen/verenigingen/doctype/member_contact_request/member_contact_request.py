@@ -69,7 +69,19 @@ class MemberContactRequest(Document):
                 lead_data["notes"] += f"\nPreferred Contact Time: {self.preferred_time}"
 
             lead_doc = frappe.get_doc(lead_data)
-            lead_doc.insert(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            lead_result = secure_document_operation(
+                operation="insert",
+                doc=lead_doc,
+                justification=f"Create CRM lead from contact request {self.name}",
+                required_permissions=["Lead:create"],
+            )
+
+            if not lead_result.success:
+                frappe.logger().error(f"Failed to create CRM lead: {'; '.join(lead_result.errors)}")
+                frappe.throw(_("Failed to create CRM lead: {0}").format("; ".join(lead_result.errors)))
 
             # Link back to the contact request
             self.db_set("crm_lead", lead_doc.name, update_modified=False)
@@ -195,7 +207,21 @@ class MemberContactRequest(Document):
                 else:
                     lead_doc.status = "Open"
 
-                lead_doc.save(ignore_permissions=True)
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                from verenigingen.utils.secure_operations import secure_document_operation
+
+                lead_update_result = secure_document_operation(
+                    operation="save",
+                    doc=lead_doc,
+                    justification=f"Update CRM lead status from contact request {self.name}",
+                    required_permissions=["Lead:write"],
+                )
+
+                if not lead_update_result.success:
+                    frappe.logger().error(
+                        f"Failed to update CRM lead status: {'; '.join(lead_update_result.errors)}"
+                    )
+                    # Don't throw here as this is status update, just log the error
             except Exception as e:
                 frappe.log_error(f"Failed to update CRM Lead status: {str(e)}", "CRM Integration Error")
 
@@ -269,7 +295,19 @@ def create_contact_request(
         }
     )
 
-    contact_request.insert(ignore_permissions=True)
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    from verenigingen.utils.secure_operations import secure_document_operation
+
+    request_result = secure_document_operation(
+        operation="insert",
+        doc=contact_request,
+        justification=f"Create member contact request from member portal",
+        required_permissions=["Member Contact Request:create"],
+    )
+
+    if not request_result.success:
+        frappe.logger().error(f"Failed to create contact request: {'; '.join(request_result.errors)}")
+        frappe.throw(_("Failed to create contact request: {0}").format("; ".join(request_result.errors)))
 
     return {
         "success": True,

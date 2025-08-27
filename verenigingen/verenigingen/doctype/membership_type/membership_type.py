@@ -3,6 +3,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 class MembershipType(Document):
     def validate(self):
@@ -100,7 +102,17 @@ class MembershipType(Document):
         )
 
         item.flags.ignore_mandatory = True
-        item.insert(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        item_result = secure_document_operation(
+            operation="insert",
+            doc=item,
+            justification=f"Create membership item for membership type {self.membership_type_name}",
+            required_permissions=["Item:create"],
+        )
+
+        if not item_result.success:
+            frappe.throw(_("Unable to create membership item. Please check permissions or create manually."))
+            return None
 
         frappe.msgprint(_("Item {0} created for membership type").format(item.name))
         return item.name

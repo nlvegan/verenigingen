@@ -166,7 +166,23 @@ class AccountCreationRequest(Document):
         if not self.processing_started_at:
             self.processing_started_at = now()
         self.processed_by = frappe.session.user
-        self.save(ignore_permissions=True)  # System operation for status tracking
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        processing_result = secure_document_operation(
+            operation="save",
+            doc=self,
+            justification=f"Mark account creation request {self.name} as processing",
+            required_permissions=["Account Creation Request:write"],
+        )
+
+        if not processing_result.success:
+            frappe.logger().error(
+                f"Failed to mark request as processing: {'; '.join(processing_result.errors)}"
+            )
+            frappe.throw(
+                _("Failed to mark request as processing: {0}").format("; ".join(processing_result.errors))
+            )
 
     def mark_completed(self, user=None, employee=None):
         """Mark request as completed successfully"""
@@ -177,7 +193,23 @@ class AccountCreationRequest(Document):
             self.created_user = user
         if employee:
             self.created_employee = employee
-        self.save(ignore_permissions=True)  # System operation for status tracking
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        completion_result = secure_document_operation(
+            operation="save",
+            doc=self,
+            justification=f"Mark account creation request {self.name} as completed",
+            required_permissions=["Account Creation Request:write"],
+        )
+
+        if not completion_result.success:
+            frappe.logger().error(
+                f"Failed to mark request as completed: {'; '.join(completion_result.errors)}"
+            )
+            frappe.throw(
+                _("Failed to mark request as completed: {0}").format("; ".join(completion_result.errors))
+            )
 
         frappe.logger().info(f"Account creation request completed: {self.name}")
 
@@ -189,7 +221,19 @@ class AccountCreationRequest(Document):
             self.pipeline_stage = stage
 
         # Don't auto-increment retry count here - let retry_processing handle it
-        self.save(ignore_permissions=True)  # System operation for status tracking
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        failure_result = secure_document_operation(
+            operation="save",
+            doc=self,
+            justification=f"Mark account creation request {self.name} as failed",
+            required_permissions=["Account Creation Request:write"],
+        )
+
+        if not failure_result.success:
+            frappe.logger().error(f"Failed to mark request as failed: {'; '.join(failure_result.errors)}")
+            # Don't throw here as this is already error handling, just log it
 
         frappe.logger().error(f"Account creation request failed: {self.name} - {error_message}")
 

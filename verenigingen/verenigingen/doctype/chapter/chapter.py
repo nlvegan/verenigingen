@@ -1046,7 +1046,23 @@ def assign_member_to_chapter(member, chapter, note=None):
     member_doc._chapter_assignment_in_progress = True
     member_doc.update_current_chapter_display()
 
-    member_doc.save(ignore_permissions=True)
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    from verenigingen.utils.secure_operations import secure_document_operation
+
+    member_update_result = secure_document_operation(
+        operation="save",
+        doc=member_doc,
+        justification=f"Update member {member} chapter display after assignment to {chapter}",
+        required_permissions=["Member:write"],
+    )
+
+    if not member_update_result.success:
+        frappe.logger().error(
+            f"Failed to update member chapter display: {'; '.join(member_update_result.errors)}"
+        )
+        frappe.throw(
+            _("Failed to update member chapter display: {0}").format("; ".join(member_update_result.errors))
+        )
 
     if note:
         frappe.get_doc(
@@ -1057,7 +1073,29 @@ def assign_member_to_chapter(member, chapter, note=None):
                 "reference_name": member,
                 "content": _("Changed chapter to {0}. Note: {1}").format(chapter, note),
             }
-        ).insert(ignore_permissions=True)
+        )
+
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        note_result = secure_document_operation(
+            operation="insert",
+            doc=frappe.get_doc(
+                {
+                    "doctype": "Comment",
+                    "comment_type": "Info",
+                    "reference_doctype": "Member",
+                    "reference_name": member,
+                    "content": _("Changed chapter to {0}. Note: {1}").format(chapter, note),
+                }
+            ),
+            justification=f"Add chapter change note for member {member}",
+            required_permissions=["Comment:create"],
+        )
+
+        if not note_result.success:
+            frappe.logger().error(f"Failed to create chapter change note: {'; '.join(note_result.errors)}")
+            # Don't fail the main operation for note creation failure, just log it
 
     return {"success": True, "added_to_members": added}
 

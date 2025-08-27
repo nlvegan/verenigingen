@@ -2,6 +2,8 @@ import frappe
 from frappe import _
 from frappe.utils import date_diff, today
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 class PaymentMixin:
     """Mixin for payment-related functionality"""
@@ -44,7 +46,21 @@ class PaymentMixin:
         self.flags.ignore_links = True
         # Allow updates after submit for payment history refresh
         self.flags.ignore_validate_update_after_submit = True
-        self.save(ignore_permissions=True)
+
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        member_result = secure_document_operation(
+            operation="save",
+            doc=self,
+            justification=f"Update member {self.name} payment history with optimized financial data",
+            required_permissions=["Member:write"],
+        )
+
+        if not member_result.success:
+            frappe.log_error(
+                f"Failed to save member payment history: {'; '.join(member_result.errors)}",
+                "Member Payment History Security",
+            )
+            return False
         return True
 
     def on_load(self):
@@ -81,7 +97,21 @@ class PaymentMixin:
                 self.flags.ignore_version = True
                 self.flags.ignore_links = True
                 self.flags.ignore_validate_update_after_submit = True
-                self.save(ignore_permissions=True)
+
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                member_result = secure_document_operation(
+                    operation="save",
+                    doc=self,
+                    justification=f"Incremental member {self.name} payment history update for payment entry {payment_entry_name}",
+                    required_permissions=["Member:write"],
+                )
+
+                if not member_result.success:
+                    frappe.log_error(
+                        f"Failed to save incremental payment update: {'; '.join(member_result.errors)}",
+                        "Member Payment History Security",
+                    )
+                    return {"status": "error", "errors": member_result.errors}
 
                 return {
                     "status": "incremental_update_completed",
@@ -807,7 +837,23 @@ class PaymentMixin:
         )
 
         payment_entry.flags.ignore_mandatory = True
-        payment_entry.insert(ignore_permissions=True)
+
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        payment_result = secure_document_operation(
+            operation="insert",
+            doc=payment_entry,
+            justification=f"Create payment entry for member {self.name} membership payment of {amount}",
+            required_permissions=["Payment Entry:create"],
+        )
+
+        if not payment_result.success:
+            frappe.log_error(
+                f"Failed to create payment entry: {'; '.join(payment_result.errors)}",
+                "Member Payment Entry Security",
+            )
+            frappe.throw(_("Failed to create payment entry for member {0}").format(self.name))
+
+        payment_entry = payment_result.doc
         payment_entry.submit()
 
         self.payment_status = "Paid"
@@ -978,7 +1024,23 @@ class PaymentMixin:
                 self.get_current_dues_schedule_details()
 
             # Save once with reduced logging
-            self.save(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            member_result = secure_document_operation(
+                operation="save",
+                doc=self,
+                justification=f"Atomic financial history refresh for member {self.name} with {added_count} new entries",
+                required_permissions=["Member:write"],
+            )
+
+            if not member_result.success:
+                frappe.log_error(
+                    f"Failed to save atomic payment refresh: {'; '.join(member_result.errors)}",
+                    "Member Payment History Security",
+                )
+                return {
+                    "success": False,
+                    "message": f"Security error during atomic refresh: {'; '.join(member_result.errors)}",
+                }
 
             return {
                 "success": True,
@@ -1048,7 +1110,23 @@ class PaymentMixin:
             self._load_payment_history_without_save()
 
             # Save once with reduced logging
-            self.save(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            member_result = secure_document_operation(
+                operation="save",
+                doc=self,
+                justification=f"Legacy full payment history rebuild for member {self.name} (DEPRECATED METHOD)",
+                required_permissions=["Member:write"],
+            )
+
+            if not member_result.success:
+                frappe.log_error(
+                    f"Failed to save legacy payment rebuild: {'; '.join(member_result.errors)}",
+                    "Member Payment History Security",
+                )
+                return {
+                    "success": False,
+                    "message": f"Security error during legacy rebuild: {'; '.join(member_result.errors)}",
+                }
 
             return {
                 "success": True,
@@ -1152,14 +1230,42 @@ class PaymentMixin:
                     self.flags.ignore_version = True
                     self.flags.ignore_links = True
                     self.flags.ignore_validate = True
-                    self.save(ignore_permissions=True)
+
+                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                    member_result = secure_document_operation(
+                        operation="save",
+                        doc=self,
+                        justification=f"Add invoice {invoice_name} to payment history for member {self.name}",
+                        required_permissions=["Member:write"],
+                    )
+
+                    if not member_result.success:
+                        frappe.log_error(
+                            f"Failed to save invoice addition: {'; '.join(member_result.errors)}",
+                            "Member Payment History Security",
+                        )
+                        return
 
                     # Trim payment history if needed
                     if len(self.payment_history) > 20:
                         while len(self.payment_history) > 20:
                             self.payment_history.pop()  # Remove from end (oldest entries)
+
                         # Save again to persist the trimming
-                        self.save(ignore_permissions=True)
+                        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                        trim_result = secure_document_operation(
+                            operation="save",
+                            doc=self,
+                            justification=f"Trim payment history to 20 entries for member {self.name}",
+                            required_permissions=["Member:write"],
+                        )
+
+                        if not trim_result.success:
+                            frappe.log_error(
+                                f"Failed to save payment history trimming: {'; '.join(trim_result.errors)}",
+                                "Member Payment History Security",
+                            )
+                            return
 
                     # If we get here, save was successful
                     frappe.db.commit()
@@ -1220,7 +1326,21 @@ class PaymentMixin:
                 # Save with minimal logging
                 self.flags.ignore_version = True
                 self.flags.ignore_links = True
-                self.save(ignore_permissions=True)
+
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                member_result = secure_document_operation(
+                    operation="save",
+                    doc=self,
+                    justification=f"Remove cancelled invoice {invoice_name} from payment history for member {self.name}",
+                    required_permissions=["Member:write"],
+                )
+
+                if not member_result.success:
+                    frappe.log_error(
+                        f"Failed to save invoice removal: {'; '.join(member_result.errors)}",
+                        "Member Payment History Security",
+                    )
+                    return
 
         except Exception as e:
             frappe.log_error(
@@ -1257,7 +1377,21 @@ class PaymentMixin:
                 # Save the updates with minimal logging
                 self.flags.ignore_version = True
                 self.flags.ignore_links = True
-                self.save(ignore_permissions=True)
+
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                member_result = secure_document_operation(
+                    operation="save",
+                    doc=self,
+                    justification=f"Update existing invoice {invoice_name} in payment history for member {self.name}",
+                    required_permissions=["Member:write"],
+                )
+
+                if not member_result.success:
+                    frappe.log_error(
+                        f"Failed to save invoice update: {'; '.join(member_result.errors)}",
+                        "Member Payment History Security",
+                    )
+                    return
 
         except Exception as e:
             frappe.log_error(

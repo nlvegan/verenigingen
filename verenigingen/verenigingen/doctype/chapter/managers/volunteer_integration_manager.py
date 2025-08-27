@@ -62,7 +62,25 @@ class VolunteerIntegrationManager(BaseManager):
                 },
             )
 
-            volunteer.save(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            volunteer_result = secure_document_operation(
+                operation="save",
+                doc=volunteer,
+                justification=f"Add chapter assignment history for volunteer {volunteer_id}",
+                required_permissions=["Volunteer:write"],
+            )
+
+            if not volunteer_result.success:
+                frappe.logger().error(
+                    f"Failed to save volunteer assignment history: {'; '.join(volunteer_result.errors)}"
+                )
+                frappe.throw(
+                    _("Failed to save volunteer assignment history: {0}").format(
+                        "; ".join(volunteer_result.errors)
+                    )
+                )
 
             self.log_action(
                 "Added volunteer assignment history",
@@ -179,7 +197,25 @@ class VolunteerIntegrationManager(BaseManager):
                         },
                     )
 
-            volunteer.save(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            volunteer_update_result = secure_document_operation(
+                operation="save",
+                doc=volunteer,
+                justification=f"Remove chapter assignment for volunteer {volunteer_id}",
+                required_permissions=["Volunteer:write"],
+            )
+
+            if not volunteer_update_result.success:
+                frappe.logger().error(
+                    f"Failed to remove volunteer assignment: {'; '.join(volunteer_update_result.errors)}"
+                )
+                frappe.throw(
+                    _("Failed to remove volunteer assignment: {0}").format(
+                        "; ".join(volunteer_update_result.errors)
+                    )
+                )
 
             # Clear cache
             self._clear_volunteer_cache(volunteer_id)
@@ -566,7 +602,21 @@ class VolunteerIntegrationManager(BaseManager):
                                 assignment.end_date = today()
                                 cleanup_stats["assignments_cleaned"] += 1
 
-                        volunteer.save(ignore_permissions=True)
+                        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                        from verenigingen.utils.secure_operations import secure_document_operation
+
+                        cleanup_result = secure_document_operation(
+                            operation="save",
+                            doc=volunteer,
+                            justification=f"Cleanup orphaned chapter assignments for volunteer {volunteer_id}",
+                            required_permissions=["Volunteer:write"],
+                        )
+
+                        if not cleanup_result.success:
+                            frappe.logger().error(
+                                f"Failed to cleanup volunteer assignments: {'; '.join(cleanup_result.errors)}"
+                            )
+                            # Don't fail the cleanup operation, just log the error
 
                 except Exception as e:
                     cleanup_stats["errors"].append(

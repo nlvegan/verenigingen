@@ -2,6 +2,8 @@ import frappe
 from frappe import _
 from frappe.utils import cint, now, today
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 # Import security framework
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -248,7 +250,21 @@ def add_manual_payment_record(member, amount, payment_date=None, payment_method=
         "Financial Audit Trail",
     )
 
-    payment.insert(ignore_permissions=True)
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    payment_result = secure_document_operation(
+        operation="insert",
+        doc=payment,
+        justification=f"Manual payment record creation for member {member} - Amount: {amount}, Method: {payment_method or 'Cash'}",
+        required_permissions=["Payment Entry:create"],
+    )
+
+    if not payment_result.success:
+        frappe.log_error(
+            f"Failed to create payment record: {'; '.join(payment_result.errors)}", "Payment Entry Security"
+        )
+        frappe.throw(_("Failed to create payment record for member {0}").format(member))
+
+    payment = payment_result.doc
     payment.submit()
 
     # Audit log successful transaction
@@ -259,7 +275,21 @@ def add_manual_payment_record(member, amount, payment_date=None, payment_method=
     )
 
     member_doc.load_payment_history()
-    member_doc.save(ignore_permissions=True)
+
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    member_result = secure_document_operation(
+        operation="save",
+        doc=member_doc,
+        justification=f"Update member {member} payment history after manual payment {payment.name}",
+        required_permissions=["Member:write"],
+    )
+
+    if not member_result.success:
+        frappe.log_error(
+            f"Failed to update member payment history: {'; '.join(member_result.errors)}",
+            "Member Payment History Security",
+        )
+        frappe.throw(_("Failed to update payment history for member {0}").format(member))
 
     return payment.name
 
@@ -465,7 +495,21 @@ def create_sepa_mandate_from_bank_details(
         "SEPA Audit Trail",
     )
 
-    mandate.insert(ignore_permissions=True)
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    mandate_result = secure_document_operation(
+        operation="insert",
+        doc=mandate,
+        justification=f"Create SEPA mandate {mandate_id} for member {member} with IBAN {iban[-4:].rjust(len(iban), '*')}",
+        required_permissions=["SEPA Mandate:create"],
+    )
+
+    if not mandate_result.success:
+        frappe.log_error(
+            f"Failed to create SEPA mandate: {'; '.join(mandate_result.errors)}", "SEPA Mandate Security"
+        )
+        frappe.throw(_("Failed to create SEPA mandate for member {0}").format(member))
+
+    mandate = mandate_result.doc
 
     # Audit log successful mandate creation
     frappe.log_error(
@@ -475,7 +519,21 @@ def create_sepa_mandate_from_bank_details(
     )
 
     member_doc.append("sepa_mandates", {"sepa_mandate": mandate.name, "is_current": 1})
-    member_doc.save(ignore_permissions=True)
+
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    member_result = secure_document_operation(
+        operation="save",
+        doc=member_doc,
+        justification=f"Link SEPA mandate {mandate.name} to member {member}",
+        required_permissions=["Member:write"],
+    )
+
+    if not member_result.success:
+        frappe.log_error(
+            f"Failed to link SEPA mandate to member: {'; '.join(member_result.errors)}",
+            "Member SEPA Link Security",
+        )
+        frappe.throw(_("Failed to link SEPA mandate to member {0}").format(member))
 
     return mandate.name
 

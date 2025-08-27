@@ -81,21 +81,51 @@ def update_chapters_with_role(role):
 
             # If chapter_head changed, save the doc
             if chapter.chapter_head != original_head:
-                chapter.save(ignore_permissions=True)
-                chapters_updated += 1
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                from verenigingen.utils.secure_operations import secure_document_operation
 
-                # Log the change
-                frappe.get_doc(
-                    {
-                        "doctype": "Comment",
-                        "comment_type": "Info",
-                        "reference_doctype": "Chapter",
-                        "reference_name": chapter.name,
-                        "content": _("Chapter Head changed from {0} to {1} due to chair role update").format(
-                            original_head or "None", chapter.chapter_head or "None"
-                        ),
-                    }
-                ).insert(ignore_permissions=True)
+                # Secure chapter head update with explicit permission validation
+                chapter_result = secure_document_operation(
+                    operation="save",
+                    doc=chapter,
+                    justification=f"Chapter head update for {chapter.name} due to chair role change",
+                    required_permissions=["Chapter:write"],
+                )
+
+                if not chapter_result.success:
+                    frappe.logger().error(
+                        f"Failed to update chapter head for {chapter.name}: {'; '.join(chapter_result.errors)}"
+                    )
+                    # Continue processing other chapters even if one fails
+                else:
+                    chapters_updated += 1
+
+                    # Log the change - create audit trail comment
+                    comment_doc = frappe.get_doc(
+                        {
+                            "doctype": "Comment",
+                            "comment_type": "Info",
+                            "reference_doctype": "Chapter",
+                            "reference_name": chapter.name,
+                            "content": _(
+                                "Chapter Head changed from {0} to {1} due to chair role update"
+                            ).format(original_head or "None", chapter.chapter_head or "None"),
+                        }
+                    )
+
+                    # Secure comment creation with explicit permission validation
+                    comment_result = secure_document_operation(
+                        operation="insert",
+                        doc=comment_doc,
+                        justification=f"Governance audit trail for chapter head change in {chapter.name}",
+                        required_permissions=["Comment:create"],
+                    )
+
+                    if not comment_result.success:
+                        frappe.logger().error(
+                            f"Failed to create audit trail comment: {'; '.join(comment_result.errors)}"
+                        )
+                        # Don't block the operation if audit trail fails
 
         except Exception as e:
             frappe.log_error(

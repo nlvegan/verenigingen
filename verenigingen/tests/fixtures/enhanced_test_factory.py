@@ -321,11 +321,11 @@ class EnhancedTestDataFactory:
                 **data
             })
             
-            # Insert using proper permissions (no ignore_permissions bypass)
-            # Set administrator context for test data creation
+            # Insert using proper test admin user (no permission bypasses)
+            test_admin = self.ensure_test_admin_user()
             current_user = frappe.session.user
             try:
-                frappe.set_user("Administrator")
+                frappe.set_user(test_admin.email)
                 member.insert()
                 return member
             finally:
@@ -413,10 +413,11 @@ class EnhancedTestDataFactory:
                 **data
             })
             
-            # Set administrator context for test data creation
+            # Use proper test admin user (no permission bypasses)
+            test_admin = self.ensure_test_admin_user()
             current_user = frappe.session.user
             try:
-                frappe.set_user("Administrator")
+                frappe.set_user(test_admin.email)
                 chapter.insert()
                 return chapter
             finally:
@@ -591,25 +592,67 @@ class EnhancedTestDataFactory:
         chapter.insert()
         return chapter
     
+    def ensure_dues_schedule_template(self, template_name: str, attributes: dict = None) -> frappe._dict:
+        """Ensure a dues schedule template exists, create if not"""
+        if frappe.db.exists("Membership Dues Schedule", template_name):
+            return frappe.get_doc("Membership Dues Schedule", template_name)
+        
+        template_data = {
+            "doctype": "Membership Dues Schedule",
+            "schedule_name": template_name,
+            "billing_frequency": attributes.get("billing_frequency", "Monthly") if attributes else "Monthly",
+            "dues_rate": attributes.get("dues_rate", 50.00) if attributes else 50.00,
+            "is_template": 1,
+            "status": "Active"
+        }
+        
+        if attributes:
+            template_data.update(attributes)
+        
+        template = frappe.get_doc(template_data)
+        template.insert()
+        return template
+    
     def ensure_membership_type(self, type_name: str, attributes: dict = None) -> frappe._dict:
         """Ensure a membership type exists, create if not"""
         if frappe.db.exists("Membership Type", type_name):
             return frappe.get_doc("Membership Type", type_name)
         
+        billing_period = attributes.get("billing_period", "Monthly") if attributes else "Monthly"
+        amount = attributes.get("amount", 50.00) if attributes else 50.00
+        
+        # Create membership type - now that dues_schedule_template is optional, no circular dependency
         type_data = {
             "doctype": "Membership Type",
             "membership_type_name": type_name,
-            "amount": attributes.get("amount", 50.00) if attributes else 50.00,
-            "currency": attributes.get("currency", "EUR") if attributes else "EUR",
+            "minimum_amount": amount,
+            "billing_period": billing_period,
             "is_active": attributes.get("is_active", 1) if attributes else 1,
-            "membership_fee": attributes.get("amount", 50.00) if attributes else 50.00  # Some systems use this field
         }
         
         if attributes:
-            type_data.update(attributes)
+            # Don't override the fields we've already set properly
+            for key, value in attributes.items():
+                if key not in ['amount', 'billing_period', 'minimum_amount']:
+                    type_data[key] = value
         
         membership_type = frappe.get_doc(type_data)
         membership_type.insert()
+        
+        # Optionally create and link a template if requested
+        if attributes and attributes.get("create_template", True):
+            template_name = f"Template-{type_name}"
+            if not frappe.db.exists("Membership Dues Schedule", template_name):
+                template = self.ensure_dues_schedule_template(template_name, {
+                    "billing_frequency": billing_period,
+                    "dues_rate": amount,
+                    "membership_type": type_name
+                })
+                
+                # Link template to membership type
+                membership_type.dues_schedule_template = template_name
+                membership_type.save()
+        
         return membership_type
     
     def ensure_chapter_role(self, role_name: str, attributes: dict = None) -> frappe._dict:
@@ -663,6 +706,35 @@ class EnhancedTestDataFactory:
         role = frappe.get_doc(role_data)
         role.insert()
         return role
+    
+    def ensure_test_admin_user(self) -> frappe._dict:
+        """Ensure a test admin user exists with proper permissions"""
+        admin_email = "test.admin@enhanced-factory.local"
+        
+        # Check if user already exists
+        if frappe.db.exists("User", admin_email):
+            return frappe.get_doc("User", admin_email)
+        
+        # Create test admin user with full permissions
+        admin_user = frappe.get_doc({
+            "doctype": "User",
+            "email": admin_email,
+            "first_name": "Test",
+            "last_name": "Administrator",
+            "full_name": "Test Administrator",
+            "enabled": 1,
+            "user_type": "System User"
+        })
+        
+        # Insert with current permissions - this should work in test context
+        admin_user.insert()
+        
+        # Assign System Manager role
+        admin_user.append("roles", {"role": "System Manager"})
+        admin_user.append("roles", {"role": "Verenigingen Administrator"})
+        admin_user.save()
+        
+        return admin_user
     
     def create_team(self, **kwargs):
         """Create team with validation"""
@@ -805,8 +877,12 @@ class EnhancedTestDataFactory:
         if not email:
             email = self.generate_test_email("user")
             
+        # Check if user already exists
+        if frappe.db.exists("User", email):
+            return frappe.get_doc("User", email)
+            
         if not roles:
-            roles = ["Verenigingen Member"]
+            roles = ["Vereiningen Member"]
             
         # Validate fields
         for field in kwargs.keys():
@@ -832,10 +908,11 @@ class EnhancedTestDataFactory:
             for role in roles:
                 user.append("roles", {"role": role})
             
-            # Set administrator context for test data creation
+            # Use proper test admin user (no permission bypasses)  
+            test_admin = self.ensure_test_admin_user()
             current_user = frappe.session.user
             try:
-                frappe.set_user("Administrator")
+                frappe.set_user(test_admin.email)
                 user.insert()
                 return user
             finally:
@@ -876,10 +953,11 @@ class EnhancedTestDataFactory:
         for role in roles:
             role_profile.append("roles", {"role": role})
             
-        # Set administrator context for test data creation
+        # Use proper test admin user (no permission bypasses)
+        test_admin = self.ensure_test_admin_user()
         current_user = frappe.session.user
         try:
-            frappe.set_user("Administrator")
+            frappe.set_user(test_admin.email)
             role_profile.insert()
             return role_profile
         finally:
@@ -958,6 +1036,18 @@ class EnhancedTestCase(FrappeTestCase):
         """Convenience method for ensuring team roles exist"""
         return self.factory.ensure_team_role(role_name, attributes)
         
+    def ensure_dues_schedule_template(self, template_name, attributes=None):
+        """Convenience method for ensuring dues schedule templates exist"""
+        return self.factory.ensure_dues_schedule_template(template_name, attributes)
+        
+    def ensure_membership_type(self, type_name, attributes=None):
+        """Convenience method for ensuring membership types exist"""
+        return self.factory.ensure_membership_type(type_name, attributes)
+        
+    def ensure_test_chapter(self, chapter_name, attributes=None):
+        """Convenience method for ensuring test chapters exist"""
+        return self.factory.ensure_test_chapter(chapter_name, attributes)
+        
     def create_test_account_creation_request(self, source_record=None, request_type="Member", **kwargs):
         """Convenience method for creating account creation requests"""
         return self.factory.create_account_creation_request(source_record, request_type, **kwargs)
@@ -965,6 +1055,10 @@ class EnhancedTestCase(FrappeTestCase):
     def create_test_user_with_roles(self, email=None, roles=None, **kwargs):
         """Convenience method for creating users with specific roles"""
         return self.factory.create_user_with_roles(email, roles, **kwargs)
+        
+    def ensure_test_admin_user(self):
+        """Convenience method for ensuring test admin user exists"""
+        return self.factory.ensure_test_admin_user()
         
     def mock_redis_queue(self):
         """Context manager for mocking Redis queue operations"""
@@ -997,6 +1091,21 @@ class EnhancedTestCase(FrappeTestCase):
         """Assert that a permission error occurs"""
         with self.assertRaises(frappe.PermissionError):
             callable_obj(*args, **kwargs)
+    
+    def as_user(self, user_email):
+        """Context manager for running code as specific user"""
+        from contextlib import contextmanager
+        
+        @contextmanager
+        def user_context():
+            original_user = frappe.session.user
+            try:
+                frappe.set_user(user_email)
+                yield
+            finally:
+                frappe.set_user(original_user)
+        
+        return user_context()
 
 
 # Convenience decorators

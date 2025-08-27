@@ -1,5 +1,7 @@
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 class TerminationMixin:
     """Mixin for termination-related functionality"""
@@ -52,8 +54,22 @@ class TerminationMixin:
         else:
             self.notes = termination_note
 
-        self.flags.ignore_permissions = True
-        self.save()
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        member_result = secure_document_operation(
+            operation="save",
+            doc=self,
+            justification=f"Execute membership termination for member {self.name} with status {self.status}",
+            required_permissions=["Member:write"],
+        )
+
+        if not member_result.success:
+            frappe.log_error(
+                f"Failed to save member termination: {'; '.join(member_result.errors)}",
+                "Member Termination Security",
+            )
+            frappe.throw(
+                _("Failed to execute member termination: {0}").format("; ".join(member_result.errors))
+            )
 
         frappe.logger().info(f"Terminated membership for member {self.name} - Status: {self.status}")
 

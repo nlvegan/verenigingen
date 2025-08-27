@@ -4,6 +4,7 @@ import frappe.utils
 from frappe.model.document import Document
 
 from verenigingen.permissions import clear_permission_cache
+from verenigingen.utils.secure_operations import secure_document_operation
 
 
 class ChapterBoardMember(Document):
@@ -59,7 +60,18 @@ class ChapterBoardMember(Document):
                     "role": "Verenigingen Chapter Board Member",
                 },
             )
-            user_doc.save(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            save_result = secure_document_operation(
+                operation="save",
+                doc=user_doc,
+                justification=f"Assign Chapter Board Member role to user {user} for board position",
+                required_permissions=["User:write"],
+            )
+
+            if save_result.success:
+                frappe.msgprint(f"Assigned Chapter Board Member role to {user}")
+            else:
+                frappe.log_error(f"Could not assign board member role to user {user}: Permission denied")
 
             frappe.msgprint(f"Assigned Chapter Board Member role to {user}")
 
@@ -109,8 +121,20 @@ class ChapterBoardMember(Document):
             )
 
             if role_assignment:
-                frappe.delete_doc("Has Role", role_assignment, ignore_permissions=True)
-                frappe.msgprint(f"Removed Chapter Board Member role from {user}")
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                delete_result = secure_document_operation(
+                    operation="delete",
+                    doc=frappe.get_doc("Has Role", role_assignment),
+                    justification=f"Remove Chapter Board Member role from user {user} (no longer on any board)",
+                    required_permissions=["Has Role:delete"],
+                )
+
+                if delete_result.success:
+                    frappe.msgprint(f"Removed Chapter Board Member role from {user}")
+                else:
+                    frappe.log_error(
+                        f"Could not remove board member role from user {user}: Permission denied"
+                    )
 
     def validate(self):
         """Ensure volunteer/member has a linked user account"""

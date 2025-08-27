@@ -717,8 +717,38 @@ def process_application_refund(member_name, reason):
             }
         )
 
-        refund_entry.insert(ignore_permissions=True)
-        refund_entry.submit()
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        # Secure refund entry creation with explicit permission validation
+        refund_result = secure_document_operation(
+            operation="insert",
+            doc=refund_entry,
+            justification=f"Automated refund processing for member {member_name} - Reason: {reason}",
+            required_permissions=["Payment Entry:create"],
+        )
+
+        if not refund_result.success:
+            frappe.logger().error(f"Failed to create refund entry: {'; '.join(refund_result.errors)}")
+            return {
+                "success": False,
+                "message": f"Failed to create refund entry: {'; '.join(refund_result.errors)}",
+            }
+
+        # Secure refund entry submission with explicit permission validation
+        submit_result = secure_document_operation(
+            operation="submit",
+            doc=refund_entry,
+            justification=f"Automated refund submission for member {member_name}",
+            required_permissions=["Payment Entry:submit"],
+        )
+
+        if not submit_result.success:
+            frappe.logger().error(f"Failed to submit refund entry: {'; '.join(submit_result.errors)}")
+            return {
+                "success": False,
+                "message": f"Failed to submit refund entry: {'; '.join(submit_result.errors)}",
+            }
 
         # Log the refund
         member.add_comment("Info", f"Refund processed: {invoice.grand_total} - Reason: {reason}")

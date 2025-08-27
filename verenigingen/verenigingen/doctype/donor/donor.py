@@ -309,10 +309,25 @@ class Donor(Document):
 
             # Set flags to prevent validation loops
             customer.flags.ignore_mandatory = True
-            customer.flags.ignore_permissions = True
             customer.flags.from_donor_sync = True
 
-            customer.insert()
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            customer_result = secure_document_operation(
+                operation="insert",
+                doc=customer,
+                justification=f"Create customer record for donor {self.name}",
+                required_permissions=["Customer:create"],
+            )
+
+            if not customer_result.success:
+                frappe.logger().error(
+                    f"Failed to create customer for donor: {'; '.join(customer_result.errors)}"
+                )
+                frappe.throw(
+                    _("Failed to create customer for donor: {0}").format("; ".join(customer_result.errors))
+                )
 
             # Now set the donor link after both documents exist
             if self.name:  # Only if donor has been saved
@@ -406,8 +421,27 @@ class Donor(Document):
                 if frappe.flags.get("in_test"):
                     print(f"💾 Saving customer changes (changes_made: {changes_made})")
                 customer_doc.flags.ignore_mandatory = True
-                customer_doc.flags.ignore_permissions = True
                 customer_doc.flags.from_donor_sync = True
+
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                from verenigingen.utils.secure_operations import secure_document_operation
+
+                customer_update_result = secure_document_operation(
+                    operation="save",
+                    doc=customer_doc,
+                    justification=f"Update customer record from donor {self.name} sync",
+                    required_permissions=["Customer:write"],
+                )
+
+                if not customer_update_result.success:
+                    frappe.logger().error(
+                        f"Failed to update customer from donor sync: {'; '.join(customer_update_result.errors)}"
+                    )
+                    frappe.throw(
+                        _("Failed to update customer from donor sync: {0}").format(
+                            "; ".join(customer_update_result.errors)
+                        )
+                    )
 
                 try:
                     # Debug: Check field values just before save
@@ -421,7 +455,7 @@ class Donor(Document):
                         customer_doc.validate()
                         print("✅ Customer validation passed")
 
-                    customer_doc.save()
+                    # This secure operation was moved above, this call should not be reached
 
                     # Commit during tests to ensure visibility
                     if frappe.flags.get("in_test"):
@@ -500,8 +534,25 @@ class Donor(Document):
 
             # Save contact if changes were made
             if changes_made:
-                contact.flags.ignore_permissions = True
-                contact.save()
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                from verenigingen.utils.secure_operations import secure_document_operation
+
+                contact_update_result = secure_document_operation(
+                    operation="save",
+                    doc=contact,
+                    justification=f"Update contact record from donor {self.name} sync",
+                    required_permissions=["Contact:write"],
+                )
+
+                if not contact_update_result.success:
+                    frappe.logger().error(
+                        f"Failed to update contact from donor sync: {'; '.join(contact_update_result.errors)}"
+                    )
+                    frappe.throw(
+                        _("Failed to update contact from donor sync: {0}").format(
+                            "; ".join(contact_update_result.errors)
+                        )
+                    )
 
                 # Debug: Check contact data right after save
                 if frappe.flags.get("in_test"):
@@ -592,8 +643,23 @@ class Donor(Document):
                 # Link to customer
                 contact.append("links", {"link_doctype": "Customer", "link_name": customer_name})
 
-                contact.flags.ignore_permissions = True
-                contact.insert()
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                from verenigingen.utils.secure_operations import secure_document_operation
+
+                contact_result = secure_document_operation(
+                    operation="insert",
+                    doc=contact,
+                    justification=f"Create contact record for donor {self.name}",
+                    required_permissions=["Contact:create"],
+                )
+
+                if not contact_result.success:
+                    frappe.logger().error(
+                        f"Failed to create contact for donor: {'; '.join(contact_result.errors)}"
+                    )
+                    frappe.throw(
+                        _("Failed to create contact for donor: {0}").format("; ".join(contact_result.errors))
+                    )
 
                 # Set as primary contact on customer
                 frappe.db.set_value("Customer", customer_name, "customer_primary_contact", contact.name)
@@ -745,8 +811,25 @@ class Donor(Document):
                 donor_group.customer_group_name = "Donors"
                 donor_group.parent_customer_group = "All Customer Groups"
                 donor_group.is_group = 0
-                donor_group.flags.ignore_permissions = True
-                donor_group.insert()
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                from verenigingen.utils.secure_operations import secure_document_operation
+
+                donor_group_result = secure_document_operation(
+                    operation="insert",
+                    doc=donor_group,
+                    justification="Create Donors customer group for donor categorization",
+                    required_permissions=["Customer Group:create"],
+                )
+
+                if not donor_group_result.success:
+                    frappe.logger().error(
+                        f"Failed to create Donors customer group: {'; '.join(donor_group_result.errors)}"
+                    )
+                    frappe.throw(
+                        _("Failed to create Donors customer group: {0}").format(
+                            "; ".join(donor_group_result.errors)
+                        )
+                    )
 
                 if frappe.flags.get("in_test"):
                     print("✅ Successfully created 'Donors' customer group")

@@ -218,7 +218,21 @@ class Membership(Document):
             for admin in admin_users:
                 admin_notification = notification.copy()
                 admin_notification.for_user = admin
-                admin_notification.insert(ignore_permissions=True)
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                from verenigingen.utils.secure_operations import secure_document_operation
+
+                notification_result = secure_document_operation(
+                    operation="insert",
+                    doc=admin_notification,
+                    justification=f"Create dues schedule alert notification for admin {admin}",
+                    required_permissions=["Notification:create"],
+                )
+
+                if not notification_result.success:
+                    frappe.logger().error(
+                        f"Failed to create admin notification: {'; '.join(notification_result.errors)}"
+                    )
+                    # Don't throw here as this is notification creation, just log the error
 
         except Exception as notification_error:
             frappe.logger().error(f"Failed to create dues schedule alert: {str(notification_error)}")

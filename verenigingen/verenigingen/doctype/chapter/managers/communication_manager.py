@@ -5,6 +5,8 @@ from typing import Dict, List
 import frappe
 from frappe import _
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 from .base_manager import BaseManager
 
 
@@ -417,7 +419,21 @@ class CommunicationManager(BaseManager):
                 }
             )
 
-            communication.insert(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            comm_result = secure_document_operation(
+                operation="insert",
+                doc=communication,
+                justification=f"Create communication record for chapter {self.chapter_name} email",
+                required_permissions=["Communication:create"],
+            )
+
+            if not comm_result.success:
+                self.log_action(
+                    "Failed to create communication record: Permission denied",
+                    {"subject": subject, "error": "Permission denied"},
+                    "warning",
+                )
+                return None
 
             self.log_action(
                 "Communication record created",

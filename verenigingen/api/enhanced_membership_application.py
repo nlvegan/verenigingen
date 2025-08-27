@@ -448,7 +448,23 @@ def create_membership_application(data):
     settings = frappe.get_single("Verenigingen Settings")
     application.owner = settings.creation_user or "Administrator"
 
-    application.save(ignore_permissions=True)
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    from verenigingen.utils.secure_operations import secure_document_operation
+
+    # Secure member application creation with explicit permission validation
+    application_result = secure_document_operation(
+        operation="save",
+        doc=application,
+        justification=f"Enhanced membership application creation for {application.email}",
+        required_permissions=["Member:create"],
+    )
+
+    if not application_result.success:
+        frappe.logger().error(f"Failed to create member application: {'; '.join(application_result.errors)}")
+        frappe.throw(
+            _("Failed to create member application: {0}").format("; ".join(application_result.errors))
+        )
+
     frappe.db.commit()
 
     return application
@@ -569,7 +585,20 @@ def create_initial_dues_schedule(application, data):
         # Coverage dates (will be updated when first payment is received)
         dues_schedule.current_coverage_start = today()
 
-        dues_schedule.save(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        # Secure dues schedule creation with explicit permission validation
+        dues_result = secure_document_operation(
+            operation="save",
+            doc=dues_schedule,
+            justification=f"Membership dues schedule creation for application {application.name}",
+            required_permissions=["Membership Dues Schedule:create"],
+        )
+
+        if not dues_result.success:
+            frappe.logger().error(f"Failed to create dues schedule: {'; '.join(dues_result.errors)}")
+            frappe.throw(_("Failed to create dues schedule: {0}").format("; ".join(dues_result.errors)))
         return dues_schedule
 
     except Exception as e:
@@ -657,7 +686,20 @@ def create_sepa_mandate(application):
         # Link to application (will be linked to member when created)
         mandate.reference = f"APP-{application.name}"
 
-        mandate.save(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        # Secure SEPA mandate creation with explicit permission validation
+        mandate_result = secure_document_operation(
+            operation="save",
+            doc=mandate,
+            justification=f"SEPA mandate creation for membership application {application.name}",
+            required_permissions=["SEPA Mandate:create"],
+        )
+
+        if not mandate_result.success:
+            frappe.logger().error(f"Failed to create SEPA mandate: {'; '.join(mandate_result.errors)}")
+            frappe.throw(_("Failed to create SEPA mandate: {0}").format("; ".join(mandate_result.errors)))
         return mandate
 
     except Exception as e:
@@ -718,7 +760,22 @@ def create_first_payment_invoice(application, dues_schedule, data):
         coverage_end = frappe.utils.add_months(coverage_start, 1)  # First month
         invoice.customer_address = f"Coverage: {coverage_start} to {coverage_end}"
 
-        invoice.save(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        # Secure application invoice creation with explicit permission validation
+        invoice_result = secure_document_operation(
+            operation="save",
+            doc=invoice,
+            justification=f"Application invoice creation for membership application {application.name}",
+            required_permissions=["Sales Invoice:create"],
+        )
+
+        if not invoice_result.success:
+            frappe.logger().error(f"Failed to create application invoice: {'; '.join(invoice_result.errors)}")
+            frappe.throw(
+                _("Failed to create application invoice: {0}").format("; ".join(invoice_result.errors))
+            )
         return invoice
 
     except Exception as e:
@@ -758,7 +815,20 @@ def get_or_create_membership_item(membership_type_name):
     item.is_sales_item = 1
     item.is_service_item = 1
 
-    item.save(ignore_permissions=True)
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    from verenigingen.utils.secure_operations import secure_document_operation
+
+    # Secure membership fee item creation with explicit permission validation
+    item_result = secure_document_operation(
+        operation="save",
+        doc=item,
+        justification=f"Membership fee item creation: {item_code}",
+        required_permissions=["Item:create"],
+    )
+
+    if not item_result.success:
+        frappe.logger().error(f"Failed to create membership fee item: {'; '.join(item_result.errors)}")
+        frappe.throw(_("Failed to create membership fee item: {0}").format("; ".join(item_result.errors)))
     return item_code
 
 

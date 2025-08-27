@@ -106,7 +106,22 @@ class Donation(Document):
                     email=frappe.session.user,
                     member_name=user.get_fullname(),
                 )
-            ).insert(ignore_permissions=True)
+            )
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            # Secure donor creation with explicit permission validation
+            donor_result = secure_document_operation(
+                operation="insert",
+                doc=donor,
+                justification=f"Automated donor creation for donation by {frappe.session.user}",
+                required_permissions=["Donor:create"],
+            )
+
+            if not donor_result.success:
+                frappe.logger().error(f"Failed to create donor: {'; '.join(donor_result.errors)}")
+                frappe.throw(_("Failed to create donor record: {0}").format("; ".join(donor_result.errors)))
             donor_name = donor.name
 
         if self.get("__islocal"):
@@ -342,8 +357,38 @@ class Donation(Document):
             debit_entry["cost_center"] = cost_center
         je.append("accounts", debit_entry)
 
-        je.insert(ignore_permissions=True)
-        je.submit()
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        # Secure journal entry creation with explicit permission validation
+        je_result = secure_document_operation(
+            operation="insert",
+            doc=je,
+            justification=f"Earmarking journal entry for donation {self.name}",
+            required_permissions=["Journal Entry:create"],
+        )
+
+        if not je_result.success:
+            frappe.logger().error(f"Failed to create earmarking journal entry: {'; '.join(je_result.errors)}")
+            frappe.throw(
+                _("Failed to create earmarking journal entry: {0}").format("; ".join(je_result.errors))
+            )
+
+        # Secure journal entry submission with explicit permission validation
+        submit_result = secure_document_operation(
+            operation="submit",
+            doc=je,
+            justification=f"Earmarking journal entry submission for donation {self.name}",
+            required_permissions=["Journal Entry:submit"],
+        )
+
+        if not submit_result.success:
+            frappe.logger().error(
+                f"Failed to submit earmarking journal entry: {'; '.join(submit_result.errors)}"
+            )
+            frappe.throw(
+                _("Failed to submit earmarking journal entry: {0}").format("; ".join(submit_result.errors))
+            )
 
         return je.name
 

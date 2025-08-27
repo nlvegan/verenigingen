@@ -73,7 +73,24 @@ def add_customer_to_member_link():
             {"link_doctype": "Member", "link_fieldname": "customer", "group": "Membership", "hidden": 0},
         )
 
-        customer_doc.save(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        # Secure DocType update with explicit permission validation
+        customer_result = secure_document_operation(
+            operation="save",
+            doc=customer_doc,
+            justification="Add Member link to Customer DocType dashboard for membership integration",
+            required_permissions=["DocType:write"],
+        )
+
+        if not customer_result.success:
+            frappe.logger().error(f"Failed to update Customer DocType: {'; '.join(customer_result.errors)}")
+            return {
+                "message": f"Failed to update Customer DocType: {'; '.join(customer_result.errors)}",
+                "success": False,
+            }
+
         frappe.db.commit()
 
         return {"message": "Customer to Member link added successfully", "success": True}

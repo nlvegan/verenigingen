@@ -2,6 +2,8 @@
 import frappe
 from frappe.utils import today
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 def cancel_membership_safe(
     membership_name, cancellation_date=None, cancellation_reason=None, cancellation_type="Immediate"
@@ -33,8 +35,21 @@ def cancel_membership_safe(
 
         # Save with proper flags
         membership.flags.ignore_validate_update_after_submit = True
-        membership.flags.ignore_permissions = True
-        membership.save()
+
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        membership_result = secure_document_operation(
+            operation="save",
+            doc=membership,
+            justification=f"Cancel membership {membership_name} with termination type {cancellation_type}",
+            required_permissions=["Membership:write"],
+        )
+
+        if not membership_result.success:
+            frappe.log_error(
+                f"Failed to cancel membership: {'; '.join(membership_result.errors)}",
+                "Membership Termination Security",
+            )
+            return False
 
         frappe.logger().info(f"Cancelled membership {membership_name}")
         return True
@@ -68,13 +83,26 @@ def cancel_dues_schedule_safe(dues_schedule_name):
             return True
 
         # Normal cancellation process
-        dues_schedule.flags.ignore_permissions = True
         dues_schedule.flags.ignore_validate_update_after_submit = True
 
         try:
             # Update dues schedule status directly
             dues_schedule.status = "Cancelled"
-            dues_schedule.save()
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            dues_result = secure_document_operation(
+                operation="save",
+                doc=dues_schedule,
+                justification=f"Cancel dues schedule {dues_schedule_name} during membership termination",
+                required_permissions=["Membership Dues Schedule:write"],
+            )
+
+            if not dues_result.success:
+                frappe.log_error(
+                    f"Failed to cancel dues schedule: {'; '.join(dues_result.errors)}",
+                    "Dues Schedule Termination Security",
+                )
+                return False
             frappe.logger().info(f"Cancelled dues schedule {dues_schedule_name} using standard method")
             return True
 
@@ -133,8 +161,20 @@ def cancel_sepa_mandate_safe(mandate_id, reason=None, cancellation_date=None):
             mandate.notes = cancellation_note
 
         # Save the mandate
-        mandate.flags.ignore_permissions = True
-        mandate.save()
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        mandate_result = secure_document_operation(
+            operation="save",
+            doc=mandate,
+            justification=f"Cancel SEPA mandate {mandate_id} during member termination - {reason or 'Standard termination'}",
+            required_permissions=["SEPA Mandate:write"],
+        )
+
+        if not mandate_result.success:
+            frappe.log_error(
+                f"Failed to cancel SEPA mandate: {'; '.join(mandate_result.errors)}",
+                "SEPA Mandate Termination Security",
+            )
+            return False
 
         frappe.logger().info(f"Cancelled SEPA mandate {mandate.mandate_id}")
         return True
@@ -232,19 +272,42 @@ def update_member_status_safe(member_name, termination_type, termination_date, t
             member.notes = termination_note
 
         # Save the member with concurrency handling
-        member.flags.ignore_permissions = True
-        try:
-            member.save()
-        except frappe.TimestampMismatchError:
-            # Reload member and retry save once
-            member.reload()
-            member.status = status_mapping.get(termination_type, "Suspended")
-            if member.notes:
-                member.notes += f"\n\n{termination_note}"
-            else:
-                member.notes = termination_note
-            member.flags.ignore_permissions = True
-            member.save()
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        member_result = secure_document_operation(
+            operation="save",
+            doc=member,
+            justification=f"Update member {member_name} termination status to {status_mapping.get(termination_type, 'Suspended')}",
+            required_permissions=["Member:write"],
+        )
+
+        if not member_result.success:
+            # Handle concurrency - reload and retry once
+            try:
+                member.reload()
+                member.status = status_mapping.get(termination_type, "Suspended")
+                if member.notes:
+                    member.notes += f"\n\n{termination_note}"
+                else:
+                    member.notes = termination_note
+
+                retry_result = secure_document_operation(
+                    operation="save",
+                    doc=member,
+                    justification=f"Retry member {member_name} termination status update after reload",
+                    required_permissions=["Member:write"],
+                )
+
+                if not retry_result.success:
+                    frappe.log_error(
+                        f"Failed to update member termination status (retry): {'; '.join(retry_result.errors)}",
+                        "Member Termination Security",
+                    )
+                    return False
+            except Exception as e:
+                frappe.log_error(
+                    f"Failed member termination status update: {str(e)}", "Member Termination Security"
+                )
+                return False
 
         frappe.logger().info(f"Updated member {member_name} status to {member.status}")
         return True
@@ -433,8 +496,20 @@ def deactivate_user_account_safe(member_name, termination_type, reason, suspend_
             user_doc.roles = [role for role in user_doc.roles if role.role in essential_roles]
 
         # Save user changes
-        user_doc.flags.ignore_permissions = True
-        user_doc.save()
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        user_result = secure_document_operation(
+            operation="save",
+            doc=user_doc,
+            justification=f"{action_taken.capitalize()} user account {user_email} for member {member_name} - {reason}",
+            required_permissions=["User:write"],
+        )
+
+        if not user_result.success:
+            frappe.log_error(
+                f"Failed to {action_taken} user account: {'; '.join(user_result.errors)}",
+                "User Account Termination Security",
+            )
+            return False
 
         frappe.logger().info(f"Successfully {action_taken} user account {user_email}")
         return True

@@ -22,9 +22,35 @@ def safe_log_error(message, title=None):
 
 
 def get_creation_user():
-    """Get the configured creation user from Verenigingen Settings"""
-    settings = frappe.get_single("Verenigingen Settings")
-    return settings.creation_user or "Administrator"
+    """
+    DEPRECATED: Import from secure_context_manager instead
+
+    For new code use:
+    from verenigingen.utils.secure_context_manager import get_creation_user
+    """
+    from verenigingen.utils.secure_context_manager import get_creation_user as _get_creation_user
+
+    return _get_creation_user()
+
+
+def save_with_system_context(doc, context_description="system operation"):
+    """
+    DEPRECATED: Use secure_user_context context manager for new code
+
+    Legacy compatibility function for existing code.
+    For new code, use:
+
+    from verenigingen.utils.secure_context_manager import secure_user_context, get_creation_user
+
+    with secure_user_context(get_creation_user(), context_description) as ctx:
+        doc.save()
+        ctx.log_operation(doc.doctype, doc.name)
+    """
+    from verenigingen.utils.secure_context_manager import secure_user_context
+
+    with secure_user_context(get_creation_user(), context_description) as ctx:
+        doc.save()
+        ctx.log_operation(doc.doctype, doc.name)
 
 
 def map_payment_method(payment_method):
@@ -221,25 +247,35 @@ def create_address_from_application(data):
         if validation_result.get("valid") and validation_result.get("sanitized"):
             last_name = validation_result["sanitized"]
 
-    address = frappe.get_doc(
-        {
-            "doctype": "Address",
-            "address_title": f"{first_name} {last_name}",
-            "address_type": "Personal",
-            "address_line1": data.get("address_line1"),
-            "address_line2": data.get("address_line2", ""),
-            "city": data.get("city"),
-            "state": data.get("state", ""),
-            "country": data.get("country"),
-            "pincode": data.get("postal_code"),
-            "email_id": data.get("email"),
-            "phone": data.get("phone", ""),
-            "is_primary_address": 1,
-        }
-    )
-    address.flags.ignore_permissions = True
-    address.insert(ignore_permissions=True)
-    return address
+    # Use system user context for address creation during application processing - SECURE VERSION
+    current_user = frappe.session.user
+    try:
+        # Switch to creation user for system operations
+        creation_user = get_creation_user()
+        frappe.set_user(creation_user)
+
+        address = frappe.get_doc(
+            {
+                "doctype": "Address",
+                "address_title": f"{first_name} {last_name}",
+                "address_type": "Personal",
+                "address_line1": data.get("address_line1"),
+                "address_line2": data.get("address_line2", ""),
+                "city": data.get("city"),
+                "state": data.get("state", ""),
+                "country": data.get("country"),
+                "pincode": data.get("postal_code"),
+                "email_id": data.get("email"),
+                "phone": data.get("phone", ""),
+                "is_primary_address": 1,
+            }
+        )
+        # Insert with proper permissions using system user context - NO ignore_permissions=True
+        address.insert()
+        return address
+    finally:
+        # Restore original user context
+        frappe.set_user(current_user)
 
 
 def create_member_from_application(data, application_id, address=None):
@@ -401,37 +437,47 @@ def create_member_from_application(data, application_id, address=None):
 
     # Suppress customer creation messages during application submission
     member._suppress_customer_messages = True
-    member.flags.ignore_permissions = True
 
-    # Handle potential application_id collision with retry logic
-    max_attempts = 3
-    for attempt in range(max_attempts):
-        try:
-            member.insert(ignore_permissions=True)
-            return member
-        except Exception as e:
-            # Check if this is an IntegrityError related to application_id
-            error_str = str(e)
-            if "Duplicate entry" in error_str and "application_id" in error_str:
-                if attempt < max_attempts - 1:  # Not the last attempt
-                    # Generate new application_id and retry
-                    new_app_id = generate_application_id()
-                    member.application_id = new_app_id
-                    frappe.log_error(
-                        f"Application ID collision detected, retrying with new ID: {new_app_id} (attempt {attempt + 1})",
-                        "Application ID Collision Retry",
-                    )
-                    continue
+    # Use system user context for member creation during application processing - SECURE VERSION
+    current_user = frappe.session.user
+    try:
+        # Switch to creation user for system operations
+        creation_user = get_creation_user()
+        frappe.set_user(creation_user)
+
+        # Handle potential application_id collision with retry logic
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            try:
+                # Insert with proper permissions using system user context - NO ignore_permissions=True
+                member.insert()
+                return member
+            except Exception as e:
+                # Check if this is an IntegrityError related to application_id
+                error_str = str(e)
+                if "Duplicate entry" in error_str and "application_id" in error_str:
+                    if attempt < max_attempts - 1:  # Not the last attempt
+                        # Generate new application_id and retry
+                        new_app_id = generate_application_id()
+                        member.application_id = new_app_id
+                        frappe.log_error(
+                            f"Application ID collision detected, retrying with new ID: {new_app_id} (attempt {attempt + 1})",
+                            "Application ID Collision Retry",
+                        )
+                        continue
+                    else:
+                        # Last attempt failed, log and re-raise
+                        frappe.log_error(
+                            f"Failed to create member after {max_attempts} attempts due to application_id collision: {error_str}",
+                            "Application ID Collision Fatal",
+                        )
+                        raise
                 else:
-                    # Last attempt failed, log and re-raise
-                    frappe.log_error(
-                        f"Failed to create member after {max_attempts} attempts due to application_id collision: {error_str}",
-                        "Application ID Collision Fatal",
-                    )
+                    # Not an application_id collision, re-raise immediately
                     raise
-            else:
-                # Not an application_id collision, re-raise immediately
-                raise
+    finally:
+        # Restore original user context
+        frappe.set_user(current_user)
 
 
 def create_volunteer_record(member):
@@ -531,8 +577,19 @@ def create_volunteer_record(member):
                         },
                     )
 
-        volunteer.insert(ignore_permissions=True)
-        return volunteer
+        # Use system user context for volunteer creation during application processing - SECURE VERSION
+        current_user = frappe.session.user
+        try:
+            # Switch to creation user for system operations
+            creation_user = get_creation_user()
+            frappe.set_user(creation_user)
+
+            # Insert with proper permissions using system user context - NO ignore_permissions=True
+            volunteer.insert()
+            return volunteer
+        finally:
+            # Restore original user context
+            frappe.set_user(current_user)
     except Exception as e:
         safe_log_error(f"Error creating volunteer record: {str(e)}")
         return None
@@ -861,9 +918,8 @@ def create_pending_chapter_membership(member, chapter_name):
             {"member": member.name, "chapter_join_date": today(), "enabled": 1, "status": "Pending"},
         )
 
-        # Save the chapter document with elevated permissions (members field is permlevel 1)
-        chapter_doc.flags.ignore_permissions = True
-        chapter_doc.save(ignore_permissions=True)
+        # Save the chapter document with system context for members field management - SECURE VERSION
+        save_with_system_context(chapter_doc, "pending member addition to chapter")
 
         # Add membership history tracking for pending membership
         from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
@@ -925,9 +981,19 @@ def activate_pending_chapter_membership(member, chapter_name):
         pending_member.status = "Active"
         pending_member.chapter_join_date = today()  # Update join date to approval date
 
-        # Save the chapter document with elevated permissions (members field is permlevel 1)
-        chapter_doc.flags.ignore_permissions = True
-        chapter_doc.save(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        chapter_result = secure_document_operation(
+            operation="save",
+            doc=chapter_doc,
+            justification=f"Activate chapter member {member.name} in chapter {chapter_name}",
+            required_permissions=["Chapter:write"],
+        )
+
+        if not chapter_result.success:
+            frappe.logger().error(f"Failed to activate chapter member: {'; '.join(chapter_result.errors)}")
+            frappe.throw(_("Failed to activate chapter member: {0}").format("; ".join(chapter_result.errors)))
 
         # Update membership history to reflect activation
         from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
@@ -972,8 +1038,24 @@ def create_active_chapter_membership(member, chapter_name):
                     if cm.status != "Active":
                         cm.status = "Active"
                         cm.chapter_join_date = today()
-                        chapter_doc.flags.ignore_permissions = True
-                        chapter_doc.save(ignore_permissions=True)
+                        from verenigingen.utils.secure_operations import secure_document_operation
+
+                        update_result = secure_document_operation(
+                            operation="save",
+                            doc=chapter_doc,
+                            justification=f"Update existing chapter member {member.name} to Active in {chapter_name}",
+                            required_permissions=["Chapter:write"],
+                        )
+
+                        if not update_result.success:
+                            frappe.logger().error(
+                                f"Failed to update chapter member status: {'; '.join(update_result.errors)}"
+                            )
+                            frappe.throw(
+                                _("Failed to update chapter member status: {0}").format(
+                                    "; ".join(update_result.errors)
+                                )
+                            )
                         frappe.logger().info(
                             f"Updated existing Chapter Member record to Active for {member.name} in {chapter_name}"
                         )
@@ -986,8 +1068,19 @@ def create_active_chapter_membership(member, chapter_name):
             "members", {"member": member.name, "chapter_join_date": today(), "enabled": 1, "status": "Active"}
         )
 
-        chapter_doc.flags.ignore_permissions = True
-        chapter_doc.save(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        add_member_result = secure_document_operation(
+            operation="save",
+            doc=chapter_doc,
+            justification=f"Add new chapter member {member.name} to {chapter_name}",
+            required_permissions=["Chapter:write"],
+        )
+
+        if not add_member_result.success:
+            frappe.logger().error(f"Failed to add chapter member: {'; '.join(add_member_result.errors)}")
+            frappe.throw(_("Failed to add chapter member: {0}").format("; ".join(add_member_result.errors)))
 
         # Add membership history tracking for active membership
         from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
@@ -1049,9 +1142,23 @@ def remove_pending_chapter_membership(member, chapter_name=None):
             chapter_doc.remove(chapter_doc.members[i])
 
         if members_to_remove:
-            # Save the chapter document with elevated permissions (members field is permlevel 1)
-            chapter_doc.flags.ignore_permissions = True
-            chapter_doc.save(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            remove_result = secure_document_operation(
+                operation="save",
+                doc=chapter_doc,
+                justification=f"Remove pending chapter member {member.name} from {chapter_name}",
+                required_permissions=["Chapter:write"],
+            )
+
+            if not remove_result.success:
+                frappe.logger().error(
+                    f"Failed to remove pending chapter member: {'; '.join(remove_result.errors)}"
+                )
+                frappe.throw(
+                    _("Failed to remove pending chapter member: {0}").format("; ".join(remove_result.errors))
+                )
             frappe.logger().info(
                 f"Removed {len(members_to_remove)} pending Chapter Member record(s) for {member.name} from {chapter_name}"
             )

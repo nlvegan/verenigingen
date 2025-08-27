@@ -326,7 +326,21 @@ def manually_populate_address_members(member_id):
 
         # Set the field value directly
         member.other_members_at_address = html_content
-        member.save(ignore_permissions=True)
+
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        # Secure member data update with explicit permission validation
+        member_result = secure_document_operation(
+            operation="save",
+            doc=member,
+            justification=f"Member address members field update for {member_id}",
+            required_permissions=["Member:write"],
+        )
+
+        if not member_result.success:
+            frappe.logger().error(f"Failed to update member {member_id}: {'; '.join(member_result.errors)}")
+            return {"success": False, "error": f"Failed to update member: {'; '.join(member_result.errors)}"}
 
         return {
             "success": True,
@@ -346,7 +360,26 @@ def clear_address_members_field(member_id):
     try:
         member = frappe.get_doc("Member", member_id)
         member.other_members_at_address = None
-        member.save(ignore_permissions=True)
+
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        # Secure member data clearing with explicit permission validation
+        member_result = secure_document_operation(
+            operation="save",
+            doc=member,
+            justification=f"Member address members field clearing for {member_id}",
+            required_permissions=["Member:write"],
+        )
+
+        if not member_result.success:
+            frappe.logger().error(
+                f"Failed to clear member field {member_id}: {'; '.join(member_result.errors)}"
+            )
+            return {
+                "success": False,
+                "error": f"Failed to clear member field: {'; '.join(member_result.errors)}",
+            }
 
         return {"success": True, "message": f"Field cleared for {member_id}"}
 
@@ -364,7 +397,26 @@ def test_simple_field_population(member_id):
         # Set a simple test value
         test_html = '<div style="background: red; color: white; padding: 10px;">TEST: This field is working! If you can see this, the field is visible.</div>'
         member.other_members_at_address = test_html
-        member.save(ignore_permissions=True)
+
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        # Secure member test data update with explicit permission validation
+        member_result = secure_document_operation(
+            operation="save",
+            doc=member,
+            justification=f"Member address members field test content for {member_id}",
+            required_permissions=["Member:write"],
+        )
+
+        if not member_result.success:
+            frappe.logger().error(
+                f"Failed to set test content for member {member_id}: {'; '.join(member_result.errors)}"
+            )
+            return {
+                "success": False,
+                "error": f"Failed to set test content: {'; '.join(member_result.errors)}",
+            }
 
         return {"success": True, "message": f"Test content set for {member_id}", "test_html": test_html}
 

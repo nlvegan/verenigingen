@@ -266,7 +266,10 @@ def quick_approve_member(member_name, chapter_name=None):
 
         if result.get("success"):
             # Log the dashboard approval
-            frappe.get_doc(
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            comment_doc = frappe.get_doc(
                 {
                     "doctype": "Comment",
                     "comment_type": "Info",
@@ -274,7 +277,21 @@ def quick_approve_member(member_name, chapter_name=None):
                     "reference_name": member_name,
                     "content": f"Member approved via chapter dashboard by {frappe.get_user().full_name}",
                 }
-            ).insert(ignore_permissions=True)
+            )
+
+            # Secure audit trail comment creation with explicit permission validation
+            comment_result = secure_document_operation(
+                operation="insert",
+                doc=comment_doc,
+                justification=f"Chapter governance audit trail for member approval {member_name}",
+                required_permissions=["Comment:create"],
+            )
+
+            if not comment_result.success:
+                frappe.logger().warning(
+                    f"Failed to create approval audit trail comment: {'; '.join(comment_result.errors)}"
+                )
+                # Don't block the approval if audit trail fails
 
             return {"success": True, "message": _("Member approved successfully"), "member_name": member_name}
         else:
@@ -1181,7 +1198,10 @@ def reject_member_application(member_name, chapter_name, reason=None):
                 return {"success": False, "error": result.get("message", "Unknown error occurred")}
 
             # Log the dashboard rejection
-            frappe.get_doc(
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            rejection_comment_doc = frappe.get_doc(
                 {
                     "doctype": "Comment",
                     "comment_type": "Info",
@@ -1189,7 +1209,21 @@ def reject_member_application(member_name, chapter_name, reason=None):
                     "reference_name": member_name,
                     "content": f"Chapter join request rejected via dashboard by {frappe.get_user().full_name}. Reason: {reason or 'No reason provided'}",
                 }
-            ).insert(ignore_permissions=True)
+            )
+
+            # Secure audit trail comment creation with explicit permission validation
+            rejection_comment_result = secure_document_operation(
+                operation="insert",
+                doc=rejection_comment_doc,
+                justification=f"Chapter governance audit trail for join request rejection {member_name}",
+                required_permissions=["Comment:create"],
+            )
+
+            if not rejection_comment_result.success:
+                frappe.logger().warning(
+                    f"Failed to create rejection audit trail comment: {'; '.join(rejection_comment_result.errors)}"
+                )
+                # Don't block the rejection if audit trail fails
 
             return {"success": True, "message": _("Join request rejected successfully")}
 
@@ -1213,7 +1247,10 @@ def reject_member_application(member_name, chapter_name, reason=None):
         frappe.delete_doc("Chapter Member", chapter_member)
 
         # Add comment
-        frappe.get_doc(
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        app_rejection_comment_doc = frappe.get_doc(
             {
                 "doctype": "Comment",
                 "comment_type": "Info",
@@ -1221,7 +1258,21 @@ def reject_member_application(member_name, chapter_name, reason=None):
                 "reference_name": member_name,
                 "content": f"Application rejected via chapter dashboard by {frappe.get_user().full_name}. Reason: {reason or 'No reason provided'}",
             }
-        ).insert(ignore_permissions=True)
+        )
+
+        # Secure audit trail comment creation with explicit permission validation
+        app_rejection_result = secure_document_operation(
+            operation="insert",
+            doc=app_rejection_comment_doc,
+            justification=f"Chapter governance audit trail for application rejection {member_name}",
+            required_permissions=["Comment:create"],
+        )
+
+        if not app_rejection_result.success:
+            frappe.logger().warning(
+                f"Failed to create application rejection audit trail comment: {'; '.join(app_rejection_result.errors)}"
+            )
+            # Don't block the rejection if audit trail fails
 
         return {"success": True, "message": _("Application rejected successfully")}
 
@@ -1299,7 +1350,10 @@ def send_chapter_announcement(chapter_name, subject, message, send_to="all"):
                 frappe.log_error(f"Failed to send email to {email}: {str(e)}", "Chapter Announcement")
 
         # Log the announcement
-        frappe.get_doc(
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        announcement_comment_doc = frappe.get_doc(
             {
                 "doctype": "Comment",
                 "comment_type": "Info",
@@ -1307,7 +1361,21 @@ def send_chapter_announcement(chapter_name, subject, message, send_to="all"):
                 "reference_name": chapter_name,
                 "content": f"Announcement sent to {send_to} members by {frappe.get_user().full_name}: {subject}",
             }
-        ).insert(ignore_permissions=True)
+        )
+
+        # Secure audit trail comment creation with explicit permission validation
+        announcement_result = secure_document_operation(
+            operation="insert",
+            doc=announcement_comment_doc,
+            justification=f"Chapter governance audit trail for announcement to {chapter_name}",
+            required_permissions=["Comment:create"],
+        )
+
+        if not announcement_result.success:
+            frappe.logger().warning(
+                f"Failed to create announcement audit trail comment: {'; '.join(announcement_result.errors)}"
+            )
+            # Don't block the announcement if audit trail fails
 
         return {
             "success": True,

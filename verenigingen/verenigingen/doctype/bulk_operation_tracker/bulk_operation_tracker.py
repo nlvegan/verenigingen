@@ -66,7 +66,23 @@ class BulkOperationTracker(Document):
         """Mark operation as started and record start time."""
         self.status = "Processing"
         self.started_at = now()
-        self.save(ignore_permissions=True)  # System operation
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        start_result = secure_document_operation(
+            operation="save",
+            doc=self,
+            justification=f"Mark bulk operation {self.operation_type} as started",
+            required_permissions=["Bulk Operation Tracker:write"],
+        )
+
+        if not start_result.success:
+            frappe.logger().error(
+                f"Failed to mark bulk operation as started: {'; '.join(start_result.errors)}"
+            )
+            frappe.throw(
+                _("Failed to mark bulk operation as started: {0}").format("; ".join(start_result.errors))
+            )
 
         frappe.logger().info(f"Bulk operation {self.name} started: {self.operation_type}")
 
@@ -110,7 +126,23 @@ class BulkOperationTracker(Document):
             # Recalculate estimates
             self.validate()
 
-        self.save(ignore_permissions=True)  # System operation
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        progress_result = secure_document_operation(
+            operation="save",
+            doc=self,
+            justification=f"Update bulk operation progress - batch {batch_number}/{self.total_batches}",
+            required_permissions=["Bulk Operation Tracker:write"],
+        )
+
+        if not progress_result.success:
+            frappe.logger().error(
+                f"Failed to update bulk operation progress: {'; '.join(progress_result.errors)}"
+            )
+            frappe.throw(
+                _("Failed to update bulk operation progress: {0}").format("; ".join(progress_result.errors))
+            )
 
         frappe.logger().info(
             f"Bulk operation {self.name} progress: batch {batch_number}/{self.total_batches}, "
@@ -201,7 +233,21 @@ class BulkOperationTracker(Document):
             current_summary = self.error_summary or ""
             self.error_summary = f"Operation failed: {error_message}\n{current_summary}"
 
-        self.save(ignore_permissions=True)  # System operation
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        failure_result = secure_document_operation(
+            operation="save",
+            doc=self,
+            justification=f"Mark bulk operation as failed - {self.operation_type}",
+            required_permissions=["Bulk Operation Tracker:write"],
+        )
+
+        if not failure_result.success:
+            frappe.logger().error(
+                f"Failed to mark bulk operation as failed: {'; '.join(failure_result.errors)}"
+            )
+            # Don't throw here as this is already error handling
 
         frappe.logger().error(f"Bulk operation {self.name} failed: {error_message}")
 
@@ -221,7 +267,19 @@ class BulkOperationTracker(Document):
     def clear_retry_queue(self):
         """Clear the retry queue after successful retry processing."""
         self.retry_queue = ""
-        self.save(ignore_permissions=True)  # System operation
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        retry_clear_result = secure_document_operation(
+            operation="save",
+            doc=self,
+            justification="Clear retry queue after successful retry processing",
+            required_permissions=["Bulk Operation Tracker:write"],
+        )
+
+        if not retry_clear_result.success:
+            frappe.logger().error(f"Failed to clear retry queue: {'; '.join(retry_clear_result.errors)}")
+            # Don't throw as this is cleanup operation
 
     @staticmethod
     def create_tracker(
@@ -259,7 +317,23 @@ class BulkOperationTracker(Document):
             }
         )
 
-        tracker.insert(ignore_permissions=True)  # System operation
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        tracker_result = secure_document_operation(
+            operation="insert",
+            doc=tracker,
+            justification=f"Create bulk operation tracker for {operation_type}",
+            required_permissions=["Bulk Operation Tracker:create"],
+        )
+
+        if not tracker_result.success:
+            frappe.logger().error(
+                f"Failed to create bulk operation tracker: {'; '.join(tracker_result.errors)}"
+            )
+            frappe.throw(
+                _("Failed to create bulk operation tracker: {0}").format("; ".join(tracker_result.errors))
+            )
 
         frappe.logger().info(
             f"Created bulk operation tracker {tracker.name}: "

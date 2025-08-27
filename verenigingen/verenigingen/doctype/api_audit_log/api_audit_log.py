@@ -5,6 +5,8 @@ API Audit Log DocType for tracking general API and security events
 import frappe
 from frappe.model.document import Document
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 class APIAuditLog(Document):
     """
@@ -92,7 +94,18 @@ class APIAuditLog(Document):
         try:
             audit_doc = frappe.new_doc("API Audit Log")
             audit_doc.update(event_data)
-            audit_doc.insert(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            insert_result = secure_document_operation(
+                operation="insert",
+                doc=audit_doc,
+                justification="Create API audit log entry for security compliance",
+                required_permissions=["API Audit Log:create"],
+                allow_system_user=True,
+            )
+
+            if not insert_result.success:
+                frappe.log_error(f"Could not create API audit entry: Permission denied", "API Audit Error")
+                return None
             frappe.db.commit()
             return audit_doc.name
         except Exception as e:
@@ -115,7 +128,20 @@ class APIAuditLog(Document):
             )
 
             for entry_name in old_entries:
-                frappe.delete_doc("API Audit Log", entry_name, ignore_permissions=True)
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                delete_result = secure_document_operation(
+                    operation="delete",
+                    doc=frappe.get_doc("API Audit Log", entry_name),
+                    justification=f"Cleanup old API audit entry older than {retention_days} days",
+                    required_permissions=["API Audit Log:delete"],
+                    allow_system_user=True,
+                )
+
+                if not delete_result.success:
+                    frappe.log_error(
+                        f"Could not delete old audit entry {entry_name}: Permission denied",
+                        "API Audit Cleanup Error",
+                    )
 
             if old_entries:
                 frappe.db.commit()

@@ -34,7 +34,7 @@ from verenigingen.utils.security.api_security_framework import (
 
 
 @frappe.whitelist()
-@standard_api  # Chapter join context - read-only
+@standard_api()  # Chapter join context - read-only
 def get_chapter_join_context(chapter_name):
     """Get context for chapter join page.
 
@@ -193,6 +193,7 @@ def join_chapter(chapter_name, introduction):
 
 
 @frappe.whitelist()
+@standard_api()  # User chapter request query
 def get_user_chapter_requests():
     """Get chapter join requests for chapters where the current user is a board member"""
     user = frappe.session.user

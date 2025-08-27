@@ -1384,7 +1384,21 @@ class MijnroodCSVImport(Document):
                             "chapter_join_date": member_doc.member_since or today(),
                         },
                     )
-                    chapter_doc.save(ignore_permissions=True)
+                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                    from verenigingen.utils.secure_operations import secure_document_operation
+
+                    chapter_save_result = secure_document_operation(
+                        operation="save",
+                        doc=chapter_doc,
+                        justification=f"Assign member {member_doc.name} to chapter {chapter_name} during Mijnrood import",
+                        required_permissions=["Chapter:write"],
+                    )
+
+                    if not chapter_save_result.success:
+                        frappe.logger().error(
+                            f"Failed to assign member to chapter during import: {'; '.join(chapter_save_result.errors)}"
+                        )
+                        # Don't throw here as this is import processing, just log the error
                     frappe.logger().info(
                         f"Successfully assigned member {member_doc.name} to chapter {chapter_name}"
                     )

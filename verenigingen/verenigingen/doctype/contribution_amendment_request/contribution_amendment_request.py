@@ -377,8 +377,25 @@ class ContributionAmendmentRequest(Document):
                         schedule_doc.notes or ""
                     ) + f"\nAmended via {self.name} on {today()}: €{self.requested_amount:.2f}"
 
-                    schedule_doc._ignore_permissions = True
-                    schedule_doc.save(ignore_permissions=True)
+                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                    from verenigingen.utils.secure_operations import secure_document_operation
+
+                    schedule_result = secure_document_operation(
+                        operation="save",
+                        doc=schedule_doc,
+                        justification=f"Apply fee change amendment {self.name} to dues schedule",
+                        required_permissions=["Membership Dues Schedule:write"],
+                    )
+
+                    if not schedule_result.success:
+                        frappe.logger().error(
+                            f"Failed to apply fee change to schedule: {'; '.join(schedule_result.errors)}"
+                        )
+                        frappe.throw(
+                            _("Failed to apply fee change to schedule: {0}").format(
+                                "; ".join(schedule_result.errors)
+                            )
+                        )
 
                     # Add comment
                     schedule_doc.add_comment(
@@ -409,7 +426,23 @@ class ContributionAmendmentRequest(Document):
             member_doc.fee_override_by = frappe.session.user
             # Set flag to bypass permission check for system updates
             member_doc._system_update = True
-            member_doc.save(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            member_result = secure_document_operation(
+                operation="save",
+                doc=member_doc,
+                justification=f"Apply fee override from amendment {self.name}",
+                required_permissions=["Member:write"],
+            )
+
+            if not member_result.success:
+                frappe.logger().error(
+                    f"Failed to apply fee override to member: {'; '.join(member_result.errors)}"
+                )
+                frappe.throw(
+                    _("Failed to apply fee override to member: {0}").format("; ".join(member_result.errors))
+                )
 
         except Exception as e:
             frappe.throw(_("Error applying fee change: {0}").format(str(e)))
@@ -2273,7 +2306,19 @@ def test_apply_amendment_for_foppe():
             }
         )
 
-        amendment.insert(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        amendment_result = secure_document_operation(
+            operation="insert",
+            doc=amendment,
+            justification=f"Create contribution amendment for {member_name}",
+            required_permissions=["Contribution Amendment Request:create"],
+        )
+
+        if not amendment_result.success:
+            frappe.logger().error(f"Failed to create amendment: {'; '.join(amendment_result.errors)}")
+            frappe.throw(_("Failed to create amendment: {0}").format("; ".join(amendment_result.errors)))
         frappe.logger().info(f"Amendment created: {amendment.name}")
         frappe.logger().info(f"Amendment status: {amendment.status}")
 

@@ -3,6 +3,7 @@ from frappe import _
 from frappe.utils import now_datetime, today
 
 from verenigingen.utils.application_notifications import send_payment_confirmation_email, send_rejection_email
+from verenigingen.utils.secure_operations import secure_document_operation
 
 
 def get_context(context):
@@ -71,7 +72,18 @@ def submit_membership_application(data):
                     "phone": data.get("phone", ""),
                 }
             )
-            address.insert(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            address_result = secure_document_operation(
+                operation="insert",
+                doc=address,
+                justification=f"Create address for membership application from {data.get('email')}",
+                required_permissions=["Address:create"],
+            )
+
+            if not address_result.success:
+                frappe.throw(
+                    _("Unable to create address for application. Please try again or contact support.")
+                )
             address_name = address.name
 
         # Suggest chapter based on postal code
@@ -125,7 +137,16 @@ def submit_membership_application(data):
             member.monthly_income = data.get("monthly_income")
             member.preferred_payment_interval = data.get("payment_interval")
 
-        member.insert(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        member_result = secure_document_operation(
+            operation="insert",
+            doc=member,
+            justification=f"Create member record for membership application from {data.get('email')}",
+            required_permissions=["Member:create"],
+        )
+
+        if not member_result.success:
+            frappe.throw(_("Unable to create member application. Please try again or contact support."))
 
         # Handle volunteer information if provided
         if data.get("interested_in_volunteering"):
@@ -357,7 +378,16 @@ Skills Selected:
                 "comment_by": member.email,
             }
         )
-        volunteer_application.insert(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        comment_result = secure_document_operation(
+            operation="insert",
+            doc=volunteer_application,
+            justification=f"Create volunteer interest comment for member application {member.name}",
+            required_permissions=["Comment:create"],
+        )
+
+        if not comment_result.success:
+            frappe.log_error(f"Could not create volunteer application comment: Permission denied")
     except Exception as e:
         # If comment creation fails, just log it - don't fail the application
         frappe.log_error(f"Could not create volunteer application comment: {str(e)}")
@@ -414,7 +444,17 @@ def create_volunteer_from_approved_member(member):
             }
         )
 
-        volunteer.insert(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        volunteer_result = secure_document_operation(
+            operation="insert",
+            doc=volunteer,
+            justification=f"Create volunteer record from approved membership application {member.name}",
+            required_permissions=["Volunteer:create"],
+        )
+
+        if not volunteer_result.success:
+            frappe.log_error(f"Could not create volunteer record: Permission denied")
+            return None
 
         # Add skills if parsed from application
         if volunteer_data and volunteer_data.get("skills_by_category"):
@@ -437,7 +477,27 @@ def create_volunteer_from_approved_member(member):
                 "content": f"Volunteer record created: <a href='/app/volunteer/{volunteer.name}'>{volunteer.name}</a>",
                 "comment_by": frappe.session.user,
             }
-        ).insert(ignore_permissions=True)
+        )
+
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        comment_result = secure_document_operation(
+            operation="insert",
+            doc=frappe.get_doc(
+                {
+                    "doctype": "Comment",
+                    "comment_type": "Info",
+                    "reference_doctype": "Member",
+                    "reference_name": member.name,
+                    "content": f"Volunteer record created: <a href='/app/volunteer/{volunteer.name}'>{volunteer.name}</a>",
+                    "comment_by": frappe.session.user,
+                }
+            ),
+            justification=f"Create volunteer creation notification comment for member {member.name}",
+            required_permissions=["Comment:create"],
+        )
+
+        if not comment_result.success:
+            frappe.log_error(f"Could not create volunteer notification comment: Permission denied")
 
         return volunteer.name
 
@@ -522,7 +582,17 @@ def add_skills_to_volunteer(volunteer, volunteer_data):
                 skill_row.experience_years = 0  # Unknown from application
                 skill_row.certifications = ""
 
-        volunteer.save(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        volunteer_save_result = secure_document_operation(
+            operation="save",
+            doc=volunteer,
+            justification=f"Save volunteer skills for approved member {volunteer.member}",
+            required_permissions=["Volunteer:write"],
+        )
+
+        if not volunteer_save_result.success:
+            frappe.log_error(f"Could not save volunteer skills: Permission denied")
+            return
         skills_count = len([s for skills in skills_by_category.values() for s in skills])
         frappe.logger().info(f"Added {skills_count} skills to volunteer {volunteer.name}")
 

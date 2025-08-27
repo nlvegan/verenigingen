@@ -5,6 +5,8 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import add_to_date, get_datetime, now_datetime
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 class AnalyticsAlertRule(Document):
     def validate(self):
@@ -165,7 +167,18 @@ class AnalyticsAlertRule(Document):
                         "email_content": message,
                     }
                 )
-                notification.insert(ignore_permissions=True)
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                notification_result = secure_document_operation(
+                    operation="insert",
+                    doc=notification,
+                    justification=f"Create notification log for analytics alert {self.rule_name}",
+                    required_permissions=["Notification Log:create"],
+                )
+
+                if not notification_result.success:
+                    frappe.log_error(
+                        f"Could not create notification for alert {self.rule_name}: Permission denied"
+                    )
 
         if self.send_email and recipients:
             frappe.sendmail(
@@ -243,7 +256,28 @@ class AnalyticsAlertRule(Document):
                 "condition": alert_data["condition"],
                 "alert_data": frappe.as_json(alert_data),
             }
-        ).insert(ignore_permissions=True)
+        )
+
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        log_result = secure_document_operation(
+            operation="insert",
+            doc=frappe.get_doc(
+                {
+                    "doctype": "Analytics Alert Log",
+                    "alert_rule": self.name,
+                    "triggered_at": alert_data["timestamp"],
+                    "metric_value": alert_data["value"],
+                    "threshold_value": alert_data["threshold"],
+                    "condition": alert_data["condition"],
+                    "alert_data": frappe.as_json(alert_data),
+                }
+            ),
+            justification=f"Create audit log for analytics alert {self.rule_name}",
+            required_permissions=["Analytics Alert Log:create"],
+        )
+
+        if not log_result.success:
+            frappe.log_error(f"Could not create alert log for {self.rule_name}: Permission denied")
 
     # Helper methods for metric calculations
     def calculate_churn_rate(self):
@@ -357,7 +391,16 @@ class AnalyticsAlertRule(Document):
                 "status": "Open",
             }
         )
-        task.insert(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        task_result = secure_document_operation(
+            operation="insert",
+            doc=task,
+            justification=f"Create task for analytics alert {self.rule_name} automated action",
+            required_permissions=["Task:create"],
+        )
+
+        if not task_result.success:
+            frappe.log_error(f"Could not create task for alert {self.rule_name}: Permission denied")
 
     def update_field(self, action, alert_data):
         """Update a field in a document"""

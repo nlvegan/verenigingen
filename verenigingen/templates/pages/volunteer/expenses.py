@@ -2,6 +2,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, formatdate, today
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 def get_context(context):
     """Get context for volunteer expense portal page"""
@@ -904,327 +906,6 @@ def get_status_class(status):
 
 
 @frappe.whitelist()
-def debug_expense_claim_statuses():
-    """Debug function to check expense claim statuses"""
-    # Security check: Only allow debug functions in development or for System Managers
-    if not frappe.conf.get("developer_mode") and "System Manager" not in frappe.get_roles():
-        frappe.throw(_("Debug functions are only available in development mode or for System Managers"))
-    result = frappe.db.sql(
-        """
-        SELECT status, approval_status, docstatus, COUNT(*) as count
-        FROM `tabExpense Claim`
-        GROUP BY status, approval_status, docstatus
-        ORDER BY count DESC
-    """,
-        as_dict=True,
-    )
-    return result
-
-
-@frappe.whitelist()
-def debug_expense_claim_dates():
-    """Debug function to check expense claim dates"""
-    # Security check: Only allow debug functions in development or for System Managers
-    if not frappe.conf.get("developer_mode") and "System Manager" not in frappe.get_roles():
-        frappe.throw(_("Debug functions are only available in development mode or for System Managers"))
-    result = frappe.db.sql(
-        """
-        SELECT name, posting_date, creation, status, approval_status, docstatus,
-               YEAR(posting_date) as posting_year, MONTH(posting_date) as posting_month,
-               YEAR(creation) as creation_year, MONTH(creation) as creation_month
-        FROM `tabExpense Claim`
-        ORDER BY creation DESC
-    """,
-        as_dict=True,
-    )
-    return result
-
-
-@frappe.whitelist()
-def fix_expense_claim_dashboard_cards():
-    """Fix the expense claim dashboard cards to include draft expenses"""
-
-    # Update the main "Expense Claims (This Month)" card to filter by submission date
-    try:
-        card1 = frappe.get_doc("Number Card", "Expense Claims (This Month)")
-        card1.label = "Expense Claims (This Month)"
-        # Filter by creation date (submission date) instead of posting date (expense date)
-        card1.filters_json = '[["Expense Claim","creation","Timespan","this month",false]]'
-        card1.save()
-
-        # Update "Approved Claims (This Month)" to filter by submission date
-        card2 = frappe.get_doc("Number Card", "Approved Claims (This Month)")
-        card2.label = "Approved Claims (This Month)"
-        card2.filters_json = '[["Expense Claim","approval_status","=","Approved",false],["Expense Claim","creation","Timespan","this month",false],["Expense Claim","docstatus","=","1",false]]'
-        card2.save()
-
-        # Update "Rejected Claims (This Month)" to filter by submission date
-        card3 = frappe.get_doc("Number Card", "Rejected Claims (This Month)")
-        card3.label = "Rejected Claims (This Month)"
-        card3.filters_json = '[["Expense Claim","approval_status","=","Rejected",false],["Expense Claim","creation","Timespan","this month",false],["Expense Claim","docstatus","=","1",false]]'
-        card3.save()
-
-        return {"success": True, "message": "Dashboard cards updated successfully"}
-    except Exception as e:
-        return {"success": False, "message": str(e)}
-
-
-@frappe.whitelist()
-def debug_expense_statistics(volunteer_name):
-    """Debug function to see expense statistics calculation"""
-    from frappe.utils import add_months
-
-    # Get expenses from last 12 months
-    from_date = add_months(today(), -12)
-
-    # Get volunteer's employee ID
-    volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
-
-    result = {
-        "volunteer_name": volunteer_name,
-        "employee_id": volunteer_doc.employee_id,
-        "from_date": from_date,
-        "expense_claims": [],
-        "totals": {},
-    }
-
-    if volunteer_doc.employee_id:
-        # Get ERPNext Expense Claims for this employee
-        expense_claims = frappe.get_all(
-            "Expense Claim",
-            filters={
-                "employee": volunteer_doc.employee_id,
-                "posting_date": [">=", from_date],
-                "docstatus": ["!=", 2],  # Not cancelled
-            },
-            fields=[
-                "name",
-                "total_claimed_amount",
-                "total_sanctioned_amount",
-                "status",
-                "approval_status",
-                "posting_date",
-            ],
-        )
-
-        for claim in expense_claims:
-            mapped_status = map_erpnext_status_to_volunteer_status(claim.status, claim.approval_status)
-            result["expense_claims"].append(
-                {
-                    "name": claim.name,
-                    "erpnext_status": claim.status,
-                    "approval_status": claim.approval_status,
-                    "mapped_status": mapped_status,
-                    "total_claimed_amount": claim.total_claimed_amount,
-                    "total_sanctioned_amount": claim.total_sanctioned_amount,
-                    "posting_date": claim.posting_date,
-                }
-            )
-
-    # Get the actual calculated statistics
-    stats = get_expense_statistics(volunteer_name)
-    result["totals"] = stats
-
-    return result
-
-
-@frappe.whitelist()
-def debug_file_attachment(expense_claim_name, file_url):
-    """Debug function to test file attachment to expense claims"""
-    try:
-        # Get the expense claim
-        expense_claim = frappe.get_doc("Expense Claim", expense_claim_name)
-
-        # Get the file document
-        file_doc = frappe.get_doc("File", {"file_url": file_url})
-
-        # Try to attach it by updating the file document
-        file_doc.attached_to_doctype = expense_claim.doctype
-        file_doc.attached_to_name = expense_claim.name
-        file_doc.save()
-
-        result = f"File {file_doc.name} attached to {expense_claim.name}"
-
-        return {
-            "success": True,
-            "expense_claim": expense_claim_name,
-            "file_url": file_url,
-            "file_name": file_doc.file_name,
-            "attachment_result": str(result),
-        }
-
-    except Exception as e:
-        import traceback
-
-        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
-
-
-@frappe.whitelist()
-def debug_attachment_process(file_url):
-    """Debug the attachment process step by step"""
-    try:
-        result = {}
-
-        # Step 1: Check if file exists
-        file_exists = frappe.db.exists("File", {"file_url": file_url})
-        result["file_exists"] = file_exists
-
-        if file_exists:
-            # Step 2: Get file document
-            file_doc = frappe.get_doc("File", {"file_url": file_url})
-            result["file_doc"] = {
-                "name": file_doc.name,
-                "file_name": file_doc.file_name,
-                "file_url": file_doc.file_url,
-                "attached_to_doctype": file_doc.attached_to_doctype,
-                "attached_to_name": file_doc.attached_to_name,
-            }
-
-            # Step 3: Test attachment process
-            result["attachment_test"] = "File document retrieved successfully"
-        else:
-            result["error"] = f"File with URL {file_url} not found"
-
-        return result
-
-    except Exception as e:
-        import traceback
-
-        return {"error": str(e), "traceback": traceback.format_exc()}
-
-
-@frappe.whitelist()
-def test_new_attachment_system():
-    """Test the new file attachment system end-to-end"""
-    try:
-        # Simulate file data as it would come from the upload function
-        import base64
-
-        test_content = b"This is a test receipt file content"
-
-        file_data = {
-            "file_name": "test_receipt_new.txt",
-            "file_content": base64.b64encode(test_content).decode("utf-8"),
-            "content_type": "text/plain",
-        }
-
-        # Test expense data with new file format
-        expense_data = {
-            "description": "Test expense with new attachment system",
-            "amount": 75.00,
-            "expense_date": "2025-06-20",
-            "organization_type": "National",
-            "category": "Reiskosten",
-            "notes": "Testing the new Frappe API-based file attachment",
-            "receipt_attachment": file_data,
-        }
-
-        # Submit the expense
-        result = submit_expense(expense_data)
-
-        if result.get("success"):
-            expense_claim_name = result.get("expense_claim_name")
-
-            # Check if file was attached
-            attached_files = frappe.get_all(
-                "File",
-                filters={"attached_to_name": expense_claim_name},
-                fields=["name", "file_name", "file_url", "attached_to_doctype"],
-            )
-
-            return {
-                "success": True,
-                "expense_result": result,
-                "attached_files": attached_files,
-                "test_note": "Using official Frappe API for file attachment",
-            }
-        else:
-            return {"success": False, "expense_result": result}
-
-    except Exception as e:
-        import traceback
-
-        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
-
-
-@frappe.whitelist()
-def test_expense_with_attachment():
-    """Test expense submission with file attachment"""
-    try:
-        # Create a test file first
-        from frappe.utils.file_manager import save_file
-
-        test_content = b"Test receipt content"
-        file_doc = save_file(
-            fname="test_receipt.txt",
-            content=test_content,
-            dt="",
-            dn="",
-            folder="Home/Attachments",
-            is_private=0,
-        )
-
-        # Test expense data
-        expense_data = {
-            "description": "Test expense with receipt",
-            "amount": 50.00,
-            "expense_date": "2025-06-20",
-            "organization_type": "National",
-            "category": "Reiskosten",
-            "notes": "Test expense for debugging file attachments",
-            "receipt_attachment": file_doc.file_url,
-        }
-
-        # Submit the expense
-        result = submit_expense(expense_data)
-
-        if result.get("success"):
-            expense_claim_name = result.get("expense_claim_name")
-
-            # Check if file was attached
-            attached_files = frappe.get_all(
-                "File",
-                filters={"attached_to_name": expense_claim_name},
-                fields=["name", "file_name", "file_url"],
-            )
-
-            return {
-                "success": True,
-                "expense_result": result,
-                "attached_files": attached_files,
-                "test_file_url": file_doc.file_url,
-            }
-        else:
-            return {"success": False, "expense_result": result}
-
-    except Exception as e:
-        import traceback
-
-        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
-
-
-@frappe.whitelist()
-def debug_expense_retrieval(volunteer_name):
-    """Debug function to test expense retrieval"""
-    try:
-        # Test the actual functions
-        expenses = get_volunteer_expenses(volunteer_name, limit=10)
-        stats = get_expense_statistics(volunteer_name)
-
-        return {
-            "volunteer_name": volunteer_name,
-            "expense_count": len(expenses) if expenses else 0,
-            "expenses": expenses,
-            "stats": stats,
-        }
-
-    except Exception as e:
-        import traceback
-
-        return {"error": str(e), "traceback": traceback.format_exc()}
-
-
-@frappe.whitelist()
 def upload_expense_receipt():
     """Upload receipt file and return file data for later attachment"""
     try:
@@ -1533,7 +1214,25 @@ def submit_expense(expense_data):
         )
 
         # Insert the expense claim as draft (don't submit automatically)
-        expense_claim.insert(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        expense_result = secure_document_operation(
+            operation="insert",
+            doc=expense_claim,
+            justification=f"Create volunteer expense claim for {volunteer_name} - Amount: {flt(expense_data.get('amount'))}",
+            required_permissions=["Expense Claim:create"],
+        )
+
+        if not expense_result.success:
+            frappe.log_error(
+                f"Failed to create expense claim: {'; '.join(expense_result.errors)}",
+                "Expense Claim Security",
+            )
+            return {
+                "success": False,
+                "error": f"Failed to create expense claim: {'; '.join(expense_result.errors)}",
+            }
+
+        expense_claim = expense_result.doc
         frappe.logger().info(f"Successfully created expense claim draft: {expense_claim.name}")
 
         # Add receipt attachment if provided - attach to the ERPNext Expense Claim
@@ -1552,7 +1251,22 @@ def submit_expense(expense_data):
                     file_doc.attached_to_name = expense_claim.name
                     file_doc.folder = "Home/Attachments"
                     file_doc.is_private = 0
-                    file_doc.save(ignore_permissions=True)
+
+                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                    file_result = secure_document_operation(
+                        operation="save",
+                        doc=file_doc,
+                        justification=f"Attach receipt file {file_doc.name} to expense claim {expense_claim.name} for volunteer {volunteer_name}",
+                        required_permissions=["File:write"],
+                    )
+
+                    if not file_result.success:
+                        frappe.logger().error(
+                            f"Failed to attach Frappe file to expense claim: {'; '.join(file_result.errors)}"
+                        )
+                        raise frappe.ValidationError(
+                            f"File attachment failed: {file_result.errors[0] if file_result.errors else 'Unknown error'}"
+                        )
 
                     frappe.logger().info(
                         f"Successfully re-attached Frappe file {file_doc.name} to expense claim {expense_claim.name}"
@@ -1579,7 +1293,22 @@ def submit_expense(expense_data):
                             "is_private": 0,
                         }
                     )
-                    file_doc.insert(ignore_permissions=True)
+
+                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                    file_result = secure_document_operation(
+                        operation="insert",
+                        doc=file_doc,
+                        justification=f"Create receipt file {receipt_data.get('file_name')} for expense claim {expense_claim.name} - volunteer {volunteer_name}",
+                        required_permissions=["File:create"],
+                    )
+
+                    if not file_result.success:
+                        frappe.logger().error(
+                            f"Failed to create custom receipt file: {'; '.join(file_result.errors)}"
+                        )
+                        raise frappe.ValidationError(
+                            f"Receipt upload failed: {file_result.errors[0] if file_result.errors else 'Unknown error'}"
+                        )
 
                     frappe.logger().info(
                         f"Successfully attached custom receipt {receipt_data.get('file_name')} to expense claim {expense_claim.name}"
@@ -1621,7 +1350,23 @@ def submit_expense(expense_data):
             }
         )
 
-        volunteer_expense.insert(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        expense_result = secure_document_operation(
+            operation="insert",
+            doc=volunteer_expense,
+            justification=f"Create volunteer expense record for {volunteer_name} - Amount: {expense_data.get('amount')} - Category: {expense_data.get('category')}",
+            required_permissions=["Volunteer Expense:create"],
+        )
+
+        if not expense_result.success:
+            frappe.logger().error(
+                f"Failed to create volunteer expense record: {'; '.join(expense_result.errors)}"
+            )
+            return {
+                "success": False,
+                "message": f"Expense record creation failed: {expense_result.errors[0] if expense_result.errors else 'Unknown error'}",
+            }
+
         # Keep as Draft status to match ERPNext Expense Claim workflow
         # Will be updated when the ERPNext expense claim is approved and submitted
 
@@ -1970,7 +1715,23 @@ def test_expense_integration():
                         "start_date": frappe.utils.today(),
                     }
                 )
-                volunteer_doc.insert(ignore_permissions=True)
+
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                volunteer_result = secure_document_operation(
+                    operation="insert",
+                    doc=volunteer_doc,
+                    justification=f"Create volunteer profile for member {member_doc.first_name} {member_doc.last_name} ({member}) for expense testing",
+                    required_permissions=["Volunteer:create"],
+                )
+
+                if not volunteer_result.success:
+                    frappe.logger().error(
+                        f"Failed to create volunteer for member {member}: {'; '.join(volunteer_result.errors)}"
+                    )
+                    return {
+                        "success": False,
+                        "message": f"Volunteer creation failed: {volunteer_result.errors[0] if volunteer_result.errors else 'Unknown error'}",
+                    }
                 volunteer = volunteer_doc.name
                 volunteer_name = volunteer_doc.volunteer_name
                 print(f"   Created new volunteer: {volunteer_name} ({volunteer})")
@@ -1985,7 +1746,23 @@ def test_expense_integration():
                         "start_date": frappe.utils.today(),
                     }
                 )
-                volunteer_doc.insert(ignore_permissions=True)
+
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                volunteer_result = secure_document_operation(
+                    operation="insert",
+                    doc=volunteer_doc,
+                    justification="Create test volunteer profile for expense claim testing purposes",
+                    required_permissions=["Volunteer:create"],
+                )
+
+                if not volunteer_result.success:
+                    frappe.logger().error(
+                        f"Failed to create test volunteer: {'; '.join(volunteer_result.errors)}"
+                    )
+                    return {
+                        "success": False,
+                        "message": f"Test volunteer creation failed: {volunteer_result.errors[0] if volunteer_result.errors else 'Unknown error'}",
+                    }
                 volunteer = volunteer_doc.name
                 volunteer_name = volunteer_doc.volunteer_name
                 print(f"   Created test volunteer: {volunteer_name} ({volunteer})")

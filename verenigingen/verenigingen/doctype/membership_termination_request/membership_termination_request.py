@@ -520,19 +520,34 @@ class MembershipTerminationRequest(Document):
             expulsion_entry.status = "Active"
 
             # Get member's primary chapter from Chapter Member table
+            # Note: Database queries should generally respect permissions, but this is audit trail creation
             member_chapters = frappe.get_all(
                 "Chapter Member",
                 filters={"member": self.member, "enabled": 1},
                 fields=["parent"],
                 order_by="chapter_join_date desc",
                 limit=1,
-                ignore_permissions=True,
+                # Removed ignore_permissions - use proper permission validation
             )
             if member_chapters:
                 expulsion_entry.chapter_involved = member_chapters[0].parent
 
-            expulsion_entry.flags.ignore_permissions = True
-            expulsion_entry.insert()
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            # Secure expulsion report entry creation with explicit permission validation
+            expulsion_result = secure_document_operation(
+                operation="insert",
+                doc=expulsion_entry,
+                justification=f"Expulsion report entry creation for member termination {self.name}",
+                required_permissions=["Expulsion Report:create"],
+            )
+
+            if not expulsion_result.success:
+                frappe.logger().error(
+                    f"Failed to create expulsion report entry: {'; '.join(expulsion_result.errors)}"
+                )
+                # Don't throw here - this is supplementary audit trail, shouldn't block termination
 
             frappe.logger().info(f"Added expulsion report entry for {self.member_name}")
 

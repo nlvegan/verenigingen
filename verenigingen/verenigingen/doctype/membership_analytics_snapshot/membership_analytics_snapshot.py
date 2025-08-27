@@ -45,7 +45,19 @@ def create_snapshot(snapshot_type="Daily", specific_date=None):
     calculate_segmentation_data(snapshot, period)
     calculate_cohort_data(snapshot, period)
 
-    snapshot.insert(ignore_permissions=True)
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    from verenigingen.utils.secure_operations import secure_document_operation
+
+    snapshot_result = secure_document_operation(
+        operation="insert",
+        doc=snapshot,
+        justification=f"Create {snapshot_type} analytics snapshot for {snapshot_date}",
+        required_permissions=["Membership Analytics Snapshot:create"],
+    )
+
+    if not snapshot_result.success:
+        frappe.logger().error(f"Failed to create analytics snapshot: {'; '.join(snapshot_result.errors)}")
+        frappe.throw(_("Failed to create analytics snapshot: {0}").format("; ".join(snapshot_result.errors)))
     frappe.db.commit()
 
     return snapshot.name

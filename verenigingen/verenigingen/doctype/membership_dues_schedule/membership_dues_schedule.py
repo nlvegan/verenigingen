@@ -1574,7 +1574,21 @@ class MembershipDuesSchedule(Document):
             member_doc = frappe.get_doc("Member", self.member)
             if member_doc.dues_rate != self.dues_rate:
                 member_doc.dues_rate = self.dues_rate
-                member_doc.save(ignore_permissions=True)
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                from verenigingen.utils.secure_operations import secure_document_operation
+
+                member_rate_result = secure_document_operation(
+                    operation="save",
+                    doc=member_doc,
+                    justification=f"Update member dues rate from schedule {self.name}",
+                    required_permissions=["Member:write"],
+                )
+
+                if not member_rate_result.success:
+                    frappe.logger().error(
+                        f"Failed to update member dues rate: {'; '.join(member_rate_result.errors)}"
+                    )
+                    # Don't fail the main operation for member update failure
         except Exception as e:
             frappe.log_error(f"Error updating member dues rate: {str(e)}", "Member Dues Rate Update")
 
@@ -1628,7 +1642,21 @@ class MembershipDuesSchedule(Document):
 
             # Allow updates after submit for billing history
             member_doc.flags.ignore_validate_update_after_submit = True
-            member_doc.save(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            billing_history_result = secure_document_operation(
+                operation="save",
+                doc=member_doc,
+                justification=f"Update member billing history from schedule {self.name}",
+                required_permissions=["Member:write"],
+            )
+
+            if not billing_history_result.success:
+                frappe.logger().error(
+                    f"Failed to update member billing history: {'; '.join(billing_history_result.errors)}"
+                )
+                # Don't fail the main operation for billing history update failure
 
         except Exception as e:
             # Shorten error message to avoid database field length limits

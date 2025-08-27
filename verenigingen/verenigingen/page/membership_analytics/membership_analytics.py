@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 import frappe
 from frappe.utils import add_months, flt, fmt_money, getdate, now_datetime
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 @frappe.whitelist()
 def get_dashboard_data(year=None, period="year", compare_previous=False, filters=None):
@@ -272,7 +274,17 @@ def get_goals_progress(year):
     for goal in goals:
         goal_doc = frappe.get_doc("Membership Goal", goal.name)
         goal_doc.update_achievement()
-        goal_doc.save(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        save_result = secure_document_operation(
+            operation="save",
+            doc=goal_doc,
+            justification=f"Update achievement for membership goal {goal_doc.name} in analytics dashboard",
+            required_permissions=["Membership Goal:write"],
+        )
+
+        if not save_result.success:
+            frappe.log_error(f"Could not update goal {goal_doc.name}: Permission denied")
+            continue
 
         goal.current_value = goal_doc.current_value
         goal.achievement_percentage = goal_doc.achievement_percentage

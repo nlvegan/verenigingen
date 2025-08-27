@@ -130,7 +130,19 @@ class BaseManager(ABC):
                     "content": content,
                 }
             )
-            comment_doc.insert(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            comment_result = secure_document_operation(
+                operation="insert",
+                doc=comment_doc,
+                justification=f"Create chapter management comment for {reference_name}",
+                required_permissions=["Comment:create"],
+            )
+
+            if not comment_result.success:
+                frappe.logger().error(f"Failed to create chapter comment: {'; '.join(comment_result.errors)}")
+                # Don't fail the main operation for comment creation failure, just log it
 
         except Exception as e:
             self.log_action("Failed to create comment", {"error": str(e), "content": content[:100]}, "error")

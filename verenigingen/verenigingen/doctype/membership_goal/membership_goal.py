@@ -10,6 +10,7 @@ from frappe.query_builder import DocType
 from frappe.utils import flt, getdate, now_datetime
 
 from verenigingen.utils.api_response import api_response_handler
+from verenigingen.utils.secure_operations import secure_document_operation
 
 
 class MembershipGoal(Document):
@@ -230,7 +231,16 @@ def update_all_goals() -> str:
     for goal in goals:
         doc = frappe.get_doc("Membership Goal", goal.name)
         doc.update_achievement()
-        doc.save(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        save_result = secure_document_operation(
+            operation="save",
+            doc=doc,
+            justification=f"Update achievement for membership goal {doc.name} in batch operation",
+            required_permissions=["Membership Goal:write"],
+        )
+
+        if not save_result.success:
+            frappe.log_error(f"Could not update goal {doc.name}: Permission denied")
 
     frappe.db.commit()
     return f"Updated {len(goals)} goals"

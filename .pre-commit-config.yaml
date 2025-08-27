@@ -92,6 +92,18 @@ repos:
 
   - repo: local
     hooks:
+      # TEST QUALITY ENFORCEMENT (CRITICAL - MUST BE FIRST)
+      - id: test-quality-enforcer
+        name: 🚨 Test Quality Enforcer (CRITICAL)
+        description: Block mock abuse and enforce real integration testing patterns
+        entry: python scripts/validation/test_quality_enforcer.py
+        language: system
+        files: '^.*test.*\.py$|^.*/tests/.*\.py$'
+        pass_filenames: true
+        stages: [pre-commit, pre-push]
+        verbose: true
+        fail_fast: true
+
       # Security validation hooks (TEMPORARILY DISABLED)
       # - id: insecure-api-detector
       #   name: 🔒 Insecure API Endpoint Detection
