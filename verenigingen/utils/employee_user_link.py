@@ -9,6 +9,13 @@ from frappe import _
 from frappe.utils import cint
 
 
+def safe_log_error(message, title=None):
+    """Helper to log errors with length protection"""
+    # Truncate message to prevent log title validation errors
+    safe_message = message[:100] + "..." if len(message) > 100 else message
+    frappe.log_error(safe_message, title)
+
+
 def create_user_for_volunteer(volunteer_doc):
     """Create a User account for a volunteer if it doesn't exist"""
     try:
@@ -61,7 +68,7 @@ def update_employee_with_user(employee_name, user_id):
         frappe.logger().info(f"Updated employee {employee_name} with user_id {user_id}")
         return True
     except Exception as e:
-        frappe.log_error(f"Error updating employee {employee_name} with user_id: {str(e)}")
+        safe_log_error(f"Error updating employee {employee_name} with user_id: {str(e)}")
         return False
 
 
@@ -75,8 +82,39 @@ def create_employee_for_approved_volunteer(volunteer_doc):
             )
             return volunteer_doc.employee_id
 
-        # Create employee using the existing method
-        employee_id = volunteer_doc.create_minimal_employee()
+        # Get member data to access first_name and last_name
+        member_doc = None
+        first_name = "Unknown"
+        last_name = ""
+        
+        if volunteer_doc.member:
+            member_doc = frappe.get_doc("Member", volunteer_doc.member)
+            first_name = member_doc.first_name or "Unknown"
+            last_name = member_doc.last_name or ""
+        else:
+            # Fallback: Parse volunteer_name if no member link
+            name_parts = volunteer_doc.volunteer_name.split() if volunteer_doc.volunteer_name else ["Unknown"]
+            first_name = name_parts[0]
+            last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
+
+        # Create employee manually since create_minimal_employee was removed
+        employee = frappe.get_doc(
+            {
+                "doctype": "Employee",
+                "first_name": first_name,
+                "last_name": last_name,
+                "personal_email": volunteer_doc.email,
+                "company": frappe.defaults.get_defaults().get("company") or "Vereniging Veganisme",
+                "employee_name": f"{first_name} {last_name}",
+                "status": "Active",
+                "employment_type": "Volunteer",
+            }
+        )
+
+        employee.insert()
+        employee_id = employee.name
+
+        frappe.logger().info(f"Created employee {employee_id} for volunteer {volunteer_doc.name}")
 
         # Create user if needed and link to employee
         if volunteer_doc.email:
@@ -87,7 +125,7 @@ def create_employee_for_approved_volunteer(volunteer_doc):
         return employee_id
 
     except Exception as e:
-        frappe.log_error(f"Error creating employee for approved volunteer {volunteer_doc.name}: {str(e)}")
+        safe_log_error(f"Error creating employee for approved volunteer {volunteer_doc.name}: {str(e)}")
         return None
 
 

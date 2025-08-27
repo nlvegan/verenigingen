@@ -7,10 +7,23 @@
  "modified": "2025-06-18 08:15:09.772729",
  "modified_by": "Administrator",
  "module": "Verenigingen",
- "name": "membership-applicati",
+ "name": "membership-application-review",
  "owner": "Administrator",
- "page_name": "membership-applicati",
- "roles": [],
+ "page_name": "membership-application-review",
+ "roles": [
+  {
+   "role": "Verenigingen Chapter Board Member"
+  },
+  {
+   "role": "Verenigingen National Board Member"
+  },
+  {
+   "role": "Verenigingen Administrator"
+  },
+  {
+   "role": "System Manager"
+  }
+ ],
  "script": null,
  "standard": "Yes",
  "style": null,

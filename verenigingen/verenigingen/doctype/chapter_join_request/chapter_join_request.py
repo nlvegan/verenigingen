@@ -182,7 +182,7 @@ class ChapterJoinRequest(Document):
         try:
             # Get chapter board members
             board_members = frappe.get_all(
-                "Chapter Board Member", filters={"parent": self.chapter, "enabled": 1}, fields=["volunteer"]
+                "Chapter Board Member", filters={"parent": self.chapter, "is_active": 1}, fields=["volunteer"]
             )
 
             recipients = []
@@ -284,7 +284,7 @@ def has_chapter_approval_permission(chapter_name=None, user=None):
     # Check if user is a board member of this specific chapter
     board_member = frappe.db.exists(
         "Chapter Board Member",
-        {"parent": chapter_name, "member": frappe.db.get_value("Member", {"email": user}), "enabled": 1},
+        {"parent": chapter_name, "member": frappe.db.get_value("Member", {"email": user}), "is_active": 1},
     )
 
     return bool(board_member)

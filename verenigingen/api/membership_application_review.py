@@ -10,15 +10,240 @@ from frappe.utils import add_days, getdate, now_datetime, today
 from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
 
 
+def assign_member_to_chapter(member, chapter):
+    """Assign member to chapter - extracted from approval workflow"""
+    if not chapter:
+        return
+
+    try:
+        # Validate chapter exists
+        if not frappe.db.exists("Chapter", chapter):
+            frappe.logger().warning(f"Chapter {chapter} does not exist, skipping assignment")
+            return
+
+        # Get chapter document
+        chapter_doc = frappe.get_doc("Chapter", chapter)
+
+        # Check if member is already in the chapter
+        existing_membership = False
+        for existing_member in chapter_doc.members:
+            if existing_member.member == member.name and existing_member.enabled:
+                existing_membership = True
+                break
+
+        if not existing_membership:
+            # Add member to chapter's members child table
+            chapter_doc.append(
+                "members",
+                {
+                    "member": member.name,
+                    "enabled": 1,
+                    "status": "Active",
+                    "chapter_join_date": today(),
+                },
+            )
+            chapter_doc.save()
+            frappe.logger().info(f"Added member {member.name} to chapter {chapter}")
+        else:
+            frappe.logger().info(f"Member {member.name} already exists in chapter {chapter}")
+
+    except Exception as e:
+        frappe.logger().warning(f"Could not create chapter membership for {member.name}: {str(e)}")
+
+
+def resolve_membership_type(member, membership_type=None):
+    """Resolve and validate membership type - extracted from approval workflow"""
+    # Use provided membership type or fallback to selected
+    if not membership_type:
+        membership_type = getattr(member, "selected_membership_type", None)
+
+    # Additional fallback to current membership type if selected is not set
+    if not membership_type:
+        membership_type = getattr(member, "current_membership_type", None)
+
+    # If still no membership type, try to set a default from available types
+    if not membership_type:
+        membership_types = frappe.get_all("Membership Type", fields=["name"], limit=1)
+        if membership_types:
+            membership_type = membership_types[0].name
+            # Set this as the selected type for the member
+            try:
+                member.selected_membership_type = membership_type
+                member.save()
+                frappe.logger().info(
+                    f"Auto-assigned membership type {membership_type} to member {member.name}"
+                )
+            except Exception as e:
+                frappe.logger().error(f"Could not save membership type to member: {str(e)}")
+        else:
+            frappe.throw(
+                _("No membership types available in the system. Please create a membership type first.")
+            )
+
+    if not membership_type:
+        frappe.throw(_("Please select a membership type"))
+
+    return membership_type
+
+
+def create_member_iban_history(member):
+    """Create initial IBAN history - extracted from approval workflow"""
+    if not (hasattr(member, "iban") and member.iban):
+        return
+
+    try:
+        frappe.db.insert(
+            {
+                "doctype": "Member IBAN History",
+                "parent": member.name,
+                "parenttype": "Member",
+                "parentfield": "iban_history",
+                "iban": member.iban,
+                "bic": getattr(member, "bic", None),
+                "bank_account_name": getattr(member, "bank_account_name", None),
+                "from_date": today(),
+                "is_active": 1,
+                "changed_by": frappe.session.user,
+                "change_reason": "Other",
+            }
+        )
+        frappe.logger().info(f"Created initial IBAN history for approved member {member.name}")
+    except Exception as e:
+        frappe.logger().error(f"Error creating IBAN history for {member.name}: {str(e)}")
+        # Don't fail the approval process due to IBAN history error
+
+
+def create_membership_and_invoice(member, membership_type):
+    """Create membership record and invoice - extracted from approval workflow"""
+    # Check for existing active membership first
+    existing_membership = frappe.db.get_value(
+        "Membership", {"member": member.name, "status": ["in", ["Active", "Draft"]]}, "name"
+    )
+
+    if existing_membership:
+        frappe.logger().info(f"Member {member.name} already has active membership: {existing_membership}")
+        membership = frappe.get_doc("Membership", existing_membership)
+        # Update membership type if different
+        if membership.membership_type != membership_type:
+            membership.membership_type = membership_type
+            membership.save()
+    else:
+        # Create membership record
+        membership = frappe.get_doc(
+            {
+                "doctype": "Membership",
+                "member": member.name,
+                "membership_type": membership_type,
+                "start_date": today(),
+                "status": "Draft",  # Will be activated after payment
+            }
+        )
+
+        membership.insert()
+
+    # Get membership type details
+    membership_type_doc = frappe.get_doc("Membership Type", membership_type)
+
+    # Get billing amount from created dues schedule or template
+    billing_amount = 0
+    if hasattr(member, "dues_rate") and member.dues_rate:
+        # Use member's custom dues rate
+        billing_amount = member.dues_rate
+    elif membership_type_doc.dues_schedule_template:
+        try:
+            template = frappe.get_doc("Membership Dues Schedule", membership_type_doc.dues_schedule_template)
+            billing_amount = template.dues_rate or template.suggested_amount or 0
+        except Exception:
+            pass
+
+    # Fallback to minimum_amount if no template amount available
+    if not billing_amount:
+        billing_amount = membership_type_doc.minimum_amount
+
+    # Submit membership first to trigger dues schedule creation
+    try:
+        membership.submit()
+        frappe.logger().info(f"Successfully submitted membership {membership.name} for member {member.name}")
+    except Exception as e:
+        frappe.logger().error(f"Failed to submit membership for member {member.name}: {str(e)}")
+        frappe.throw(_("Failed to submit membership. Please try again."))
+
+    return membership, membership_type_doc, billing_amount
+
+
+def finalize_member_approval(member, notes=None):
+    """Finalize member approval status with robust concurrency handling"""
+    max_retries = 3
+
+    for attempt in range(max_retries):
+        try:
+            # Always reload member to get latest version
+            if attempt > 0:
+                member.reload()
+
+            member.application_status = "Approved"
+            member.status = "Active"
+            member.member_since = today()
+            member.reviewed_by = frappe.session.user
+            member.review_date = now_datetime()
+            if notes:
+                member.review_notes = notes
+
+            member.save()
+            # Success - break out of retry loop
+            frappe.logger().info(
+                f"Member approval finalized successfully for {member.name} on attempt {attempt + 1}"
+            )
+            return
+
+        except frappe.TimestampMismatchError as e:
+            if attempt == max_retries - 1:
+                # Final attempt failed
+                safe_log_error(
+                    f"Final timestamp mismatch for member {member.name} after {max_retries} attempts: {str(e)}"
+                )
+                frappe.throw(_("Document has been modified by another user. Please refresh and try again."))
+            else:
+                # Wait briefly before retry
+                import time
+
+                time.sleep(0.1 * (attempt + 1))  # Progressive backoff
+                continue
+
+        except Exception as e:
+            from verenigingen.utils.security.rate_limiter import log_security_event
+
+            safe_log_error(f"Failed to save final approval status for member {member.name}: {str(e)}")
+            log_security_event(
+                frappe.session.user,
+                "approval_final_save_failed",
+                f"Failed to save final approval status for member {member.name}",
+                "high",
+            )
+            frappe.throw(_("Failed to save final approval status. Please try again."))
+
+
 @frappe.whitelist()
 @high_security_api()  # Member application approval workflow
 def approve_membership_application(
     member_name, membership_type=None, chapter=None, notes=None, create_invoice=True
 ):
     """
-    Approve a membership application and create invoice
-    Now directly processes payment instead of waiting
-    Enhanced with comprehensive input validation and security measures
+    Approve a membership application with focused responsibilities
+
+    This function handles:
+    - Input validation and security checks
+    - Member status updates and chapter assignments
+    - Membership record and invoice creation
+    - Notification sending
+
+    Delegated to AccountCreationManager:
+    - User account creation
+    - Role assignment and management
+    - Employee record creation
+    - User-Employee linking
+
+    This separation ensures proper security compliance and maintainable code.
     """
     # Input sanitization and validation
     from verenigingen.utils.security.rate_limiter import log_security_event, validate_input_security
@@ -58,191 +283,74 @@ def approve_membership_application(
     if member.application_status not in ["Pending"]:
         frappe.throw(_("This application cannot be approved in its current state"))
 
-    # Check permissions
-    if not has_approval_permission(member):
-        frappe.throw(_("You don't have permission to approve this application"))
+    # Check chapter-based permissions
+    from verenigingen.utils.chapter_security import validate_chapter_permission_or_throw
 
-    # Use provided membership type or fallback to selected
-    if not membership_type:
-        membership_type = getattr(member, "selected_membership_type", None)
+    validate_chapter_permission_or_throw(member_name, "approve")
 
-    # Additional fallback to current membership type if selected is not set
-    if not membership_type:
-        membership_type = getattr(member, "current_membership_type", None)
-
-    # If still no membership type, try to set a default from available types
-    if not membership_type:
-        membership_types = frappe.get_all("Membership Type", fields=["name"], limit=1)
-        if membership_types:
-            membership_type = membership_types[0].name
-            # Set this as the selected type for the member
-            try:
-                member.selected_membership_type = membership_type
-                member.save()
-                frappe.logger().info(
-                    f"Auto-assigned membership type {membership_type} to member {member.name}"
-                )
-            except Exception as e:
-                frappe.logger().error(f"Could not save membership type to member: {str(e)}")
-        else:
-            frappe.throw(
-                _("No membership types available in the system. Please create a membership type first.")
-            )
-
-    if not membership_type:
-        frappe.throw(_("Please select a membership type"))
+    # Resolve membership type using helper function
+    membership_type = resolve_membership_type(member, membership_type)
 
     # Pre-check: Validate membership type has a valid dues schedule template
     validate_membership_type_for_approval(membership_type, member, is_application_approval=True)
 
-    # Update chapter if provided
-    if chapter:
-        # Assign member to chapter by adding to Chapter's members child table
+    # Note: Frappe automatically manages transactions for @frappe.whitelist() functions
+
+    # Assign member to chapter using helper function
+    assign_member_to_chapter(member, chapter)
+
+    # Set the selected membership type with retry logic
+    max_retries = 3
+    for attempt in range(max_retries):
         try:
-            # Validate chapter exists
-            if not frappe.db.exists("Chapter", chapter):
-                frappe.logger().warning(f"Chapter {chapter} does not exist, skipping assignment")
+            if attempt > 0:
+                member.reload()
+
+            try:
+                member.selected_membership_type = membership_type
+            except AttributeError:
+                # Field might not exist in the database yet, log but continue
+                frappe.logger().warning(
+                    f"Could not set selected_membership_type field on member {member.name}"
+                )
+
+            member.save()
+            break  # Success - exit retry loop
+
+        except frappe.TimestampMismatchError:
+            if attempt == max_retries - 1:
+                safe_log_error(f"Timestamp mismatch for member {member_name} after {max_retries} attempts")
+                frappe.throw(_("Document has been modified by another user. Please refresh and try again."))
             else:
-                # Get chapter document
-                chapter_doc = frappe.get_doc("Chapter", chapter)
+                import time
 
-                # Check if member is already in the chapter
-                existing_membership = False
-                for existing_member in chapter_doc.members:
-                    if existing_member.member == member.name and existing_member.enabled:
-                        existing_membership = True
-                        break
+                time.sleep(0.1 * (attempt + 1))
+                continue
 
-                if not existing_membership:
-                    # Add member to chapter's members child table
-                    chapter_doc.append(
-                        "members",
-                        {
-                            "member": member.name,
-                            "enabled": 1,
-                            "status": "Active",
-                            "chapter_join_date": today(),
-                        },
-                    )
-                    chapter_doc.save(ignore_permissions=True)
-                    frappe.logger().info(f"Added member {member.name} to chapter {chapter}")
-                else:
-                    frappe.logger().info(f"Member {member.name} already exists in chapter {chapter}")
         except Exception as e:
-            frappe.logger().warning(f"Could not create chapter membership for {member.name}: {str(e)}")
+            log_security_event(
+                frappe.session.user,
+                "approval_save_failed",
+                f"Failed to save member {member_name} during approval",
+                "high",
+            )
+            safe_log_error(f"Failed to save member {member_name} during approval: {str(e)}")
+            frappe.throw(_("Failed to save member data. Please try again."))
 
-    # Note: Application status will be set to "Approved" AFTER successful membership creation
-    # to avoid race conditions where validation fails after status is already set
-    # Set the selected membership type using setattr to handle potential AttributeError
-    try:
-        member.selected_membership_type = membership_type
-    except AttributeError:
-        # Field might not exist in the database yet, log but continue
-        frappe.logger().warning(f"Could not set selected_membership_type field on member {member.name}")
-
-    # Save with enhanced concurrency handling (Frappe manages transactions automatically)
-    try:
-        member.save()
-
-    except frappe.TimestampMismatchError:
-        # Reload member and retry save once
-        member.reload()
-        try:
-            member.selected_membership_type = membership_type
-        except AttributeError:
-            pass
-        member.save()
-
-    except Exception as e:
-        log_security_event(
-            frappe.session.user,
-            "approval_save_failed",
-            f"Failed to save member {member_name} during approval: {str(e)}",
-            "high",
-        )
-        frappe.throw(_("Failed to save member data. Please try again."))
-
-    # Create employee record for volunteers whose applications are now approved
+    # Employee creation for volunteers is handled by AccountCreationManager
+    # This ensures proper security compliance and avoids duplicate processing
     if hasattr(member, "interested_in_volunteering") and member.interested_in_volunteering:
         volunteer_record = frappe.db.get_value("Volunteer", {"member": member.name}, "name")
         if volunteer_record:
-            try:
-                volunteer = frappe.get_doc("Volunteer", volunteer_record)
-                volunteer.create_employee_if_needed()
-                frappe.logger().info(f"Created employee record for approved volunteer: {volunteer.name}")
-            except Exception as e:
-                frappe.logger().error(f"Failed to create employee for volunteer {volunteer_record}: {str(e)}")
-
-    # Create initial IBAN history if member has IBAN
-    if hasattr(member, "iban") and member.iban:
-        try:
-            frappe.db.insert(
-                {
-                    "doctype": "Member IBAN History",
-                    "parent": member.name,
-                    "parenttype": "Member",
-                    "parentfield": "iban_history",
-                    "iban": member.iban,
-                    "bic": getattr(member, "bic", None),
-                    "bank_account_name": getattr(member, "bank_account_name", None),
-                    "from_date": today(),
-                    "is_active": 1,
-                    "changed_by": frappe.session.user,
-                    "change_reason": "Other",
-                }
+            frappe.logger().info(
+                f"Volunteer record {volunteer_record} exists - AccountCreationManager will handle employee creation"
             )
-            frappe.logger().info(f"Created initial IBAN history for approved member {member.name}")
-        except Exception as e:
-            frappe.logger().error(f"Error creating IBAN history for {member.name}: {str(e)}")
-            # Don't fail the approval process due to IBAN history error
 
-    # Create membership record
-    membership = frappe.get_doc(
-        {
-            "doctype": "Membership",
-            "member": member.name,
-            "membership_type": membership_type,
-            "start_date": today(),
-            "status": "Draft",  # Will be activated after payment
-        }
-    )
+    # Create initial IBAN history using helper function
+    create_member_iban_history(member)
 
-    # Handle custom amount if member has fee override
-    # Legacy JSON parsing removed - use direct fee override field
-    if hasattr(member, "dues_rate") and member.dues_rate:
-        # Custom amount handling is now managed by Membership Dues Schedule
-        # No direct fields on Membership for custom amounts
-        pass  # Custom amount logic handled by Membership Dues Schedule
-
-    membership.insert()
-
-    # Get membership type details
-    membership_type_doc = frappe.get_doc("Membership Type", membership_type)
-
-    # Get billing amount from created dues schedule or template
-    billing_amount = 0
-    if hasattr(member, "dues_rate") and member.dues_rate:
-        # Use member's custom dues rate
-        billing_amount = member.dues_rate
-    elif membership_type_doc.dues_schedule_template:
-        try:
-            template = frappe.get_doc("Membership Dues Schedule", membership_type_doc.dues_schedule_template)
-            billing_amount = template.dues_rate or template.suggested_amount or 0
-        except Exception:
-            pass
-
-    # Fallback to minimum_amount if no template amount available
-    if not billing_amount:
-        billing_amount = membership_type_doc.minimum_amount
-
-    # Submit membership first to trigger dues schedule creation
-    # This must happen regardless of ERPNext integration success/failure
-    try:
-        membership.submit()
-        frappe.logger().info(f"Successfully submitted membership {membership.name} for member {member.name}")
-    except Exception as e:
-        frappe.logger().error(f"Failed to submit membership for member {member_name}: {str(e)}")
-        frappe.throw(_("Failed to submit membership. Please try again."))
+    # Create membership record and get billing amount using helper function
+    membership, membership_type_doc, billing_amount = create_membership_and_invoice(member, membership_type)
 
     # Enhanced ERPNext integration with comprehensive error handling
     # Note: Frappe automatically handles transactions for whitelisted API functions
@@ -346,68 +454,47 @@ def approve_membership_application(
         }
 
     # Activate volunteer record if member is interested in volunteering
-    if hasattr(member, "interested_in_volunteering") and member.interested_in_volunteering:
-        activate_volunteer_record(member)
+    try:
+        if hasattr(member, "interested_in_volunteering") and member.interested_in_volunteering:
+            activate_volunteer_record(member)
+    except Exception as e:
+        safe_log_error(f"Non-critical: Failed to activate volunteer record for {member.name}: {str(e)}")
+        # Continue with approval - this is not critical
 
     # Create user account for portal access using secure AccountCreationManager
-    user_creation_result = create_secure_user_account_for_member(member)
+    user_creation_result = {"success": False, "error": "Not attempted"}
+    try:
+        user_creation_result = create_secure_user_account_for_member(member)
+    except Exception as e:
+        safe_log_error(f"Non-critical: User account creation failed for {member.name}: {str(e)}")
+        user_creation_result = {"success": False, "error": "Account creation failed"}
+        # Continue with approval - user accounts can be created manually later
 
-    # Force refresh user document to sync roles if user was created/linked
-    # Skip this for queued account creation as user doesn't exist yet
-    if (
-        user_creation_result.get("success")
-        and user_creation_result.get("user")
-        and user_creation_result.get("action") not in ["queued_secure"]
-    ):
-        # Note: Frappe automatically commits changes
-        try:
-            # Force reload user document to ensure role changes are reflected
-            user_doc = frappe.get_doc("User", user_creation_result["user"])
-            user_doc.reload()
-            frappe.logger().info(f"Successfully refreshed user document for {user_creation_result['user']}")
-        except Exception as e:
-            frappe.log_error(f"Error reloading user after role assignment: {str(e)}")
-    elif user_creation_result.get("action") == "queued_secure":
+    # AccountCreationManager handles all user document management
+    # including role assignment, refreshing, and linking - no manual intervention needed
+    if user_creation_result.get("action") == "queued_secure":
         frappe.logger().info(
-            f"User account creation queued for member {member.name} - skipping immediate user document refresh"
+            f"User account creation queued for member {member.name} - AccountCreationManager will handle all user setup"
+        )
+    elif user_creation_result.get("success"):
+        frappe.logger().info(
+            f"User account {'linked' if user_creation_result.get('action') == 'linked_existing' else 'processed'} for member {member.name}"
         )
 
     # Send approval email with payment link
-    send_approval_notification(member, invoice, membership_type_doc)
-
-    # Finally set application status to approved (after all business logic completes)
-    # Enhanced concurrency handling for final status update
     try:
-        member.application_status = "Approved"  # Application is approved (consistent status naming)
-        member.status = "Active"  # Member is now active (not waiting for payment)
-        member.member_since = today()  # Set member since date when approved
-        member.reviewed_by = frappe.session.user
-        member.review_date = now_datetime()
-        if notes:
-            member.review_notes = notes
-        member.save()
-        # Note: Frappe automatically commits changes
-
-    except frappe.TimestampMismatchError:
-        # Reload member and retry final save once
-        member.reload()
-        member.application_status = "Approved"
-        member.status = "Active"
-        member.member_since = today()
-        member.reviewed_by = frappe.session.user
-        member.review_date = now_datetime()
-        if notes:
-            member.review_notes = notes
-        member.save()
-
+        send_approval_notification(member, invoice, membership_type_doc)
     except Exception as e:
-        log_security_event(
-            frappe.session.user,
-            "approval_final_save_failed",
-            f"Failed to save final approval status for member {member_name}: {str(e)}",
-            "high",
-        )
-        frappe.throw(_("Failed to save final approval status. Please try again."))
+        safe_log_error(f"Non-critical: Email notification failed for {member.name}: {str(e)}")
+        # Continue with approval - emails can be sent manually
+
+    # Finalize member approval using helper function (CRITICAL - must succeed)
+    try:
+        finalize_member_approval(member, notes)
+    except Exception as e:
+        # This is critical - if we can't set approval status, the workflow failed
+        safe_log_error(f"CRITICAL: Failed to finalize approval for {member.name}: {str(e)}")
+        frappe.throw(_("Failed to finalize member approval. Please try again or contact administrator."))
 
     # Log status change for auditing
     log_security_event(
@@ -416,6 +503,8 @@ def approve_membership_application(
         f"Member {member_name} approved with status change: Pending -> Approved/Active",
         "low",
     )
+
+    # Note: Frappe automatically commits successful transactions
 
     # Prepare response message with enhanced user feedback
     message = _("Application approved. Invoice sent to applicant.")
@@ -481,8 +570,15 @@ def create_user_account_for_member(member):
 
         return create_member_user_account(member.name, send_welcome_email=True)
     except Exception as e:
-        frappe.log_error(f"Error creating user account for member {member.name}: {str(e)}")
+        safe_log_error(f"Error creating user account for member {member.name}: {str(e)}")
         return {"success": False, "error": str(e)}
+
+
+def safe_log_error(message, title=None):
+    """Helper to log errors with length protection"""
+    # Truncate message to prevent log title validation errors
+    safe_message = message[:100] + "..." if len(message) > 100 else message
+    frappe.log_error(safe_message, title)
 
 
 def create_secure_user_account_for_member(member):
@@ -506,7 +602,9 @@ def create_secure_user_account_for_member(member):
 
             # Check if volunteer is a board member - this requires additional role assignment
             board_member_chapters = frappe.get_all(
-                "Chapter Board Member", filters={"volunteer": volunteer_name, "enabled": 1}, fields=["parent"]
+                "Chapter Board Member",
+                filters={"volunteer": volunteer_name, "is_active": 1},
+                fields=["parent"],
             )
             if board_member_chapters:
                 additional_roles.append("Verenigingen Chapter Board Member")
@@ -530,56 +628,36 @@ def create_secure_user_account_for_member(member):
             f"Creating secure user account for member {member.name} with role_profile: {role_profile}, additional_roles: {additional_roles}"
         )
 
-        # PERFORMANCE OPTIMIZATION: Try immediate processing for simple cases
-        try:
-            # Check if user already exists (quick check)
-            if frappe.db.exists("User", member.email):
-                frappe.logger().info(f"User already exists for {member.email}, using existing account")
-                return {
-                    "success": True,
-                    "message": "Linked to existing user account",
-                    "user": member.email,
-                    "action": "linked_existing",
-                }
+        # Check if user already exists (quick check)
+        if frappe.db.exists("User", member.email):
+            frappe.logger().info(f"User already exists for {member.email}, using existing account")
+            return {
+                "success": True,
+                "message": "Linked to existing user account",
+                "user": member.email,
+                "action": "linked_existing",
+            }
 
-            # For simple cases (standard role profiles with no additional roles), try immediate processing
-            if len(additional_roles) == 0:
-                frappe.logger().info(
-                    f"Simple role profile assignment for {member.name} - attempting immediate processing"
-                )
+        # Check for existing account creation request
+        existing_request = frappe.db.get_value(
+            "Account Creation Request",
+            {"source_record": member.name, "status": ["in", ["Pending", "In Progress", "Completed"]]},
+            "name",
+        )
 
-                # Create request but process immediately
-                account_request = queue_account_creation_for_member(
-                    member_name=member.name,
-                    roles=additional_roles if additional_roles else None,
-                    role_profile=role_profile,
-                    priority="High",
-                )
-
-                if account_request:
-                    # Process immediately for better UX
-                    manager = AccountCreationManager(account_request.name)
-                    manager.process_complete_pipeline()
-
-                    # Check if processing succeeded
-                    account_request.reload()
-                    if account_request.status == "Completed" and account_request.created_user:
-                        frappe.logger().info(f"✅ Immediate account creation successful for {member.name}")
-                        return {
-                            "success": True,
-                            "message": "User account created immediately via secure system",
-                            "user": account_request.created_user,
-                            "action": "created_new_immediate",
-                            "account_request": account_request.name,
-                        }
-
-        except Exception as immediate_error:
-            frappe.logger().warning(
-                f"Immediate processing failed for {member.name}, falling back to queue: {str(immediate_error)}"
+        if existing_request:
+            frappe.logger().info(
+                f"Account creation request already exists for {member.name}: {existing_request}"
             )
-            # Fall through to queue processing
+            return {
+                "success": True,
+                "message": "Account creation already in progress or completed",
+                "user": None,
+                "action": "existing_request",
+                "account_request": existing_request,
+            }
 
-        # FALLBACK: Standard queue processing for complex cases or if immediate processing fails
+        # Create new account creation request
         account_request = queue_account_creation_for_member(
             member_name=member.name,
             roles=additional_roles if additional_roles else None,
@@ -602,8 +680,10 @@ def create_secure_user_account_for_member(member):
             return {"success": False, "error": "Failed to queue account creation request"}
 
     except Exception as e:
-        frappe.log_error(f"Error creating secure user account for member {member.name}: {str(e)}")
-        return {"success": False, "error": str(e)}
+        # Create shortened error message to avoid log title length issues
+        error_msg = str(e)[:100] + "..." if len(str(e)) > 100 else str(e)
+        frappe.log_error(f"Account creation error for {member.name}: {error_msg}")
+        return {"success": False, "error": error_msg}
 
 
 def activate_volunteer_record(member):
@@ -619,15 +699,12 @@ def activate_volunteer_record(member):
             volunteer.save()
             frappe.logger().info(f"Activated volunteer record {volunteer_name} for member {member.name}")
 
-            # Create employee if not exists (for volunteers created during pending application)
-            if not volunteer.employee_id and volunteer.email:
-                from verenigingen.utils.employee_user_link import create_employee_for_approved_volunteer
-
-                employee_id = create_employee_for_approved_volunteer(volunteer)
-                if employee_id:
-                    frappe.logger().info(
-                        f"Created employee {employee_id} for approved volunteer {volunteer_name}"
-                    )
+            # Employee creation is now handled by AccountCreationManager
+            # The account creation request will handle employee creation properly
+            # with full security compliance and audit trail
+            frappe.logger().info(
+                f"Employee creation for volunteer {volunteer_name} will be handled by AccountCreationManager"
+            )
         else:
             # Create volunteer record if it doesn't exist (fallback)
             from verenigingen.utils.application_helpers import create_volunteer_record
@@ -640,7 +717,7 @@ def activate_volunteer_record(member):
                     f"Created and activated volunteer record {volunteer.name} for member {member.name}"
                 )
     except Exception as e:
-        frappe.log_error(f"Error activating volunteer record for member {member.name}: {str(e)}")
+        safe_log_error(f"Error activating volunteer record for member {member.name}: {str(e)}")
 
 
 @frappe.whitelist()
@@ -701,9 +778,12 @@ def reject_membership_application(
     if member.application_status not in ["Pending", "Payment Failed", "Payment Cancelled", "Approved"]:
         frappe.throw(_("This application cannot be rejected in its current state"))
 
-    # Check permissions
-    if not has_approval_permission(member):
-        frappe.throw(_("You don't have permission to reject this application"))
+    # Check chapter-based permissions
+    from verenigingen.utils.chapter_security import validate_chapter_permission_or_throw
+
+    validate_chapter_permission_or_throw(member_name, "reject")
+
+    # Note: Frappe automatically manages transactions for @frappe.whitelist() functions
 
     # Build comprehensive review notes
     review_notes = f"Rejection Category: {rejection_category or 'Not specified'}\n"
@@ -750,6 +830,8 @@ def reject_membership_application(
 
     # Send rejection notification with specified template
     send_rejection_notification(member, reason, email_template, rejection_category)
+
+    # Note: Frappe automatically commits successful transactions
 
     return {
         "success": True,
@@ -827,18 +909,18 @@ def has_approval_permission(member):
 
     # Basic user validation
     if not user or user == "Guest":
-        frappe.log_error(f"Approval attempted by guest user for member {member.name}")
+        safe_log_error(f"Approval attempted by guest user for member {member.name}")
         return False
 
     # Rate limiting check - prevent spam approvals
     from verenigingen.utils.security.rate_limiter import check_approval_rate_limit
 
     if not check_approval_rate_limit(user):
-        frappe.log_error(f"Rate limit exceeded for approval operations by user {user}")
+        safe_log_error(f"Rate limit exceeded for approval operations by user {user}")
         frappe.throw(_("Too many approval operations. Please wait before trying again."))
 
     # Audit log the permission check
-    frappe.log_error(
+    safe_log_error(
         f"Permission check: User {user} attempting approval for member {member.name}",
         "Membership Approval Audit",
     )
@@ -875,12 +957,12 @@ def has_approval_permission(member):
             # Get user's member record with validation
             user_member = frappe.db.get_value("Member", {"user": user}, "name")
             if not user_member:
-                frappe.log_error(f"User {user} has no associated member record for approval permission check")
+                safe_log_error(f"User {user} has no associated member record for approval permission check")
                 return False
 
             # Validate chapter exists and user has board access
             if not frappe.db.exists("Chapter", chapter):
-                frappe.log_error(f"Chapter {chapter} does not exist for member {member.name}")
+                safe_log_error(f"Chapter {chapter} does not exist for member {member.name}")
                 return False
 
             # Use the corrected method from permissions.py fix
@@ -909,13 +991,11 @@ def has_approval_permission(member):
                                 return True
 
     except Exception as e:
-        frappe.log_error(
-            f"Error checking approval permissions for user {user}, member {member.name}: {str(e)}"
-        )
+        safe_log_error(f"Error checking approval permissions for user {user}, member {member.name}: {str(e)}")
         return False
 
     # Log denied permission attempt for security monitoring
-    frappe.log_error(
+    safe_log_error(
         f"Permission denied: User {user} does not have approval permission for member {member.name}",
         "Security Alert: Unauthorized Approval Attempt",
     )
@@ -1229,7 +1309,10 @@ def get_pending_applications(chapter=None, days_overdue=None):
 
         filtered_applications.append(app)
 
-    return filtered_applications
+    # Apply chapter-based security filtering
+    from verenigingen.utils.chapter_security import filter_applications_by_permission
+
+    return filter_applications_by_permission(filtered_applications)
 
 
 @frappe.whitelist()
@@ -1259,7 +1342,7 @@ def get_pending_reviews_for_member(member_name):
         return reviews
 
     except Exception as e:
-        frappe.log_error(f"Error getting pending reviews for member {member_name}: {str(e)}")
+        safe_log_error(f"Error getting pending reviews for member {member_name}: {str(e)}")
         return []
 
 
@@ -1394,7 +1477,7 @@ def sync_member_statuses():
         }
 
     except Exception as e:
-        frappe.log_error(f"Error syncing member statuses: {str(e)}")
+        safe_log_error(f"Error syncing member statuses: {str(e)}")
         return {"success": False, "error": str(e)}
 
 
@@ -1427,7 +1510,7 @@ def fix_backend_member_statuses():
         }
 
     except Exception as e:
-        frappe.log_error(f"Error fixing backend member statuses: {str(e)}")
+        safe_log_error(f"Error fixing backend member statuses: {str(e)}")
         return {"success": False, "error": str(e)}
 
 
@@ -1527,14 +1610,16 @@ def migrate_active_application_status():
             try:
                 member = frappe.get_doc("Member", member_data.name)
                 member.application_status = "Approved"
-                member.save(ignore_permissions=True)
+                # Use proper save without bypassing permissions
+                # Migration operations should run with proper user context
+                member.save()
                 migrated_count += 1
                 frappe.logger().info(
                     f"Migrated member {member.name} from Active to Approved application status"
                 )
 
             except Exception as e:
-                frappe.log_error(f"Error migrating member {member_data.name}: {str(e)}")
+                safe_log_error(f"Error migrating member {member_data.name}: {str(e)}")
                 continue
 
         return {
@@ -1545,7 +1630,7 @@ def migrate_active_application_status():
         }
 
     except Exception as e:
-        frappe.log_error(f"Error in migrate_active_application_status: {str(e)}")
+        safe_log_error(f"Error in migrate_active_application_status: {str(e)}")
         return {"success": False, "error": str(e)}
 
 
@@ -2020,7 +2105,7 @@ def create_default_email_templates():
         approval_template.insert()
         templates.append("membership_application_approved")
 
-    frappe.db.commit()
+    # Note: Frappe automatically commits template creation
 
     return {"success": True, "message": f"Created {len(templates)} email templates", "templates": templates}
 

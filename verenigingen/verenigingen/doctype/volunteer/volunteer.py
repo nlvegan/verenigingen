@@ -68,6 +68,13 @@ from verenigingen.utils.dutch_name_utils import format_dutch_full_name, is_dutch
 from verenigingen.utils.error_handling import cache_with_ttl
 
 
+def safe_log_error(message, title=None):
+    """Helper to log errors with length protection"""
+    # Truncate message to prevent log title validation errors
+    safe_message = message[:100] + "..." if len(message) > 100 else message
+    frappe.log_error(safe_message, title)
+
+
 class Volunteer(Document):
     def onload(self):
         """Load address and contacts in `__onload`"""
@@ -1002,7 +1009,7 @@ class Volunteer(Document):
         except Exception as e:
             # Don't fail volunteer creation if account creation queueing fails
             frappe.logger().error(f"Failed to queue account creation for volunteer {self.name}: {str(e)}")
-            frappe.log_error(
+            safe_log_error(
                 f"Account creation queueing failed for volunteer {self.name}: {str(e)}",
                 "Volunteer Account Creation Queue Error",
             )

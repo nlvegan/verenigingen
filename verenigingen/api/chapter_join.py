@@ -210,7 +210,7 @@ def get_user_chapter_requests():
     if volunteer_records:
         volunteer_name = volunteer_records[0].name
         board_memberships = frappe.get_all(
-            "Chapter Board Member", filters={"volunteer": volunteer_name, "enabled": 1}, fields=["parent"]
+            "Chapter Board Member", filters={"volunteer": volunteer_name, "is_active": 1}, fields=["parent"]
         )
 
     chapter_names = [bm.parent for bm in board_memberships]

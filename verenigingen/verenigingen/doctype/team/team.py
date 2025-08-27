@@ -425,15 +425,53 @@ class Team(Document):
                 )
 
                 if not history_exists:
-                    # This indicates a consistency problem
-                    frappe.log_error(
-                        f"Missing assignment history for {member.volunteer_name} in team {self.name}",
-                        "Assignment History Consistency Error",
-                    )
-                    # Don't fail the transaction for missing history, but log it
+                    # This indicates a consistency problem - attempt to fix it automatically
+                    try:
+                        # Try to create the missing assignment history
+                        success = self.add_team_assignment_history(
+                            member.volunteer,
+                            member.team_role or member.role or "Team Member",
+                            member.from_date or frappe.utils.today(),
+                        )
+
+                        if success:
+                            frappe.logger().info(
+                                f"✅ Auto-fixed missing assignment history for {member.volunteer_name} in team {self.name}"
+                            )
+                        else:
+                            # Create more informative error message with resolution steps
+                            error_msg = (
+                                f"Assignment history missing for volunteer '{member.volunteer_name}' "
+                                f"in team '{self.name}'. "
+                                f"\n\nTo fix this issue manually:\n"
+                                f"1. Go to Workspace > Teams > {self.name}\n"
+                                f"2. Remove and re-add the volunteer: {member.volunteer_name}\n"
+                                f"3. Or run: fix_missing_assignment_history('{self.name}', '{member.volunteer}')\n\n"
+                                f"Technical details: Active team member without corresponding Assignment History record"
+                            )
+                            frappe.log_error(error_msg, "Assignment History - Action Required")
+
+                    except Exception as fix_error:
+                        # Fallback to informative error if auto-fix fails
+                        error_msg = (
+                            f"Assignment history missing for volunteer '{member.volunteer_name}' "
+                            f"in team '{self.name}'. Auto-repair failed: {str(fix_error)[:100]}\n\n"
+                            f"Manual fix required:\n"
+                            f"1. Go to Workspace > Teams > {self.name}\n"
+                            f"2. Remove and re-add the volunteer: {member.volunteer_name}\n"
+                            f"3. Or run: fix_missing_assignment_history('{self.name}', '{member.volunteer}')"
+                        )
+                        frappe.log_error(error_msg, "Assignment History - Manual Fix Required")
 
         except Exception as e:
-            frappe.log_error(f"Assignment history validation error: {e}", "Assignment History Validation")
+            # Create informative error message for validation failures
+            error_msg = (
+                f"Assignment history validation failed for team '{self.name}'. "
+                f"Error: {str(e)[:100]}{'...' if len(str(e)) > 100 else ''}\n\n"
+                f"This may indicate data consistency issues. "
+                f"Consider running team data validation or contact administrator."
+            )
+            frappe.log_error(error_msg, "Team Assignment History Validation Error")
 
 
 @frappe.whitelist()
@@ -499,6 +537,65 @@ def sync_team_with_volunteers(team_name=None):
             print(f"Error syncing team {team.name}: {str(e)}")
 
     return {"updated_count": updated_count}
+
+
+@frappe.whitelist()
+def fix_all_missing_assignment_history():
+    """Fix missing assignment history for all teams - admin utility function"""
+    try:
+        teams_fixed = 0
+        volunteers_fixed = 0
+
+        # Get all teams with active members
+        teams = frappe.get_all("Team", fields=["name"])
+
+        for team_data in teams:
+            team = frappe.get_doc("Team", team_data.name)
+
+            for member in team.team_members:
+                if member.is_active and member.volunteer:
+                    # Check if assignment history exists
+                    history_exists = frappe.db.exists(
+                        "Assignment History",
+                        {
+                            "volunteer": member.volunteer,
+                            "reference_doctype": "Team",
+                            "reference_name": team.name,
+                            "status": "Active",
+                        },
+                    )
+
+                    if not history_exists:
+                        # Fix missing history
+                        success = team.add_team_assignment_history(
+                            member.volunteer,
+                            member.team_role or member.role or "Team Member",
+                            member.from_date or frappe.utils.today(),
+                        )
+
+                        if success:
+                            volunteers_fixed += 1
+                            print(f"✅ Fixed assignment history for {member.volunteer_name} in {team.name}")
+                        else:
+                            print(
+                                f"❌ Failed to fix assignment history for {member.volunteer_name} in {team.name}"
+                            )
+
+            if volunteers_fixed > 0:
+                teams_fixed += 1
+
+        return {
+            "success": True,
+            "message": f"Fixed assignment history for {volunteers_fixed} volunteers across {teams_fixed} teams",
+            "teams_fixed": teams_fixed,
+            "volunteers_fixed": volunteers_fixed,
+        }
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error in bulk assignment history fix: {str(e)}", "Assignment History Bulk Fix Error"
+        )
+        return {"success": False, "error": str(e)}
 
 
 @frappe.whitelist()
@@ -660,7 +757,7 @@ def test_team_member_removal():
 
         if active_assignment:
             # active_assignment is a Volunteer Assignment which has 'role' field
-            assignment_role = getattr(active_assignment, 'role', 'No role specified')
+            assignment_role = getattr(active_assignment, "role", "No role specified")
             print(f"✅ Active assignment created: {assignment_role}")
         else:
             print("❌ No active assignment found")

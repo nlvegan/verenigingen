@@ -1,0 +1,306 @@
+<div class="membership-application-review-page">
+    <div class="page-head">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-8">
+                    <h1 class="page-title">{{ __("Membership Application Review") }}</h1>
+                    <p class="text-muted">Review and process pending membership applications</p>
+                </div>
+                <div class="col-md-4 text-right">
+                    <button class="btn btn-default btn-sm" id="btn-refresh">
+                        <i class="fa fa-refresh"></i> {{ __("Refresh") }}
+                    </button>
+                    <div class="btn-group" role="group">
+                        <button type="button" class="btn btn-default btn-sm dropdown-toggle" data-toggle="dropdown">
+                            <i class="fa fa-cog"></i> {{ __("Actions") }}
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a href="#" id="btn-statistics">{{ __("View Statistics") }}</a></li>
+                            <li><a href="#" id="btn-bulk-actions">{{ __("Bulk Actions") }}</a></li>
+                            <li class="divider"></li>
+                            <li><a href="#" id="btn-email-templates">{{ __("Create Email Templates") }}</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="page-content">
+        <div class="container">
+            <!-- Filters Section -->
+            <div class="row filter-section">
+                <div class="col-md-4">
+                    <label>{{ __("Chapter") }}</label>
+                    <select class="form-control" id="filter-chapter">
+                        <option value="">{{ __("All Chapters") }}</option>
+                        <option value="Unassigned">{{ __("Unassigned") }}</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label>{{ __("Days Overdue") }}</label>
+                    <input type="number" class="form-control" id="filter-days-overdue" placeholder="e.g., 14">
+                </div>
+                <div class="col-md-4">
+                    <label>&nbsp;</label>
+                    <div>
+                        <button class="btn btn-primary btn-sm" id="btn-apply-filters">
+                            <i class="fa fa-filter"></i> {{ __("Apply Filters") }}
+                        </button>
+                        <button class="btn btn-link btn-sm" id="btn-clear-filters">
+                            {{ __("Clear") }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Statistics Cards -->
+            <div class="row stats-section">
+                <div class="col-md-3">
+                    <div class="card stats-card">
+                        <div class="card-body text-center">
+                            <h3 class="card-title" id="total-pending">-</h3>
+                            <p class="card-text text-muted">{{ __("Total Pending") }}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card stats-card overdue-card">
+                        <div class="card-body text-center">
+                            <h3 class="card-title text-danger" id="overdue-count">-</h3>
+                            <p class="card-text text-muted">{{ __("Overdue (>14 days)") }}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card stats-card">
+                        <div class="card-body text-center">
+                            <h3 class="card-title text-success" id="avg-processing">-</h3>
+                            <p class="card-text text-muted">{{ __("Avg Processing (days)") }}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card stats-card">
+                        <div class="card-body text-center">
+                            <h3 class="card-title text-info" id="volunteer-interest">-</h3>
+                            <p class="card-text text-muted">{{ __("Volunteer Interest %") }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Applications Section -->
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="card applications-card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">{{ __("Pending Applications") }}</h5>
+                            <div class="bulk-actions" style="display: none;">
+                                <button class="btn btn-success btn-sm" id="btn-bulk-approve">
+                                    <i class="fa fa-check"></i> {{ __("Approve Selected") }}
+                                </button>
+                                <button class="btn btn-danger btn-sm" id="btn-bulk-reject">
+                                    <i class="fa fa-times"></i> {{ __("Reject Selected") }}
+                                </button>
+                                <span class="selected-count ml-2 text-muted">0 selected</span>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="applications-list">
+                                <div class="loading-state text-center p-4">
+                                    <i class="fa fa-spinner fa-spin fa-2x text-muted"></i>
+                                    <p class="text-muted mt-2">{{ __("Loading applications...") }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Last Updated -->
+            <div class="row mt-4">
+                <div class="col-md-12 text-center text-muted">
+                    <small>{{ __("Last updated") }}: <span id="last-updated">-</span></small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.membership-application-review-page {
+    background-color: #f5f7fa;
+    min-height: 100vh;
+    padding-bottom: 30px;
+}
+
+.page-head {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 30px 0;
+    margin-bottom: 30px;
+}
+
+.page-head .btn {
+    margin-left: 5px;
+}
+
+.page-head .btn-default {
+    background-color: rgba(255,255,255,0.2);
+    border-color: rgba(255,255,255,0.3);
+    color: white;
+}
+
+.page-head .btn-default:hover {
+    background-color: rgba(255,255,255,0.3);
+    border-color: rgba(255,255,255,0.4);
+    color: white;
+}
+
+.filter-section {
+    margin-bottom: 20px;
+    padding: 20px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.stats-section {
+    margin-bottom: 30px;
+}
+
+.stats-card {
+    border: none;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: all 0.3s ease;
+    margin-bottom: 15px;
+}
+
+.stats-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.overdue-card:hover {
+    border-left: 4px solid #dc3545;
+}
+
+.applications-card {
+    border: none;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.applications-card .card-header {
+    background-color: #f8f9fa;
+    border-bottom: 2px solid #e9ecef;
+    border-radius: 8px 8px 0 0;
+}
+
+.application-card {
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    transition: all 0.2s ease;
+}
+
+.application-card:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.application-card.border-danger {
+    border-left: 4px solid #dc3545;
+}
+
+.application-card .card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #e9ecef;
+    padding: 15px 20px;
+}
+
+.application-card .card-body {
+    padding: 15px 20px;
+}
+
+.badge {
+    font-size: 0.75em;
+    padding: 4px 8px;
+}
+
+.empty-state, .error-state, .loading-state {
+    padding: 40px 20px;
+    text-align: center;
+}
+
+.empty-state .fa {
+    color: #6c757d;
+}
+
+.application-actions .btn {
+    margin-left: 5px;
+    border-radius: 4px;
+}
+
+.bulk-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.selected-count {
+    font-size: 0.9em;
+    padding: 5px 10px;
+    background-color: #e9ecef;
+    border-radius: 12px;
+}
+
+.app-checkbox {
+    transform: scale(1.2);
+    margin-right: 10px;
+}
+
+.dropdown-menu > li > a {
+    cursor: pointer;
+    padding: 8px 16px;
+}
+
+.dropdown-menu > li > a:hover {
+    background-color: #f8f9fa;
+}
+
+/* Loading animation */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.fa-spin {
+    animation: spin 1s linear infinite;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .page-head .col-md-4 {
+        margin-top: 20px;
+        text-align: left !important;
+    }
+
+    .application-actions {
+        margin-top: 10px;
+    }
+
+    .application-actions .btn {
+        margin: 2px;
+        font-size: 0.8em;
+        padding: 5px 10px;
+    }
+
+    .bulk-actions {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 5px;
+    }
+}
+</style>

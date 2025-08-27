@@ -24,6 +24,15 @@ Author: Verenigingen Development Team
 import frappe
 from frappe import _
 from frappe.model.document import Document
+
+
+def safe_log_error(message, title=None):
+    """Helper to log errors with length protection"""
+    # Truncate message to prevent log title validation errors
+    safe_message = message[:100] + "..." if len(message) > 100 else message
+    frappe.log_error(safe_message, title)
+
+
 from frappe.utils import add_to_date, now
 
 
@@ -62,7 +71,16 @@ class AccountCreationRequest(Document):
         if frappe.db.exists("User", self.email):
             # Check if this is a retry of existing request
             if not self.name or not frappe.db.get_value("Account Creation Request", self.name, "name"):
-                frappe.throw(_("User account already exists for email: {0}").format(self.email))
+                # Instead of throwing error, mark request as completed with existing user
+                existing_user = frappe.get_doc("User", self.email)
+                self.status = "Completed"
+                self.created_user = existing_user.name
+                self.completion_date = frappe.utils.now_datetime()
+                self.processing_notes = (
+                    f"User account already exists for {self.email}. Linked existing account."
+                )
+                frappe.logger().info(f"Account creation request linked to existing user: {self.email}")
+                # Don't throw error - allow the request to be saved as completed
 
     def validate_source_record(self):
         """Validate that source record exists and is valid"""

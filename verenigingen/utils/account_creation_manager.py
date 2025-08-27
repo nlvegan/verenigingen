@@ -328,6 +328,14 @@ class AccountCreationManager:
         if self.request.request_type in ["Volunteer", "Both"]:
             return True
 
+        # For Member requests, check if source member has a volunteer record
+        if self.request.request_type == "Member":
+            volunteer_record = frappe.db.get_value(
+                "Volunteer", {"member": self.request.source_record}, "name"
+            )
+            if volunteer_record:
+                return True
+
         # Check if any requested roles require employee record
         employee_roles = ["Employee", "Employee Self Service"]
         for role_row in self.request.requested_roles:
@@ -435,6 +443,18 @@ def queue_account_creation_for_member(member_name, roles=None, role_profile=None
     if not member.email:
         frappe.throw(_("Member must have an email address for account creation"))
 
+    # Check if user already exists for this email
+    if frappe.db.exists("User", member.email):
+        frappe.logger().info(
+            f"User account already exists for member {member_name} with email {member.email}"
+        )
+        # Return a successful result indicating existing account was found
+        return {
+            "request_name": None,
+            "result": "existing_user",
+            "message": f"User account already exists for {member.email}",
+        }
+
     # Check if request already exists
     existing_request = frappe.db.exists(
         "Account Creation Request",
@@ -450,11 +470,16 @@ def queue_account_creation_for_member(member_name, roles=None, role_profile=None
     if not role_profile:
         role_profile = "Verenigingen Member"
 
+    # All member account requests use "Member" type
+    # Employee creation is determined by requires_employee_creation() method
+    # which checks for volunteer records automatically
+    request_type = "Member"
+
     # Create request
     request = frappe.get_doc(
         {
             "doctype": "Account Creation Request",
-            "request_type": "Member",
+            "request_type": request_type,
             "source_record": member_name,
             "email": member.email,
             "full_name": member.full_name,
@@ -487,6 +512,18 @@ def queue_account_creation_for_volunteer(volunteer_name, priority="Normal"):
 
     if not volunteer.email:
         frappe.throw(_("Volunteer must have an email address for account creation"))
+
+    # Check if user already exists for this email
+    if frappe.db.exists("User", volunteer.email):
+        frappe.logger().info(
+            f"User account already exists for volunteer {volunteer_name} with email {volunteer.email}"
+        )
+        # Return a successful result indicating existing account was found
+        return {
+            "request_name": None,
+            "result": "existing_user",
+            "message": f"User account already exists for {volunteer.email}",
+        }
 
     # Check if request already exists
     existing_request = frappe.db.exists(
@@ -622,10 +659,14 @@ def queue_bulk_account_creation_for_members(
         try:
             for member in chunk_members:
                 try:
+                    # All member account requests use "Member" type
+                    # Employee creation is determined by requires_employee_creation() method
+                    request_type = "Member"
+
                     request = frappe.get_doc(
                         {
                             "doctype": "Account Creation Request",
-                            "request_type": "Member",
+                            "request_type": request_type,
                             "source_record": member.name,
                             "email": member.email,
                             "full_name": member.full_name,

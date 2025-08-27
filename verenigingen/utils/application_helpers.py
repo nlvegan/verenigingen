@@ -10,6 +10,14 @@ from frappe.utils import now_datetime, today
 
 from verenigingen.utils.dutch_name_utils import format_dutch_full_name, is_dutch_installation
 
+
+def safe_log_error(message, title=None):
+    """Helper to log errors with length protection"""
+    # Truncate message to prevent log title validation errors
+    safe_message = message[:100] + "..." if len(message) > 100 else message
+    frappe.log_error(safe_message, title)
+
+
 # Import moved inside function to avoid circular imports
 
 
@@ -526,7 +534,7 @@ def create_volunteer_record(member):
         volunteer.insert(ignore_permissions=True)
         return volunteer
     except Exception as e:
-        frappe.log_error(f"Error creating volunteer record: {str(e)}")
+        safe_log_error(f"Error creating volunteer record: {str(e)}")
         return None
 
 

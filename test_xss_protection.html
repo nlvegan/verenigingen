@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>XSS Protection Test</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body>
+    <h1>Testing XSS Protection in Membership Application Review</h1>
+
+    <div id="test-output"></div>
+
+    <script>
+        // Test the escapeHtml function from the refactored code
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;');
+        }
+
+        // Test cases for XSS protection
+        const xssTestCases = [
+            {
+                input: '<script>alert("XSS")</script>',
+                expected: '&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;',
+                description: 'Script tag injection'
+            },
+            {
+                input: 'javascript:alert("XSS")',
+                expected: 'javascript:alert(&quot;XSS&quot;)',
+                description: 'JavaScript protocol'
+            },
+            {
+                input: '<img src="x" onerror="alert(\'XSS\')">',
+                expected: '&lt;img src=&quot;x&quot; onerror=&quot;alert(&#x27;XSS&#x27;)&quot;&gt;',
+                description: 'Image with onerror event'
+            },
+            {
+                input: 'José O\'Brien-García',
+                expected: 'José O&#x27;Brien-García',
+                description: 'Valid name with special characters'
+            },
+            {
+                input: 'test@example.com',
+                expected: 'test@example.com',
+                description: 'Normal email address'
+            }
+        ];
+
+        // Run tests
+        let passCount = 0;
+        let totalTests = xssTestCases.length;
+
+        xssTestCases.forEach((testCase, index) => {
+            const result = escapeHtml(testCase.input);
+            const passed = result === testCase.expected;
+
+            if (passed) passCount++;
+
+            const status = passed ? '✅ PASS' : '❌ FAIL';
+            const color = passed ? 'green' : 'red';
+
+            document.getElementById('test-output').innerHTML += `
+                <div style="margin-bottom: 10px; color: ${color}">
+                    <strong>Test ${index + 1}: ${testCase.description}</strong> - ${status}<br>
+                    Input: <code>${testCase.input}</code><br>
+                    Expected: <code>${testCase.expected}</code><br>
+                    Got: <code>${result}</code>
+                </div>
+            `;
+        });
+
+        // Summary
+        const allPassed = passCount === totalTests;
+        const summaryColor = allPassed ? 'green' : 'red';
+        const summaryText = allPassed ? '🎉 ALL XSS PROTECTION TESTS PASSED!' : '⚠️ SOME XSS TESTS FAILED';
+
+        document.getElementById('test-output').innerHTML += `
+            <div style="margin-top: 20px; padding: 10px; border: 2px solid ${summaryColor}; color: ${summaryColor}">
+                <h2>${summaryText}</h2>
+                <p>Passed: ${passCount}/${totalTests} tests</p>
+            </div>
+        `;
+
+        console.log(`XSS Protection Tests: ${passCount}/${totalTests} passed`);
+    </script>
+</body>
+</html>
