@@ -71,9 +71,9 @@ def test_basic_query_measurement() -> Dict[str, Any]:
                 "estimated_queries": max(estimated_queries, 3),  # Minimum 3 queries
                 "invoices_found": len(invoices),
                 "payments_found": len(payment_entries),
-                "queries_per_second": round(estimated_queries / execution_time, 1)
-                if execution_time > 0
-                else 0,
+                "queries_per_second": (
+                    round(estimated_queries / execution_time, 1) if execution_time > 0 else 0
+                ),
                 "timestamp": now(),
             },
             "message": "Basic query measurement completed successfully",
@@ -160,9 +160,9 @@ def run_payment_operations_benchmark() -> Dict[str, Any]:
                 "invoices_processed": len(invoices),
                 "payment_refs_found": len(payment_refs),
                 "payments_found": len(payments),
-                "queries_per_second": round(estimated_queries / execution_time, 1)
-                if execution_time > 0
-                else 0,
+                "queries_per_second": (
+                    round(estimated_queries / execution_time, 1) if execution_time > 0 else 0
+                ),
             }
 
             benchmark_results.append(member_result)

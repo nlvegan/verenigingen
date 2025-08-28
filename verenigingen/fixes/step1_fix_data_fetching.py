@@ -139,7 +139,7 @@ def create_purchase_invoice_with_full_data(mutation_detail: Dict, company: str, 
         # ==========================================
         if mutation_detail.get("invoiceNumber"):
             pi.bill_no = mutation_detail.get("invoiceNumber")
-            pi.supplier_invoice_no = mutation_detail.get("invoiceNumber")
+            # Note: Using bill_no instead of non-existent supplier_invoice_no field
 
         # ==========================================
         # PAYMENT TERMS

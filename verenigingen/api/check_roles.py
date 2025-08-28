@@ -83,9 +83,11 @@ def validate_role_names_in_code():
         return {
             "role_validation": validation_results,
             "missing_roles": [role for role in code_roles if role not in existing_roles],
-            "recommendation": "Update code to use existing role names"
-            if any(role not in existing_roles for role in code_roles)
-            else "All roles exist",
+            "recommendation": (
+                "Update code to use existing role names"
+                if any(role not in existing_roles for role in code_roles)
+                else "All roles exist"
+            ),
         }
 
     except Exception as e:
@@ -287,9 +289,9 @@ def debug_dues_schedule_dates(member_name):
             "recent_invoices": recent_invoices,
             "last_actual_invoice_date": str(last_actual_invoice_date) if last_actual_invoice_date else None,
             "expected_next_date": str(expected_next_date) if expected_next_date else None,
-            "date_mismatch": str(schedule.next_invoice_date) != str(expected_next_date)
-            if expected_next_date
-            else False,
+            "date_mismatch": (
+                str(schedule.next_invoice_date) != str(expected_next_date) if expected_next_date else False
+            ),
             "possible_cause": "Schedule updated with future date instead of actual invoice posting date",
         }
 
@@ -405,9 +407,11 @@ def test_duplicate_prevention(member_name):
             "billing_period": {"start": str(period_start), "end": str(period_end), "date_tested": today_date},
             "can_generate_invoice": can_generate,
             "generation_reason": reason,
-            "protection_status": "✅ Duplicate prevention is ACTIVE"
-            if not duplicate_check["can_generate"]
-            else "⚠️ No duplicates detected - generation allowed",
+            "protection_status": (
+                "✅ Duplicate prevention is ACTIVE"
+                if not duplicate_check["can_generate"]
+                else "⚠️ No duplicates detected - generation allowed"
+            ),
             "next_steps": [
                 "Duplicate prevention will block same-day invoices",
                 "Billing period protection prevents multiple invoices per period",
@@ -454,9 +458,11 @@ def check_coverage_period_fields():
             "period_fields": period_fields,
             "total_custom_fields": len(coverage_fields) + len(period_fields),
             "sample_invoice": sample_invoice,
-            "recommendation": "Add custom fields: coverage_start_date, coverage_end_date to Sales Invoice"
-            if not coverage_fields and not period_fields
-            else "Custom fields found",
+            "recommendation": (
+                "Add custom fields: coverage_start_date, coverage_end_date to Sales Invoice"
+                if not coverage_fields and not period_fields
+                else "Custom fields found"
+            ),
         }
 
     except Exception as e:
@@ -575,9 +581,11 @@ def test_coverage_fields_in_payment_history():
                 for f in coverage_fields
             ],
             "coverage_fields_found": len(coverage_fields),
-            "status": "✅ Coverage fields working"
-            if payment_history_sample and payment_history_sample.get("coverage_start_date")
-            else "❌ Coverage fields not populated",
+            "status": (
+                "✅ Coverage fields working"
+                if payment_history_sample and payment_history_sample.get("coverage_start_date")
+                else "❌ Coverage fields not populated"
+            ),
         }
 
     except Exception as e:
@@ -625,15 +633,19 @@ def audit_coverage_data_consistency():
                         "schedule": schedule_data.name,
                         "invoice": invoice.name,
                         "invoice_status": "Submitted" if invoice.docstatus == 1 else "Draft",
-                        "schedule_period": f"{schedule_start} to {schedule_end}"
-                        if schedule_start and schedule_end
-                        else "Missing",
-                        "invoice_period": f"{invoice_start} to {invoice_end}"
-                        if invoice_start and invoice_end
-                        else "Missing",
-                        "action_required": "Amendment needed"
-                        if invoice.docstatus == 1
-                        else "Can be corrected",
+                        "schedule_period": (
+                            f"{schedule_start} to {schedule_end}"
+                            if schedule_start and schedule_end
+                            else "Missing"
+                        ),
+                        "invoice_period": (
+                            f"{invoice_start} to {invoice_end}"
+                            if invoice_start and invoice_end
+                            else "Missing"
+                        ),
+                        "action_required": (
+                            "Amendment needed" if invoice.docstatus == 1 else "Can be corrected"
+                        ),
                     }
                     issues_found.append(issue)
 
@@ -659,9 +671,11 @@ def audit_coverage_data_consistency():
             "total_schedules_checked": len(schedules),
             "total_issues": len(issues_found),
             "issues": issues_found,
-            "recommendation": "Review ToDos for submitted invoice amendments"
-            if issues_found
-            else "All coverage data is consistent",
+            "recommendation": (
+                "Review ToDos for submitted invoice amendments"
+                if issues_found
+                else "All coverage data is consistent"
+            ),
             "status": "✅ Coverage data audit complete",
         }
 
@@ -733,9 +747,9 @@ def test_enhanced_coverage_architecture():
             "lookup_test": {
                 "schedule_lookup_result": schedule_lookup,
                 "invoice_lookup_result": invoice_lookup,
-                "primary_source": "Schedule (SSoT)"
-                if schedule_lookup[0] or schedule_lookup[1]
-                else "Invoice (Cache)",
+                "primary_source": (
+                    "Schedule (SSoT)" if schedule_lookup[0] or schedule_lookup[1] else "Invoice (Cache)"
+                ),
             },
             "data_flow": "Schedule (SSoT) → Invoice (Cache) → Payment History (View)",
             "benefits": [
@@ -817,15 +831,17 @@ def test_new_invoice_generation():
                 "invoice_cache_populated": bool(invoice_coverage.get("custom_coverage_start_date")),
             },
             "validation": {
-                "schedule_ssot": "✅ Fields populated"
-                if after_state["last_generated_invoice"]
-                else "❌ Missing data",
-                "invoice_cache": "✅ Coverage cached"
-                if invoice_coverage.get("custom_coverage_start_date")
-                else "❌ Cache missing",
-                "direct_link": "✅ Unambiguous link"
-                if after_state["last_generated_invoice"]
-                else "❌ No link created",
+                "schedule_ssot": (
+                    "✅ Fields populated" if after_state["last_generated_invoice"] else "❌ Missing data"
+                ),
+                "invoice_cache": (
+                    "✅ Coverage cached"
+                    if invoice_coverage.get("custom_coverage_start_date")
+                    else "❌ Cache missing"
+                ),
+                "direct_link": (
+                    "✅ Unambiguous link" if after_state["last_generated_invoice"] else "❌ No link created"
+                ),
             },
         }
 
@@ -879,11 +895,13 @@ def test_payment_history_popup_data():
                     "popup_will_show": {
                         "coverage_start_date": str(final_start) if final_start else "Empty",
                         "coverage_end_date": str(final_end) if final_end else "Empty",
-                        "data_source": "Schedule"
-                        if schedule_coverage[0] or schedule_coverage[1]
-                        else "Invoice Cache"
-                        if invoice_coverage[0] or invoice_coverage[1]
-                        else "None",
+                        "data_source": (
+                            "Schedule"
+                            if schedule_coverage[0] or schedule_coverage[1]
+                            else "Invoice Cache"
+                            if invoice_coverage[0] or invoice_coverage[1]
+                            else "None"
+                        ),
                     },
                 }
             )
@@ -893,16 +911,20 @@ def test_payment_history_popup_data():
             "member_name": member_name,
             "popup_test_results": popup_test_results,
             "architecture_working": {
-                "schedule_lookup": "✅ Working"
-                if popup_test_results[0]["schedule_lookup"]["start"]
-                else "❌ No data",
-                "invoice_fallback": "✅ Working"
-                if popup_test_results[1]["invoice_lookup"]["start"]
-                or popup_test_results[1]["invoice_lookup"]["start"] is None
-                else "❌ Failed",
-                "popup_display": "✅ Coverage periods will display"
-                if any(r["popup_will_show"]["coverage_start_date"] != "Empty" for r in popup_test_results)
-                else "❌ No coverage data",
+                "schedule_lookup": (
+                    "✅ Working" if popup_test_results[0]["schedule_lookup"]["start"] else "❌ No data"
+                ),
+                "invoice_fallback": (
+                    "✅ Working"
+                    if popup_test_results[1]["invoice_lookup"]["start"]
+                    or popup_test_results[1]["invoice_lookup"]["start"] is None
+                    else "❌ Failed"
+                ),
+                "popup_display": (
+                    "✅ Coverage periods will display"
+                    if any(r["popup_will_show"]["coverage_start_date"] != "Empty" for r in popup_test_results)
+                    else "❌ No coverage data"
+                ),
             },
             "user_experience": "When clicking a payment history row, the popup will show Coverage Start Date and Coverage End Date fields with the above values",
         }
@@ -937,9 +959,11 @@ def test_duplicate_prevention_in_action():
             "result": blocked_invoice,
             "can_generate": can_generate,
             "prevention_reason": reason,
-            "duplicate_protection": "✅ ACTIVE - Blocks same-day generation"
-            if not can_generate
-            else "❌ FAILED - Should be blocked",
+            "duplicate_protection": (
+                "✅ ACTIVE - Blocks same-day generation"
+                if not can_generate
+                else "❌ FAILED - Should be blocked"
+            ),
             "explanation": {
                 "why_blocked": "Daily billing frequency + existing invoices for 2025-07-23",
                 "existing_invoices": [

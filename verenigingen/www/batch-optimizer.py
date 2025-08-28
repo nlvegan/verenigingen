@@ -23,11 +23,11 @@ def get_context(context):
         if hasattr(settings, "batch_optimization_config") and settings.batch_optimization_config:
             context.current_config = frappe.parse_json(settings.batch_optimization_config)
         else:
-            from verenigingen.api.dd_batch_optimizer import DEFAULT_CONFIG
+            from verenigingen.verenigingen_payments.api.dd_batch_optimizer import DEFAULT_CONFIG
 
             context.current_config = DEFAULT_CONFIG
     except Exception:
-        from verenigingen.api.dd_batch_optimizer import DEFAULT_CONFIG
+        from verenigingen.verenigingen_payments.api.dd_batch_optimizer import DEFAULT_CONFIG
 
         context.current_config = DEFAULT_CONFIG
 

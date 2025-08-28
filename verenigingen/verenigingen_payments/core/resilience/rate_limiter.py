@@ -169,9 +169,9 @@ class TokenBucketRateLimiter:
                 "total_granted": self.total_granted,
                 "total_denied": self.total_denied,
                 "grant_rate": self.total_granted / self.total_requests if self.total_requests > 0 else 0,
-                "average_wait_time": self.total_wait_time / self.total_granted
-                if self.total_granted > 0
-                else 0,
+                "average_wait_time": (
+                    self.total_wait_time / self.total_granted if self.total_granted > 0 else 0
+                ),
             }
 
     def reset(self):

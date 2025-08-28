@@ -145,9 +145,11 @@ def analyze_report_structure(report_result):
                 "has_data": len(report_result.get("data", [])) > 0,
                 "has_chart": "chart" in report_result and report_result.get("chart") is not None,
                 "has_summary": "summary" in report_result and len(report_result.get("summary", [])) > 0,
-                "sample_columns": [col.get("fieldname") for col in report_result.get("columns", [])[:5]]
-                if report_result.get("columns")
-                else [],
+                "sample_columns": (
+                    [col.get("fieldname") for col in report_result.get("columns", [])[:5]]
+                    if report_result.get("columns")
+                    else []
+                ),
             }
         )
     else:

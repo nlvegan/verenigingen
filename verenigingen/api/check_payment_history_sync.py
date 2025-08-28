@@ -85,9 +85,9 @@ def check_invoice_payment_history_sync():
         "invoices_with_members": len(members_with_invoices),
         "members_with_history": len(members_with_history),
         "members_without_history": len(members_without_history),
-        "sync_rate": f"{len(members_with_history)}/{len(members_with_invoices)}"
-        if members_with_invoices
-        else "N/A",
+        "sync_rate": (
+            f"{len(members_with_history)}/{len(members_with_invoices)}" if members_with_invoices else "N/A"
+        ),
     }
 
     results["payment_history_status"] = {

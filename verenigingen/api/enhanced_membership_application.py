@@ -667,7 +667,7 @@ def create_sepa_mandate(application):
         - status='Draft' until first successful collection
     """
     try:
-        from verenigingen.utils.iban_validator import derive_bic_from_iban, validate_iban
+        from verenigingen.utils.validation.iban_validator import derive_bic_from_iban, validate_iban
 
         # Validate IBAN
         iban_validation = validate_iban(application.iban)
@@ -1052,9 +1052,9 @@ def get_contribution_calculator_config(membership_type=None):
             "percentage": 0.5,  # Default percentage
             "description": f"Contribution calculator for {membership_type}",
             "minimum": getattr(mt_doc, "minimum_amount", 15.0),
-            "maximum": getattr(mt_doc, "minimum_amount", 25.0) * 10
-            if hasattr(mt_doc, "minimum_amount")
-            else 150.0,
+            "maximum": (
+                getattr(mt_doc, "minimum_amount", 25.0) * 10 if hasattr(mt_doc, "minimum_amount") else 150.0
+            ),
         }
 
         # Add quick amounts based on membership type

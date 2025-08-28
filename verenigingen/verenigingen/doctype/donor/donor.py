@@ -182,7 +182,8 @@ class Donor(Document):
 
         # Include fields that should trigger customer sync
         sync_data = f"{self.donor_name}|{self.donor_email}|{getattr(self, 'phone', '')}"
-        return hashlib.md5(sync_data.encode()).hexdigest()
+        # MD5 used for non-security purpose (change detection only)
+        return hashlib.md5(sync_data.encode(), usedforsecurity=False).hexdigest()
 
     def sync_with_customer(self):
         """Create or sync with corresponding Customer record"""

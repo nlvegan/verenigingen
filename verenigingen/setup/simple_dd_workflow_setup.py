@@ -5,6 +5,8 @@ Implements basic approval workflow using existing Frappe states and actions
 
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 def create_simple_dd_batch_workflow():
     """Create simple SEPA Direct Debit Batch workflow using standard Frappe states"""
@@ -134,7 +136,19 @@ def create_simple_dd_batch_workflow():
         )
 
         # Save the workflow
-        workflow_doc.insert(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=workflow_doc,
+            justification="Create Simple SEPA Direct Debit Batch workflow - SEPA compliance and financial automation",
+            required_permissions=["Workflow:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(f"Failed to create SEPA workflow: {'; '.join(result.errors)}")
+            return False
+
+        workflow_doc = result.doc
 
         print(
             f"   ✅ Successfully created workflow with {len(workflow_doc.states)} states and {len(workflow_doc.transitions)} transitions"
@@ -169,7 +183,17 @@ def add_workflow_custom_fields():
                 "hidden": 1,  # Hidden since workflow will handle display
             }
         )
-        approval_status_field.insert(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=approval_status_field,
+            justification="Create approval status custom field for SEPA Direct Debit Batch - SEPA compliance tracking",
+            required_permissions=["Custom Field:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(f"Failed to create approval status field: {'; '.join(result.errors)}")
+            return False
         print("      ✓ Added approval_status field")
 
     # Add workflow_state field for better tracking
@@ -186,7 +210,17 @@ def add_workflow_custom_fields():
                 "allow_on_submit": 1,
             }
         )
-        workflow_state_field.insert(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=workflow_state_field,
+            justification="Create workflow state custom field for SEPA Direct Debit Batch - SEPA process tracking",
+            required_permissions=["Custom Field:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(f"Failed to create workflow state field: {'; '.join(result.errors)}")
+            return False
         print("      ✓ Added workflow_state field")
 
     # Add risk_level field for approval routing

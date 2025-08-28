@@ -2,9 +2,9 @@
 Generate proper test membership types with linked dues schedule templates
 """
 
-
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
@@ -98,15 +98,41 @@ def generate_test_membership_types():
                 membership_type = frappe.get_doc("Membership Type", type_data["membership_type_name"])
                 for key, value in type_data.items():
                     setattr(membership_type, key, value)
-                membership_type.save(ignore_permissions=True)
-                action = "updated"
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                result = secure_document_operation(
+                    operation="save",
+                    doc=membership_type,
+                    justification=f"Update membership type {type_data['membership_type_name']} - test data configuration",
+                    required_permissions=["Membership Type:write"],
+                )
+
+                if result.success:
+                    action = "updated"
+                else:
+                    errors.append(
+                        f"Failed to update {type_data['membership_type_name']}: {'; '.join(result.errors)}"
+                    )
+                    continue
             else:
                 # Create new
                 membership_type = frappe.new_doc("Membership Type")
                 for key, value in type_data.items():
                     setattr(membership_type, key, value)
-                membership_type.insert(ignore_permissions=True)
-                action = "created"
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                result = secure_document_operation(
+                    operation="insert",
+                    doc=membership_type,
+                    justification=f"Create membership type {type_data['membership_type_name']} - test data generation",
+                    required_permissions=["Membership Type:create"],
+                )
+
+                if result.success:
+                    action = "created"
+                else:
+                    errors.append(
+                        f"Failed to create {type_data['membership_type_name']}: {'; '.join(result.errors)}"
+                    )
+                    continue
 
             # Create dues schedule template if not already linked
             if not getattr(membership_type, "dues_schedule_template", None):
@@ -114,7 +140,18 @@ def generate_test_membership_types():
                     template_name = create_dues_schedule_template_for_membership_type(membership_type)
                     if template_name:
                         membership_type.dues_schedule_template = template_name
-                        membership_type.save(ignore_permissions=True)
+                        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                        result = secure_document_operation(
+                            operation="save",
+                            doc=membership_type,
+                            justification=f"Link dues schedule template to membership type {membership_type.name} - billing configuration",
+                            required_permissions=["Membership Type:write"],
+                        )
+
+                        if not result.success:
+                            frappe.log_error(
+                                f"Failed to link template to {membership_type.name}: {'; '.join(result.errors)}"
+                            )
                 except Exception as e:
                     # Log error but continue
                     frappe.log_error(
@@ -151,8 +188,18 @@ def ensure_membership_item_group():
         item_group.item_group_name = "Membership"
         item_group.parent_item_group = "All Item Groups"
         item_group.is_group = 0
-        item_group.insert(ignore_permissions=True)
-        frappe.db.commit()
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=item_group,
+            justification="Create Membership item group for membership type system - financial categorization",
+            required_permissions=["Item Group:create"],
+        )
+
+        if result.success:
+            frappe.db.commit()
+        else:
+            frappe.log_error(f"Failed to create Membership item group: {'; '.join(result.errors)}")
 
 
 def create_dues_schedule_template_for_membership_type(membership_type):
@@ -176,10 +223,22 @@ def create_dues_schedule_template_for_membership_type(membership_type):
         ):
             template.custom_months = membership_type.billing_frequency_months
 
-        template.insert(ignore_permissions=True)
-        frappe.db.commit()
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=template,
+            justification=f"Create dues schedule template for membership type {membership_type.name} - billing configuration",
+            required_permissions=["Membership Dues Schedule Template:create"],
+        )
 
-        return template.name
+        if result.success:
+            frappe.db.commit()
+            return template.name
+        else:
+            frappe.log_error(
+                f"Failed to create template for {membership_type.name}: {'; '.join(result.errors)}"
+            )
+            return None
 
     except Exception as e:
         frappe.log_error(f"Error creating dues schedule template: {str(e)}")
@@ -212,14 +271,36 @@ def cleanup_test_membership_types():
             template_name = getattr(mt, "dues_schedule_template", None)
             if template_name:
                 if frappe.db.exists("Membership Dues Schedule Template", template_name):
-                    frappe.delete_doc(
-                        "Membership Dues Schedule Template", template_name, ignore_permissions=True
+                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                    template_doc = frappe.get_doc("Membership Dues Schedule Template", template_name)
+                    result = secure_document_operation(
+                        operation="delete",
+                        doc=template_doc,
+                        justification=f"Delete test membership dues schedule template {template_name} during cleanup - test data maintenance",
+                        required_permissions=["Membership Dues Schedule Template:delete"],
                     )
-                    deleted_templates += 1
+
+                    if result.success:
+                        deleted_templates += 1
+                    else:
+                        frappe.log_error(
+                            f"Failed to delete template {template_name}: {'; '.join(result.errors)}"
+                        )
 
             # Delete membership type
-            frappe.delete_doc("Membership Type", mt.name, ignore_permissions=True)
-            deleted_count += 1
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            mt_doc = frappe.get_doc("Membership Type", mt.name)
+            result = secure_document_operation(
+                operation="delete",
+                doc=mt_doc,
+                justification=f"Delete test membership type {mt.name} during cleanup - test data maintenance",
+                required_permissions=["Membership Type:delete"],
+            )
+
+            if result.success:
+                deleted_count += 1
+            else:
+                frappe.log_error(f"Failed to delete membership type {mt.name}: {'; '.join(result.errors)}")
 
         except Exception as e:
             frappe.log_error(f"Failed to delete test membership type {mt.name}: {str(e)}")

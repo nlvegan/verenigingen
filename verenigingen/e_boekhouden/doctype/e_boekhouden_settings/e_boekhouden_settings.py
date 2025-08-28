@@ -151,9 +151,9 @@ def get_grootboekrekeningen():
             return {
                 "success": True,
                 "message": "Successfully fetched Chart of Accounts",
-                "data_preview": result["data"][:1000] + "..."
-                if len(result["data"]) > 1000
-                else result["data"],
+                "data_preview": (
+                    result["data"][:1000] + "..." if len(result["data"]) > 1000 else result["data"]
+                ),
             }
         else:
             return result

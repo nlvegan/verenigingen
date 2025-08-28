@@ -699,9 +699,9 @@ class APIClassifier:
                 "total_endpoints": total_endpoints,
                 "secured_endpoints": secured_endpoints,
                 "unsecured_endpoints": total_endpoints - secured_endpoints,
-                "security_coverage": round((secured_endpoints / total_endpoints) * 100, 1)
-                if total_endpoints > 0
-                else 0,
+                "security_coverage": (
+                    round((secured_endpoints / total_endpoints) * 100, 1) if total_endpoints > 0 else 0
+                ),
             },
             "priority_breakdown": priority_counts,
             "security_level_breakdown": level_counts,

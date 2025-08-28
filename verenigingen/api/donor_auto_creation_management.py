@@ -125,11 +125,11 @@ def get_auto_creation_dashboard():
             "settings": {
                 "enabled": bool(settings.auto_create_donors),
                 "donations_gl_account": settings.donations_gl_account,
-                "donations_gl_account_name": frappe.db.get_value(
-                    "Account", settings.donations_gl_account, "account_name"
-                )
-                if settings.donations_gl_account
-                else None,
+                "donations_gl_account_name": (
+                    frappe.db.get_value("Account", settings.donations_gl_account, "account_name")
+                    if settings.donations_gl_account
+                    else None
+                ),
                 "eligible_customer_groups": settings.donor_customer_groups,
                 "minimum_amount": settings.minimum_donation_amount,
             },

@@ -6,6 +6,7 @@ import random
 
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
@@ -240,8 +241,17 @@ def generate_test_members():
                 if chapter:
                     app.chapter = chapter
 
-            # Save the application
-            app.insert(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="insert",
+                doc=app,
+                justification=f"Create test membership application for {app.full_name} - test data generation for onboarding",
+                required_permissions=["Membership Application:create"],
+            )
+
+            if not result.success:
+                errors.append(f"Failed to create application for {app.full_name}: {'; '.join(result.errors)}")
+                continue
 
             created_applications.append(
                 {"name": app.name, "full_name": app.full_name, "email": app.email, "status": app.status}
@@ -299,8 +309,20 @@ def cleanup_test_applications():
             )
 
             if not member_exists:
-                frappe.delete_doc("Membership Application", app.name, ignore_permissions=True)
-                deleted_count += 1
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                result = secure_document_operation(
+                    operation="delete",
+                    doc=frappe.get_doc("Membership Application", app.name),
+                    justification=f"Delete test membership application {app.name} during cleanup - test data maintenance",
+                    required_permissions=["Membership Application:delete"],
+                )
+
+                if result.success:
+                    deleted_count += 1
+                else:
+                    frappe.log_error(
+                        f"Failed to delete test application {app.name}: {'; '.join(result.errors)}"
+                    )
         except Exception as e:
             frappe.log_error(f"Failed to delete test application {app.name}: {str(e)}")
 

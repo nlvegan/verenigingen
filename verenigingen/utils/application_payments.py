@@ -1,9 +1,12 @@
 """
 Payment processing utilities for membership applications
 """
+
 import frappe
 from frappe import _
 from frappe.utils import add_days, today
+
+from verenigingen.utils.secure_operations import secure_document_operation
 
 
 def create_membership_invoice_with_amount(member, membership, amount):
@@ -101,7 +104,21 @@ def create_membership_invoice_with_amount(member, membership, amount):
         except Exception as e:
             frappe.log_error(f"Error applying tax exemption: {str(e)}", "Tax Exemption Error")
 
-    invoice.insert(ignore_permissions=True)
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    result = secure_document_operation(
+        operation="insert",
+        doc=invoice,
+        justification=f"Create membership invoice for member {member.name} amount €{amount} - financial processing for membership application",
+        required_permissions=["Sales Invoice:create"],
+    )
+
+    if not result.success:
+        frappe.log_error(
+            f"Failed to create membership invoice: {'; '.join(result.errors)}", "Membership Invoice Security"
+        )
+        frappe.throw(_("Failed to create membership invoice. Please contact support."))
+
+    invoice = result.doc
     invoice.submit()
 
     return invoice
@@ -207,7 +224,21 @@ def process_application_payment(member_name, payment_method, payment_reference=N
         }
     )
 
-    payment_entry.insert(ignore_permissions=True)
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    result = secure_document_operation(
+        operation="insert",
+        doc=payment_entry,
+        justification=f"Create payment entry for member {member.name} invoice {invoice.name} - financial processing for membership payment",
+        required_permissions=["Payment Entry:create"],
+    )
+
+    if not result.success:
+        frappe.log_error(
+            f"Failed to create payment entry: {'; '.join(result.errors)}", "Payment Entry Security"
+        )
+        frappe.throw(_("Failed to process payment. Please contact support."))
+
+    payment_entry = result.doc
     payment_entry.submit()
 
     # Update member payment status

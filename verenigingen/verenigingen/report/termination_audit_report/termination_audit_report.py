@@ -223,11 +223,9 @@ def get_summary(data, filters):
         {
             "label": _("Avg. Processing Time"),
             "value": f"{avg_processing_time:.1f} days",
-            "indicator": "green"
-            if avg_processing_time <= 7
-            else "orange"
-            if avg_processing_time <= 14
-            else "red",
+            "indicator": (
+                "green" if avg_processing_time <= 7 else "orange" if avg_processing_time <= 14 else "red"
+            ),
         },
         {"label": _("Executed"), "value": status_counts.get("Executed", 0), "indicator": "gray"},
         {

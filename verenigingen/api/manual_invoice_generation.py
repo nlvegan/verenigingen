@@ -396,9 +396,11 @@ def scan_email_template_issues():
                                             "file": relative_path,
                                             "line": line_number,
                                             "issue": description,
-                                            "snippet": match.group(0)[:100] + "..."
-                                            if len(match.group(0)) > 100
-                                            else match.group(0),
+                                            "snippet": (
+                                                match.group(0)[:100] + "..."
+                                                if len(match.group(0)) > 100
+                                                else match.group(0)
+                                            ),
                                         }
                                     )
                     except Exception:

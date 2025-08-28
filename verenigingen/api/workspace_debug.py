@@ -1,8 +1,10 @@
 """
 Workspace debugging API
 """
+
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import high_security_api, standard_api, utility_api
 
 
@@ -362,7 +364,19 @@ def create_minimal_workspace():
                     "is_hidden": 0,
                 }
             )
-            workspace.insert(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="insert",
+                doc=workspace,
+                justification="Create Verenigingen workspace for system debugging and workflow testing - workspace configuration",
+                required_permissions=["Workspace:create"],
+            )
+
+            if not result.success:
+                frappe.log_error(f"Failed to create Verenigingen workspace: {'; '.join(result.errors)}")
+                return {"error": "Failed to create workspace"}
+
+            workspace = frappe.get_doc("Workspace", "Verenigingen")  # Reload the created workspace
         else:
             workspace = frappe.get_doc("Workspace", "Verenigingen")
 
@@ -387,7 +401,17 @@ def create_minimal_workspace():
                     "onboard": 0,
                 },
             )
-            workspace.save(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="save",
+                doc=workspace,
+                justification="Add workflow demo link to Verenigingen workspace for system debugging - workspace configuration update",
+                required_permissions=["Workspace:write"],
+            )
+
+            if not result.success:
+                frappe.log_error(f"Failed to update Verenigingen workspace: {'; '.join(result.errors)}")
+                return {"error": "Failed to update workspace"}
 
         frappe.db.commit()
 

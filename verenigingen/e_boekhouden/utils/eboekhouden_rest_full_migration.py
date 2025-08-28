@@ -2113,13 +2113,17 @@ def _process_single_mutation(mutation, company, cost_center, debug_info):
             existing_doc = existing_je or existing_pe or existing_si or existing_pi
             # Mutation already imported
             return frappe.get_doc(
-                "Journal Entry"
-                if existing_je
-                else "Payment Entry"
-                if existing_pe
-                else "Sales Invoice"
-                if existing_si
-                else "Purchase Invoice",
+                (
+                    "Journal Entry"
+                    if existing_je
+                    else (
+                        "Payment Entry"
+                        if existing_pe
+                        else "Sales Invoice"
+                        if existing_si
+                        else "Purchase Invoice"
+                    )
+                ),
                 existing_doc,
             )
 

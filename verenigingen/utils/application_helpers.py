@@ -1,6 +1,7 @@
 """
 Helper utilities for membership application processing
 """
+
 import json
 import time
 

@@ -677,9 +677,9 @@ class Volunteer(Document):
                 {
                     "assignment_type": item.assignment_type,
                     "role": item.role,
-                    "reference": f"{item.reference_doctype}: {item.reference_name}"
-                    if item.reference_doctype
-                    else "",
+                    "reference": (
+                        f"{item.reference_doctype}: {item.reference_name}" if item.reference_doctype else ""
+                    ),
                     "start_date": item.start_date,
                     "end_date": item.end_date,
                     "is_active": False,
@@ -789,9 +789,9 @@ class Volunteer(Document):
                 {
                     "assignment_type": item.assignment_type,
                     "role": item.role,
-                    "reference": f"{item.reference_doctype}: {item.reference_name}"
-                    if item.reference_doctype
-                    else "",
+                    "reference": (
+                        f"{item.reference_doctype}: {item.reference_name}" if item.reference_doctype else ""
+                    ),
                     "start_date": item.start_date,
                     "end_date": item.end_date,
                     "is_active": False,

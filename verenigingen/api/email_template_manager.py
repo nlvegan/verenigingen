@@ -62,6 +62,7 @@ License: MIT
 import frappe
 from frappe.utils import get_url
 
+from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
 
 
@@ -534,9 +535,21 @@ def create_comprehensive_email_templates():
                         "enabled": 1,
                     }
                 )
-                template_doc.insert(ignore_permissions=True)
-                created_count += 1
-                frappe.logger().info(f"Created email template: {template_name}")
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                result = secure_document_operation(
+                    operation="insert",
+                    doc=template_doc,
+                    justification=f"Create email template {template_name} for system communications - template management",
+                    required_permissions=["Email Template:create"],
+                )
+
+                if result.success:
+                    created_count += 1
+                    frappe.logger().info(f"Created email template: {template_name}")
+                else:
+                    frappe.log_error(
+                        f"Failed to create email template {template_name}: {'; '.join(result.errors)}"
+                    )
 
         except Exception as e:
             frappe.log_error(
@@ -799,9 +812,21 @@ def create_email_templates_cli():
                             "enabled": 1,
                         }
                     )
-                    template_doc.insert(ignore_permissions=True)
-                    created_count += 1
-                    print(f"✅ Created email template: {template_name}")
+                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                    result = secure_document_operation(
+                        operation="insert",
+                        doc=template_doc,
+                        justification=f"Create email template {template_name} for system communications - template initialization",
+                        required_permissions=["Email Template:create"],
+                    )
+
+                    if result.success:
+                        created_count += 1
+                        print(f"✅ Created email template: {template_name}")
+                    else:
+                        print(
+                            f"❌ Failed to create email template {template_name}: {'; '.join(result.errors)}"
+                        )
 
             except Exception as e:
                 print(f"❌ Failed to create/update template '{template_name}': {str(e)}")

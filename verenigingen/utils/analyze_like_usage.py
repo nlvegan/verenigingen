@@ -177,7 +177,9 @@ def check_for_ledger_like_patterns():
     return {
         "problematic_patterns_found": len(problematic_patterns),
         "patterns": problematic_patterns,
-        "recommendation": "Replace LIKE with = for exact field matching"
-        if problematic_patterns
-        else "No problematic LIKE patterns found",
+        "recommendation": (
+            "Replace LIKE with = for exact field matching"
+            if problematic_patterns
+            else "No problematic LIKE patterns found"
+        ),
     }

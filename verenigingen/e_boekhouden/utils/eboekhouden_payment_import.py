@@ -148,12 +148,16 @@ def compare_payment_implementations(limit=10):
             results["reconciliation_improvements"] += 1
 
     results["improvement_rate"] = {
-        "bank_accounts": f"{(results['bank_account_improvements'] / results['total_analyzed'] * 100):.1f}%"
-        if results["total_analyzed"] > 0
-        else "0%",
-        "reconciliation": f"{(results['reconciliation_improvements'] / results['total_analyzed'] * 100):.1f}%"
-        if results["total_analyzed"] > 0
-        else "0%",
+        "bank_accounts": (
+            f"{(results['bank_account_improvements'] / results['total_analyzed'] * 100):.1f}%"
+            if results["total_analyzed"] > 0
+            else "0%"
+        ),
+        "reconciliation": (
+            f"{(results['reconciliation_improvements'] / results['total_analyzed'] * 100):.1f}%"
+            if results["total_analyzed"] > 0
+            else "0%"
+        ),
     }
 
     return results

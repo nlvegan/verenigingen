@@ -3,7 +3,6 @@ Bank Details Form for Members
 Allows members to view and update their bank details and manage SEPA Direct Debit
 """
 
-
 import frappe
 from frappe import _
 

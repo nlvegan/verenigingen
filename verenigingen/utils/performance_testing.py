@@ -158,9 +158,11 @@ class PerformanceTester:
                     "status": "passed" if performance_score > 70 else "warning",
                     "details": index_tests,
                     "performance_score": round(performance_score, 2),
-                    "recommendation": "Good index performance"
-                    if performance_score > 70
-                    else "Consider additional index optimization",
+                    "recommendation": (
+                        "Good index performance"
+                        if performance_score > 70
+                        else "Consider additional index optimization"
+                    ),
                 }
             )
 
@@ -365,9 +367,11 @@ class PerformanceTester:
                     "bulk_time": bulk_timer.execution_time,
                     "time_improvement_percent": round(max(0, time_improvement), 2),
                     "records_processed": len(test_members),
-                    "bulk_efficiency": round(bulk_timer.execution_time / len(test_members), 4)
-                    if len(test_members) > 0
-                    else 0,
+                    "bulk_efficiency": (
+                        round(bulk_timer.execution_time / len(test_members), 4)
+                        if len(test_members) > 0
+                        else 0
+                    ),
                 }
             )
 
@@ -381,9 +385,11 @@ class PerformanceTester:
                     "bulk_time": sepa_timer.execution_time,
                     "records_processed": len(test_members),
                     "mandates_found": len(sepa_results),
-                    "bulk_efficiency": round(sepa_timer.execution_time / len(test_members), 4)
-                    if len(test_members) > 0
-                    else 0,
+                    "bulk_efficiency": (
+                        round(sepa_timer.execution_time / len(test_members), 4)
+                        if len(test_members) > 0
+                        else 0
+                    ),
                 }
             )
 
@@ -401,9 +407,11 @@ class PerformanceTester:
                     "status": "passed" if avg_improvement > 30 else "warning",
                     "details": bulk_tests,
                     "average_improvement": round(avg_improvement, 2),
-                    "recommendation": "Excellent bulk optimization"
-                    if avg_improvement > 50
-                    else "Consider additional bulk optimizations",
+                    "recommendation": (
+                        "Excellent bulk optimization"
+                        if avg_improvement > 50
+                        else "Consider additional bulk optimizations"
+                    ),
                 }
             )
 
@@ -502,11 +510,13 @@ class PerformanceTester:
                     "status": "passed" if overall_hit_rate > 80 else "warning",
                     "details": cache_tests,
                     "overall_hit_rate": round(overall_hit_rate, 2),
-                    "cache_effectiveness": "Excellent"
-                    if overall_hit_rate > 90
-                    else "Good"
-                    if overall_hit_rate > 70
-                    else "Needs improvement",
+                    "cache_effectiveness": (
+                        "Excellent"
+                        if overall_hit_rate > 90
+                        else "Good"
+                        if overall_hit_rate > 70
+                        else "Needs improvement"
+                    ),
                 }
             )
 
@@ -554,11 +564,9 @@ class PerformanceTester:
                     "status": "passed" if avg_throughput > 5 else "warning",
                     "details": load_tests,
                     "average_throughput": round(avg_throughput, 2),
-                    "load_capacity": "High"
-                    if avg_throughput > 10
-                    else "Medium"
-                    if avg_throughput > 5
-                    else "Low",
+                    "load_capacity": (
+                        "High" if avg_throughput > 10 else "Medium" if avg_throughput > 5 else "Low"
+                    ),
                 }
             )
 
@@ -581,11 +589,9 @@ class PerformanceTester:
             "failed_tests": failed_tests,
             "warning_tests": warning_tests,
             "pass_rate_percent": round(pass_rate, 2),
-            "overall_status": "excellent"
-            if pass_rate >= 90
-            else "good"
-            if pass_rate >= 70
-            else "needs_improvement",
+            "overall_status": (
+                "excellent" if pass_rate >= 90 else "good" if pass_rate >= 70 else "needs_improvement"
+            ),
             "recommendations": self._generate_recommendations(),
         }
 
@@ -729,9 +735,9 @@ Status: {results['results']['summary'].get('overall_status', 'Unknown')}
             frappe.msgprint(
                 message,
                 title="Performance Test Results",
-                indicator="green"
-                if results["results"]["summary"].get("pass_rate_percent", 0) > 70
-                else "orange",
+                indicator=(
+                    "green" if results["results"]["summary"].get("pass_rate_percent", 0) > 70 else "orange"
+                ),
             )
         else:
             frappe.msgprint(
@@ -779,11 +785,9 @@ def quick_performance_check():
                     index_results[name] = {
                         "exists": True,
                         "selectivity": round(selectivity, 3),
-                        "effectiveness": "High"
-                        if selectivity > 0.1
-                        else "Medium"
-                        if selectivity > 0.01
-                        else "Low",
+                        "effectiveness": (
+                            "High" if selectivity > 0.1 else "Medium" if selectivity > 0.01 else "Low"
+                        ),
                     }
                 else:
                     index_results[name] = {"exists": False}

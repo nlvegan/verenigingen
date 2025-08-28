@@ -291,12 +291,16 @@ class BulkTransactionImporter(MollieBaseClient):
                             "date": datetime.fromisoformat(
                                 payment.get("createdAt", "").replace("Z", "+00:00")
                             ).date(),
-                            "deposit": float(payment.get("amount", {}).get("value", "0"))
-                            if float(payment.get("amount", {}).get("value", "0")) > 0
-                            else 0,
-                            "withdrawal": abs(float(payment.get("amount", {}).get("value", "0")))
-                            if float(payment.get("amount", {}).get("value", "0")) < 0
-                            else 0,
+                            "deposit": (
+                                float(payment.get("amount", {}).get("value", "0"))
+                                if float(payment.get("amount", {}).get("value", "0")) > 0
+                                else 0
+                            ),
+                            "withdrawal": (
+                                abs(float(payment.get("amount", {}).get("value", "0")))
+                                if float(payment.get("amount", {}).get("value", "0")) < 0
+                                else 0
+                            ),
                             "reference_number": payment.get("id"),
                         }
 

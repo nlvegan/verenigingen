@@ -51,11 +51,11 @@ def check_missing_invoices():
 
         # Check if invoice is in member's payment history
         in_history = frappe.db.exists(
-            "Member Payment History", {"parent": member_name, "invoice": invoice.invoice_name}
+            "Member Payment History", {"parent": member_name, "invoice": invoice.name}
         )
 
         invoice_info = {
-            "invoice": invoice.invoice_name,
+            "invoice": invoice.name,
             "member": member_name,
             "customer": invoice.customer,
             "amount": invoice.grand_total,

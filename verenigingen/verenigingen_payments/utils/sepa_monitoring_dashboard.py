@@ -348,23 +348,25 @@ class SEPAMonitoringDashboard:
             },
             "recent_operations": {
                 "total_operations": len(recent_mandate_metrics),
-                "success_rate": sum(1 for m in recent_mandate_metrics if m.success)
-                / len(recent_mandate_metrics)
-                * 100
-                if recent_mandate_metrics
-                else 100,
-                "avg_execution_time_ms": statistics.mean(
-                    [m.execution_time_ms for m in recent_mandate_metrics]
-                )
-                if recent_mandate_metrics
-                else 0,
+                "success_rate": (
+                    sum(1 for m in recent_mandate_metrics if m.success) / len(recent_mandate_metrics) * 100
+                    if recent_mandate_metrics
+                    else 100
+                ),
+                "avg_execution_time_ms": (
+                    statistics.mean([m.execution_time_ms for m in recent_mandate_metrics])
+                    if recent_mandate_metrics
+                    else 0
+                ),
             },
             "health_problems": problems,
-            "overall_health": "healthy"
-            if not problems
-            else "degraded"
-            if all(p["severity"] == "warning" for p in problems)
-            else "critical",
+            "overall_health": (
+                "healthy"
+                if not problems
+                else "degraded"
+                if all(p["severity"] == "warning" for p in problems)
+                else "critical"
+            ),
         }
 
     def get_financial_metrics(self, days: int = 30) -> Dict[str, Any]:

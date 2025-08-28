@@ -4,9 +4,12 @@ Supporting functions for proper data mapping and creation
 """
 
 import re
+from typing import Dict
 
 import frappe
-from frappe.utils import cstr
+from frappe.utils import cstr, flt
+
+from verenigingen.utils.secure_operations import secure_document_operation
 
 
 def clean_description_for_item_code(description: str) -> str:
@@ -87,7 +90,19 @@ def create_account_mapping(grootboek_nr: str, erpnext_account: str):
         mapping.eboekhouden_grootboek = grootboek_nr
         mapping.erpnext_account = erpnext_account
         mapping.auto_created = 1
-        mapping.insert(ignore_permissions=True)
+
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=mapping,
+            justification=f"Create E-Boekhouden account mapping for grootboek {grootboek_nr} to ERPNext account {erpnext_account} - accounting integration",
+            required_permissions=["E-Boekhouden Account Map:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                f"Failed to create account mapping for {grootboek_nr}: {'; '.join(result.errors)}"
+            )
     except Exception:
         # Ignore if mapping already exists
         pass
@@ -115,15 +130,20 @@ def create_account_from_grootboek(grootboek_nr: str, transaction_type: str, comp
     account.company = company
     account.custom_eboekhouden_grootboek = grootboek_nr
 
-    try:
-        account.insert(ignore_permissions=True)
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    result = secure_document_operation(
+        operation="insert",
+        doc=account,
+        justification=f"Create ERPNext account from E-Boekhouden grootboek {grootboek_nr} for {transaction_type} transactions - accounting integration",
+        required_permissions=["Account:create"],
+    )
 
+    if result.success:
         # Create mapping
         create_account_mapping(grootboek_nr, account.name)
-
         return account.name
-    except Exception as e:
-        frappe.log_error(f"Failed to create account for {grootboek_nr}: {str(e)}")
+    else:
+        frappe.log_error(f"Failed to create account for {grootboek_nr}: {'; '.join(result.errors)}")
         return get_default_account(transaction_type, company)
 
 
@@ -235,9 +255,20 @@ def create_default_account(name: str, root_type: str, account_type: str, company
     account.account_type = account_type
     account.root_type = root_type
     account.company = company
-    account.insert(ignore_permissions=True)
 
-    return account.name
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    result = secure_document_operation(
+        operation="insert",
+        doc=account,
+        justification=f"Create default {root_type} account '{name}' for company {company} - accounting structure setup",
+        required_permissions=["Account:create"],
+    )
+
+    if result.success:
+        return account.name
+    else:
+        frappe.log_error(f"Failed to create default account {name}: {'; '.join(result.errors)}")
+        return None
 
 
 def get_or_create_tax_account(btw_code: str, transaction_type: str, company: str) -> str:
@@ -282,9 +313,20 @@ def get_or_create_tax_account(btw_code: str, transaction_type: str, company: str
     account.account_type = "Tax"
     account.root_type = root_type
     account.company = company
-    account.insert(ignore_permissions=True)
 
-    return account.name
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    result = secure_document_operation(
+        operation="insert",
+        doc=account,
+        justification=f"Create tax account '{account_name}' for BTW code {btw_code} in {transaction_type} transactions - Dutch tax compliance",
+        required_permissions=["Account:create"],
+    )
+
+    if result.success:
+        return account.name
+    else:
+        frappe.log_error(f"Failed to create tax account {account_name}: {'; '.join(result.errors)}")
+        return None
 
 
 def create_tax_parent_account(company: str) -> str:
@@ -300,9 +342,20 @@ def create_tax_parent_account(company: str) -> str:
     account.is_group = 1
     account.root_type = "Liability"
     account.company = company
-    account.insert(ignore_permissions=True)
 
-    return account.name
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    result = secure_document_operation(
+        operation="insert",
+        doc=account,
+        justification=f"Create Tax Accounts parent group for company {company} - Dutch tax structure setup",
+        required_permissions=["Account:create"],
+    )
+
+    if result.success:
+        return account.name
+    else:
+        frappe.log_error(f"Failed to create Tax Accounts parent for {company}: {'; '.join(result.errors)}")
+        return None
 
 
 def create_customer_from_relation_id(relation_id: str) -> str:
@@ -311,11 +364,24 @@ def create_customer_from_relation_id(relation_id: str) -> str:
     customer.customer_name = f"E-Boekhouden {relation_id}"
     customer.customer_group = "All Customer Groups"
     customer.territory = "All Territories"
-    customer.custom_eboekhouden_relation_id = relation_id
-    customer.custom_needs_enrichment = 1
-    customer.insert(ignore_permissions=True)
+    customer.eboekhouden_relation_code = relation_id
+    # Note: No needs_enrichment field - manual enrichment flag removed
 
-    return customer.name
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    result = secure_document_operation(
+        operation="insert",
+        doc=customer,
+        justification=f"Create customer from E-Boekhouden relation ID {relation_id} - accounting system migration",
+        required_permissions=["Customer:create"],
+    )
+
+    if result.success:
+        return customer.name
+    else:
+        frappe.log_error(
+            f"Failed to create customer for relation ID {relation_id}: {'; '.join(result.errors)}"
+        )
+        return None
 
 
 def create_supplier_from_relation_id(relation_id: str) -> str:
@@ -323,11 +389,24 @@ def create_supplier_from_relation_id(relation_id: str) -> str:
     supplier = frappe.new_doc("Supplier")
     supplier.supplier_name = f"E-Boekhouden {relation_id}"
     supplier.supplier_group = "All Supplier Groups"
-    supplier.custom_eboekhouden_relation_id = relation_id
-    supplier.custom_needs_enrichment = 1
-    supplier.insert(ignore_permissions=True)
+    supplier.eboekhouden_relation_code = relation_id
+    # Note: No needs_enrichment field - manual enrichment flag removed
 
-    return supplier.name
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    result = secure_document_operation(
+        operation="insert",
+        doc=supplier,
+        justification=f"Create supplier from E-Boekhouden relation ID {relation_id} - accounting system migration",
+        required_permissions=["Supplier:create"],
+    )
+
+    if result.success:
+        return supplier.name
+    else:
+        frappe.log_error(
+            f"Failed to create supplier for relation ID {relation_id}: {'; '.join(result.errors)}"
+        )
+        return None
 
 
 def get_or_create_default_customer() -> str:
@@ -339,7 +418,18 @@ def get_or_create_default_customer() -> str:
         customer.customer_name = customer_name
         customer.customer_group = "All Customer Groups"
         customer.territory = "All Territories"
-        customer.insert(ignore_permissions=True)
+
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=customer,
+            justification=f"Create default guest customer '{customer_name}' for E-Boekhouden integration fallbacks - accounting system support",
+            required_permissions=["Customer:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(f"Failed to create default customer: {'; '.join(result.errors)}")
+            return None
 
     return customer_name
 
@@ -352,7 +442,18 @@ def get_or_create_default_supplier() -> str:
         supplier = frappe.new_doc("Supplier")
         supplier.supplier_name = supplier_name
         supplier.supplier_group = "All Supplier Groups"
-        supplier.insert(ignore_permissions=True)
+
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=supplier,
+            justification=f"Create default supplier '{supplier_name}' for E-Boekhouden integration fallbacks - accounting system support",
+            required_permissions=["Supplier:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(f"Failed to create default supplier: {'; '.join(result.errors)}")
+            return None
 
     return supplier_name
 
@@ -370,7 +471,18 @@ def get_or_create_sales_tax_template(company: str) -> str:
         template = frappe.new_doc("Sales Taxes and Charges Template")
         template.title = template_name
         template.company = company
-        template.insert(ignore_permissions=True)
+
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=template,
+            justification=f"Create sales tax template '{template_name}' for company {company} - Dutch tax compliance setup",
+            required_permissions=["Sales Taxes and Charges Template:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(f"Failed to create sales tax template: {'; '.join(result.errors)}")
+            return None
 
     return template_name
 
@@ -383,7 +495,18 @@ def get_or_create_purchase_tax_template(company: str) -> str:
         template = frappe.new_doc("Purchase Taxes and Charges Template")
         template.title = template_name
         template.company = company
-        template.insert(ignore_permissions=True)
+
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=template,
+            justification=f"Create purchase tax template '{template_name}' for company {company} - Dutch tax compliance setup",
+            required_permissions=["Purchase Taxes and Charges Template:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(f"Failed to create purchase tax template: {'; '.join(result.errors)}")
+            return None
 
     return template_name
 

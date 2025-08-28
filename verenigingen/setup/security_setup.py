@@ -13,6 +13,8 @@ import frappe
 from frappe import _
 from frappe.rate_limiter import rate_limit
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 # Import and initialize the security logger configuration
 try:
     from verenigingen.utils.logger_config import get_security_logger
@@ -227,7 +229,18 @@ def setup_password_policy():
                     updated = True
 
         if updated:
-            system_settings.save(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="save",
+                doc=system_settings,
+                justification="Configure system security settings during Verenigingen installation - security infrastructure setup",
+                required_permissions=["System Settings:write"],
+            )
+
+            if not result.success:
+                frappe.log_error(f"Failed to update system settings: {'; '.join(result.errors)}")
+                security_logger.error(f"Security setup failed - system settings: {'; '.join(result.errors)}")
+                return False
             print("   ✅ Password policy configured")
         else:
             print("   ✅ Password policy already configured")
@@ -332,7 +345,22 @@ def log_security_audit(action, details, user=None):
                 "comment_by": user,
                 "ip_address": frappe.local.request_ip if hasattr(frappe.local, "request_ip") else None,
             }
-        ).insert(ignore_permissions=True)
+        )
+
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=security_rule,
+            justification="Create Verenigingen security access rule during installation - security policy enforcement",
+            required_permissions=["Security Rule:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(f"Failed to create security rule: {'; '.join(result.errors)}")
+            security_logger.error(f"Security setup failed - access rule: {'; '.join(result.errors)}")
+            return False
+
+        # security_rule created successfully via secure_document_operation
 
         # Also log to security-specific log file using configured logger
         security_logger.info(f"SECURITY AUDIT: {action} by {user} - {frappe.as_json(details)}")

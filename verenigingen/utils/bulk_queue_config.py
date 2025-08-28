@@ -132,9 +132,11 @@ def get_queue_status():
                         "failed_count": queue.failed_job_registry.count,
                         "started_count": queue.started_job_registry.count,
                         "deferred_count": queue.deferred_job_registry.count,
-                        "scheduled_count": queue.scheduled_job_registry.count
-                        if hasattr(queue, "scheduled_job_registry")
-                        else 0,
+                        "scheduled_count": (
+                            queue.scheduled_job_registry.count
+                            if hasattr(queue, "scheduled_job_registry")
+                            else 0
+                        ),
                         "workers": len(queue.workers),
                         "is_empty": queue.is_empty(),
                     }

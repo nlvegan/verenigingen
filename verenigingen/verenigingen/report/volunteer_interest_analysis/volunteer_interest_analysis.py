@@ -208,9 +208,9 @@ def get_volunteer_summary(data):
             "color": "green" if active_volunteers > 0 else "red",
         },
         {
-            "value": f"{(with_volunteer_record / total_interested * 100):.1f}%"
-            if total_interested > 0
-            else "0%",
+            "value": (
+                f"{(with_volunteer_record / total_interested * 100):.1f}%" if total_interested > 0 else "0%"
+            ),
             "label": _("Activation Rate"),
             "datatype": "Data",
         },

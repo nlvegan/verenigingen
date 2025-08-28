@@ -810,9 +810,11 @@ class SEPARollbackManager:
                     "system_info": frappe.as_json(
                         {
                             "site": frappe.local.site if frappe.local else "unknown",
-                            "ip_address": frappe.local.request.environ.get("REMOTE_ADDR")
-                            if frappe.local.request
-                            else None,
+                            "ip_address": (
+                                frappe.local.request.environ.get("REMOTE_ADDR")
+                                if frappe.local.request
+                                else None
+                            ),
                         }
                     ),
                 },

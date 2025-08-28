@@ -1,5 +1,6 @@
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -199,8 +200,19 @@ def create_items_from_mappings():
                 group = frappe.new_doc("Item Group")
                 group.item_group_name = group_name
                 group.parent_item_group = "All Item Groups"
-                group.insert(ignore_permissions=True)
-                response.append(f"Created item group: {group_name}")
+
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                result = secure_document_operation(
+                    operation="insert",
+                    doc=group,
+                    justification=f"Create {group_name} item group for E-Boekhouden smart mapping system - financial data organization",
+                    required_permissions=["Item Group:create"],
+                )
+
+                if result.success:
+                    response.append(f"Created item group: {group_name}")
+                else:
+                    response.append(f"Failed to create item group {group_name}: {'; '.join(result.errors)}")
 
         # Create items
         created_count = 0
@@ -226,8 +238,18 @@ def create_items_from_mappings():
                     elif mapping["is_purchase_item"]:
                         item.expense_account = mapping["erpnext_account"]
 
-                    item.save(ignore_permissions=True)
-                    updated_count += 1
+                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                    result = secure_document_operation(
+                        operation="save",
+                        doc=item,
+                        justification=f"Update item {item_code} with E-Boekhouden mapping data - financial item configuration",
+                        required_permissions=["Item:write"],
+                    )
+
+                    if result.success:
+                        updated_count += 1
+                    else:
+                        errors.append(f"Failed to update item {item_code}: {'; '.join(result.errors)}")
 
                 else:
                     # Create new item
@@ -249,8 +271,18 @@ def create_items_from_mappings():
                     # Add custom field for E-Boekhouden account code
                     item.custom_eboekhouden_account_code = mapping["account_code"]
 
-                    item.insert(ignore_permissions=True)
-                    created_count += 1
+                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                    result = secure_document_operation(
+                        operation="insert",
+                        doc=item,
+                        justification=f"Create new item {item_code} for E-Boekhouden mapping system - financial item management",
+                        required_permissions=["Item:create"],
+                    )
+
+                    if result.success:
+                        created_count += 1
+                    else:
+                        errors.append(f"Failed to create item {item_code}: {'; '.join(result.errors)}")
 
                 if (created_count + updated_count) % 10 == 0:
                     response.append(f"Processed {created_count + updated_count} items...")

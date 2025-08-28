@@ -256,9 +256,9 @@ def get_member_history_refresh_status():
             "members_with_payment_history": members_with_history,
             "recent_updates_24h": recent_updates,
             "last_refresh_time": now(),
-            "coverage_percentage": round((members_with_history / total_members * 100), 2)
-            if total_members > 0
-            else 0,
+            "coverage_percentage": (
+                round((members_with_history / total_members * 100), 2) if total_members > 0 else 0
+            ),
         }
 
     except Exception as e:
@@ -461,9 +461,9 @@ def get_duration_update_stats():
             "total_members": total_members,
             "members_with_duration": members_with_duration,
             "members_updated_today": members_updated_today,
-            "coverage_percentage": round((members_with_duration / total_members * 100), 2)
-            if total_members > 0
-            else 0,
+            "coverage_percentage": (
+                round((members_with_duration / total_members * 100), 2) if total_members > 0 else 0
+            ),
         }
 
     except Exception as e:
@@ -852,9 +852,11 @@ def run_final_comprehensive_chapter_assignment_test():
             "total_individual_tests": total_individual_tests,
             "passed_individual_tests": passed_individual_tests,
             "overall_success": passed_test_groups == total_test_groups,
-            "success_rate": f"{(passed_individual_tests / total_individual_tests * 100):.1f}%"
-            if total_individual_tests > 0
-            else "0%",
+            "success_rate": (
+                f"{(passed_individual_tests / total_individual_tests * 100):.1f}%"
+                if total_individual_tests > 0
+                else "0%"
+            ),
         }
 
         results["success"] = results["summary"]["overall_success"]

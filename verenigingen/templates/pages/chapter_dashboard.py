@@ -1,6 +1,7 @@
 """
 Chapter Board Dashboard - Simplified interface for chapter board members
 """
+
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 

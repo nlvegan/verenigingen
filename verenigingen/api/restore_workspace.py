@@ -3,6 +3,8 @@ import os
 
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 @frappe.whitelist()
 def restore_workspace(force_enable=False):
@@ -112,8 +114,17 @@ def restore_workspace(force_enable=False):
             },
         )
 
-    workspace.flags.ignore_permissions = True
-    workspace.insert()
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    result = secure_document_operation(
+        operation="insert",
+        doc=workspace,
+        justification="Restore Verenigingen workspace from fixtures with Communication section - workspace configuration management",
+        required_permissions=["Workspace:create"],
+    )
+
+    if not result.success:
+        frappe.log_error(f"Failed to restore workspace: {'; '.join(result.errors)}")
+        return {"success": False, "message": f"Failed to restore workspace: {'; '.join(result.errors)}"}
 
     frappe.db.commit()
     frappe.clear_cache()

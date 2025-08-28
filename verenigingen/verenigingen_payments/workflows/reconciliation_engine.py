@@ -166,9 +166,9 @@ class ReconciliationEngine:
 
                 balance_info = {
                     "currency": balance.currency,
-                    "available": float(balance.available_amount.decimal_value)
-                    if balance.available_amount
-                    else 0,
+                    "available": (
+                        float(balance.available_amount.decimal_value) if balance.available_amount else 0
+                    ),
                     "pending": float(balance.pending_amount.decimal_value) if balance.pending_amount else 0,
                     "reconciled": reconciliation.get("reconciled", False),
                     "discrepancy": reconciliation.get("discrepancy", 0),

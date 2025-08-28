@@ -113,9 +113,11 @@ def check_earliest_mutation_date():
             "success": True,
             "earliest_dates_by_type": earliest_dates,
             "absolute_earliest_date": absolute_earliest,
-            "recommendation": f"Use {absolute_earliest} as the start date for complete history import"
-            if absolute_earliest
-            else "No dates found",
+            "recommendation": (
+                f"Use {absolute_earliest} as the start date for complete history import"
+                if absolute_earliest
+                else "No dates found"
+            ),
             "analysis": "Shows the earliest transaction date by mutation type to determine true data range",
         }
 

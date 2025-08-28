@@ -11,6 +11,8 @@ import frappe
 from frappe import _
 from frappe.utils import cint
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 def process_payment_history_update_queue():
     """
@@ -108,19 +110,65 @@ def _process_member_updates(member_name, updates):
         for update in updates:
             queue_doc = frappe.get_doc("Payment History Update Queue", update.name)
             queue_doc.status = "Processing"
-            queue_doc.save(ignore_permissions=True)
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="save",
+                doc=queue_doc,
+                justification=f"Update payment history queue status to Processing for member {member_name} - system queue management for financial data integrity",
+                required_permissions=["Payment History Update Queue:write"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to update queue status to Processing: {'; '.join(result.errors)}",
+                    "Payment Queue Security",
+                )
+                continue
+
             needs_reload = True
 
         # Reload payment history once for all updates
         if needs_reload and hasattr(member, "load_payment_history"):
             member.load_payment_history()
-            member.save(ignore_permissions=True)
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="save",
+                doc=member,
+                justification=f"Update member {member_name} payment history from queue processing - financial data integrity for payment tracking",
+                required_permissions=["Member:write"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to save member payment history updates: {'; '.join(result.errors)}",
+                    "Member Payment History Security",
+                )
+                return {
+                    "success": False,
+                    "error": "Failed to update member payment history",
+                    "failed": len(updates),
+                }
 
         # Mark all updates as completed
         for update in updates:
             queue_doc = frappe.get_doc("Payment History Update Queue", update.name)
             queue_doc.status = "Completed"
-            queue_doc.save(ignore_permissions=True)
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="save",
+                doc=queue_doc,
+                justification=f"Mark payment history queue {update.name} as Completed for member {member_name} - system queue completion tracking",
+                required_permissions=["Payment History Update Queue:write"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to mark queue entry as completed: {'; '.join(result.errors)}",
+                    "Payment Queue Security",
+                )
 
         frappe.logger("payment_history").info(
             f"Successfully processed {len(updates)} updates for member {member_name}"
@@ -151,7 +199,19 @@ def _process_member_updates(member_name, updates):
                         f"Payment history update {update.name} exceeded retry limit"
                     )
 
-                queue_doc.save(ignore_permissions=True)
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                result = secure_document_operation(
+                    operation="save",
+                    doc=queue_doc,
+                    justification=f"Update failed payment history queue {update.name} status and retry count for member {member_name} - error handling and retry management",
+                    required_permissions=["Payment History Update Queue:write"],
+                )
+
+                if not result.success:
+                    frappe.log_error(
+                        f"Failed to update queue error status: {'; '.join(result.errors)}",
+                        "Payment Queue Security",
+                    )
             except frappe.DoesNotExistError:
                 frappe.log_error(
                     message=f"Payment History Update Queue entry {update.name} no longer exists while marking as failed",
@@ -229,7 +289,21 @@ def queue_payment_history_update(member_name, invoice_name, action):
             queue_doc.action = action
             queue_doc.status = "Pending"
             queue_doc.retry_count = 0
-            queue_doc.insert(ignore_permissions=True)
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="insert",
+                doc=queue_doc,
+                justification=f"Queue payment history update for member {member_name} invoice {invoice_name} action {action} - financial data integrity via serialized processing",
+                required_permissions=["Payment History Update Queue:create"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to queue payment history update: {'; '.join(result.errors)}",
+                    "Payment Queue Security",
+                )
+                return
 
             frappe.logger("events").info(
                 f"Queued payment history update for member {member_name}, "

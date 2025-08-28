@@ -43,9 +43,9 @@ class MembershipDuesSchedule(Document):
                     "suggested_amount": template.suggested_amount,  # Required field, validated above
                     "billing_frequency": template.billing_frequency
                     or "Annual",  # Explicit default, validated in template creation
-                    "invoice_days_before": template.invoice_days_before
-                    if template.invoice_days_before is not None
-                    else 30,  # Explicit null check
+                    "invoice_days_before": (
+                        template.invoice_days_before if template.invoice_days_before is not None else 30
+                    ),  # Explicit null check
                 }
             )
         except Exception as e:
@@ -1180,7 +1180,9 @@ class MembershipDuesSchedule(Document):
             item.item_name = item_name
             item.item_group = "Services"
             item.is_sales_item = 1
-            item.is_service_item = 1
+            # Item service attributes
+            # Note: ERPNext Item doctype doesn't have is_service_item field
+            # Using is_sales_item which is appropriate for membership services
             item.insert()
 
         return item_name

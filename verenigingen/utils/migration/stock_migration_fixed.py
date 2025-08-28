@@ -4,7 +4,6 @@ Fixed Stock Migration for E-Boekhouden
 This version properly handles stock transactions without using monetary amounts as quantities
 """
 
-
 import frappe
 
 

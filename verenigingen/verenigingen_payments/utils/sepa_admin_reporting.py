@@ -297,9 +297,11 @@ class SEPAAdminReportGenerator:
                 "acceptable": benchmark["acceptable"],
                 "critical": benchmark["critical"],
                 "status": status,
-                "variance_percent": ((actual_value - benchmark["target"]) / benchmark["target"] * 100)
-                if benchmark["target"] > 0
-                else 0,
+                "variance_percent": (
+                    ((actual_value - benchmark["target"]) / benchmark["target"] * 100)
+                    if benchmark["target"] > 0
+                    else 0
+                ),
             }
 
         # Calculate overall performance score
@@ -954,11 +956,9 @@ class SEPAAdminReportGenerator:
             "overall_health_score": health_score,
             "total_mandates": total_mandates,
             "active_mandates": active_mandates,
-            "health_status": "excellent"
-            if health_score >= 90
-            else "good"
-            if health_score >= 70
-            else "needs_attention",
+            "health_status": (
+                "excellent" if health_score >= 90 else "good" if health_score >= 70 else "needs_attention"
+            ),
         }
 
     def _analyze_mandate_usage_patterns(self, mandate_data: List[Dict[str, Any]]) -> Dict[str, Any]:

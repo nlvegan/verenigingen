@@ -474,9 +474,9 @@ class FinancialDashboard:
             if next_settlement:
                 metrics["next_settlement"] = {
                     "id": next_settlement.id,
-                    "expected_amount": float(next_settlement.amount.decimal_value)
-                    if next_settlement.amount
-                    else 0,
+                    "expected_amount": (
+                        float(next_settlement.amount.decimal_value) if next_settlement.amount else 0
+                    ),
                     "status": next_settlement.status,
                     "created_at": next_settlement.created_at,
                     "settled_at": next_settlement.settled_at,
@@ -493,9 +493,9 @@ class FinancialDashboard:
             if open_settlement:
                 metrics["open_settlement"] = {
                     "id": open_settlement.id,
-                    "current_amount": float(open_settlement.amount.decimal_value)
-                    if open_settlement.amount
-                    else 0,
+                    "current_amount": (
+                        float(open_settlement.amount.decimal_value) if open_settlement.amount else 0
+                    ),
                 }
 
             # Convert decimals

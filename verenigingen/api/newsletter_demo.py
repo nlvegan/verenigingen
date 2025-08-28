@@ -6,6 +6,8 @@ Creates sample email groups and demonstrates newsletter functionality
 import frappe
 from frappe import _
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 @frappe.whitelist()
 def setup_email_groups():
@@ -17,15 +19,37 @@ def setup_email_groups():
     if not frappe.db.exists("Email Group", "All Active Members"):
         all_members = frappe.new_doc("Email Group")
         all_members.title = "All Active Members"
-        all_members.save(ignore_permissions=True)
-        groups_created.append("All Active Members")
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=all_members,
+            justification="Create All Active Members email group for newsletter system - communication management",
+            required_permissions=["Email Group:create"],
+        )
+
+        if result.success:
+            groups_created.append("All Active Members")
+        else:
+            frappe.log_error(f"Failed to create All Active Members email group: {'; '.join(result.errors)}")
 
     # 2. Newsletter Subscribers (respects opt-out)
     if not frappe.db.exists("Email Group", "Newsletter Subscribers"):
         newsletter_group = frappe.new_doc("Email Group")
         newsletter_group.title = "Newsletter Subscribers"
-        newsletter_group.save(ignore_permissions=True)
-        groups_created.append("Newsletter Subscribers")
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=newsletter_group,
+            justification="Create Newsletter Subscribers email group for newsletter system - member communications with opt-out compliance",
+            required_permissions=["Email Group:create"],
+        )
+
+        if result.success:
+            groups_created.append("Newsletter Subscribers")
+        else:
+            frappe.log_error(
+                f"Failed to create Newsletter Subscribers email group: {'; '.join(result.errors)}"
+            )
 
     # 3. Chapter-specific groups
     chapters = frappe.get_all("Chapter", filters={"published": 1}, fields=["name"])
@@ -34,22 +58,52 @@ def setup_email_groups():
         if not frappe.db.exists("Email Group", group_name):
             chapter_group = frappe.new_doc("Email Group")
             chapter_group.title = group_name
-            chapter_group.save(ignore_permissions=True)
-            groups_created.append(group_name)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="insert",
+                doc=chapter_group,
+                justification=f"Create {group_name} email group for chapter-specific communications - geographic member organization",
+                required_permissions=["Email Group:create"],
+            )
+
+            if result.success:
+                groups_created.append(group_name)
+            else:
+                frappe.log_error(f"Failed to create {group_name} email group: {'; '.join(result.errors)}")
 
     # 4. Board Members group
     if not frappe.db.exists("Email Group", "Board Members"):
         board_group = frappe.new_doc("Email Group")
         board_group.title = "Board Members"
-        board_group.save(ignore_permissions=True)
-        groups_created.append("Board Members")
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=board_group,
+            justification="Create Board Members email group for governance communications - board administration",
+            required_permissions=["Email Group:create"],
+        )
+
+        if result.success:
+            groups_created.append("Board Members")
+        else:
+            frappe.log_error(f"Failed to create Board Members email group: {'; '.join(result.errors)}")
 
     # 5. Volunteers group
     if not frappe.db.exists("Email Group", "Active Volunteers"):
         volunteer_group = frappe.new_doc("Email Group")
         volunteer_group.title = "Active Volunteers"
-        volunteer_group.save(ignore_permissions=True)
-        groups_created.append("Active Volunteers")
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=volunteer_group,
+            justification="Create Active Volunteers email group for volunteer communications - volunteer coordination",
+            required_permissions=["Email Group:create"],
+        )
+
+        if result.success:
+            groups_created.append("Active Volunteers")
+        else:
+            frappe.log_error(f"Failed to create Active Volunteers email group: {'; '.join(result.errors)}")
 
     frappe.db.commit()
 
@@ -160,8 +214,15 @@ def add_to_email_group(group_name, email, member_name=None):
         member.unsubscribed = 0
         if member_name:
             member.email_group_member_name = member_name
-        member.save(ignore_permissions=True)
-        return True
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=member,
+            justification=f"Add {email} to {group_name} email group - member email list management",
+            required_permissions=["Email Group Member:create"],
+        )
+
+        return result.success
     return False
 
 
@@ -215,14 +276,23 @@ def create_sample_newsletter():
     </p>
 </div>
         """
-        newsletter.insert(ignore_permissions=True)
-        frappe.db.commit()
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=newsletter,
+            justification="Create sample newsletter template for member communications - newsletter system setup",
+            required_permissions=["Newsletter:create"],
+        )
 
-        return {
-            "success": True,
-            "newsletter": newsletter.name,
-            "message": "Sample newsletter created successfully",
-        }
+        if result.success:
+            frappe.db.commit()
+            return {
+                "success": True,
+                "newsletter": newsletter.name,
+                "message": "Sample newsletter created successfully",
+            }
+        else:
+            return {"success": False, "message": f"Failed to create newsletter: {'; '.join(result.errors)}"}
     else:
         return {"success": False, "message": "Sample newsletter already exists"}
 

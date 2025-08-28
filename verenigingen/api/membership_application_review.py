@@ -567,9 +567,11 @@ def approve_membership_application(
         "progress_tracking": {
             "account_request_id": user_creation_result.get("account_request"),
             "estimated_completion": "2-3 minutes" if user_account_status == "queued" else None,
-            "tracking_url": f"/app/account-creation-request/{user_creation_result.get('account_request')}"
-            if user_creation_result.get("account_request")
-            else None,
+            "tracking_url": (
+                f"/app/account-creation-request/{user_creation_result.get('account_request')}"
+                if user_creation_result.get("account_request")
+                else None
+            ),
         },
     }
 
@@ -687,9 +689,9 @@ def create_secure_user_account_for_member(member):
                 "message": "User account creation queued successfully via secure system",
                 "user": None,  # Will be set when background job completes
                 "action": "queued_secure",
-                "account_request": account_request.name
-                if hasattr(account_request, "name")
-                else str(account_request),
+                "account_request": (
+                    account_request.name if hasattr(account_request, "name") else str(account_request)
+                ),
             }
         else:
             return {"success": False, "error": "Failed to queue account creation request"}
@@ -994,7 +996,7 @@ def has_approval_permission(member):
                 for board_member in chapter_doc.board_members:
                     if (
                         board_member.is_active
-                        and board_member.member == user_member
+                        and board_member.volunteer == user_member
                         and board_member.chapter_role
                     ):
                         # Validate role exists and has proper permissions
@@ -1058,7 +1060,7 @@ def send_approval_notification(member, invoice, membership_type):
             <p><strong>Application Details:</strong></p>
             <ul>
                 <li>Application ID: {getattr(member, 'application_id', member.name)}</li>
-                <li>Membership Type: {membership_type.membership_type_name}</li>
+                <li>Membership Type: {membership_type_doc.membership_type_name}</li>
                 <li>Fee Amount: {frappe.format_value(invoice.grand_total, {'fieldtype': 'Currency'})}</li>
             </ul>
 

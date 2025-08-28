@@ -9,6 +9,8 @@ import json
 import frappe
 from frappe.model.document import Document
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 class MollieAuditLog(Document):
     """
@@ -104,9 +106,18 @@ class MollieAuditLog(Document):
             if frappe.local.request:
                 audit_log.ip_address = frappe.local.request.environ.get("REMOTE_ADDR")
 
-            # Save with system permissions
-            audit_log.flags.ignore_permissions = True
-            audit_log.insert()
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="insert",
+                doc=audit_log,
+                justification=f"Create Mollie audit log for action '{action}' with status '{status}' - regulatory compliance and security monitoring",
+                required_permissions=["Mollie Audit Log:create"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to create audit log: {'; '.join(result.errors)}", "Mollie Audit Log Security"
+                )
 
         except Exception as e:
             # Log error but don't fail the main operation

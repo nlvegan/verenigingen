@@ -240,9 +240,11 @@ def generate_periodic_donation_report(from_date=None, to_date=None):
             {date_filter}
             ORDER BY pda.start_date DESC
         """.format(
-                date_filter=f"AND pda.start_date BETWEEN '{from_date}' AND '{to_date}'"
-                if from_date and to_date
-                else ""
+                date_filter=(
+                    f"AND pda.start_date BETWEEN '{from_date}' AND '{to_date}'"
+                    if from_date and to_date
+                    else ""
+                )
             ),
             as_dict=True,
         )

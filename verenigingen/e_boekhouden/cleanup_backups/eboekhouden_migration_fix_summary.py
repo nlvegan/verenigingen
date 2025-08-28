@@ -139,7 +139,9 @@ def verify_migration_ready():
     return {
         "ready": all_required_pass,
         "checks": checks,
-        "summary": "✓ System is ready for E-Boekhouden migration"
-        if all_required_pass
-        else "✗ Some required checks failed",
+        "summary": (
+            "✓ System is ready for E-Boekhouden migration"
+            if all_required_pass
+            else "✗ Some required checks failed"
+        ),
     }

@@ -1,6 +1,7 @@
 """
 Validation utilities for membership applications
 """
+
 import re
 
 import frappe

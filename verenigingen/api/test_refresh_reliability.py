@@ -122,9 +122,9 @@ def comprehensive_refresh_test(member_name="Assoc-Member-2025-07-0030"):
             "fee_refresh_result": fee_result,
             "financial_refresh_result": financial_result,
             "no_document_conflicts": True,
-            "workflow_test": "PASSED"
-            if fee_result.get("success") and financial_result.get("success")
-            else "FAILED",
+            "workflow_test": (
+                "PASSED" if fee_result.get("success") and financial_result.get("success") else "FAILED"
+            ),
         }
 
     except Exception as e:

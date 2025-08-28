@@ -6,6 +6,8 @@ Admin tools for managing dues schedules and preventing orphaned records
 import frappe
 from frappe.utils import now_datetime, today
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 # Import security framework
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.security.audit_logging import log_sensitive_operation
@@ -212,7 +214,7 @@ def cleanup_orphaned_schedules(issue_type, dry_run=True):
                 )
 
                 # Add a comment for audit trail
-                frappe.get_doc(
+                comment_doc = frappe.get_doc(
                     {
                         "doctype": "Comment",
                         "comment_type": "Comment",
@@ -220,7 +222,19 @@ def cleanup_orphaned_schedules(issue_type, dry_run=True):
                         "reference_name": schedule_data["name"],
                         "content": f'Automatically cancelled by schedule maintenance tool. Reason: {action["reason"]}. Original status: {original_status}.',
                     }
-                ).insert(ignore_permissions=True)
+                )
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                result = secure_document_operation(
+                    operation="insert",
+                    doc=comment_doc,
+                    justification=f"Create audit trail comment for schedule {schedule_data['name']} cancellation - administrative compliance tracking",
+                    required_permissions=["Comment:create"],
+                )
+
+                if not result.success:
+                    frappe.log_error(
+                        f"Failed to create audit comment for schedule {schedule_data['name']}: {'; '.join(result.errors)}"
+                    )
 
             cleanup_actions.append(action)
 

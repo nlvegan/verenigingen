@@ -6,6 +6,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, today
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 # Default fallback fee amount in EUR
 DEFAULT_STANDARD_FEE = 15.0
 
@@ -397,7 +399,26 @@ def submit_fee_adjustment_request(new_amount, reason=""):
     )
 
     try:
-        amendment.insert(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=amendment,
+            justification=f"Member {member_name} self-service fee adjustment request from €{current_amount} to €{new_amount} - financial member portal functionality",
+            required_permissions=["Contribution Amendment Request:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                f"Failed to create fee adjustment amendment: {'; '.join(result.errors)}",
+                "Fee Adjustment Security",
+            )
+            return {
+                "success": False,
+                "message": _("Unable to process your request: Permission denied"),
+                "permission_error": True,
+            }
+
+        amendment = result.doc
     except frappe.ValidationError as e:
         # Handle validation errors more gracefully
         error_msg = str(e)
@@ -729,7 +750,26 @@ def submit_membership_type_change_request(new_membership_type, reason=""):
     )
 
     try:
-        amendment.insert(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=amendment,
+            justification=f"Member {member_name} contribution reduction request from €{current_amount} to €{new_amount} - financial hardship member portal functionality",
+            required_permissions=["Contribution Amendment Request:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                f"Failed to create contribution reduction amendment: {'; '.join(result.errors)}",
+                "Contribution Adjustment Security",
+            )
+            return {
+                "success": False,
+                "message": _("Unable to process your request: Permission denied"),
+                "permission_error": True,
+            }
+
+        amendment = result.doc
 
         # Send notification to membership committee
         send_membership_type_change_notification(member_doc, old_type_doc, new_type_doc, reason)

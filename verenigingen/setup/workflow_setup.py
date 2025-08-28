@@ -1,5 +1,7 @@
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 def create_termination_workflow_corrected():
     """Create termination workflow with single roles per state/transition"""
@@ -181,8 +183,21 @@ def create_termination_workflow_corrected():
             },
         )
 
-        # Save the workflow
-        workflow_doc.insert(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=workflow_doc,
+            justification=f"Create {workflow_doc.workflow_name} workflow during system setup - membership termination business process automation",
+            required_permissions=["Workflow:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                f"Failed to create workflow {workflow_doc.workflow_name}: {'; '.join(result.errors)}"
+            )
+            return False
+
+        workflow_doc = result.doc
 
         print(
             f"   ✅ Successfully created workflow with {len(workflow_doc.states)} states and {len(workflow_doc.transitions)} transitions"
@@ -328,7 +343,21 @@ def create_appeals_workflow_corrected():
             },
         )
 
-        workflow_doc.insert(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=workflow_doc,
+            justification=f"Create {workflow_doc.workflow_name} workflow during system setup - appeals process business automation",
+            required_permissions=["Workflow:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                f"Failed to create appeals workflow {workflow_doc.workflow_name}: {'; '.join(result.errors)}"
+            )
+            return False
+
+        workflow_doc = result.doc
 
         print(
             f"   ✅ Successfully created appeals workflow with {len(workflow_doc.states)} states and {len(workflow_doc.transitions)} transitions"
@@ -357,7 +386,19 @@ def create_workflow_state_masters():
         if not frappe.db.exists("Workflow State", state):
             try:
                 state_doc = frappe.get_doc({"doctype": "Workflow State", "workflow_state_name": state})
-                state_doc.insert(ignore_permissions=True)
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                result = secure_document_operation(
+                    operation="insert",
+                    doc=state_doc,
+                    justification=f"Create workflow state {state_doc.state} for business process automation - workflow setup",
+                    required_permissions=["Workflow State:create"],
+                )
+
+                if not result.success:
+                    frappe.log_error(
+                        f"Failed to create workflow state {state_doc.state}: {'; '.join(result.errors)}"
+                    )
+                    continue  # Continue with other states
                 created_count += 1
                 print(f"      ✓ Created workflow state: {state}")
             except Exception as e:
@@ -384,7 +425,19 @@ def create_workflow_action_masters():
                 action_doc = frappe.get_doc(
                     {"doctype": "Workflow Action Master", "workflow_action_name": action}
                 )
-                action_doc.insert(ignore_permissions=True)
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                result = secure_document_operation(
+                    operation="insert",
+                    doc=action_doc,
+                    justification=f"Create workflow action {action_doc.action} for business process automation - workflow setup",
+                    required_permissions=["Workflow Action:create"],
+                )
+
+                if not result.success:
+                    frappe.log_error(
+                        f"Failed to create workflow action {action_doc.action}: {'; '.join(result.errors)}"
+                    )
+                    continue  # Continue with other actions
                 created_count += 1
                 print(f"      ✓ Created workflow action: {action}")
             except Exception as e:

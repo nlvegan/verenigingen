@@ -473,17 +473,19 @@ class MollieConnector:
                 "status": invoice.status,
                 "issued_at": invoice.issued_at,
                 "due_at": invoice.due_at,
-                "lines": [
-                    {
-                        "description": line.description,
-                        "quantity": line.quantity,
-                        "amount": str(line.amount.value),
-                        "vat_rate": line.vat_rate,
-                    }
-                    for line in invoice.lines
-                ]
-                if hasattr(invoice, "lines")
-                else [],
+                "lines": (
+                    [
+                        {
+                            "description": line.description,
+                            "quantity": line.quantity,
+                            "amount": str(line.amount.value),
+                            "vat_rate": line.vat_rate,
+                        }
+                        for line in invoice.lines
+                    ]
+                    if hasattr(invoice, "lines")
+                    else []
+                ),
             }
 
         except MollieError as e:

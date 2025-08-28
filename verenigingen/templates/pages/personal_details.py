@@ -9,6 +9,8 @@ import frappe
 from frappe import _
 from frappe.utils import cint, today
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 def get_context(context):
     """Get context for personal details page"""
@@ -296,7 +298,20 @@ def apply_personal_details_changes(member, changes):
         member.full_name = " ".join(name_parts)
 
     # Save the member document
-    member.save(ignore_permissions=True)
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    result = secure_document_operation(
+        operation="save",
+        doc=member,
+        justification=f"Member {member.name} self-service personal details update via portal - member data management for {frappe.session.user}",
+        required_permissions=["Member:write"],
+    )
+
+    if not result.success:
+        frappe.log_error(
+            f"Failed to update member personal details: {'; '.join(result.errors)}",
+            "Personal Details Security",
+        )
+        frappe.throw(_("Unable to save your changes. Please contact support if this issue persists."))
 
     # Log the changes for audit
     log_personal_details_changes(member.name, changes)

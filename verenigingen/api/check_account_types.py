@@ -55,6 +55,8 @@ Security and Compliance:
 import frappe
 from frappe.utils import flt
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 # Security framework imports
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 
@@ -255,9 +257,19 @@ def fix_account_type_issues(issues):
                 account = frappe.get_doc("Account", issue["account"])
                 account.account_type = issue["suggested_type"]
                 account.root_type = issue["suggested_root"]
-                account.save(ignore_permissions=True)
 
-                fixed_count += 1
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                result = secure_document_operation(
+                    operation="save",
+                    doc=account,
+                    justification=f"Fix account type for {issue['account_name']} from E-Boekhouden migration - financial account structure correction",
+                    required_permissions=["Account:write"],
+                )
+
+                if result.success:
+                    fixed_count += 1
+                else:
+                    errors.append(f"Failed to update {issue['account_name']}: {'; '.join(result.errors)}")
 
             except Exception as e:
                 errors.append(f"Failed to update {issue['account_name']}: {str(e)}")

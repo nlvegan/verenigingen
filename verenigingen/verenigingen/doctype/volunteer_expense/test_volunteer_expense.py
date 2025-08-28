@@ -804,7 +804,7 @@ class TestVolunteerExpense(unittest.TestCase):
                     "amount": 40.00,
                     "currency": "EUR",
                     "organization_type": "Chapter",
-                    "chapter": self.test_chapter.name
+                    "chapter": self.test_chapter.name,
                     # No company specified
                 }
             )

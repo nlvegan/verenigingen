@@ -361,9 +361,9 @@ class AddressFingerprintCollisionHandler:
                 "unique_fingerprints": unique_fingerprints,
                 "collision_rate_percent": round(collision_rate, 2),
                 "collision_groups": fingerprint_stats,
-                "max_members_per_fingerprint": max([g["member_count"] for g in fingerprint_stats])
-                if fingerprint_stats
-                else 0,
+                "max_members_per_fingerprint": (
+                    max([g["member_count"] for g in fingerprint_stats]) if fingerprint_stats else 0
+                ),
             }
 
         except Exception as e:

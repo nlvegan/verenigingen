@@ -3177,7 +3177,8 @@ def debug_gl_entries_analysis(company=None):
 
     # Check for potential eBoekhouden patterns
     eboekhouden_patterns = frappe.db.sql(
-        f"""
+        (
+            f"""
         SELECT company, remarks, voucher_type, COUNT(*) as count
         FROM `tabGL Entry`
         {company_filter}
@@ -3186,22 +3187,24 @@ def debug_gl_entries_analysis(company=None):
         ORDER BY count DESC
         LIMIT 20
         """
-        if company
-        else """
+            if company
+            else """
         SELECT company, remarks, voucher_type, COUNT(*) as count
         FROM `tabGL Entry`
         WHERE (remarks LIKE '%%boekhouden%%' OR remarks LIKE '%%Import%%' OR remarks LIKE '%%Mutation%%')
         GROUP BY company, remarks, voucher_type
         ORDER BY count DESC
         LIMIT 20
-        """,
+        """
+        ),
         params,
         as_dict=True,
     )
 
     # Check voucher_no patterns for numeric patterns (likely eBoekhouden)
     numeric_vouchers = frappe.db.sql(
-        f"""
+        (
+            f"""
         SELECT company, voucher_type, COUNT(*) as count
         FROM `tabGL Entry`
         {company_filter}
@@ -3209,21 +3212,23 @@ def debug_gl_entries_analysis(company=None):
         GROUP BY company, voucher_type
         ORDER BY count DESC
         """
-        if company
-        else """
+            if company
+            else """
         SELECT company, voucher_type, COUNT(*) as count
         FROM `tabGL Entry`
         WHERE voucher_no REGEXP '^[A-Z]+-[A-Z]+-[0-9]+-[0-9]+$'
         GROUP BY company, voucher_type
         ORDER BY count DESC
-        """,
+        """
+        ),
         params,
         as_dict=True,
     )
 
     # Sample voucher numbers to see the pattern
     sample_vouchers = frappe.db.sql(
-        f"""
+        (
+            f"""
         SELECT company, voucher_no, voucher_type, remarks
         FROM `tabGL Entry`
         {company_filter}
@@ -3231,14 +3236,15 @@ def debug_gl_entries_analysis(company=None):
         ORDER BY company, voucher_type
         LIMIT 10
         """
-        if company
-        else """
+            if company
+            else """
         SELECT company, voucher_no, voucher_type, remarks
         FROM `tabGL Entry`
         WHERE voucher_no REGEXP '^[A-Z]+-[A-Z]+-[0-9]+-[0-9]+$'
         ORDER BY company, voucher_type
         LIMIT 10
-        """,
+        """
+        ),
         params,
         as_dict=True,
     )

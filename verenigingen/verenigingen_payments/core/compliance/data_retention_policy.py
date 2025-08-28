@@ -542,9 +542,11 @@ class DataRetentionPolicy:
                     "id": hold_id,
                     "doctype": hold["doctype"],
                     "reason": hold["reason"],
-                    "created_date": hold["created_date"].isoformat()
-                    if isinstance(hold["created_date"], datetime)
-                    else hold["created_date"],
+                    "created_date": (
+                        hold["created_date"].isoformat()
+                        if isinstance(hold["created_date"], datetime)
+                        else hold["created_date"]
+                    ),
                     "expiry_date": hold["expiry_date"].isoformat() if hold.get("expiry_date") else None,
                 }
             )

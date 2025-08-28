@@ -812,11 +812,11 @@ def analyze_api_security_status():
             "success": True,
             "analysis": analysis,
             "summary": {
-                "security_coverage": round(
-                    (analysis["secured_endpoints"] / analysis["total_endpoints"]) * 100, 1
-                )
-                if analysis["total_endpoints"] > 0
-                else 0,
+                "security_coverage": (
+                    round((analysis["secured_endpoints"] / analysis["total_endpoints"]) * 100, 1)
+                    if analysis["total_endpoints"] > 0
+                    else 0
+                ),
                 "high_priority_endpoints": len(
                     [r for r in analysis["recommendations"] if r["suggested_level"] in ["critical", "high"]]
                 ),

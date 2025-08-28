@@ -914,9 +914,9 @@ def reconcile_donation_accounts():
         "total_difference": reconciliation_report["total_donations"]
         - reconciliation_report["total_gl_credits"],
         "discrepancy_count": len(reconciliation_report["discrepancies"]),
-        "reconciliation_status": "Clean"
-        if len(reconciliation_report["discrepancies"]) == 0
-        else "Needs Review",
+        "reconciliation_status": (
+            "Clean" if len(reconciliation_report["discrepancies"]) == 0 else "Needs Review"
+        ),
     }
 
     return reconciliation_report

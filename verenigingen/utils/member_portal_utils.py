@@ -8,6 +8,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 @frappe.whitelist()
 def set_member_home_page(user_email=None, home_page="/member_portal"):
@@ -29,7 +31,18 @@ def set_member_home_page(user_email=None, home_page="/member_portal"):
         # Update user's home page
         user_doc = frappe.get_doc("User", user_email)
         user_doc.home_page = home_page
-        user_doc.save(ignore_permissions=True)
+
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="save",
+            doc=user_doc,
+            justification=f"Set member portal home page for user {user_email} - member portal configuration",
+            required_permissions=["User:write"],
+        )
+
+        if not result.success:
+            frappe.log_error(f"Failed to set home page for {user_email}: {'; '.join(result.errors)}")
+            return {"success": False, "message": f"Failed to set home page: {'; '.join(result.errors)}"}
 
         frappe.logger().info(f"Set home page for {user_email} to {home_page}")
 
@@ -73,8 +86,23 @@ def set_all_members_home_page(home_page="/member_portal"):
                 # Only update if home page is not already set to member portal
                 if user_doc.home_page != home_page:
                     user_doc.home_page = home_page
-                    user_doc.save(ignore_permissions=True)
-                    updated_count += 1
+
+                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                    result = secure_document_operation(
+                        operation="save",
+                        doc=user_doc,
+                        justification=f"Set member portal home page for bulk member {user_doc.email} - member portal bulk setup",
+                        required_permissions=["User:write"],
+                    )
+
+                    if result.success:
+                        updated_count += 1
+                    else:
+                        errors.append(f"Failed to update {user_doc.email}: {'; '.join(result.errors)}")
+                        frappe.log_error(
+                            f"Failed to set home page for {user_doc.email}: {'; '.join(result.errors)}"
+                        )
+                        continue
 
             except Exception as e:
                 errors.append(f"Error updating {user.email}: {str(e)}")
@@ -141,9 +169,9 @@ def get_member_portal_stats():
             "total_member_users": total_members,
             "members_with_portal_home": members_with_portal,
             "members_with_linked_records": linked_members,
-            "portal_adoption_rate": round((members_with_portal / total_members) * 100, 2)
-            if total_members > 0
-            else 0,
+            "portal_adoption_rate": (
+                round((members_with_portal / total_members) * 100, 2) if total_members > 0 else 0
+            ),
         }
 
     except Exception as e:

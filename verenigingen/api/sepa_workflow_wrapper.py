@@ -18,12 +18,6 @@ from verenigingen.api.sepa_duplicate_prevention import (
     generate_idempotency_key,
     release_processing_lock,
 )
-from verenigingen.api.sepa_reconciliation import (
-    correlate_return_transactions,
-    identify_sepa_transactions,
-    process_sepa_return_file,
-    process_sepa_transaction_conservative,
-)
 
 # Import security framework
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
@@ -31,6 +25,12 @@ from verenigingen.utils.security.audit_logging import log_sensitive_operation
 from verenigingen.utils.security.authorization import require_role
 from verenigingen.utils.security.csrf_protection import validate_csrf_token
 from verenigingen.utils.security.rate_limiting import rate_limit
+from verenigingen.verenigingen_payments.api.sepa_reconciliation import (
+    correlate_return_transactions,
+    identify_sepa_transactions,
+    process_sepa_return_file,
+    process_sepa_transaction_conservative,
+)
 
 
 @critical_api(operation_type=OperationType.FINANCIAL)
@@ -170,9 +170,9 @@ def run_comprehensive_sepa_audit() -> dict:
             "status": "warning" if orphaned_payments else "ok",
             "count": len(orphaned_payments),
             "items": orphaned_payments[:10],  # Limit for display
-            "recommendation": "Review and fix orphaned payment entries"
-            if orphaned_payments
-            else "No action needed",
+            "recommendation": (
+                "Review and fix orphaned payment entries" if orphaned_payments else "No action needed"
+            ),
         }
     )
 
@@ -184,9 +184,9 @@ def run_comprehensive_sepa_audit() -> dict:
             "status": "error" if incomplete_reversals else "ok",
             "count": len(incomplete_reversals),
             "items": incomplete_reversals[:10],
-            "recommendation": "Complete failed payment reversals"
-            if incomplete_reversals
-            else "No action needed",
+            "recommendation": (
+                "Complete failed payment reversals" if incomplete_reversals else "No action needed"
+            ),
         }
     )
 
@@ -198,9 +198,11 @@ def run_comprehensive_sepa_audit() -> dict:
             "status": "info" if unprocessed_transactions.get("potential_matches") else "ok",
             "count": len(unprocessed_transactions.get("potential_matches", [])),
             "items": unprocessed_transactions.get("potential_matches", [])[:5],
-            "recommendation": "Process identified SEPA transactions"
-            if unprocessed_transactions.get("potential_matches")
-            else "All transactions processed",
+            "recommendation": (
+                "Process identified SEPA transactions"
+                if unprocessed_transactions.get("potential_matches")
+                else "All transactions processed"
+            ),
         }
     )
 
@@ -212,9 +214,11 @@ def run_comprehensive_sepa_audit() -> dict:
             "status": "warning" if unmatched_returns.get("unmatched_returns") else "ok",
             "count": len(unmatched_returns.get("unmatched_returns", [])),
             "items": unmatched_returns.get("unmatched_returns", [])[:5],
-            "recommendation": "Investigate unmatched return transactions"
-            if unmatched_returns.get("unmatched_returns")
-            else "All returns matched",
+            "recommendation": (
+                "Investigate unmatched return transactions"
+                if unmatched_returns.get("unmatched_returns")
+                else "All returns matched"
+            ),
         }
     )
 

@@ -5,6 +5,8 @@ Chapter Join Page Context Handler
 import frappe
 from frappe import _
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 def get_context(context):
     """Get context for chapter join page"""
@@ -77,7 +79,21 @@ def handle_join_chapter_request(context, chapter, member):
             "members", {"member": member, "chapter_join_date": frappe.utils.today(), "enabled": 1}
         )
 
-        chapter_doc.save(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="save",
+            doc=chapter_doc,
+            justification=f"Add member to chapter {chapter_doc.name} via chapter join portal - chapter membership management",
+            required_permissions=["Chapter:write"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                f"Failed to add member to chapter {chapter_doc.name}: {'; '.join(result.errors)}"
+            )
+            frappe.throw(
+                _("Failed to join chapter: {}").format("; ".join(result.errors)), frappe.ValidationError
+            )
         frappe.db.commit()
 
         # Set success context

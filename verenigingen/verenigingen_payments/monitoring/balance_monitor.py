@@ -13,6 +13,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, get_datetime, now_datetime
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 from ..clients.balances_client import BalancesClient
 from ..clients.settlements_client import SettlementsClient
 from ..core.compliance.audit_trail import AuditEventType, AuditSeverity
@@ -533,7 +535,17 @@ class BalanceMonitor:
             doc.threshold_type = threshold_type
             doc.threshold_value = value
             doc.active = True
-            doc.insert(ignore_permissions=True)
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            threshold_result = secure_document_operation(
+                operation="insert",
+                doc=doc,
+                justification=f"Create custom balance threshold {threshold_type} for balance {balance_id} - financial monitoring configuration",
+                required_permissions=["Balance Threshold:create"],
+            )
+
+            if not threshold_result.success:
+                raise Exception(f"Failed to create threshold: {'; '.join(threshold_result.errors)}")
 
             result["status"] = "success"
 

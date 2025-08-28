@@ -9,6 +9,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
+from verenigingen.utils.secure_operations import secure_document_operation
 
 
 class ChapterMembershipManager:
@@ -240,7 +241,7 @@ class ChapterMembershipManager:
                 return {"success": False, "error": "Failed to join {to_chapter}: {join_result.get('error')}"}
 
             # Log the transfer
-            frappe.get_doc(
+            transfer_comment = frappe.get_doc(
                 {
                     "doctype": "Comment",
                     "comment_type": "Info",
@@ -250,7 +251,21 @@ class ChapterMembershipManager:
                         from_chapter, to_chapter, reason or "Administrative transfer"
                     ),
                 }
-            ).insert(ignore_permissions=True)
+            )
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="insert",
+                doc=transfer_comment,
+                justification=f"Log chapter transfer for member {member_id} from {from_chapter} to {to_chapter} - administrative audit trail for member organization",
+                required_permissions=["Comment:create"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to log chapter transfer comment: {'; '.join(result.errors)}",
+                    "Chapter Transfer Security",
+                )
 
             return {
                 "success": True,

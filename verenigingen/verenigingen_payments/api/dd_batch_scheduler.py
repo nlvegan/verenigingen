@@ -3,7 +3,6 @@ SEPA Direct Debit Batch Scheduler
 Automated scheduling and management of optimized batch creation
 """
 
-
 import frappe
 from frappe import _
 from frappe.utils import add_days, get_weekday, getdate, now_datetime

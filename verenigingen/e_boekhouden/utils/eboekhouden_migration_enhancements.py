@@ -4,8 +4,9 @@ E-Boekhouden Migration Enhancements
 Enhanced migration functions that leverage category and group information
 """
 
-
 import frappe
+
+from verenigingen.utils.secure_operations import secure_document_operation
 
 
 class EnhancedAccountMigration:
@@ -69,7 +70,19 @@ class EnhancedAccountMigration:
             if hasattr(account, "eboekhouden_group"):
                 account.eboekhouden_group = group
 
-            account.insert(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="insert",
+                doc=account,
+                justification=f"Create enhanced E-Boekhouden account {account.name} for migration - Dutch accounting integration",
+                required_permissions=["Account:create"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to create enhanced account {account.name}: {'; '.join(result.errors)}"
+                )
+                return {"status": "error", "reason": "creation failed", "errors": result.errors}
 
             return {"status": "created", "account": account.name, "type": account_type, "group": group}
 
@@ -242,7 +255,20 @@ class EnhancedAccountMigration:
             if hasattr(group_acc, "eboekhouden_group"):
                 group_acc.eboekhouden_group = group
 
-            group_acc.insert(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="insert",
+                doc=group_acc,
+                justification=f"Create enhanced account group {group_acc.name} for E-Boekhouden migration - Dutch accounting structure",
+                required_permissions=["Account:create"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to create enhanced account group {group_acc.name}: {'; '.join(result.errors)}"
+                )
+                # Fall back to standard parent if group creation fails
+                return self._get_standard_parent(root_type)
 
             self.group_mapping[group] = group_acc.name
             return group_acc.name

@@ -107,9 +107,11 @@ def validate_report():
         results["warnings"].append(f"{test_name}: {str(e)} (may be expected if no test data exists)")
 
     return {
-        "status": "success"
-        if results["tests_passed"] == results["tests_run"] and not results["errors"]
-        else "partial",
+        "status": (
+            "success"
+            if results["tests_passed"] == results["tests_run"] and not results["errors"]
+            else "partial"
+        ),
         "details": results,
     }
 

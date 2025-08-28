@@ -239,6 +239,18 @@ repos:
         stages: [manual]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
 
+      # NEW VALIDATION ORCHESTRATOR (Phase 3 Addition)
+      - id: validation-orchestrator
+        name: 🎯 Validation Orchestrator (Field + Select + Import)
+        description: Unified validation using orchestrator (field references, select values, import paths)
+        entry: python scripts/validation/validation_orchestrator.py --parallel --pre-commit --max-files 200 --timeout 90
+        language: system
+        pass_filenames: false
+        files: '\.(py)$'
+        stages: [pre-commit]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*|archived_unused/|archived_deleted/)'
+        verbose: true
+
       # AST Field Analyzer
       - id: ast-field-analyzer
         name: AST-based field reference analyzer

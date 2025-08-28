@@ -352,9 +352,9 @@ class SEPAAuditLog(Document):
         """
         details = {
             "member": member.name if member else None,
-            "member_name": f"{member.get('first_name', '')} {member.get('last_name', '')}"
-            if member
-            else None,
+            "member_name": (
+                f"{member.get('first_name', '')} {member.get('last_name', '')}" if member else None
+            ),
             "iban_masked": iban[:4] + "****" + iban[-4:] if iban and len(iban) > 8 else "****",
             "bic": bic,
             "authorization_method": "online_portal",

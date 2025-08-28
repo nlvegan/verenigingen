@@ -5,6 +5,8 @@ Replaces the complex department hierarchy with simple role-based approvals
 
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 def get_volunteer_expense_approver(volunteer_name):
     """Get expense approver for a volunteer using native ERPNext approach"""
@@ -42,7 +44,21 @@ def update_employee_approver(volunteer_doc=None, method=None):
             if old_approver != approver:
                 employee.expense_approver = approver
                 employee.department = None  # Remove department dependency
-                employee.save(ignore_permissions=True)
+
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                result = secure_document_operation(
+                    operation="save",
+                    doc=employee,
+                    justification=f"Update expense approver for volunteer {volunteer.volunteer_name} employee record - HR management for expense workflow",
+                    required_permissions=["Employee:write"],
+                )
+
+                if not result.success:
+                    frappe.log_error(
+                        f"Failed to update employee expense approver: {'; '.join(result.errors)}",
+                        "Employee Expense Security",
+                    )
+                    return None
                 frappe.logger().info(
                     f"Updated expense approver for {volunteer.volunteer_name}: {old_approver} → {approver}"
                 )
@@ -180,8 +196,22 @@ def fix_expense_approver_issues():
         try:
             user = frappe.get_doc("User", approver_data.expense_approver)
             user.append("roles", {"role": "Expense Approver"})
-            user.save(ignore_permissions=True)
-            fixed_count += 1
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="save",
+                doc=user,
+                justification=f"Add Expense Approver role to user {approver_data.expense_approver} - HR role management for expense workflow setup",
+                required_permissions=["User:write"],
+            )
+
+            if result.success:
+                fixed_count += 1
+            else:
+                frappe.log_error(
+                    f"Failed to add Expense Approver role to user: {'; '.join(result.errors)}",
+                    "User Role Security",
+                )
         except Exception:
             pass
 

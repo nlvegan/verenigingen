@@ -493,9 +493,9 @@ def create_sepa_batch_validated_secure(**params):
             "operation": "batch_creation_attempt",
             "params_count": len(params),
             "has_invoice_list": "invoice_list" in params,
-            "invoice_count": len(params.get("invoice_list", []))
-            if isinstance(params.get("invoice_list"), list)
-            else 0,
+            "invoice_count": (
+                len(params.get("invoice_list", [])) if isinstance(params.get("invoice_list"), list) else 0
+            ),
         },
         severity=AuditSeverity.INFO,
     )
@@ -720,9 +720,9 @@ def validate_batch_invoices_secure(invoice_list):
                 "sepa_invoice_validation_json_error",
                 details={
                     "error": str(e),
-                    "input_preview": str(invoice_list)[:100] + "..."
-                    if len(str(invoice_list)) > 100
-                    else str(invoice_list),
+                    "input_preview": (
+                        str(invoice_list)[:100] + "..." if len(str(invoice_list)) > 100 else str(invoice_list)
+                    ),
                 },
                 severity=AuditSeverity.ERROR,
             )

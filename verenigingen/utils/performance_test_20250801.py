@@ -85,9 +85,9 @@ def test_team_validation_performance():
             team.append(
                 "team_members",
                 {
-                    "volunteer": volunteers[size + 1].name
-                    if size + 1 < len(volunteers)
-                    else volunteers[1].name,
+                    "volunteer": (
+                        volunteers[size + 1].name if size + 1 < len(volunteers) else volunteers[1].name
+                    ),
                     "team_role": "Team Leader",
                     "from_date": frappe.utils.today(),
                     "is_active": 1,

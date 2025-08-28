@@ -74,7 +74,7 @@ def boot_session(bootinfo):
     # Check if we're in test mode
     if frappe.flags.get("in_test"):
         # Enable email mocking for tests
-        from verenigingen.tests.test_config import enable_test_email_mocking
+        from verenigingen.tests.utils.test_config import enable_test_email_mocking
 
         enable_test_email_mocking()
 

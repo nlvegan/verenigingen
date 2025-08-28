@@ -134,7 +134,7 @@ class EBoekhoudenCorrectImporter:
             # Invoice number from supplier
             if mutation.get("invoiceNumber"):
                 pi.bill_no = mutation.get("invoiceNumber")
-                pi.supplier_invoice_no = mutation.get("invoiceNumber")
+                # Note: Using bill_no instead of non-existent supplier_invoice_no field
 
             # Payment terms and due date
             payment_days = mutation.get("Betalingstermijn", 30)
@@ -284,7 +284,7 @@ class EBoekhoudenCorrectImporter:
         customer.customer_name = f"E-Boekhouden {relation_id}"
         customer.customer_group = "All Customer Groups"
         customer.territory = "All Territories"
-        customer.custom_eboekhouden_relation_id = relation_id
+        customer.eboekhouden_relation_code = relation_id
         customer.insert(ignore_permissions=True)
 
         return customer.name
@@ -307,7 +307,7 @@ class EBoekhoudenCorrectImporter:
         supplier = frappe.new_doc("Supplier")
         supplier.supplier_name = f"E-Boekhouden {relation_id}"
         supplier.supplier_group = "All Supplier Groups"
-        supplier.custom_eboekhouden_relation_id = relation_id
+        supplier.eboekhouden_relation_code = relation_id
         supplier.insert(ignore_permissions=True)
 
         return supplier.name

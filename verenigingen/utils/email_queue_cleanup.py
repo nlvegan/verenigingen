@@ -1,5 +1,7 @@
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 @frappe.whitelist()
 def clear_failed_administrator_emails():
@@ -31,11 +33,25 @@ def clear_failed_administrator_emails():
         print(f"  {email.name}")
         print(f"    Status: {email.status}")
 
-        # Delete the failed email queue item
+        # Delete the failed email queue item using secure operations
         try:
-            frappe.delete_doc("Email Queue", email.name, ignore_permissions=True)
-            print(f"    ✓ Deleted {email.name}")
-            result["deleted_count"] += 1
+            email_doc = frappe.get_doc("Email Queue", email.name)
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            operation_result = secure_document_operation(
+                operation="delete",
+                doc=email_doc,
+                justification=f"Clean up failed email queue item {email.name} with Administrator recipient - system maintenance",
+                required_permissions=["Email Queue:delete"],
+            )
+
+            if operation_result.success:
+                print(f"    ✓ Deleted {email.name}")
+                result["deleted_count"] += 1
+            else:
+                error_msg = f"Failed to delete {email.name}: {'; '.join(operation_result.errors)}"
+                print(f"    ❌ {error_msg}")
+                result["errors"].append(error_msg)
         except Exception as e:
             error_msg = f"Failed to delete {email.name}: {e}"
             print(f"    ❌ {error_msg}")

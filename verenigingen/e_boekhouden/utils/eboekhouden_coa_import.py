@@ -7,6 +7,8 @@ import re
 
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 @frappe.whitelist()
 def coa_import_with_bank_accounts(migration_doc_name):
@@ -469,7 +471,19 @@ def get_or_create_bank(bank_info):
             bank.swift_number = "ABNANL2A"
             bank.website = "https://www.abnamro.nl"
 
-        bank.insert(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=bank,
+            justification=f"Create Bank record {bank.bank_name} for E-Boekhouden integration - Dutch banking setup",
+            required_permissions=["Bank:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(f"Failed to create Bank record {bank.bank_name}: {'; '.join(result.errors)}")
+            return None
+
+        bank = result.doc
         frappe.logger().info(f"Created Bank: {bank.name}")
         return bank.name
 
@@ -536,7 +550,21 @@ def create_bank_account_record(account, bank_name, bank_info, company):
             bank_account.party = company
 
         # Save and validate
-        bank_account.insert(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=bank_account,
+            justification=f"Create Bank Account {bank_account.account_name} for E-Boekhouden integration - Dutch banking setup",
+            required_permissions=["Bank Account:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                f"Failed to create Bank Account {bank_account.account_name}: {'; '.join(result.errors)}"
+            )
+            return None
+
+        bank_account = result.doc
 
         # Validate the mapping was successful
         if not bank_account.account:
@@ -897,7 +925,19 @@ def fix_bank_account_mappings(company=None):
                         account_doc = frappe.get_doc("Account", bank_account.account)
                         if account_doc.account_type != "Bank":
                             account_doc.account_type = "Bank"
-                            account_doc.save(ignore_permissions=True)
+                            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                            result = secure_document_operation(
+                                operation="save",
+                                doc=account_doc,
+                                justification=f"Update account {account_doc.name} during E-Boekhouden import process - Dutch accounting integration",
+                                required_permissions=["Account:write"],
+                            )
+
+                            if not result.success:
+                                frappe.log_error(
+                                    f"Failed to update account {account_doc.name}: {'; '.join(result.errors)}"
+                                )
+                                continue  # Continue with other accounts
                             fixed_accounts.append(
                                 {
                                     "bank_account": bank_account_name,
@@ -954,7 +994,20 @@ def cleanup_duplicate_bank_accounts():
         deleted_count = 0
         for account in problem_accounts:
             try:
-                frappe.delete_doc("Bank Account", account.name, ignore_permissions=True)
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                bank_account_doc = frappe.get_doc("Bank Account", account.name)
+                result = secure_document_operation(
+                    operation="delete",
+                    doc=bank_account_doc,
+                    justification=f"Delete orphaned Bank Account {account.name} during E-Boekhouden cleanup - system maintenance",
+                    required_permissions=["Bank Account:delete"],
+                )
+
+                if not result.success:
+                    frappe.log_error(
+                        f"Failed to delete Bank Account {account.name}: {'; '.join(result.errors)}"
+                    )
+                    continue  # Continue with other accounts
                 deleted_count += 1
             except Exception as e:
                 frappe.logger().error(f"Error deleting {account.name}: {str(e)}")

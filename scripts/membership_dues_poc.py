@@ -65,7 +65,7 @@ def find_or_create_test_member():
     member.first_name = "Test"
     member.last_name = "Dues POC"
     member.email = "test-dues-poc@example.com"
-    member.member_type = "Individual"
+    # No member_type field - using current_membership_type for POC
     member.current_membership_type = frappe.db.get_value("Membership Type", 
         {"name": ["like", "%"]}, "name") or "Standard"
     member.insert()

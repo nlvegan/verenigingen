@@ -8,6 +8,7 @@ import frappe
 
 from verenigingen.utils.api_response import APIResponse, api_response_handler
 from verenigingen.utils.error_handling import cache_with_ttl
+from verenigingen.utils.secure_operations import secure_document_operation
 
 
 def format_address_for_country(address_doc):
@@ -157,12 +158,28 @@ def format_address_single_line(address_doc):
 @cache_with_ttl(ttl=1800)  # Cache for 30 minutes - addresses don't change frequently
 def format_member_address(member_name):
     """Format a member's primary address using appropriate country conventions"""
-    member = frappe.get_doc("Member", member_name, ignore_permissions=True)
+    # CORRECTED SECURE VERSION: Check Member read permissions explicitly
+    if not frappe.has_permission("Member", "read", member_name):
+        return {
+            "has_address": False,
+            "formatted_address": None,
+            "message": "Access denied to member information",
+        }
+
+    member = frappe.get_doc("Member", member_name)
 
     if not member.primary_address:
         return {"has_address": False, "formatted_address": None, "message": "No address found for member"}
 
-    address = frappe.get_doc("Address", member.primary_address, ignore_permissions=True)
+    # CORRECTED SECURE VERSION: Check Address read permissions explicitly
+    if not frappe.has_permission("Address", "read", member.primary_address):
+        return {
+            "has_address": False,
+            "formatted_address": None,
+            "message": "Access denied to address information",
+        }
+
+    address = frappe.get_doc("Address", member.primary_address)
     formatted = format_address_for_country(address)
 
     return {
@@ -177,8 +194,12 @@ def format_member_address(member_name):
 def test_address_formatting():
     """Test the address formatting with sample data"""
     try:
-        # Get Foppe's address
-        address_doc = frappe.get_doc("Address", "Foppe Haan-Personal", ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Check Address read permissions explicitly
+        if not frappe.has_permission("Address", "read", "Foppe Haan-Personal"):
+            return {"error": "Access denied to test address - insufficient permissions"}
+
+        # Get test address
+        address_doc = frappe.get_doc("Address", "Foppe Haan-Personal")
 
         dutch_format = format_dutch_address(address_doc)
         international_format = format_international_address(address_doc)

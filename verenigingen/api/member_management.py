@@ -1,6 +1,7 @@
 """
 Member management API endpoints with optimized performance and error handling
 """
+
 import frappe
 
 from verenigingen.utils.error_handling import (
@@ -715,9 +716,9 @@ def debug_mt940_import_improved(file_content, bank_account=None):
                 debug_info["first_statement"] = {
                     "has_data": hasattr(first_statement, "data"),
                     "has_transactions": hasattr(first_statement, "transactions"),
-                    "transaction_count": len(first_statement.transactions)
-                    if hasattr(first_statement, "transactions")
-                    else 0,
+                    "transaction_count": (
+                        len(first_statement.transactions) if hasattr(first_statement, "transactions") else 0
+                    ),
                 }
 
                 if hasattr(first_statement, "transactions") and first_statement.transactions:
@@ -730,9 +731,9 @@ def debug_mt940_import_improved(file_content, bank_account=None):
                         "has_data": hasattr(first_transaction, "data"),
                         "date_str": str(getattr(first_transaction, "date", "None")),
                         "amount_str": str(getattr(first_transaction, "amount", "None")),
-                        "data_keys": list(first_transaction.data.keys())
-                        if hasattr(first_transaction, "data")
-                        else [],
+                        "data_keys": (
+                            list(first_transaction.data.keys()) if hasattr(first_transaction, "data") else []
+                        ),
                     }
 
                     # Try to get data values safely
@@ -810,27 +811,29 @@ def debug_mt940_import(file_content, bank_account=None):
                 debug_info["first_statement"] = {
                     "has_data": hasattr(first_statement, "data"),
                     "has_transactions": hasattr(first_statement, "transactions"),
-                    "data_keys": list(first_statement.data.keys())
-                    if hasattr(first_statement, "data")
-                    else [],
-                    "transaction_count": len(first_statement.transactions)
-                    if hasattr(first_statement, "transactions")
-                    else 0,
+                    "data_keys": (
+                        list(first_statement.data.keys()) if hasattr(first_statement, "data") else []
+                    ),
+                    "transaction_count": (
+                        len(first_statement.transactions) if hasattr(first_statement, "transactions") else 0
+                    ),
                 }
 
                 if hasattr(first_statement, "transactions") and first_statement.transactions:
                     first_transaction = first_statement.transactions[0]
                     debug_info["first_transaction"] = {
-                        "date": str(first_transaction.date)
-                        if hasattr(first_transaction, "date")
-                        else "No date",
-                        "amount": str(first_transaction.amount)
-                        if hasattr(first_transaction, "amount")
-                        else "No amount",
+                        "date": (
+                            str(first_transaction.date) if hasattr(first_transaction, "date") else "No date"
+                        ),
+                        "amount": (
+                            str(first_transaction.amount)
+                            if hasattr(first_transaction, "amount")
+                            else "No amount"
+                        ),
                         "has_data": hasattr(first_transaction, "data"),
-                        "data_keys": list(first_transaction.data.keys())
-                        if hasattr(first_transaction, "data")
-                        else [],
+                        "data_keys": (
+                            list(first_transaction.data.keys()) if hasattr(first_transaction, "data") else []
+                        ),
                     }
 
         except Exception as e:
@@ -933,14 +936,16 @@ def debug_duplicate_detection(file_content_b64, bank_account, company=None):
         for statement in statements:
             # Debug the statement structure first
             debug_info["statement_structure"] = {
-                "statement_data_keys": list(statement.data.keys())
-                if hasattr(statement, "data")
-                else "No data attribute",
+                "statement_data_keys": (
+                    list(statement.data.keys()) if hasattr(statement, "data") else "No data attribute"
+                ),
                 "statement_attributes": [attr for attr in dir(statement) if not attr.startswith("_")],
                 "has_transactions_attr": hasattr(statement, "transactions"),
-                "transactions_type": str(type(statement.transactions))
-                if hasattr(statement, "transactions")
-                else "No transactions attr",
+                "transactions_type": (
+                    str(type(statement.transactions))
+                    if hasattr(statement, "transactions")
+                    else "No transactions attr"
+                ),
             }
 
             # Use same transaction access pattern as working import

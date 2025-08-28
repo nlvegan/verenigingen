@@ -114,9 +114,9 @@ def test_incremental_update_comprehensive():
                             "success": True,
                             "execution_time_ms": execution_time,
                             "performance_acceptable": execution_time < 100,
-                            "lightweight_entry_structure": list(lightweight_entry.keys())
-                            if lightweight_entry
-                            else [],
+                            "lightweight_entry_structure": (
+                                list(lightweight_entry.keys()) if lightweight_entry else []
+                            ),
                         }
                     else:
                         test_results["performance_test"] = {

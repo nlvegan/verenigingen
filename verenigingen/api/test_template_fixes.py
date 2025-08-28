@@ -143,10 +143,12 @@ def comprehensive_template_validation():
     overall_results = {
         "pattern_validation": pattern_results,
         "translation_test": translation_results,
-        "overall_status": "success"
-        if pattern_results["validation_status"] == "success"
-        and translation_results["test_status"] == "success"
-        else "issues_found",
+        "overall_status": (
+            "success"
+            if pattern_results["validation_status"] == "success"
+            and translation_results["test_status"] == "success"
+            else "issues_found"
+        ),
     }
 
     if pattern_results["problematic_patterns"]:

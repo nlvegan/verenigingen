@@ -345,9 +345,11 @@ class ChargebacksClient(MollieBaseClient):
                 {
                     "reason": reason,
                     "count": data["count"],
-                    "percentage": (data["count"] / analysis["total_chargebacks"] * 100)
-                    if analysis["total_chargebacks"] > 0
-                    else 0,
+                    "percentage": (
+                        (data["count"] / analysis["total_chargebacks"] * 100)
+                        if analysis["total_chargebacks"] > 0
+                        else 0
+                    ),
                 }
             )
 

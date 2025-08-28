@@ -772,9 +772,9 @@ Organization
             "invoices",
             {
                 "invoice": invoice_data["name"],
-                "membership": invoice_data.get("membership", {}).get("name")
-                if invoice_data.get("membership")
-                else None,
+                "membership": (
+                    invoice_data.get("membership", {}).get("name") if invoice_data.get("membership") else None
+                ),
                 "member": member_data["name"],
                 "member_name": member_data["full_name"],
                 "amount": invoice_data["grand_total"],

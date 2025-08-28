@@ -436,9 +436,11 @@ def reset_performance_config(environment: Optional[str] = None) -> Dict[str, Any
 
         return {
             "success": success,
-            "message": f"Configuration reset to defaults for {environment or 'current'}"
-            if success
-            else "Reset failed",
+            "message": (
+                f"Configuration reset to defaults for {environment or 'current'}"
+                if success
+                else "Reset failed"
+            ),
             "timestamp": now(),
         }
     except Exception as e:

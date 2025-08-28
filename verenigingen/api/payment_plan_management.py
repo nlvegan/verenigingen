@@ -49,7 +49,7 @@ def request_payment_plan(
         payment_plan.number_of_installments = installments
         payment_plan.frequency = frequency
         payment_plan.start_date = today()
-        payment_plan.status = "Pending Approval"
+        payment_plan.status = "Draft"  # Will be submitted after approval
         payment_plan.approval_required = 1
         payment_plan.reason = reason or "Member requested payment plan via portal"
 
@@ -254,7 +254,7 @@ def approve_payment_plan_request(payment_plan_id, approval_notes=None):
         # Approve the plan
         payment_plan.approved_by = frappe.session.user
         payment_plan.approval_date = frappe.utils.now()
-        payment_plan.status = "Active"
+        payment_plan.status = "Submitted"  # Approved plans are submitted
 
         if approval_notes:
             payment_plan.add_comment(text=f"Approved: {approval_notes}")

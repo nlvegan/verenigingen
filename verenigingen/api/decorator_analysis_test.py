@@ -69,9 +69,9 @@ def analyze_decorator_types():
             "type": type(performance_monitor).__name__,
             "callable": callable(performance_monitor),
             "is_function": inspect.isfunction(performance_monitor),
-            "signature": str(inspect.signature(performance_monitor))
-            if callable(performance_monitor)
-            else None,
+            "signature": (
+                str(inspect.signature(performance_monitor)) if callable(performance_monitor) else None
+            ),
             "pattern": "decorator_factory",  # Returns a decorator
         }
 

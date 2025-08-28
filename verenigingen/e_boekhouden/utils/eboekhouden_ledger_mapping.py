@@ -3,7 +3,6 @@ E-Boekhouden Ledger ID to Account Code Mapping
 Maps internal E-Boekhouden ledger IDs to actual account codes
 """
 
-
 import frappe
 import requests
 

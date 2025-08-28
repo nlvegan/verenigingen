@@ -237,9 +237,9 @@ def get_volunteer_expenses(volunteer_name, limit=None):
                         "expense_date": stored_expense.posting_date,
                         "status": stored_expense.status,
                         "creation": stored_expense.posting_date,  # Use posting date as creation proxy
-                        "approved_on": stored_expense.payment_date
-                        if stored_expense.payment_status == "Paid"
-                        else None,
+                        "approved_on": (
+                            stored_expense.payment_date if stored_expense.payment_status == "Paid" else None
+                        ),
                         "organization_type": organization_info["type"],
                         "organization_name": organization_info["name"],
                         "category": category,
@@ -575,20 +575,26 @@ def upload_expense_receipt():
         debug_info = {
             "request_exists": hasattr(frappe, "request"),
             "files_attr": hasattr(frappe.request, "files") if hasattr(frappe, "request") else False,
-            "files_content": dict(frappe.request.files)
-            if hasattr(frappe, "request") and hasattr(frappe.request, "files")
-            else {},
-            "files_keys": list(frappe.request.files.keys())
-            if hasattr(frappe, "request") and hasattr(frappe.request, "files")
-            else [],
+            "files_content": (
+                dict(frappe.request.files)
+                if hasattr(frappe, "request") and hasattr(frappe.request, "files")
+                else {}
+            ),
+            "files_keys": (
+                list(frappe.request.files.keys())
+                if hasattr(frappe, "request") and hasattr(frappe.request, "files")
+                else []
+            ),
             "form_dict": dict(frappe.form_dict) if hasattr(frappe, "form_dict") else {},
             "form_dict_keys": list(frappe.form_dict.keys()) if hasattr(frappe, "form_dict") else [],
             "local_files": getattr(frappe.local, "uploaded_files", None),
             "request_method": frappe.request.method if hasattr(frappe, "request") else None,
             "request_content_type": frappe.request.content_type if hasattr(frappe, "request") else None,
-            "request_data": len(frappe.request.data)
-            if hasattr(frappe, "request") and hasattr(frappe.request, "data")
-            else 0,
+            "request_data": (
+                len(frappe.request.data)
+                if hasattr(frappe, "request") and hasattr(frappe.request, "data")
+                else 0
+            ),
         }
 
         # Try multiple methods to access uploaded files
@@ -1093,9 +1099,9 @@ def get_expense_details(expense_name):
                         "status": map_erpnext_status_to_volunteer_status(
                             expense_claim.status, expense_claim.approval_status
                         ),
-                        "organization_type": volunteer_expense.organization_type
-                        if volunteer_expense
-                        else "Unknown",
+                        "organization_type": (
+                            volunteer_expense.organization_type if volunteer_expense else "Unknown"
+                        ),
                         "chapter": volunteer_expense.chapter if volunteer_expense else None,
                         "team": volunteer_expense.team if volunteer_expense else None,
                         "category": volunteer_expense.category if volunteer_expense else detail.expense_type,

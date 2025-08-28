@@ -203,7 +203,9 @@ def validate_security_configuration():
     return {
         "configuration_complete": len(issues_found) == 0,
         "issues_remaining": issues_found,
-        "next_steps": "Address remaining issues and re-run validation"
-        if issues_found
-        else "Security configuration validated successfully",
+        "next_steps": (
+            "Address remaining issues and re-run validation"
+            if issues_found
+            else "Security configuration validated successfully"
+        ),
     }

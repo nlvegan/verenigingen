@@ -699,9 +699,9 @@ class PeriodicDonationAgreement(Document):
             "valid": len(errors) == 0,
             "errors": errors,
             "warnings": warnings,
-            "message": "ANBI validation passed"
-            if len(errors) == 0
-            else f"{len(errors)} validation errors found",
+            "message": (
+                "ANBI validation passed" if len(errors) == 0 else f"{len(errors)} validation errors found"
+            ),
         }
 
     def update_anbi_eligibility(self):

@@ -1,5 +1,7 @@
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 @frappe.whitelist()
 def fix_workspace_links(force_enable=False):
@@ -84,9 +86,22 @@ def fix_workspace_links(force_enable=False):
         )
         workspace.content = new_content
 
-    workspace.flags.ignore_permissions = True
-    workspace.flags.ignore_validate = True
-    workspace.save()
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    result = secure_document_operation(
+        operation="save",
+        doc=workspace,
+        justification="Fix broken workspace links and add Communication section - workspace configuration management",
+        required_permissions=["Workspace:write"],
+    )
+
+    if not result.success:
+        frappe.log_error(f"Failed to fix workspace links: {'; '.join(result.errors)}")
+        return {
+            "success": False,
+            "message": f"Failed to fix workspace links: {'; '.join(result.errors)}",
+            "removed_links": removed_links,
+        }
+
     frappe.db.commit()
     frappe.clear_cache()
 

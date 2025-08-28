@@ -23,6 +23,8 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from frappe import _
 from frappe.utils import get_datetime, now_datetime
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 class MollieSecurityManager:
     """
@@ -327,18 +329,27 @@ class MollieSecurityManager:
                     "details": json.dumps(details) if details else None,
                     "user": frappe.session.user,
                     "timestamp": frappe.utils.now(),
-                    "ip_address": frappe.local.request.environ.get("REMOTE_ADDR")
-                    if frappe.local.request
-                    else None,
+                    "ip_address": (
+                        frappe.local.request.environ.get("REMOTE_ADDR") if frappe.local.request else None
+                    ),
                 }
             )
 
             # Calculate integrity hash for immutability
             audit_log.integrity_hash = self._calculate_integrity_hash(audit_log)
 
-            # Insert with system permissions
-            audit_log.flags.ignore_permissions = True
-            audit_log.insert()
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="insert",
+                doc=audit_log,
+                justification=f"Create Mollie security audit log for {action} with status {status} - critical financial security audit trail",
+                required_permissions=["Mollie Audit Log:create"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to create Mollie audit log: {'; '.join(result.errors)}", "Mollie Security Audit"
+                )
 
         except Exception as e:
             # Log error but don't fail the main operation

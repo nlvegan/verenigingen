@@ -8,6 +8,8 @@ Scheduled task to auto-create missing dues schedules for members with assigned m
 import frappe
 from frappe.utils import add_days, add_months, add_years, getdate, today
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 def _calculate_next_invoice_date(billing_frequency):
     """Calculate next invoice date based on billing frequency"""
@@ -322,7 +324,19 @@ def _create_max_retry_alert(member_name, retry_data):
         for admin in admin_users:
             admin_notification = notification.copy()
             admin_notification.for_user = admin
-            admin_notification.insert(ignore_permissions=True)
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="insert",
+                doc=admin_notification,
+                justification=f"Create max retry alert notification for member {member_name} after {retry_data.get('retry_count', 0)} failed attempts - administrative alerting for manual intervention",
+                required_permissions=["Notification Log:create"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to create max retry alert for {member_name}: {'; '.join(result.errors)}"
+                )
 
     except Exception as e:
         frappe.logger().error(f"Failed to create max retry alert for {member_name}: {str(e)}")
@@ -686,7 +700,20 @@ def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=
             dues_schedule.next_invoice_date = _calculate_next_invoice_date(billing_frequency)
             dues_schedule.notes = f"Auto-created via manual trigger on {today()}"
 
-            dues_schedule.insert(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            operation_result = secure_document_operation(
+                operation="insert",
+                doc=dues_schedule,
+                justification=f"Auto-create missing dues schedule for member {member.member_name} with membership type {member.membership_type} - automated billing continuity",
+                required_permissions=["Membership Dues Schedule:create"],
+            )
+
+            if not operation_result.success:
+                result["errors"].append(
+                    f"Failed to create dues schedule for {member.member_name}: {'; '.join(operation_result.errors)}"
+                )
+                result["error_count"] += 1
+                continue
 
             result["created_schedules"].append(
                 {
@@ -987,7 +1014,20 @@ def create_dues_schedules_for_members(members, send_emails=False):
                 }
             )
 
-            dues_schedule.insert(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            operation_result = secure_document_operation(
+                operation="insert",
+                doc=dues_schedule,
+                justification=f"Create dues schedule for member {member_name} with membership type {membership.membership_type} - selective member billing setup",
+                required_permissions=["Membership Dues Schedule:create"],
+            )
+
+            if not operation_result.success:
+                result["errors"].append(
+                    f"Failed to create dues schedule for {member_name}: {'; '.join(operation_result.errors)}"
+                )
+                result["error_count"] += 1
+                continue
 
             member_doc = frappe.get_doc("Member", member_name)
             result["created_schedules"].append(

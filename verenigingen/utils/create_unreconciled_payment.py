@@ -20,14 +20,18 @@ def create_unreconciled_payment_entry(mutation, company, cost_center, payment_ty
         dict with success status and created Payment Entry name or error
     """
     try:
-        from .eboekhouden_payment_naming import enhance_payment_entry_fields, get_payment_entry_title
-        from .eboekhouden_soap_migration import (
-            get_bank_account,
-            get_or_create_customer,
-            get_or_create_supplier,
-            parse_date,
+        from verenigingen.e_boekhouden.utils.eboekhouden_payment_naming import (
+            enhance_payment_entry_fields,
+            get_payment_entry_title,
         )
 
+        # TODO: Fix deprecated import - this module may no longer exist or has been moved
+        # from .eboekhouden_soap_migration import (
+        #     get_bank_account,
+        #     get_or_create_customer,
+        #     get_or_create_supplier,
+        #     parse_date,
+        # )
         # Check if payment already exists for this mutation
         mutation_nr = mutation.get("MutatieNr")
         if mutation_nr:
@@ -222,7 +226,10 @@ def create_unreconciled_payment_entry(mutation, company, cost_center, payment_ty
         pe.reference_date = pe.posting_date
 
         # Import naming functions and set enhanced title
-        from .eboekhouden_payment_naming import enhance_payment_entry_fields, get_payment_entry_title
+        from verenigingen.e_boekhouden.utils.eboekhouden_payment_naming import (
+            enhance_payment_entry_fields,
+            get_payment_entry_title,
+        )
 
         pe.title = get_payment_entry_title(mutation, pe.party, pe.payment_type)
 

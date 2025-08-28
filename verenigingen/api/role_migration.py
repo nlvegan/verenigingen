@@ -7,6 +7,8 @@ API endpoint to consolidate Chapter Manager role into Chapter Board Member role
 
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 @frappe.whitelist()
 def consolidate_chapter_roles():
@@ -61,9 +63,18 @@ def consolidate_chapter_roles():
                 user_doc.roles.remove(role)
                 print(f"  🗑️  Removed Chapter Manager role from {user_name}")
 
-            # Save changes
-            user_doc.save(ignore_permissions=True)
-            migrated_users += 1
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="save",
+                doc=user_doc,
+                justification=f"Remove Chapter Manager role from user {user_name} during role consolidation migration - governance restructuring",
+                required_permissions=["User:write"],
+            )
+
+            if result.success:
+                migrated_users += 1
+            else:
+                print(f"  ❌ Failed to save user {user_name}: {'; '.join(result.errors)}")
 
         except Exception as e:
             print(f"  ❌ Error migrating user {user_name}: {e}")
@@ -103,7 +114,16 @@ def consolidate_chapter_roles():
                 removed_perms += 1
 
             if perms_to_remove:
-                doctype_doc.save(ignore_permissions=True)
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                result = secure_document_operation(
+                    operation="save",
+                    doc=doctype_doc,
+                    justification=f"Remove Chapter Manager permissions from {doctype_name} during role consolidation - DocType permission restructuring",
+                    required_permissions=["DocType:write"],
+                )
+
+                if not result.success:
+                    print(f"  ❌ Failed to save DocType {doctype_name}: {'; '.join(result.errors)}")
 
         except Exception as e:
             print(f"  ❌ Error removing permission from {perm_data.doctype}: {e}")
@@ -129,9 +149,19 @@ def consolidate_chapter_roles():
                 for role in roles_to_remove:
                     profile_doc.roles.remove(role)
 
-                profile_doc.save(ignore_permissions=True)
-                cleaned_profiles += 1
-                print(f"  🗑️  Cleaned Chapter Manager from role profile: {profile_data.name}")
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                result = secure_document_operation(
+                    operation="save",
+                    doc=profile_doc,
+                    justification=f"Remove Chapter Manager role from role profile {profile_data.name} during consolidation - role profile cleanup",
+                    required_permissions=["Role Profile:write"],
+                )
+
+                if result.success:
+                    cleaned_profiles += 1
+                    print(f"  🗑️  Cleaned Chapter Manager from role profile: {profile_data.name}")
+                else:
+                    print(f"  ❌ Failed to clean role profile {profile_data.name}: {'; '.join(result.errors)}")
 
         except Exception as e:
             print(f"  ❌ Error cleaning role profile {profile_data.name}: {e}")

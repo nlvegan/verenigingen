@@ -30,7 +30,18 @@ def get_context(context):
             try:
                 context.member = frappe.get_doc("Member", member_name)
             except frappe.PermissionError:
-                context.member = frappe.get_doc("Member", member_name, ignore_permissions=True)
+                # CORRECTED SECURE VERSION: Verify member ownership and use proper permissions
+                member_data = frappe.db.get_value("Member", member_name, ["user", "email"], as_dict=True)
+                if not member_data or (
+                    member_data.user != frappe.session.user and member_data.email != frappe.session.user
+                ):
+                    frappe.throw(
+                        _("Access denied: You can only access your own member record"), frappe.PermissionError
+                    )
+
+                context.member = frappe.get_doc("Member", member_name)
+                if not frappe.has_permission("Member", "read", context.member):
+                    frappe.throw(_("Access denied to member record"), frappe.PermissionError)
         else:
             context.member = None
             context.error_message = _("No member record found for your account")

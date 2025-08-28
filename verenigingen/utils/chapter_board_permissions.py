@@ -16,6 +16,8 @@ Key Features:
 
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 def update_membership_permissions():
     """
@@ -57,7 +59,18 @@ def update_membership_permissions():
         }
 
         membership_doctype.append("permissions", new_perm)
-        membership_doctype.save(ignore_permissions=True)
+
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="save",
+            doc=membership_doctype,
+            justification="Update Membership DocType permissions to grant Chapter Board Member access - governance permission management",
+            required_permissions=["DocType:write"],
+        )
+
+        if not result.success:
+            frappe.log_error(f"Failed to update Membership DocType permissions: {'; '.join(result.errors)}")
+            return False
 
         frappe.logger().info("Added Chapter Board Member permissions to Membership DocType")
         return True
@@ -97,7 +110,18 @@ def update_membership_termination_request_permissions():
             perm_doc.amend = 0
             perm_doc.submit = 0  # Workflow-controlled
             perm_doc.import_doc = 0
-            perm_doc.save(ignore_permissions=True)
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="save",
+                doc=perm_doc,
+                justification="Update existing Chapter Board Member permissions for Membership Termination Request - governance permission management",
+                required_permissions=["DocPerm:write"],
+            )
+
+            if not result.success:
+                frappe.log_error(f"Failed to update existing DocPerm: {'; '.join(result.errors)}")
+                return False
 
             frappe.logger().info(
                 "Updated existing Chapter Board Member permissions for Membership Termination Request"
@@ -127,7 +151,20 @@ def update_membership_termination_request_permissions():
             }
 
             doctype_doc.append("permissions", new_perm)
-            doctype_doc.save(ignore_permissions=True)
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="save",
+                doc=doctype_doc,
+                justification="Add new Chapter Board Member permissions to Membership Termination Request DocType - governance permission setup",
+                required_permissions=["DocType:write"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to update Membership Termination Request DocType: {'; '.join(result.errors)}"
+                )
+                return False
 
             frappe.logger().info(
                 "Added new Chapter Board Member permissions for Membership Termination Request"
@@ -170,7 +207,18 @@ def update_volunteer_expense_permissions():
             perm_doc.cancel = 0
             perm_doc.amend = 0
             perm_doc.submit = 0  # Approval workflow controlled
-            perm_doc.save(ignore_permissions=True)
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="save",
+                doc=perm_doc,
+                justification="Update Chapter Board Member permissions for Volunteer Expense - remove owner restrictions for chapter-wide access",
+                required_permissions=["DocPerm:write"],
+            )
+
+            if not result.success:
+                frappe.log_error(f"Failed to update Volunteer Expense DocPerm: {'; '.join(result.errors)}")
+                return False
 
             frappe.logger().info(
                 "Updated Chapter Board Member permissions for Volunteer Expense (removed owner restriction)"
@@ -205,7 +253,20 @@ def update_volunteer_expense_permissions():
                     "import": 0,
                 }
             )
-            perm_doc.insert(ignore_permissions=True)
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="insert",
+                doc=perm_doc,
+                justification="Create new Chapter Board Member permissions for Volunteer Expense DocType - governance permission setup",
+                required_permissions=["DocPerm:create"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to create new Volunteer Expense DocPerm: {'; '.join(result.errors)}"
+                )
+                return False
 
             frappe.logger().info("Added Chapter Board Member permissions for Volunteer Expense")
 
@@ -306,9 +367,11 @@ def setup_chapter_board_permissions():
             "results": results,
             "security_valid": security_valid,
             "security_issues": security_issues,
-            "message": "Chapter Board Member permissions updated successfully"
-            if all(results.values()) and security_valid
-            else "Some permission updates failed or security issues found",
+            "message": (
+                "Chapter Board Member permissions updated successfully"
+                if all(results.values()) and security_valid
+                else "Some permission updates failed or security issues found"
+            ),
         }
 
         frappe.logger().info(f"Chapter Board Member permission setup completed: {result}")
@@ -341,7 +404,17 @@ def reset_chapter_board_permissions():
             )
 
             for perm in existing_perms:
-                frappe.delete_doc("DocPerm", perm.name, ignore_permissions=True)
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                perm_doc = frappe.get_doc("DocPerm", perm.name)
+                result = secure_document_operation(
+                    operation="delete",
+                    doc=perm_doc,
+                    justification=f"Reset Chapter Board Member permissions for {doctype_name} - permission reconfiguration",
+                    required_permissions=["DocPerm:delete"],
+                )
+
+                if not result.success:
+                    frappe.log_error(f"Failed to delete DocPerm {perm.name}: {'; '.join(result.errors)}")
 
             frappe.logger().info(f"Reset Chapter Board Member permissions for {doctype_name}")
 

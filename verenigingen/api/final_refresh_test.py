@@ -2,6 +2,7 @@
 
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -43,7 +44,19 @@ def clean_and_test_refresh(member_name="Assoc-Member-2025-07-0030"):
 
             # Update with cleaned history
             member.payment_history = cleaned_history
-            member.save(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="save",
+                doc=member,
+                justification=f"Clean invalid payment history entries for member {member_name} - data integrity maintenance",
+                required_permissions=["Member:write"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to save member {member_name} with cleaned history: {'; '.join(result.errors)}"
+                )
+                return {"error": f"Failed to update member: {'; '.join(result.errors)}"}
 
             # Now test the refresh
             refresh_result = member.refresh_financial_history()
@@ -87,9 +100,9 @@ def final_button_test(member_name="Assoc-Member-2025-07-0030"):
             "member_name": member_name,
             "fee_refresh_result": fee_result,
             "financial_refresh_result": financial_result,
-            "complete_workflow_test": "PASSED"
-            if fee_result.get("success") and financial_result.get("success")
-            else "FAILED",
+            "complete_workflow_test": (
+                "PASSED" if fee_result.get("success") and financial_result.get("success") else "FAILED"
+            ),
             "atomic_updates_confirmed": financial_result.get("method") == "atomic_updates_only",
             "no_document_conflicts": True,
         }

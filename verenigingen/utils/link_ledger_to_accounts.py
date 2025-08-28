@@ -128,9 +128,9 @@ def check_mapping_status():
             "total_mappings": total_mappings,
             "linked_mappings": linked_mappings,
             "unlinked_mappings": total_mappings - linked_mappings,
-            "link_percentage": round((linked_mappings / total_mappings * 100), 2)
-            if total_mappings > 0
-            else 0,
+            "link_percentage": (
+                round((linked_mappings / total_mappings * 100), 2) if total_mappings > 0 else 0
+            ),
             "unlinked_samples": unlinked_samples,
             "problem_ledgers": problem_status,
         }

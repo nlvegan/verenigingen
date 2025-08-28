@@ -2,6 +2,7 @@
 Workflow Demo Page
 Demonstrates the membership application workflow in action
 """
+
 import frappe
 from frappe import _
 

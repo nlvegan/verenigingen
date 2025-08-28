@@ -36,6 +36,7 @@ class ContributionAmendmentRequest(Document):
                 f"Effective date validation - effective_date: {effective_date_parsed}, today: {today_date}, is_past: {effective_date_parsed < today_date}"
             )
 
+            # Allow today's date - only reject dates that are actually in the past
             if effective_date_parsed < today_date:
                 frappe.throw(
                     _("Effective date cannot be in the past. Date provided: {0}, Today: {1}").format(
@@ -1683,9 +1684,11 @@ def validate_billing_consistency():
             "total_checked": len(membership_types),
             "inconsistencies_found": len(inconsistencies),
             "inconsistencies": inconsistencies,
-            "status": "All billing configurations are consistent"
-            if len(inconsistencies) == 0
-            else f"Found {len(inconsistencies)} inconsistencies",
+            "status": (
+                "All billing configurations are consistent"
+                if len(inconsistencies) == 0
+                else f"Found {len(inconsistencies)} inconsistencies"
+            ),
         }
 
     except Exception as e:
@@ -2077,10 +2080,10 @@ def trace_effective_date_calculation(amendment_name):
             "fresh_calculation": test_amendment.effective_date,
             "discrepancy_detected": str(actual_effective_date) != str(expected_from_schedule),
             "days_difference_actual_vs_expected": (
-                getdate(actual_effective_date) - getdate(expected_from_schedule)
-            ).days
-            if actual_effective_date and expected_from_schedule
-            else None,
+                (getdate(actual_effective_date) - getdate(expected_from_schedule)).days
+                if actual_effective_date and expected_from_schedule
+                else None
+            ),
         }
 
         return {
@@ -2198,16 +2201,18 @@ def check_member_and_dues_schedule(member_name):
             "member_name": member.full_name,
             "member_id": member.name,
             "active_dues_schedule": active_dues_schedule,
-            "dues_schedule_details": {
-                "name": dues_schedule_doc.name if dues_schedule_doc else None,
-                "schedule_name": dues_schedule_doc.schedule_name if dues_schedule_doc else None,
-                "billing_frequency": dues_schedule_doc.billing_frequency if dues_schedule_doc else None,
-                "next_invoice_date": dues_schedule_doc.next_invoice_date if dues_schedule_doc else None,
-                "amount": dues_schedule_doc.dues_rate if dues_schedule_doc else None,
-                "status": dues_schedule_doc.status if dues_schedule_doc else None,
-            }
-            if dues_schedule_doc
-            else None,
+            "dues_schedule_details": (
+                {
+                    "name": dues_schedule_doc.name if dues_schedule_doc else None,
+                    "schedule_name": dues_schedule_doc.schedule_name if dues_schedule_doc else None,
+                    "billing_frequency": dues_schedule_doc.billing_frequency if dues_schedule_doc else None,
+                    "next_invoice_date": dues_schedule_doc.next_invoice_date if dues_schedule_doc else None,
+                    "amount": dues_schedule_doc.dues_rate if dues_schedule_doc else None,
+                    "status": dues_schedule_doc.status if dues_schedule_doc else None,
+                }
+                if dues_schedule_doc
+                else None
+            ),
         }
     except Exception as e:
         return {"error": str(e)}
@@ -2252,9 +2257,9 @@ def investigate_effective_date_logic():
                     "days_difference": days_difference,
                     "member": amendment.member,
                     "active_dues_schedule": active_dues_schedule.name if active_dues_schedule else None,
-                    "dues_next_invoice": active_dues_schedule.next_invoice_date
-                    if active_dues_schedule
-                    else None,
+                    "dues_next_invoice": (
+                        active_dues_schedule.next_invoice_date if active_dues_schedule else None
+                    ),
                     "status": amendment.status,
                 }
             )

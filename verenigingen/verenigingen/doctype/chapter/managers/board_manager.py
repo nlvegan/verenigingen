@@ -1056,9 +1056,9 @@ class BoardManager(BaseManager):
                     "member_full_name": member_doc.full_name,
                     "join_date": today(),
                     "new_members_count": len(self.chapter_doc.members),
-                    "new_member_dict": new_member.as_dict()
-                    if hasattr(new_member, "as_dict")
-                    else str(new_member),
+                    "new_member_dict": (
+                        new_member.as_dict() if hasattr(new_member, "as_dict") else str(new_member)
+                    ),
                 },
             )
 

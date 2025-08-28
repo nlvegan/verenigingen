@@ -438,11 +438,15 @@ class ResourceMonitor:
             report = {
                 "timestamp": now(),
                 "summary": {
-                    "overall_health": "healthy"
-                    if len(alerts) == 0
-                    else "warning"
-                    if len([a for a in alerts if a["severity"] in ["HIGH", "CRITICAL"]]) == 0
-                    else "critical",
+                    "overall_health": (
+                        "healthy"
+                        if len(alerts) == 0
+                        else (
+                            "warning"
+                            if len([a for a in alerts if a["severity"] in ["HIGH", "CRITICAL"]]) == 0
+                            else "critical"
+                        )
+                    ),
                     "active_alerts": len(alerts),
                     "critical_alerts": len([a for a in alerts if a["severity"] == "CRITICAL"]),
                     "high_alerts": len([a for a in alerts if a["severity"] == "HIGH"]),
@@ -540,11 +544,15 @@ def get_system_health():
         alerts = monitor.check_resource_thresholds()
 
         return {
-            "status": "healthy"
-            if len(alerts) == 0
-            else "warning"
-            if len([a for a in alerts if a["severity"] in ["HIGH", "CRITICAL"]]) == 0
-            else "critical",
+            "status": (
+                "healthy"
+                if len(alerts) == 0
+                else (
+                    "warning"
+                    if len([a for a in alerts if a["severity"] in ["HIGH", "CRITICAL"]]) == 0
+                    else "critical"
+                )
+            ),
             "metrics": metrics,
             "alerts": alerts,
             "timestamp": now(),

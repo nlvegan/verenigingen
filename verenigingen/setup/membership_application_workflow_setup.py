@@ -2,7 +2,10 @@
 Membership Application Workflow Setup
 Creates a formal workflow for membership application process
 """
+
 import frappe
+
+from verenigingen.utils.secure_operations import secure_document_operation
 
 
 def create_membership_application_workflow():
@@ -233,7 +236,19 @@ def create_membership_application_workflow():
         )
 
         # Save the workflow
-        workflow_doc.insert(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=workflow_doc,
+            justification="Create membership application workflow - system setup and governance automation",
+            required_permissions=["Workflow:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(f"Failed to create workflow: {'; '.join(result.errors)}")
+            return False
+
+        workflow_doc = result.doc
 
         print(
             f"   ✅ Successfully created membership application workflow with {len(workflow_doc.states)} states and {len(workflow_doc.transitions)} transitions"
@@ -263,7 +278,19 @@ def create_membership_workflow_action_masters():
                 action_doc = frappe.get_doc(
                     {"doctype": "Workflow Action Master", "workflow_action_name": action}
                 )
-                action_doc.insert(ignore_permissions=True)
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                result = secure_document_operation(
+                    operation="insert",
+                    doc=action_doc,
+                    justification=f"Create workflow action {action_data['action']} - membership application workflow setup",
+                    required_permissions=["Workflow Action:create"],
+                )
+
+                if not result.success:
+                    frappe.log_error(
+                        f"Failed to create workflow action {action_data['action']}: {'; '.join(result.errors)}"
+                    )
+                    continue  # Continue with other actions
                 created_count += 1
                 print(f"      ✓ Created workflow action: {action}")
             except Exception as e:
@@ -288,7 +315,19 @@ def create_membership_workflow_state_masters():
         if not frappe.db.exists("Workflow State", state):
             try:
                 state_doc = frappe.get_doc({"doctype": "Workflow State", "workflow_state_name": state})
-                state_doc.insert(ignore_permissions=True)
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                result = secure_document_operation(
+                    operation="insert",
+                    doc=state_doc,
+                    justification=f"Create workflow state {state_data['state']} - membership application workflow setup",
+                    required_permissions=["Workflow State:create"],
+                )
+
+                if not result.success:
+                    frappe.log_error(
+                        f"Failed to create workflow state {state_data['state']}: {'; '.join(result.errors)}"
+                    )
+                    continue  # Continue with other states
                 created_count += 1
                 print(f"      ✓ Created workflow state: {state}")
             except Exception as e:

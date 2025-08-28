@@ -43,11 +43,13 @@ def verify_membership_field_fix():
                     "membership_linked_correctly": (
                         schedule and membership and schedule.membership == membership.name
                     ),
-                    "status": "✓ FIXED"
-                    if (schedule and membership and schedule.membership == membership.name)
-                    else "✗ ISSUE"
-                    if schedule and not schedule.membership
-                    else "⚠ NO SCHEDULE",
+                    "status": (
+                        "✓ FIXED"
+                        if (schedule and membership and schedule.membership == membership.name)
+                        else "✗ ISSUE"
+                        if schedule and not schedule.membership
+                        else "⚠ NO SCHEDULE"
+                    ),
                 }
             )
 

@@ -322,9 +322,9 @@ def trigger_unified_security_test():
             security_check = alerting_system.check_security_incidents()
             test_results["alerting_system"] = {
                 "status": "PASS",
-                "security_integration": "enabled"
-                if alerting_system.security_integration_enabled
-                else "disabled",
+                "security_integration": (
+                    "enabled" if alerting_system.security_integration_enabled else "disabled"
+                ),
                 "security_alerts_generated": len(security_check),
             }
         except Exception as e:
@@ -390,9 +390,9 @@ def _get_framework_health_summary():
             "overall_status": framework_health.get("overall_status", "UNKNOWN"),
             "components_working": working_components,
             "components_total": total_components,
-            "health_percentage": round((working_components / total_components) * 100, 1)
-            if total_components > 0
-            else 0,
+            "health_percentage": (
+                round((working_components / total_components) * 100, 1) if total_components > 0 else 0
+            ),
         }
     except Exception:
         return {

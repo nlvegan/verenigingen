@@ -394,9 +394,11 @@ class EBoekhoudenMigrationCoordinator:
 
         return {
             "passed": len(missing_fields) == 0,
-            "details": [f"Missing fields: {', '.join(missing_fields)}"]
-            if missing_fields
-            else ["All custom fields present"],
+            "details": (
+                [f"Missing fields: {', '.join(missing_fields)}"]
+                if missing_fields
+                else ["All custom fields present"]
+            ),
             "warnings": [f"Missing custom fields: {', '.join(missing_fields)}"] if missing_fields else [],
         }
 
@@ -428,12 +430,16 @@ class EBoekhoudenMigrationCoordinator:
 
         return {
             "passed": len(missing_permissions) == 0,
-            "details": [f"Missing permissions: {', '.join(missing_permissions)}"]
-            if missing_permissions
-            else ["All permissions available"],
-            "errors": [f"Missing migration permissions: {', '.join(missing_permissions)}"]
-            if missing_permissions
-            else [],
+            "details": (
+                [f"Missing permissions: {', '.join(missing_permissions)}"]
+                if missing_permissions
+                else ["All permissions available"]
+            ),
+            "errors": (
+                [f"Missing migration permissions: {', '.join(missing_permissions)}"]
+                if missing_permissions
+                else []
+            ),
         }
 
     def _check_database_space(self, config: Dict) -> Dict:

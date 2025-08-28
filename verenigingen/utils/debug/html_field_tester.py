@@ -32,9 +32,11 @@ def test_html_field():
             "other_members_at_address": bool(getattr(member, "other_members_at_address", None)),
         },
         "field_content_before": {
-            "other_members_at_address": getattr(member, "other_members_at_address", "")[:200]
-            if getattr(member, "other_members_at_address", "")
-            else None
+            "other_members_at_address": (
+                getattr(member, "other_members_at_address", "")[:200]
+                if getattr(member, "other_members_at_address", "")
+                else None
+            )
         },
     }
 
@@ -49,9 +51,11 @@ def test_html_field():
     }
 
     result["field_content_after"] = {
-        "other_members_at_address": getattr(member, "other_members_at_address", "")[:200]
-        if getattr(member, "other_members_at_address", "")
-        else None
+        "other_members_at_address": (
+            getattr(member, "other_members_at_address", "")[:200]
+            if getattr(member, "other_members_at_address", "")
+            else None
+        )
     }
 
     # Test the update method directly
@@ -62,9 +66,11 @@ def test_html_field():
     }
 
     result["field_content_after_update"] = {
-        "other_members_at_address": getattr(member, "other_members_at_address", "")[:200]
-        if getattr(member, "other_members_at_address", "")
-        else None
+        "other_members_at_address": (
+            getattr(member, "other_members_at_address", "")[:200]
+            if getattr(member, "other_members_at_address", "")
+            else None
+        )
     }
 
     return result

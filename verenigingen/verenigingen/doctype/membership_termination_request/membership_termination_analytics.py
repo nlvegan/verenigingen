@@ -126,9 +126,9 @@ def analyze_type_trends(terminations):
             type_trends[term_type] = {
                 "count": len(months),
                 "trend": trend,
-                "recent_average": statistics.mean(values[-3:])
-                if len(values) >= 3
-                else statistics.mean(values),
+                "recent_average": (
+                    statistics.mean(values[-3:]) if len(values) >= 3 else statistics.mean(values)
+                ),
                 "monthly_distribution": dict(month_counts),
             }
 

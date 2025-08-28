@@ -2,8 +2,9 @@
 Donation History Manager for tracking donation history on donor records
 """
 
-
 import frappe
+
+from verenigingen.utils.secure_operations import secure_document_operation
 
 
 class DonationHistoryManager:
@@ -63,8 +64,19 @@ class DonationHistoryManager:
                         },
                     )
 
-            # Save without triggering hooks to avoid recursion
-            donor.save(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="save",
+                doc=donor,
+                justification=f"Sync donation history for donor {donor.donor_name} - donation tracking system",
+                required_permissions=["Donor:write"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to sync donation history for donor {donor.donor_name}: {'; '.join(result.errors)}"
+                )
+                return {"success": False, "error": f"Failed to save donor: {'; '.join(result.errors)}"}
 
             return {
                 "success": True,
@@ -115,7 +127,19 @@ class DonationHistoryManager:
             # Sort by date (most recent first)
             donor.donor_history = sorted(donor.donor_history, key=lambda x: x.donation_date, reverse=True)
 
-            donor.save(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="save",
+                doc=donor,
+                justification=f"Add/update donation entry for donor {donor.donor_name} - donation history management",
+                required_permissions=["Donor:write"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to add donation entry for donor {donor.donor_name}: {'; '.join(result.errors)}"
+                )
+                return {"success": False, "error": f"Failed to save donor: {'; '.join(result.errors)}"}
 
             return {
                 "success": True,
@@ -138,7 +162,19 @@ class DonationHistoryManager:
                     donor.donor_history.pop(i)
                     break
 
-            donor.save(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="save",
+                doc=donor,
+                justification=f"Remove donation entry {donation_name} from donor {donor.donor_name} - donation history cleanup",
+                required_permissions=["Donor:write"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to remove donation entry for donor {donor.donor_name}: {'; '.join(result.errors)}"
+                )
+                return {"success": False, "error": f"Failed to save donor: {'; '.join(result.errors)}"}
 
             return {"success": True, "message": f"Removed donation {donation_name} from history"}
 

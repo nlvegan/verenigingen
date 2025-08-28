@@ -3,9 +3,12 @@ IBAN History Manager
 
 Utility functions for managing IBAN history for members
 """
+
 import frappe
 from frappe import _
 from frappe.utils import today
+
+from verenigingen.utils.secure_operations import secure_document_operation
 
 
 @frappe.whitelist()
@@ -52,7 +55,20 @@ def create_initial_iban_history(member_name):
                 "change_reason": reason,
             },
         )
-        member_doc.save(ignore_permissions=True)
+
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="save",
+            doc=member_doc,
+            justification=f"Create initial IBAN history for member {member_name} - financial tracking setup",
+            required_permissions=["Member:write"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                f"Failed to create IBAN history for member {member_name}: {'; '.join(result.errors)}"
+            )
+            return {"success": False, "message": f"Failed to save member: {'; '.join(result.errors)}"}
 
         frappe.logger().info(f"Created initial IBAN history for member {member_name}")
 
@@ -136,7 +152,20 @@ def track_iban_change(member_doc):
                     "change_reason": "Bank Change",
                 },
             )
-            member_doc.save(ignore_permissions=True)
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="save",
+                doc=member_doc,
+                justification=f"Update IBAN history for member {member_doc.name} - financial information change tracking",
+                required_permissions=["Member:write"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to update IBAN history for member {member_doc.name}: {'; '.join(result.errors)}"
+                )
+                return {"success": False, "message": f"Failed to save member: {'; '.join(result.errors)}"}
 
             # Log the change
             frappe.logger().info(

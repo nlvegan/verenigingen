@@ -609,21 +609,23 @@ def debug_member_billing_issues(member_name):
                 "has_dues_schedule": len(dues_schedules) > 0,
                 "has_daily_schedule": any(s.get("billing_frequency") == "Daily" for s in dues_schedules),
                 "has_annual_schedule": any(s.get("billing_frequency") == "Annual" for s in dues_schedules),
-                "recent_invoices": len([i for i in invoices if str(i.creation) >= "2025-07-20"])
-                if invoices
-                else 0,
-                "invoices_with_coverage_info": len(
-                    [
-                        i
-                        for i in invoices
-                        if any(
-                            "period" in str(item.get("description", "")).lower()
-                            for item in i.get("items", [])
-                        )
-                    ]
-                )
-                if invoices
-                else 0,
+                "recent_invoices": (
+                    len([i for i in invoices if str(i.creation) >= "2025-07-20"]) if invoices else 0
+                ),
+                "invoices_with_coverage_info": (
+                    len(
+                        [
+                            i
+                            for i in invoices
+                            if any(
+                                "period" in str(item.get("description", "")).lower()
+                                for item in i.get("items", [])
+                            )
+                        ]
+                    )
+                    if invoices
+                    else 0
+                ),
             },
         }
 
@@ -705,9 +707,9 @@ def debug_specific_member_sinv_issue():
                 "name": membership.name,
                 "type": membership.membership_type,
                 "start_date": str(membership.start_date) if membership.start_date else None,
-                "cancellation_date": str(membership.cancellation_date)
-                if membership.cancellation_date
-                else None,
+                "cancellation_date": (
+                    str(membership.cancellation_date) if membership.cancellation_date else None
+                ),
                 "next_invoice_date": get_member_next_invoice_date(member_name),
                 "status": membership.status,
                 "docstatus": membership.docstatus,
@@ -1006,9 +1008,11 @@ def check_auto_submit_errors():
         result["analysis"] = {
             "invoice_specific_error_count": len(result["invoice_specific_errors"]),
             "general_auto_submit_error_count": len(result["general_auto_submit_errors"]),
-            "auto_submit_enabled": auto_submit_setting
-            if auto_submit_setting is not None
-            else "Setting not found - defaults to True",
+            "auto_submit_enabled": (
+                auto_submit_setting
+                if auto_submit_setting is not None
+                else "Setting not found - defaults to True"
+            ),
         }
 
         result["status"] = "completed"
@@ -1079,9 +1083,9 @@ def analyze_recent_invoice_submissions():
             "total_invoices": len(all_recent),
             "draft_count": len(draft_invoices),
             "submitted_count": len(submitted_invoices),
-            "submission_rate": f"{(len(submitted_invoices) / len(all_recent) * 100):.1f}%"
-            if all_recent
-            else "0%",
+            "submission_rate": (
+                f"{(len(submitted_invoices) / len(all_recent) * 100):.1f}%" if all_recent else "0%"
+            ),
         }
 
         # Check for patterns in creation times
@@ -1176,9 +1180,9 @@ def debug_payment_history_sync_issue():
             "due_date": str(invoice.due_date) if invoice.due_date else None,
             "creation": str(invoice.creation),
             "modified": str(invoice.modified),
-            "outstanding_amount": float(invoice.outstanding_amount)
-            if hasattr(invoice, "outstanding_amount")
-            else None,
+            "outstanding_amount": (
+                float(invoice.outstanding_amount) if hasattr(invoice, "outstanding_amount") else None
+            ),
         }
 
         # Check if customer matches
@@ -1310,9 +1314,9 @@ def check_invoice_submission_timeline():
             "posting_date": str(posting_date),
             "due_date": str(due_date),
             "was_modified_after_creation": modified_time > creation_time,
-            "time_difference_minutes": (modified_time - creation_time).total_seconds() / 60
-            if modified_time > creation_time
-            else 0,
+            "time_difference_minutes": (
+                (modified_time - creation_time).total_seconds() / 60 if modified_time > creation_time else 0
+            ),
             "versions_count": len(versions),
             "versions": [{"creation": str(v.creation), "owner": v.owner} for v in versions],
         }

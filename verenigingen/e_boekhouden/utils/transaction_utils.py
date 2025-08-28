@@ -10,6 +10,8 @@ import json
 import frappe
 from frappe.utils import flt, getdate
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 def create_customer_impl(migration_doc, customer_data):
     """Create customer from E-Boekhouden data"""
@@ -54,7 +56,20 @@ def create_customer_impl(migration_doc, customer_data):
         customer.company = migration_doc.company
 
         # Save customer
-        customer.save(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="save",
+            doc=customer,
+            justification=f"Create customer '{customer_name}' from E-Boekhouden import - accounting integration for customer synchronization",
+            required_permissions=["Customer:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                f"Failed to create customer from E-Boekhouden: {'; '.join(result.errors)}",
+                "E-Boekhouden Customer Security",
+            )
+            return {"success": False, "error": f"Failed to create customer: {'; '.join(result.errors)}"}
 
         # Create contact and address
         migration_doc.create_contact_for_customer(customer.name, customer_data)
@@ -98,7 +113,20 @@ def create_supplier_impl(migration_doc, supplier_data):
         supplier.company = migration_doc.company
 
         # Save supplier
-        supplier.save(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="save",
+            doc=supplier,
+            justification=f"Create supplier '{supplier_name}' from E-Boekhouden import - accounting integration for supplier synchronization",
+            required_permissions=["Supplier:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                f"Failed to create supplier from E-Boekhouden: {'; '.join(result.errors)}",
+                "E-Boekhouden Supplier Security",
+            )
+            return {"success": False, "error": f"Failed to create supplier: {'; '.join(result.errors)}"}
 
         # Create contact and address
         migration_doc.create_contact_for_supplier(supplier.name, supplier_data)
@@ -172,7 +200,21 @@ def create_journal_entry_impl(migration_doc, transaction_data):
                 je_account.credit_in_account_currency = balance_amount
 
         # Save and submit journal entry
-        je.save(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="save",
+            doc=je,
+            justification="Create journal entry from E-Boekhouden import - accounting integration for financial data synchronization",
+            required_permissions=["Journal Entry:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                "Failed to save journal entry from E-Boekhouden: " + "; ".join(result.errors),
+                "E-Boekhouden JE Security",
+            )
+            return {"success": False, "error": f"Failed to save journal entry: {'; '.join(result.errors)}"}
+
         je.submit()
 
         return {"success": True, "journal_entry": je.name}
@@ -254,7 +296,21 @@ def create_sales_invoice_impl(migration_doc, invoice_data):
                 tax_row.description = "BTW"
 
         # Save and submit
-        si.save(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="save",
+            doc=si,
+            justification="Create sales invoice from E-Boekhouden import - accounting integration for sales data synchronization",
+            required_permissions=["Sales Invoice:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                "Failed to save sales invoice from E-Boekhouden: " + "; ".join(result.errors),
+                "E-Boekhouden SI Security",
+            )
+            return {"success": False, "error": f"Failed to save sales invoice: {'; '.join(result.errors)}"}
+
         si.submit()
 
         return {"success": True, "sales_invoice": si.name}
@@ -336,7 +392,21 @@ def create_purchase_invoice_impl(migration_doc, invoice_data):
                 tax_row.description = "BTW"
 
         # Save and submit
-        pi.save(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="save",
+            doc=pi,
+            justification="Create purchase invoice from E-Boekhouden import - accounting integration for purchase data synchronization",
+            required_permissions=["Purchase Invoice:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                "Failed to save purchase invoice from E-Boekhouden: " + "; ".join(result.errors),
+                "E-Boekhouden PI Security",
+            )
+            return {"success": False, "error": f"Failed to save purchase invoice: {'; '.join(result.errors)}"}
+
         pi.submit()
 
         return {"success": True, "purchase_invoice": pi.name}
@@ -387,7 +457,21 @@ def get_suspense_account_impl(migration_doc, company):
         suspense.account_type = "Temporary"
         suspense.is_group = 0
         suspense.parent_account = migration_doc.get_parent_account("Temporary", "Asset", company)
-        suspense.save(ignore_permissions=True)
+
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="save",
+            doc=suspense,
+            justification=f"Create E-Boekhouden suspense account for company {company} - accounting integration for transaction processing",
+            required_permissions=["Account:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                f"Failed to create E-Boekhouden suspense account: {'; '.join(result.errors)}",
+                "E-Boekhouden Account Security",
+            )
+            frappe.throw(f"Failed to create suspense account: {'; '.join(result.errors)}")
 
         return suspense.name
 

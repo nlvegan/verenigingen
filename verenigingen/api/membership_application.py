@@ -1,6 +1,7 @@
 """
 Refactored membership application API with improved organization and error handling
 """
+
 import json
 
 import frappe

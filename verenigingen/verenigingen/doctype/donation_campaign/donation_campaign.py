@@ -233,9 +233,9 @@ class DonationCampaign(Document):
             "tasks": tasks,
             "expenses": expenses,
             "total_expenses": sum(e.total_claimed_amount or 0 for e in expenses),
-            "task_completion": (sum(1 for t in tasks if t.status == "Completed") / len(tasks) * 100)
-            if tasks
-            else 0,
+            "task_completion": (
+                (sum(1 for t in tasks if t.status == "Completed") / len(tasks) * 100) if tasks else 0
+            ),
         }
 
     def get_accounting_entries(self, from_date=None, to_date=None):

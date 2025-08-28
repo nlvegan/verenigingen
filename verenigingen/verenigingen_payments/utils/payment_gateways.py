@@ -217,9 +217,9 @@ class MollieGateway(PaymentGateway):
                 "status": "redirect_required",
                 "payment_url": checkout_url,
                 "payment_id": payment.id,
-                "expires_at": expires_at_naive.isoformat()
-                if expires_at_naive
-                else None,  # Convert to string for JSON serialization
+                "expires_at": (
+                    expires_at_naive.isoformat() if expires_at_naive else None
+                ),  # Convert to string for JSON serialization
                 "message": _("Redirecting to Mollie for payment..."),
             }
 

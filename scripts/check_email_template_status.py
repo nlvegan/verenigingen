@@ -77,7 +77,8 @@ def check_email_template_status():
                     existing_count += 1
 
                 status = "EXISTS"
-                enabled_status = " (E)" if template.enabled else " (D)"
+                # Email Template DocType doesn't have 'enabled' field
+                enabled_status = ""  # Remove enabled status check
 
                 print(f"{template_name:<50} | {status:<9} | {content_status}{enabled_status}")
             else:

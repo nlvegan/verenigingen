@@ -1,5 +1,7 @@
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 @frappe.whitelist()
 def fix_workspace(force_enable=False):
@@ -83,8 +85,20 @@ def fix_workspace(force_enable=False):
                 },
             )
 
-            workspace.flags.ignore_permissions = True
-            workspace.save()
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="save",
+                doc=workspace,
+                justification="Add Newsletter links to workspace - workspace configuration management",
+                required_permissions=["Workspace:write"],
+            )
+
+            if not result.success:
+                frappe.log_error(f"Failed to update workspace: {'; '.join(result.errors)}")
+                return f"Failed to update workspace: {'; '.join(result.errors)}"
+
+            # Only commit if operation was successful
+            workspace = result.doc  # Use the saved document from secure operation
             frappe.db.commit()
 
             # Clear cache

@@ -18,6 +18,7 @@ Usage:
     if not result['success']:
         frappe.throw(result.get('error', 'Operation failed'))
 """
+
 from .base_manager import BaseManager
 from .board_manager import BoardManager
 from .communication_manager import CommunicationManager

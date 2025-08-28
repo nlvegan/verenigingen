@@ -202,9 +202,19 @@ def update_customer_safe(customer_name, termination_note, disable_for_disciplina
         if disable_for_disciplinary:
             customer.disabled = 1
 
-        # Save customer
-        customer.flags.ignore_permissions = True
-        customer.save()
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="save",
+            doc=customer,
+            justification=f"Update customer {customer_name} during member termination process - member lifecycle management",
+            required_permissions=["Customer:write"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                f"Failed to update customer {customer_name} during termination: {'; '.join(result.errors)}"
+            )
+            return False
 
         frappe.logger().info(f"Updated customer {customer_name}")
         return True
@@ -227,10 +237,21 @@ def update_invoice_safe(invoice_name, termination_note):
         else:
             invoice.remarks = termination_note
 
-        # Save invoice
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        # Note: preserve ignore_validate_update_after_submit for business requirement
         invoice.flags.ignore_validate_update_after_submit = True
-        invoice.flags.ignore_permissions = True
-        invoice.save()
+        result = secure_document_operation(
+            operation="save",
+            doc=invoice,
+            justification=f"Update invoice {invoice_name} with termination note - member termination documentation",
+            required_permissions=["Sales Invoice:write"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                f"Failed to update invoice {invoice_name} during termination: {'; '.join(result.errors)}"
+            )
+            return False
 
         frappe.logger().info(f"Updated invoice {invoice_name}")
         return True
@@ -769,7 +790,7 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
                     volunteer_doc.status = "Inactive"
                     volunteer_doc.inactive_reason = "Deceased"
                 elif termination_type in disciplinary_types:
-                    volunteer_doc.status = "Suspended"
+                    volunteer_doc.status = "Inactive"
                     volunteer_doc.inactive_reason = f"Member terminated - {termination_type}"
                 else:
                     volunteer_doc.status = "Inactive"

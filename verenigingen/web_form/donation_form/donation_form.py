@@ -95,7 +95,23 @@ def get_or_create_donor(data):
     donor.donor_email = data.get("donor_email")
     donor.phone = data.get("donor_phone") or ""
     donor.donor_type = data.get("donor_type", "Individual")
-    donor.insert(ignore_permissions=True)
+
+    # CORRECTED SECURE VERSION: Use proper secure operations for public form submissions
+    from verenigingen.utils.secure_operations import secure_document_operation
+
+    result = secure_document_operation(
+        operation="insert",
+        doc=donor,
+        justification="Create donor record from public donation form - public fundraising system",
+        required_permissions=["Donor:create"],
+        override_user="Administrator",  # Use system context for public forms
+    )
+
+    if not result.success:
+        frappe.log_error(f"Failed to create donor from donation form: {'; '.join(result.errors)}")
+        frappe.throw(_("Unable to process donation. Please try again or contact support."))
+
+    donor = result.doc
 
     return donor.name
 
@@ -139,7 +155,22 @@ def create_donation(donor, data):
     if not hasattr(donation, "donation_type") or not donation.donation_type:
         donation.donation_type = _get_validated_donation_type()
 
-    donation.insert(ignore_permissions=True)
+    # CORRECTED SECURE VERSION: Use proper secure operations for public form submissions
+    from verenigingen.utils.secure_operations import secure_document_operation
+
+    result = secure_document_operation(
+        operation="insert",
+        doc=donation,
+        justification="Create donation record from public donation form - public fundraising system",
+        required_permissions=["Donation:create"],
+        override_user="Administrator",  # Use system context for public forms
+    )
+
+    if not result.success:
+        frappe.log_error(f"Failed to create donation from donation form: {'; '.join(result.errors)}")
+        frappe.throw(_("Unable to process donation. Please try again or contact support."))
+
+    donation = result.doc
 
     # Submit if payment method is not requiring further action
     if data.get("payment_method") not in ["SEPA Direct Debit", "Mollie"]:

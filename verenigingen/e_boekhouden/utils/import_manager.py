@@ -33,6 +33,7 @@ Business Context:
     ensuring compliance with Dutch accounting standards while maintaining
     data integrity and providing comprehensive audit capabilities.
 """
+
 import json
 from datetime import datetime
 

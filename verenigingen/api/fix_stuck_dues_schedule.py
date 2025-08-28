@@ -6,6 +6,8 @@ preventing invoice generation despite no actual invoice existing.
 import frappe
 from frappe.utils import add_days, getdate, today
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 # Import security framework
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -35,9 +37,11 @@ def diagnose_stuck_schedule(schedule_name):
         "next_invoice_date": str(schedule.next_invoice_date) if schedule.next_invoice_date else None,
         "last_invoice_date": str(schedule.last_invoice_date) if schedule.last_invoice_date else None,
         "invoice_days_before": schedule.invoice_days_before,
-        "dates_equal": schedule.last_invoice_date == schedule.next_invoice_date
-        if schedule.last_invoice_date and schedule.next_invoice_date
-        else False,
+        "dates_equal": (
+            schedule.last_invoice_date == schedule.next_invoice_date
+            if schedule.last_invoice_date and schedule.next_invoice_date
+            else False
+        ),
         "customer": member_doc.customer if member_doc else None,
         "member_status": member_doc.status if member_doc else None,
         "issues_found": [],
@@ -156,9 +160,9 @@ def fix_stuck_schedule(schedule_name, force=False):
                     "changes": {
                         "old_last_invoice_date": str(old_last_invoice_date),
                         "old_next_invoice_date": str(old_next_invoice_date),
-                        "new_last_invoice_date": str(schedule.last_invoice_date)
-                        if schedule.last_invoice_date
-                        else None,
+                        "new_last_invoice_date": (
+                            str(schedule.last_invoice_date) if schedule.last_invoice_date else None
+                        ),
                         "new_next_invoice_date": str(schedule.next_invoice_date),
                     },
                     "can_generate_now": schedule.can_generate_invoice(),
@@ -293,7 +297,18 @@ def check_and_notify_stuck_schedules():
                         notification.document_type = "Membership Dues Schedule"
                         notification.from_user = "Administrator"
                         notification.email_content = notification_html
-                        notification.insert(ignore_permissions=True)
+                        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                        result = secure_document_operation(
+                            operation="insert",
+                            doc=notification,
+                            justification=f"Create stuck dues schedule notification for user {user.email} - financial schedule monitoring alert",
+                            required_permissions=["Notification Log:create"],
+                        )
+
+                        if not result.success:
+                            frappe.log_error(
+                                f"Failed to create notification for {user.email}: {'; '.join(result.errors)}"
+                            )
                     except Exception as e:
                         frappe.log_error(f"Failed to create notification for {user.email}: {str(e)}")
 

@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
@@ -207,8 +208,19 @@ def generate_test_members():
                         member.primary_chapter = chapter
                         break
 
-            # Save the member
-            member.insert(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            member_result = secure_document_operation(
+                operation="insert",
+                doc=member,
+                justification=f"Create test member {member.full_name} for system onboarding - test data generation",
+                required_permissions=["Member:create"],
+            )
+
+            if not member_result.success:
+                errors.append(
+                    f"Failed to create member {member.full_name}: {'; '.join(member_result.errors)}"
+                )
+                continue
 
             # Create membership record
             membership = frappe.new_doc("Membership")
@@ -221,7 +233,19 @@ def generate_test_members():
             to_date = from_date + timedelta(days=365)
             membership.to_date = to_date.strftime("%Y-%m-%d")
 
-            membership.insert(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            membership_result = secure_document_operation(
+                operation="insert",
+                doc=membership,
+                justification=f"Create membership record for test member {member.name} - test data generation",
+                required_permissions=["Membership:create"],
+            )
+
+            if not membership_result.success:
+                errors.append(
+                    f"Failed to create membership for {member.name}: {'; '.join(membership_result.errors)}"
+                )
+                continue
 
             created_members.append(
                 {
@@ -284,11 +308,32 @@ def cleanup_test_members():
             # Delete memberships
             memberships = frappe.get_all("Membership", filters={"member": member.name})
             for membership in memberships:
-                frappe.delete_doc("Membership", membership.name, ignore_permissions=True)
+                membership_doc = frappe.get_doc("Membership", membership.name)
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                result = secure_document_operation(
+                    operation="delete",
+                    doc=membership_doc,
+                    justification=f"Delete test membership {membership.name} during cleanup - test data maintenance",
+                    required_permissions=["Membership:delete"],
+                )
+                if not result.success:
+                    frappe.log_error(
+                        f"Failed to delete membership {membership.name}: {'; '.join(result.errors)}"
+                    )
 
             # Delete the member
-            frappe.delete_doc("Member", member.name, ignore_permissions=True)
-            deleted_count += 1
+            member_doc = frappe.get_doc("Member", member.name)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="delete",
+                doc=member_doc,
+                justification=f"Delete test member {member.name} during cleanup - test data maintenance",
+                required_permissions=["Member:delete"],
+            )
+            if result.success:
+                deleted_count += 1
+            else:
+                frappe.log_error(f"Failed to delete member {member.name}: {'; '.join(result.errors)}")
         except Exception as e:
             frappe.log_error(f"Failed to delete test member {member.name}: {str(e)}")
 

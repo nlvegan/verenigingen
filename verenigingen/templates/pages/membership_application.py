@@ -232,9 +232,9 @@ def get_membership_type_details(membership_type_name):
                 "description": mt_doc.description,
                 "amount": amount,  # Use template-based amount or minimum_amount
                 "billing_frequency": template_values.get("billing_frequency", "Annual"),
-                "contribution_options": mt_doc.get_contribution_options()
-                if hasattr(mt_doc, "get_contribution_options")
-                else {},
+                "contribution_options": (
+                    mt_doc.get_contribution_options() if hasattr(mt_doc, "get_contribution_options") else {}
+                ),
             },
         }
     except frappe.DoesNotExistError:

@@ -472,9 +472,9 @@ def extract_top_functions(stats: pstats.Stats, limit: int = 10) -> List[Dict[str
                         "total_time_seconds": round(total_time, 4),
                         "cumulative_time_seconds": round(cumulative_time, 4),
                         "call_count": total_calls,
-                        "time_per_call_ms": round((total_time / total_calls) * 1000, 2)
-                        if total_calls > 0
-                        else 0,
+                        "time_per_call_ms": (
+                            round((total_time / total_calls) * 1000, 2) if total_calls > 0 else 0
+                        ),
                     }
                 )
     except:
@@ -948,9 +948,9 @@ def analyze_profiler_results(profiler: cProfile.Profile, operation_name: str) ->
         "top_time_consuming_functions": top_functions,
         "total_function_time_seconds": round(total_function_time, 3),
         "database_time_seconds": round(database_time, 3),
-        "database_time_percentage": round((database_time / total_function_time) * 100, 1)
-        if total_function_time > 0
-        else 0,
+        "database_time_percentage": (
+            round((database_time / total_function_time) * 100, 1) if total_function_time > 0 else 0
+        ),
         "hotspots_identified": identify_function_hotspots(top_functions),
     }
 
@@ -984,11 +984,13 @@ def identify_function_hotspots(top_functions: List[Dict]) -> List[Dict]:
                 "hotspot_type": hotspot_type,
                 "time_seconds": func["total_time_seconds"],
                 "call_count": func["call_count"],
-                "severity": "HIGH"
-                if func["total_time_seconds"] > 0.1
-                else "MEDIUM"
-                if func["total_time_seconds"] > 0.05
-                else "LOW",
+                "severity": (
+                    "HIGH"
+                    if func["total_time_seconds"] > 0.1
+                    else "MEDIUM"
+                    if func["total_time_seconds"] > 0.05
+                    else "LOW"
+                ),
             }
         )
 

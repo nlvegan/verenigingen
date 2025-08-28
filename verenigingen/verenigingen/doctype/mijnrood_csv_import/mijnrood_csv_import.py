@@ -1055,7 +1055,7 @@ class MijnroodCSVImport(Document):
         elif membership_type in ["uitgeschreven", "opgezegd"]:
             member_doc.status = "Terminated"
         elif membership_type == "geroyeerd":
-            member_doc.status = "Expelled"
+            member_doc.status = "Banned"
         elif membership_type == "geschorst":
             member_doc.status = "Suspended"
         else:
@@ -1120,9 +1120,9 @@ class MijnroodCSVImport(Document):
             member_doc._mollie_data = {
                 "custom_mollie_customer_id": row_data.get("custom_mollie_customer_id"),
                 "custom_mollie_subscription_id": row_data.get("custom_mollie_subscription_id"),
-                "custom_subscription_status": "active"
-                if row_data.get("custom_mollie_subscription_id")
-                else None,
+                "custom_subscription_status": (
+                    "active" if row_data.get("custom_mollie_subscription_id") else None
+                ),
             }
 
         # Store address information for later creation (after Customer is created)
@@ -1175,9 +1175,11 @@ class MijnroodCSVImport(Document):
             "address_line1": address_line1,
             "city": city,
             "pincode": (row_data.get("postal_code") or "").strip() or None,
-            "country": self._convert_country_code(row_data.get("country", "NL"))
-            if row_data.get("country")
-            else "Netherlands",
+            "country": (
+                self._convert_country_code(row_data.get("country", "NL"))
+                if row_data.get("country")
+                else "Netherlands"
+            ),
             "links": [
                 {
                     "link_doctype": "Member",
@@ -1481,7 +1483,7 @@ class MijnroodCSVImport(Document):
             membership.member_name = member_doc.full_name or f"{member_doc.first_name} {member_doc.last_name}"
             membership.membership_type = membership_type_name
             membership.start_date = row_data.get("member_since") or today()
-            membership.status = "Current"
+            membership.status = "Active"
 
             # Set end date based on membership type billing period
             if membership_type_name:

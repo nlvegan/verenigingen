@@ -21,6 +21,7 @@ from frappe import _
 from frappe.utils import add_days, get_datetime, now, today
 
 from verenigingen.utils.error_handling import SEPAError, handle_api_error, log_error
+from verenigingen.utils.secure_operations import secure_document_operation
 
 
 class NotificationType(Enum):
@@ -616,7 +617,21 @@ Generated at: {timestamp}
                             "document_name": context.get("reference_name"),
                         }
                     )
-                    notification.insert(ignore_permissions=True)
+
+                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                    result = secure_document_operation(
+                        operation="insert",
+                        doc=notification,
+                        justification=f"Create SEPA system notification for user {recipient} - critical financial system alerting for SEPA batch operations",
+                        required_permissions=["Notification Log:create"],
+                    )
+
+                    if not result.success:
+                        frappe.log_error(
+                            f"Failed to create SEPA system notification: {'; '.join(result.errors)}",
+                            "SEPA Notification Security",
+                        )
+                        continue
 
                 except Exception as e:
                     frappe.logger().warning(f"Failed to create system notification for {recipient}: {str(e)}")

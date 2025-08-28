@@ -13,6 +13,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, get_datetime, now_datetime
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 from ..clients.chargebacks_client import ChargebacksClient
 from ..clients.settlements_client import SettlementsClient
 from ..core.compliance.audit_trail import AuditEventType, AuditSeverity
@@ -112,7 +114,21 @@ class DisputeResolutionWorkflow:
             case_doc.priority = case["priority"]
             case_doc.customer = payment_details.get("customer")
             case_doc.transaction_date = payment_details.get("date")
-            case_doc.insert(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="insert",
+                doc=case_doc,
+                justification=f"Create dispute case {case['case_id']} for payment {payment_id} chargeback {chargeback_id} - financial dispute management system",
+                required_permissions=["Dispute Case:create"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to create dispute case: {'; '.join(result.errors)}", "Dispute Case Security"
+                )
+                raise Exception(f"Failed to create dispute case: {'; '.join(result.errors)}")
+
+            case_doc = result.doc
 
             # Add to timeline
             case["timeline"].append(
@@ -390,7 +406,21 @@ class DisputeResolutionWorkflow:
             case.status = DisputeStatus.SUBMITTED.value
             case.response_submitted_at = now_datetime()
             case.response_text = response_text
-            case.save(ignore_permissions=True)
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="save",
+                doc=case,
+                justification=f"Update dispute case {case_id} status to SUBMITTED with response - financial dispute resolution workflow",
+                required_permissions=["Dispute Case:write"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to update dispute case status: {'; '.join(result.errors)}",
+                    "Dispute Case Security",
+                )
+                raise Exception(f"Failed to update dispute case: {'; '.join(result.errors)}")
 
             # Add to timeline (would be added to case record)
             # timeline_entry = {
@@ -449,7 +479,21 @@ class DisputeResolutionWorkflow:
             case.status = DisputeStatus.WON.value if outcome == "won" else DisputeStatus.LOST.value
             case.resolution_date = now_datetime()
             case.recovered_amount = recovered_amount
-            case.save(ignore_permissions=True)
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="save",
+                doc=case,
+                justification=f"Update dispute case {case_id} resolution outcome {outcome} with recovered amount {recovered_amount} - financial dispute resolution completion",
+                required_permissions=["Dispute Case:write"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to update dispute case resolution: {'; '.join(result.errors)}",
+                    "Dispute Case Security",
+                )
+                raise Exception(f"Failed to update dispute resolution: {'; '.join(result.errors)}")
 
             # Calculate financial impact
             financial_impact = {
@@ -515,7 +559,20 @@ class DisputeResolutionWorkflow:
                 doc = frappe.new_doc("Dispute Metrics")
                 doc.month = month_key
                 doc.update(metrics)
-                doc.insert(ignore_permissions=True)
+
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                result = secure_document_operation(
+                    operation="insert",
+                    doc=doc,
+                    justification=f"Create dispute metrics record for month {month_key} - financial dispute analytics tracking",
+                    required_permissions=["Dispute Metrics:create"],
+                )
+
+                if not result.success:
+                    frappe.log_error(
+                        f"Failed to create dispute metrics: {'; '.join(result.errors)}",
+                        "Dispute Metrics Security",
+                    )
 
         except Exception as e:
             frappe.log_error(f"Failed to update dispute metrics: {str(e)}", "Dispute Resolution")

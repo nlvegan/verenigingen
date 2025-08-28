@@ -5,6 +5,8 @@ Handles Dutch naming conventions including tussenvoegsels
 
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 @frappe.whitelist()
 def is_dutch_installation():
@@ -83,10 +85,20 @@ def setup_dutch_name_fields():
         }
     )
 
-    custom_field.insert(ignore_permissions=True)
-    frappe.db.commit()
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    result = secure_document_operation(
+        operation="insert",
+        doc=custom_field,
+        justification="Create tussenvoegsel custom field for Dutch installation - localization support for Dutch naming conventions",
+        required_permissions=["Custom Field:create"],
+    )
 
-    return {"message": "Tussenvoegsel field created successfully"}
+    if result.success:
+        frappe.db.commit()
+        return {"message": "Tussenvoegsel field created successfully"}
+    else:
+        frappe.log_error(f"Failed to create tussenvoegsel custom field: {'; '.join(result.errors)}")
+        return {"error": f"Failed to create field: {'; '.join(result.errors)}"}
 
 
 @frappe.whitelist()

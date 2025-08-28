@@ -54,8 +54,9 @@ def analyze_eboekhouden_data():
     This replaces the old 'prepare_system' functionality
     """
 
-    from verenigingen.e_boekhouden.utils_date_analyzer import get_actual_date_range
-    from verenigingen.e_boekhouden.utils_soap_api import EBoekhoudenSOAPAPI
+    # TODO: Fix deprecated imports - these modules may no longer exist or have been moved
+    # from verenigingen.e_boekhouden.utils_date_analyzer import get_actual_date_range
+    # from verenigingen.e_boekhouden.utils_soap_api import EBoekhoudenSOAPAPI
 
     try:
         settings = frappe.get_single("E-Boekhouden Settings")

@@ -343,9 +343,9 @@ def analyze_migration_error_types():
                     "name": log.name,
                     "creation": str(log.creation),
                     "method": log.method,
-                    "error_preview": (log.error or "")[:150] + "..."
-                    if len(log.error or "") > 150
-                    else (log.error or ""),
+                    "error_preview": (
+                        (log.error or "")[:150] + "..." if len(log.error or "") > 150 else (log.error or "")
+                    ),
                 }
             )
 
@@ -451,9 +451,11 @@ def test_payment_creation_fix():
             "fix_effectiveness": f"{successful}/{len(results)} mutations would now process successfully",
         },
         "test_results": results,
-        "conclusion": "Payment amount calculation fix is working correctly"
-        if successful == len(results)
-        else "Some issues remain",
+        "conclusion": (
+            "Payment amount calculation fix is working correctly"
+            if successful == len(results)
+            else "Some issues remain"
+        ),
     }
 
 
@@ -484,9 +486,9 @@ def check_supplier_related_errors():
                     "name": log.name,
                     "creation": str(log.creation),
                     "method": log.method,
-                    "error_preview": (log.error or "")[:300] + "..."
-                    if len(log.error or "") > 300
-                    else (log.error or ""),
+                    "error_preview": (
+                        (log.error or "")[:300] + "..." if len(log.error or "") > 300 else (log.error or "")
+                    ),
                 }
             )
 
@@ -1076,11 +1078,9 @@ def run_pre_implementation_tests():
         # Overall readiness assessment
         results["readiness_score"] = {
             "rate_validation": "✅ Working",
-            "customer_readiness": "✅ Good"
-            if customer_coverage > 70
-            else "⚠️ Fair"
-            if customer_coverage > 50
-            else "❌ Poor",
+            "customer_readiness": (
+                "✅ Good" if customer_coverage > 70 else "⚠️ Fair" if customer_coverage > 50 else "❌ Poor"
+            ),
             "batch_safety": "✅ Safe" if due_30_days < 100 else "⚠️ Needs limits",
             "overall": "Ready" if len(results["critical_issues"]) < 2 else "Needs attention",
         }

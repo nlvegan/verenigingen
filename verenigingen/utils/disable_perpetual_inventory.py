@@ -74,9 +74,11 @@ def check_stock_implications():
             "stock_sales_invoices_count": len(stock_sinvs),
             "stock_entries_count": len(stock_entries),
             "stock_items": stock_items,
-            "recommendation": "Safe to disable perpetual inventory"
-            if not has_stock_transactions
-            else "Review stock transactions before disabling",
+            "recommendation": (
+                "Safe to disable perpetual inventory"
+                if not has_stock_transactions
+                else "Review stock transactions before disabling"
+            ),
         }
 
     except Exception as e:

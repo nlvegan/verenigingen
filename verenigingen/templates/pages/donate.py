@@ -26,10 +26,11 @@ User Experience:
     and immediate confirmation of donation processing.
 """
 
-
 import frappe
 from frappe import _
 from frappe.utils import flt, getdate
+
+from verenigingen.utils.secure_operations import secure_document_operation
 
 
 def get_context(context):
@@ -196,7 +197,20 @@ def get_or_create_donor(form_data):
         donor_doc = frappe.get_doc("Donor", existing_donor)
         if form_data.get("donor_phone") and not donor_doc.phone:
             donor_doc.phone = form_data.donor_phone
-            donor_doc.save(ignore_permissions=True)
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="save",
+                doc=donor_doc,
+                justification=f"Update existing donor {existing_donor} with new phone information from donation form - donor data enhancement for better contact management",
+                required_permissions=["Donor:write"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to update donor information: {'; '.join(result.errors)}", "Donor Update Security"
+                )
+                # Continue with donation processing even if phone update fails
         return donor_doc
     else:
         # Create new donor with explicit donor type fallback
@@ -222,7 +236,21 @@ def get_or_create_donor(form_data):
             }
         )
 
-        donor_doc.insert(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=donor_doc,
+            justification=f"Create new donor record for {form_data.donor_name} ({form_data.donor_email}) from public donation form - donor data creation for donation processing",
+            required_permissions=["Donor:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                f"Failed to create donor record: {'; '.join(result.errors)}", "Donor Creation Security"
+            )
+            frappe.throw(_("Unable to process donation: Failed to create donor record"))
+
+        donor_doc = result.doc
         return donor_doc
 
 
@@ -237,13 +265,29 @@ def create_donation_record(donor, form_data):
     if not donation_type:
         # Create or get default donation type
         if not frappe.db.exists("Donation Type", "General Donation"):
-            frappe.get_doc(
+            donation_type_doc = frappe.get_doc(
                 {
                     "doctype": "Donation Type",
                     "donation_type": "General Donation",
                     "description": "General donation without specific purpose",
                 }
-            ).insert(ignore_permissions=True)
+            )
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="insert",
+                doc=donation_type_doc,
+                justification="Create default 'General Donation' type for donation processing - system setup operation for donation classification",
+                required_permissions=["Donation Type:create"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to create default donation type: {'; '.join(result.errors)}",
+                    "Donation Type Security",
+                )
+                # Use fallback donation type
+                donation_type = "General"
         donation_type = "General Donation"
 
     # Determine purpose and earmarking
@@ -277,7 +321,21 @@ def create_donation_record(donor, form_data):
         donation_doc.anbi_agreement_number = form_data.anbi_agreement_number
         donation_doc.anbi_agreement_date = getdate(form_data.get("anbi_agreement_date", getdate()))
 
-    donation_doc.insert(ignore_permissions=True)
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    result = secure_document_operation(
+        operation="insert",
+        doc=donation_doc,
+        justification=f"Create donation record for {donor.donor_name} amount €{form_data.amount} - public donation processing for {purpose_type} purpose",
+        required_permissions=["Donation:create"],
+    )
+
+    if not result.success:
+        frappe.log_error(
+            f"Failed to create donation record: {'; '.join(result.errors)}", "Donation Creation Security"
+        )
+        frappe.throw(_("Unable to process donation: Failed to create donation record"))
+
+    donation_doc = result.doc
     donation_doc.submit()
     return donation_doc
 
@@ -408,9 +466,11 @@ def get_donation_status(donation_id):
         "status": "Paid" if donation.paid else "Pending",
         "payment_method": donation.payment_method,
         "date": donation.date,
-        "purpose": donation.get_earmarking_summary()
-        if hasattr(donation, "get_earmarking_summary")
-        else donation.donation_purpose_type,
+        "purpose": (
+            donation.get_earmarking_summary()
+            if hasattr(donation, "get_earmarking_summary")
+            else donation.donation_purpose_type
+        ),
     }
 
 
@@ -666,8 +726,19 @@ def create_test_data():
         # Create test Donation Type
         if not frappe.db.exists("Donation Type", "General Donation"):
             doc = frappe.get_doc({"doctype": "Donation Type", "donation_type": "General Donation"})
-            doc.insert(ignore_permissions=True)
-            results["created"].append("Donation Type: General Donation")
+
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="insert",
+                doc=doc,
+                justification="Create test Donation Type 'General Donation' for system testing and donation form functionality",
+                required_permissions=["Donation Type:create"],
+            )
+
+            if result.success:
+                results["created"].append("Donation Type: General Donation")
+            else:
+                results["errors"].append(f"Failed to create Donation Type: {'; '.join(result.errors)}")
 
         # Create test Chapter (skip if complex requirements)
         try:
@@ -688,8 +759,18 @@ def create_test_data():
                                 "postal_codes": "1000-1099",
                             }
                         )
-                        doc.insert(ignore_permissions=True)
-                        results["created"].append("Chapter: Test Chapter")
+                        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                        result = secure_document_operation(
+                            operation="insert",
+                            doc=doc,
+                            justification="Create test Chapter 'Test Chapter' for system testing and chapter functionality",
+                            required_permissions=["Chapter:create"],
+                        )
+
+                        if result.success:
+                            results["created"].append("Chapter: Test Chapter")
+                        else:
+                            results["errors"].append(f"Failed to create Chapter: {'; '.join(result.errors)}")
                 else:
                     results["created"].append("Chapter: Skipped (Region doctype not found)")
         except Exception as e:
@@ -709,8 +790,18 @@ def create_test_data():
                     "donor_category": "Regular Donor",
                 }
             )
-            doc.insert(ignore_permissions=True)
-            results["created"].append("Donor: Test Donor")
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="insert",
+                doc=doc,
+                justification="Create test Donor 'Test Donor' for system testing and donation form functionality",
+                required_permissions=["Donor:create"],
+            )
+
+            if result.success:
+                results["created"].append("Donor: Test Donor")
+            else:
+                results["errors"].append(f"Failed to create Donor: {'; '.join(result.errors)}")
 
         frappe.db.commit()
         results["success"] = True

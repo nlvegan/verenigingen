@@ -463,26 +463,30 @@ def get_unified_security_summary():
 
         # Get SEPA-specific security metrics
         sepa_security = {
-            "mandate_validation_failures": frappe.db.count(
-                "SEPA Audit Log",
-                {
-                    "process_type": "mandate_validation",
-                    "compliance_status": ["in", ["FAILED", "ERROR"]],
-                    "creation": (">=", add_to_date(now(), hours=-24)),
-                },
-            )
-            if frappe.db.exists("DocType", "SEPA Audit Log")
-            else 0,
-            "payment_security_events": frappe.db.count(
-                "SEPA Audit Log",
-                {
-                    "process_type": ["in", ["payment_processing", "batch_creation"]],
-                    "compliance_status": ["in", ["FAILED", "ERROR"]],
-                    "creation": (">=", add_to_date(now(), hours=-24)),
-                },
-            )
-            if frappe.db.exists("DocType", "SEPA Audit Log")
-            else 0,
+            "mandate_validation_failures": (
+                frappe.db.count(
+                    "SEPA Audit Log",
+                    {
+                        "process_type": "mandate_validation",
+                        "compliance_status": ["in", ["FAILED", "ERROR"]],
+                        "creation": (">=", add_to_date(now(), hours=-24)),
+                    },
+                )
+                if frappe.db.exists("DocType", "SEPA Audit Log")
+                else 0
+            ),
+            "payment_security_events": (
+                frappe.db.count(
+                    "SEPA Audit Log",
+                    {
+                        "process_type": ["in", ["payment_processing", "batch_creation"]],
+                        "compliance_status": ["in", ["FAILED", "ERROR"]],
+                        "creation": (">=", add_to_date(now(), hours=-24)),
+                    },
+                )
+                if frappe.db.exists("DocType", "SEPA Audit Log")
+                else 0
+            ),
         }
 
         # Calculate unified security score
@@ -501,11 +505,9 @@ def get_unified_security_summary():
             "api_security": security_metrics,
             "sepa_security": sepa_security,
             "framework_health": framework_health,
-            "overall_status": "HEALTHY"
-            if unified_score >= 80
-            else "DEGRADED"
-            if unified_score >= 60
-            else "CRITICAL",
+            "overall_status": (
+                "HEALTHY" if unified_score >= 80 else "DEGRADED" if unified_score >= 60 else "CRITICAL"
+            ),
             "generated_at": now(),
         }
 
@@ -667,9 +669,11 @@ def get_executive_summary():
             "critical_issues_count": len(exec_summary.get("critical_issues", [])),
             "key_findings_count": len(exec_summary.get("key_findings", [])),
             "priority_actions_count": len(exec_summary.get("priority_actions", [])),
-            "top_critical_issue": exec_summary.get("critical_issues", ["None"])[0]
-            if exec_summary.get("critical_issues")
-            else "None",
+            "top_critical_issue": (
+                exec_summary.get("critical_issues", ["None"])[0]
+                if exec_summary.get("critical_issues")
+                else "None"
+            ),
             "top_priority_action": (
                 insights.get("priority_actions", [{}])[0].get("action", "None")
                 if insights.get("priority_actions")
@@ -925,10 +929,10 @@ def test_phase1_components():
 
             # Create test audit entry
             audit = frappe.new_doc("SEPA Audit Log")
-            audit.action_type = "comprehensive_test"
-            audit.entity_type = "Test"
-            audit.entity_name = "COMP-TEST-001"
-            audit.status = "Success"
+            audit.action = "comprehensive_test"
+            audit.process_type = "Batch Generation"  # Using valid process_type
+            audit.reference_name = "COMP-TEST-001"
+            audit.compliance_status = "Compliant"
             audit.details = json.dumps({"test": "comprehensive_monitoring"})
             audit.insert()
             frappe.db.commit()

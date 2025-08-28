@@ -281,9 +281,9 @@ def get_rollback_status() -> Dict[str, Any]:
             "phase22_files_exist": phase22_files_exist,
             "rollback_available": True,
             "system_health": {"database_accessible": True, "hooks_readable": True},
-            "rollback_recommendation": "Rollback recommended due to code review findings"
-            if phase22_active
-            else "System at baseline",
+            "rollback_recommendation": (
+                "Rollback recommended due to code review findings" if phase22_active else "System at baseline"
+            ),
         }
 
     except Exception as e:

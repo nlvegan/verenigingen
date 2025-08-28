@@ -368,9 +368,9 @@ def get_payment_status(member, membership):
                         "amount": invoice.grand_total,
                         "outstanding": invoice.outstanding_amount,
                         "status": invoice.status,
-                        "is_overdue": getdate(invoice.due_date) < getdate(today())
-                        if invoice.due_date
-                        else False,
+                        "is_overdue": (
+                            getdate(invoice.due_date) < getdate(today()) if invoice.due_date else False
+                        ),
                     }
                 )
                 total_outstanding += invoice.outstanding_amount

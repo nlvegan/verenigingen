@@ -3,7 +3,6 @@ Contact Request Automation
 Handles automated workflows for member contact requests and CRM integration
 """
 
-
 import frappe
 from frappe import _
 from frappe.utils import add_days, today
@@ -444,9 +443,9 @@ def get_contact_request_analytics():
         return {
             "status_distribution": status_counts,
             "request_types": type_counts,
-            "avg_response_time_days": avg_response_time[0].avg_days
-            if avg_response_time and avg_response_time[0].avg_days
-            else 0,
+            "avg_response_time_days": (
+                avg_response_time[0].avg_days if avg_response_time and avg_response_time[0].avg_days else 0
+            ),
             "monthly_volume": monthly_volume,
         }
 

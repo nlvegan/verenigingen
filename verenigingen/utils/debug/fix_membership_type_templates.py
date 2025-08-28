@@ -153,13 +153,17 @@ def create_missing_templates():
                     "billing_frequency": (
                         "Daily"
                         if mt.billing_period == "Daily"
-                        else "Monthly"
-                        if mt.billing_period == "Monthly"
-                        else "Quarterly"
-                        if mt.billing_period == "Quarterly"
-                        else "Semi-Annual"
-                        if mt.billing_period == "Biannual"
-                        else "Annual"  # Default for Annual, Lifetime, Custom
+                        else (
+                            "Monthly"
+                            if mt.billing_period == "Monthly"
+                            else (
+                                "Quarterly"
+                                if mt.billing_period == "Quarterly"
+                                else "Semi-Annual"
+                                if mt.billing_period == "Biannual"
+                                else "Annual"
+                            )
+                        )  # Default for Annual, Lifetime, Custom
                     ),
                     "contribution_mode": "Calculator",
                     "base_multiplier": 1.0,

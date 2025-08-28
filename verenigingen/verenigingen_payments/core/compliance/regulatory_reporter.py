@@ -23,6 +23,8 @@ import frappe
 from frappe import _
 from frappe.utils import get_datetime, get_files_path, now_datetime
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 class ReportType(Enum):
     """Types of regulatory reports"""
@@ -703,7 +705,7 @@ class RegulatoryReporter:
                 f.write(report_data if isinstance(report_data, str) else json.dumps(report_data))
 
         # Create database record
-        frappe.get_doc(
+        audit_log = frappe.get_doc(
             {
                 "doctype": "Mollie Audit Log",
                 "action": "report_generated",
@@ -719,7 +721,22 @@ class RegulatoryReporter:
                 "user": frappe.session.user,
                 "timestamp": now_datetime(),
             }
-        ).insert(ignore_permissions=True)
+        )
+
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=audit_log,
+            justification=f"Log regulatory report generation {report_id} for {report_type.value} - compliance audit trail for financial regulations",
+            required_permissions=["Mollie Audit Log:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                f"Failed to log regulatory report generation: {'; '.join(result.errors)}",
+                "Regulatory Report Security",
+            )
+            # Continue with report generation even if audit logging fails
 
         return report_id
 

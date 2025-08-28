@@ -549,12 +549,14 @@ class SEPAMandateLifecycleManager:
                     "total_amount": float(total_amount),
                     "unique_mandates": unique_mandates,
                     "unique_members": unique_members,
-                    "date_range": {
-                        "from": min(row.batch_date for row in usage_data),
-                        "to": max(row.batch_date for row in usage_data),
-                    }
-                    if usage_data
-                    else None,
+                    "date_range": (
+                        {
+                            "from": min(row.batch_date for row in usage_data),
+                            "to": max(row.batch_date for row in usage_data),
+                        }
+                        if usage_data
+                        else None
+                    ),
                 }
             else:
                 summary = {
@@ -627,9 +629,11 @@ class SEPAMandateLifecycleManager:
                     "total_usage_count": len(usage_history),
                     "last_usage_date": str(usage_history[-1].usage_date) if usage_history else None,
                     "total_amount": float(sum(record.amount for record in usage_history)),
-                    "recommended_sequence_type": validation_result.recommended_sequence_type.value
-                    if validation_result.recommended_sequence_type
-                    else None,
+                    "recommended_sequence_type": (
+                        validation_result.recommended_sequence_type.value
+                        if validation_result.recommended_sequence_type
+                        else None
+                    ),
                 },
                 "validation": {
                     "is_valid": validation_result.is_valid,
@@ -673,9 +677,9 @@ def determine_mandate_sequence_type(mandate_id: str, **transaction_context) -> D
     return {
         "success": result.is_valid,
         "mandate_id": mandate_id,
-        "recommended_sequence_type": result.recommended_sequence_type.value
-        if result.recommended_sequence_type
-        else None,
+        "recommended_sequence_type": (
+            result.recommended_sequence_type.value if result.recommended_sequence_type else None
+        ),
         "usage_type": result.usage_type.value,
         "last_usage_date": str(result.last_usage_date) if result.last_usage_date else None,
         "usage_count": result.usage_count,
@@ -708,9 +712,9 @@ def validate_mandate_for_transaction(mandate_id: str, amount: float, **context) 
         "amount": amount,
         "validation_result": {
             "is_valid": result.is_valid,
-            "recommended_sequence_type": result.recommended_sequence_type.value
-            if result.recommended_sequence_type
-            else None,
+            "recommended_sequence_type": (
+                result.recommended_sequence_type.value if result.recommended_sequence_type else None
+            ),
             "usage_type": result.usage_type.value,
             "warnings": result.warnings,
             "errors": result.errors,
@@ -784,9 +788,9 @@ def bulk_validate_mandates(mandate_ids: str) -> Dict[str, Any]:
 
             results[mandate_id] = {
                 "is_valid": result.is_valid,
-                "recommended_sequence_type": result.recommended_sequence_type.value
-                if result.recommended_sequence_type
-                else None,
+                "recommended_sequence_type": (
+                    result.recommended_sequence_type.value if result.recommended_sequence_type else None
+                ),
                 "usage_type": result.usage_type.value,
                 "errors": result.errors,
                 "warnings": result.warnings,

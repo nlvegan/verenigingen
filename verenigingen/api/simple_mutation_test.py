@@ -139,9 +139,9 @@ def test_iterator_all_mutations():
                     "min_id": min(mutation_ids) if mutation_ids else None,
                     "max_id": max(mutation_ids) if mutation_ids else None,
                     "first_10_ids": sorted(mutation_ids)[:10],
-                    "last_10_ids": sorted(mutation_ids)[-10:]
-                    if len(mutation_ids) >= 10
-                    else sorted(mutation_ids),
+                    "last_10_ids": (
+                        sorted(mutation_ids)[-10:] if len(mutation_ids) >= 10 else sorted(mutation_ids)
+                    ),
                 },
                 "analysis": f"Iterator fetched {len(mutations)} total mutations. If >500, it's working correctly.",
             }

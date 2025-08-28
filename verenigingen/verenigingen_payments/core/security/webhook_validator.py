@@ -245,9 +245,9 @@ class WebhookValidator:
                 "timestamp": frappe.utils.now(),
                 "webhook_id": webhook_id,
                 "validation_status": "success" if success else "failed",
-                "ip_address": frappe.local.request.environ.get("REMOTE_ADDR")
-                if frappe.local.request
-                else None,
+                "ip_address": (
+                    frappe.local.request.environ.get("REMOTE_ADDR") if frappe.local.request else None
+                ),
             }
 
             # Log to file for monitoring

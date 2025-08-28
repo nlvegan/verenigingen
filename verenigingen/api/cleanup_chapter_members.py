@@ -4,6 +4,7 @@ Cleanup utility for orphaned Chapter Member records
 
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
@@ -44,12 +45,24 @@ def cleanup_orphaned_chapter_members():
                         results["orphaned_records_cleaned"] += 1
 
                     # Save the chapter document
-                    chapter_doc.flags.ignore_permissions = True
-                    chapter_doc.save(ignore_permissions=True)
-
-                    frappe.logger().info(
-                        f"Cleaned {len(members_to_remove)} orphaned records from chapter {chapter_name}"
+                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                    result = secure_document_operation(
+                        operation="save",
+                        doc=chapter_doc,
+                        justification=f"Clean orphaned chapter members from {chapter_name} - data integrity maintenance",
+                        required_permissions=["Chapter:write"],
                     )
+
+                    if result.success:
+                        frappe.logger().info(
+                            f"Cleaned {len(members_to_remove)} orphaned records from chapter {chapter_name}"
+                        )
+                    else:
+                        error_msg = (
+                            f"Failed to save chapter {chapter_name} after cleanup: {'; '.join(result.errors)}"
+                        )
+                        results["errors"].append(error_msg)
+                        frappe.logger().error(error_msg)
 
             except Exception as e:
                 error_msg = f"Error processing chapter {chapter_name}: {str(e)}"
@@ -102,12 +115,21 @@ def test_specific_chapter_cleanup(chapter_name):
             for i in reversed(members_to_remove):
                 chapter_doc.remove(chapter_doc.members[i])
 
-            # Save with elevated permissions
-            chapter_doc.flags.ignore_permissions = True
-            chapter_doc.save(ignore_permissions=True)
+            # Save with proper security validation
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            save_result = secure_document_operation(
+                operation="save",
+                doc=chapter_doc,
+                justification=f"Clean orphaned chapter members from {chapter_name} - data integrity maintenance via cleanup API",
+                required_permissions=["Chapter:write"],
+            )
 
-            result["cleanup_performed"] = True
-            result["records_removed"] = len(members_to_remove)
+            if save_result.success:
+                result["cleanup_performed"] = True
+                result["records_removed"] = len(members_to_remove)
+            else:
+                result["cleanup_performed"] = False
+                result["cleanup_error"] = f"Failed to save: {'; '.join(save_result.errors)}"
 
         return result
 

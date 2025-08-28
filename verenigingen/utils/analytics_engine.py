@@ -493,9 +493,9 @@ class AnalyticsEngine:
         return {
             "recurring_errors": dict(sorted(recurring_errors.items(), key=lambda x: x[1], reverse=True)),
             "total_recurring": len(recurring_errors),
-            "most_frequent_error": max(error_frequencies, key=error_frequencies.get)
-            if error_frequencies
-            else None,
+            "most_frequent_error": (
+                max(error_frequencies, key=error_frequencies.get) if error_frequencies else None
+            ),
             "frequency_threshold": recurring_threshold,
         }
 
@@ -548,11 +548,9 @@ class AnalyticsEngine:
             "growth_rate_percentage": growth_rate,
             "first_half_errors": first_half_errors,
             "second_half_errors": second_half_errors,
-            "trend_direction": "increasing"
-            if growth_rate > 5
-            else "decreasing"
-            if growth_rate < -5
-            else "stable",
+            "trend_direction": (
+                "increasing" if growth_rate > 5 else "decreasing" if growth_rate < -5 else "stable"
+            ),
         }
 
     def _generate_error_insights(self, patterns: Dict[str, Any]) -> List[str]:
@@ -1233,9 +1231,9 @@ class AnalyticsEngine:
                 "audit_coverage_percentage": audit_coverage,
                 "total_mandates": total_mandates,
                 "audited_mandates": audited_mandates,
-                "recommendations": []
-                if audit_coverage > 90
-                else ["Implement comprehensive SEPA audit logging"],
+                "recommendations": (
+                    [] if audit_coverage > 90 else ["Implement comprehensive SEPA audit logging"]
+                ),
             }
 
         except Exception as e:

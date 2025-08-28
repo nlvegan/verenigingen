@@ -36,6 +36,7 @@ Dependencies:
 Author: Verenigingen Development Team
 License: MIT
 """
+
 import frappe
 from frappe import _
 from frappe.utils import now_datetime, today
@@ -451,24 +452,30 @@ def debug_mt940_import(import_name):
             "bank_account": import_doc.bank_account,
             "company": import_doc.company,
             "import_status": import_doc.import_status,
-            "import_date": str(import_doc.import_date)
-            if hasattr(import_doc, "import_date") and import_doc.import_date
-            else None,
-            "statement_from_date": str(import_doc.statement_from_date)
-            if hasattr(import_doc, "statement_from_date") and import_doc.statement_from_date
-            else None,
-            "statement_to_date": str(import_doc.statement_to_date)
-            if hasattr(import_doc, "statement_to_date") and import_doc.statement_to_date
-            else None,
-            "descriptive_name": import_doc.descriptive_name
-            if hasattr(import_doc, "descriptive_name")
-            else None,
-            "transactions_created": import_doc.transactions_created
-            if hasattr(import_doc, "transactions_created")
-            else 0,
-            "transactions_skipped": import_doc.transactions_skipped
-            if hasattr(import_doc, "transactions_skipped")
-            else 0,
+            "import_date": (
+                str(import_doc.import_date)
+                if hasattr(import_doc, "import_date") and import_doc.import_date
+                else None
+            ),
+            "statement_from_date": (
+                str(import_doc.statement_from_date)
+                if hasattr(import_doc, "statement_from_date") and import_doc.statement_from_date
+                else None
+            ),
+            "statement_to_date": (
+                str(import_doc.statement_to_date)
+                if hasattr(import_doc, "statement_to_date") and import_doc.statement_to_date
+                else None
+            ),
+            "descriptive_name": (
+                import_doc.descriptive_name if hasattr(import_doc, "descriptive_name") else None
+            ),
+            "transactions_created": (
+                import_doc.transactions_created if hasattr(import_doc, "transactions_created") else 0
+            ),
+            "transactions_skipped": (
+                import_doc.transactions_skipped if hasattr(import_doc, "transactions_skipped") else 0
+            ),
             "import_summary": import_doc.import_summary if hasattr(import_doc, "import_summary") else None,
             "error_log": import_doc.error_log if hasattr(import_doc, "error_log") else None,
             "mt940_file": import_doc.mt940_file if hasattr(import_doc, "mt940_file") else None,
@@ -721,15 +728,19 @@ def reprocess_mt940_import(import_name):
                 "transactions_created": import_doc.transactions_created,
                 "transactions_skipped": import_doc.transactions_skipped,
                 "import_summary": import_doc.import_summary,
-                "descriptive_name": import_doc.descriptive_name
-                if hasattr(import_doc, "descriptive_name")
-                else None,
-                "statement_from_date": str(import_doc.statement_from_date)
-                if hasattr(import_doc, "statement_from_date") and import_doc.statement_from_date
-                else None,
-                "statement_to_date": str(import_doc.statement_to_date)
-                if hasattr(import_doc, "statement_to_date") and import_doc.statement_to_date
-                else None,
+                "descriptive_name": (
+                    import_doc.descriptive_name if hasattr(import_doc, "descriptive_name") else None
+                ),
+                "statement_from_date": (
+                    str(import_doc.statement_from_date)
+                    if hasattr(import_doc, "statement_from_date") and import_doc.statement_from_date
+                    else None
+                ),
+                "statement_to_date": (
+                    str(import_doc.statement_to_date)
+                    if hasattr(import_doc, "statement_to_date") and import_doc.statement_to_date
+                    else None
+                ),
             },
         }
 
@@ -1117,7 +1128,7 @@ def get_chapter_quick_stats(chapter_name):
     if not any(ch["chapter_name"] == chapter_name for ch in user_chapters):
         frappe.throw(_("You don't have access to this chapter"))
 
-    # Member statistics
+    # Member statistics - SQL query result with custom field names (not DocType fields)
     member_stats = frappe.db.sql(
         """
         SELECT

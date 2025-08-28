@@ -145,15 +145,19 @@ class MembershipType(Document):
                 "suggested": template.suggested_amount or 15.0,
                 "maximum": ((template.suggested_amount or 15.0) * 10),
                 "calculator": {
-                    "enabled": template.enable_income_calculator
-                    if hasattr(template, "enable_income_calculator")
-                    else True,
-                    "percentage": template.income_percentage_rate
-                    if hasattr(template, "income_percentage_rate")
-                    else 0.75,
-                    "description": template.calculator_description
-                    if hasattr(template, "calculator_description")
-                    else "",
+                    "enabled": (
+                        template.enable_income_calculator
+                        if hasattr(template, "enable_income_calculator")
+                        else True
+                    ),
+                    "percentage": (
+                        template.income_percentage_rate
+                        if hasattr(template, "income_percentage_rate")
+                        else 0.75
+                    ),
+                    "description": (
+                        template.calculator_description if hasattr(template, "calculator_description") else ""
+                    ),
                 },
                 "tiers": [],
                 "quick_amounts": [],

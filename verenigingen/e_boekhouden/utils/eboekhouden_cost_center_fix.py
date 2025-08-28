@@ -6,6 +6,8 @@ import json
 
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 def migrate_cost_centers_with_hierarchy(settings):
     """
@@ -200,7 +202,21 @@ def create_cost_center_safe(cc_data, company, parent_cc, id_map, has_children=No
         if hasattr(cc, "eboekhouden_id"):
             cc.eboekhouden_id = cc_data.get("id")
 
-        cc.insert(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=cc,
+            justification=f"Create cost center {cc.cost_center_name} for E-Boekhouden integration - Dutch accounting structure",
+            required_permissions=["Cost Center:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                f"Failed to create cost center {cc.cost_center_name}: {'; '.join(result.errors)}"
+            )
+            return {"success": False, "error": f"Failed to create cost center: {'; '.join(result.errors)}"}
+
+        cc = result.doc
 
         return {"success": True, "name": cc.name}
 
@@ -245,7 +261,16 @@ def ensure_root_cost_center(company):
 
         # Try to insert, if it fails due to duplicate, find the existing one
         try:
-            cc.insert(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="insert",
+                doc=cc,
+                justification=f"Create root cost center {cc.cost_center_name} for company {company} - E-Boekhouden hierarchy setup",
+                required_permissions=["Cost Center:create"],
+            )
+
+            if result.success:
+                cc = result.doc
             frappe.logger().info(f"Created root cost center for company: {company}")
             return cc.name
         except frappe.DuplicateEntryError:
@@ -282,7 +307,19 @@ def add_eboekhouden_id_field():
         custom_field.fieldname = "eboekhouden_id"
         custom_field.fieldtype = "Data"
         custom_field.insert_after = "disabled"
-        custom_field.insert(ignore_permissions=True)
+        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+        result = secure_document_operation(
+            operation="insert",
+            doc=custom_field,
+            justification=f"Create E-Boekhouden cost center custom field {custom_field.fieldname} - Dutch accounting integration",
+            required_permissions=["Custom Field:create"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                f"Failed to create custom field {custom_field.fieldname}: {'; '.join(result.errors)}"
+            )
+            return False
         return {"success": True, "message": "Field added"}
     return {"success": True, "message": "Field already exists"}
 

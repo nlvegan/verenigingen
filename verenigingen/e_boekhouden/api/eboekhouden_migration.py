@@ -127,9 +127,11 @@ def test_single_mutation(mutation_id):
             "enhanced_features": {
                 "line_items": len(doc.items) if doc and hasattr(doc, "items") else 0,
                 "tax_lines": len(doc.taxes) if doc and hasattr(doc, "taxes") else 0,
-                "has_payment_terms": bool(doc.payment_terms_template)
-                if doc and hasattr(doc, "payment_terms_template")
-                else False,
+                "has_payment_terms": (
+                    bool(doc.payment_terms_template)
+                    if doc and hasattr(doc, "payment_terms_template")
+                    else False
+                ),
             },
         }
     except Exception as e:

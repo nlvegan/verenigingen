@@ -82,17 +82,19 @@ class BatchPerformanceOptimizer:
                     "active_sepa_mandate": row["mandate_name"],  # Reference to active mandate if exists
                     "status": row["member_status"],
                 },
-                "mandate_data": {
-                    "name": row["mandate_name"],
-                    "iban": row["mandate_iban"],
-                    "mandate_id": row["mandate_id"],
-                    "status": row["mandate_status"],
-                    "sign_date": row["sign_date"],
-                    "bic": row["mandate_bic"],
-                    "account_holder_name": row["account_holder_name"],
-                }
-                if row["mandate_name"]
-                else None,
+                "mandate_data": (
+                    {
+                        "name": row["mandate_name"],
+                        "iban": row["mandate_iban"],
+                        "mandate_id": row["mandate_id"],
+                        "status": row["mandate_status"],
+                        "sign_date": row["sign_date"],
+                        "bic": row["mandate_bic"],
+                        "account_holder_name": row["account_holder_name"],
+                    }
+                    if row["mandate_name"]
+                    else None
+                ),
             }
 
         # Update performance stats
@@ -176,13 +178,15 @@ class BatchPerformanceOptimizer:
                 "coverage_start_date": row["custom_coverage_start_date"],
                 "coverage_end_date": row["custom_coverage_end_date"],
                 "member": row["member_reference"],
-                "membership": {
-                    "name": row["membership_name"],
-                    "membership_type": row["membership_type"],
-                    "status": row["membership_status"],
-                }
-                if row["membership_name"]
-                else None,
+                "membership": (
+                    {
+                        "name": row["membership_name"],
+                        "membership_type": row["membership_type"],
+                        "status": row["membership_status"],
+                    }
+                    if row["membership_name"]
+                    else None
+                ),
             }
 
         execution_time = (time.time() - start_time) * 1000
@@ -360,9 +364,11 @@ class BatchPerformanceOptimizer:
                 "hits": cache_info.hits,
                 "misses": cache_info.misses,
                 "cache_size": cache_info.currsize,
-                "hit_rate": cache_info.hits / (cache_info.hits + cache_info.misses)
-                if (cache_info.hits + cache_info.misses) > 0
-                else 0,
+                "hit_rate": (
+                    cache_info.hits / (cache_info.hits + cache_info.misses)
+                    if (cache_info.hits + cache_info.misses) > 0
+                    else 0
+                ),
             },
             "query_stats": self.query_stats,
             "optimization_efficiency": {

@@ -315,9 +315,20 @@ def cancel_mandate(self, reason=None, cancellation_date=None):
     else:
         self.notes = cancellation_note
 
-    # Save the mandate
-    self.flags.ignore_permissions = True
-    self.save()
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    result = secure_document_operation(
+        operation="save",
+        doc=self,
+        justification=f"Cancel SEPA mandate {self.mandate_id} with reason: {reason or 'No reason provided'} - critical financial mandate management",
+        required_permissions=["SEPA Mandate:write"],
+    )
+
+    if not result.success:
+        frappe.log_error(
+            f"Failed to cancel SEPA mandate {self.mandate_id}: {'; '.join(result.errors)}",
+            "SEPA Mandate Security",
+        )
+        raise Exception(f"Failed to cancel SEPA mandate: {'; '.join(result.errors)}")
 
     frappe.logger().info(f"Cancelled SEPA mandate {self.mandate_id}")
 

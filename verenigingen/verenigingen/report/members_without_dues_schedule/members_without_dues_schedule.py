@@ -268,11 +268,9 @@ def get_report_summary(data, filters=None):
             "value": total_overdue_amount,
             "label": _("Estimated Overdue Amount"),
             "datatype": "Currency",
-            "color": "red"
-            if total_overdue_amount > 100
-            else "orange"
-            if total_overdue_amount > 0
-            else "green",
+            "color": (
+                "red" if total_overdue_amount > 100 else "orange" if total_overdue_amount > 0 else "green"
+            ),
         },
     ]
 

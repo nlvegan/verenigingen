@@ -658,6 +658,16 @@ class ContextAnalyzer:
                                     return value_node.args[0].value  # DocType name
                             elif func_name in ['get_all', 'get_list']:
                                 return 'frappe_api_result'
+                    
+                    # Check for secure_document_operation calls
+                    elif (isinstance(value_node.func, ast.Name) and 
+                          value_node.func.id == 'secure_document_operation'):
+                        return 'SecureOperationResult'
+                    
+                    # Check for date/datetime function calls
+                    elif (isinstance(value_node.func, ast.Name) and 
+                          value_node.func.id in ['getdate', 'datetime', 'today']):
+                        return 'date_object'
                 
                 return 'unknown'
         
@@ -959,7 +969,21 @@ class ValidationEngine:
         if obj_name in line_context.frappe_api_calls:
             confidence *= 0.3  # Low confidence for API results
         
+        # Skip SecureOperationResult objects and date objects
+        if obj_type in ['SecureOperationResult', 'date_object']:
+            return None
+        
         if field_name in line_context.property_methods:
+            return None
+        
+        # Check for known cross-file property methods
+        known_properties = {
+            'Chapter': {'member_manager', 'board_manager', 'communication_manager', 'volunteer_integration_manager'},
+            'Member': {'full_display_name', 'is_active', 'current_membership'},
+            'Volunteer': {'active_teams', 'skills_summary'},
+        }
+        
+        if obj_type in known_properties and field_name in known_properties[obj_type]:
             return None
         
         if obj_name in line_context.child_table_iterations:
@@ -988,7 +1012,8 @@ class ValidationEngine:
         # Check direct assignments first
         if obj_name in line_context.variable_assignments:
             obj_type = line_context.variable_assignments[obj_name]
-            if obj_type in self.schema_reader.doctypes:
+            # Return the assigned type directly - it could be a DocType or special type like SecureOperationResult or date_object
+            if obj_type in self.schema_reader.doctypes or obj_type in ['SecureOperationResult', 'date_object']:
                 return obj_type
         
         # Check child table iterations

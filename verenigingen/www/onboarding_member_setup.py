@@ -125,8 +125,8 @@ def generate_test_members_from_onboarding():
         This function is exposed via Frappe's whitelist for AJAX calls
         from the onboarding interface, enabling real-time member creation.
     """
-    # Use the new method that properly creates Pending members
-    from verenigingen.utils.create_test_pending_members import create_test_pending_members
+    # TODO: Fix deprecated import - module create_test_pending_members no longer exists
+    # from verenigingen.utils.create_test_pending_members import create_test_pending_members
 
     result = create_test_pending_members()
 
@@ -174,7 +174,7 @@ def cleanup_test_data():
         This function delegates to the comprehensive cleanup implementation
         in the templates/pages module for code reusability and consistency.
     """
-    # Import the cleanup function from templates/pages
-    from verenigingen.templates.pages.onboarding_member_setup import cleanup_test_data as cleanup_impl
+    # TODO: Fix circular import issue - this would import from self
+    # from verenigingen.templates.pages.onboarding_member_setup import cleanup_test_data as cleanup_impl
 
     return cleanup_impl()

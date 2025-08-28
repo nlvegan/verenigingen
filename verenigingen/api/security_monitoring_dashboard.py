@@ -76,9 +76,9 @@ def _get_security_summary(cutoff_time):
             "total_security_events": total_events,
             "failed_operations": failed_events,
             "critical_alerts": critical_events,
-            "success_rate": round((total_events - failed_events) / total_events * 100, 1)
-            if total_events > 0
-            else 100,
+            "success_rate": (
+                round((total_events - failed_events) / total_events * 100, 1) if total_events > 0 else 100
+            ),
             "security_score": _calculate_security_score(audit_entries),
         }
 
