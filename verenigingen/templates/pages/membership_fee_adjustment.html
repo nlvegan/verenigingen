@@ -106,7 +106,7 @@
                         <ul class="text-sm mt-2 space-y-1">
                             <li>• {{ _("You can increase your fee up to") }} {{ maximum_fee_multiplier }}x {{ _("the base amount without approval") }}</li>
                             <li>• {{ _("Fee decreases always require approval") }}</li>
-                            <li>• {{ _("Adjustments allowed: {0} remaining of 2 per year").format(adjustments_remaining) }}</li>
+                            <li>• {{ _("Adjustments allowed: {0} remaining of {1} per year").format(adjustments_remaining, settings.max_adjustments_per_year) }}</li>
                         </ul>
                     </div>
                 </div>

@@ -63,10 +63,25 @@ class ExpenseMixin:
                     # Remove entries from the end
                     self.volunteer_expenses = self.volunteer_expenses[:20]
 
-            # Save with minimal logging
+            # Save with minimal logging using secure operations
             self.flags.ignore_version = True
             self.flags.ignore_links = True
-            self.save()
+
+            # Use secure operations for saving member expense history
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            result = secure_document_operation(
+                operation="save",
+                doc=self,
+                justification=f"Update expense history for member {self.name} - expense claim {expense_claim_name}",
+                required_permissions=["Member:write"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to save member expense history: {'; '.join(result.errors)}",
+                    "Expense History Save Error",
+                )
 
         except Exception as e:
             frappe.log_error(
@@ -124,10 +139,25 @@ class ExpenseMixin:
                     row.payment_status = "Paid"
                     break
 
-            # Save with minimal logging
+            # Save with minimal logging using secure operations
             self.flags.ignore_version = True
             self.flags.ignore_links = True
-            self.save()
+
+            # Use secure operations for saving member expense payment update
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            result = secure_document_operation(
+                operation="save",
+                doc=self,
+                justification=f"Update expense payment status for member {self.name} - expense claim {expense_claim_name}",
+                required_permissions=["Member:write"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to save member expense payment update: {'; '.join(result.errors)}",
+                    "Expense Payment Update Save Error",
+                )
 
         except Exception as e:
             frappe.log_error(

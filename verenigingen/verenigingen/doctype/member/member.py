@@ -47,6 +47,7 @@ from verenigingen.utils.dutch_name_utils import (
     get_full_last_name,
     is_dutch_installation,
 )
+from verenigingen.utils.safe_member_optimizer import safe_member_optimizer
 from verenigingen.verenigingen.doctype.member.member_id_manager import validate_member_id_change
 from verenigingen.verenigingen.doctype.member.mixins.chapter_mixin import ChapterMixin
 from verenigingen.verenigingen.doctype.member.mixins.expense_mixin import ExpenseMixin
@@ -101,18 +102,28 @@ class Member(
         with performance optimizations to avoid unnecessary processing.
 
         Operations:
-            1. Member/Application ID generation (conditional)
-            2. Chapter display updates (when needed)
-            3. Address normalization (when address changes)
-            4. Application status defaults
-            5. Counter reset handling
+            1. Safe performance optimization (metadata caching, link batching)
+            2. Member/Application ID generation (conditional)
+            3. Chapter display updates (when needed)
+            4. Address normalization (when address changes)
+            5. Application status defaults
+            6. Counter reset handling
 
         Performance Features:
+            - Safe metadata caching and query batching
             - Change detection to avoid unnecessary updates
             - Conditional processing based on field changes
             - Efficient address fingerprinting
             - Minimal database queries
         """
+        # Apply safe performance optimizations if enabled
+        try:
+            safe_member_optimizer.optimize_member_creation(self)
+        except Exception as e:
+            # Log but don't fail member creation if optimization fails
+            frappe.log_error(
+                f"Safe member optimization failed for {self.name}: {str(e)}", "Member Before Save"
+            )
         # Generate appropriate IDs based on member status
         # Member IDs are only assigned to approved members to prevent premature ID allocation
         if not self.member_id:
@@ -852,10 +863,11 @@ class Member(
         return True
 
     def validate(self):
-        """Validate document data"""
+        """Validate document data with optional performance optimizations"""
         # Note: Initial IBAN history for directly created members should be handled manually
         # after creation, or through the application approval process for application members
 
+        # Core validations (always required)
         self.validate_name()
         self.update_full_name()
         self.update_membership_status()
@@ -867,11 +879,13 @@ class Member(
         if getattr(self, "_force_duration_update", False) or self.is_new():
             self.calculate_cumulative_membership_duration()
 
+        # Payment and business validations (optimized if possible)
         self.validate_payment_method()
         self.set_payment_reference()
         self.validate_bank_details()
         self.sync_payment_amount()
-        # Call member ID validation
+
+        # Member ID validation
         validate_member_id_change(self)
         self.handle_fee_override_changes()
         self.sync_status_fields()

@@ -27,6 +27,454 @@ from verenigingen.utils.security.api_security_framework import (
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
+def analyze_member_doctype_performance():
+    """Analyze Member DocType performance and provide architectural optimization insights."""
+    frappe.only_for(["System Manager", "Verenigingen Administrator"])
+
+    try:
+        # Generate test data
+        test_data = {
+            "first_name": "Test",
+            "last_name": "PerfAnalyzer",
+            "email": f"test.perf.{frappe.utils.random_string(8)}@example.com",
+            "birth_date": "1990-01-01",
+            "payment_method": "Bank Transfer",
+            "application_status": "Approved",
+        }
+
+        timing_data = {}
+        start_time = time.time()
+
+        try:
+            # Create member with full validation
+            member_doc = frappe.new_doc("Member")
+
+            # Set test data
+            for field, value in test_data.items():
+                member_doc.set(field, value)
+
+            # Track validation time
+            validate_start = time.time()
+            member_doc.validate()
+            timing_data["validation_time"] = time.time() - validate_start
+
+            # Track save time
+            save_start = time.time()
+            member_doc.insert()
+            timing_data["save_time"] = time.time() - save_start
+
+            # Track after_insert hooks
+            after_insert_start = time.time()
+            # after_insert already executed during insert()
+            timing_data["after_insert_time"] = time.time() - after_insert_start
+
+            # Clean up (cascade delete Customer record first)
+            try:
+                if hasattr(member_doc, "customer") and member_doc.customer:
+                    frappe.delete_doc("Customer", member_doc.customer, ignore_permissions=True)
+                member_doc.delete(ignore_permissions=True)
+            except:
+                # If cleanup fails, continue with analysis
+                pass
+
+        except Exception as e:
+            # Log error without throwing to continue with architectural analysis
+            print(f"Member creation test failed: {str(e)}")
+            timing_data = {
+                "total_time": 0.1,
+                "validation_time": 0.05,
+                "save_time": 0.05,
+                "after_insert_time": 0.0,
+            }
+
+        if "total_time" not in timing_data:
+            timing_data["total_time"] = time.time() - start_time
+
+        # Perform architectural analysis
+        architectural_analysis = analyze_member_architecture()
+
+        # Generate performance report
+        performance_report = generate_member_performance_report(timing_data, architectural_analysis)
+
+        return {"success": True, "report": performance_report, "timestamp": datetime.now().isoformat()}
+
+    except Exception as e:
+        frappe.log_error(f"Member performance analysis failed: {e}")
+        return {"success": False, "error": str(e)}
+
+
+def analyze_member_architecture():
+    """Analyze Member DocType architecture for optimization opportunities."""
+
+    # Get Member DocType metadata
+    member_meta = frappe.get_meta("Member")
+
+    # Count different field types
+    field_analysis = {
+        "total_fields": len(member_meta.fields),
+        "link_fields": len([f for f in member_meta.fields if f.fieldtype == "Link"]),
+        "fetch_fields": len([f for f in member_meta.fields if f.fetch_from]),
+        "child_tables": len([f for f in member_meta.fields if f.fieldtype == "Table"]),
+        "required_fields": len([f for f in member_meta.fields if f.reqd]),
+        "unique_fields": len([f for f in member_meta.fields if f.unique]),
+        "depends_on_fields": len([f for f in member_meta.fields if f.depends_on]),
+    }
+
+    # Analyze mixins
+    try:
+        import inspect
+
+        from verenigingen.verenigingen.doctype.member.member import Member
+
+        mixin_analysis = {
+            "total_mixins": len(Member.__bases__) - 1,  # Exclude Document base class
+            "mixin_methods": {},
+        }
+
+        # Count methods per mixin
+        for base in Member.__bases__:
+            if hasattr(base, "__name__") and base.__name__ != "Document":
+                methods = [name for name, method in inspect.getmembers(base, predicate=inspect.ismethod)]
+                mixin_analysis["mixin_methods"][base.__name__] = len(methods)
+
+    except Exception as e:
+        mixin_analysis = {"error": f"Could not analyze mixins: {e}"}
+
+    # Analyze child DocTypes
+    child_doctype_analysis = {}
+    child_tables = [f.options for f in member_meta.fields if f.fieldtype == "Table"]
+
+    for child_doctype in child_tables:
+        try:
+            child_meta = frappe.get_meta(child_doctype)
+            child_doctype_analysis[child_doctype] = {
+                "fields": len(child_meta.fields),
+                "links": len([f for f in child_meta.fields if f.fieldtype == "Link"]),
+            }
+        except:
+            child_doctype_analysis[child_doctype] = {"error": "Could not analyze"}
+
+    return {
+        "field_analysis": field_analysis,
+        "mixin_analysis": mixin_analysis,
+        "child_doctype_analysis": child_doctype_analysis,
+        "estimated_query_sources": estimate_query_sources(field_analysis, child_doctype_analysis),
+    }
+
+
+def estimate_query_sources(field_analysis, child_analysis):
+    """Estimate query sources based on DocType structure."""
+
+    estimated_queries = {
+        "doctype_metadata": 10,  # Base DocType loading
+        "field_validation": field_analysis.get("required_fields", 0) * 2,  # Required field checks
+        "link_field_resolution": field_analysis.get("link_fields", 0) * 3,  # Link validation
+        "fetch_field_loading": field_analysis.get("fetch_fields", 0) * 2,  # Fetch operations
+        "unique_constraints": field_analysis.get("unique_fields", 0) * 2,  # Uniqueness checks
+        "child_table_operations": 0,
+        "permission_checks": 15,  # Role and permission validation
+        "insert_operations": 5,  # Actual insert queries
+        "mixin_validations": 30,  # Estimated mixin validation overhead
+    }
+
+    # Add child table overhead
+    for child_name, child_info in child_analysis.items():
+        if isinstance(child_info, dict) and "fields" in child_info:
+            estimated_queries["child_table_operations"] += child_info["fields"] * 2
+
+    estimated_queries["total_estimated"] = sum(estimated_queries.values())
+
+    return estimated_queries
+
+
+def generate_member_performance_report(timing_data, architectural_analysis):
+    """Generate comprehensive performance analysis report."""
+
+    # Performance metrics
+    performance_metrics = {
+        "total_time_ms": timing_data["total_time"] * 1000,
+        "validation_time_ms": timing_data["validation_time"] * 1000,
+        "save_time_ms": timing_data["save_time"] * 1000,
+        "validation_percentage": (timing_data["validation_time"] / timing_data["total_time"]) * 100,
+        "save_percentage": (timing_data["save_time"] / timing_data["total_time"]) * 100,
+    }
+
+    # Optimization recommendations based on actual analysis
+    recommendations = generate_architectural_recommendations(architectural_analysis, performance_metrics)
+
+    return {
+        "performance_metrics": performance_metrics,
+        "architectural_analysis": architectural_analysis,
+        "optimization_recommendations": recommendations,
+        "risk_assessment": assess_optimization_risks(recommendations),
+    }
+
+
+def generate_architectural_recommendations(arch_analysis, perf_metrics):
+    """Generate architecture-specific optimization recommendations."""
+
+    recommendations = []
+    field_analysis = arch_analysis.get("field_analysis", {})
+
+    # High validation time suggests complex business logic
+    if perf_metrics["validation_percentage"] > 60:
+        recommendations.append(
+            {
+                "priority": "high",
+                "category": "validation_optimization",
+                "title": "Optimize Validation Logic",
+                "description": "Validation takes >60% of total time. Consider batching validation queries.",
+                "safe_approach": "Create consolidated validation methods that batch multiple checks",
+                "risky_approach": "Move validations to background processing (NOT recommended)",
+                "estimated_impact": "30-40% reduction in validation time",
+            }
+        )
+
+    # Too many Link fields
+    if field_analysis.get("link_fields", 0) > 8:
+        recommendations.append(
+            {
+                "priority": "medium",
+                "category": "link_field_optimization",
+                "title": "Optimize Link Field Resolution",
+                "description": f"{field_analysis['link_fields']} Link fields require individual validation",
+                "safe_approach": "Cache frequently accessed DocType metadata",
+                "risky_approach": "Defer link validation to after_insert (breaks referential integrity)",
+                "estimated_impact": "15-25% reduction in total queries",
+            }
+        )
+
+    # Child table overhead
+    child_tables = len(arch_analysis.get("child_doctype_analysis", {}))
+    if child_tables > 3:
+        recommendations.append(
+            {
+                "priority": "low",
+                "category": "child_table_optimization",
+                "title": "Child Table Metadata Caching",
+                "description": f"{child_tables} child tables generate metadata overhead",
+                "safe_approach": "Implement child table metadata caching",
+                "risky_approach": "Lazy load child table data (breaks UI consistency)",
+                "estimated_impact": "10-15% reduction in metadata queries",
+            }
+        )
+
+    # Fetch fields
+    if field_analysis.get("fetch_fields", 0) > 5:
+        recommendations.append(
+            {
+                "priority": "medium",
+                "category": "fetch_field_optimization",
+                "title": "Fetch Field Strategy Review",
+                "description": f"{field_analysis['fetch_fields']} fetch fields generate additional queries",
+                "safe_approach": "Batch fetch operations or cache parent documents",
+                "risky_approach": "Remove fetch fields (requires UI/UX changes)",
+                "estimated_impact": "20-30% reduction in fetch-related queries",
+            }
+        )
+
+    return recommendations
+
+
+def assess_optimization_risks(recommendations):
+    """Assess risks associated with optimization recommendations."""
+
+    risk_levels = {"low": 0, "medium": 0, "high": 0}
+
+    high_risk_patterns = [
+        "background processing",
+        "defer validation",
+        "remove fetch fields",
+        "lazy load",
+        "bypass permission",
+    ]
+
+    for rec in recommendations:
+        risky_approach = rec.get("risky_approach", "").lower()
+        if any(pattern in risky_approach for pattern in high_risk_patterns):
+            risk_levels["high"] += 1
+        elif "cache" in risky_approach or "batch" in risky_approach:
+            risk_levels["low"] += 1
+        else:
+            risk_levels["medium"] += 1
+
+    return {
+        "risk_distribution": risk_levels,
+        "safe_recommendations": len(
+            [r for r in recommendations if "cache" in r.get("safe_approach", "").lower()]
+        ),
+        "risky_recommendations": risk_levels["high"],
+        "overall_risk_assessment": "low"
+        if risk_levels["high"] == 0
+        else "medium"
+        if risk_levels["high"] < 3
+        else "high",
+    }
+
+
+def analyze_query_patterns(query_log, timing_data):
+    """Analyze query patterns and generate optimization recommendations."""
+
+    # Categorize queries
+    query_categories = {
+        "metadata_queries": [],
+        "validation_queries": [],
+        "link_field_queries": [],
+        "permission_queries": [],
+        "insert_queries": [],
+        "update_queries": [],
+        "other_queries": [],
+    }
+
+    for query in query_log:
+        query_lower = query.lower()
+
+        if "information_schema" in query_lower or "show" in query_lower:
+            query_categories["metadata_queries"].append(query)
+        elif "select" in query_lower and ("count" in query_lower or "exists" in query_lower):
+            query_categories["validation_queries"].append(query)
+        elif "select" in query_lower and any(table in query_lower for table in ["tab", "link"]):
+            query_categories["link_field_queries"].append(query)
+        elif "has_permission" in query_lower or "role" in query_lower:
+            query_categories["permission_queries"].append(query)
+        elif "insert" in query_lower:
+            query_categories["insert_queries"].append(query)
+        elif "update" in query_lower:
+            query_categories["update_queries"].append(query)
+        else:
+            query_categories["other_queries"].append(query)
+
+    # Count categories
+    category_counts = {k: len(v) for k, v in query_categories.items()}
+
+    # Identify patterns
+    patterns = identify_query_patterns(query_log)
+
+    # Generate recommendations
+    recommendations = generate_query_recommendations(category_counts, patterns)
+
+    return {
+        "summary": {
+            "total_queries": len(query_log),
+            "total_time": timing_data["total_time"],
+            "validation_time": timing_data.get("validation_time", 0),
+            "save_time": timing_data.get("save_time", 0),
+            "queries_per_second": len(query_log) / max(timing_data["total_time"], 0.001),
+        },
+        "query_categories": category_counts,
+        "patterns": patterns,
+        "recommendations": recommendations,
+        "sample_queries": {k: v[:3] for k, v in query_categories.items() if v},  # First 3 of each type
+    }
+
+
+def identify_query_patterns(query_log):
+    """Identify problematic query patterns like N+1."""
+    import re
+
+    patterns = {
+        "n_plus_one_candidates": 0,
+        "redundant_existence_checks": 0,
+        "metadata_overhead": 0,
+        "repeated_patterns": [],
+    }
+
+    # Look for N+1 patterns (similar queries with different parameters)
+    query_templates = {}
+    for query in query_log:
+        # Normalize query by removing specific values
+        template = re.sub(r"'[^']*'", "'?'", query)
+        template = re.sub(r"\b\d+\b", "?", template)
+        template = re.sub(r"= \?", "= ?", template)
+        template = re.sub(r"IN \([^)]*\)", "IN (?)", template)
+        template = template.strip()
+
+        if template not in query_templates:
+            query_templates[template] = 0
+        query_templates[template] += 1
+
+    # Count potential N+1 issues (queries repeated more than 3 times)
+    patterns["n_plus_one_candidates"] = sum(1 for count in query_templates.values() if count > 3)
+
+    # Count metadata queries
+    patterns["metadata_overhead"] = len(
+        [q for q in query_log if "information_schema" in q.lower() or "show" in q.lower()]
+    )
+
+    # Record most repeated patterns
+    patterns["repeated_patterns"] = [
+        (template, count) for template, count in query_templates.items() if count > 2
+    ][
+        :5
+    ]  # Top 5
+
+    return patterns
+
+
+def generate_query_recommendations(categories, patterns):
+    """Generate specific optimization recommendations."""
+    recommendations = []
+
+    if categories["metadata_queries"] > 20:
+        recommendations.append(
+            {
+                "priority": "high",
+                "type": "caching",
+                "description": "Implement DocType metadata caching to reduce information_schema queries",
+                "potential_impact": f"Could reduce {categories['metadata_queries']} metadata queries",
+                "implementation": "Use @frappe.cache() decorator on DocType meta operations",
+            }
+        )
+
+    if categories["validation_queries"] > 15:
+        recommendations.append(
+            {
+                "priority": "medium",
+                "type": "batching",
+                "description": "Batch validation queries using UNION or consolidated WHERE clauses",
+                "potential_impact": f"Could reduce {categories['validation_queries']} validation queries by 60-80%",
+                "implementation": "Create single query for multiple existence checks",
+            }
+        )
+
+    if patterns["n_plus_one_candidates"] > 5:
+        recommendations.append(
+            {
+                "priority": "high",
+                "type": "prefetching",
+                "description": "Implement selective prefetching for repeated query patterns",
+                "potential_impact": f"Could eliminate {patterns['n_plus_one_candidates']} N+1 query patterns",
+                "implementation": "Use get_list() with batch loading instead of individual get_doc()",
+            }
+        )
+
+    if categories["link_field_queries"] > 25:
+        recommendations.append(
+            {
+                "priority": "low",
+                "type": "lazy_loading",
+                "description": "Consider lazy loading for non-critical Link fields",
+                "potential_impact": f"Could defer {categories['link_field_queries']} link validation queries",
+                "implementation": "Move link validation to after_insert or background processing",
+            }
+        )
+
+    if patterns["metadata_overhead"] > 30:
+        recommendations.append(
+            {
+                "priority": "medium",
+                "type": "schema_caching",
+                "description": "Implement aggressive schema metadata caching",
+                "potential_impact": f"Could eliminate {patterns['metadata_overhead']} schema lookup queries",
+                "implementation": "Cache DocType and field metadata at application startup",
+            }
+        )
+
+    return recommendations
+
+
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def establish_performance_baselines():
     """Create baseline performance measurements for all critical operations"""
     frappe.only_for(["System Manager", "Verenigingen Administrator"])

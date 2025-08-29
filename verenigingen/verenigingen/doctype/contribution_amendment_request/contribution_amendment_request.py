@@ -128,7 +128,7 @@ class ContributionAmendmentRequest(Document):
 
         # Get settings
         settings = frappe.get_single("Verenigingen Settings")
-        max_adjustments = getattr(settings, "max_adjustments_per_year", 2)
+        max_adjustments = getattr(settings, "max_fee_adjustments_per_year", 2)
 
         # Count adjustments in past 365 days
         date_365_days_ago = add_days(today(), -365)
@@ -206,8 +206,13 @@ class ContributionAmendmentRequest(Document):
                 )
 
                 if active_dues_schedule and active_dues_schedule.next_invoice_date:
-                    # Set to next billing period
-                    self.effective_date = active_dues_schedule.next_invoice_date
+                    # Set to next billing period, but not in the past
+                    next_invoice_date = getdate(active_dues_schedule.next_invoice_date)
+                    if next_invoice_date >= today():
+                        self.effective_date = next_invoice_date
+                    else:
+                        # Next invoice date is in the past, use today + 30 days
+                        self.effective_date = add_days(today(), 30)
                 else:
                     # Fallback to next month
                     self.effective_date = add_days(today(), 30)

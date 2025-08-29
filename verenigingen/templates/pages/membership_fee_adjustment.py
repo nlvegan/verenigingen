@@ -125,7 +125,9 @@ def get_context(context):
         },
     )
     context.adjustments_past_year = adjustments_past_year
-    context.adjustments_remaining = max(0, 2 - adjustments_past_year)
+    context.adjustments_remaining = max(
+        0, settings.get("max_adjustments_per_year", 2) - adjustments_past_year
+    )
 
     # Get pending fee adjustment requests
     pending_fee_requests = frappe.get_all(
@@ -245,7 +247,7 @@ def get_fee_adjustment_settings():
         settings = frappe.get_single("Verenigingen Settings")
         return {
             "enable_member_fee_adjustment": getattr(settings, "enable_member_fee_adjustment", 1),
-            "max_adjustments_per_year": getattr(settings, "max_adjustments_per_year", 3),
+            "max_adjustments_per_year": getattr(settings, "max_fee_adjustments_per_year", 2),
             "require_approval_for_increases": getattr(settings, "require_approval_for_increases", 0),
             "require_approval_for_decreases": getattr(settings, "require_approval_for_decreases", 1),
             "adjustment_reason_required": getattr(settings, "adjustment_reason_required", 1),
@@ -254,7 +256,7 @@ def get_fee_adjustment_settings():
         # Default settings if Verenigingen Settings doesn't exist or lacks fields
         return {
             "enable_member_fee_adjustment": 1,
-            "max_adjustments_per_year": 3,
+            "max_adjustments_per_year": 2,
             "require_approval_for_increases": 0,
             "require_approval_for_decreases": 1,
             "adjustment_reason_required": 1,
@@ -278,10 +280,12 @@ def can_member_adjust_fee(member, settings):
         },
     )
 
-    # Allow 2 adjustments in 365 days by default
-    max_adjustments = 2
+    # Get max adjustments from settings
+    max_adjustments = settings.get("max_adjustments_per_year", 2)
     if adjustments_past_year >= max_adjustments:
-        return False, _("You have reached the maximum number of fee adjustments (2) in the past 365 days")
+        return False, _(
+            "You have reached the maximum number of fee adjustments ({0}) in the past 365 days"
+        ).format(max_adjustments)
 
     return True, ""
 
@@ -321,11 +325,8 @@ def submit_fee_adjustment_request(new_amount, reason=""):
     # Get maximum fee multiplier from settings
     verenigingen_settings = frappe.get_single("Verenigingen Settings")
     maximum_fee_multiplier = getattr(verenigingen_settings, "maximum_fee_multiplier", 10)
-    # Use template suggested amount as base for calculating maximum
-    if not membership_type.dues_schedule_template:
-        frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
-    template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-    maximum_fee = (template.suggested_amount or 0) * maximum_fee_multiplier
+    # Use minimum fee as base for calculating maximum (more logical than template suggested amount)
+    maximum_fee = minimum_fee * maximum_fee_multiplier
 
     if new_amount < minimum_fee:
         frappe.throw(
@@ -403,7 +404,7 @@ def submit_fee_adjustment_request(new_amount, reason=""):
         result = secure_document_operation(
             operation="insert",
             doc=amendment,
-            justification=f"Member {member_name} self-service fee adjustment request from €{current_amount} to €{new_amount} - financial member portal functionality",
+            justification=f"Member {member} self-service fee adjustment request from €{current_amount} to €{new_amount} - financial member portal functionality",
             required_permissions=["Contribution Amendment Request:create"],
         )
 
@@ -418,7 +419,7 @@ def submit_fee_adjustment_request(new_amount, reason=""):
                 "permission_error": True,
             }
 
-        amendment = result.doc
+        amendment = frappe.get_doc("Contribution Amendment Request", result.doc_name)
     except frappe.ValidationError as e:
         # Handle validation errors more gracefully
         error_msg = str(e)
@@ -769,7 +770,7 @@ def submit_membership_type_change_request(new_membership_type, reason=""):
                 "permission_error": True,
             }
 
-        amendment = result.doc
+        amendment = frappe.get_doc("Contribution Amendment Request", result.doc_name)
 
         # Send notification to membership committee
         send_membership_type_change_notification(member_doc, old_type_doc, new_type_doc, reason)

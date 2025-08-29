@@ -877,7 +877,7 @@ def submit_expense(expense_data):
                 "error": f"Failed to create expense claim: {'; '.join(expense_result.errors)}",
             }
 
-        expense_claim = expense_result.doc
+        expense_claim = frappe.get_doc("Expense Claim", expense_result.doc_name)
         frappe.logger().info(f"Successfully created expense claim draft: {expense_claim.name}")
 
         # Add receipt attachment if provided - attach to the ERPNext Expense Claim
@@ -1014,6 +1014,19 @@ def submit_expense(expense_data):
 
         # Keep as Draft status to match ERPNext Expense Claim workflow
         # Will be updated when the ERPNext expense claim is approved and submitted
+
+        # Update member expense history synchronously to avoid background job issues
+        try:
+            member_doc = frappe.get_doc("Member", volunteer.member)
+            if hasattr(member_doc, "add_expense_to_history"):
+                member_doc.add_expense_to_history(expense_claim.name)
+                frappe.logger().info(f"Successfully updated expense history for member {volunteer.member}")
+        except Exception as e:
+            # Log error but don't fail the expense submission
+            frappe.log_error(
+                f"Failed to update member expense history for {expense_claim.name}: {str(e)}",
+                "Member Expense History Update Error",
+            )
 
         # Prepare success message
         success_message = _("Expense claim saved successfully and awaiting approval")

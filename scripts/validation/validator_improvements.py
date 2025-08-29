@@ -21,12 +21,23 @@ import re
 from typing import Dict, List, Set, Optional, Tuple, Any, Union
 from pathlib import Path
 import json
+import sys
+
+# Import the advanced context analyzer
+sys.path.insert(0, str(Path(__file__).parent))
+from advanced_context_analyzer import AdvancedContextAnalyzer
 
 
 class FalsePositiveFilter:
     """Filters out common false positive patterns from validation results"""
     
     def __init__(self):
+        # Initialize advanced context analyzer
+        self.context_analyzer = AdvancedContextAnalyzer()
+        
+        # Cache for file contexts to avoid re-analyzing the same file
+        self._file_context_cache = {}
+        
         # SQL result patterns that are commonly misidentified
         self.sql_result_patterns = [
             r'frappe\.db\.sql\(',
@@ -69,6 +80,21 @@ class FalsePositiveFilter:
                 return True
                 
         return False
+    
+    def is_advanced_sql_result_context(self, file_path: str, obj_name: str, field_name: str, line_number: int) -> Tuple[bool, float]:
+        """Advanced SQL context detection using variable tracking"""
+        # Get or create file context cache
+        if file_path not in self._file_context_cache:
+            self._file_context_cache[file_path] = self.context_analyzer.analyze_file_context(file_path)
+        
+        file_contexts = self._file_context_cache[file_path]
+        
+        # Check if this is SQL result access
+        is_sql, confidence = self.context_analyzer.is_sql_result_access(
+            obj_name, field_name, line_number, file_contexts
+        )
+        
+        return is_sql, confidence
     
     def is_defensive_programming(self, line_content: str, broader_context: List[str]) -> bool:
         """Check if field access is within defensive programming pattern"""
@@ -140,7 +166,18 @@ class ValidationResultEnhancer:
             field_name = issue.get('field_name', '')
             doctype = issue.get('doctype', '')
             
-            # Read file context for analysis
+            # Extract object name from context for advanced analysis
+            obj_name = self._extract_object_name_from_context(context)
+            
+            # Advanced SQL context detection first (highest precision)
+            if obj_name:
+                is_sql, sql_confidence = self.false_positive_filter.is_advanced_sql_result_context(
+                    file_path, obj_name, field_name, line_number
+                )
+                if is_sql and sql_confidence >= 0.7:  # High confidence threshold
+                    continue  # Skip SQL result false positives
+            
+            # Read file context for other analysis
             try:
                 with open(file_path, 'r') as f:
                     lines = f.readlines()
@@ -151,9 +188,9 @@ class ValidationResultEnhancer:
                 broader_context = [line.strip() for line in lines[start:end]]
                 line_content = lines[line_number - 1].strip() if line_number <= len(lines) else ''
                 
-                # Apply false positive filters
+                # Apply remaining false positive filters
                 if self.false_positive_filter.is_sql_result_context(line_content, broader_context):
-                    continue  # Skip SQL result false positives
+                    continue  # Skip basic SQL result patterns
                     
                 if self.false_positive_filter.is_defensive_programming(line_content, broader_context):
                     continue  # Skip defensive programming false positives
@@ -168,6 +205,37 @@ class ValidationResultEnhancer:
             filtered_issues.append(issue)
         
         return filtered_issues
+    
+    def _extract_object_name_from_context(self, context: str) -> Optional[str]:
+        """Extract object name from validation context string"""
+        # Handle different context formats:
+        # Simple: "member_stats.total" 
+        # Complex: '"total": frappe.utils.cint(member_stats.total or 0),'
+        
+        # First, look for the specific field access pattern we're validating
+        # This handles cases where the context contains multiple object.field patterns
+        patterns = [
+            # Look for variable_name.field_name that's not frappe.* or similar
+            r'(\w+)\.(\w+)(?!\()',  # Exclude function calls like frappe.utils()
+            # Look for patterns like member_stats.field
+            r'(\w+_\w+)\.(\w+)',
+            # Look for SQL aggregation field patterns
+            r'(\w+(?:_stats|_data|_result|_info))\.(\w+)',
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, context)
+            for obj_name, field_name in matches:
+                # Skip common Frappe patterns that aren't variable references
+                if obj_name.lower() not in ['frappe', 'utils', 'db', 'msgprint', 'throw']:
+                    return obj_name
+        
+        # Fallback: simple pattern match
+        match = re.search(r'(\w+)\.(\w+)', context)
+        if match and match.group(1).lower() not in ['frappe', 'utils', 'db']:
+            return match.group(1)
+            
+        return None
     
     def filter_select_field_issues(self, issues: List[Dict]) -> List[Dict]:
         """Filter out false positive select field issues"""

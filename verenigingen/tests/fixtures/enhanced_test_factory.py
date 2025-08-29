@@ -17,7 +17,7 @@ Core Features
 - **Field Safety**: Validates all field references against DocType schemas before document creation
 - **Deterministic Generation**: Uses configurable seeds for reproducible test scenarios
 - **Faker Integration**: Generates realistic but clearly marked test data using the Faker library
-- **No Security Bypass**: Uses proper Frappe permissions instead of ignore_permissions=True
+- **Security Compliant**: Uses proper Frappe permissions throughout all operations
 - **Auto-cleanup**: Inherits FrappeTestCase's automatic database rollback capabilities
 
 Architecture
@@ -1106,6 +1106,91 @@ class EnhancedTestCase(FrappeTestCase):
                 frappe.set_user(original_user)
         
         return user_context()
+    
+    def create_test_member_optimized(self, **kwargs):
+        """Create test member using performance optimizations
+        
+        Uses the MemberPerformanceOptimizer to create members with
+        reduced query count while maintaining all business rule validation.
+        
+        Args:
+            **kwargs: Member data (same as create_test_member)
+            
+        Returns:
+            Member document
+        """
+        from verenigingen.utils.member_performance_optimizer import member_optimizer
+        
+        # Apply same validations as regular create_test_member
+        if 'birth_date' in kwargs:
+            from frappe.utils import get_datetime, now_datetime
+            birth_date = get_datetime(kwargs['birth_date'])
+            age = (now_datetime().date() - birth_date.date()).days // 365
+            if age < 16 and kwargs.get('create_volunteer', False):
+                from verenigingen.tests.fixtures.enhanced_test_factory import BusinessRuleError
+                raise BusinessRuleError("Volunteers must be 16 or older")
+        
+        # Use enhanced default data from factory
+        member_data = self.factory._get_enhanced_member_defaults()
+        member_data.update(kwargs)
+        
+        # Field validation
+        self.factory._validate_fields('Member', member_data)
+        
+        # Use optimized creation
+        member_name = member_optimizer.create_member_optimized(member_data)
+        return frappe.get_doc("Member", member_name)
+    
+    def assertQueryCountOptimized(self, max_queries, optimization_level="standard"):
+        """Performance assertion with optimization recommendations
+        
+        Args:
+            max_queries: Maximum expected query count
+            optimization_level: Expected optimization level
+                - "excellent": <50 queries
+                - "good": 50-200 queries  
+                - "standard": 200-500 queries
+                - "baseline": >500 queries (needs optimization)
+                
+        Returns:
+            Context manager for query count monitoring with suggestions
+        """
+        def decorator(func):
+            def wrapper(*args, **kwargs):
+                import time
+                start_time = time.time()
+                
+                with self.assertQueryCount(max_queries) as context:
+                    result = func(*args, **kwargs)
+                
+                duration = time.time() - start_time
+                actual_queries = len(context.queries)
+                
+                # Provide optimization feedback
+                if optimization_level == "excellent" and actual_queries > 50:
+                    print(f"⚠️ Performance concern: {actual_queries}/{max_queries} queries used")
+                    print("Consider implementing:")
+                    print("- DocType metadata caching")
+                    print("- Bulk operations for related records")
+                    print("- Background processing for non-critical hooks")
+                elif optimization_level == "good" and actual_queries > 200:
+                    print(f"⚠️ Performance warning: {actual_queries}/{max_queries} queries used")
+                    print("Consider:")
+                    print("- JOIN queries instead of N+1 patterns")
+                    print("- Caching frequently accessed data")
+                elif actual_queries < max_queries * 0.5:
+                    print(f"🚀 Excellent performance: {actual_queries}/{max_queries} queries used")
+                    print(f"⏱️  Execution time: {duration:.3f}s")
+                elif actual_queries < max_queries * 0.8:
+                    print(f"✅ Good performance: {actual_queries}/{max_queries} queries used")
+                    print(f"⏱️  Execution time: {duration:.3f}s")
+                else:
+                    print(f"🐌 Performance needs attention: {actual_queries}/{max_queries} queries used")
+                    print(f"⏱️  Execution time: {duration:.3f}s")
+                
+                return result
+            return wrapper
+        return decorator
 
 
 # Convenience decorators

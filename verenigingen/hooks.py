@@ -427,9 +427,9 @@ doc_events = {
     },
     "Expense Claim": {
         "validate": "verenigingen.utils.account_group_validation_hooks.validate_expense_claim",
-        "after_save": "verenigingen.events.expense_events.emit_expense_claim_updated",
-        "on_update_after_submit": "verenigingen.events.expense_events.emit_expense_claim_approved",
-        "on_cancel": "verenigingen.events.expense_events.emit_expense_claim_cancelled",
+        "after_save": "verenigingen.events.delayed_expense_hooks.schedule_member_expense_history_update",
+        "on_update_after_submit": "verenigingen.events.delayed_expense_hooks.schedule_member_expense_history_update",
+        "on_cancel": "verenigingen.events.delayed_expense_hooks.schedule_member_expense_history_removal",
     },
     "Purchase Invoice": {
         "validate": "verenigingen.utils.account_group_validation_hooks.validate_purchase_invoice"

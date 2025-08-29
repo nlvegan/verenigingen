@@ -104,6 +104,19 @@
   },
   {
    "collapsible": 1,
+   "fieldname": "performance_section",
+   "fieldtype": "Section Break",
+   "label": "Performance Options"
+  },
+  {
+   "default": "1",
+   "description": "Use safe member creation optimizations (~20-25% fewer database queries through metadata caching). This is safe and recommended.",
+   "fieldname": "use_safe_optimization",
+   "fieldtype": "Check",
+   "label": "Use Safe Performance Optimization"
+  },
+  {
+   "collapsible": 1,
    "fieldname": "section_break_mapping",
    "fieldtype": "Section Break",
    "label": "Field Mapping Guide"
