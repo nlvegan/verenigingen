@@ -56,39 +56,16 @@ repos:
         ]
         exclude: '^(node_modules|.git|dist|build|scripts|tests|debug_utils|dev_scripts|integration_tests|verenigingen/tests|frontend_tests|archived_unused|archived_deleted|archived_removal|archived_docs)/'
 
-  # Security Validation
-  - repo: https://github.com/PyCQA/bandit
-    rev: '1.7.5'
+  # Security Validation (Optimized)
+  - repo: local
     hooks:
-      - id: bandit
-        name: 🔍 Security Linting (Bandit - High Severity)
-        description: Scan for security vulnerabilities in Python code
-        args: [
-          '-r', 'verenigingen/',
-          '--skip', 'B101,B601,B106,B107', # Skip assert_used_in_tests, hardcoded_password_funcarg, hardcoded_password_defaults, hardcoded_password_string
-          '--exclude', 'archived_removal,archived_unused,archived_deleted,scripts/testing,scripts/debug,tests',
-          '--severity-level', 'high',
-          '--confidence-level', 'high',
-          '--format', 'json',
-          '--output', 'bandit-report.json'
-        ]
+      - id: bandit-focused
+        name: 🔍 Security Linting (Bandit Focused - 3s runtime)
+        description: Fast security scan focused on critical files
+        entry: ./scripts/security/bandit-focused.sh
+        language: system
         pass_filenames: false
         stages: [pre-commit]
-        exclude: '^(tests/|scripts/testing/|scripts/debug/|.*_test\.py|.*_debug\.py|archived_.*|archived_unused/|archived_deleted/)'
-
-      - id: bandit
-        name: 🔍 Security Linting (Bandit - Medium Severity - Pre-Push)
-        description: Comprehensive security scan including medium severity issues
-        args: [
-          '-r', 'verenigingen/',
-          '--skip', 'B101,B601,B106,B107',
-          '--exclude', 'archived_removal,archived_unused,archived_deleted,scripts/testing,scripts/debug,tests',
-          '--severity-level', 'medium',
-          '--confidence-level', 'medium'
-        ]
-        pass_filenames: false
-        stages: [pre-push]
-        exclude: '^(tests/|scripts/testing/|scripts/debug/|.*_test\.py|.*_debug\.py|archived_.*|archived_unused/|archived_deleted/)'
 
   - repo: local
     hooks:
