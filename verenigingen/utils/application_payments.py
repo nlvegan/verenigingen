@@ -118,7 +118,8 @@ def create_membership_invoice_with_amount(member, membership, amount):
         )
         frappe.throw(_("Failed to create membership invoice. Please contact support."))
 
-    invoice = result.doc
+    # Get the created invoice document using the doc_name from SecureOperationResult
+    invoice = frappe.get_doc("Sales Invoice", result.doc_name)
     invoice.submit()
 
     return invoice
@@ -133,9 +134,11 @@ def create_customer_for_member(member):
     if not frappe.has_permission("Contact", "create"):
         frappe.throw(_("Insufficient permissions to create Contact"))
 
-    # Use transaction management for data integrity
+    # Use transaction management for data integrity (skip if in test environment)
+    needs_transaction = not frappe.flags.in_test
     try:
-        frappe.db.begin()
+        if needs_transaction:
+            frappe.db.begin()
 
         # Create Customer record (without direct email/mobile - these come from Contact via fetch_from)
         customer = frappe.get_doc(
@@ -154,13 +157,15 @@ def create_customer_for_member(member):
         # Create Contact record using existing Dutch name utilities
         contact = create_contact_for_customer(customer, member)
         if not contact:
-            frappe.db.rollback()
+            if needs_transaction:
+                frappe.db.rollback()
             frappe.throw(_("Failed to create Contact for Customer"))
 
         # Set primary contact - ERPNext will automatically populate email_id/mobile_no via fetch_from
         customer.db_set("customer_primary_contact", contact.name, update_modified=False)
 
-        frappe.db.commit()
+        if needs_transaction:
+            frappe.db.commit()
         frappe.logger().info(
             f"Created Customer {customer.name} with Contact {contact.name} for Member {member.name}"
         )
@@ -168,7 +173,8 @@ def create_customer_for_member(member):
         return customer
 
     except Exception as e:
-        frappe.db.rollback()
+        if needs_transaction:
+            frappe.db.rollback()
         frappe.log_error(
             f"Failed to create Customer for Member {member.name}: {str(e)}", "Customer Creation Error"
         )

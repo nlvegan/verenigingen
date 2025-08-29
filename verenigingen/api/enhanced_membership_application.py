@@ -119,9 +119,9 @@ def submit_enhanced_application():
 
     except Exception as e:
         # Log the full error for debugging while returning user-friendly message
-        frappe.log_error(
-            f"Enhanced membership application error: {str(e)}", "Enhanced Membership Application"
-        )
+        from verenigingen.utils.safe_error_logging import safe_log_error
+
+        safe_log_error("Enhanced Membership Application", f"Enhanced membership application error: {str(e)}")
         return {
             "success": False,
             "error": _("An error occurred while processing your application. Please try again."),
@@ -368,7 +368,9 @@ def process_enhanced_application(data):
         }
 
     except Exception as e:
-        frappe.log_error(f"Error processing enhanced application: {str(e)}")
+        from verenigingen.utils.safe_error_logging import safe_log_error
+
+        safe_log_error("Application processing failed", f"Error processing enhanced application: {str(e)}")
         return {"success": False, "error": _("Failed to process application. Please contact support.")}
 
 
@@ -779,7 +781,9 @@ def create_first_payment_invoice(application, dues_schedule, data):
         return invoice
 
     except Exception as e:
-        frappe.log_error(f"Error creating first payment invoice: {str(e)}")
+        from verenigingen.utils.safe_error_logging import safe_log_error
+
+        safe_log_error("Invoice creation failed", f"Error creating first payment invoice: {str(e)}")
         return None
 
 

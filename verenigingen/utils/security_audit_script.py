@@ -433,7 +433,15 @@ if __name__ == "__main__":
     print(f"Found {results.get('summary', {}).get('total_issues_found', 0)} security issues")
 
     # Generate and save report
+    import os
+    import tempfile
+
     report = generate_security_report()
-    with open("/tmp/verenigingen_security_audit.md", "w") as f:
+
+    # Use secure temporary file creation
+    with tempfile.NamedTemporaryFile(mode="w", suffix="_security_audit.md", delete=False) as f:
         f.write(report)
-    print("Report saved to /tmp/verenigingen_security_audit.md")
+        temp_path = f.name
+
+    print(f"Report saved to {temp_path}")
+    print("Note: Remove the report file manually when no longer needed for security.")

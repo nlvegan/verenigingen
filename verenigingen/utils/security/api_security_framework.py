@@ -188,6 +188,22 @@ class APISecurityFramework:
         except (RuntimeError, AttributeError):
             return False
 
+    def _is_api_key_authentication(self) -> bool:
+        """Check if the current request is using API key authentication"""
+        try:
+            auth_header = frappe.get_request_header("Authorization")
+            frappe.logger("verenigingen.api_security").info(
+                f"API key detection: Authorization header = {auth_header[:20] + '...' if auth_header else 'None'}"
+            )
+            if auth_header and auth_header.startswith("token "):
+                frappe.logger("verenigingen.api_security").info("API key authentication detected")
+                return True
+            frappe.logger("verenigingen.api_security").info("No API key authentication detected")
+            return False
+        except (RuntimeError, AttributeError) as e:
+            frappe.logger("verenigingen.api_security").info(f"API key detection error: {e}")
+            return False
+
     def get_security_profile(self, level: SecurityLevel) -> SecurityProfile:
         """Get security profile for given level"""
         return self.SECURITY_PROFILES.get(level, self.SECURITY_PROFILES[SecurityLevel.MEDIUM])
@@ -261,12 +277,27 @@ class APISecurityFramework:
             return True
 
         method = frappe.request.method
+
+        # DEBUG: Add detailed logging for method detection issues
+        debug_info = {
+            "detected_method": method,
+            "allowed_methods": list(profile.allowed_methods),
+            "request_headers": dict(frappe.request.headers) if hasattr(frappe.request, "headers") else {},
+            "content_type": getattr(frappe.request, "content_type", "N/A"),
+            "has_form_data": bool(getattr(frappe.request, "form", None)),
+            "has_json_data": bool(getattr(frappe.request, "json", None)),
+            "request_url": getattr(frappe.request, "url", "N/A"),
+        }
+
+        frappe.logger("verenigingen.api_security").info(f"HTTP Method Validation Debug: {debug_info}")
+
         if method not in profile.allowed_methods:
-            raise VPermissionError(
-                _("Method {0} not allowed. Allowed methods: {1}").format(
-                    method, ", ".join(profile.allowed_methods)
-                )
+            # Enhanced error with debug info
+            error_msg = _("Method {0} not allowed. Allowed methods: {1}. Debug: {2}").format(
+                method, ", ".join(profile.allowed_methods), debug_info
             )
+            frappe.logger("verenigingen.api_security").error(f"Method validation failed: {error_msg}")
+            raise VPermissionError(error_msg)
 
         return True
 
@@ -303,6 +334,14 @@ class APISecurityFramework:
 
         # Skip for test environment detection
         if hasattr(frappe, "flags") and getattr(frappe.flags, "in_test", False):
+            return True
+
+        # Skip CSRF validation for API key authentication
+        # API keys are not vulnerable to CSRF attacks since they're not browser-based
+        if self._is_api_key_authentication():
+            frappe.logger("verenigingen.api_security").info(
+                "Skipping CSRF validation for API key authentication"
+            )
             return True
 
         # Skip for specific functions that have compatibility issues

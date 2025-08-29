@@ -16,21 +16,20 @@ def get_context(context):
         frappe.throw(_("Please login to access this page"), frappe.PermissionError)
 
     # Check if we have pending update data
-    with open("/tmp/bank_details_debug.log", "a") as f:
-        f.write(f"CONFIRM PAGE CALLED - User: {frappe.session.user} - Time: {frappe.utils.now()}\n")
+    frappe.logger().debug(
+        f"Bank details confirm page - User: {frappe.session.user} - Time: {frappe.utils.now()}"
+    )
 
     update_data = frappe.session.get("bank_details_update")
 
-    with open("/tmp/bank_details_debug.log", "a") as f:
-        f.write(f"CONFIRM: Session data retrieved: {update_data}\n")
+    frappe.logger().debug(f"Bank details confirm - Session data retrieved: {update_data}")
 
     frappe.logger().info("=== BANK DETAILS CONFIRM ===")
     frappe.logger().info(f"User: {frappe.session.user}")
     frappe.logger().info(f"Update data: {update_data}")
 
     if not update_data:
-        with open("/tmp/bank_details_debug.log", "a") as f:
-            f.write("CONFIRM: No update data found, redirecting\n")
+        frappe.logger().debug("Bank details confirm - No update data found, redirecting")
         frappe.logger().info("No update data found, redirecting to bank_details")
         frappe.local.response["type"] = "redirect"
         frappe.local.response["location"] = "/bank_details"

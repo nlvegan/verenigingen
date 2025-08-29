@@ -6,10 +6,10 @@ Tests complete end-to-end workflows with the new membership dues system
 
 import frappe
 from frappe.utils import today, add_months, add_days, flt
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestEnhancedMembershipLifecycle(VereningingenTestCase):
+class TestEnhancedMembershipLifecycle(EnhancedTestCase):
     """Test complete enhanced membership lifecycle workflows"""
 
     def setUp(self):
@@ -355,7 +355,7 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         # Create multiple members with dues schedules
         members_and_schedules = []
         for i in range(3):
-            member = self.create_test_member(f"bulk{i}@example.com")
+            member = self.create_test_member(email=f"bulk{i}@example.com")
             schedule = self.create_calculator_dues_schedule(member)
             members_and_schedules.append((member, schedule))
 

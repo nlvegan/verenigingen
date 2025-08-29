@@ -94,7 +94,7 @@ from verenigingen.utils.validation.api_validators import (
 )
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 @critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 @performance_monitor(threshold_ms=2000)

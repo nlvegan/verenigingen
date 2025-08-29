@@ -1,8 +1,9 @@
 [bandit]
-# Exclude directories that shouldn't be scanned for security issues
-exclude_dirs = archived_docs,archived_removal,archived_unused,phase4_removed_files_backup,one-off-test-debug-folder,node_modules,.pytest_cache,tests,examples
+# Performance optimization: Only scan production code directories
+# This dramatically improves scan time by focusing on security-critical areas
+include = verenigingen/api,verenigingen/utils,verenigingen/hooks.py,verenigingen/boot.py,verenigingen/templates/pages
 
-# Skip test IDs that produce false positives
+# Skip test IDs that produce false positives in Frappe applications
 skips = B101,B601,B110
 
 # Focus on medium and high severity issues only

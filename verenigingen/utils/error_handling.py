@@ -154,10 +154,34 @@ def log_error(error: Exception, context: Dict[str, Any] = None, module: str = No
         "site": frappe.local.site if frappe.local else "Unknown",
         "error_type": type(error).__name__,
         "error_message": str(error),
-        **(context or {}),
     }
 
-    # Log the error with full context
+    # Add context without overwriting logging's reserved fields
+    if context:
+        for key, value in context.items():
+            # Avoid reserved logging fields that could cause conflicts
+            if key not in [
+                "name",
+                "msg",
+                "args",
+                "levelname",
+                "levelno",
+                "pathname",
+                "filename",
+                "module",
+                "lineno",
+                "funcName",
+                "created",
+                "msecs",
+                "relativeCreated",
+                "thread",
+                "threadName",
+                "processName",
+                "process",
+            ]:
+                error_context[f"ctx_{key}"] = value
+
+    # Log the error with safe context
     logger.error(f"Error in {module}: {str(error)}", extra=error_context, exc_info=True)
 
     # Also create a Frappe Error Log entry for tracking

@@ -79,11 +79,11 @@ def analyze_missed_payments():
                 # Check if any of the sample entries have this field populated
                 sample_names = [pe["name"] for pe in sample_pes]
                 if sample_names:
-                    placeholder = ",".join(["%s"] * len(sample_names))
-                    custom_field_data = frappe.db.sql(
-                        f"SELECT name, eboekhouden_mutation_nr FROM `tabPayment Entry` WHERE name IN ({placeholder})",
-                        sample_names,
-                        as_dict=True,
+                    # Use frappe.db.get_list for safer query construction
+                    custom_field_data = frappe.db.get_list(
+                        "Payment Entry",
+                        filters={"name": ["in", sample_names]},
+                        fields=["name", "eboekhouden_mutation_nr"],
                     )
                     custom_field_analysis["sample_custom_field_data"] = custom_field_data
         except Exception as e:

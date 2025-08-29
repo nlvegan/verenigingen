@@ -23,6 +23,11 @@ from unittest.mock import patch
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
+class AuthenticationError(Exception):
+    """Raised when HTTP test authentication fails"""
+    pass
+
+
 class TestSuspensionAPIHTTPIntegration(EnhancedTestCase):
     """
     HTTP integration tests for suspension/termination APIs
@@ -76,11 +81,11 @@ class TestSuspensionAPIHTTPIntegration(EnhancedTestCase):
         self.member_with_user.user = self.test_user.name
         self.member_with_user.save()
         
-    def _authenticate_session(self, username="Administrator", password="admin"):
+    def _authenticate_session(self, username="fjdh+1@disroot.org", password="2Y52}B62hBu=&YB"):
         """Create authenticated session with CSRF tokens for production-like testing"""
         session = requests.Session()
 
-        # Handle test environment authentication gracefully
+        # Require proper authentication for HTTP integration testing
         try:
             login_response = session.post(f"{self.site_url}/api/method/login", data={
                 "usr": username, "pwd": password
@@ -91,10 +96,20 @@ class TestSuspensionAPIHTTPIntegration(EnhancedTestCase):
                 csrf_token = self._get_csrf_token(session)
                 if csrf_token:
                     session.headers.update({'X-Frappe-CSRF-Token': csrf_token})
-
-            return session
-        except Exception:
-            return session  # Return for testing security responses
+                return session
+            else:
+                raise AuthenticationError(
+                    f"Authentication failed for user {username}. "
+                    f"Status: {login_response.status_code}. "
+                    f"Response: {login_response.text[:200]}"
+                )
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            raise AuthenticationError(
+                f"Authentication setup failed: {str(e)}. "
+                f"Check test environment configuration."
+            )
 
     def _get_csrf_token(self, session):
         """Extract CSRF token from session cookies"""
@@ -195,11 +210,8 @@ class TestSuspensionAPIHTTPIntegration(EnhancedTestCase):
                 }
             )
         
-        # Verify real HTTP security framework
-        if response.status_code in [200, 401, 403]:
-            print("✅ HTTP security framework validated")
-            
-            if response.status_code == 200:
+        # This test validates API functionality - require successful execution
+        if response.status_code == 200:
                 try:
                     result = response.json()
                     if result.get("message", {}).get("success"):
@@ -217,8 +229,18 @@ class TestSuspensionAPIHTTPIntegration(EnhancedTestCase):
                         print("✅ Real business validation executed")
                 except Exception as e:
                     print(f"✅ Real unsuspension workflow executed: {e}")
-            else:
-                print(f"✅ Access control validated (HTTP {response.status_code})")
+        elif response.status_code in [401, 403]:
+            self.fail(
+                f"API call failed with security error {response.status_code}. "
+                f"This indicates authentication or permission issues. "
+                f"Response: {response.text[:200]}. "
+                f"Create separate security test if needed."
+            )
+        else:
+            self.fail(
+                f"Unexpected API response status {response.status_code}. "
+                f"Response: {response.text[:200]}"
+            )
         
         session.close()
 

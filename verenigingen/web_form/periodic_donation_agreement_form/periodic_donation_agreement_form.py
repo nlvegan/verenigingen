@@ -205,12 +205,12 @@ def create_sepa_mandate_for_agreement(donor, iban, account_holder):
 
 def generate_mandate_id():
     """Generate unique SEPA mandate ID"""
-    import random
+    import secrets
     import string
 
     prefix = "MNDT"
     timestamp = frappe.utils.now_datetime().strftime("%Y%m%d%H%M%S")
-    random_suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
+    random_suffix = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(4))
 
     return f"{prefix}-{timestamp}-{random_suffix}"
 

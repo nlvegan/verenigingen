@@ -327,11 +327,53 @@ class EnhancedTestDataFactory:
             try:
                 frappe.set_user(test_admin.email)
                 member.insert()
+                
+                # Create Customer and Address for invoice generation (infrastructure setup)
+                if not member.customer:
+                    member.create_customer()
+                    member.reload()  # Reload to get customer field
+                
+                # Create Customer Address if missing (required for invoice generation)
+                if member.customer and not self._has_customer_address(member.customer):
+                    self._create_customer_address(member)
+                
                 return member
             finally:
                 frappe.set_user(current_user)
         except Exception as e:
             raise Exception(f"Failed to create member: {e}")
+    
+    def _has_customer_address(self, customer_name):
+        """Check if customer has an address"""
+        # Check via Address DocType if any address links to this customer
+        addresses = frappe.get_all("Address", 
+            fields=["name"],
+            filters=[
+                ["Dynamic Link", "link_doctype", "=", "Customer"],
+                ["Dynamic Link", "link_name", "=", customer_name]
+            ],
+            limit=1
+        )
+        return len(addresses) > 0
+    
+    def _create_customer_address(self, member):
+        """Create Customer Address for invoice generation (infrastructure setup only)"""
+        address = frappe.new_doc("Address")
+        address.address_title = f"{member.full_name} - Test Address"
+        address.address_line1 = member.address_line1 if hasattr(member, 'address_line1') and member.address_line1 else "Test Street 123"
+        address.city = member.city if hasattr(member, 'city') and member.city else "Amsterdam"  
+        address.postal_code = member.postal_code if hasattr(member, 'postal_code') and member.postal_code else "1234 AB"
+        address.country = "Netherlands"
+        address.is_primary_address = 1
+        
+        # Link to customer
+        address.append("links", {
+            "link_doctype": "Customer",
+            "link_name": member.customer
+        })
+        
+        address.insert()
+        return address
             
     def create_volunteer(self, member_name: str = None, **kwargs):
         """Create volunteer with business rule and field validation"""
@@ -1011,10 +1053,17 @@ class EnhancedTestCase(FrappeTestCase):
     def setUp(self):
         super().setUp()
         self.factory = EnhancedTestDataFactory(seed=12345, use_faker=True)
+        # Add test run ID for unique test data identification  
+        import time
+        self.test_run_id = str(int(time.time()))
         
     def create_test_member(self, **kwargs):
         """Convenience method for creating test members"""
         return self.factory.create_member(**kwargs)
+        
+    def create_chapter(self, **kwargs):
+        """Convenience method for creating chapters"""
+        return self.factory.create_chapter(**kwargs)
         
     def create_test_volunteer(self, member_name=None, **kwargs):
         """Convenience method for creating test volunteers"""
@@ -1059,6 +1108,124 @@ class EnhancedTestCase(FrappeTestCase):
     def ensure_test_admin_user(self):
         """Convenience method for ensuring test admin user exists"""
         return self.factory.ensure_test_admin_user()
+    
+    def create_test_membership(self, member_name, membership_type_name, **kwargs):
+        """Create a membership record for testing"""
+        membership_data = {
+            "doctype": "Membership",
+            "member": member_name,
+            "membership_type": membership_type_name,
+            "start_date": kwargs.get("start_date", frappe.utils.today()),
+            "status": kwargs.get("status", "Active"),
+            **kwargs
+        }
+        
+        membership = frappe.get_doc(membership_data)
+        membership.insert()
+        membership.submit()
+        return membership
+    
+    def create_test_sales_invoice(self, customer, **kwargs):
+        """Create a sales invoice record for testing"""
+        # Ensure test item exists
+        item_code = kwargs.get("item_code", "Test Service")
+        self._ensure_test_item(item_code)
+        
+        # Get company currency to avoid exchange rate issues
+        company_currency = frappe.db.get_value("Company", kwargs.get("company", "Vereniging Veganisme"), "default_currency") or "EUR"
+        
+        invoice_data = {
+            "doctype": "Sales Invoice",
+            "customer": customer,
+            "posting_date": kwargs.get("posting_date", frappe.utils.today()),
+            "due_date": kwargs.get("due_date", frappe.utils.add_days(frappe.utils.today(), 30)),
+            "company": kwargs.get("company", "Vereniging Veganisme"),
+            "currency": company_currency,  # Use company currency
+            "conversion_rate": 1.0,  # No conversion needed for same currency
+            "custom_is_membership_invoice": kwargs.get("is_membership_invoice", 0),
+            "custom_membership": kwargs.get("membership"),
+        }
+        
+        # Add invoice item
+        invoice_data["items"] = [{
+            "item_code": item_code,
+            "qty": 1,
+            "rate": kwargs.get("grand_total", 100.0),
+            "amount": kwargs.get("grand_total", 100.0),
+            "uom": "Unit"  # Add UOM to prevent errors
+        }]
+        
+        invoice = frappe.get_doc(invoice_data)
+        invoice.insert()
+        
+        # Update grand_total and outstanding_amount manually for testing
+        # This simulates overdue invoices with specific amounts
+        if "grand_total" in kwargs or "outstanding_amount" in kwargs:
+            invoice.db_set("grand_total", kwargs.get("grand_total", invoice.grand_total))
+            invoice.db_set("outstanding_amount", kwargs.get("outstanding_amount", invoice.outstanding_amount))
+        
+        # Submit if status is not Draft
+        if kwargs.get("status") != "Draft":
+            invoice.submit()
+            # Update status after submit if needed (for Overdue status)
+            if kwargs.get("status") == "Overdue":
+                invoice.db_set("status", "Overdue")
+                
+        return invoice
+    
+    def _ensure_test_item(self, item_code):
+        """Ensure test item exists for invoices"""
+        if not frappe.db.exists("Item", item_code):
+            item = frappe.get_doc({
+                "doctype": "Item",
+                "item_code": item_code,
+                "item_name": item_code,
+                "item_group": "All Item Groups",
+                "is_sales_item": 1,
+                "is_service_item": 1,
+                "include_item_in_manufacturing": 0,
+                "standard_rate": 100.0,
+                "description": f"Test item created by Enhanced Test Factory"
+            })
+            item.insert()
+        return item_code
+    
+    def create_test_user(self, email, roles=None, **kwargs):
+        """Create a test user with specified roles"""
+        if not roles:
+            roles = ["System Manager"]
+            
+        user_data = {
+            "doctype": "User",
+            "email": email,
+            "first_name": kwargs.get("first_name", "Test"),
+            "last_name": kwargs.get("last_name", "User"),
+            "enabled": 1,
+            "send_welcome_email": 0
+        }
+        
+        # Switch to Administrator context for user creation (required permission)
+        original_user = frappe.session.user
+        frappe.set_user("Administrator")
+        
+        try:
+            # Check if user already exists
+            if frappe.db.exists("User", email):
+                user = frappe.get_doc("User", email)
+            else:
+                user = frappe.get_doc(user_data)
+                user.insert()
+                
+            # Add roles
+            user.roles = []  # Clear existing roles
+            for role in roles:
+                user.append("roles", {"role": role})
+            user.save()
+            
+            return user
+        finally:
+            # Restore original user context
+            frappe.set_user(original_user)
         
     def mock_redis_queue(self):
         """Context manager for mocking Redis queue operations"""
