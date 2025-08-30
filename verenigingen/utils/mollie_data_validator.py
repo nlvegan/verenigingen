@@ -15,13 +15,16 @@ from frappe import _
 class MollieDataValidator:
     """Centralized validator for Mollie subscription data"""
 
-    # Valid Mollie ID patterns
-    CUSTOMER_ID_PATTERN = re.compile(r"^cst_[a-zA-Z0-9]{14}$")
-    SUBSCRIPTION_ID_PATTERN = re.compile(r"^sub_[a-zA-Z0-9]{14}$")
+    # Valid Mollie ID patterns (updated to match real Mollie API formats)
+    CUSTOMER_ID_PATTERN = re.compile(r"^cst_[a-zA-Z0-9]{10,14}$")  # Real Mollie customer IDs are 10+ chars
+    SUBSCRIPTION_ID_PATTERN = re.compile(
+        r"^sub_[a-zA-Z0-9]{10,14}$"
+    )  # Real Mollie subscription IDs are 10+ chars
     PAYMENT_ID_PATTERN = re.compile(r"^tr_[a-zA-Z0-9]{10}$")
 
     # Valid status transitions
     VALID_STATUS_TRANSITIONS = {
+        "inactive": ["active", "canceled"],  # New customers start inactive
         "pending": ["active", "canceled"],
         "active": ["canceled", "suspended", "completed"],
         "suspended": ["active", "canceled"],

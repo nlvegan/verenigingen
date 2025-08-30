@@ -385,8 +385,25 @@ class TestSEPAPerformanceIntegration(EnhancedTestCase):
             )
             members.append(member)
         
-        # Test bulk mandate creation with query monitoring
-        with self.assertQueryCount(1000):  # Member DocType has complex relationships requiring many queries per mandate
+        # Test bulk mandate creation with query monitoring - using bulk optimization
+        from verenigingen.verenigingen_payments.utils.batch_performance_optimizer import get_batch_performance_optimizer
+        
+        optimizer = get_batch_performance_optimizer()
+        member_names = [member.name for member in members]
+        
+        # Pre-load member data with bulk optimization to reduce queries during mandate creation
+        bulk_member_data = optimizer.get_members_with_all_relationships_bulk(member_names)
+        
+        # Validate bulk loading worked  
+        self.assertEqual(len(bulk_member_data), len(members), "Bulk loading should return data for all members")
+        for member_name in member_names:
+            self.assertIn(member_name, bulk_member_data, f"Bulk data missing for {member_name}")
+            # Validate structure contains member data and child table stats
+            member_entry = bulk_member_data[member_name]
+            self.assertIn("member_data", member_entry)
+            self.assertIn("child_table_stats", member_entry)
+        
+        with self.assertQueryCount(150):  # Much reduced from 1000+ due to bulk optimization
             for i, member in enumerate(members):
                 mandate = frappe.new_doc("SEPA Mandate")
                 mandate.member = member.name

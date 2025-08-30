@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Test Member DocType Bulk Loading Optimization
+Validates that the new bulk loading eliminates the 114 queries/member performance issue
+"""
+
+import frappe
+from vereinigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.verenigingen_payments.utils.batch_performance_optimizer import get_batch_performance_optimizer
+
+
+class TestMemberBulkOptimization(EnhancedTestCase):
+    """Test the optimized bulk loading for Member relationships"""
+
+    def setUp(self):
+        super().setUp()
+        self.optimizer = get_batch_performance_optimizer()
+        
+        # Create test members with various relationships to test bulk loading
+        self.test_members = []
+        for i in range(5):  # Test with 5 members
+            member = self.create_test_member(
+                first_name=f"BulkTest{i}",
+                last_name="Member",
+                birth_date="1990-01-01",
+                email=f"bulktest{i}@test.invalid"
+            )
+            self.test_members.append(member)
+
+    def test_bulk_member_loading_query_efficiency(self):
+        """Test that bulk loading dramatically reduces query count vs individual loading"""
+        member_names = [member.name for member in self.test_members]
+        
+        # Test the optimized bulk loading method
+        with self.assertQueryCount(15):  # 7 bulk queries + some framework overhead, much less than 114 * 5 = 570
+            bulk_data = self.optimizer.get_members_with_all_relationships_bulk(member_names)
+        
+        # Validate we got data for all members
+        self.assertEqual(len(bulk_data), len(member_names))
+        
+        # Validate data structure for each member
+        for member_name in member_names:
+            self.assertIn(member_name, bulk_data)
+            member_data = bulk_data[member_name]
+            
+            # Check all expected relationship data structures are present
+            expected_keys = [
+                "member_data", "sepa_mandates", "payment_history", 
+                "iban_history", "fee_history", "chapter_history", 
+                "volunteer_assignments"
+            ]
+            
+            for key in expected_keys:
+                self.assertIn(key, member_data, f"Missing {key} in bulk data for {member_name}")
+                
+            # Validate member_data contains essential fields
+            member_base = member_data["member_data"]
+            self.assertIn("name", member_base)
+            self.assertIn("full_name", member_base)
+            self.assertIn("status", member_base)
+            
+            # Validate relationship data are lists (may be empty for new test members)
+            for relationship_key in ["sepa_mandates", "payment_history", "iban_history", 
+                                   "fee_history", "chapter_history", "volunteer_assignments"]:
+                self.assertIsInstance(
+                    member_data[relationship_key], 
+                    list, 
+                    f"{relationship_key} must be a list"
+                )
+
+    def test_bulk_loading_vs_individual_performance_comparison(self):
+        """Compare performance of bulk loading vs individual member loading"""
+        member_names = [member.name for member in self.test_members]
+        
+        # Measure bulk loading performance
+        with self.assertQueryCount(15):  # Should be much less than individual
+            bulk_start_time = frappe.utils.now_datetime()
+            bulk_data = self.optimizer.get_members_with_all_relationships_bulk(member_names) 
+            bulk_end_time = frappe.utils.now_datetime()
+        
+        # Validate bulk loading gives us complete data
+        self.assertEqual(len(bulk_data), len(self.test_members))
+        
+        # Log the performance improvement for verification
+        bulk_duration = (bulk_end_time - bulk_start_time).total_seconds() * 1000
+        frappe.logger().info(
+            f"Bulk loading completed in ~{bulk_duration:.2f}ms for {len(member_names)} members. "
+            f"Individual loading would be ~{len(member_names) * 114} queries vs ~7 bulk queries."
+        )
+
+    def test_bulk_loading_empty_list_handling(self):
+        """Test bulk loading handles empty member list gracefully"""
+        with self.assertQueryCount(1):  # Should not execute major queries for empty list
+            result = self.optimizer.get_members_with_all_relationships_bulk([])
+            
+        self.assertEqual(result, {}, "Empty list should return empty dict")
+
+    def test_bulk_loading_nonexistent_members(self):
+        """Test bulk loading handles nonexistent members gracefully"""
+        nonexistent_members = ["FAKE-MEMBER-1", "FAKE-MEMBER-2"]
+        
+        with self.assertQueryCount(15):  # Queries should still execute, just return empty results
+            result = self.optimizer.get_members_with_all_relationships_bulk(nonexistent_members)
+            
+        # Should return empty dict since no members found
+        self.assertEqual(len(result), 0)
+
+    def test_bulk_loading_performance_statistics_tracking(self):
+        """Test that performance statistics are properly tracked"""
+        member_names = [member.name for member in self.test_members]
+        
+        # Clear stats for clean measurement
+        initial_optimized_queries = self.optimizer.query_stats.get("optimized_queries", 0)
+        
+        # Run bulk loading
+        self.optimizer.get_members_with_all_relationships_bulk(member_names)
+        
+        # Verify stats were updated
+        final_optimized_queries = self.optimizer.query_stats.get("optimized_queries", 0) 
+        self.assertGreater(
+            final_optimized_queries, 
+            initial_optimized_queries,
+            "Optimized query count should increase after bulk loading"
+        )
+        
+        # Verify time saved tracking (should be significant)
+        time_saved = self.optimizer.query_stats.get("time_saved_ms", 0)
+        self.assertGreater(
+            time_saved, 
+            0, 
+            "Should track time saved vs individual queries"
+        )
+
+    def test_bulk_loading_with_sepa_mandate_creation(self):
+        """Test bulk loading works correctly when members have SEPA mandates"""
+        # Create SEPA mandates for some test members
+        for i in range(2):  # Create mandates for first 2 members
+            member = self.test_members[i]
+            
+            # Create SEPA mandate for this member
+            sepa_mandate = frappe.new_doc("SEPA Mandate")
+            sepa_mandate.member = member.name
+            sepa_mandate.member_name = member.full_name
+            sepa_mandate.mandate_id = f"TEST-MANDATE-{i:03d}"
+            sepa_mandate.iban = f"NL91 ABNA 0417 164{i:03d}"
+            sepa_mandate.bic = "ABNANL2A"
+            sepa_mandate.status = "Active"
+            sepa_mandate.account_holder_name = member.full_name
+            sepa_mandate.sign_date = frappe.utils.today()
+            sepa_mandate.save()
+            
+            self.track_doc("SEPA Mandate", sepa_mandate.name)
+            
+        member_names = [member.name for member in self.test_members]
+        
+        # Test bulk loading with SEPA mandates present
+        with self.assertQueryCount(15):
+            bulk_data = self.optimizer.get_members_with_all_relationships_bulk(member_names)
+        
+        # Verify members with mandates have mandate link data
+        members_with_mandates = 0
+        for member_name, data in bulk_data.items():
+            if data["sepa_mandates"]:
+                members_with_mandates += 1
+                # Validate mandate link structure
+                mandate_link = data["sepa_mandates"][0]  # Should have at least one
+                self.assertIn("sepa_mandate", mandate_link)
+                self.assertIn("mandate_reference", mandate_link)
+        
+        self.assertGreaterEqual(
+            members_with_mandates, 
+            2, 
+            "Should find at least 2 members with SEPA mandates"
+        )

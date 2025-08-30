@@ -233,7 +233,11 @@ class MollieSettings(Document):
         Returns:
             str: Complete subscription webhook URL
         """
-        return get_url("/api/method/verenigingen.utils.payment_gateways.mollie_subscription_webhook")
+        url = get_url(
+            "/api/method/verenigingen.verenigingen_payments.utils.payment_gateways.mollie_subscription_webhook"
+        )
+        # Ensure HTTPS for Mollie webhook requirements
+        return url.replace("http://", "https://")
 
     def get_redirect_url(self, reference_doctype, reference_docname, payment_id=None):
         """
@@ -280,13 +284,30 @@ class MollieSettings(Document):
             # Create customer first (required for subscriptions)
             customer = client.customers.create(customer_data)
 
-            # Create subscription
-            subscription = client.customers_subscriptions.with_parent_id(customer.id).create(
-                subscription_data
-            )
+            # Create mandate (required for subscriptions)
+            mandate_data = {
+                "method": "directdebit",
+                "consumerName": customer_data.get("name", ""),
+                "consumerAccount": subscription_data.get("consumerAccount"),
+                "signatureDate": frappe.utils.today(),
+                "mandateReference": f"MANDATE-{frappe.utils.random_string(8)}",
+            }
+
+            # Only include consumerAccount if provided (required for directdebit)
+            if not mandate_data.get("consumerAccount"):
+                frappe.throw(_("Consumer account (IBAN) is required for direct debit mandates"))
+
+            mandate = customer.mandates.create(data=mandate_data)
+
+            # Remove consumerAccount from subscription_data (only needed for mandate)
+            subscription_data_clean = {k: v for k, v in subscription_data.items() if k != "consumerAccount"}
+
+            # Create subscription using correct API pattern
+            subscription = customer.subscriptions.create(data=subscription_data_clean)
 
             return {
                 "customer_id": customer.id,
+                "mandate_id": mandate.id,
                 "subscription_id": subscription.id,
                 "status": subscription.status,
                 "next_payment_date": subscription.next_payment_date,
@@ -310,7 +331,8 @@ class MollieSettings(Document):
         """
         try:
             client = self.get_mollie_client()
-            subscription = client.customers_subscriptions.with_parent_id(customer_id).get(subscription_id)
+            customer = client.customers.get(customer_id)
+            subscription = customer.subscriptions.get(subscription_id)
 
             return {
                 "id": subscription.id,
@@ -339,7 +361,8 @@ class MollieSettings(Document):
         """
         try:
             client = self.get_mollie_client()
-            client.customers_subscriptions.with_parent_id(customer_id).delete(subscription_id)
+            customer = client.customers.get(customer_id)
+            customer.subscriptions.delete(subscription_id)
 
             frappe.logger().info(
                 f"Cancelled Mollie subscription {subscription_id} for customer {customer_id}"
@@ -375,10 +398,8 @@ class MollieSettings(Document):
         return None
 
     def get_webhook_secret(self):
-        """Get decrypted webhook secret"""
-        if self.enable_backend_api:
-            return self.get_password(fieldname="backend_webhook_secret", raise_exception=False)
-        return None
+        """Get webhook secret key for signature verification"""
+        return self.get_password(fieldname="webhook_secret_key", raise_exception=False)
 
 
 @frappe.whitelist()

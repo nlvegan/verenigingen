@@ -470,6 +470,11 @@ class MollieGateway(PaymentGateway):
                 },
             }
 
+            # Pass consumerAccount separately for mandate creation (not part of subscription data)
+            mollie_subscription_data["consumerAccount"] = (
+                member.iban.replace(" ", "") if member.iban else None
+            )
+
             # Add start date if provided
             if subscription_data.get("start_date"):
                 mollie_subscription_data["startDate"] = subscription_data["start_date"]
@@ -740,19 +745,37 @@ class PaymentGatewayFactory:
 # Webhook endpoints
 @frappe.whitelist(allow_guest=True)
 def mollie_webhook():
-    """Handle Mollie webhook notifications"""
+    """Handle Mollie webhook notifications with security verification"""
     try:
-        # Get raw payload from request
-        payload = frappe.request.get_data(as_text=True)
+        # Import webhook security utilities
+        from verenigingen.utils.webhook_security import (
+            authenticate_mollie_webhook,
+            log_webhook_security_event,
+        )
+
+        # Authenticate webhook and get validated payload
+        try:
+            payload = authenticate_mollie_webhook()
+            log_webhook_security_event(
+                "success", {"event": "donation_webhook_authenticated", "payload_length": len(payload)}
+            )
+        except Exception as auth_error:
+            log_webhook_security_event(
+                "failure",
+                {
+                    "event": "donation_authentication_failed",
+                    "error": str(auth_error),
+                    "headers": dict(frappe.request.headers),
+                },
+            )
+            return {"status": "error", "message": "Webhook authentication failed", "details": str(auth_error)}
 
         # Enhanced logging for webhook debugging
-        frappe.logger().info("🪝 Mollie webhook received")
+        frappe.logger().info("🪝 Mollie webhook received and authenticated")
         frappe.logger().info(f"📊 Payload length: {len(payload) if payload else 0}")
-        frappe.logger().info(f"📋 Headers: {dict(frappe.request.headers)}")
 
-        # Validate payload exists and is not empty
-        if not payload or not payload.strip():
-            frappe.logger().warning("⚠️ Mollie webhook received empty payload")
+        # Check for empty payload
+        if not payload:
             return {"status": "ignored", "reason": "Empty payload received"}
 
         # Parse payload - handle both JSON and form-encoded data
@@ -829,25 +852,41 @@ def mollie_webhook():
 @frappe.whitelist(allow_guest=True)
 def mollie_subscription_webhook():
     """
-    Handle Mollie subscription webhook notifications
+    Handle Mollie subscription webhook notifications with security verification
 
     Processes subscription payments by:
-    1. Finding the member with the subscription
-    2. Processing any new payments (creating Payment Entry for unpaid invoices)
-    3. Updating member subscription status
+    1. Verifying webhook signature for security
+    2. Finding the member with the subscription
+    3. Processing any new payments (creating Payment Entry for unpaid invoices)
+    4. Updating member subscription status
     """
     try:
-        # Get raw payload from request
-        payload = frappe.request.get_data(as_text=True)
+        # Import webhook security utilities
+        from verenigingen.utils.webhook_security import (
+            authenticate_mollie_webhook,
+            log_webhook_security_event,
+        )
+
+        # Authenticate webhook and get validated payload
+        try:
+            payload = authenticate_mollie_webhook()
+            log_webhook_security_event(
+                "success", {"event": "webhook_authenticated", "payload_length": len(payload)}
+            )
+        except Exception as auth_error:
+            log_webhook_security_event(
+                "failure",
+                {
+                    "event": "authentication_failed",
+                    "error": str(auth_error),
+                    "headers": dict(frappe.request.headers),
+                },
+            )
+            return {"status": "error", "message": "Webhook authentication failed", "details": str(auth_error)}
 
         # Enhanced logging for webhook debugging
-        frappe.logger().info("🔄 Mollie subscription webhook received")
+        frappe.logger().info("🔄 Mollie subscription webhook received and authenticated")
         frappe.logger().info(f"📊 Payload length: {len(payload) if payload else 0}")
-
-        # Validate payload exists and is not empty
-        if not payload or not payload.strip():
-            frappe.logger().warning("⚠️ Mollie subscription webhook received empty payload")
-            return {"status": "ignored", "reason": "Empty payload received"}
 
         # Parse payload - handle both JSON and form-encoded data
         try:
@@ -918,22 +957,34 @@ def mollie_subscription_webhook():
         # Check if this is a payment notification
         payment_id = data.get("payment", {}).get("id") if data.get("payment") else None
 
-        # Find member with this subscription
-        members = frappe.get_all(
-            "Member",
-            filters={"mollie_subscription_id": subscription_id},
-            fields=["name", "mollie_customer_id", "customer"],
+        # Find member by Customer's Mollie subscription ID (correct data location)
+        customers_with_subscription = frappe.get_all(
+            "Customer",
+            filters={"custom_mollie_subscription_id": subscription_id},
+            fields=["name", "custom_mollie_customer_id"],
         )
+
+        if not customers_with_subscription:
+            frappe.log_error(
+                f"No customer found for subscription {subscription_id}", "Mollie Subscription Webhook"
+            )
+            return {"status": "ignored", "reason": "No customer found for subscription"}
+
+        # Find the member linked to this customer
+        customer_name = customers_with_subscription[0]["name"]
+        customer_id = customers_with_subscription[0]["custom_mollie_customer_id"]
+
+        members = frappe.get_all("Member", filters={"customer": customer_name}, fields=["name"])
 
         if not members:
             frappe.log_error(
-                f"No member found for subscription {subscription_id}", "Mollie Subscription Webhook"
+                f"No member found for customer {customer_name} with subscription {subscription_id}",
+                "Mollie Subscription Webhook",
             )
-            return {"status": "ignored", "reason": "No member found for subscription"}
+            return {"status": "ignored", "reason": "No member found for customer"}
 
         member_name = members[0]["name"]
-        customer_id = members[0]["mollie_customer_id"]
-        member_customer = members[0]["customer"]
+        member_customer = customer_name
 
         result = {
             "status": "processed",
@@ -1107,8 +1158,12 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
             f"Automatic payment via Mollie subscription {subscription_id}. Payment ID: {payment_id}"
         )
 
-        # Set accounts - ERPNext will auto-populate based on party
-        payment_entry.set_missing_values()
+        # Set accounts manually (avoid EmployeePaymentEntry issues)
+        # Use the same receivable account as the invoice to avoid validation errors
+        invoice_receivable_account = frappe.db.get_value("Sales Invoice", invoice["name"], "debit_to")
+
+        if invoice_receivable_account:
+            payment_entry.paid_from = invoice_receivable_account
 
         # Submit the payment entry
         payment_entry.insert()

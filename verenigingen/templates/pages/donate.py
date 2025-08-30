@@ -250,7 +250,7 @@ def get_or_create_donor(form_data):
             )
             frappe.throw(_("Unable to process donation: Failed to create donor record"))
 
-        donor_doc = result.doc
+        # Return the created document (operation already saved it)
         return donor_doc
 
 
@@ -409,26 +409,33 @@ def process_mollie_payment(donation, form_data):
         # Get the Mollie gateway
         gateway = PaymentGatewayFactory.get_gateway("Mollie", "Default")
 
-        # Process payment using the gateway
-        result = gateway.process_payment(donation, form_data)
-
-        if result["status"] == "redirect_required":
-            return {
-                "status": "redirect_required",
-                "payment_url": result["payment_url"],
-                "payment_id": result["payment_id"],
-                "message": _("Redirecting to Mollie for secure payment"),
-                "info": _(
-                    "You will be redirected to complete payment with iDEAL, credit card, or other methods"
-                ),
-                "expires_at": result.get("expires_at"),
-            }
+        # Check if this is a recurring donation (subscription)
+        is_recurring = form_data.get("donation_status") == "Recurring"
+        
+        if is_recurring:
+            # Handle subscription creation
+            return process_mollie_subscription(donation, form_data, gateway)
         else:
-            return {
-                "status": "error",
-                "message": result.get("message", _("Payment setup failed")),
-                "info": _("Please try a different payment method or contact support"),
-            }
+            # Handle one-time payment
+            result = gateway.process_payment(donation, form_data)
+
+            if result["status"] == "redirect_required":
+                return {
+                    "status": "redirect_required",
+                    "payment_url": result["payment_url"],
+                    "payment_id": result["payment_id"],
+                    "message": _("Redirecting to Mollie for secure payment"),
+                    "info": _(
+                        "You will be redirected to complete payment with iDEAL, credit card, or other methods"
+                    ),
+                    "expires_at": result.get("expires_at"),
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": result.get("message", _("Payment setup failed")),
+                    "info": _("Please try a different payment method or contact support"),
+                }
 
     except Exception as e:
         frappe.log_error(
@@ -439,6 +446,103 @@ def process_mollie_payment(donation, form_data):
             "status": "error",
             "message": _("Payment provider temporarily unavailable"),
             "info": _("Please try again later or use a different payment method"),
+        }
+
+
+def process_mollie_subscription(donation, form_data, gateway):
+    """Handle Mollie subscription creation for recurring donations"""
+    try:
+        # Get donor information
+        donor = frappe.get_doc("Donor", donation.donor)
+        
+        # Prepare customer data for Mollie
+        customer_data = {
+            "name": donor.donor_name,
+            "email": donor.donor_email,
+        }
+        
+        # Add phone if available
+        if hasattr(donor, "phone") and donor.phone:
+            customer_data["phone"] = donor.phone
+            
+        # Prepare subscription data
+        subscription_interval = form_data.get("subscription_interval", "1 month")
+        
+        subscription_data = {
+            "amount": {"currency": "EUR", "value": f"{donation.amount:.2f}"},
+            "interval": subscription_interval,
+            "description": f"Recurring donation - {donation.donation_type}",
+            "metadata": {
+                "donation_id": donation.name,
+                "donor_id": donor.name,
+                "donation_type": donation.donation_type,
+                "purpose": donation.donation_purpose_type,
+            },
+        }
+        
+        # Add start date (first payment immediate, then recurring)
+        from frappe.utils import add_to_date, today
+        
+        # Calculate next payment date based on interval
+        if subscription_interval == "1 month":
+            next_date = add_to_date(today(), months=1)
+        elif subscription_interval == "3 months":
+            next_date = add_to_date(today(), months=3)
+        elif subscription_interval == "6 months":
+            next_date = add_to_date(today(), months=6)
+        elif subscription_interval == "1 year":
+            next_date = add_to_date(today(), years=1)
+        else:
+            next_date = add_to_date(today(), months=1)  # Default to monthly
+            
+        subscription_data["startDate"] = next_date.strftime("%Y-%m-%d")
+        
+        # Create the subscription using the gateway
+        result = gateway.create_subscription(donor, subscription_data)
+        
+        if result["status"] == "success":
+            # Update donation record with subscription information
+            donation.payment_id = result.get("subscription_id")
+            donation.db_set("payment_id", result.get("subscription_id"))
+            
+            # Create initial payment for the first donation
+            # This creates a one-time payment for the first amount, then subscription takes over
+            initial_payment_result = gateway.process_payment(donation, form_data)
+            
+            if initial_payment_result["status"] == "redirect_required":
+                return {
+                    "status": "subscription_redirect_required",
+                    "payment_url": initial_payment_result["payment_url"],
+                    "payment_id": initial_payment_result["payment_id"],
+                    "subscription_id": result.get("subscription_id"),
+                    "message": _("Setting up your monthly donation subscription"),
+                    "info": _(
+                        f"After this payment, you'll automatically donate €{donation.amount:.2f} {subscription_interval.replace('1 ', 'every ')}"
+                    ),
+                    "expires_at": initial_payment_result.get("expires_at"),
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": _("Failed to set up initial payment for subscription"),
+                    "info": _("Please try again or contact support"),
+                }
+        else:
+            return {
+                "status": "error", 
+                "message": result.get("message", _("Failed to create subscription")),
+                "info": _("Please try again or use a one-time donation instead"),
+            }
+            
+    except Exception as e:
+        frappe.log_error(
+            f"Mollie subscription creation error for donation {donation.name}: {str(e)}\nFull traceback: {frappe.get_traceback()}",
+            "Mollie Subscription Error",
+        )
+        return {
+            "status": "error",
+            "message": _("Subscription setup temporarily unavailable"),
+            "info": _("Please try a one-time donation instead or contact support"),
         }
 
 

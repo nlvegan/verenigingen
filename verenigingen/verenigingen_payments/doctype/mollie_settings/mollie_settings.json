@@ -24,6 +24,8 @@
   "column_break_subscription",
   "default_subscription_interval",
   "subscription_description_template",
+  "webhook_security_section",
+  "webhook_secret_key",
   "backend_api_section",
   "enable_backend_api",
   "organization_access_token",
@@ -125,6 +127,17 @@
    "fieldname": "subscription_description_template",
    "fieldtype": "Small Text",
    "label": "Subscription Description Template"
+  },
+  {
+   "fieldname": "webhook_security_section",
+   "fieldtype": "Section Break",
+   "label": "Webhook Security"
+  },
+  {
+   "fieldname": "webhook_secret_key",
+   "fieldtype": "Password",
+   "label": "Webhook Secret Key",
+   "description": "Secret key from Mollie for webhook signature verification (obtained when configuring webhook endpoint)"
   },
   {
    "fieldname": "backend_api_section",

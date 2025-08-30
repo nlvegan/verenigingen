@@ -238,57 +238,254 @@ class SEPAMandate(Document):
             self.update_member_sepa_mandates_table()
 
     def update_member_sepa_mandates_table(self):
-        """Update the member's SEPA mandates child table to reflect this mandate"""
+        """Update the member's SEPA mandates child table to reflect this mandate - SECURE OPTIMIZED VERSION"""
         if not self.member:
             return
 
         try:
-            member = frappe.get_doc("Member", self.member)
+            # SECURITY FIX: Validate permissions before any database operations
+            self._validate_sepa_mandate_permissions()
 
-            # Check if this mandate is already linked to the member
-            mandate_exists = False
+            # SECURITY FIX: Validate field existence to prevent runtime errors
+            self._validate_mandate_link_fields()
 
-            for mandate_link in member.sepa_mandates:
-                if mandate_link.sepa_mandate == self.name:
-                    mandate_exists = True
-                    # Update the existing link with current mandate data
-                    mandate_link.mandate_reference = self.mandate_id
-                    mandate_link.status = self.status
-                    mandate_link.valid_from = self.sign_date
-                    mandate_link.valid_until = self.expiry_date
-                    mandate_link.is_current = 1 if (self.status == "Active" and self.is_active) else 0
-                    break
+            # PERFORMANCE + SECURITY: Use permission-aware SQL operations
+            # Maintains performance benefits while restoring security controls
+            self._execute_secure_mandate_link_update()
 
-            # If mandate isn't linked, add it
-            if not mandate_exists:
-                member.append(
-                    "sepa_mandates",
-                    {
-                        "sepa_mandate": self.name,
-                        "mandate_reference": self.mandate_id,
-                        "status": self.status,
-                        "is_current": 1 if (self.status == "Active" and self.is_active) else 0,
-                        "valid_from": self.sign_date,
-                        "valid_until": self.expiry_date,
-                    },
+        except Exception as e:
+            frappe.log_error(
+                f"Error updating member SEPA mandates table securely: {str(e)}",
+                "SEPA Mandate Security Update Error",
+            )
+            raise  # Re-raise to ensure caller handles the error appropriately
+
+    def _validate_sepa_mandate_permissions(self):
+        """Validate that current user has permission to modify this member's SEPA data"""
+
+        # PERFORMANCE: Use bulk permission validator when available
+        try:
+            from verenigingen.verenigingen_payments.utils.secure_bulk_sepa_manager import (
+                get_secure_bulk_sepa_manager,
+            )
+
+            bulk_manager = get_secure_bulk_sepa_manager()
+
+            # Use the optimized batch permission validation even for single operations
+            permission_results = bulk_manager._batch_validate_permissions(
+                [type("Operation", (), {"member_id": self.member})()]
+            )
+
+            if not permission_results.get(self.member, False):
+                frappe.throw(
+                    _("Insufficient permissions to update SEPA mandate for member {0}").format(self.member),
+                    frappe.PermissionError,
                 )
 
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            member_result = secure_document_operation(
-                operation="save",
-                doc=member,
-                justification=f"Update member {self.member} SEPA mandates child table after mandate {self.mandate_id} changes",
-                required_permissions=["Member:write"],
-            )
-            if not member_result.success:
-                frappe.log_error(
-                    f"Failed to update member SEPA mandates table for {self.member}: {'; '.join(member_result.errors)}",
-                    "SEPA Mandate Member Update Error",
+        except ImportError:
+            # Fallback to original permission validation if bulk manager not available
+            # SECURITY: Verify user can write to this specific Member record
+            if not frappe.has_permission("Member", "write", self.member):
+                frappe.throw(
+                    _("Insufficient permissions to update SEPA mandate for member {0}").format(self.member),
+                    frappe.PermissionError,
+                )
+
+            # SECURITY: Verify user can read this SEPA Mandate (needed for update operations)
+            if not frappe.has_permission("SEPA Mandate", "read", self.name):
+                frappe.throw(
+                    _("Insufficient permissions to access SEPA mandate {0}").format(self.name),
+                    frappe.PermissionError,
+                )
+
+        # AUDIT: Log the permission validation for compliance
+        frappe.logger().info(
+            f"SEPA mandate permission validation passed for user {frappe.session.user} "
+            f"updating member {self.member} mandate {self.mandate_id}"
+        )
+
+    def _validate_mandate_link_fields(self):
+        """Validate that all required fields exist in Member SEPA Mandate Link DocType"""
+
+        required_fields = [
+            "sepa_mandate",
+            "mandate_reference",
+            "status",
+            "is_current",
+            "valid_from",
+            "valid_until",
+        ]
+
+        try:
+            doctype_meta = frappe.get_meta("Member SEPA Mandate Link")
+            existing_fields = {field.fieldname for field in doctype_meta.fields}
+
+            missing_fields = set(required_fields) - existing_fields
+            if missing_fields:
+                frappe.throw(
+                    _("Missing required fields in Member SEPA Mandate Link: {0}").format(missing_fields),
+                    frappe.ValidationError,
                 )
 
         except Exception as e:
             frappe.log_error(
-                f"Error updating member SEPA mandates table: {str(e)}", "SEPA Mandate Update Error"
+                f"Field validation failed for Member SEPA Mandate Link: {str(e)}",
+                "SEPA Field Validation Error",
+            )
+            raise
+
+    def _execute_secure_mandate_link_update(self):
+        """Execute the optimized SQL operations with full audit trail"""
+
+        # AUDIT: Create comprehensive audit entry
+        audit_data = {
+            "operation": "sepa_mandate_link_update",
+            "user": frappe.session.user,
+            "member": self.member,
+            "mandate": self.name,
+            "mandate_id": self.mandate_id,
+            "timestamp": frappe.utils.now(),
+            "ip_address": frappe.get_request_header("X-Forwarded-For") or "unknown",
+            "user_agent": frappe.get_request_header("User-Agent") or "unknown",
+        }
+
+        try:
+            # PERFORMANCE: Check if mandate link already exists (optimized query)
+            existing_link = frappe.db.sql(
+                """
+                SELECT name, mandate_reference, status, valid_from, valid_until, is_current
+                FROM `tabMember SEPA Mandate Link`
+                WHERE parent = %s AND sepa_mandate = %s AND parenttype = 'Member'
+            """,
+                (self.member, self.name),
+                as_dict=True,
+            )
+
+            is_current_value = 1 if (self.status == "Active" and self.is_active) else 0
+
+            if existing_link:
+                # PERFORMANCE: Update existing link directly via SQL
+                frappe.db.sql(
+                    """
+                    UPDATE `tabMember SEPA Mandate Link`
+                    SET mandate_reference = %s, status = %s, valid_from = %s,
+                        valid_until = %s, is_current = %s, modified = NOW(),
+                        modified_by = %s
+                    WHERE parent = %s AND sepa_mandate = %s AND parenttype = 'Member'
+                """,
+                    (
+                        self.mandate_id,
+                        self.status,
+                        self.sign_date,
+                        self.expiry_date,
+                        is_current_value,
+                        frappe.session.user,
+                        self.member,
+                        self.name,
+                    ),
+                )
+                audit_data["action"] = "update_existing_link"
+                audit_data["link_name"] = existing_link[0].name
+
+            else:
+                # PERFORMANCE: Insert new link directly via SQL
+                link_name = frappe.generate_hash(length=10)
+                frappe.db.sql(
+                    """
+                    INSERT INTO `tabMember SEPA Mandate Link`
+                    (name, parent, parenttype, parentfield, sepa_mandate, mandate_reference,
+                     status, is_current, valid_from, valid_until, creation, modified,
+                     owner, modified_by, docstatus)
+                    VALUES (%(name)s, %(parent)s, 'Member', 'sepa_mandates', %(sepa_mandate)s,
+                            %(mandate_reference)s, %(status)s, %(is_current)s, %(valid_from)s,
+                            %(valid_until)s, NOW(), NOW(), %(owner)s, %(modified_by)s, 0)
+                """,
+                    {
+                        "name": link_name,
+                        "parent": self.member,
+                        "sepa_mandate": self.name,
+                        "mandate_reference": self.mandate_id,
+                        "status": self.status,
+                        "is_current": is_current_value,
+                        "valid_from": self.sign_date,
+                        "valid_until": self.expiry_date,
+                        "owner": frappe.session.user,
+                        "modified_by": frappe.session.user,
+                    },
+                )
+                audit_data["action"] = "create_new_link"
+                audit_data["link_name"] = link_name
+
+            # PERFORMANCE: Update Member's modified timestamp for cache invalidation
+            frappe.db.sql(
+                """
+                UPDATE `tabMember` SET modified = NOW(), modified_by = %s WHERE name = %s
+            """,
+                (frappe.session.user, self.member),
+            )
+
+            # PERFORMANCE: Clear cached Member data
+            frappe.cache().delete_key(f"Member:{self.member}")
+
+            # AUDIT: Record successful operation
+            audit_data["status"] = "success"
+            audit_data["queries_executed"] = 3  # Track performance impact
+
+            frappe.logger().info(
+                f"SEPA mandate link {audit_data['action']} completed for member {self.member}"
+            )
+
+        except Exception as e:
+            # AUDIT: Record failed operation
+            audit_data["status"] = "failed"
+            audit_data["error"] = str(e)
+            raise
+
+        finally:
+            # COMPLIANCE: Always create audit log entry regardless of success/failure
+            self._create_sepa_audit_log(audit_data)
+
+    def _create_sepa_audit_log(self, audit_data):
+        """Create comprehensive audit log for SEPA operations - required for Dutch banking compliance"""
+
+        try:
+            # COMPLIANCE: Create audit log entry with all required fields for regulatory compliance
+            audit_log = frappe.get_doc(
+                {
+                    "doctype": "SEPA Operation Audit Log",
+                    "operation_type": audit_data["operation"],
+                    "user": audit_data["user"],
+                    "member": audit_data["member"],
+                    "sepa_mandate": audit_data["mandate"],
+                    "mandate_reference": audit_data.get("mandate_id"),
+                    "operation_status": audit_data["status"],
+                    "action_taken": audit_data.get("action"),
+                    "link_name": audit_data.get("link_name"),
+                    "timestamp": audit_data["timestamp"],
+                    "ip_address": audit_data["ip_address"],
+                    "user_agent": audit_data["user_agent"],
+                    "queries_executed": audit_data.get("queries_executed", 0),
+                    "error_message": audit_data.get("error"),
+                    "compliance_notes": f"Secure SEPA mandate operation with permission validation - {audit_data['status']}",
+                }
+            )
+
+            # SECURITY: Use system-level permissions for audit logging (audit logs must always be created)
+            audit_log.insert(ignore_permissions=True)
+
+        except Exception as e:
+            # CRITICAL: If audit logging fails, this is a serious compliance issue
+            frappe.log_error(
+                f"CRITICAL: Failed to create SEPA audit log entry - {str(e)}\n"
+                f"Operation data: {audit_data}",
+                "SEPA Audit Logging Failure",
+            )
+
+            # For financial compliance systems, audit logging failure might require operation rollback
+            # This depends on organizational policy and regulatory requirements
+            frappe.logger().error(
+                f"SEPA audit logging failed for operation {audit_data.get('operation')} "
+                f"by user {audit_data.get('user')} on member {audit_data.get('member')}"
             )
 
 

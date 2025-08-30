@@ -13,11 +13,24 @@ class SEPAMandateNotificationManager:
         self.settings = frappe.get_single("Verenigingen Settings")
 
     def send_mandate_created_notification(self, mandate):
-        """Send notification when a new mandate is created"""
-        member = frappe.get_doc("Member", mandate.member)
+        """Send notification when a new mandate is created - OPTIMIZED VERSION"""
+        # PERFORMANCE OPTIMIZATION: Use SQL query instead of loading full Member document
+        # This eliminates N+1 queries where frappe.get_doc("Member", mandate.member)
+        # would load all Member relationships
+        member_data = frappe.db.sql(
+            """
+            SELECT name, full_name, email
+            FROM `tabMember`
+            WHERE name = %s
+        """,
+            (mandate.member,),
+            as_dict=True,
+        )
 
-        if not member.email:
+        if not member_data or not member_data[0].email:
             return
+
+        member = member_data[0]
 
         context = {
             "member_name": member.full_name,
@@ -37,11 +50,22 @@ class SEPAMandateNotificationManager:
         )
 
     def send_mandate_cancelled_notification(self, mandate, reason=None):
-        """Send notification when a mandate is cancelled"""
-        member = frappe.get_doc("Member", mandate.member)
+        """Send notification when a mandate is cancelled - OPTIMIZED VERSION"""
+        # PERFORMANCE OPTIMIZATION: Use SQL query instead of loading full Member document
+        member_data = frappe.db.sql(
+            """
+            SELECT name, full_name, email
+            FROM `tabMember`
+            WHERE name = %s
+        """,
+            (mandate.member,),
+            as_dict=True,
+        )
 
-        if not member.email:
+        if not member_data or not member_data[0].email:
             return
+
+        member = member_data[0]
 
         context = {
             "member_name": member.full_name,
@@ -62,11 +86,22 @@ class SEPAMandateNotificationManager:
         )
 
     def send_mandate_expiring_notification(self, mandate, days_until_expiry):
-        """Send notification when a mandate is about to expire"""
-        member = frappe.get_doc("Member", mandate.member)
+        """Send notification when a mandate is about to expire - OPTIMIZED VERSION"""
+        # PERFORMANCE OPTIMIZATION: Use SQL query instead of loading full Member document
+        member_data = frappe.db.sql(
+            """
+            SELECT name, full_name, email
+            FROM `tabMember`
+            WHERE name = %s
+        """,
+            (mandate.member,),
+            as_dict=True,
+        )
 
-        if not member.email:
+        if not member_data or not member_data[0].email:
             return
+
+        member = member_data[0]
 
         context = {
             "member_name": member.full_name,

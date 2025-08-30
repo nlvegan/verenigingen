@@ -44,10 +44,10 @@ class MollieTestDataFactory(EnhancedTestDataFactory):
     def __init__(self, seed: int = 12345, use_faker: bool = True):
         super().__init__(seed, use_faker)
         
-        # Mollie-specific test data patterns
+        # Mollie-specific test data patterns (exactly 14 alphanumeric characters after prefix)
         self.mollie_test_patterns = {
-            "customer_ids": ["cst_test_{}", "cst_demo_{}", "cst_sandbox_{}"],
-            "subscription_ids": ["sub_test_{}", "sub_demo_{}", "sub_sandbox_{}"],
+            "customer_ids": ["cst_{:014d}", "cst_test{:010d}", "cst_demo{:010d}"],
+            "subscription_ids": ["sub_{:014d}", "sub_test{:010d}", "sub_demo{:010d}"],
             "payment_ids": ["tr_test_{}", "tr_demo_{}", "tr_sandbox_{}"],
             "webhook_ids": ["wh_test_{}", "wh_demo_{}", "wh_sandbox_{}"]
         }
@@ -59,16 +59,16 @@ class MollieTestDataFactory(EnhancedTestDataFactory):
         self.subscription_intervals = ["1 month", "3 months", "6 months", "1 year"]
         
     def generate_mollie_customer_id(self) -> str:
-        """Generate realistic Mollie customer ID"""
+        """Generate realistic Mollie customer ID (14 chars after cst_)"""
         pattern = random.choice(self.mollie_test_patterns["customer_ids"])
         seq = self.get_next_sequence('mollie_customer')
-        return pattern.format(f"{seq:08d}")
+        return pattern.format(seq)
         
     def generate_mollie_subscription_id(self) -> str:
-        """Generate realistic Mollie subscription ID"""
+        """Generate realistic Mollie subscription ID (14 chars after sub_)"""
         pattern = random.choice(self.mollie_test_patterns["subscription_ids"])
         seq = self.get_next_sequence('mollie_subscription')
-        return pattern.format(f"{seq:08d}")
+        return pattern.format(seq)
         
     def generate_mollie_payment_id(self) -> str:
         """Generate realistic Mollie payment ID"""

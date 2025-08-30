@@ -456,7 +456,7 @@ function populateConfirmation() {
 		}
 	}
 
-	const summaryHtml = `
+	let summaryHtml = `
         <div class="summary-row">
             <span>${__('Donation Amount')}:</span>
             <span><strong>€${amount.toFixed(2)}</strong></span>
@@ -468,7 +468,27 @@ function populateConfirmation() {
         <div class="summary-row">
             <span>${__('Frequency')}:</span>
             <span>${donationStatus}</span>
-        </div>
+        </div>`;
+
+	// Add subscription details if this is a recurring donation
+	if (donationStatus === 'Recurring') {
+		const subscriptionInterval = window.formData.subscription_interval || '1 month';
+		const intervalText = subscriptionInterval.replace('1 ', 'Every ');
+		
+		summaryHtml += `
+        <div class="summary-row" style="background-color: #f0f8ff; padding: 10px; border-radius: 4px; margin: 10px 0;">
+            <div>
+                <strong style="color: #007bff;">${__('Subscription Details')}</strong><br>
+                <span style="font-size: 14px;">
+                    ${__('Billing Cycle')}: ${intervalText}<br>
+                    ${__('Next Payment')}: After initial payment<br>
+                    ${__('Cancellation')}: Anytime through member portal
+                </span>
+            </div>
+        </div>`;
+	}
+
+	summaryHtml += `
         <div class="summary-row">
             <span>${__('Purpose')}:</span>
             <span>${getPurposeSummary()}</span>
@@ -580,8 +600,30 @@ function showSuccessStep(response) {
                 </div>
                 <p class="text-info">${response.payment_info.instructions}</p>
             `;
+		} else if (response.payment_info.status === 'subscription_redirect_required' && response.payment_info.payment_url) {
+			// Handle Mollie subscription redirect
+			successContent += `
+                <div class="alert alert-success">
+                    <h5>${__('Setting Up Your Subscription')}</h5>
+                    <p>${response.payment_info.message}</p>
+                    <p><small>${response.payment_info.info}</small></p>
+                    <div style="margin-top: 10px;">
+                        <strong>Subscription Details:</strong><br>
+                        • Subscription ID: ${response.payment_info.subscription_id}<br>
+                        • Amount: €${window.formData.amount}<br>
+                        • Frequency: ${window.formData.subscription_interval || 'Monthly'}<br>
+                    </div>
+                </div>
+                <p class="text-primary">${__('You will be redirected to complete the initial payment in 3 seconds...')}</p>
+            `;
+
+			// Auto-redirect to subscription payment page
+			setTimeout(() => {
+				window.open(response.payment_info.payment_url, '_self');
+			}, 3000);
+
 		} else if (response.payment_info.status === 'redirect_required' && response.payment_info.payment_url) {
-			// Handle Mollie payment redirect
+			// Handle regular Mollie payment redirect
 			successContent += `
                 <div class="alert alert-info">
                     <h5>${__('Redirecting to Payment Provider')}</h5>
@@ -644,6 +686,65 @@ function togglePurposeFields() {
 			document.getElementById('goal-field').style.display = 'block';
 			break;
 	}
+}
+
+function toggleRecurringOptions() {
+	const donationStatus = document.getElementById('donation_status').value;
+	const recurringOptions = document.getElementById('recurring-options');
+
+	if (donationStatus === 'Recurring') {
+		recurringOptions.style.display = 'block';
+		// Update the payment method restrictions for recurring donations
+		updatePaymentMethodsForRecurring();
+	} else {
+		recurringOptions.style.display = 'none';
+		// Reset payment method restrictions
+		resetPaymentMethods();
+	}
+}
+
+function updatePaymentMethodsForRecurring() {
+	// For recurring donations, only show Mollie (which supports subscriptions)
+	const paymentMethods = document.querySelectorAll('.payment-method');
+	paymentMethods.forEach(method => {
+		const methodValue = method.getAttribute('data-method');
+		if (methodValue !== 'Mollie') {
+			method.style.display = 'none';
+			// Remove selection if it was selected
+			const radio = method.querySelector('input[type="radio"]');
+			if (radio && radio.checked) {
+				radio.checked = false;
+			}
+		} else {
+			method.style.display = 'block';
+			// Add subscription note
+			const description = method.querySelector('p');
+			if (description && !description.textContent.includes('subscription')) {
+				description.textContent += ' (Supports monthly subscriptions)';
+			}
+		}
+	});
+
+	// Auto-select Mollie for recurring donations
+	setTimeout(() => {
+		const mollieMethod = document.querySelector('.payment-method[data-method="Mollie"]');
+		if (mollieMethod) {
+			selectPaymentMethod(mollieMethod);
+		}
+	}, 100);
+}
+
+function resetPaymentMethods() {
+	// Show all payment methods
+	const paymentMethods = document.querySelectorAll('.payment-method');
+	paymentMethods.forEach(method => {
+		method.style.display = 'block';
+		// Remove subscription note
+		const description = method.querySelector('p');
+		if (description && description.textContent.includes('(Supports monthly subscriptions)')) {
+			description.textContent = description.textContent.replace(' (Supports monthly subscriptions)', '');
+		}
+	});
 }
 
 function toggleAnbiFields() {
