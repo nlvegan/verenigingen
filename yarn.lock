@@ -28,10 +28,10 @@
   resolved "https://registry.npmjs.org/@antfu/utils/-/utils-8.1.1.tgz"
   integrity sha512-Mex9nXf9vR6AhcXmMrlz/HVgYYZpVGJ6YlPgwl7UnaFpnshXs6EK/oa5Gpf3CzENMjkvEx2tQtntGnb7UtSTOQ==
 
-"@anthropic-ai/claude-code@^1.0.96":
-  version "1.0.96"
-  resolved "https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-1.0.96.tgz"
-  integrity sha512-xnxhYzuh6PYlMcw56REMQiGMW20WaLLOvG8L8TObq70zhNKs3dro7nhYwHRe1c2ubTr20oIJK0aSkyD2BpO8nA==
+"@anthropic-ai/claude-code@^1.0.98":
+  version "1.0.98"
+  resolved "https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-1.0.98.tgz"
+  integrity sha512-IV193Eh8STdRcN3VkNcojPIlLnQPch+doBVrDSEV1rPPePISy7pzHFZL0Eg7zIPj9gHkHV1D2s0RMMwzVXJThA==
   optionalDependencies:
     "@img/sharp-darwin-arm64" "^0.33.5"
     "@img/sharp-darwin-x64" "^0.33.5"

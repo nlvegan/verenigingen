@@ -387,7 +387,7 @@ Skills Selected:
         )
 
         if not comment_result.success:
-            frappe.log_error(f"Could not create volunteer application comment: Permission denied")
+            frappe.log_error("Could not create volunteer application comment: Permission denied")
     except Exception as e:
         # If comment creation fails, just log it - don't fail the application
         frappe.log_error(f"Could not create volunteer application comment: {str(e)}")
@@ -453,7 +453,7 @@ def create_volunteer_from_approved_member(member):
         )
 
         if not volunteer_result.success:
-            frappe.log_error(f"Could not create volunteer record: Permission denied")
+            frappe.log_error("Could not create volunteer record: Permission denied")
             return None
 
         # Add skills if parsed from application
@@ -497,7 +497,7 @@ def create_volunteer_from_approved_member(member):
         )
 
         if not comment_result.success:
-            frappe.log_error(f"Could not create volunteer notification comment: Permission denied")
+            frappe.log_error("Could not create volunteer notification comment: Permission denied")
 
         return volunteer.name
 
@@ -591,7 +591,7 @@ def add_skills_to_volunteer(volunteer, volunteer_data):
         )
 
         if not volunteer_save_result.success:
-            frappe.log_error(f"Could not save volunteer skills: Permission denied")
+            frappe.log_error("Could not save volunteer skills: Permission denied")
             return
         skills_count = len([s for skills in skills_by_category.values() for s in skills])
         frappe.logger().info(f"Added {skills_count} skills to volunteer {volunteer.name}")

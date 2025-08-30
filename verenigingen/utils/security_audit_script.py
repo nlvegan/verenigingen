@@ -433,7 +433,6 @@ if __name__ == "__main__":
     print(f"Found {results.get('summary', {}).get('total_issues_found', 0)} security issues")
 
     # Generate and save report
-    import os
     import tempfile
 
     report = generate_security_report()

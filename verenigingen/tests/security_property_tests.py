@@ -141,15 +141,20 @@ class PropertyBasedAdminToolsSecurityTests(SecurityPropertyTestCase):
         """Property: Admin tools should block ALL malicious method calls"""
         from verenigingen.templates.pages.admin_tools import execute_admin_tool
         
-        with patch('frappe.has_permission', return_value=True):
+        # Test with system manager (has admin permissions) but malicious methods should still be blocked
+        frappe.set_user("Administrator")
+        
+        try:
             result = execute_admin_tool(malicious_method)
-            
-            # Property: No malicious method should ever succeed
+            # Property: No malicious method should ever succeed, even for admin users
             self.assertFalse(result.get('success', False), 
                            f"Malicious method should be blocked: {malicious_method}")
-            
-            # Property: Error should be logged for security monitoring
-            # This would be verified through audit log checks in real implementation
+        except frappe.PermissionError:
+            # Exception is also acceptable - means malicious method was blocked
+            pass
+        
+        # Property: Error should be logged for security monitoring
+        # This would be verified through audit log checks in real implementation
     
     def test_admin_tools_whitelist_invariant(self):
         """Property: Only methods in whitelist should be executable"""
@@ -164,12 +169,19 @@ class PropertyBasedAdminToolsSecurityTests(SecurityPropertyTestCase):
             "frappe.delete_doc"  # Valid module but not whitelisted
         ]
         
-        with patch('frappe.has_permission', return_value=True):
-            for method in non_whitelisted_methods:
-                if method not in ALLOWED_ADMIN_METHODS:
+        # Test with system manager (has admin permissions) but non-whitelisted methods should still be blocked
+        frappe.set_user("Administrator")
+        
+        for method in non_whitelisted_methods:
+            if method not in ALLOWED_ADMIN_METHODS:
+                try:
                     result = execute_admin_tool(method)
+                    # If no exception, check that success is False
                     self.assertFalse(result.get('success', False),
                                    f"Non-whitelisted method should be blocked: {method}")
+                except frappe.PermissionError:
+                    # Exception is also acceptable - means method was blocked
+                    pass
 
 
 class PropertyBasedCSRFTests(SecurityPropertyTestCase):
@@ -339,11 +351,18 @@ class ManualPropertyTests(SecurityPropertyTestCase):
             "method'; import os; os.system('ls'); '",
         ]
         
-        with patch('frappe.has_permission', return_value=True):
-            for pattern in malicious_patterns:
+        # Test with system manager (has admin permissions) but malicious patterns should still be blocked
+        frappe.set_user("Administrator")
+        
+        for pattern in malicious_patterns:
+            try:
                 result = execute_admin_tool(pattern)
+                # If no exception, check that success is False
                 self.assertFalse(result.get('success', False),
                                f"Malicious pattern should be blocked: {pattern}")
+            except frappe.PermissionError:
+                # Exception is also acceptable - means pattern was blocked
+                pass
     
     def test_csrf_validation_properties_manual(self):
         """Manual property testing for CSRF validation"""

@@ -87,6 +87,6 @@ Context:
         title = f"{operation_name} failed"
         return safe_log_error(title, message)
 
-    except Exception as e:
+    except Exception:
         # Fallback to basic logging
         return safe_log_error(f"{operation_name} error", str(error))

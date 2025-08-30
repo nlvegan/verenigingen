@@ -205,7 +205,7 @@ def secure_user_context_with_validation(target_user: str, operation_description:
 
             frappe.logger().info(
                 f"SECURE_CONTEXT_END: Restored to {original_user} "
-                f"after {duration*1000:.1f}ms [{operation_id}]"
+                f"after {duration * 1000:.1f}ms [{operation_id}]"
             )
 
         except Exception as restore_error:
@@ -337,7 +337,7 @@ def secure_document_operation(
 
         frappe.logger().info(
             f"SECURE_OP_COMPLETE: {operation} on {doc.doctype} "
-            f"completed in {result.duration*1000:.1f}ms "
+            f"completed in {result.duration * 1000:.1f}ms "
             f"(success: {result.success}) [{operation_id}]"
         )
 
@@ -368,7 +368,7 @@ def secure_batch_operation(
             result = secure_document_operation(
                 operation=op_config["operation"],
                 doc=op_config["doc"],
-                justification=f"{justification} (batch {batch_id} operation {i+1})",
+                justification=f"{justification} (batch {batch_id} operation {i + 1})",
                 required_permissions=op_config.get("required_permissions"),
                 allow_system_user=op_config.get("allow_system_user", True),
             )
@@ -381,7 +381,7 @@ def secure_batch_operation(
 
         except Exception as e:
             error_result = SecureOperationResult(False, f"{batch_id}_op_{i}")
-            error_result.add_error(f"Batch operation {i+1} failed: {str(e)}")
+            error_result.add_error(f"Batch operation {i + 1} failed: {str(e)}")
             results.append(error_result)
 
             if fail_fast:

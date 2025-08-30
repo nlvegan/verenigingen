@@ -419,13 +419,24 @@ class TestSecurityPenetration(FrappeTestCase):
             get_dashboard_data
         )
         
-        # Mock insufficient permissions
-        with patch('frappe.has_permission') as mock_perm:
-            mock_perm.return_value = False
-            
-            with self.assertRaises((frappe.PermissionError, Exception)):
-                # Should check permissions
-                get_dashboard_data()
+        # Test with regular user (insufficient permissions)
+        frappe.set_user("test_user@example.com")
+        
+        # Ensure user has only basic role
+        if not frappe.db.exists("User", "test_user@example.com"):
+            user_doc = frappe.get_doc({
+                "doctype": "User",
+                "email": "test_user@example.com",
+                "first_name": "Test",
+                "last_name": "User",
+                "enabled": 1
+            })
+            user_doc.insert(ignore_permissions=True)
+            user_doc.add_roles("Employee")
+        
+        with self.assertRaises((frappe.PermissionError, Exception)):
+            # Should check permissions and reject access
+            get_dashboard_data()
     
     def test_data_leakage_prevention(self):
         """Test prevention of sensitive data leakage"""

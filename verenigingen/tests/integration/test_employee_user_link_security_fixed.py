@@ -123,18 +123,22 @@ class TestEmployeeUserLinkSecurityFixed(EnhancedTestCase):
         """Test that user creation without permissions uses AccountCreationManager"""
         
         with self.as_user(self.limited_user.email):
-            # Mock justified: External service configuration, not business logic
-            with patch('frappe.has_permission') as mock_permission:
-                mock_permission.return_value = False  # No user creation permissions
-                
-                # Should attempt to use AccountCreationManager
-                user_id = create_user_for_volunteer(self.volunteer)
-                
-                # Verify permission check was called
-                mock_permission.assert_called_with("User", "create")
-                
-                # With limited permissions, should return None (queued for background processing)
-                self.assertIsNone(user_id)
+            # Test with user who genuinely doesn't have User creation permissions
+            # The limited_user should not have System Manager role
+            limited_user_doc = frappe.get_doc("User", self.limited_user.email)
+            
+            # Ensure limited user only has Employee role (no User creation permissions)
+            current_roles = [role.role for role in limited_user_doc.roles]
+            if "System Manager" in current_roles:
+                # Remove System Manager role to test real permission boundary
+                limited_user_doc.roles = [role for role in limited_user_doc.roles if role.role != "System Manager"]
+                limited_user_doc.save()
+            
+            # Should attempt to use AccountCreationManager due to real lack of permissions
+            user_id = create_user_for_volunteer(self.volunteer)
+            
+            # With limited permissions, should return None (queued for background processing)
+            self.assertIsNone(user_id)
                 
                 # Verify Account Creation Request was created
                 requests = frappe.get_all(

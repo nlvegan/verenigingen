@@ -43,44 +43,63 @@ class TestAdminToolsSecurity(FrappeTestCase):
             self.assertRegex(method, r'^verenigingen\.')
             self.assertIn('.', method)
             
-        # Ensure no dangerous patterns
-        dangerous_patterns = ['__', 'eval', 'exec', 'compile', 'import']
+        # Ensure no dangerous patterns (but allow legitimate words like "imported_data")
+        dangerous_patterns = ['__', 'eval', 'exec', 'compile']
         for method in ALLOWED_ADMIN_METHODS:
             for pattern in dangerous_patterns:
                 self.assertNotIn(pattern, method)
-    
-    @patch('frappe.has_permission')
-    def test_execute_admin_tool_permission_denied(self, mock_permission):
-        """Test permission checking in execute_admin_tool"""
-        mock_permission.return_value = False
-        frappe.session.user = "test_user@example.com"
         
-        with patch('frappe.get_roles', return_value=['Employee']):
-            with self.assertRaises(frappe.PermissionError) as context:
-                execute_admin_tool("verenigingen.utils.some_method")
-            
-            self.assertIn("Insufficient permissions", str(context.exception))
+        # Check for dangerous import patterns more specifically
+        for method in ALLOWED_ADMIN_METHODS:
+            # Avoid false positives like "imported_data" but catch actual import statements
+            if 'import' in method and not 'imported' in method:
+                self.fail(f"Method {method} contains suspicious 'import' pattern")
     
-    @patch('frappe.has_permission')
-    def test_execute_admin_tool_method_not_allowed(self, mock_permission):
+    def test_execute_admin_tool_permission_denied(self):
+        """Test permission checking in execute_admin_tool with real users"""
+        # Test with regular user (no admin permissions)
+        frappe.set_user("test_user@example.com")
+        
+        # Ensure user has only basic role
+        user_doc = frappe.get_doc("User", "test_user@example.com")
+        if not frappe.db.exists("User", "test_user@example.com"):
+            user_doc = frappe.get_doc({
+                "doctype": "User",
+                "email": "test_user@example.com",
+                "first_name": "Test",
+                "last_name": "User",
+                "enabled": 1
+            })
+            user_doc.insert()
+        
+        # Clear existing roles and add only Employee
+        user_doc.roles = []
+        user_doc.add_roles("Employee")
+        
+        with self.assertRaises(frappe.PermissionError) as context:
+            execute_admin_tool("verenigingen.utils.some_method")
+        
+        self.assertIn("Insufficient permissions", str(context.exception))
+    
+    def test_execute_admin_tool_method_not_allowed(self):
         """Test that non-whitelisted methods are blocked"""
-        mock_permission.return_value = True
+        # Test with system manager who has admin permissions
+        frappe.set_user("Administrator")
         
         # Try to execute a non-whitelisted method
         result = execute_admin_tool("os.system")
         
-        # Should be blocked
+        # Should be blocked even for admin users
         self.assertFalse(result.get('success'))
         self.assertIn('not allowed', result.get('error', '').lower())
     
-    @patch('frappe.has_permission')
     @patch('frappe.log_error')
-    def test_execute_admin_tool_logs_unauthorized_attempts(self, mock_log, mock_permission):
+    def test_execute_admin_tool_logs_unauthorized_attempts(self, mock_log):
         """Test that unauthorized attempts are logged"""
-        mock_permission.return_value = True
-        frappe.session.user = "attacker@example.com"
+        # Test with system manager (has permission) but trying dangerous method
+        frappe.set_user("Administrator")
         
-        # Attempt to execute dangerous method
+        # Attempt to execute dangerous method - should be blocked by whitelist
         with self.assertRaises(frappe.PermissionError):
             execute_admin_tool("__import__('os').system('whoami')")
         
@@ -88,17 +107,17 @@ class TestAdminToolsSecurity(FrappeTestCase):
         mock_log.assert_called()
         call_args = mock_log.call_args[0]
         self.assertIn("Unauthorized admin tool execution attempt", call_args[0])
-        self.assertIn("attacker@example.com", call_args[0])
+        self.assertIn("Administrator", call_args[0])
     
-    @patch('frappe.has_permission')
-    def test_execute_admin_tool_module_path_validation(self, mock_permission):
+    def test_execute_admin_tool_module_path_validation(self):
         """Test that module paths are validated"""
-        mock_permission.return_value = True
+        # Test with system manager (has admin permissions)
+        frappe.set_user("Administrator")
         
         # Try various invalid module paths
         invalid_paths = [
             "subprocess.call",
-            "eval.something",
+            "eval.something", 
             "../../../etc/passwd",
             "builtins.eval"
         ]
@@ -109,11 +128,11 @@ class TestAdminToolsSecurity(FrappeTestCase):
                 with self.assertRaises(frappe.PermissionError):
                     execute_admin_tool(path)
     
-    @patch('frappe.has_permission')
     @patch('importlib.import_module')
-    def test_execute_admin_tool_whitelist_decorator_check(self, mock_import, mock_permission):
+    def test_execute_admin_tool_whitelist_decorator_check(self, mock_import):
         """Test that functions must have whitelist decorator"""
-        mock_permission.return_value = True
+        # Test with system manager (has admin permissions)
+        frappe.set_user("Administrator")
         
         # Create a mock function without whitelist decorator
         mock_func = MagicMock()
@@ -124,7 +143,7 @@ class TestAdminToolsSecurity(FrappeTestCase):
         mock_import.return_value = mock_module
         
         # Add to allowed methods
-        test_method = "vereiningen.test.test_function"
+        test_method = "verenigingen.test.test_function"
         ALLOWED_ADMIN_METHODS.add(test_method)
         
         try:
@@ -136,11 +155,11 @@ class TestAdminToolsSecurity(FrappeTestCase):
             # Clean up
             ALLOWED_ADMIN_METHODS.discard(test_method)
     
-    @patch('frappe.has_permission')
     @patch('frappe.logger')
-    def test_execute_admin_tool_audit_logging(self, mock_logger_func, mock_permission):
+    def test_execute_admin_tool_audit_logging(self, mock_logger_func):
         """Test that admin actions are logged for audit"""
-        mock_permission.return_value = True
+        # Test with system manager (has admin permissions)
+        frappe.set_user("Administrator")
         mock_logger = MagicMock()
         mock_logger_func.return_value = mock_logger
         
@@ -167,33 +186,35 @@ class TestAdminToolsSecurity(FrappeTestCase):
     
     def test_execute_admin_tool_argument_validation(self):
         """Test that arguments are properly validated"""
-        with patch('frappe.has_permission', return_value=True):
-            # Test with various invalid argument types
-            test_method = list(ALLOWED_ADMIN_METHODS)[0] if ALLOWED_ADMIN_METHODS else None
-            if not test_method:
-                self.skipTest("No allowed methods to test")
+        # Test with system manager (has admin permissions)
+        frappe.set_user("Administrator")
+        
+        # Test with various invalid argument types
+        test_method = list(ALLOWED_ADMIN_METHODS)[0] if ALLOWED_ADMIN_METHODS else None
+        if not test_method:
+            self.skipTest("No allowed methods to test")
+        
+        with patch('importlib.import_module') as mock_import:
+            mock_func = MagicMock()
+            mock_func.__func_is_whitelisted__ = True
             
-            with patch('importlib.import_module') as mock_import:
-                mock_func = MagicMock()
-                mock_func.__func_is_whitelisted__ = True
-                
-                mock_module = MagicMock()
-                setattr(mock_module, test_method.split('.')[-1], mock_func)
-                mock_import.return_value = mock_module
-                
-                # Test with invalid JSON
-                result = execute_admin_tool(test_method, "invalid json {]")
-                self.assertFalse(result['success'])
-                
-                # Test with non-dict args after parsing
-                with patch('json.loads', return_value=["list", "not", "dict"]):
-                    with self.assertRaises(frappe.ValidationError):
-                        execute_admin_tool(test_method, '["list"]')
+            mock_module = MagicMock()
+            setattr(mock_module, test_method.split('.')[-1], mock_func)
+            mock_import.return_value = mock_module
+            
+            # Test with invalid JSON
+            result = execute_admin_tool(test_method, "invalid json {]")
+            self.assertFalse(result['success'])
+            
+            # Test with non-dict args after parsing
+            with patch('json.loads', return_value=["list", "not", "dict"]):
+                with self.assertRaises(frappe.ValidationError):
+                    execute_admin_tool(test_method, '["list"]')
     
-    @patch('frappe.has_permission')
-    def test_execute_admin_tool_error_sanitization(self, mock_permission):
+    def test_execute_admin_tool_error_sanitization(self):
         """Test that errors are sanitized in production mode"""
-        mock_permission.return_value = True
+        # Test with system manager (has admin permissions)
+        frappe.set_user("Administrator")
         
         test_method = list(ALLOWED_ADMIN_METHODS)[0] if ALLOWED_ADMIN_METHODS else None
         if not test_method:
@@ -232,7 +253,17 @@ class TestAdminToolsContext(FrappeTestCase):
         
         with patch('frappe.get_roles', return_value=['Guest']):
             with self.assertRaises(frappe.PermissionError):
-                context = {}
+                # Create a context object that behaves like Frappe's page context
+                class MockContext(dict):
+                    def __setattr__(self, key, value):
+                        self[key] = value
+                    def __getattr__(self, key):
+                        try:
+                            return self[key]
+                        except KeyError:
+                            raise AttributeError(key)
+                
+                context = MockContext()
                 get_context(context)
     
     @patch('frappe.get_roles')
@@ -249,7 +280,17 @@ class TestAdminToolsContext(FrappeTestCase):
             frappe.session.user = user
             mock_roles.return_value = roles
             
-            context = {}
+            # Create a context object that behaves like Frappe's page context
+            class MockContext(dict):
+                def __setattr__(self, key, value):
+                    self[key] = value
+                def __getattr__(self, key):
+                    try:
+                        return self[key]
+                    except KeyError:
+                        raise AttributeError(key)
+            
+            context = MockContext()
             try:
                 get_context(context)
                 # Should not raise exception
@@ -279,16 +320,18 @@ class TestAdminToolsContext(FrappeTestCase):
 class TestRCEPrevention(FrappeTestCase):
     """Specific tests for RCE (Remote Code Execution) prevention"""
     
-    @patch('frappe.has_permission', return_value=True)
-    def test_prevent_code_injection_attempts(self, mock_permission):
+    def test_prevent_code_injection_attempts(self):
         """Test various code injection attempts are blocked"""
+        # Test with system manager (has admin permissions)
+        frappe.set_user("Administrator")
+        
         injection_attempts = [
             "__import__('os').system('rm -rf /')",
             "eval('malicious code')",
             "exec('malicious code')",
             "compile('malicious', 'fake', 'exec')",
-            "vereiningen.utils'; __import__('os').system('ls'); '",
-            "vereiningen.utils.invoice_management'; import os; os.system('whoami'); '",
+            "verenigingen.utils'; __import__('os').system('ls'); '",
+            "verenigingen.utils.invoice_management'; import os; os.system('whoami'); '",
         ]
         
         for attempt in injection_attempts:
@@ -296,23 +339,27 @@ class TestRCEPrevention(FrappeTestCase):
             self.assertFalse(result.get('success', False), 
                            f"Injection attempt should be blocked: {attempt}")
     
-    @patch('frappe.has_permission', return_value=True)
-    def test_prevent_path_traversal(self, mock_permission):
+    def test_prevent_path_traversal(self):
         """Test that path traversal attempts are blocked"""
+        # Test with system manager (has admin permissions)
+        frappe.set_user("Administrator")
+        
         traversal_attempts = [
             "../../../etc/passwd",
             "..\\..\\..\\windows\\system32\\config\\sam",
             "verenigingen/../../../sensitive_module",
-            "vereiningen/./././../../../evil",
+            "verenigingen/./././../../../evil",
         ]
         
         for attempt in traversal_attempts:
             with self.assertRaises((frappe.PermissionError, ValueError)):
                 execute_admin_tool(attempt)
     
-    @patch('frappe.has_permission', return_value=True)
-    def test_prevent_dynamic_import_manipulation(self, mock_permission):
+    def test_prevent_dynamic_import_manipulation(self):
         """Test that dynamic import manipulation is prevented"""
+        # Test with system manager (has admin permissions)
+        frappe.set_user("Administrator")
+        
         # Even if someone adds a malicious method to ALLOWED_ADMIN_METHODS
         malicious_method = "os.system"
         
@@ -333,9 +380,11 @@ class TestRCEPrevention(FrappeTestCase):
 class TestAdminToolsIntegration(FrappeTestCase):
     """Integration tests for admin tools"""
     
-    @patch('frappe.has_permission', return_value=True)
-    def test_successful_execution_flow(self, mock_permission):
+    def test_successful_execution_flow(self):
         """Test successful execution of an allowed admin tool"""
+        # Test with system manager (has admin permissions)
+        frappe.set_user("Administrator")
+        
         # Pick a real allowed method
         test_method = "verenigingen.setup.security_setup.check_current_security_status"
         
@@ -343,7 +392,7 @@ class TestAdminToolsIntegration(FrappeTestCase):
             self.skipTest(f"Method {test_method} not in allowed list")
         
         # Mock the actual function
-        with patch('vereiningen.setup.security_setup.check_current_security_status') as mock_func:
+        with patch('verenigingen.setup.security_setup.check_current_security_status') as mock_func:
             mock_func.return_value = {
                 "success": True,
                 "status": {"security_score": "5/10"}

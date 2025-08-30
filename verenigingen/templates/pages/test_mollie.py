@@ -41,12 +41,13 @@ def test_mollie_settings():
                     "name": settings_doc.name,
                     "gateway_name": settings_doc.gateway_name,
                     "test_mode": getattr(settings_doc, "test_mode", None),
-                    "has_secret_key": bool(getattr(settings_doc, "secret_key", None)),
+                    "has_test_key": bool(getattr(settings_doc, "test_secret_key", None)),
+                    "has_live_key": bool(getattr(settings_doc, "live_secret_key", None)),
                 }
 
-                # Try to get the actual API key
+                # Try to get the active API key
                 try:
-                    api_key = settings_doc.get_password("secret_key")
+                    api_key = settings_doc.get_active_api_key()
                     if api_key:
                         result["details"]["api_key_length"] = len(api_key)
                         result["details"]["api_key_type"] = (

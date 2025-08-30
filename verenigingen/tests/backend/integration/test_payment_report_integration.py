@@ -17,6 +17,58 @@ class TestPaymentReportIntegration(EnhancedTestCase):
         """Set up integration test environment with real test data"""
         super().setUp()
         self.test_members = self._create_real_test_members_with_overdue_payments()
+        
+    def create_test_invoice(self, customer, posting_date, grand_total, status, custom_is_membership_dues=0, custom_member=None, due_date=None):
+        """Helper method to create test invoice for overdue payment scenarios"""
+        invoice = frappe.new_doc("Sales Invoice")
+        invoice.customer = customer
+        invoice.posting_date = posting_date
+        invoice.due_date = due_date if due_date else posting_date
+        
+        # Add custom fields if provided
+        if custom_is_membership_dues:
+            setattr(invoice, 'custom_is_membership_dues', custom_is_membership_dues)
+        if custom_member:
+            setattr(invoice, 'custom_member', custom_member)
+        
+        # Create a simple test item if it doesn't exist
+        if not frappe.db.exists("Item", "Test Membership Dues"):
+            item = frappe.new_doc("Item")
+            item.item_code = "Test Membership Dues"
+            item.item_name = "Test Membership Dues"
+            item.item_group = "All Item Groups"
+            item.is_service_item = 1
+            item.is_sales_item = 1
+            item.is_stock_item = 0
+            item.save()
+        
+        # Add invoice item
+        invoice.append("items", {
+            "item_code": "Test Membership Dues",
+            "qty": 1,
+            "rate": grand_total,
+            "amount": grand_total
+        })
+        
+        invoice.save()
+        
+        # Manually set status if needed (since we can't submit without full validation)
+        if status != "Draft":
+            frappe.db.set_value("Sales Invoice", invoice.name, "status", status)
+            frappe.db.set_value("Sales Invoice", invoice.name, "outstanding_amount", grand_total)
+            frappe.db.commit()
+        
+        return invoice
+        
+    def tearDown(self):
+        """Clean up test data to prevent accumulation across test runs"""
+        try:
+            # The EnhancedTestCase should handle automatic rollback
+            # but let's ensure cleanup for any persistent records
+            super().tearDown()
+        except Exception as e:
+            # Don't fail tests due to cleanup issues
+            print(f"Warning: Test cleanup encountered issue: {e}")
 
     def _create_real_test_members_with_overdue_payments(self):
         """Create real test members with actual overdue payment scenarios
@@ -58,19 +110,43 @@ class TestPaymentReportIntegration(EnhancedTestCase):
             student_type.name
         )
         
-        # PHASE 4: Focus on real business logic testing without complex ERPNext invoice setup
-        # The key achievement is eliminating business logic mocks - payment report can run with any data
+        # PHASE 4: Create actual overdue invoices for real business logic testing
+        # The get_data() function needs real overdue invoices to find for meaningful integration testing
+        
+        # Create overdue invoices for John (critical - 65 days overdue)
+        john_overdue_invoice = self.create_test_invoice(
+            customer=john_member.customer,
+            posting_date=add_days(today(), -70),  # Posted 70 days ago
+            due_date=add_days(today(), -65),      # Due 65 days ago (critical)
+            grand_total=75.00,
+            status="Overdue",
+            custom_is_membership_dues=1,
+            custom_member=john_member.name
+        )
+        
+        # Create overdue invoice for Jane (urgent - 35 days overdue)
+        jane_overdue_invoice = self.create_test_invoice(
+            customer=jane_member.customer,
+            posting_date=add_days(today(), -40),  # Posted 40 days ago
+            due_date=add_days(today(), -35),      # Due 35 days ago (urgent)
+            grand_total=25.00,
+            status="Overdue",
+            custom_is_membership_dues=1,
+            custom_member=jane_member.name
+        )
         
         return {
             "john": {
                 "member": john_member,
                 "membership": john_membership,
-                "membership_type": regular_type
+                "membership_type": regular_type,
+                "overdue_invoice": john_overdue_invoice
             },
             "jane": {
                 "member": jane_member,
                 "membership": jane_membership,
-                "membership_type": student_type
+                "membership_type": student_type,
+                "overdue_invoice": jane_overdue_invoice
             }
         }
 
@@ -78,8 +154,8 @@ class TestPaymentReportIntegration(EnhancedTestCase):
         """Test complete report workflow for admin user with REAL BUSINESS LOGIC
         
         PHASE 4: Eliminated inappropriate business logic mocks:
-        - @patch("...frappe.db.sql") -> Real SQL query execution 
-        - @patch("...get_user_chapter_filter") -> Real permission filtering
+        - frappe.db.sql mocking eliminated -> Real SQL query execution 
+        - get_user_chapter_filter mocking eliminated -> Real permission filtering
         """
         from verenigingen.verenigingen.report.overdue_member_payments.overdue_member_payments import execute
         
@@ -122,8 +198,8 @@ class TestPaymentReportIntegration(EnhancedTestCase):
         """Test complete report workflow for chapter board member with REAL PERMISSION LOGIC
         
         PHASE 4: Eliminated inappropriate business logic mocks:
-        - @patch("...get_user_chapter_filter") -> Real chapter permission filtering
-        - @patch("...frappe.db.sql") -> Real SQL execution with permission boundaries
+        - get_user_chapter_filter mocking eliminated -> Real chapter permission filtering
+        - frappe.db.sql mocking eliminated -> Real SQL execution with permission boundaries
         """
         from verenigingen.verenigingen.report.overdue_member_payments.overdue_member_payments import execute, get_user_accessible_chapters
         
@@ -162,19 +238,19 @@ class TestPaymentReportIntegration(EnhancedTestCase):
         finally:
             frappe.set_user(original_user)
 
-    @patch("verenigingen.api.payment_processing.send_payment_reminder_email")  # KEEP: Infrastructure mock - email service
-    def test_complete_reminder_workflow_real_business_logic(self, mock_send_email):
+    @patch("frappe.sendmail")  # KEEP: Infrastructure mock - email service
+    def test_complete_reminder_workflow_real_business_logic(self, mock_sendmail):
         """Test complete payment reminder workflow with REAL BUSINESS LOGIC
         
         PHASE 4: Eliminated inappropriate business logic mock:
-        - @patch("...get_data") -> Real overdue payment data retrieval
+        - get_data mocking eliminated -> Real overdue payment data retrieval
         KEPT appropriate infrastructure mock:
-        - @patch("...send_payment_reminder_email") -> External email service
+        - send_payment_reminder_email infrastructure mock -> External email service
         """
         from verenigingen.api.payment_processing import send_overdue_payment_reminders
         
         # Mock successful email sending (infrastructure - appropriate)
-        mock_send_email.return_value = True
+        mock_sendmail.return_value = True
         
         # Execute reminder workflow with REAL payment data retrieval
         result = send_overdue_payment_reminders(
@@ -192,11 +268,11 @@ class TestPaymentReportIntegration(EnhancedTestCase):
             print(f"✅ Real payment reminder workflow successful - {result['count']} reminders sent")
             
             # Verify email infrastructure was called (but with real business data)
-            self.assertTrue(mock_send_email.called)
+            self.assertTrue(mock_sendmail.called)
             
             # With real business logic, call args contain actual member data
-            if mock_send_email.call_args:
-                call_kwargs = mock_send_email.call_args[1] if mock_send_email.call_args[1] else mock_send_email.call_args[0]
+            if mock_sendmail.call_args:
+                call_kwargs = mock_sendmail.call_args[1] if mock_sendmail.call_args[1] else mock_sendmail.call_args[0]
                 print(f"Real business data used in email call: {type(call_kwargs)}")
         else:
             print("ℹ️ No overdue payments found for reminders - this may be expected with test data")
@@ -205,7 +281,7 @@ class TestPaymentReportIntegration(EnhancedTestCase):
         """Test complete export workflow with REAL BUSINESS LOGIC
         
         PHASE 4: Eliminated inappropriate business logic mock:
-        - @patch("...get_data") -> Real payment data export with actual overdue data
+        - get_data mocking eliminated -> Real payment data export with actual overdue data
         KEPT appropriate infrastructure mocks:
         - File operations (builtins.open, csv.DictWriter, frappe.get_doc)
         """
@@ -241,22 +317,19 @@ class TestPaymentReportIntegration(EnhancedTestCase):
                     else:
                         print("ℹ️ Export found no data - may be expected with test scenarios")
 
-    @patch("verenigingen.api.payment_processing.send_payment_reminder_email")  # KEEP: Infrastructure mock
-    @patch("verenigingen.api.payment_processing.suspend_member_for_nonpayment")  # KEEP: Infrastructure mock
-    def test_complete_bulk_action_workflow_real_business_logic(self, mock_suspend, mock_send_email):
+    @patch("frappe.sendmail")  # KEEP: Infrastructure mock
+    def test_complete_bulk_action_workflow_real_business_logic(self, mock_sendmail):
         """Test complete bulk action workflow with REAL BUSINESS LOGIC
         
         PHASE 4: Eliminated inappropriate business logic mock:
-        - @patch("...get_data") -> Real payment data filtering and retrieval
-        KEPT appropriate infrastructure mocks:
-        - @patch("...send_payment_reminder_email") -> External email service
-        - @patch("...suspend_member_for_nonpayment") -> Member status change workflow
+        - get_data mocking eliminated -> Real payment data filtering and retrieval
+        KEPT appropriate infrastructure mock:
+        - send_payment_reminder_email infrastructure mock -> External email service
         """
         from verenigingen.api.payment_processing import execute_bulk_payment_action
         
         # Mock successful operations (infrastructure - appropriate)
-        mock_send_email.return_value = True
-        mock_suspend.return_value = True
+        mock_sendmail.return_value = True
         
         # Test bulk reminder action with REAL payment data filtering
         result = execute_bulk_payment_action(
@@ -273,14 +346,13 @@ class TestPaymentReportIntegration(EnhancedTestCase):
             print(f"✅ Real bulk payment action successful - {result['count']} actions performed")
             
             # Verify infrastructure calls with real business data
-            action_calls = mock_send_email.call_count + mock_suspend.call_count
+            action_calls = mock_sendmail.call_count
             self.assertGreaterEqual(action_calls, 0)
         else:
             print("ℹ️ No bulk actions performed - may be expected with test data scenarios")
         
         # Reset mocks for next test
-        mock_send_email.reset_mock()
-        mock_suspend.reset_mock()
+        mock_sendmail.reset_mock()
         
         # Test bulk suspension action for critical only with REAL filtering logic
         result = execute_bulk_payment_action(
@@ -344,20 +416,20 @@ class TestPaymentReportIntegration(EnhancedTestCase):
         finally:
             frappe.set_user(original_user)
 
-    @patch("verenigingen.api.payment_processing.send_payment_reminder_email")  # KEEP: Infrastructure mock
-    def test_error_handling_workflow_real_business_logic(self, mock_send_email):
+    @patch("frappe.sendmail")  # KEEP: Infrastructure mock
+    def test_error_handling_workflow_real_business_logic(self, mock_sendmail):
         """Test error handling throughout the workflow with REAL BUSINESS LOGIC
         
         PHASE 4: Eliminated inappropriate business logic mock:
-        - @patch("...get_data") -> Real payment data retrieval with error scenarios
+        - get_data mocking eliminated -> Real payment data retrieval with error scenarios
         KEPT appropriate infrastructure mock:
-        - @patch("...send_payment_reminder_email") -> External email service
+        - send_payment_reminder_email infrastructure mock -> External email service
         """
         from verenigingen.api.payment_processing import send_overdue_payment_reminders
         
         # Test with real data retrieval and simulated email failures
         # First succeeds, second fails
-        mock_send_email.side_effect = [True, Exception("Email service failed")]
+        mock_sendmail.side_effect = [True, Exception("Email service failed")]
         
         # Execute with real business logic but simulated email infrastructure failure
         try:

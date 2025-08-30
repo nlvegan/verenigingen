@@ -439,10 +439,10 @@ class TestSecurityIntegration(FrappeTestCase):
         # Check thresholds are configured
         self.assertGreater(len(monitor.thresholds), 0)
 
-    @patch("frappe.has_permission")
-    def test_api_endpoints_accessible(self, mock_permission):
+    def test_api_endpoints_accessible(self):
         """Test that API endpoints are accessible with proper permissions"""
-        mock_permission.return_value = True
+        # Test with system manager (has required permissions) 
+        frappe.set_user("Administrator")
 
         # Test framework status endpoint
         try:

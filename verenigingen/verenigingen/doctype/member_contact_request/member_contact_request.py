@@ -301,7 +301,7 @@ def create_contact_request(
     request_result = secure_document_operation(
         operation="insert",
         doc=contact_request,
-        justification=f"Create member contact request from member portal",
+        justification="Create member contact request from member portal",
         required_permissions=["Member Contact Request:create"],
     )
 

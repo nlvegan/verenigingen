@@ -24,6 +24,7 @@ Author: Verenigingen Development Team
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from frappe.utils import add_to_date, now
 
 
 def safe_log_error(message, title=None):
@@ -31,9 +32,6 @@ def safe_log_error(message, title=None):
     # Truncate message to prevent log title validation errors
     safe_message = message[:100] + "..." if len(message) > 100 else message
     frappe.log_error(safe_message, title)
-
-
-from frappe.utils import add_to_date, now
 
 
 class AccountCreationRequest(Document):

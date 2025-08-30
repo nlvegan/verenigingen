@@ -119,14 +119,10 @@ class MollieBaseClient:
             # Get the appropriate key
             if test_mode:
                 # Use test key (should start with test_)
-                api_key = settings.get_password("test_api_key", raise_exception=False)
-                if not api_key:
-                    api_key = settings.get_password("secret_key", raise_exception=False)
+                api_key = settings.get_password("test_secret_key", raise_exception=False)
             else:
                 # Use live key (should start with live_)
-                api_key = settings.get_password("live_api_key", raise_exception=False)
-                if not api_key:
-                    api_key = settings.get_password("secret_key", raise_exception=False)
+                api_key = settings.get_password("live_secret_key", raise_exception=False)
 
             if not api_key:
                 raise frappe.ValidationError(_("Mollie API key not configured"))

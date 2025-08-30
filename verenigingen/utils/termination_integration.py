@@ -370,8 +370,13 @@ def end_board_positions_safe(member_name, end_date, reason):
                         else:
                             board_member.notes = f"Ended: {reason}"
 
-                    board_member.flags.ignore_permissions = True
-                    board_member.save()
+                    try:
+                        board_member.save()
+                    except frappe.PermissionError as pe:
+                        frappe.logger().error(
+                            f"Permission denied for board member termination {board_member.name}: {str(pe)}"
+                        )
+                        continue
 
                     positions_ended += 1
                     frappe.logger().info(f"Ended board position {position.chapter_role} at {position.parent}")
@@ -417,20 +422,30 @@ def suspend_team_memberships_safe(member_name, termination_date, reason):
 
                 # Cancel the team membership document
                 if team_member_doc.docstatus == 1:
-                    team_member_doc.flags.ignore_permissions = True
-                    team_member_doc.cancel()
-                    teams_affected += 1
-                    frappe.logger().info(
-                        f"Cancelled team membership for {team_membership.volunteer} in team {team_membership.parent}"
-                    )
+                    try:
+                        team_member_doc.cancel()
+                        teams_affected += 1
+                        frappe.logger().info(
+                            f"Cancelled team membership for {team_membership.volunteer} in team {team_membership.parent}"
+                        )
+                    except frappe.PermissionError as pe:
+                        frappe.logger().error(
+                            f"Permission denied for team membership cancellation {team_member_doc.name}: {str(pe)}"
+                        )
+                        continue
                 elif team_member_doc.docstatus == 0:
                     # Delete draft team memberships
-                    team_member_doc.flags.ignore_permissions = True
-                    team_member_doc.delete()
-                    teams_affected += 1
-                    frappe.logger().info(
-                        f"Deleted draft team membership for {team_membership.volunteer} in team {team_membership.parent}"
-                    )
+                    try:
+                        team_member_doc.delete()
+                        teams_affected += 1
+                        frappe.logger().info(
+                            f"Deleted draft team membership for {team_membership.volunteer} in team {team_membership.parent}"
+                        )
+                    except frappe.PermissionError as pe:
+                        frappe.logger().error(
+                            f"Permission denied for team membership deletion {team_member_doc.name}: {str(pe)}"
+                        )
+                        continue
 
             except Exception as e:
                 frappe.logger().error(f"Failed to suspend team membership {team_membership.name}: {str(e)}")
@@ -455,8 +470,13 @@ def suspend_team_memberships_safe(member_name, termination_date, reason):
                         else:
                             team_doc.description = termination_note
 
-                    team_doc.flags.ignore_permissions = True
-                    team_doc.save()
+                    try:
+                        team_doc.save()
+                    except frappe.PermissionError as pe:
+                        frappe.logger().error(
+                            f"Permission denied for team leadership update {team_doc.name}: {str(pe)}"
+                        )
+                        continue
 
                     frappe.logger().info(f"Removed team leadership from team {team.name}")
 
@@ -559,8 +579,11 @@ def reactivate_user_account_safe(member_name, reason):
         elif hasattr(user_doc, "bio"):
             user_doc.bio = reactivation_note
 
-        user_doc.flags.ignore_permissions = True
-        user_doc.save()
+        try:
+            user_doc.save()
+        except frappe.PermissionError as pe:
+            frappe.logger().error(f"Permission denied for user reactivation {user_email}: {str(pe)}")
+            return False
 
         frappe.logger().info(f"Reactivated user account {user_email}")
         return True
@@ -606,7 +629,6 @@ def suspend_member_safe(
         if hasattr(member, "pre_suspension_status"):
             member.pre_suspension_status = original_status
 
-        member.flags.ignore_permissions = True
         try:
             member.save()
         except frappe.TimestampMismatchError:
@@ -619,8 +641,11 @@ def suspend_member_safe(
                 member.notes = suspension_note
             if hasattr(member, "pre_suspension_status"):
                 member.pre_suspension_status = original_status
-            member.flags.ignore_permissions = True
             member.save()
+        except frappe.PermissionError as pe:
+            results["success"] = False
+            results["errors"].append(f"Permission denied for member suspension: {str(pe)}")
+            return results
 
         results["member_suspended"] = True
         results["actions_taken"].append(f"Member status changed from {original_status} to Suspended")
@@ -639,8 +664,12 @@ def suspend_member_safe(
                 elif hasattr(user_doc, "bio"):
                     user_doc.bio = user_suspension_note
 
-                user_doc.flags.ignore_permissions = True
-                user_doc.save()
+                try:
+                    user_doc.save()
+                except frappe.PermissionError as pe:
+                    results["errors"].append(f"Permission denied for user suspension: {str(pe)}")
+                    # Continue with other operations even if user suspension fails
+                    pass
 
                 results["user_suspended"] = True
                 results["actions_taken"].append("User account suspended")
@@ -701,7 +730,6 @@ def unsuspend_member_safe(member_name, unsuspension_reason, restore_teams=True):
         if hasattr(member, "pre_suspension_status"):
             member.pre_suspension_status = None
 
-        member.flags.ignore_permissions = True
         try:
             member.save()
         except frappe.TimestampMismatchError:
@@ -714,8 +742,11 @@ def unsuspend_member_safe(member_name, unsuspension_reason, restore_teams=True):
                 member.notes = unsuspension_note
             if hasattr(member, "pre_suspension_status"):
                 member.pre_suspension_status = None
-            member.flags.ignore_permissions = True
             member.save()
+        except frappe.PermissionError as pe:
+            results["success"] = False
+            results["errors"].append(f"Permission denied for member unsuspension: {str(pe)}")
+            return results
 
         results["member_unsuspended"] = True
         results["actions_taken"].append(f"Member status restored to {restore_status}")
@@ -736,8 +767,11 @@ def unsuspend_member_safe(member_name, unsuspension_reason, restore_teams=True):
                 elif hasattr(user_doc, "bio"):
                     user_doc.bio = user_unsuspension_note
 
-                user_doc.flags.ignore_permissions = True
-                user_doc.save()
+                try:
+                    user_doc.save()
+                except frappe.PermissionError as pe:
+                    results["errors"].append(f"Permission denied for user reactivation: {str(pe)}")
+                    # Continue with other operations even if user reactivation fails
 
                 results["user_unsuspended"] = True
                 results["actions_taken"].append("User account reactivated")
@@ -808,8 +842,13 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
                 if hasattr(volunteer_doc, "end_date") and not volunteer_doc.end_date:
                     volunteer_doc.end_date = termination_date
 
-                volunteer_doc.flags.ignore_permissions = True
-                volunteer_doc.save()
+                try:
+                    volunteer_doc.save()
+                except frappe.PermissionError as pe:
+                    frappe.logger().error(
+                        f"Permission denied for volunteer record termination {volunteer_doc.name}: {str(pe)}"
+                    )
+                    continue
 
                 results["volunteers_terminated"] += 1
                 results["actions_taken"].append(f"Updated volunteer record {volunteer_data.volunteer_name}")
@@ -830,8 +869,13 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
                         expense_doc = frappe.get_doc("Volunteer Expense", expense.name)
                         expense_doc.approval_status = "Cancelled"
                         expense_doc.cancellation_reason = f"Volunteer terminated - {reason}"
-                        expense_doc.flags.ignore_permissions = True
-                        expense_doc.save()
+                        try:
+                            expense_doc.save()
+                        except frappe.PermissionError as pe:
+                            results["errors"].append(
+                                f"Permission denied for expense cancellation {expense_doc.name}: {str(pe)}"
+                            )
+                            continue
 
                         results["volunteer_expenses_cancelled"] += 1
                         results["actions_taken"].append(f"Cancelled volunteer expense {expense.name}")
@@ -951,8 +995,13 @@ def terminate_employee_records_safe(member_name, termination_type, termination_d
                     else:
                         employee_doc.remarks = termination_note
 
-                employee_doc.flags.ignore_permissions = True
-                employee_doc.save()
+                try:
+                    employee_doc.save()
+                except frappe.PermissionError as pe:
+                    results["errors"].append(
+                        f"Permission denied for employee record termination {employee_doc.name}: {str(pe)}"
+                    )
+                    continue
 
                 results["employees_terminated"] += 1
                 results["actions_taken"].append(f"Updated employee record {employee_data.employee_name}")

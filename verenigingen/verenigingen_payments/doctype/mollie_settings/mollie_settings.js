@@ -12,19 +12,33 @@ frappe.ui.form.on('Mollie Settings', {
 		// Show warning when test mode is enabled
 		if (frm.doc.test_mode) {
 			frm.dashboard.add_comment(
-				__('Test Mode is enabled. Use test API keys and no real transactions will be processed.'),
+				__('Test Mode is enabled. Test API key will be used and no real transactions will be processed.'),
 				'orange',
 				true
 			);
 		} else {
-			frm.dashboard.clear_comment();
+			frm.dashboard.add_comment(
+				__('Live Mode is active. Live API key will be used for real transactions.'),
+				'red',
+				true
+			);
+		}
+		// Refresh buttons and indicators when mode changes
+		add_custom_buttons(frm);
+		setup_form_indicators(frm);
+	},
+
+	test_secret_key(frm) {
+		// Validate test secret key format
+		if (frm.doc.test_secret_key) {
+			validate_key_format(frm, frm.doc.test_secret_key, 'test');
 		}
 	},
 
-	secret_key(frm) {
-		// Validate secret key format
-		if (frm.doc.secret_key) {
-			validate_secret_key_format(frm);
+	live_secret_key(frm) {
+		// Validate live secret key format
+		if (frm.doc.live_secret_key) {
+			validate_key_format(frm, frm.doc.live_secret_key, 'live');
 		}
 	},
 
@@ -37,8 +51,14 @@ frappe.ui.form.on('Mollie Settings', {
 });
 
 function add_custom_buttons(frm) {
+	// Clear existing custom buttons
+	frm.clear_custom_buttons();
+
+	// Check if we have the required configuration for current mode
+	const has_required_key = frm.doc.test_mode ? frm.doc.test_secret_key : frm.doc.live_secret_key;
+
 	// Add Test Connection button
-	if (frm.doc.name && frm.doc.profile_id && frm.doc.secret_key) {
+	if (frm.doc.name && frm.doc.profile_id && has_required_key) {
 		frm.add_custom_button(__('Test Connection'), () => {
 			test_mollie_connection(frm);
 		}, __('Actions'));
@@ -58,19 +78,38 @@ function add_custom_buttons(frm) {
 }
 
 function setup_form_indicators(frm) {
+	// Clear existing indicators
+	frm.dashboard.clear_indicators();
+
 	// Show test mode indicator
 	if (frm.doc.test_mode) {
 		frm.dashboard.set_headline_alert(
 			__('Test Mode Active - No real transactions will be processed'),
 			'orange'
 		);
+	} else {
+		frm.dashboard.set_headline_alert(
+			__('Live Mode Active - Real transactions will be processed'),
+			'red'
+		);
 	}
 
-	// Show configuration status
-	if (frm.doc.name && frm.doc.profile_id && frm.doc.secret_key) {
-		frm.dashboard.add_indicator(__('Configured'), 'green');
+	// Show configuration status based on current mode
+	const has_required_key = frm.doc.test_mode ? frm.doc.test_secret_key : frm.doc.live_secret_key;
+	const mode = frm.doc.test_mode ? 'Test' : 'Live';
+
+	if (frm.doc.name && frm.doc.profile_id && has_required_key) {
+		frm.dashboard.add_indicator(__(`${mode} Mode Configured`), 'green');
 	} else {
-		frm.dashboard.add_indicator(__('Incomplete Configuration'), 'red');
+		frm.dashboard.add_indicator(__(`${mode} Mode Incomplete`), 'red');
+	}
+
+	// Show key availability
+	if (frm.doc.test_secret_key) {
+		frm.dashboard.add_indicator(__('Test Key Available'), 'blue');
+	}
+	if (frm.doc.live_secret_key) {
+		frm.dashboard.add_indicator(__('Live Key Available'), 'blue');
 	}
 }
 
@@ -102,21 +141,25 @@ function test_mollie_connection(_frm) {
 	});
 }
 
-function validate_secret_key_format(frm) {
-	const secret_key = frm.doc.secret_key;
-
+function validate_key_format(frm, key, expected_type) {
 	// Basic validation for Mollie secret key format
-	if (secret_key) {
-		if (frm.doc.test_mode && !secret_key.startsWith('test_')) {
+	if (key) {
+		if (expected_type === 'test' && !key.startsWith('test_')) {
 			frappe.msgprint({
-				title: __('Secret Key Warning'),
-				message: __('Test mode is enabled but the secret key does not appear to be a test key (should start with "test_")'),
+				title: __('Test Key Warning'),
+				message: __('This appears to be a live key, but it should be a test key (should start with "test_")'),
 				indicator: 'orange'
 			});
-		} else if (!frm.doc.test_mode && secret_key.startsWith('test_')) {
+		} else if (expected_type === 'live' && key.startsWith('test_')) {
 			frappe.msgprint({
-				title: __('Secret Key Warning'),
-				message: __('Test mode is disabled but the secret key appears to be a test key'),
+				title: __('Live Key Warning'),
+				message: __('This appears to be a test key, but it should be a live key (should start with "live_")'),
+				indicator: 'red'
+			});
+		} else if (expected_type === 'live' && !key.startsWith('live_')) {
+			frappe.msgprint({
+				title: __('Live Key Warning'),
+				message: __('Live keys should start with "live_". Please verify this is the correct key.'),
 				indicator: 'orange'
 			});
 		}
@@ -150,7 +193,14 @@ frappe.ui.form.on('Mollie Settings', 'before_save', (frm) => {
 	// No need to validate gateway_name since it's not used in singleton pattern
 
 	// Validate required fields
-	if (!frm.doc.profile_id || !frm.doc.secret_key) {
-		frappe.throw(__('Profile ID and Secret Key are required for Mollie integration'));
+	if (!frm.doc.profile_id) {
+		frappe.throw(__('Profile ID is required for Mollie integration'));
+	}
+
+	// Validate that we have the appropriate key for the selected mode
+	if (frm.doc.test_mode && !frm.doc.test_secret_key) {
+		frappe.throw(__('Test Secret Key is required when Test Mode is enabled'));
+	} else if (!frm.doc.test_mode && !frm.doc.live_secret_key) {
+		frappe.throw(__('Live Secret Key is required when Test Mode is disabled'));
 	}
 });

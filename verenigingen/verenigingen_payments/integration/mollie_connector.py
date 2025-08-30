@@ -48,11 +48,12 @@ class MollieConnector:
         try:
             doc = frappe.get_single("Mollie Settings")
 
-            # Decrypt API key
-            api_key = doc.get_password(fieldname="secret_key", raise_exception=False)
+            # Get active API key based on test mode
+            api_key = doc.get_active_api_key()
 
             if not api_key:
-                raise MollieIntegrationError("Mollie API key not configured")
+                mode = "test" if doc.test_mode else "live"
+                raise MollieIntegrationError(f"Mollie {mode} API key not configured")
 
             return {
                 "api_key": api_key,

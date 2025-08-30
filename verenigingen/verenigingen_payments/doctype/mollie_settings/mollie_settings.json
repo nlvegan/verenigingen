@@ -11,7 +11,8 @@
  "field_order": [
   "profile_id",
   "column_break_3",
-  "secret_key",
+  "test_secret_key",
+  "live_secret_key",
   "test_mode",
   "section_break_5",
   "header_img",
@@ -50,16 +51,24 @@
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "secret_key",
+   "fieldname": "test_secret_key",
    "fieldtype": "Password",
-   "label": "Mollie API Secret Key",
-   "reqd": 1
+   "label": "Mollie API Test Secret Key",
+   "reqd": 1,
+   "description": "Test API key from Mollie Dashboard (starts with test_)"
   },
   {
-   "default": "0",
+   "fieldname": "live_secret_key",
+   "fieldtype": "Password",
+   "label": "Mollie API Live Secret Key",
+   "description": "Live API key from Mollie Dashboard (starts with live_) - only used when Test Mode is unchecked"
+  },
+  {
+   "default": "1",
    "fieldname": "test_mode",
    "fieldtype": "Check",
-   "label": "Test Mode"
+   "label": "Test Mode",
+   "description": "When checked, uses Test Secret Key. When unchecked, uses Live Secret Key."
   },
   {
    "fieldname": "section_break_5",

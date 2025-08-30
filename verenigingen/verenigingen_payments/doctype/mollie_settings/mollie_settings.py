@@ -102,17 +102,24 @@ class MollieSettings(Document):
         Raises:
             frappe.ValidationError: If credentials are invalid or API call fails
         """
-        if not (self.profile_id and self.secret_key):
+        if not self.profile_id:
             return
+
+        # Check that we have the appropriate key for the current mode
+        if self.test_mode and not self.test_secret_key:
+            frappe.throw(_("Test Secret Key is required when Test Mode is enabled"))
+        elif not self.test_mode and not self.live_secret_key:
+            frappe.throw(_("Live Secret Key is required when Test Mode is disabled"))
 
         try:
             from mollie.api.client import Client
 
             client = Client()
-            api_key = self.get_password(fieldname="secret_key", raise_exception=False)
+            api_key = self.get_active_api_key()
 
             if not api_key:
-                frappe.throw(_("Secret key is required for Mollie integration"))
+                mode = "test" if self.test_mode else "live"
+                frappe.throw(_("{0} secret key is required for Mollie integration").format(mode.title()))
 
             client.set_api_key(api_key)
 
@@ -186,10 +193,11 @@ class MollieSettings(Document):
             from mollie.api.client import Client
 
             client = Client()
-            api_key = self.get_password(fieldname="secret_key", raise_exception=False)
+            api_key = self.get_active_api_key()
 
             if not api_key:
-                frappe.throw(_("Mollie secret key not configured"))
+                mode = "test" if self.test_mode else "live"
+                frappe.throw(_("Mollie {0} secret key not configured").format(mode))
 
             client.set_api_key(api_key)
             return client
@@ -349,9 +357,16 @@ class MollieSettings(Document):
         else:
             self.subscription_webhook_url = ""
 
+    def get_active_api_key(self):
+        """Get the active API key based on test_mode setting"""
+        if self.test_mode:
+            return self.get_password(fieldname="test_secret_key", raise_exception=False)
+        else:
+            return self.get_password(fieldname="live_secret_key", raise_exception=False)
+
     def get_api_key(self):
-        """Get decrypted API key"""
-        return self.get_password(fieldname="secret_key", raise_exception=False)
+        """Get decrypted API key - deprecated, use get_active_api_key()"""
+        return self.get_active_api_key()
 
     def get_organization_token(self):
         """Get decrypted organization access token"""

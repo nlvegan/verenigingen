@@ -286,10 +286,10 @@ class BatchPerformanceOptimizer:
         """
         self.cache_stats["cache_size"] = len(self.get_bank_config_cached.cache_info())
 
-        if bic_code in self.get_bank_config_cached.cache_info().currsize:
-            self.cache_stats["hits"] += 1
-        else:
-            self.cache_stats["misses"] += 1
+        # Track cache statistics (cache hit/miss logic handled by lru_cache automatically)
+        cache_info = self.get_bank_config_cached.cache_info()
+        self.cache_stats["hits"] = cache_info.hits
+        self.cache_stats["misses"] = cache_info.misses
 
         # Import here to avoid circular imports
         from verenigingen.verenigingen_payments.utils.sepa_config_manager import get_sepa_config_manager

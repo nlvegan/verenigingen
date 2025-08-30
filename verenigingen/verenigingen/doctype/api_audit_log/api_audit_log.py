@@ -104,7 +104,7 @@ class APIAuditLog(Document):
             )
 
             if not insert_result.success:
-                frappe.log_error(f"Could not create API audit entry: Permission denied", "API Audit Error")
+                frappe.log_error("Could not create API audit entry: Permission denied", "API Audit Error")
                 return None
             frappe.db.commit()
             return audit_doc.name
