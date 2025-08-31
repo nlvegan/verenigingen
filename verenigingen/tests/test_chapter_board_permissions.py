@@ -29,12 +29,12 @@ class TestChapterBoardPermissions(EnhancedTestCase):
         super().setUp()
         
         # Create test chapters
-        self.chapter_1 = self.create_test_chapter(
+        self.chapter_1 = self.create_chapter(
             chapter_name="Test Chapter 1",
             region="Test Region"
         )
         
-        self.chapter_2 = self.create_test_chapter(
+        self.chapter_2 = self.create_chapter(
             chapter_name="Test Chapter 2", 
             region="Test Region"
         )
@@ -401,7 +401,7 @@ class TestChapterBoardRoleManagement(EnhancedTestCase):
             user=self.test_user.name
         )
         
-        self.test_chapter = self.create_test_chapter(
+        self.test_chapter = self.create_chapter(
             chapter_name="Test Chapter",
             region="Test Region"
         )

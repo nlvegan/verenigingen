@@ -70,14 +70,14 @@ class MemberLifecycleUnitTest(EnhancedTestCase):
             "first_name": "Pending",
             "last_name": "Application",
             "email": "pending@example.com",
-            "status": "Application Pending",
+            "status": "Pending",
             "application_id": None
         }
         
         member = frappe.get_doc(member_data)
         
         # Test application ID generation logic (real function on Member class)
-        if member.status == "Application Pending" and not member.application_id:
+        if member.status == "Pending" and not member.application_id:
             member.application_id = member.generate_application_id()
             
         # Should have generated a proper application ID

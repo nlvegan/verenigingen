@@ -3,8 +3,31 @@
 # See license.txt
 
 """
-Enhanced Base Test Infrastructure for Verenigingen
-Provides a hierarchy of test case classes for different testing scenarios
+Verenigingen Operational Test Framework
+======================================
+
+🔧 **OPERATIONAL TESTING FRAMEWORK** - Use for integration, UI, and workflow testing
+
+WHEN TO USE VereningingenTestCase:
+✅ Integration tests requiring mocking (external APIs, file systems)
+✅ UI/form testing with CSRF handling and request simulation  
+✅ Workflow tests that need operational conveniences
+✅ Performance tests with controlled environments
+✅ Tests requiring extensive setup/teardown infrastructure
+
+WHEN NOT TO USE (Use EnhancedTestCase instead):
+❌ Business logic validation that should catch production issues
+❌ Data integrity testing where field validation is critical
+❌ Tests that need to verify real system behavior
+❌ Core business rule testing (use Enhanced for field safety)
+
+Key Features:
+- Extensive mocking capabilities for external dependencies
+- CSRF and request environment simulation
+- Operational convenience methods (payment modes, regions)
+- Traditional test-prefixed factory methods (create_test_*)
+
+Companion Framework: EnhancedTestCase (enhanced_test_factory.py)
 """
 
 import json
@@ -20,8 +43,13 @@ from werkzeug.wrappers import Request
 
 class VereningingenTestCase(FrappeTestCase):
     """
-    Base test case for all Verenigingen tests.
-    Provides common utilities and setup/teardown logic.
+    🔧 Operational Testing Framework - Mocking, Integration & Workflow Testing
+    
+    Optimized for tests that need extensive mocking, CSRF handling, and operational
+    conveniences. Provides 31 factory methods with create_test_* naming convention.
+    
+    Use when you need: mocking, UI testing, workflow integration, performance testing
+    Don't use for: business logic validation, production issue discovery, field safety
     """
 
     @classmethod

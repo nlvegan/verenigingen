@@ -2,13 +2,45 @@
 
 ## Executive Summary
 
-The Verenigingen testing framework has been completely modernized in July 2025 with an enhanced `VereningingenTestCase` base class that provides automatic cleanup, factory methods, and comprehensive testing utilities. This framework represents a significant improvement over legacy testing patterns implemented in July 2025.
+The Verenigingen testing infrastructure features a **dual framework architecture** optimized for different testing scenarios:
+
+🔧 **VereningingenTestCase** (2,150 lines, 31 factory methods) - Operational testing framework for integration, UI, and workflow testing with extensive mocking capabilities.
+
+🔍 **EnhancedTestCase** (1,572 lines, 28 factory methods) - Business logic validation framework that discovered **18+ production issues** in Phase 5.1 through real database testing and field validation.
+
+**Key Achievement**: During Phase 5.1 production issue fixes, we discovered these frameworks are complementary rather than competing. The dual architecture provides the best of both worlds - operational convenience when needed, production issue discovery when critical.
 
 ## Framework Overview
 
-### VereningingenTestCase: The New Standard
+### Dual Test Framework Architecture
 
-All tests now inherit from `VereningingenTestCase` which provides:
+Verenigingen uses **two complementary test frameworks** optimized for different testing scenarios:
+
+#### 🔧 VereningingenTestCase - Operational Testing Framework
+**Use for**: Integration tests, UI testing, workflow testing, mocking external services
+
+#### 🔍 EnhancedTestCase - Business Logic Validation Framework
+**Use for**: Business rule testing, production issue discovery, field validation
+
+### Framework Selection Decision Tree
+
+```
+Are you testing business logic that should catch production issues?
+├─ YES → Use EnhancedTestCase
+│   ✅ Member lifecycle, SEPA operations, financial workflows
+│   ✅ Any test that should discover real system problems
+│   ✅ Field validation and data integrity testing
+│
+└─ NO → Use VereningingenTestCase
+    ✅ UI/form testing with CSRF simulation
+    ✅ External API mocking and integration testing
+    ✅ Performance testing with controlled environments
+    ✅ Workflow tests requiring operational setup
+```
+
+### VereningingenTestCase: Operational Testing Framework
+
+VereningingenTestCase provides:
 
 #### 🔄 Automatic Document Cleanup
 - **Complete Tracking**: Every document created is automatically tracked
@@ -76,6 +108,110 @@ def test_performance_critical_operation(self):
     # Execution time automatically tracked
     # Query patterns analyzed for optimization
 ```
+
+### EnhancedTestCase: Business Logic Validation Framework
+
+EnhancedTestCase provides production issue discovery through real database testing:
+
+#### 🔍 Field Validation & Production Issue Discovery
+- **Schema Validation**: Validates all field references against DocType schemas
+- **Business Rule Enforcement**: Prevents impossible test scenarios (e.g., volunteers under 16)
+- **Real Database Testing**: No inappropriate business logic mocks
+- **Production Bug Discovery**: Discovered 18+ real issues in Phase 5.1
+
+#### 🎯 Clean Factory Methods API
+```python
+# Business logic validation with both API styles
+member = self.create_member(
+    first_name="Test",
+    last_name="Member",
+    birth_date="1990-01-01"  # Validates age requirements
+)
+
+# Or use test-prefixed versions
+chapter = self.create_test_chapter(region="Noord-Holland")
+```
+
+#### 🛡️ Business Rule Validation Examples
+```python
+# Enforces real business rules during test data creation
+volunteer = self.create_test_volunteer(
+    member_name=member.name,
+    birth_date="2010-01-01"  # ❌ Will fail: volunteers must be 16+
+)
+
+# Validates field existence against DocType schemas
+member = self.create_test_member(
+    postal_code="1234AB"  # ❌ Will fail: Member has primary_address Link, not postal_code
+)
+```
+
+#### 🔎 Phase 5.1 Production Issue Discovery
+**Key Achievement**: EnhancedTestCase discovered 18+ production issues across:
+- **SEPA Operations**: Invalid API parameters, audit context failures
+- **Member Lifecycle**: Invalid status values, address relationship bugs
+- **Financial Operations**: Payment processing gaps, currency validation
+- **Donation Agreements**: Scheduling conflicts, gateway integration issues
+
+**Critical Difference**: Traditional mocked tests would never discover these real production problems.
+
+## Framework Selection Guide
+
+### Real Examples: When to Use Which Framework
+
+#### ✅ Use EnhancedTestCase For:
+
+```python
+class TestMemberLifecycleReal(EnhancedTestCase):
+    """Testing that validates real business logic"""
+
+    def test_member_status_transition_validation(self):
+        # Will catch invalid status values that break production
+        member = self.create_test_member(status="Active")
+        # Real business logic validation here - discovers production issues
+```
+
+#### ✅ Use VereningingenTestCase For:
+
+```python
+class TestMollieIntegration(VereningingenTestCase):
+    """Testing external service integration"""
+
+    @patch('requests.post')  # Mock external Mollie API
+    def test_payment_webhook_processing(self, mock_post):
+        # External service mocking - operational testing
+        mock_post.return_value.status_code = 200
+        # Test integration workflow with mocked dependencies
+```
+
+### Import Patterns
+
+```python
+# For business logic and production issue discovery
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+class TestBusinessLogic(EnhancedTestCase):
+    pass
+
+# For operational testing and integration
+from verenigingen.tests.utils.base import VereningingenTestCase
+
+class TestIntegration(VereningingenTestCase):
+    pass
+```
+
+### Method API Compatibility
+
+Both frameworks support compatible methods with automatic bridging:
+
+| Purpose | VereningingenTestCase | EnhancedTestCase | Status |
+|---------|----------------------|------------------|--------|
+| Member Creation | `create_test_member()` | `create_test_member()` ✅ | Compatible |
+| Chapter Creation | `create_test_chapter()` | `create_test_chapter()` ✅ | **BRIDGED** |
+| Chapter Creation Alt | `create_test_chapter()` | `create_chapter()` ✅ | Both APIs Work |
+| Membership | `create_test_membership()` | `create_test_membership()` ✅ | Compatible |
+
+**✅ API Compatibility Achieved**: Added bridge method to EnhancedTestCase so both `create_test_chapter()` and `create_chapter()` work in both frameworks.
 
 ## Migration Success Story
 
@@ -560,8 +696,38 @@ def test_discovers_real_production_issue(self):
 
 ## Conclusion
 
-The July 2025 testing framework represents a major advancement in code quality and maintainability for the Verenigingen application. With automatic cleanup, factory methods, comprehensive testing utilities, and **Phase 5.1 Database Mock Elimination methodology**, developers can write more reliable tests that discover real production issues while maintaining high code quality standards.
+### Dual Framework Architecture: A Strategic Success
 
-**Phase 5.1 Achievement**: Systematic elimination of inappropriate database mocks across all Tier 1 business areas, discovering 18+ critical production issues that traditional mocked tests completely miss.
+What initially appeared to be competing frameworks turned out to be **complementary systems** serving different critical purposes:
 
-The successful migration of critical business logic, core components, and complex workflows demonstrates the framework's effectiveness and provides a solid foundation for continued development and testing excellence.
+#### 🔧 VereningingenTestCase: Operational Excellence
+- **31 factory methods** for comprehensive operational testing
+- **Extensive mocking capabilities** for external service integration
+- **CSRF and UI testing support** for workflow validation
+- **116 test files** actively using this framework
+
+#### 🔍 EnhancedTestCase: Production Quality Assurance
+- **Field validation system** that caught 18+ production issues
+- **Business rule enforcement** preventing invalid test scenarios
+- **Real database testing** without inappropriate mocks
+- **112 test files** actively using this framework
+
+### Key Architectural Insights
+
+1. **Both Are Actively Used**: 116 vs 112 files shows balanced adoption
+2. **Different Strengths**: Operational vs Business Logic validation
+3. **API Compatibility**: Bridge methods solve inconsistencies
+4. **Production Value**: EnhancedTestCase discovered real issues mocked tests missed
+
+### Strategic Recommendations
+
+✅ **Keep Both Frameworks** - They serve different, essential purposes
+✅ **Use Framework Selection Guide** - Clear decision tree for appropriate usage
+✅ **Leverage Bridge Methods** - API compatibility prevents developer confusion
+✅ **Prioritize Enhanced for Business Logic** - When production issue discovery matters
+
+### Phase 5.1 Achievement
+
+**Systematic elimination of inappropriate database mocks** across all Tier 1 business areas, discovering **18+ critical production issues** that traditional mocked tests completely miss. This validates the dual architecture approach - operational testing AND production issue discovery are both essential.
+
+The successful integration of both frameworks demonstrates that testing excellence requires both operational convenience and business logic validation.

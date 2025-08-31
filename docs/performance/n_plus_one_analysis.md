@@ -63,7 +63,7 @@ The N+1 query pattern scanner identified **864 potential performance issues** ac
 
 Multiple SEPA-related files showing N+1 patterns:
 - `sepa_notification_manager.py`
-- `sepa_rollback_manager.py` 
+- `sepa_rollback_manager.py`
 - `sepa_operations.py`
 
 **Risk**: Payment processing delays affecting cash flow
@@ -75,11 +75,11 @@ Multiple SEPA-related files showing N+1 patterns:
 ```python
 # PROBLEM: O(n) queries for permission checking
 for role in roles_to_check:
-    perms = frappe.db.get_all("DocPerm", 
+    perms = frappe.db.get_all("DocPerm",
         filters={"parent": "DocType", "role": role})
 
 # SOLUTION: Single query with IN clause
-all_perms = frappe.db.get_all("DocPerm", 
+all_perms = frappe.db.get_all("DocPerm",
     filters={"parent": "DocType", "role": ["in", roles_to_check]})
 ```
 
@@ -90,7 +90,7 @@ for donation in donations:
     donor_doc = frappe.get_doc("Donor", donation.donor)
 
 # SOLUTION: Bulk fetch with field selection
-donor_data = frappe.get_all("Donor", 
+donor_data = frappe.get_all("Donor",
     filters={"name": ["in", donor_names]},
     fields=["name", "donor_name", "email"])
 ```
@@ -139,9 +139,9 @@ Based on the patterns found, the following performance improvements are expected
    # Before (N+1)
    for name in doc_names:
        doc = frappe.get_doc("DocType", name)
-   
+
    # After (1 query)
-   docs = frappe.get_all("DocType", 
+   docs = frappe.get_all("DocType",
        filters={"name": ["in", doc_names]},
        fields=["*"])
    ```
@@ -151,7 +151,7 @@ Based on the patterns found, the following performance improvements are expected
    # Before (N queries)
    for role in roles:
        perms = frappe.db.get_value("DocPerm", {"role": role})
-   
+
    # After (1 query)
    all_perms = frappe.db.get_all("DocPerm",
        filters={"role": ["in", roles]})
@@ -162,9 +162,9 @@ Based on the patterns found, the following performance improvements are expected
    # Before (N+1)
    members = frappe.get_all("Member")
    for member in members:
-       chapters = frappe.get_all("Chapter Member", 
+       chapters = frappe.get_all("Chapter Member",
            filters={"member": member.name})
-   
+
    # After (1 query)
    result = frappe.db.sql("""
        SELECT m.name, m.first_name, cm.chapter
@@ -194,7 +194,7 @@ Based on the patterns found, the following performance improvements are expected
 - Read-only operations optimization
 - Permission checking improvements
 
-### Medium Risk  
+### Medium Risk
 - Payment processing changes (requires thorough testing)
 - SEPA operations (financial impact of errors)
 - Background job modifications
