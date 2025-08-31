@@ -474,7 +474,7 @@ function populateConfirmation() {
 	if (donationStatus === 'Recurring') {
 		const subscriptionInterval = window.formData.subscription_interval || '1 month';
 		const intervalText = subscriptionInterval.replace('1 ', 'Every ');
-		
+
 		summaryHtml += `
         <div class="summary-row" style="background-color: #f0f8ff; padding: 10px; border-radius: 4px; margin: 10px 0;">
             <div>

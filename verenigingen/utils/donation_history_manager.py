@@ -56,7 +56,7 @@ class DonationHistoryManager:
                             "donation_reference": donation.name,
                             "donation_date": donation.donation_date,
                             "donation_amount": donation.amount,
-                            "payment_method": donation.payment_method,
+                            "payment_method": donation.mode_of_payment,
                             "donation_status": donation.status,
                             "fund_designation": donation.fund_designation,
                             "donation_purpose": donation.donation_purpose,
@@ -104,7 +104,7 @@ class DonationHistoryManager:
             if existing_entry:
                 existing_entry.donation_date = donation_doc.donation_date
                 existing_entry.donation_amount = donation_doc.amount
-                existing_entry.payment_method = donation_doc.payment_method
+                existing_entry.payment_method = donation_doc.mode_of_payment
                 existing_entry.donation_status = donation_doc.status
                 existing_entry.fund_designation = donation_doc.fund_designation
                 existing_entry.donation_purpose = donation_doc.donation_purpose
@@ -116,7 +116,7 @@ class DonationHistoryManager:
                         "donation_reference": donation_doc.name,
                         "donation_date": donation_doc.donation_date,
                         "donation_amount": donation_doc.amount,
-                        "payment_method": donation_doc.payment_method,
+                        "payment_method": donation_doc.mode_of_payment,
                         "donation_status": donation_doc.status,
                         "fund_designation": donation_doc.fund_designation,
                         "donation_purpose": donation_doc.donation_purpose,
@@ -124,8 +124,14 @@ class DonationHistoryManager:
                     },
                 )
 
-            # Sort by date (most recent first)
-            donor.donor_history = sorted(donor.donor_history, key=lambda x: x.donation_date, reverse=True)
+            # Sort by date (most recent first) - ensure dates are properly parsed
+            from frappe.utils import getdate
+
+            donor.donor_history = sorted(
+                donor.donor_history,
+                key=lambda x: getdate(x.donation_date) if x.donation_date else getdate("1900-01-01"),
+                reverse=True,
+            )
 
             # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
             result = secure_document_operation(

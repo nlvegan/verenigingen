@@ -52,6 +52,7 @@ class SecureOperationResult:
         self.warnings = []
         self.audit_trail = []
         self.doc_name = None
+        self.document = None  # Add document reference
         self.duration = 0.0
 
     def add_error(self, message: str):
@@ -271,6 +272,7 @@ def secure_document_operation(
             operation_func()
 
             result.doc_name = doc.name
+            result.document = doc  # Add document reference to result
             result.add_audit_entry(
                 "operation_success",
                 doc.doctype,
@@ -300,6 +302,7 @@ def secure_document_operation(
                 operation_func()
 
                 result.doc_name = doc.name
+                result.document = doc  # Add document reference to result
                 result.add_audit_entry(
                     "operation_success",
                     doc.doctype,

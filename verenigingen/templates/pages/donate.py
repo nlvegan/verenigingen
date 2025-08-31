@@ -293,9 +293,6 @@ def create_donation_record(donor, form_data):
     # Determine purpose and earmarking
     purpose_type = form_data.get("donation_purpose_type", "General")
 
-    # Create or get mode of payment
-    mode_of_payment = get_mode_of_payment(form_data.payment_method)
-
     donation_doc = frappe.new_doc("Donation")
     donation_doc.update(
         {
@@ -304,8 +301,7 @@ def create_donation_record(donor, form_data):
             "donation_date": getdate(),
             "amount": flt(form_data.amount),
             "donation_type": donation_type,
-            "payment_method": form_data.payment_method,
-            "mode_of_payment": mode_of_payment,
+            # mode_of_payment will be set by payment processing logic
             "status": map_donation_status(form_data.get("donation_status", "One-time")),
             "donation_purpose_type": purpose_type,
             "campaign_reference": form_data.get("campaign_reference"),
@@ -335,7 +331,7 @@ def create_donation_record(donor, form_data):
         )
         frappe.throw(_("Unable to process donation: Failed to create donation record"))
 
-    donation_doc = result.doc
+    # Submit the created document
     donation_doc.submit()
     return donation_doc
 
@@ -366,6 +362,10 @@ def process_payment_method(donation, form_data):
 
 def process_bank_transfer(donation, form_data):
     """Handle bank transfer payment"""
+    # Set payment method
+    donation.mode_of_payment = "Bank Transfer"
+    donation.save()
+
     settings = frappe.get_single("Verenigingen Settings")
     company = frappe.get_doc("Company", settings.donation_company)
 
@@ -391,6 +391,10 @@ def process_bank_transfer(donation, form_data):
 
 def process_sepa_direct_debit(donation, form_data):
     """Handle SEPA direct debit setup"""
+    # Set payment method
+    donation.mode_of_payment = "SEPA Direct Debit"
+    donation.save()
+
     # Would integrate with existing SEPA mandate system
     return {
         "status": "mandate_required",
@@ -411,7 +415,11 @@ def process_mollie_payment(donation, form_data):
 
         # Check if this is a recurring donation (subscription)
         is_recurring = form_data.get("donation_status") == "Recurring"
-        
+
+        # Set payment method
+        donation.mode_of_payment = "Mollie"
+        donation.save()
+
         if is_recurring:
             # Handle subscription creation
             return process_mollie_subscription(donation, form_data, gateway)
@@ -454,20 +462,20 @@ def process_mollie_subscription(donation, form_data, gateway):
     try:
         # Get donor information
         donor = frappe.get_doc("Donor", donation.donor)
-        
+
         # Prepare customer data for Mollie
         customer_data = {
             "name": donor.donor_name,
             "email": donor.donor_email,
         }
-        
+
         # Add phone if available
         if hasattr(donor, "phone") and donor.phone:
             customer_data["phone"] = donor.phone
-            
+
         # Prepare subscription data
         subscription_interval = form_data.get("subscription_interval", "1 month")
-        
+
         subscription_data = {
             "amount": {"currency": "EUR", "value": f"{donation.amount:.2f}"},
             "interval": subscription_interval,
@@ -479,10 +487,10 @@ def process_mollie_subscription(donation, form_data, gateway):
                 "purpose": donation.donation_purpose_type,
             },
         }
-        
+
         # Add start date (first payment immediate, then recurring)
         from frappe.utils import add_to_date, today
-        
+
         # Calculate next payment date based on interval
         if subscription_interval == "1 month":
             next_date = add_to_date(today(), months=1)
@@ -494,30 +502,57 @@ def process_mollie_subscription(donation, form_data, gateway):
             next_date = add_to_date(today(), years=1)
         else:
             next_date = add_to_date(today(), months=1)  # Default to monthly
-            
+
         subscription_data["startDate"] = next_date.strftime("%Y-%m-%d")
-        
+
         # Create the subscription using the gateway
         result = gateway.create_subscription(donor, subscription_data)
-        
+
         if result["status"] == "success":
-            # Update donation record with subscription information
+            # Create Donation Agreement for the subscription
+            agreement = frappe.new_doc("Donation Agreement")
+            agreement.update(
+                {
+                    "donor": donor.name,
+                    "agreement_type": "Recurring",
+                    "amount": donation.amount,
+                    "currency": "EUR",
+                    "recurring_frequency": subscription_interval,
+                    "start_date": today(),
+                    "next_due_date": next_date,
+                    "status": "Active",
+                    "enable_mollie_subscription": 1,
+                    "mollie_customer_id": result.get("customer_id"),
+                    "mollie_subscription_id": result.get("subscription_id"),
+                    "donation_purpose": donation.donation_purpose,
+                    "auto_create_transactions": 1,
+                    "notification_settings": "Donor Only",
+                    "donor_remarks": f"Created from donation form with subscription interval: {subscription_interval}",
+                }
+            )
+
+            agreement.insert()
+            agreement.submit()
+
+            # Link the original donation to the agreement and update it
+            donation.donation_agreement = agreement.name
             donation.payment_id = result.get("subscription_id")
+            donation.db_set("donation_agreement", agreement.name)
             donation.db_set("payment_id", result.get("subscription_id"))
-            
+
             # Create initial payment for the first donation
-            # This creates a one-time payment for the first amount, then subscription takes over
             initial_payment_result = gateway.process_payment(donation, form_data)
-            
+
             if initial_payment_result["status"] == "redirect_required":
                 return {
                     "status": "subscription_redirect_required",
                     "payment_url": initial_payment_result["payment_url"],
                     "payment_id": initial_payment_result["payment_id"],
                     "subscription_id": result.get("subscription_id"),
-                    "message": _("Setting up your monthly donation subscription"),
+                    "agreement_id": agreement.name,
+                    "message": _("Setting up your recurring donation agreement"),
                     "info": _(
-                        f"After this payment, you'll automatically donate €{donation.amount:.2f} {subscription_interval.replace('1 ', 'every ')}"
+                        f"Agreement {agreement.name} created. After this payment, you'll automatically donate €{donation.amount:.2f} {subscription_interval.replace('1 ', 'every ')}"
                     ),
                     "expires_at": initial_payment_result.get("expires_at"),
                 }
@@ -529,11 +564,11 @@ def process_mollie_subscription(donation, form_data, gateway):
                 }
         else:
             return {
-                "status": "error", 
+                "status": "error",
                 "message": result.get("message", _("Failed to create subscription")),
                 "info": _("Please try again or use a one-time donation instead"),
             }
-            
+
     except Exception as e:
         frappe.log_error(
             f"Mollie subscription creation error for donation {donation.name}: {str(e)}\nFull traceback: {frappe.get_traceback()}",
@@ -548,6 +583,10 @@ def process_mollie_subscription(donation, form_data, gateway):
 
 def process_cash_payment(donation, form_data):
     """Handle cash payment"""
+    # Set payment method
+    donation.mode_of_payment = "Cash"
+    donation.save()
+
     return {
         "status": "cash_pending",
         "message": _("Cash payment registered"),
@@ -568,7 +607,7 @@ def get_donation_status(donation_id):
         "donation_id": donation.name,
         "amount": donation.amount,
         "status": "Paid" if donation.paid else "Pending",
-        "payment_method": donation.payment_method,
+        "payment_method": donation.mode_of_payment,
         "date": donation.date,
         "purpose": (
             donation.get_earmarking_summary()
@@ -594,23 +633,6 @@ def mark_donation_paid(donation_id, payment_reference=None):
     donation.save()
 
     return {"success": True, "message": "Donation marked as paid"}
-
-
-def get_mode_of_payment(payment_method):
-    """Get Mode of Payment with explicit validation - requires pre-configuration"""
-    if not payment_method:
-        frappe.throw("Payment method is required and cannot be empty")
-
-    # Check if mode exists
-    if frappe.db.exists("Mode of Payment", payment_method):
-        return payment_method
-
-    # No auto-creation - require explicit configuration
-    frappe.throw(
-        f"Payment method '{payment_method}' does not exist. "
-        "Please configure this payment method in Mode of Payment before accepting donations. "
-        "Auto-creation has been disabled to ensure proper payment method configuration."
-    )
 
 
 @frappe.whitelist()

@@ -137,11 +137,11 @@ class Donation(Document):
 
     def validate_payment_method(self):
         """Validate payment method specific requirements"""
-        if self.payment_method == "SEPA Direct Debit" and self.status in ["Promised", "Recurring"]:
+        if self.mode_of_payment == "SEPA Direct Debit" and self.status in ["Promised", "Recurring"]:
             if not getattr(self, "sepa_mandate", None):
                 frappe.msgprint(_("SEPA mandate is recommended for recurring donations"), indicator="yellow")
 
-        if self.payment_method == "Bank Transfer" and not getattr(self, "bank_reference", None):
+        if self.mode_of_payment == "Bank Transfer" and not getattr(self, "bank_reference", None):
             if self.paid:
                 frappe.msgprint(
                     _("Bank reference is recommended for tracking bank transfers"), indicator="yellow"
@@ -202,7 +202,7 @@ class Donation(Document):
             "donation_id": self.name,
             "anbi_agreement_number": self.anbi_agreement_number,
             "anbi_agreement_date": self.anbi_agreement_date,
-            "donation_date": self.date,
+            "donation_date": self.donation_date,
             "amount": self.amount,
             "donor_name": donor_doc.donor_name,
             "donor_email": getattr(donor_doc, "donor_email", ""),
@@ -421,8 +421,8 @@ class Donation(Document):
         sales_invoice = frappe.new_doc("Sales Invoice")
         sales_invoice.customer = customer
         sales_invoice.company = self.company
-        sales_invoice.posting_date = self.date
-        sales_invoice.due_date = self.date  # Donations are immediate
+        sales_invoice.posting_date = self.donation_date
+        sales_invoice.due_date = self.donation_date  # Donations are immediate
         sales_invoice.currency = frappe.get_cached_value("Company", self.company, "default_currency")
 
         # Add donation item
@@ -464,6 +464,16 @@ class Donation(Document):
         self.db_set("sales_invoice", sales_invoice.name, update_modified=False)
 
         return sales_invoice
+
+    def _get_default_territory(self):
+        """Get default territory for customer creation"""
+        # Try to get from Selling Settings first
+        territory = frappe.db.get_single_value("Selling Settings", "territory")
+        if territory:
+            return territory
+
+        # Fallback to root territory
+        return frappe.db.get_value("Territory", {"is_group": 0}, "name") or "All Territories"
 
     def get_or_create_customer_from_donor(self):
         """Convert donor to customer for standard ERPNext flow"""
@@ -544,9 +554,9 @@ def create_donation_from_bank_transfer(donor, amount, date, bank_reference, dona
             "doctype": "Donation",
             "company": company,
             "donor": donor,
-            "date": getdate(date),
+            "donation_date": getdate(date),
             "amount": flt(amount),
-            "payment_method": "Bank Transfer",
+            "mode_of_payment": "Bank Transfer",
             "bank_reference": bank_reference,
             "donation_type": donation_type,
             "paid": 1,
@@ -606,9 +616,9 @@ def create_sepa_donation(donor, amount, date, sepa_mandate, donation_type=None, 
             "doctype": "Donation",
             "company": company,
             "donor": donor,
-            "date": getdate(date),
+            "donation_date": getdate(date),
             "amount": flt(amount),
-            "payment_method": "SEPA Direct Debit",
+            "mode_of_payment": "SEPA Direct Debit",
             "donation_type": donation_type,
             "status": status,
             "sepa_mandate": sepa_mandate,
@@ -811,7 +821,7 @@ def create_chapter_donation(donor, amount, chapter, date=None, donation_type=Non
             "doctype": "Donation",
             "company": company,
             "donor": donor,
-            "date": getdate(date) if date else getdate(),
+            "donation_date": getdate(date) if date else getdate(),
             "amount": flt(amount),
             "donation_type": donation_type,
             "donation_purpose_type": "Chapter",
@@ -906,7 +916,7 @@ def reconcile_donation_accounts():
                     "donation_amount": amount,
                     "gl_amount": gl_credit_amount,
                     "difference": amount - gl_credit_amount,
-                    "date": donation.donation_date,
+                    "donation_date": donation.donation_date,
                 }
             )
 

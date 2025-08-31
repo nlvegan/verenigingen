@@ -1131,28 +1131,55 @@ class EnhancedTestCase(FrappeTestCase):
         item_code = kwargs.get("item_code", "Test Service")
         self._ensure_test_item(item_code)
         
-        # Get company currency to avoid exchange rate issues
-        company_currency = frappe.db.get_value("Company", kwargs.get("company", "Vereniging Veganisme"), "default_currency") or "EUR"
+        # Resolve customer - handle both Member names and Customer names
+        if customer and frappe.db.exists("Member", customer):
+            # If customer is a Member name, get the linked Customer
+            member = frappe.get_doc("Member", customer)
+            if not member.customer:
+                # Create customer if it doesn't exist
+                member.create_customer()
+                member.reload()
+            actual_customer = member.customer
+        elif customer and frappe.db.exists("Customer", customer):
+            # Direct Customer reference
+            actual_customer = customer
+        else:
+            frappe.throw(f"Invalid customer reference: {customer}")
+        
+        # Get default company and currency to avoid exchange rate issues
+        default_company = frappe.defaults.get_user_default("Company") or frappe.get_all("Company", limit=1, pluck="name")[0]
+        company = kwargs.get("company", default_company)
+        company_currency = frappe.db.get_value("Company", company, "default_currency") or "EUR"
         
         invoice_data = {
             "doctype": "Sales Invoice",
-            "customer": customer,
+            "customer": actual_customer,
             "posting_date": kwargs.get("posting_date", frappe.utils.today()),
             "due_date": kwargs.get("due_date", frappe.utils.add_days(frappe.utils.today(), 30)),
-            "company": kwargs.get("company", "Vereniging Veganisme"),
+            "company": company,
             "currency": company_currency,  # Use company currency
             "conversion_rate": 1.0,  # No conversion needed for same currency
             "custom_is_membership_invoice": kwargs.get("is_membership_invoice", 0),
             "custom_membership": kwargs.get("membership"),
         }
         
-        # Add invoice item
+        # Get proper income account for ERPNext validation
+        income_account = frappe.get_all("Account", 
+            filters={"account_type": "Income Account", "company": company, "is_group": 0}, 
+            limit=1, pluck="name")
+        if not income_account:
+            income_account = self._get_or_create_income_account(company)
+        else:
+            income_account = income_account[0]
+            
+        # Add invoice item with proper accounting setup
         invoice_data["items"] = [{
             "item_code": item_code,
             "qty": 1,
             "rate": kwargs.get("grand_total", 100.0),
             "amount": kwargs.get("grand_total", 100.0),
-            "uom": "Unit"  # Add UOM to prevent errors
+            "uom": "Unit",
+            "income_account": income_account  # Required for ERPNext validation
         }]
         
         invoice = frappe.get_doc(invoice_data)
@@ -1172,6 +1199,91 @@ class EnhancedTestCase(FrappeTestCase):
                 invoice.db_set("status", "Overdue")
                 
         return invoice
+    
+    def _get_or_create_income_account(self, company):
+        """Get or create a basic income account for testing"""
+        account_name = f"Test Sales Income - {company}"
+        
+        # Check if account already exists
+        existing = frappe.db.get_value("Account", {"account_name": "Test Sales Income", "company": company})
+        if existing:
+            return existing
+        
+        # Create new income account
+        account = frappe.new_doc("Account")
+        account.account_name = "Test Sales Income"
+        account.company = company
+        account.account_type = "Income Account"
+        account.root_type = "Income"
+        account.report_type = "Profit and Loss"
+        account.is_group = 0
+        account.save()
+        return account.name
+    
+    def create_test_donor(self, **kwargs):
+        """Create a test donor record for ANBI testing"""
+        from verenigingen.tests.fixtures.dutch_validation_helpers import get_test_bsn_numbers, generate_valid_rsin
+        
+        donor_data = {
+            "doctype": "Donor",
+            "donor_name": kwargs.get("donor_name", "Test Donor"),
+            "donor_type": kwargs.get("donor_type", "Individual"),
+            "donor_email": kwargs.get("donor_email", "test.donor@example.com"),  # Mandatory field
+            "currency": "EUR"
+        }
+        
+        # Add valid BSN for individuals or valid RSIN for organizations
+        if kwargs.get("donor_type") == "Individual":
+            if "bsn_citizen_service_number" in kwargs:
+                donor_data["bsn_citizen_service_number"] = kwargs["bsn_citizen_service_number"]
+            else:
+                # Use a valid BSN by default
+                donor_data["bsn_citizen_service_number"] = get_test_bsn_numbers()[0]  # "123456782"
+        elif kwargs.get("donor_type") == "Organization":
+            if "rsin_organization_tax_number" in kwargs:
+                donor_data["rsin_organization_tax_number"] = kwargs["rsin_organization_tax_number"]
+            else:
+                # Generate a valid RSIN by default
+                donor_data["rsin_organization_tax_number"] = generate_valid_rsin()
+            
+        # Add ANBI consent if specified
+        if "anbi_consent" in kwargs:
+            donor_data["anbi_consent"] = kwargs["anbi_consent"]
+            
+        donor = frappe.get_doc(donor_data)
+        donor.insert()
+        return donor
+    
+    def create_test_donation(self, **kwargs):
+        """Create a test donation record"""
+        donation_data = {
+            "doctype": "Donation",
+            "donor": kwargs.get("donor"),
+            "amount": kwargs.get("amount", 100.0),
+            "donation_date": kwargs.get("donation_date", frappe.utils.today()),
+            "currency": "EUR",
+            "paid": kwargs.get("paid", 1),
+            "mode_of_payment": kwargs.get("mode_of_payment", "Bank Transfer"),  # Mandatory field
+            "docstatus": 1  # Submitted status
+        }
+        
+        # Add optional fields
+        for field in ["belastingdienst_reportable", "anbi_agreement_number", "periodic_donation_agreement"]:
+            if field in kwargs:
+                donation_data[field] = kwargs[field]
+                
+        # If ANBI agreement number is provided, add required agreement date
+        if "anbi_agreement_number" in kwargs and kwargs["anbi_agreement_number"]:
+            if "anbi_agreement_date" not in kwargs:
+                donation_data["anbi_agreement_date"] = donation_data["donation_date"]  # Use same date as donation
+            else:
+                donation_data["anbi_agreement_date"] = kwargs["anbi_agreement_date"]
+                
+        donation = frappe.get_doc(donation_data)
+        donation.insert()
+        if donation.docstatus == 0:
+            donation.submit()  # Submit to make it official
+        return donation
     
     def _ensure_test_item(self, item_code):
         """Ensure test item exists for invoices"""
@@ -1421,3 +1533,4 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"❌ EnhancedTestDataFactory test failed: {e}")
         raise
+

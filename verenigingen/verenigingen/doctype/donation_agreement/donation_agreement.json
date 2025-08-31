@@ -1,0 +1,486 @@
+{
+ "actions": [],
+ "app": "verenigingen",
+ "autoname": "naming_series:",
+ "creation": "2025-08-30 19:30:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "donor_information_section",
+  "donor",
+  "column_break_donor",
+  "donor_name",
+  "donor_email",
+  "agreement_details_section",
+  "agreement_type",
+  "column_break_type",
+  "status",
+  "column_break_status",
+  "start_date",
+  "end_date",
+  "recurring_details_section",
+  "recurring_frequency",
+  "column_break_frequency",
+  "amount",
+  "currency",
+  "column_break_amount",
+  "next_due_date",
+  "last_processed_date",
+  "payment_section",
+  "column_break_payment",
+  "sepa_mandate",
+  "enable_mollie_subscription",
+  "mollie_customer_id",
+  "column_break_mollie",
+  "mollie_subscription_id",
+  "bank_account_details",
+  "purpose_section",
+  "donation_purpose",
+  "column_break_purpose",
+  "donor_remarks",
+  "internal_notes",
+  "anbi_section",
+  "periodic_donation_agreement",
+  "column_break_anbi",
+  "anbi_agreement_number",
+  "anbi_agreement_date",
+  "column_break_anbi_details",
+  "anbi_eligible",
+  "tracking_section",
+  "total_committed_amount",
+  "column_break_committed",
+  "total_received_amount",
+  "total_outstanding_amount",
+  "column_break_outstanding",
+  "total_transactions",
+  "last_transaction_date",
+  "processing_section",
+  "auto_create_transactions",
+  "column_break_auto",
+  "notification_settings",
+  "send_reminders",
+  "column_break_reminders",
+  "reminder_days_before",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "DA-.YYYY.-",
+   "reqd": 1
+  },
+  {
+   "fieldname": "donor_information_section",
+   "fieldtype": "Section Break",
+   "label": "Donor Information"
+  },
+  {
+   "fieldname": "donor",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Donor",
+   "options": "Donor",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_donor",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "donor",
+   "fetch_from": "donor.donor_name",
+   "fieldname": "donor_name",
+   "fieldtype": "Data",
+   "label": "Donor Name",
+   "read_only": 1
+  },
+  {
+   "depends_on": "donor",
+   "fetch_from": "donor.donor_email",
+   "fieldname": "donor_email",
+   "fieldtype": "Data",
+   "label": "Donor Email",
+   "read_only": 1
+  },
+  {
+   "fieldname": "agreement_details_section",
+   "fieldtype": "Section Break",
+   "label": "Agreement Details"
+  },
+  {
+   "default": "Recurring",
+   "fieldname": "agreement_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Agreement Type",
+   "options": "Recurring\nOne-time Pledge\nOpen-ended",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_type",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Active",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Draft\nActive\nSuspended\nCancelled\nCompleted",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_status",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "start_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Start Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "end_date",
+   "fieldtype": "Date",
+   "label": "End Date",
+   "description": "Leave blank for open-ended agreements"
+  },
+  {
+   "depends_on": "eval:doc.agreement_type==='Recurring'",
+   "fieldname": "recurring_details_section",
+   "fieldtype": "Section Break",
+   "label": "Recurring Details"
+  },
+  {
+   "depends_on": "eval:doc.agreement_type==='Recurring'",
+   "fieldname": "recurring_frequency",
+   "fieldtype": "Select",
+   "label": "Frequency",
+   "options": "1 month\n3 months\n6 months\n1 year",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_frequency",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount per Period",
+   "options": "currency",
+   "reqd": 1
+  },
+  {
+   "default": "EUR",
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency"
+  },
+  {
+   "fieldname": "column_break_amount",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.agreement_type==='Recurring'",
+   "fieldname": "next_due_date",
+   "fieldtype": "Date",
+   "label": "Next Due Date"
+  },
+  {
+   "fieldname": "last_processed_date",
+   "fieldtype": "Date",
+   "label": "Last Processed Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payment_section",
+   "fieldtype": "Section Break",
+   "label": "Payment Details"
+  },
+  {
+   "fieldname": "column_break_payment",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "SEPA Mandate for direct debit processing",
+   "fieldname": "sepa_mandate",
+   "fieldtype": "Link",
+   "label": "SEPA Mandate",
+   "options": "SEPA Mandate"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_mollie_subscription",
+   "fieldtype": "Check",
+   "label": "Enable Mollie Subscription",
+   "description": "Check to process this agreement through Mollie subscriptions"
+  },
+  {
+   "depends_on": "eval:doc.enable_mollie_subscription",
+   "fieldname": "mollie_customer_id",
+   "fieldtype": "Data",
+   "label": "Mollie Customer ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_mollie",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.enable_mollie_subscription",
+   "fieldname": "mollie_subscription_id",
+   "fieldtype": "Data",
+   "label": "Mollie Subscription ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "bank_account_details",
+   "fieldtype": "Small Text",
+   "label": "Bank Account Details",
+   "description": "Bank account information provided by donor"
+  },
+  {
+   "fieldname": "purpose_section",
+   "fieldtype": "Section Break",
+   "label": "Purpose & Remarks"
+  },
+  {
+   "default": "General Fund",
+   "fieldname": "donation_purpose",
+   "fieldtype": "Data",
+   "label": "Donation Purpose",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_purpose",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "donor_remarks",
+   "fieldtype": "Small Text",
+   "label": "Donor Remarks",
+   "description": "Message or dedication from the donor"
+  },
+  {
+   "fieldname": "internal_notes",
+   "fieldtype": "Small Text",
+   "label": "Internal Notes",
+   "description": "Internal notes for staff use"
+  },
+  {
+   "fieldname": "anbi_section",
+   "fieldtype": "Section Break",
+   "label": "ANBI Tax Exemption"
+  },
+  {
+   "fieldname": "periodic_donation_agreement",
+   "fieldtype": "Link",
+   "label": "Periodic Donation Agreement",
+   "options": "Periodic Donation Agreement"
+  },
+  {
+   "fieldname": "column_break_anbi",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "periodic_donation_agreement",
+   "fetch_from": "periodic_donation_agreement.agreement_number",
+   "fieldname": "anbi_agreement_number",
+   "fieldtype": "Data",
+   "label": "ANBI Agreement Number",
+   "read_only": 1
+  },
+  {
+   "depends_on": "periodic_donation_agreement",
+   "fetch_from": "periodic_donation_agreement.agreement_date",
+   "fieldname": "anbi_agreement_date",
+   "fieldtype": "Date",
+   "label": "ANBI Agreement Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_anbi_details",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": 0,
+   "fieldname": "anbi_eligible",
+   "fieldtype": "Check",
+   "label": "ANBI Eligible",
+   "description": "Automatically set based on amount and PDA link"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "tracking_section",
+   "fieldtype": "Section Break",
+   "label": "Financial Tracking"
+  },
+  {
+   "fieldname": "total_committed_amount",
+   "fieldtype": "Currency",
+   "label": "Total Committed Amount",
+   "options": "currency",
+   "read_only": 1,
+   "description": "Total amount committed under this agreement"
+  },
+  {
+   "fieldname": "column_break_committed",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_received_amount",
+   "fieldtype": "Currency",
+   "label": "Total Received Amount",
+   "options": "currency",
+   "read_only": 1,
+   "description": "Total amount actually received"
+  },
+  {
+   "fieldname": "total_outstanding_amount",
+   "fieldtype": "Currency",
+   "label": "Total Outstanding Amount",
+   "options": "currency",
+   "read_only": 1,
+   "description": "Committed minus received"
+  },
+  {
+   "fieldname": "column_break_outstanding",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_transactions",
+   "fieldtype": "Int",
+   "label": "Total Transactions",
+   "read_only": 1,
+   "description": "Number of donation transactions created"
+  },
+  {
+   "fieldname": "last_transaction_date",
+   "fieldtype": "Date",
+   "label": "Last Transaction Date",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "processing_section",
+   "fieldtype": "Section Break",
+   "label": "Processing Settings"
+  },
+  {
+   "default": 1,
+   "fieldname": "auto_create_transactions",
+   "fieldtype": "Check",
+   "label": "Auto Create Transactions",
+   "description": "Automatically create donation transactions based on schedule"
+  },
+  {
+   "fieldname": "column_break_auto",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.agreement_type==='Recurring'",
+   "fieldname": "notification_settings",
+   "fieldtype": "Select",
+   "label": "Notification Settings",
+   "options": "None\nDonor Only\nStaff Only\nBoth",
+   "default": "Donor Only"
+  },
+  {
+   "default": 1,
+   "description": "Send payment reminders to donors for manual payment methods",
+   "fieldname": "send_reminders",
+   "fieldtype": "Check",
+   "label": "Send Payment Reminders"
+  },
+  {
+   "fieldname": "column_break_reminders",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": 3,
+   "depends_on": "send_reminders",
+   "fieldname": "reminder_days_before",
+   "fieldtype": "Int",
+   "label": "Reminder Days Before Due",
+   "description": "Send reminder this many days before due date"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Donation Agreement",
+   "print_hide": 1,
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [
+  {
+   "link_doctype": "Donation",
+   "link_fieldname": "donation_agreement"
+  }
+ ],
+ "modified": "2025-08-30 19:30:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Donation Agreement",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "select": 1,
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "select": 1,
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Member",
+   "select": 1,
+   "share": 1
+  }
+ ],
+ "search_fields": "donor, donor_name, donation_purpose",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "donor_name",
+ "track_changes": 1
+}

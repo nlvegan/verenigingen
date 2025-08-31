@@ -495,6 +495,10 @@ doc_events = {
         "before_delete": "verenigingen.utils.chapter_role_profile_manager.on_chapter_board_member_remove",
         "on_update": "verenigingen.utils.chapter_role_profile_manager.on_chapter_board_member_update",
     },
+    # Donation Agreement lifecycle and validation
+    "Donation Agreement": {
+        "on_update_after_submit": "verenigingen.utils.donation_agreement_scheduler.on_donation_payment",
+    },
 }
 
 # Scheduled Tasks
@@ -520,6 +524,9 @@ scheduler_events = {
         "verenigingen.verenigingen.doctype.contribution_amendment_request.contribution_amendment_request.process_pending_amendments",
         # Auto-create missing dues schedules
         "verenigingen.utils.dues_schedule_auto_creator.auto_create_missing_dues_schedules_scheduled",
+        # Donation agreement processing
+        "verenigingen.utils.donation_agreement_scheduler.process_recurring_donations",
+        "verenigingen.utils.donation_agreement_scheduler.send_payment_reminders",
         # Generate invoices from membership dues schedules
         "verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.generate_dues_invoices",
         # Check for stuck dues schedules and notify administrators
@@ -591,6 +598,8 @@ scheduler_events = {
         "verenigingen.utils.expense_history_batch_processor.validate_expense_history_integrity",
         # Session cleanup to prevent "User None is disabled" errors
         "verenigingen.utils.session_cleanup_enhanced.scheduled_session_cleanup",
+        # Donation agreement tracking updates
+        "verenigingen.utils.donation_agreement_scheduler.update_agreement_tracking",
     ],
     "monthly": [
         # Address data cleanup

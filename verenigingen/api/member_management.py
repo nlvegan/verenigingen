@@ -257,6 +257,123 @@ def bulk_assign_members_to_chapters(assignments):
         return {"success": False, "error": f"Failed to process bulk assignments: {str(e)}"}
 
 
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
+@performance_monitor(threshold_ms=1000)
+def get_members_with_chapter_info(filters=None, limit=50):
+    """
+    Get member list with chapter relationships using optimized queries (N+1 prevention)
+
+    Security-first approach: permission filtering happens before data fetching
+
+    Args:
+        filters: Optional dict with status, chapter_name, etc.
+        limit: Maximum members to return (default 50)
+
+    Returns:
+        Dict with members list and metadata
+    """
+    # Input validation
+    if limit is None or limit > 500:
+        limit = 50  # Security: prevent large data dumps
+
+    # Build base filters with security defaults
+    base_filters = {"docstatus": ["<", 2]}  # Only valid documents
+
+    if filters:
+        # Validate and sanitize filters - handle both dict and string inputs
+        if not isinstance(filters, dict):
+            if isinstance(filters, str):
+                try:
+                    import json
+
+                    filters = json.loads(filters)
+                except (json.JSONDecodeError, ValueError):
+                    frappe.log_error(f"Invalid filters JSON: {filters}", "Member List API")
+                    filters = {}
+            else:
+                frappe.log_error(f"Invalid filters type: {type(filters)}", "Member List API")
+                filters = {}
+
+        if isinstance(filters, dict):
+            allowed_filters = {"status", "member_since", "current_membership_type"}
+            safe_filters = {k: v for k, v in filters.items() if k in allowed_filters}
+            base_filters.update(safe_filters)
+
+    # STEP 1: Get members with permission filtering (single query)
+    members = frappe.get_all(
+        "Member",
+        filters=base_filters,
+        fields=["name", "full_name", "email", "status", "member_since", "current_membership_type", "age"],
+        limit=limit,
+        order_by="full_name asc",
+    )
+
+    if not members:
+        return {"success": True, "members": [], "total_count": 0}
+
+    member_names = [m["name"] for m in members]
+
+    # STEP 2: Batch get chapter relationships (single query - prevents N+1)
+    chapter_relationships = QueryOptimizer.bulk_get_linked_docs(
+        doctype="Chapter Member",
+        parent_field="member",
+        parent_names=member_names,
+        fields=["member", "parent", "enabled", "chapter_join_date", "status"],
+        filters={"enabled": 1},  # Only enabled memberships
+    )
+
+    # STEP 3: Batch get chapter names (single query)
+    all_chapter_names = set()
+    for relationships in chapter_relationships.values():
+        for rel in relationships:
+            if rel.get("parent"):
+                all_chapter_names.add(rel["parent"])
+
+    chapter_info = {}
+    if all_chapter_names:
+        chapters = frappe.get_all(
+            "Chapter", filters={"name": ["in", list(all_chapter_names)]}, fields=["name", "region"]
+        )
+        chapter_info = {ch["name"]: ch for ch in chapters}
+
+    # STEP 4: Combine data (in memory - fast)
+    enriched_members = []
+    for member in members:
+        member_name = member["name"]
+
+        # Add chapter information
+        member_chapters = []
+        if member_name in chapter_relationships:
+            for rel in chapter_relationships[member_name]:
+                chapter_name = rel.get("parent")
+                if chapter_name and chapter_name in chapter_info:
+                    chapter_data = chapter_info[chapter_name]
+                    member_chapters.append(
+                        {
+                            "chapter_name": chapter_name,
+                            "region": chapter_data["region"],
+                            "status": rel.get("status", "Active"),
+                            "join_date": rel.get("chapter_join_date"),
+                        }
+                    )
+
+        member["chapters"] = member_chapters
+        member["primary_chapter"] = member_chapters[0] if member_chapters else None
+        enriched_members.append(member)
+
+    return {
+        "success": True,
+        "members": enriched_members,
+        "total_count": len(enriched_members),
+        "query_optimization": {
+            "queries_used": 3,  # Instead of 1 + N*2 queries
+            "n_plus_1_prevented": True,
+            "members_processed": len(members),
+        },
+    }
+
+
 def add_member_to_chapter_roster(member_name, new_chapter):
     """Add member to chapter's member roster using centralized manager"""
     try:

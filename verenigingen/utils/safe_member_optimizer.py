@@ -268,6 +268,9 @@ class SafeMemberOptimizer:
                     continue
 
                 # SECURITY: Validate field.options (DocType name) before use
+                if not field.options:
+                    # Skip fetch fields without options (they might not be Link fields)
+                    continue
                 if not self._is_valid_doctype(field.options):
                     frappe.log_error(
                         f"Invalid DocType in fetch field: {field.options}", "Safe Member Optimizer Security"
@@ -357,10 +360,10 @@ class SafeMemberOptimizer:
             if len(doctype) > 50 or len(doctype) < 1:
                 return False
 
-            # Layer 3: Strict character whitelist (alphanumeric and underscore only - NO SPACES)
+            # Layer 3: Strict character whitelist (alphanumeric, underscore, and spaces - valid Frappe DocType characters)
             import re
 
-            if not re.match(r"^[a-zA-Z0-9_]+$", doctype):
+            if not re.match(r"^[a-zA-Z0-9_ ]+$", doctype):
                 return False
 
             # Layer 4: Use only Frappe's safe methods (no raw SQL)

@@ -11,7 +11,18 @@ from frappe.utils import flt, format_date, getdate
 def send_donation_confirmation(donation_id):
     """Send donation confirmation email to donor"""
     try:
+        # First verify the donation exists to avoid cascading errors
+        if not frappe.db.exists("Donation", donation_id):
+            # Silently skip - donation might have been deleted
+            return False
+
         donation = frappe.get_doc("Donation", donation_id)
+
+        # Verify donor exists as well
+        if not frappe.db.exists("Donor", donation.donor):
+            # Silently skip - donor might have been deleted
+            return False
+
         donor = frappe.get_doc("Donor", donation.donor)
 
         # Check if donor has email
@@ -53,7 +64,18 @@ def send_donation_confirmation(donation_id):
 def send_payment_confirmation(donation_id):
     """Send payment confirmation email when donation is marked as paid"""
     try:
+        # First verify the donation exists to avoid cascading errors
+        if not frappe.db.exists("Donation", donation_id):
+            # Silently skip - donation might have been deleted
+            return False
+
         donation = frappe.get_doc("Donation", donation_id)
+
+        # Verify donor exists as well
+        if not frappe.db.exists("Donor", donation.donor):
+            # Silently skip - donor might have been deleted
+            return False
+
         donor = frappe.get_doc("Donor", donation.donor)
 
         donor_email = getattr(donor, "donor_email", "") or getattr(donor, "email", "")

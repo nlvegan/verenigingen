@@ -396,8 +396,8 @@ class BatchPerformanceOptimizer:
         if not member_names:
             return {}
 
-        # Performance tracking
-        initial_query_count = len(frappe.db.sql_list("SELECT 1"))  # Rough query count baseline
+        # Performance tracking baseline
+        _ = len(frappe.db.sql_list("SELECT 1"))  # Rough query count baseline (for future monitoring)
 
         # Step 1: Get all member base data in one query
         members_data = frappe.db.sql(
