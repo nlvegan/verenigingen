@@ -704,34 +704,36 @@ function toggleRecurringOptions() {
 }
 
 function updatePaymentMethodsForRecurring() {
-	// For recurring donations, only show Mollie (which supports subscriptions)
+	// For recurring donations, show all methods but add helpful guidance
 	const paymentMethods = document.querySelectorAll('.payment-method');
 	paymentMethods.forEach(method => {
 		const methodValue = method.getAttribute('data-method');
-		if (methodValue !== 'Mollie') {
-			method.style.display = 'none';
-			// Remove selection if it was selected
-			const radio = method.querySelector('input[type="radio"]');
-			if (radio && radio.checked) {
-				radio.checked = false;
-			}
-		} else {
-			method.style.display = 'block';
-			// Add subscription note
-			const description = method.querySelector('p');
-			if (description && !description.textContent.includes('subscription')) {
-				description.textContent += ' (Supports monthly subscriptions)';
+		method.style.display = 'block'; // Show all payment methods
+
+		// Add helpful notes for recurring donations
+		const description = method.querySelector('p');
+		if (description) {
+			// Remove any existing recurring notes first
+			description.textContent = description.textContent.replace(/ \([^)]*recurring[^)]*\)/gi, '');
+			description.textContent = description.textContent.replace(/ \([^)]*subscription[^)]*\)/gi, '');
+			description.textContent = description.textContent.replace(/ \([^)]*automatic[^)]*\)/gi, '');
+			description.textContent = description.textContent.replace(/ \([^)]*Set up[^)]*\)/gi, '');
+			description.textContent = description.textContent.replace(/ \([^)]*commitment[^)]*\)/gi, '');
+
+			// Add appropriate guidance for each method
+			if (methodValue === 'Mollie') {
+				description.textContent += ' (Automatic subscriptions - we handle everything)';
+			} else if (methodValue === 'Bank Transfer') {
+				description.textContent += ' (Set up recurring transfer in your online banking)';
+			} else if (methodValue === 'SEPA Direct Debit') {
+				description.textContent += ' (We collect automatically with your authorization)';
+			} else if (methodValue === 'Cash') {
+				description.textContent += ' (Requires regular commitment to pay at events)';
 			}
 		}
 	});
 
-	// Auto-select Mollie for recurring donations
-	setTimeout(() => {
-		const mollieMethod = document.querySelector('.payment-method[data-method="Mollie"]');
-		if (mollieMethod) {
-			selectPaymentMethod(mollieMethod);
-		}
-	}, 100);
+	// Don't auto-select any method - let donors choose what works best for them
 }
 
 function resetPaymentMethods() {

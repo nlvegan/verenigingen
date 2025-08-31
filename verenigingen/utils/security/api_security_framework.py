@@ -279,13 +279,19 @@ class APISecurityFramework:
         method = frappe.request.method
 
         # DEBUG: Add detailed logging for method detection issues
+        # Safely check for JSON data without triggering Werkzeug's JSON parsing
+        has_json_data = False
+        if hasattr(frappe.request, "content_type"):
+            content_type = getattr(frappe.request, "content_type", "")
+            has_json_data = content_type and "application/json" in content_type
+
         debug_info = {
             "detected_method": method,
             "allowed_methods": list(profile.allowed_methods),
             "request_headers": dict(frappe.request.headers) if hasattr(frappe.request, "headers") else {},
             "content_type": getattr(frappe.request, "content_type", "N/A"),
             "has_form_data": bool(getattr(frappe.request, "form", None)),
-            "has_json_data": bool(getattr(frappe.request, "json", None)),
+            "has_json_data": has_json_data,
             "request_url": getattr(frappe.request, "url", "N/A"),
         }
 

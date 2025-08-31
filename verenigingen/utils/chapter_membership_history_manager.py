@@ -132,7 +132,7 @@ class ChapterMembershipHistoryManager:
             if target_membership:
                 # Update the specific membership to completed
                 target_membership.end_date = end_date
-                target_membership.status = "Cancelled"  # End membership by marking as cancelled
+                target_membership.status = "Terminated"  # End membership by marking as terminated
                 if reason:
                     target_membership.reason = reason
 
@@ -154,7 +154,7 @@ class ChapterMembershipHistoryManager:
 
                 if fallback_membership:
                     fallback_membership.end_date = end_date
-                    fallback_membership.status = "Cancelled"  # End fallback membership
+                    fallback_membership.status = "Terminated"  # End fallback membership
                     if reason:
                         fallback_membership.reason = reason
 

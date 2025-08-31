@@ -1168,7 +1168,7 @@ def send_rejection_notification(member, reason, email_template=None, rejection_c
 
 
 @frappe.whitelist()
-@standard_api  # Application listing - read-only
+@standard_api()  # Application listing - read-only
 def get_pending_applications(chapter=None, days_overdue=None):
     """Get list of pending membership applications"""
     filters = {"application_status": "Pending", "status": "Pending"}
@@ -1538,7 +1538,7 @@ def fix_backend_member_statuses():
 
 
 @frappe.whitelist()
-@standard_api  # Application statistics - read-only
+@standard_api()  # Application statistics - read-only
 def get_application_stats():
     """Get statistics for membership applications"""
     # Check permissions

@@ -61,7 +61,9 @@ def get_context(context):
 
         # Get expense summary with user-friendly error handling
         try:
-            context.expense_summary = get_expense_summary(volunteer.name)
+            from verenigingen.utils.volunteer_statistics import get_volunteer_expense_summary
+
+            context.expense_summary = get_volunteer_expense_summary(volunteer.name)
         except Exception as e:
             frappe.log_error(f"Error getting expense summary: {str(e)}", "Volunteer Dashboard Expenses Error")
             context.expense_summary = {
@@ -189,6 +191,7 @@ def get_volunteer_organizations(volunteer_name):
                 {
                     "name": chapter.name,
                     "chapter_name": chapter.name,  # Chapter name is stored in the 'name' field
+                    "city": "",  # Chapters don't have city in this system
                     "join_date": chapter.chapter_join_date,
                 }
             )

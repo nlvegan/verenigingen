@@ -334,12 +334,33 @@ class SafeMemberOptimizer:
                 if not child_meta:  # Skip if metadata not available
                     continue
 
-                # Initialize empty child table with cached metadata reference
-                child_table = getattr(member_doc, field.fieldname) or []
+                # Get child table data
+                child_table_data = getattr(member_doc, field.fieldname, [])
 
-                # Store cached meta reference for child table operations
-                if hasattr(child_table, "__class__"):
-                    child_table._cached_meta = child_meta
+                # Skip if no child table data exists yet
+                if not child_table_data:
+                    continue
+
+                # Handle child table metadata caching properly
+                # In Frappe, child tables are lists of Document objects
+                try:
+                    if isinstance(child_table_data, list):
+                        for child_row in child_table_data:
+                            if hasattr(child_row, "meta"):
+                                # Replace child row's meta with cached version
+                                child_row._cached_meta = child_meta
+                    else:
+                        # Single child document case
+                        if hasattr(child_table_data, "meta"):
+                            child_table_data._cached_meta = child_meta
+
+                except AttributeError as attr_error:
+                    # This specific error suggests child_table is a list without _cached_meta support
+                    # Log and skip this optimization for this field
+                    frappe.logger().info(
+                        f"Child table '{field.fieldname}' doesn't support metadata caching: {attr_error}"
+                    )
+                    continue
 
             member_doc._child_tables_optimized = True
 

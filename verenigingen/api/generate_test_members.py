@@ -158,25 +158,35 @@ def generate_test_members():
 
             # Personal information
             member.first_name = member_data["first_name"]
-            member.preposition = member_data["preposition"]
+            member.tussenvoegsel = member_data["preposition"]
             member.last_name = member_data["last_name"]
 
-            # Construct full name
-            name_parts = [member_data["first_name"]]
-            if member_data["preposition"]:
-                name_parts.append(member_data["preposition"])
-            name_parts.append(member_data["last_name"])
-            member.full_name = " ".join(name_parts)
+            # Use centralized Dutch name formatting utility
+            from verenigingen.utils.dutch_name_utils import format_dutch_full_name
+
+            member.full_name = format_dutch_full_name(
+                first_name=member_data["first_name"],
+                middle_name=None,  # Not in test data
+                tussenvoegsel=member_data["preposition"],
+                last_name=member_data["last_name"],
+            )
 
             # Contact information
             member.email = member_data["email"]
             member.phone = member_data["phone"]
 
-            # Address information
-            member.street_address = member_data["street_address"]
-            member.postal_code = member_data["postal_code"]
-            member.city = member_data["city"]
-            member.country = member_data["country"]
+            # Create address first, then link to member
+            address = frappe.new_doc("Address")
+            address.address_line1 = member_data["street_address"]
+            address.pincode = member_data["postal_code"]
+            address.city = member_data["city"]
+            address.country = member_data["country"]
+            address.address_type = "Personal"
+            address.address_title = f"{member_data['first_name']} {member_data['last_name']}"
+            address.insert()
+
+            # Link address to member
+            member.primary_address = address.name
 
             # Personal details
             member.date_of_birth = member_data["date_of_birth"]

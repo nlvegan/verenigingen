@@ -729,23 +729,31 @@ class DirectDebitBatch(Document):
             # Get member document with address information
             member = frappe.get_doc("Member", member_name)
 
-            # Try to get address from linked customer or member directly
+            # Initialize address info
             address_info = {}
 
-            # First try member's direct address fields
-            if hasattr(member, "address_line_1") and member.address_line_1:
-                address_info["address_line_1"] = member.address_line_1[:70]  # SEPA limit
-            if hasattr(member, "address_line_2") and member.address_line_2:
-                address_info["address_line_2"] = member.address_line_2[:70]  # SEPA limit
-            if hasattr(member, "postal_code") and member.postal_code:
-                address_info["postal_code"] = member.postal_code
-            if hasattr(member, "city") and member.city:
-                address_info["town"] = member.city
+            # First try member's primary address (correct relationship)
+            if member.primary_address:
+                try:
+                    address = frappe.get_doc("Address", member.primary_address)
+                    if address.address_line1:
+                        address_info["address_line_1"] = address.address_line1[:70]  # SEPA limit
+                    if address.address_line2:
+                        address_info["address_line_2"] = address.address_line2[:70]  # SEPA limit
+                    if address.pincode:
+                        address_info["postal_code"] = address.pincode
+                    if address.city:
+                        address_info["town"] = address.city
+                    if address.country:
+                        address_info["country"] = address.country
+                except Exception as e:
+                    frappe.logger().info(f"Primary address lookup failed for member {member_name}: {str(e)}")
 
-            # Default country for Dutch members
-            address_info["country"] = getattr(member, "country", "NL")
+            # Default country for Dutch members if not set
+            if not address_info.get("country"):
+                address_info["country"] = "NL"
 
-            # If member has linked customer, try to get address from there
+            # Fallback: try to get address from linked customer if primary address failed
             if member.customer and not address_info.get("address_line_1"):
                 try:
                     # customer = frappe.get_doc("Customer", member.customer)  # Unused variable

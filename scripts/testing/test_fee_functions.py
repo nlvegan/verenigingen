@@ -18,10 +18,19 @@ def test_fee_calculation():
         member.last_name = "Fee"
         member.email = f"testfee{frappe.generate_hash(length=6)}@example.com"
         member.member_since = today()
-        member.address_line1 = "123 Test Street"
-        member.postal_code = "1234AB"
-        member.city = "Test City"
-        member.country = "Netherlands"
+        
+        # Create address first, then link to member
+        address = frappe.new_doc("Address")
+        address.address_line1 = "123 Test Street"
+        address.pincode = "1234AB"
+        address.city = "Test City"
+        address.country = "Netherlands"
+        address.address_type = "Personal"
+        address.address_title = f"{member.first_name} {member.last_name}"
+        address.insert()
+        
+        # Link address to member
+        member.primary_address = address.name
         member.save()
         
         # Create a test membership type
@@ -77,10 +86,19 @@ def test_dues_schedule_creation():
         member.last_name = "Dues"
         member.email = f"testdues{frappe.generate_hash(length=6)}@example.com"
         member.member_since = today()
-        member.address_line1 = "123 Test Street"
-        member.postal_code = "1234AB"
-        member.city = "Test City"
-        member.country = "Netherlands"
+        
+        # Create address first, then link to member
+        address = frappe.new_doc("Address")
+        address.address_line1 = "123 Test Street"
+        address.pincode = "1234AB"
+        address.city = "Test City"
+        address.country = "Netherlands"
+        address.address_type = "Personal"
+        address.address_title = f"{member.first_name} {member.last_name}"
+        address.insert()
+        
+        # Link address to member
+        member.primary_address = address.name
         member.save()
         
         membership_type = frappe.new_doc("Membership Type")

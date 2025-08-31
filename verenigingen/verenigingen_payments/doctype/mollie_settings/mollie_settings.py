@@ -284,35 +284,39 @@ class MollieSettings(Document):
             # Create customer first (required for subscriptions)
             customer = client.customers.create(customer_data)
 
-            # Create mandate (required for subscriptions)
-            mandate_data = {
-                "method": "directdebit",
-                "consumerName": customer_data.get("name", ""),
-                "consumerAccount": subscription_data.get("consumerAccount"),
-                "signatureDate": frappe.utils.today(),
-                "mandateReference": f"MANDATE-{frappe.utils.random_string(8)}",
-            }
+            # For donations, we don't need mandates - Mollie will handle payment method selection
+            # Mandates are only required for direct debit, but subscriptions can use other methods
+            mandate = None
 
-            # Only include consumerAccount if provided (required for directdebit)
-            if not mandate_data.get("consumerAccount"):
-                frappe.throw(_("Consumer account (IBAN) is required for direct debit mandates"))
-
-            mandate = customer.mandates.create(data=mandate_data)
+            # Only create mandate if IBAN is provided (for direct debit)
+            if subscription_data.get("consumerAccount"):
+                mandate_data = {
+                    "method": "directdebit",
+                    "consumerName": customer_data.get("name", ""),
+                    "consumerAccount": subscription_data.get("consumerAccount"),
+                    "signatureDate": frappe.utils.today(),
+                    "mandateReference": f"MANDATE-{frappe.utils.random_string(8)}",
+                }
+                mandate = customer.mandates.create(data=mandate_data)
 
             # Remove consumerAccount from subscription_data (only needed for mandate)
             subscription_data_clean = {k: v for k, v in subscription_data.items() if k != "consumerAccount"}
 
-            # Create subscription using correct API pattern
+            # Create subscription - Mollie will prompt for payment method during first payment
             subscription = customer.subscriptions.create(data=subscription_data_clean)
 
-            return {
+            result = {
                 "customer_id": customer.id,
-                "mandate_id": mandate.id,
                 "subscription_id": subscription.id,
                 "status": subscription.status,
                 "next_payment_date": subscription.next_payment_date,
-                "webhook_url": subscription.webhook_url,
             }
+
+            # Only include mandate_id if mandate was created
+            if mandate:
+                result["mandate_id"] = mandate.id
+
+            return result
 
         except Exception as e:
             frappe.log_error(f"Error creating Mollie subscription: {str(e)}", "Mollie Subscription Error")

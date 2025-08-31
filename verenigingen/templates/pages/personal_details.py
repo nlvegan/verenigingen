@@ -284,18 +284,15 @@ def apply_personal_details_changes(member, changes):
     # Update full name if name fields changed
     name_fields = ["first_name", "middle_name", "tussenvoegsel", "last_name"]
     if any(field in changes for field in name_fields):
-        # Construct full name
-        name_parts = []
-        if member.first_name:
-            name_parts.append(member.first_name)
-        if member.middle_name:
-            name_parts.append(member.middle_name)
-        if member.tussenvoegsel:
-            name_parts.append(member.tussenvoegsel)
-        if member.last_name:
-            name_parts.append(member.last_name)
+        # Use centralized Dutch name formatting utility
+        from verenigingen.utils.dutch_name_utils import format_dutch_full_name
 
-        member.full_name = " ".join(name_parts)
+        member.full_name = format_dutch_full_name(
+            first_name=member.first_name,
+            middle_name=member.middle_name,
+            tussenvoegsel=member.tussenvoegsel,
+            last_name=member.last_name,
+        )
 
     # Save the member document
     # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation

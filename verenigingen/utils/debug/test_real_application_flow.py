@@ -22,10 +22,19 @@ def test_real_application_flow():
     test_member.first_name = "TestUser"
     test_member.last_name = "DuesRateTest"
     test_member.email = "test.duesrate@example.com"
-    test_member.address_line1 = "Test Street 123"
-    test_member.postal_code = "1234AB"
-    test_member.city = "Test City"
-    test_member.country = "Netherlands"
+
+    # Create address first, then link to member
+    address = frappe.new_doc("Address")
+    address.address_line1 = "Test Street 123"
+    address.pincode = "1234AB"
+    address.city = "Test City"
+    address.country = "Netherlands"
+    address.address_type = "Personal"
+    address.address_title = f"{test_member.first_name} {test_member.last_name}"
+    address.insert()
+
+    # Link address to member
+    test_member.primary_address = address.name
 
     # Application-specific fields
     test_member.status = "Pending"

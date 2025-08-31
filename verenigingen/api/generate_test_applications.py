@@ -168,30 +168,40 @@ def generate_test_members():
             if member["email"] in existing_emails:
                 continue
 
-            # Create membership application
-            app = frappe.new_doc("Membership Application")
+            # Create member application (pending status)
+            app = frappe.new_doc("Member")
 
             # Personal information
             app.first_name = member["first_name"]
-            app.preposition = member["preposition"]
+            app.tussenvoegsel = member["preposition"]
             app.last_name = member["last_name"]
 
-            # Construct full name
-            name_parts = [member["first_name"]]
-            if member["preposition"]:
-                name_parts.append(member["preposition"])
-            name_parts.append(member["last_name"])
-            app.full_name = " ".join(name_parts)
+            # Use centralized Dutch name formatting utility
+            from verenigingen.utils.dutch_name_utils import format_dutch_full_name
+
+            app.full_name = format_dutch_full_name(
+                first_name=member["first_name"],
+                middle_name=None,  # Not in test data
+                tussenvoegsel=member["preposition"],
+                last_name=member["last_name"],
+            )
 
             # Contact information
             app.email = member["email"]
             app.phone = member["mobile"]  # Use mobile as primary phone
 
-            # Address information
-            app.street_address = f"{member['street']} {member['house_number']}"
-            app.postal_code = member["postal_code"]
-            app.city = member["city"]
-            app.country = member["country"]
+            # Create address first, then link to member
+            address = frappe.new_doc("Address")
+            address.address_line1 = f"{member['street']} {member['house_number']}"
+            address.pincode = member["postal_code"]
+            address.city = member["city"]
+            address.country = member["country"]
+            address.address_type = "Personal"
+            address.address_title = f"{member['first_name']} {member['last_name']}"
+            address.insert()
+
+            # Link address to member
+            app.primary_address = address.name
 
             # Date of birth
             app.date_of_birth = member["birth_date"]

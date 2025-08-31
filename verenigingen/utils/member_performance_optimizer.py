@@ -218,7 +218,7 @@ class MemberPerformanceOptimizer:
         query = f"""
             SELECT DISTINCT
                 m.name, m.full_name, m.first_name, m.last_name, m.email_address,
-                m.status, m.member_since, m.birth_date, m.postal_code, m.city,
+                m.status, m.member_since, m.birth_date, addr.pincode as postal_code, addr.city,
                 c.name as customer_name, c.territory, c.customer_group,
                 ct.name as contact_name, ct.phone, ct.mobile_no,
                 sm.name as current_mandate, sm.iban, sm.status as mandate_status,
@@ -228,6 +228,7 @@ class MemberPerformanceOptimizer:
                 SUM(DISTINCT mph.amount) as total_payments,
                 MAX(mph.payment_date) as last_payment_date
             FROM `tabMember` m
+            LEFT JOIN `tabAddress` addr ON m.primary_address = addr.name
             LEFT JOIN `tabCustomer` c ON m.customer = c.name
             LEFT JOIN `tabContact` ct ON c.customer_primary_contact = ct.name
             LEFT JOIN `tabSEPA Mandate` sm ON m.current_sepa_mandate = sm.name

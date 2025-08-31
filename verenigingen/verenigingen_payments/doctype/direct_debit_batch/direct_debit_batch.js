@@ -243,7 +243,7 @@ frappe.ui.form.on('Direct Debit Invoice', {
 		const row = locals[cdt][cdn];
 		if (row.invoice) {
 			frappe.call({
-				method: 'verenigingen.api.sepa_batch_ui.get_invoice_mandate_info',
+				method: 'verenigingen.verenigingen_payments.api.sepa_batch_ui.get_invoice_mandate_info',
 				args: { invoice: row.invoice },
 				callback(r) {
 					if (r.message) {
@@ -539,7 +539,7 @@ function validate_mandates(frm) {
 
 	frm.doc.invoices.forEach((inv, idx) => {
 		frappe.call({
-			method: 'verenigingen.api.sepa_batch_ui.validate_invoice_mandate',
+			method: 'verenigingen.verenigingen_payments.api.sepa_batch_ui.validate_invoice_mandate',
 			args: {
 				invoice: inv.invoice,
 				member: inv.member

@@ -160,11 +160,19 @@ class PersistentTestDataGenerator:
                         updates.append("contact")
                     
                     if cycle % 3 == 0:
-                        # Update address
+                        # Update address via primary_address relationship
                         member.reload()
-                        member.city = f"Updated City {cycle}"
-                        member.postal_code = f"{5000 + i:04d}XY"
-                        updates.append("address")
+                        if member.primary_address:
+                            try:
+                                address = frappe.get_doc("Address", member.primary_address)
+                                address.city = f"Updated City {cycle}"
+                                address.pincode = f"{5000 + i:04d}XY"
+                                address.save()
+                                updates.append("address")
+                            except Exception as e:
+                                frappe.logger().info(f"Address update failed for member {member.name}: {str(e)}")
+                        else:
+                            frappe.logger().info(f"Member {member.name} has no primary address to update")
                     
                     if cycle == update_cycles - 1 and i < 100:
                         # Status changes in last cycle

@@ -59,7 +59,7 @@ class TestDonation(EnhancedTestCase):
     def test_basic_donation_creation(self):
         """Test basic donation creation with proper field validation"""
         # Mock only external services
-        with patch("frappe.sendmail") as mock_email:
+        with patch("frappe.sendmail"):
             # Create donation with proper field references
             donation = frappe.new_doc("Donation")
             donation.donor = self.test_donor.name
@@ -90,7 +90,7 @@ class TestDonation(EnhancedTestCase):
     def test_donation_agreement_linking(self):
         """Test donation agreement linking with new schema"""
         # Mock only external services
-        with patch("frappe.sendmail") as mock_email:
+        with patch("frappe.sendmail"):
             # Create donation agreement first
             agreement = frappe.new_doc("Donation Agreement")
             agreement.donor = self.test_donor.name

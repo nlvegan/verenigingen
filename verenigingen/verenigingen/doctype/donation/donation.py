@@ -216,8 +216,19 @@ class Donation(Document):
         chapter_ref = getattr(self, "chapter_reference", None)
         goal_desc = getattr(self, "specific_goal_description", None)
 
+        # For Campaign purpose type, we allow the campaign reference to be stored in notes
+        # if the actual Donation Campaign doesn't exist yet
+        # This is handled in the donate.py submission logic
         if purpose_type == "Campaign" and not campaign_ref:
-            frappe.throw(_("Campaign Reference is required when Purpose Type is Campaign"))
+            # Check if there's a campaign reference in the notes (workaround for non-existent campaigns)
+            notes_check = self.donation_notes and "Campaign Reference:" in self.donation_notes
+            # Temporary debug logging
+            frappe.log_error(
+                f"Campaign validation debug - purpose_type: {purpose_type}, campaign_ref: {campaign_ref}, donation_notes: '{self.donation_notes}', notes_check: {notes_check}",
+                "Campaign Debug",
+            )
+            if not notes_check:
+                frappe.throw(_("Campaign Reference is required when Purpose Type is Campaign"))
 
         if purpose_type == "Chapter" and not chapter_ref:
             frappe.throw(_("Chapter is required when Purpose Type is Chapter"))

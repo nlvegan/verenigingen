@@ -389,7 +389,7 @@ class EnhancedTestDataFactory:
         address.address_title = f"{member.full_name} - Test Address"
         address.address_line1 = member.address_line1 if hasattr(member, 'address_line1') and member.address_line1 else "Test Street 123"
         address.city = member.city if hasattr(member, 'city') and member.city else "Amsterdam"  
-        address.postal_code = member.postal_code if hasattr(member, 'postal_code') and member.postal_code else "1234 AB"
+        address.pincode = member.postal_code if hasattr(member, 'postal_code') and member.postal_code else "1234 AB"
         address.country = "Netherlands"
         address.is_primary_address = 1
         
@@ -479,7 +479,9 @@ class EnhancedTestDataFactory:
                 finally:
                     frappe.set_user(current_user)
             except Exception as e:
-                frappe.log_error(f"Failed to create region {region_name}: {e}", "EnhancedTestFactory")
+                # Truncate region_name to avoid Error Log title length limit
+                short_region = region_name[:30] + "..." if len(region_name) > 30 else region_name
+                frappe.log_error(f"Region create fail: {short_region}, {str(e)[:70]}", "ETF Region")
 
         # Generate unique chapter name based on timestamp
         import time
@@ -633,43 +635,127 @@ class EnhancedTestDataFactory:
         if frappe.db.exists("Chapter", chapter_name):
             return frappe.get_doc("Chapter", chapter_name)
         
-        # Handle region requirement properly
+        # Handle region requirement properly with duplicate detection
         region_name = attributes.get("region") if attributes else None
+        print(f"DEBUG ensure_test_chapter: region_name from attributes = '{region_name}'")
         if region_name:
             # Check if the specified region exists, create if not
-            if not frappe.db.exists("Region", region_name):
+            region_exists = frappe.db.exists("Region", region_name)
+            print(f"DEBUG ensure_test_chapter: region '{region_name}' exists = {region_exists}")
+            if not region_exists:
                 try:
-                    # Generate region code from region name (first 2 letters + sequence)
-                    region_code = (region_name[:2].upper() + str(self.get_next_sequence('region_code')))
+                    # 🔧 Phase 5.2A Fix: Generate unique region_code with collision detection
+                    # Original bug: region_code uniqueness not checked + length validation failure
+                    # Region.validate() requires region_code to match ^[A-Z0-9]{2,5}$ (2-5 chars)
+                    base_region_code = region_name[:2].upper()
+                    
+                    # Generate 2-5 character region codes that pass validation
+                    sequence = self.get_next_sequence('region_code')
+                    if sequence <= 999:
+                        # Use 2-char base + 1-3 digit sequence (3-5 total chars)
+                        region_code = base_region_code + str(sequence)
+                    else:
+                        # Use 1-char base + 4-digit sequence (5 chars max)
+                        base_region_code = region_name[:1].upper()
+                        region_code = base_region_code + str(sequence)[-4:]  # Take last 4 digits
+                    
+                    # Ensure we don't exceed 5 characters (Region validation requirement)
+                    region_code = region_code[:5]
+                    
+                    # Check if this region_code already exists, increment until unique
+                    attempt_count = 0
+                    while frappe.db.exists("Region", {"region_code": region_code}) and attempt_count < 100:
+                        attempt_count += 1
+                        sequence = self.get_next_sequence('region_code')
+                        if sequence <= 999:
+                            region_code = base_region_code[:2] + str(sequence)
+                        else:
+                            region_code = base_region_code[:1] + str(sequence)[-4:]
+                        region_code = region_code[:5]  # Ensure max 5 chars
+                    
+                    if attempt_count >= 100:
+                        # Fallback: timestamp-based region code (still max 5 chars)
+                        import time
+                        timestamp_suffix = str(int(time.time()))[-3:]  # Last 3 digits
+                        region_code = (base_region_code[:2] + timestamp_suffix)[:5]
+                    
                     test_region = frappe.get_doc({
                         "doctype": "Region",
                         "region_name": region_name,
                         "region_code": region_code
                     })
                     test_region.insert()
+                    # In test context, no manual commit needed - let Frappe handle transaction management
+                    # 🔧 CRITICAL FIX: Region DocType uses autoname="field:region_name" 
+                    # which converts "Test Region Name" -> "test-region-name"
+                    # We need to use the actual document name, not the original region_name
+                    region_name = test_region.name  # Use the auto-generated name
                 except Exception as e:
-                    frappe.log_error(f"Failed to create region {region_name}: {e}", "EnhancedTestFactory")
+                    # 🔧 Phase 5.2A Fix: Concise error logging to avoid 140 char limit
+                    # Original bug: Long error messages exceeded Error Log title length limit
+                    region_code_str = region_code if 'region_code' in locals() else 'unknown'
+                    # Truncate region_name if too long to fit within 140 char limit
+                    short_region_name = region_name[:20] + "..." if len(region_name) > 20 else region_name
+                    frappe.log_error(f"Phase 5.2A Region Fail: {short_region_name}, code: {region_code_str}, {str(e)[:50]}", "ETF Region Creation")
+                    # If region creation fails, try to use an existing region as fallback
+                    existing_regions = frappe.get_all("Region", limit=1, pluck="region_name")
+                    if existing_regions:
+                        region_name = existing_regions[0]
+                    else:
+                        # No regions exist at all - this is a critical issue
+                        raise Exception(f"No regions available and cannot create region '{region_name}': {e}")
+            
+            # 🔧 DEBUG: Log region assignment for troubleshooting
             region = region_name
+            print(f"DEBUG ensure_test_chapter: region assigned = '{region}' (from region_name = '{region_name}')")
         else:
             # Try to find an existing region
             existing_regions = frappe.get_all("Region", limit=1)
             if existing_regions:
                 region = existing_regions[0].name
             else:
-                # Create a default test region if none exist
+                # Create a default test region if none exist with unique region_code
                 default_region_name = "Default Test Region"
                 if not frappe.db.exists("Region", default_region_name):
                     try:
-                        # Generate region code for default region
-                        region_code = "DR" + str(self.get_next_sequence('region_code'))
+                        # 🔧 Phase 5.2A Fix: Generate unique region_code for default region (max 5 chars)
+                        base_code = "DR"
+                        sequence = self.get_next_sequence('region_code')
+                        
+                        # Ensure default region code fits 5-char validation requirement
+                        if sequence <= 999:
+                            region_code = base_code + str(sequence)  # DR + 1-3 digits = 3-5 chars
+                        else:
+                            region_code = base_code + str(sequence)[-3:]  # DR + last 3 digits = 5 chars
+                        
+                        # Check uniqueness for default region code as well
+                        attempt_count = 0
+                        while frappe.db.exists("Region", {"region_code": region_code}) and attempt_count < 100:
+                            attempt_count += 1
+                            sequence = self.get_next_sequence('region_code')
+                            if sequence <= 999:
+                                region_code = base_code + str(sequence)
+                            else:
+                                region_code = base_code + str(sequence)[-3:]
+                        
+                        if attempt_count >= 100:
+                            # Fallback: timestamp-based region code for default region (5 chars max)
+                            import time
+                            timestamp_suffix = str(int(time.time()))[-3:]  # Last 3 digits  
+                            region_code = base_code + timestamp_suffix  # DR + 3 digits = 5 chars
+                        
                         test_region = frappe.get_doc({
                             "doctype": "Region",
                             "region_name": default_region_name,
                             "region_code": region_code
                         })
                         test_region.insert()
+                        # 🔧 CRITICAL FIX: Update region name to auto-generated name  
+                        default_region_name = test_region.name
                     except Exception as e:
-                        frappe.log_error(f"Failed to create default region: {e}", "EnhancedTestFactory")
+                        # 🔧 Phase 5.2A Fix: Concise error logging for default region creation
+                        region_code_str = region_code if 'region_code' in locals() else 'unknown'
+                        frappe.log_error(f"Phase 5.2A Default Region Fail: code {region_code_str}, {str(e)[:60]}", "ETF Default Region")
                 region = default_region_name
         
         chapter_data = {
@@ -686,11 +772,18 @@ class EnhancedTestDataFactory:
         
         if region:
             chapter_data["region"] = region
+            print(f"DEBUG ensure_test_chapter: chapter_data region set to '{region}'")
         
         if attributes:
             # Don't override the defaults we just set
             for key, value in attributes.items():
-                if key not in ['introduction', 'contact_email'] or value:
+                # 🔧 CRITICAL FIX: Don't override corrected region name with original region name
+                # Also protect other critical fields that have been processed
+                if key not in ['introduction', 'contact_email', 'region'] or value:
+                    # Skip region override if region was already corrected for autoname
+                    if key == 'region' and region:
+                        print(f"DEBUG ensure_test_chapter: SKIPPING region override - keeping corrected region '{region}'")
+                        continue
                     chapter_data[key] = value
         
         chapter = frappe.get_doc(chapter_data)
@@ -1546,6 +1639,72 @@ class EnhancedTestCase(FrappeTestCase):
         discovered during Phase 5.1 production issue fixes.
         """
         return self.create_chapter(**kwargs)
+    
+    def cleanup_test_chapters(self, chapter_pattern=None, member_pattern=None):
+        """
+        🧹 Phase 5.2A Fix: Chapter and Member cleanup method
+        
+        PRODUCTION ISSUE DISCOVERED: Enhanced Test Factory was missing cleanup_test_chapters() method
+        that existing tests expected. This method was present in basic test files but missing from
+        the Enhanced Test Factory framework, causing API inconsistency.
+        
+        This method provides flexible cleanup for chapter management tests:
+        - Cleans up test chapters and their members
+        - Supports custom patterns for targeted cleanup
+        - Handles orphaned chapter members and test data
+        - Uses direct SQL to avoid validation issues during cleanup
+        
+        Args:
+            chapter_pattern (str): Chapter name pattern for cleanup (default: test patterns)
+            member_pattern (str): Member name pattern for cleanup (default: test patterns)
+        """
+        # Default patterns for test data cleanup
+        if chapter_pattern is None:
+            chapter_pattern = ['%Test Chapter%', '%Phase%Test%', 'Basic Test Chapter%']
+        elif isinstance(chapter_pattern, str):
+            chapter_pattern = [chapter_pattern]
+            
+        if member_pattern is None:
+            member_pattern = ['BasicTest%', 'Phase5_2A%', '%TestMember%']
+        elif isinstance(member_pattern, str):
+            member_pattern = [member_pattern]
+        
+        # Clean up test chapters - handle multiple patterns
+        for pattern in chapter_pattern:
+            frappe.db.sql("""
+                DELETE FROM `tabChapter` 
+                WHERE name LIKE %s
+            """, (pattern,))
+            
+            # Also clean up any orphaned chapter members for this pattern
+            frappe.db.sql("""
+                DELETE FROM `tabChapter Member` 
+                WHERE parent LIKE %s
+            """, (pattern,))
+        
+        # Clean up test members created by chapter tests
+        for pattern in member_pattern:
+            frappe.db.sql("""
+                DELETE FROM `tabMember` 
+                WHERE first_name LIKE %s
+            """, (pattern,))
+        
+        # Clean up any Chapter Membership History entries for test data (if table exists)
+        # Note: Chapter membership is actually stored in Chapter.members child table
+        # but this cleanup handles any legacy history entries
+        try:
+            for pattern in member_pattern:
+                # Ensure pattern has wildcards for SQL LIKE operation
+                like_pattern = pattern if '%' in pattern else f"%{pattern}%"
+                frappe.db.sql("""
+                    DELETE FROM `tabChapter Membership History`
+                    WHERE member LIKE %s
+                """, (like_pattern,))
+        except Exception:
+            # Table might not exist - that's OK, chapter membership is in Chapter.members
+            pass
+        
+        # Note: No commit needed in test context - Frappe handles transaction rollback
 
 
 # Convenience decorators

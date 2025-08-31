@@ -100,7 +100,7 @@ def test_team_validation_performance():
             try:
                 team.validate_unique_roles()
                 results.append("  ❌ ERROR: Unique role conflict not detected!")
-            except frappe.ValidationError as e:
+            except frappe.ValidationError:
                 conflict_time = (time.time() - start_time) * 1000
                 results.append(f"  Conflict detection: {conflict_time:.2f}ms")
                 results.append(f"  ✅ Unique role conflict properly detected")

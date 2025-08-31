@@ -637,7 +637,7 @@ def debug_member_billing_issues(member_name):
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def debug_specific_member_sinv_issue():
     """Debug why Assoc-Member-2025-07-0025 hasn't gotten SINV today"""
-    from frappe.utils import add_days, getdate, today
+    from frappe.utils import add_days
 
     member_name = "Assoc-Member-2025-07-0025"
 
@@ -879,7 +879,6 @@ def debug_specific_member_sinv_issue():
 @high_security_api(operation_type=OperationType.UTILITY)
 def debug_invoice_submission_issue():
     """Debug why today's invoice for Assoc-Member-2025-07-0025 wasn't submitted"""
-    from frappe.utils import today
 
     result = {"status": "investigating", "today": today()}
 
@@ -951,7 +950,6 @@ def debug_invoice_submission_issue():
 @high_security_api(operation_type=OperationType.UTILITY)
 def check_auto_submit_errors():
     """Check for auto-submit error logs for today's invoices"""
-    from frappe.utils import today
 
     try:
         result = {"today": today(), "status": "checking"}
@@ -1028,7 +1026,7 @@ def check_auto_submit_errors():
 @high_security_api(operation_type=OperationType.UTILITY)
 def analyze_recent_invoice_submissions():
     """Analyze recent invoice submission patterns to understand the inconsistency"""
-    from frappe.utils import add_days, today
+    from frappe.utils import add_days
 
     try:
         result = {"today": today(), "analysis_period": "Last 7 days", "status": "analyzing"}

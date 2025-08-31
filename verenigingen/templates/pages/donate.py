@@ -63,6 +63,10 @@ def get_context(context):
         chapters = frappe.get_all("Chapter", filters={"published": 1}, fields=["name"], order_by="name")
     context.chapters = chapters
 
+    # Get available donation campaigns
+    campaigns = frappe.get_all("Donation Campaign", fields=["name"], order_by="name")
+    context.campaigns = campaigns
+
     # Get donor types for new donor creation (from Select field options)
     donor_types = [
         {"name": "Individual", "donor_type": "Individual"},
@@ -156,15 +160,16 @@ def submit_donation(**kwargs):
         try:
             payment_result = process_payment_method(donation, form_data)
         except Exception:
-            # Return error response instead of re-raising
+            # Return partial success response - donation created but payment setup failed
             return {
-                "success": True,  # Donation was created successfully
+                "success": False,  # Overall process failed due to payment setup
+                "donation_created": True,  # But donation record was created
                 "donation_id": donation.name,
-                "message": _("Donation submitted successfully"),
+                "message": _("Donation record created but payment setup failed"),
                 "payment_info": {
                     "status": "error",
                     "message": "Payment setup failed. Please try again or contact support.",
-                    "info": "Please try a different payment method or contact support",
+                    "info": "Your donation is recorded, but payment needs to be completed separately",
                 },
             }
 
@@ -294,23 +299,41 @@ def create_donation_record(donor, form_data):
     purpose_type = form_data.get("donation_purpose_type", "General")
 
     donation_doc = frappe.new_doc("Donation")
-    donation_doc.update(
-        {
-            "company": settings.donation_company,
-            "donor": donor.name,
-            "donation_date": getdate(),
-            "amount": flt(form_data.amount),
-            "donation_type": donation_type,
-            # mode_of_payment will be set by payment processing logic
-            "status": map_donation_status(form_data.get("donation_status", "One-time")),
-            "donation_purpose_type": purpose_type,
-            "campaign_reference": form_data.get("campaign_reference"),
-            "chapter_reference": form_data.get("chapter_reference"),
-            "specific_goal_description": form_data.get("specific_goal_description"),
-            "donation_notes": form_data.get("donation_notes", ""),
-            "paid": 0,  # Will be marked paid after payment processing
-        }
-    )
+    donation_data = {
+        "company": settings.donation_company,
+        "donor": donor.name,
+        "donation_date": getdate(),
+        "amount": flt(form_data.amount),
+        "donation_type": donation_type,
+        # Set mode_of_payment from form data - it's a required field
+        "mode_of_payment": form_data.get("payment_method"),
+        "status": map_donation_status(form_data.get("donation_status", "One-time")),
+        "donation_purpose_type": purpose_type,
+        "donation_notes": form_data.get("donation_notes", ""),
+        "paid": 0,  # Will be marked paid after payment processing
+    }
+
+    # Only set purpose-specific fields if they have values
+    # The campaign field expects a link to Donation Campaign, not a text reference
+    if purpose_type == "Campaign" and form_data.get("campaign_reference"):
+        # For now, store the campaign reference as text in donation_notes if it's not a valid link
+        # This allows the form to work while a proper Donation Campaign can be created later
+        campaign_ref = form_data.get("campaign_reference")
+        # Check if it's a valid Donation Campaign
+        if frappe.db.exists("Donation Campaign", campaign_ref):
+            donation_data["campaign"] = campaign_ref
+        else:
+            # Append to notes since we can't link to a non-existent campaign
+            existing_notes = donation_data.get("donation_notes", "")
+            donation_data["donation_notes"] = f"{existing_notes}\nCampaign Reference: {campaign_ref}".strip()
+
+    if purpose_type == "Chapter" and form_data.get("chapter_reference"):
+        donation_data["chapter_reference"] = form_data.get("chapter_reference")
+
+    if purpose_type == "Specific Goal" and form_data.get("specific_goal_description"):
+        donation_data["specific_goal_description"] = form_data.get("specific_goal_description")
+
+    donation_doc.update(donation_data)
 
     # Handle ANBI agreement if provided
     if form_data.get("anbi_agreement_number"):
@@ -331,8 +354,21 @@ def create_donation_record(donor, form_data):
         )
         frappe.throw(_("Unable to process donation: Failed to create donation record"))
 
-    # Submit the created document
-    donation_doc.submit()
+    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+    submit_result = secure_document_operation(
+        operation="submit",
+        doc=donation_doc,
+        justification=f"Submit donation {donation_doc.name} from public donation form - financial transaction processing for {donor.donor_name}",
+        required_permissions=["Donation:submit"],
+    )
+
+    if not submit_result.success:
+        frappe.log_error(
+            f"Failed to submit donation record: {'; '.join(submit_result.errors)}",
+            "Donation Submission Security",
+        )
+        frappe.throw(_("Unable to process donation: Failed to submit donation record"))
+
     return donation_doc
 
 
@@ -489,21 +525,31 @@ def process_mollie_subscription(donation, form_data, gateway):
         }
 
         # Add start date (first payment immediate, then recurring)
-        from frappe.utils import add_to_date, today
+        from datetime import datetime
+
+        from frappe.utils import add_to_date, getdate
+
+        # Get today as a proper date object
+        today_date = getdate()
 
         # Calculate next payment date based on interval
         if subscription_interval == "1 month":
-            next_date = add_to_date(today(), months=1)
+            next_date = add_to_date(today_date, months=1)
         elif subscription_interval == "3 months":
-            next_date = add_to_date(today(), months=3)
+            next_date = add_to_date(today_date, months=3)
         elif subscription_interval == "6 months":
-            next_date = add_to_date(today(), months=6)
+            next_date = add_to_date(today_date, months=6)
         elif subscription_interval == "1 year":
-            next_date = add_to_date(today(), years=1)
+            next_date = add_to_date(today_date, years=1)
         else:
-            next_date = add_to_date(today(), months=1)  # Default to monthly
+            next_date = add_to_date(today_date, months=1)  # Default to monthly
 
-        subscription_data["startDate"] = next_date.strftime("%Y-%m-%d")
+        # Ensure consistent date handling
+        # Convert to date object regardless of input type for consistent formatting
+        from frappe.utils import getdate
+
+        next_date_obj = getdate(next_date)
+        subscription_data["startDate"] = next_date_obj.strftime("%Y-%m-%d")
 
         # Create the subscription using the gateway
         result = gateway.create_subscription(donor, subscription_data)

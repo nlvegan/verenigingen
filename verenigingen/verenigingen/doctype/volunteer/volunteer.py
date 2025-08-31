@@ -180,7 +180,21 @@ class Volunteer(Document):
 
     def after_insert(self):
         """Actions after inserting new volunteer record"""
-        # Queue secure account creation instead of immediate processing
+        # Check if the linked member already has a user account
+        existing_user = None
+        if self.member:
+            existing_user = frappe.db.get_value("Member", self.member, "user")
+            if existing_user:
+                frappe.logger().info(
+                    f"Volunteer {self.name} linked to member {self.member} which already has user account {existing_user}"
+                )
+                # Link the volunteer to the existing user account if not already linked
+                if not self.user:
+                    frappe.db.set_value("Volunteer", self.name, "user", existing_user)
+                    frappe.logger().info(f"Linked volunteer {self.name} to existing user {existing_user}")
+                return  # Skip account creation since user already exists
+
+        # Queue secure account creation only if no existing user account
         if self.email:
             self.queue_secure_account_creation()
         else:
@@ -1084,6 +1098,13 @@ def create_volunteer_from_member(member_name, volunteer_name=None, status="New",
             "date_joined": frappe.utils.today(),
             "start_date": frappe.utils.today(),
         }
+
+        # Copy the user field from member if it exists
+        if hasattr(member, "user") and member.user:
+            volunteer_data["user"] = member.user
+            frappe.logger().info(
+                f"Copying existing user {member.user} from member {member.name} to volunteer"
+            )
 
         # Add optional fields if available
         if hasattr(member, "personal_email") and member.personal_email:

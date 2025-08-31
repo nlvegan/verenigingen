@@ -28,6 +28,21 @@ def get_context(context):
         context.error_message = _(
             "No volunteer record found for your account. Please contact your chapter administrator."
         )
+        # Set default values to prevent template errors
+        context.volunteer = None
+        context.organizations = {"chapters": [], "teams": []}
+        context.expense_categories = []
+        context.recent_expenses = []
+        context.expense_stats = {
+            "total_submitted": 0,
+            "total_approved": 0,
+            "pending_amount": 0,
+            "pending_count": 0,
+            "approved_count": 0,
+            "total_count": 0,
+        }
+        context.approval_thresholds = get_approval_thresholds()
+        context.national_chapter = None
         return context
 
     context.volunteer = volunteer
@@ -42,7 +57,9 @@ def get_context(context):
     context.recent_expenses = get_volunteer_expenses(volunteer.name, limit=10)
 
     # Get expense statistics
-    context.expense_stats = get_expense_statistics(volunteer.name)
+    from verenigingen.utils.volunteer_statistics import get_volunteer_expense_statistics
+
+    context.expense_stats = get_volunteer_expense_statistics(volunteer.name)
 
     # Get maximum amounts for each approval level (for UI guidance)
     context.approval_thresholds = get_approval_thresholds()
@@ -130,11 +147,16 @@ def get_volunteer_organizations(volunteer_name):
         )
 
         for cm in chapter_members:
-            chapter_info = frappe.db.get_value("Chapter", cm.parent, ["name"], as_dict=True)
-            if chapter_info:
-                # Add chapter_name field with same value as name for consistency
-                chapter_info["chapter_name"] = chapter_info["name"]
+            chapter_data = frappe.db.get_value("Chapter", cm.parent, ["name"], as_dict=True)
+            if chapter_data:
+                # Standardize chapter data structure (consistent with dashboard.py)
+                chapter_info = {
+                    "name": chapter_data["name"],
+                    "chapter_name": chapter_data["name"],  # Chapter name is stored in the 'name' field
+                    "city": "",  # Chapters don't have city in this system
+                }
                 organizations["chapters"].append(chapter_info)
+                frappe.logger().debug(f"Added chapter to organizations: {chapter_info}")
 
     # Get teams where volunteer is active
     team_members = frappe.get_all(
@@ -333,31 +355,8 @@ def get_volunteer_expenses(volunteer_name, limit=None):
         return []
 
 
-def map_erpnext_status_to_volunteer_status(erpnext_status, approval_status):
-    """Map ERPNext Expense Claim status to Volunteer Expense status"""
-    if erpnext_status == "Draft":
-        return "Awaiting Approval"
-    elif erpnext_status == "Submitted":
-        if approval_status == "Approved":
-            return "Approved"
-        elif approval_status == "Rejected":
-            return "Rejected"
-        else:
-            return "Submitted"
-    elif erpnext_status == "Unpaid":
-        # Unpaid means it's been processed (approved/rejected)
-        if approval_status == "Approved":
-            return "Approved"
-        elif approval_status == "Rejected":
-            return "Rejected"
-        else:
-            return "Submitted"
-    elif erpnext_status == "Paid":
-        return "Reimbursed"
-    elif erpnext_status == "Cancelled":
-        return "Rejected"
-    else:
-        return "Submitted"
+# Status mapping function moved to shared module:
+# verenigingen.utils.volunteer_statistics._map_erpnext_status_to_volunteer_status
 
 
 def get_volunteer_expenses_legacy(volunteer_name, limit=None):
@@ -408,122 +407,8 @@ def get_volunteer_expenses_legacy(volunteer_name, limit=None):
     return expenses
 
 
-def get_expense_statistics(volunteer_name):
-    """Get expense statistics for the volunteer from ERPNext Expense Claims and Volunteer Expenses"""
-    from frappe.utils import add_months
-
-    try:
-        # Get expenses from last 12 months
-        from_date = add_months(today(), -12)
-
-        total_submitted = 0
-        total_approved = 0
-        pending_count = 0
-        approved_count = 0
-        reimbursed_count = 0
-        total_count = 0
-
-        # Get volunteer's employee ID
-        volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
-
-        # Try ERPNext first if employee_id exists
-        if volunteer_doc.employee_id:
-            # Get ERPNext Expense Claims for this employee
-            expense_claims = frappe.get_all(
-                "Expense Claim",
-                filters={
-                    "employee": volunteer_doc.employee_id,
-                    "posting_date": [">=", from_date],
-                    "docstatus": ["!=", 2],  # Not cancelled
-                },
-                fields=[
-                    "name",
-                    "total_claimed_amount",
-                    "total_sanctioned_amount",
-                    "status",
-                    "approval_status",
-                    "posting_date",
-                ],
-            )
-
-            for claim in expense_claims:
-                amount = flt(claim.total_claimed_amount)
-                status = map_erpnext_status_to_volunteer_status(claim.status, claim.approval_status)
-
-                total_count += 1
-
-                # All expenses count toward total_submitted
-                total_submitted += amount
-
-                if status == "Approved":
-                    sanctioned_amount = flt(claim.total_sanctioned_amount or amount)
-                    total_approved += sanctioned_amount
-                    approved_count += 1
-                elif status == "Awaiting Approval":  # Draft status = pending approval
-                    pending_count += 1
-                elif status == "Submitted":  # Submitted but not yet approved/rejected
-                    pending_count += 1
-                elif status == "Rejected":  # Rejected expenses
-                    pass  # Already counted in total_submitted
-                elif status == "Reimbursed":
-                    total_approved += flt(claim.total_sanctioned_amount or amount)
-                    reimbursed_count += 1
-
-        # Note: Volunteer Expense doctype appears to be legacy/unused
-        # The actual workflow uses ERPNext Expense Claims only
-
-        return {
-            "total_submitted": total_submitted,
-            "total_approved": total_approved,
-            "pending_amount": total_submitted - total_approved,
-            "pending_count": pending_count,
-            "approved_count": approved_count + reimbursed_count,
-            "total_count": total_count,
-        }
-
-    except Exception as e:
-        frappe.log_error(f"Error getting expense statistics: {str(e)}", "Expense Statistics Error")
-        # Return empty statistics if error occurs
-        return {
-            "total_submitted": 0,
-            "total_approved": 0,
-            "pending_amount": 0,
-            "pending_count": 0,
-            "approved_count": 0,
-            "total_count": 0,
-        }
-
-
-def get_expense_statistics_legacy(volunteer_name):
-    """Legacy function to get expense statistics from Volunteer Expense records"""
-    from frappe.utils import add_months
-
-    # Get expenses from last 12 months
-    from_date = add_months(today(), -12)
-
-    expenses = frappe.get_all(
-        "Volunteer Expense",
-        filters={
-            "volunteer": volunteer_name,
-            "expense_date": [">=", from_date],
-            "docstatus": ["!=", 2],  # Not cancelled
-        },
-        fields=["amount", "status", "expense_date"],
-    )
-
-    total_submitted = sum(flt(exp.amount) for exp in expenses if exp.status in ["Submitted", "Approved"])
-    total_approved = sum(flt(exp.amount) for exp in expenses if exp.status == "Approved")
-    pending_count = len([exp for exp in expenses if exp.status == "Submitted"])
-    approved_count = len([exp for exp in expenses if exp.status == "Approved"])
-
-    return {
-        "total_submitted": total_submitted,
-        "total_approved": total_approved,
-        "pending_amount": total_submitted - total_approved,
-        "pending_count": pending_count,
-        "approved_count": approved_count,
-        "total_count": len(expenses),
-    }
+# Duplicate functions get_expense_statistics() and get_expense_statistics_legacy()
+# have been moved to shared module: verenigingen.utils.volunteer_statistics
 
 
 def get_approval_thresholds():
@@ -1561,7 +1446,7 @@ def validate_expense_data(expense_data, line_number):
     # Date validation
     if expense_data.get("expense_date"):
         try:
-            from frappe.utils import getdate, today
+            from frappe.utils import getdate
 
             expense_date = getdate(expense_data.get("expense_date"))
             today_date = getdate(today())
