@@ -254,9 +254,12 @@ class ANBIDonorPersonaFactory:
         Note:
             This is a test number only - not associated with real Dutch organizations
         """
-        # Generate simple test RSIN that follows proper format
-        # Using fixed test number for consistency in test scenarios
-        base_rsin = "123456789"  # Standard test RSIN format
+        # Generate valid test RSIN using Dutch validation helpers
+        # Using valid RSIN for authentic Dutch tax compliance testing
+        from verenigingen.tests.fixtures.dutch_validation_helpers import get_test_rsin_numbers
+        valid_rsins = get_test_rsin_numbers()
+        # Use the first valid RSIN for consistency in test scenarios
+        base_rsin = valid_rsins[2]  # "555444333" - confirmed valid above
         return base_rsin
 
 

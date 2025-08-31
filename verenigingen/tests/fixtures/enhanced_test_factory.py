@@ -428,9 +428,39 @@ class EnhancedTestDataFactory:
         for field in kwargs.keys():
             self.validate_field_exists("Chapter", field)
             
+        # Create or find region before setting defaults
+        region_name = kwargs.get('region') if kwargs else None
+        if not region_name:
+            # Use faker or generate test region name
+            region_name = self.fake.state() if self.use_faker else f"TestRegion-{self.get_next_sequence('region')}"
+        
+        # Ensure region exists
+        if not frappe.db.exists("Region", region_name):
+            try:
+                # Generate region code from region name (first 2 letters + sequence)
+                region_code = (region_name[:2].upper() + str(self.get_next_sequence('region_code')))
+                test_region = frappe.get_doc({
+                    "doctype": "Region",
+                    "region_name": region_name,
+                    "region_code": region_code
+                })
+                test_admin = self.ensure_test_admin_user()
+                current_user = frappe.session.user
+                try:
+                    frappe.set_user(test_admin.email)
+                    test_region.insert()
+                finally:
+                    frappe.set_user(current_user)
+            except Exception as e:
+                frappe.log_error(f"Failed to create region {region_name}: {e}", "EnhancedTestFactory")
+
+        # Generate unique chapter name based on timestamp
+        import time
+        unique_suffix = str(int(time.time() * 1000))[-10:]  # Last 10 digits for more uniqueness
+        
         defaults = {
-            "name": f"TEST-Chapter-{self.get_next_sequence('chapter')}-{self.test_run_id[:8]}",
-            "region": self.fake.state() if self.use_faker else f"TestRegion-{self.get_next_sequence('region')}",
+            "name": f"TEST-Chapter-{unique_suffix}",
+            "region": region_name,
             "postal_codes": f"{1000 + self.get_next_sequence('postal'):04d}",
             "introduction": f"Test chapter created by EnhancedTestDataFactory - {self.test_run_id}"
         }
@@ -582,9 +612,12 @@ class EnhancedTestDataFactory:
             # Check if the specified region exists, create if not
             if not frappe.db.exists("Region", region_name):
                 try:
+                    # Generate region code from region name (first 2 letters + sequence)
+                    region_code = (region_name[:2].upper() + str(self.get_next_sequence('region_code')))
                     test_region = frappe.get_doc({
                         "doctype": "Region",
-                        "region_name": region_name
+                        "region_name": region_name,
+                        "region_code": region_code
                     })
                     test_region.insert()
                 except Exception as e:
@@ -600,9 +633,12 @@ class EnhancedTestDataFactory:
                 default_region_name = "Default Test Region"
                 if not frappe.db.exists("Region", default_region_name):
                     try:
+                        # Generate region code for default region
+                        region_code = "DR" + str(self.get_next_sequence('region_code'))
                         test_region = frappe.get_doc({
                             "doctype": "Region",
-                            "region_name": default_region_name
+                            "region_name": default_region_name,
+                            "region_code": region_code
                         })
                         test_region.insert()
                     except Exception as e:

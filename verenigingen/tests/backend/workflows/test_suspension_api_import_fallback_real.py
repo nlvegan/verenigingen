@@ -55,7 +55,7 @@ class TestSuspensionAPIFallbackReal(EnhancedTestCase):
         # Create regular user account
         self.regular_user = self.create_test_user(
             email=self.regular_member.email,
-            roles=["Website User"],  # Basic user role that exists
+            roles=["Guest"],  # Basic user role that actually exists in Frappe
             enabled=1
         )
         

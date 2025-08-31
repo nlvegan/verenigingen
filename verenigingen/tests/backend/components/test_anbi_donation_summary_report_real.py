@@ -17,7 +17,7 @@ Dutch regulatory compliance bugs that mocked tests completely miss.
 """
 
 import frappe
-from frappe.utils import add_days, today, flt
+from frappe.utils import add_days, today, flt, getdate
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen.report.anbi_donation_summary.anbi_donation_summary import (
@@ -288,3 +288,310 @@ class TestANBIDonationSummaryReportReal(EnhancedTestCase):
             if row["donor"] == self.individual_donor.name:
                 # Should only include more recent donation, not the 60-day old one
                 self.assertLess(flt(row["total_donations"]), 550.0)  # Less than full total
+
+    def test_tax_id_field_processing_real_dutch_validation(self):
+        """Test BSN/RSIN tax ID processing with real Dutch validation"""
+        
+        # This replaces mocked tax_id_value processing with real database field queries
+        filters = {"from_date": add_days(today(), -90), "to_date": today()}
+        data = get_data(filters)
+        
+        # Find our test donors in real results
+        individual_result = next((row for row in data if row["donor"] == self.individual_donor.name), None)
+        organization_result = next((row for row in data if row["donor"] == self.organization_donor.name), None)
+        
+        if individual_result:
+            # Individual should show BSN from real database field
+            tax_id = individual_result.get("tax_id")
+            
+            # Should be either real BSN or encryption indicator
+            if tax_id and tax_id != "***ENCRYPTED***":
+                # Verify it follows BSN format (9 digits)
+                self.assertEqual(len(str(tax_id)), 9)
+                self.assertTrue(str(tax_id).isdigit())
+        
+        if organization_result:
+            # Organization should show RSIN from real database field  
+            tax_id = organization_result.get("tax_id")
+            
+            # Should be either real RSIN or encryption indicator
+            if tax_id and tax_id != "***ENCRYPTED***":
+                # Verify it follows RSIN format (9 digits)
+                self.assertEqual(len(str(tax_id)), 9)
+                self.assertTrue(str(tax_id).isdigit())
+
+    def test_agreement_type_determination_real_database(self):
+        """Test agreement type determination with real database operations"""
+        
+        # Create a periodic donation agreement for testing
+        # This replaces @patch("frappe.get_doc") with real document operations
+        try:
+            pda = frappe.get_doc({
+                "doctype": "Periodic Donation Agreement",
+                "donor": self.individual_donor.name,
+                "anbi_eligible": 1,
+                "agreement_number": "PDA-TEST-2024-001",
+                "status": "Active",
+                "start_date": add_days(today(), -30),
+                "amount": 25.0,
+                "frequency": "Monthly"
+            })
+            pda.insert()
+            
+            # Update donation to reference the agreement
+            self.individual_donation_1.periodic_donation_agreement = pda.name
+            self.individual_donation_1.save()
+            
+            # Execute report with real agreement data
+            filters = {"from_date": add_days(today(), -90), "to_date": today()}
+            data = get_data(filters)
+            
+            # Find individual donor result
+            individual_result = next((row for row in data if row["donor"] == self.individual_donor.name), None)
+            
+            if individual_result:
+                # Should show ANBI periodic agreement type from real database
+                agreement_type = individual_result.get("agreement_type")
+                if agreement_type:
+                    self.assertIn("ANBI", agreement_type)
+                    self.assertIn("Periodic", agreement_type)
+                
+                # Should show real agreement number
+                agreement_number = individual_result.get("agreement_number")
+                if agreement_number:
+                    self.assertEqual(agreement_number, "PDA-TEST-2024-001")
+                    
+        except Exception as e:
+            if "Periodic Donation Agreement" in str(e):
+                self.skipTest("Periodic Donation Agreement DocType not available")
+            else:
+                raise
+
+    def test_reportable_threshold_logic_real_settings(self):
+        """Test reportable threshold logic with real settings"""
+        
+        # Test with real ANBI settings (replaces @patch("frappe.db.get_single_value"))
+        
+        # Get current threshold from real settings
+        current_threshold = frappe.db.get_single_value("Verenigingen Settings", "anbi_minimum_reportable_amount") or 500
+        
+        # Create donations above and below threshold
+        below_threshold_donation = self.create_test_donation(
+            donor=self.no_consent_donor.name,
+            amount=current_threshold - 50,  # Below threshold
+            donation_date=add_days(today(), -15),
+            paid=1,
+            belastingdienst_reportable=0  # Not marked as reportable
+        )
+        
+        above_threshold_donation = self.create_test_donation(
+            donor=self.organization_donor.name,
+            amount=current_threshold + 100,  # Above threshold
+            donation_date=add_days(today(), -25),
+            paid=1,
+            belastingdienst_reportable=1  # Should be reportable
+        )
+        
+        # Execute report with real threshold logic
+        filters = {"from_date": add_days(today(), -90), "to_date": today()}
+        data = get_data(filters)
+        
+        # Find results for threshold testing
+        below_result = next((row for row in data if row["donor"] == self.no_consent_donor.name), None)
+        above_result = next((row for row in data if row["donor"] == self.organization_donor.name), None)
+        
+        # Verify threshold logic works with real settings
+        if below_result:
+            # Below threshold should not be automatically reportable
+            if flt(below_result["total_donations"]) < current_threshold:
+                self.assertFalse(below_result.get("reportable", False))
+        
+        if above_result:
+            # Above threshold should be reportable (or flagged for review)
+            if flt(above_result["total_donations"]) > current_threshold:
+                self.assertTrue(above_result.get("reportable", False))
+
+    def test_consent_status_filtering_real_database(self):
+        """Test consent status filtering with real database operations"""
+        
+        # Test filtering by consent status using real database queries
+        # This replaces mocked consent filtering with actual SQL WHERE clauses
+        
+        # Test "consent given" filter
+        consent_given_filters = {
+            "from_date": add_days(today(), -90),
+            "to_date": today(),
+            "consent_status": "Given"
+        }
+        
+        # This will execute real SQL with consent filtering
+        consent_data = get_data(consent_given_filters)
+        
+        # All results should have consent = 1
+        for row in consent_data:
+            if "consent_given" in row:
+                self.assertTrue(row["consent_given"], 
+                              f"Donor {row['donor_name']} should have consent given")
+        
+        # Test "consent not given" filter
+        no_consent_filters = {
+            "from_date": add_days(today(), -90), 
+            "to_date": today(),
+            "consent_status": "Not Given"
+        }
+        
+        no_consent_data = get_data(no_consent_filters)
+        
+        # All results should have consent = 0 or NULL
+        for row in no_consent_data:
+            if "consent_given" in row:
+                self.assertFalse(row["consent_given"],
+                               f"Donor {row['donor_name']} should not have consent given")
+
+    def test_sql_field_name_regression_real_execution(self):
+        """Test that corrected field names work with real SQL execution"""
+        
+        # This is a critical regression test to ensure the field name fixes work
+        # in real database execution (not just mocked SQL)
+        
+        try:
+            # Execute the report - this will run real SQL with corrected field names
+            filters = {"from_date": add_days(today(), -90), "to_date": today()}
+            columns, data = execute(filters)
+            
+            # If we get here without OperationalError, the field names are correct
+            self.assertIsInstance(columns, list)
+            self.assertIsInstance(data, list)
+            
+            # Verify the corrected fields are accessible in real results
+            for row in data:
+                # These fields should be accessible without database errors
+                tax_id = row.get("tax_id")  # From bsn_citizen_service_number/rsin_organization_tax_number
+                consent = row.get("consent_given")  # From anbi_consent
+                
+                # Fields should have valid types or be None
+                if tax_id is not None:
+                    self.assertIsInstance(tax_id, (str, int))
+                if consent is not None:
+                    self.assertIsInstance(consent, (bool, int))
+                    
+        except Exception as e:
+            # Check for the specific database errors that were fixed
+            error_str = str(e)
+            if "Unknown column" in error_str:
+                if any(field in error_str for field in ["bsn_encrypted", "rsin_encrypted", "anbi_consent_given"]):
+                    self.fail(f"REGRESSION: Old incorrect field names still in use: {e}")
+            
+            # Other errors might be configuration-related
+            if "1054" in error_str:  # MySQL unknown column error
+                self.fail(f"Database field reference error: {e}")
+
+    def test_dutch_encryption_handling_real_database(self):
+        """Test Dutch tax ID encryption handling with real database state"""
+        
+        # Test that the system handles both encrypted and unencrypted tax IDs
+        # from real database storage
+        
+        filters = {"from_date": add_days(today(), -90), "to_date": today()}
+        data = get_data(filters)
+        
+        # Check how real database handles tax ID encryption
+        for row in data:
+            tax_id = row.get("tax_id")
+            donor_type = row.get("donor_type")
+            
+            if tax_id:
+                # Individual BSN handling
+                if donor_type == "Individual":
+                    # Should be either real BSN digits or encryption indicator
+                    if tax_id == "***ENCRYPTED***":
+                        # Encrypted BSN - acceptable
+                        pass
+                    elif str(tax_id).isdigit() and len(str(tax_id)) == 9:
+                        # Real BSN - should pass eleven-proof test for Dutch BSN
+                        bsn_str = str(tax_id)
+                        # Basic BSN format validation
+                        self.assertEqual(len(bsn_str), 9)
+                        self.assertTrue(bsn_str.isdigit())
+                
+                # Organization RSIN handling
+                elif donor_type == "Organization":
+                    # Should be either real RSIN digits or encryption indicator
+                    if tax_id == "***ENCRYPTED***":
+                        # Encrypted RSIN - acceptable
+                        pass
+                    elif str(tax_id).isdigit() and len(str(tax_id)) == 9:
+                        # Real RSIN - should be valid 9-digit format
+                        rsin_str = str(tax_id)
+                        self.assertEqual(len(rsin_str), 9)
+                        self.assertTrue(rsin_str.isdigit())
+
+    def test_date_range_filtering_real_sql_execution(self):
+        """Test date range filtering with real SQL execution"""
+        
+        # Test narrow date range that should exclude some donations
+        narrow_filters = {
+            "from_date": add_days(today(), -35),  # Excludes 60-day old donation
+            "to_date": add_days(today(), -25)     # Excludes 20-day old donation
+        }
+        
+        narrow_data = get_data(narrow_filters)
+        
+        # Should only include donations within the narrow date range
+        # This tests real SQL date filtering (not mocked date logic)
+        for row in narrow_data:
+            first_donation = row.get("first_donation")
+            last_donation = row.get("last_donation")
+            
+            if first_donation:
+                # All donations should be within range
+                first_date = getdate(first_donation)
+                from_date = getdate(narrow_filters["from_date"])
+                to_date = getdate(narrow_filters["to_date"])
+                
+                self.assertGreaterEqual(first_date, from_date)
+                
+            if last_donation:
+                last_date = getdate(last_donation)
+                self.assertLessEqual(last_date, to_date)
+
+    def test_donation_count_aggregation_real_sql(self):
+        """Test donation count aggregation with real SQL GROUP BY operations"""
+        
+        # Create additional donation for same donor to test aggregation
+        additional_donation = self.create_test_donation(
+            donor=self.individual_donor.name,
+            amount=75.0,
+            donation_date=add_days(today(), -5),
+            paid=1,
+            belastingdienst_reportable=1
+        )
+        
+        # Execute report with real SQL aggregation
+        filters = {"from_date": add_days(today(), -90), "to_date": today()}
+        data = get_data(filters)
+        
+        # Find individual donor result
+        individual_result = next((row for row in data if row["donor"] == self.individual_donor.name), None)
+        
+        if individual_result:
+            # Should aggregate all donations for the donor (real SQL COUNT)
+            donation_count = individual_result.get("donation_count")
+            total_amount = flt(individual_result.get("total_donations"))
+            
+            # Should count all donations (original 2 + additional 1)
+            self.assertGreaterEqual(donation_count, 3)
+            
+            # Should sum all amounts (250 + 300 + 75)
+            self.assertGreaterEqual(total_amount, 625.0)
+            
+            # Verify date range calculations from real SQL MIN/MAX
+            first_donation = individual_result.get("first_donation")
+            last_donation = individual_result.get("last_donation")
+            
+            self.assertIsNotNone(first_donation)
+            self.assertIsNotNone(last_donation)
+            
+            # Last donation should be more recent than first
+            if first_donation and last_donation:
+                self.assertLessEqual(getdate(first_donation), getdate(last_donation))

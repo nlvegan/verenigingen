@@ -164,11 +164,12 @@ def get_test_rsin_numbers():
         list: List of valid RSIN strings
     """
     # Pre-calculated valid RSINs for consistent test results
+    # These numbers have been verified with validate_rsin()
     return [
-        "123456782",  # Valid RSIN
-        "999888777",  # Valid RSIN
-        "555444333",  # Valid RSIN  
-        "123123123",  # Valid RSIN
+        "555444333",  # Valid RSIN (original confirmed)
+        "035123958",  # Valid RSIN (generated and verified)
+        "959488413",  # Valid RSIN (generated and verified)  
+        "986475297",  # Valid RSIN (generated and verified)
     ]
 
 

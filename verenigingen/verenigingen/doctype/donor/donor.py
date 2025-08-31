@@ -77,6 +77,10 @@ class Donor(Document):
             if len(rsin) not in [8, 9]:
                 frappe.throw(_("RSIN must be 8 or 9 digits"))
 
+            # For 9-digit RSINs, apply eleven-proof validation
+            if len(rsin) == 9 and not self.validate_rsin_eleven_proof(rsin):
+                frappe.throw(_("Invalid RSIN number (failed eleven-proof validation)"))
+
             # Store cleaned RSIN
             self.rsin_organization_tax_number = rsin
 
@@ -97,6 +101,25 @@ class Donor(Document):
             return total % 11 == 0
         except (ValueError, TypeError) as e:
             frappe.log_error(f"BSN eleven-proof validation failed for {bsn}: {e}", "DonorValidation")
+            return False
+
+    def validate_rsin_eleven_proof(self, rsin):
+        """Validate RSIN using eleven-proof algorithm"""
+        if len(rsin) != 9:
+            return False
+
+        try:
+            # Convert to list of integers
+            digits = [int(d) for d in rsin]
+
+            # Apply eleven-proof algorithm for RSIN
+            # (9×A + 8×B + 7×C + 6×D + 5×E + 4×F + 3×G + 2×H + 1×I) must be divisible by 11
+            weights = [9, 8, 7, 6, 5, 4, 3, 2, 1]  # Note: last weight is 1 for RSIN (vs -1 for BSN)
+            total = sum(digit * weight for digit, weight in zip(digits, weights))
+
+            return total % 11 == 0
+        except (ValueError, TypeError) as e:
+            frappe.log_error(f"RSIN eleven-proof validation failed for {rsin}: {e}", "DonorValidation")
             return False
 
     def encrypt_sensitive_fields(self):
