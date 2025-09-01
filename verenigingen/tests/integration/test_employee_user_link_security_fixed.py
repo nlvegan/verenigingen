@@ -139,16 +139,16 @@ class TestEmployeeUserLinkSecurityFixed(EnhancedTestCase):
             
             # With limited permissions, should return None (queued for background processing)
             self.assertIsNone(user_id)
-                
-                # Verify Account Creation Request was created
-                requests = frappe.get_all(
-                    "Account Creation Request",
-                    filters={"source_record": self.volunteer.name},
-                    fields=["name", "status", "email"]
-                )
-                
-                self.assertEqual(len(requests), 1)
-                self.assertEqual(requests[0]["email"], self.volunteer.email)
+            
+            # Verify Account Creation Request was created
+            requests = frappe.get_all(
+                "Account Creation Request",
+                filters={"source_record": self.volunteer.name},
+                fields=["name", "status", "email"]
+            )
+            
+            self.assertEqual(len(requests), 1)
+            self.assertEqual(requests[0]["email"], self.volunteer.email)
 
     def test_update_employee_with_user_requires_permissions(self):
         """Test that employee updates require proper permissions"""
