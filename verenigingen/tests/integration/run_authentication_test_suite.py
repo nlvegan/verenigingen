@@ -190,7 +190,8 @@ class AuthenticationTestSuiteRunner:
             print(f"{status} {module_name} ({result['duration']:.2f}s)")
             
             if result["error"]:
-                print(f"   Error: {result['error'].split('\\n')[0]}")
+                newline = '\n'
+                print(f"   Error: {result['error'].split(newline)[0]}")
         
         # Security validation summary
         print("\n🔒 Security Validation Summary:")
