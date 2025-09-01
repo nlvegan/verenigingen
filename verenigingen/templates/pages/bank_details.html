@@ -28,6 +28,45 @@
         </div>
         {% endif %}
 
+        {% if mollie_subscription %}
+        <div class="bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-lg mb-6">
+            <div class="flex items-start">
+                <i class="fa fa-credit-card mr-2 mt-0.5"></i>
+                <div class="flex-1">
+                    <strong>{{ _("Mollie Subscription Status:") }}</strong>
+                    <span class="capitalize">{{ mollie_subscription.status or _("Unknown") }}</span><br>
+                    {% if mollie_subscription.next_payment_date %}
+                    {{ _("Next payment:") }} {{ frappe.utils.formatdate(mollie_subscription.next_payment_date) }}<br>
+                    {% endif %}
+                    {{ _("Your membership fees are automatically processed via Mollie.") }}
+
+                    {% if mollie_subscription.status == "active" %}
+                    <div class="mt-3">
+                        <button type="button"
+                                onclick="cancelSubscription()"
+                                class="inline-flex items-center px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm rounded-md transition-colors duration-200">
+                            <i class="fa fa-times mr-1"></i>
+                            {{ _("Cancel Subscription") }}
+                        </button>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if frappe.form_dict.get('cancelled') %}
+        <div class="bg-green-50 border border-green-200 text-green-800 p-4 rounded-lg mb-6">
+            <div class="flex items-start">
+                <i class="fa fa-check-circle mr-2 mt-0.5"></i>
+                <div>
+                    <strong>{{ _("Subscription Cancelled Successfully") }}</strong><br>
+                    {{ _("Your Mollie subscription has been cancelled. No further automatic payments will be processed.") }}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         {% if current_details %}
         <div class="bg-gray-50 border-l-4 border-red-400 p-4 rounded-r-lg mb-6">
             <h5 class="font-medium text-gray-800 mb-2">{{ _("Current Bank Details") }}</h5>
@@ -179,6 +218,50 @@ document.addEventListener('DOMContentLoaded', function() {
 
         return true;
     });
+
+    // Mollie subscription cancellation
+    window.cancelSubscription = function() {
+        const confirmMessage = '{{ _("Are you sure you want to cancel your Mollie subscription?") }}\n\n' +
+                              '{{ _("This will stop all automatic membership fee payments. You can still make manual payments.") }}\n\n' +
+                              '{{ _("This action cannot be undone.") }}';
+
+        if (!confirm(confirmMessage)) {
+            return;
+        }
+
+        // Show loading state
+        const button = event.target.closest('button');
+        const originalText = button.innerHTML;
+        button.disabled = true;
+        button.innerHTML = '<i class="fa fa-spinner fa-spin mr-1"></i>{{ _("Cancelling...") }}';
+
+        // Call the cancellation API
+        fetch('/api/method/verenigingen.templates.pages.bank_details.cancel_subscription', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Frappe-CSRF-Token': '{{ frappe.session.csrf_token }}'
+            }
+        })
+        .then(response => {
+            if (response.ok) {
+                // Success - redirect will be handled by the server
+                window.location.reload();
+            } else {
+                return response.json().then(data => {
+                    throw new Error(data.message || '{{ _("Failed to cancel subscription") }}');
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Subscription cancellation error:', error);
+            alert('{{ _("Error cancelling subscription:") }} ' + error.message);
+
+            // Restore button state
+            button.disabled = false;
+            button.innerHTML = originalText;
+        });
+    };
 });
 </script>
 {% endblock %}

@@ -345,8 +345,10 @@ def create_default_eboekhouden_settings():
 def setup_tax_exemption_on_install():
     """Set up tax exemption during installation if enabled"""
     try:
-        settings = frappe.get_single("Verenigingen Settings")
-        if settings.get("tax_exempt_for_contributions"):
+        from verenigingen.utils.settings_utils import get_verenigingen_settings
+
+        settings = get_verenigingen_settings()
+        if settings and settings.get("tax_exempt_for_contributions"):
             # Import and run the tax setup
             from verenigingen.utils import setup_dutch_tax_exemption
 
@@ -405,7 +407,9 @@ def fix_btw_installation():
         install_missing_btw_fields()
 
         # Set up tax templates if needed
-        settings = frappe.get_single("Verenigingen Settings")
+        from verenigingen.utils.settings_utils import get_verenigingen_settings
+
+        settings = get_verenigingen_settings()
         if settings.get("tax_exempt_for_contributions"):
             from verenigingen.utils import setup_dutch_tax_exemption
 
@@ -456,7 +460,9 @@ def setup_termination_settings():
             # This should already be created by the main setup, but just in case
             return
 
-        settings = frappe.get_single("Verenigingen Settings")
+        from verenigingen.utils.settings_utils import get_verenigingen_settings
+
+        settings = get_verenigingen_settings()
 
         # Add termination system settings if they don't exist
         termination_defaults = {
@@ -560,7 +566,9 @@ def check_termination_system_status():
     try:
         # Check settings
         if frappe.db.exists("Verenigingen Settings", "Verenigingen Settings"):
-            settings = frappe.get_single("Verenigingen Settings")
+            from verenigingen.utils.settings_utils import get_verenigingen_settings
+
+            settings = get_verenigingen_settings()
             if hasattr(settings, "enable_termination_system"):
                 status["settings_configured"] = True
                 status["system_enabled"] = bool(settings.enable_termination_system)
@@ -1183,7 +1191,9 @@ def create_default_donation_types():
 
         # Set default donation type in settings if not already set
         try:
-            settings = frappe.get_single("Verenigingen Settings")
+            from verenigingen.utils.settings_utils import get_verenigingen_settings
+
+            settings = get_verenigingen_settings()
             if not settings.get("default_donation_type"):
                 settings.default_donation_type = "General"
                 settings.save(ignore_permissions=True)
@@ -1212,7 +1222,9 @@ def verify_donation_type_setup():
         donation_types = frappe.get_all("Donation Type", fields=["name", "donation_type"])
 
         # Check settings
-        settings = frappe.get_single("Verenigingen Settings")
+        from verenigingen.utils.settings_utils import get_verenigingen_settings
+
+        settings = get_verenigingen_settings()
         default_type = settings.get("default_donation_type")
 
         return {

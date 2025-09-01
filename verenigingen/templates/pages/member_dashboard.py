@@ -6,6 +6,14 @@ import frappe
 from frappe import _
 from frappe.utils import getdate, today
 
+from verenigingen.utils.member_utils import (
+    get_active_membership_for_member,
+    get_current_user_chapters,
+    get_current_user_member_doc,
+    get_member_customer,
+    get_volunteer_for_member,
+)
+
 
 def get_context(context):
     """Get context for member dashboard"""
@@ -18,20 +26,15 @@ def get_context(context):
     context.show_sidebar = True
     context.title = _("Member Dashboard")
 
-    # Get member record
-    member = frappe.db.get_value("Member", {"email": frappe.session.user})
-    if not member:
-        frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
+    # Get member record using standardized utility
+    context.member = get_current_user_member_doc()
 
-    context.member = frappe.get_doc("Member", member)
+    # Get member chapters using standardized utility
+    context.member_chapters = get_current_user_chapters()
 
-    # Get member chapters
-    context.member_chapters = get_member_chapters(member)
-
-    # Get active membership with grace period information
-    membership = frappe.db.get_value(
-        "Membership",
-        {"member": member, "status": "Active", "docstatus": 1},
+    # Get active membership with grace period information using standardized utility
+    membership = get_active_membership_for_member(
+        context.member.name,
         [
             "name",
             "membership_type",
@@ -42,7 +45,6 @@ def get_context(context):
             "grace_period_expiry_date",
             "grace_period_reason",
         ],
-        as_dict=True,
     )
     context.membership = membership
 
@@ -57,8 +59,8 @@ def get_context(context):
             context.grace_period_days_remaining = 0
             context.grace_period_expiring_soon = False
 
-    # Get volunteer record if exists
-    volunteer = frappe.db.get_value("Volunteer", {"member": member})
+    # Get volunteer record if exists using standardized utility
+    volunteer = get_volunteer_for_member(context.member.name)
     if volunteer:
         context.volunteer = frappe.get_doc("Volunteer", volunteer)
 
@@ -89,7 +91,7 @@ def get_context(context):
         context.volunteer_hours = 0
 
     # Get recent activity
-    context.recent_activity = get_member_activity(member)
+    context.recent_activity = get_member_activity(context.member.name)
 
     # Add member portal links
     context.portal_links = [
@@ -113,7 +115,7 @@ def get_member_activity(member_name):
         "Payment Entry",
         filters={
             "party_type": "Customer",
-            "party": frappe.db.get_value("Member", member_name, "customer"),
+            "party": get_member_customer(member_name),
             "docstatus": 1,
         },
         fields=["name", "posting_date", "paid_amount"],
@@ -132,8 +134,8 @@ def get_member_activity(member_name):
             }
         )
 
-    # Get recent volunteer assignments if applicable
-    volunteer = frappe.db.get_value("Volunteer", {"member": member_name})
+    # Get recent volunteer assignments if applicable using standardized utility
+    volunteer = get_volunteer_for_member(member_name)
     if volunteer:
         assignments = frappe.get_all(
             "Volunteer Assignment",
@@ -159,17 +161,3 @@ def get_member_activity(member_name):
 
     # Limit to 5 most recent
     return activities[:5]
-
-
-def get_member_chapters(member_name):
-    """Get list of chapters a member belongs to"""
-    try:
-        chapters = frappe.get_all(
-            "Chapter Member",
-            filters={"member": member_name, "enabled": 1},
-            fields=["parent"],
-            order_by="chapter_join_date desc",
-        )
-        return [ch.parent for ch in chapters]
-    except Exception:
-        return []

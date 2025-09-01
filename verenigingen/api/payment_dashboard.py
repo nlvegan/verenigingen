@@ -6,6 +6,7 @@ from frappe.utils import add_months, flt, getdate, today
 
 from verenigingen.utils.constants import Limits, Membership, PaymentStatus
 from verenigingen.utils.error_handling import cache_with_ttl, handle_api_error, validate_required_fields
+from verenigingen.utils.member_utils import get_member_name_for_user
 from verenigingen.utils.migration.migration_performance import BatchProcessor
 from verenigingen.utils.performance_utils import performance_monitor
 
@@ -500,7 +501,7 @@ def get_member_from_user(user: str = None) -> str | None:
         return user
 
     # Try to find by email
-    member = frappe.db.get_value("Member", {"email": user}, "name")
+    member = get_member_name_for_user(user)
     if member:
         return member
 
@@ -512,7 +513,7 @@ def get_member_from_user(user: str = None) -> str | None:
     # Try to find by user's email (in case user email differs from member email)
     user_email = frappe.db.get_value("User", user, "email")
     if user_email:
-        member = frappe.db.get_value("Member", {"email": user_email}, "name")
+        member = get_member_name_for_user(user_email)
         if member:
             return member
 

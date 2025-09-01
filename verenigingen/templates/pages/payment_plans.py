@@ -5,6 +5,8 @@ Context for the payment plans page
 import frappe
 from frappe import _
 
+from verenigingen.utils.member_utils import get_current_user_member_name
+
 
 def get_context(context):
     """Get context for payment plans page"""
@@ -20,7 +22,7 @@ def get_context(context):
         raise frappe.Redirect
 
     # Check if user is a member
-    member = frappe.db.get_value("Member", {"email": frappe.session.user}, "name")
+    member = get_current_user_member_name()
     if not member:
         context.no_member = True
         context.message = _("You must be a registered member to access payment plans.")

@@ -7,6 +7,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, add_months, getdate, today
 
+from verenigingen.utils.member_utils import get_active_membership_for_member
+
 
 def create_dues_schedule_from_application(membership_application):
     """
@@ -16,7 +18,8 @@ def create_dues_schedule_from_application(membership_application):
 
     # Get the newly created member and membership
     member = frappe.get_doc("Member", membership_application.member)
-    membership = frappe.db.get_value("Membership", {"member": member.name}, "name")
+    membership_info = get_active_membership_for_member(member.name, ["name"])
+    membership = membership_info["name"] if membership_info else None
 
     if not membership:
         frappe.throw("Membership not found for approved application")
@@ -327,7 +330,8 @@ def create_payment_plan(member_name, total_amount, installments, start_date=None
     installment_amount = total_amount / installments
 
     # Get membership
-    membership = frappe.db.get_value("Membership", {"member": member_name}, "name")
+    membership_info = get_active_membership_for_member(member_name, ["name"])
+    membership = membership_info["name"] if membership_info else None
 
     if not membership:
         frappe.throw(f"No membership found for {member_name}")

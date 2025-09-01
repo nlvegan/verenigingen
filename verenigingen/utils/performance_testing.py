@@ -338,7 +338,9 @@ class PerformanceTester:
                     member_data = frappe.get_doc("Member", member_name)
                     # Simulate financial data loading
                     if member_data.customer:
-                        invoices = frappe.get_all("Sales Invoice", filters={"customer": member_data.customer})
+                        from verenigingen.utils.financial_utils import get_customer_invoices
+
+                        invoices = get_customer_invoices(member_data.customer)
                         payments = frappe.get_all(
                             "Payment Entry", filters={"party": member_data.customer, "party_type": "Customer"}
                         )

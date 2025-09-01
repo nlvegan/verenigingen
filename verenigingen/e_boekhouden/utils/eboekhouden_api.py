@@ -18,7 +18,11 @@ class EBoekhoudenAPI:
     def __init__(self, settings=None):
         """Initialize API client with settings"""
         if not settings:
-            settings = frappe.get_single("E-Boekhouden Settings")
+            from verenigingen.utils.settings_utils import get_e_boekhouden_settings
+
+            settings = get_e_boekhouden_settings()
+            if not settings:
+                raise ValueError("E-Boekhouden Settings not found or not accessible")
 
         self.settings = settings
 

@@ -7,6 +7,8 @@ import frappe
 from frappe import _
 from frappe.utils import now, today
 
+from verenigingen.utils.member_utils import get_current_user_member_name
+
 
 def get_context(context):
     """Get context for bank details confirmation page"""
@@ -65,8 +67,8 @@ def has_website_permission(doc, ptype, user, verbose=False):
 def process_bank_details_update():
     """Process the confirmed bank details update"""
 
-    # Get member
-    member_name = frappe.db.get_value("Member", {"email": frappe.session.user})
+    # Get member using standardized utility
+    member_name = get_current_user_member_name()
     if not member_name:
         frappe.throw(_("No member record found"), frappe.DoesNotExistError)
 

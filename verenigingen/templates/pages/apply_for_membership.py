@@ -5,6 +5,8 @@ Context for the membership application page
 import frappe
 from frappe import _
 
+from verenigingen.utils.member_utils import get_current_user_member_name
+
 
 def get_context(context):
     """Get context for membership application page"""
@@ -16,7 +18,7 @@ def get_context(context):
 
     # Check if user is already a member
     if frappe.session.user != "Guest":
-        existing_member = frappe.db.get_value("Member", {"email": frappe.session.user})
+        existing_member = get_current_user_member_name()
         if existing_member:
             # Redirect to member profile or show message
             context.already_member = True

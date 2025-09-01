@@ -5,6 +5,8 @@ Context for application status page
 import frappe
 from frappe import _
 
+from verenigingen.utils.member_utils import get_current_user_member_name
+
 
 def get_context(context):
     """Get context for application status page"""
@@ -18,7 +20,7 @@ def get_context(context):
 
     if not member_id and frappe.session.user != "Guest":
         # Try to find member by email
-        member_id = frappe.db.get_value("Member", {"email": frappe.session.user})
+        member_id = get_current_user_member_name()
 
     if member_id:
         member = frappe.get_doc("Member", member_id)

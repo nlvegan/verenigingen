@@ -394,7 +394,7 @@
                             <label>{{ _("Status") }}</label>
                             <span>{{ _(volunteer_profile.status) }}</span>
                         </div>
-                        {% if volunteer_profile.member_info %}
+                        {% if volunteer_profile.member_info and volunteer_profile.member_info.member_id %}
                             <div class="profile-field">
                                 <label>{{ _("Member ID") }}</label>
                                 <span>{{ volunteer_profile.member_info.member_id }}</span>

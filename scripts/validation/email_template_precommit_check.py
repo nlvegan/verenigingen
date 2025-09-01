@@ -284,7 +284,9 @@ class EmailTemplateValidator:
             'report_data', 'overdue_requests', 'applications', 'e',  # Exception variable
             'template_name', 'file_path', 'line_num', 'purpose', 'username',
             'to_email', 'count', 'duration_str', 'i', 'organization_type',
-            'postal_code', 'days_remaining', 'chapter_name'  # Additional common vars
+            'postal_code', 'days_remaining', 'chapter_name',  # Additional common vars
+            # Test and template specific variables
+            'current_year', 'error_msg', 'result', 'frequency', 'year'
         ]
         
         if var_name in common_email_vars:

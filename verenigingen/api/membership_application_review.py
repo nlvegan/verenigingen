@@ -6,6 +6,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, now_datetime, today
 
+from verenigingen.utils.member_utils import get_volunteer_for_member
 from verenigingen.utils.secure_operations import secure_document_operation
 
 # Import security decorators
@@ -355,7 +356,7 @@ def approve_membership_application(
     # Employee creation for volunteers is handled by AccountCreationManager
     # This ensures proper security compliance and avoids duplicate processing
     if hasattr(member, "interested_in_volunteering") and member.interested_in_volunteering:
-        volunteer_record = frappe.db.get_value("Volunteer", {"member": member.name}, "name")
+        volunteer_record = get_volunteer_for_member(member.name)
         if volunteer_record:
             frappe.logger().info(
                 f"Volunteer record {volunteer_record} exists - AccountCreationManager will handle employee creation"
@@ -611,7 +612,11 @@ def create_secure_user_account_for_member(member):
         additional_roles = []  # Only for roles not covered by role profiles
 
         # Check if member is a volunteer - this determines the base role profile
-        volunteer_record = frappe.db.get_value("Volunteer", {"member": member.name}, ["name", "status"])
+        volunteer_name = get_volunteer_for_member(member.name)
+        volunteer_record = None
+        if volunteer_name:
+            volunteer_status = frappe.db.get_value("Volunteer", volunteer_name, "status")
+            volunteer_record = [volunteer_name, volunteer_status]
         if volunteer_record and volunteer_record[1] in ["Active", "Pending"]:
             role_profile = "Verenigingen Volunteer"  # Automatically includes all volunteer roles
             volunteer_name = volunteer_record[0]
@@ -707,7 +712,7 @@ def activate_volunteer_record(member):
     """Activate volunteer record when membership application is approved"""
     try:
         # Find existing volunteer record for this member
-        volunteer_name = frappe.db.get_value("Volunteer", {"member": member.name}, "name")
+        volunteer_name = get_volunteer_for_member(member.name)
 
         if volunteer_name:
             # Update existing volunteer record

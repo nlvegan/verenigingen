@@ -6,6 +6,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, today
 
+from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.secure_operations import secure_document_operation
 
 # Default fallback fee amount in EUR
@@ -23,12 +24,8 @@ def get_context(context):
     context.show_sidebar = True
     context.title = _("Adjust Membership Fee")
 
-    # Get member record
-    member = frappe.db.get_value("Member", {"email": frappe.session.user})
-    if not member:
-        # Try alternative lookup by user field
-        member = frappe.db.get_value("Member", {"user": frappe.session.user})
-
+    # Get member record using standardized utility
+    member = get_current_user_member_name()
     if not member:
         frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
 
@@ -296,11 +293,8 @@ def submit_fee_adjustment_request(new_amount, reason=""):
     if frappe.session.user == "Guest":
         frappe.throw(_("Please login"), frappe.PermissionError)
 
-    # Get member
-    member = frappe.db.get_value("Member", {"email": frappe.session.user})
-    if not member:
-        member = frappe.db.get_value("Member", {"user": frappe.session.user})
-
+    # Get member using standardized utility
+    member = get_current_user_member_name()
     if not member:
         frappe.throw(_("No member record found"))
 
@@ -483,11 +477,8 @@ def get_fee_calculation_info():
     if frappe.session.user == "Guest":
         frappe.throw(_("Please login"), frappe.PermissionError)
 
-    # Get member
-    member = frappe.db.get_value("Member", {"email": frappe.session.user})
-    if not member:
-        member = frappe.db.get_value("Member", {"user": frappe.session.user})
-
+    # Get member using standardized utility
+    member = get_current_user_member_name()
     if not member:
         frappe.throw(_("No member record found"))
 
@@ -622,11 +613,8 @@ def get_available_membership_types():
     if frappe.session.user == "Guest":
         frappe.throw(_("Please login"), frappe.PermissionError)
 
-    # Get member
-    member = frappe.db.get_value("Member", {"email": frappe.session.user})
-    if not member:
-        member = frappe.db.get_value("Member", {"user": frappe.session.user})
-
+    # Get member using standardized utility
+    member = get_current_user_member_name()
     if not member:
         frappe.throw(_("No member record found"))
 
@@ -682,11 +670,8 @@ def submit_membership_type_change_request(new_membership_type, reason=""):
     if frappe.session.user == "Guest":
         frappe.throw(_("Please login"), frappe.PermissionError)
 
-    # Get member
-    member = frappe.db.get_value("Member", {"email": frappe.session.user})
-    if not member:
-        member = frappe.db.get_value("Member", {"user": frappe.session.user})
-
+    # Get member using standardized utility
+    member = get_current_user_member_name()
     if not member:
         frappe.throw(_("No member record found"))
 

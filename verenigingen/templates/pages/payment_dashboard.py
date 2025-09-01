@@ -1,6 +1,8 @@
 import frappe
 from frappe import _
 
+from verenigingen.utils.member_utils import get_current_user_member_name
+
 
 def get_context(context):
     # Check if user is logged in
@@ -37,10 +39,8 @@ def get_context(context):
         else:
             frappe.throw(_("Member {0} not found").format(member_param), frappe.DoesNotExistError)
     else:
-        # Get member record for logged in user
-        member = frappe.db.get_value("Member", {"email": frappe.session.user}, "name")
-        if not member:
-            member = frappe.db.get_value("Member", {"user": frappe.session.user}, "name")
+        # Get member record for logged in user using standardized utility
+        member = get_current_user_member_name()
 
         if not member and is_member:
             frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)

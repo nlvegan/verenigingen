@@ -9,6 +9,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, today
 
+from verenigingen.utils.member_utils import get_current_user_member_doc, get_current_user_member_name
 from verenigingen.utils.secure_operations import secure_document_operation
 
 
@@ -23,10 +24,8 @@ def get_context(context):
     context.show_sidebar = True
     context.title = _("Personal Details")
 
-    # Get member record
-    member = frappe.db.get_value("Member", {"email": frappe.session.user})
-    if not member:
-        frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
+    # Get member record using standardized utility
+    member = get_current_user_member_name()
 
     context.member = frappe.get_doc("Member", member)
 
@@ -55,8 +54,8 @@ def has_website_permission(doc, ptype, user, verbose=False):
 def update_personal_details():
     """Handle personal details form submission"""
 
-    # Get member
-    member_name = frappe.db.get_value("Member", {"email": frappe.session.user})
+    # Get member using standardized utility
+    member_name = get_current_user_member_name()
     if not member_name:
         frappe.throw(_("No member record found"), frappe.DoesNotExistError)
 

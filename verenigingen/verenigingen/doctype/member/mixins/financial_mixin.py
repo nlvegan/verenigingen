@@ -80,10 +80,10 @@ class FinancialMixin:
         """Mark this member as paid"""
         try:
             # Update payment status for outstanding invoices
-            outstanding_invoices = frappe.get_all(
-                "Sales Invoice",
-                filters={"customer": self.name, "docstatus": 1, "status": ["!=", "Paid"]},
-                fields=["name", "outstanding_amount"],
+            from verenigingen.utils.financial_utils import get_outstanding_invoices
+
+            outstanding_invoices = get_outstanding_invoices(
+                self.customer, fields=["name", "outstanding_amount"]
             )
 
             for invoice in outstanding_invoices:
@@ -92,7 +92,7 @@ class FinancialMixin:
                     payment_entry = frappe.new_doc("Payment Entry")
                     payment_entry.payment_type = "Receive"
                     payment_entry.party_type = "Customer"
-                    payment_entry.party = self.name
+                    payment_entry.party = self.customer
                     payment_entry.paid_amount = invoice.outstanding_amount
                     payment_entry.received_amount = invoice.outstanding_amount
                     payment_entry.reference_no = f"Manual payment - {self.name}"

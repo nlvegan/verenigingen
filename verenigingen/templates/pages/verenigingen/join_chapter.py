@@ -5,6 +5,8 @@ Chapter Join Page Context Handler
 import frappe
 from frappe import _
 
+from verenigingen.utils.member_utils import get_current_user_member_name
+
 
 def get_context(context):
     """Get context for chapter join page"""
@@ -30,7 +32,7 @@ def get_context(context):
         return context
 
     # Check if user is already a member of this chapter
-    member = frappe.db.get_value("Member", {"email": frappe.session.user})
+    member = get_current_user_member_name()
     context.already_member = False
 
     if member:

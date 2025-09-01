@@ -5,6 +5,8 @@ My Account Page - Account Settings and Information
 import frappe
 from frappe import _
 
+from verenigingen.utils.member_utils import get_current_user_member_name
+
 
 def get_context(context):
     """Get context for my account page"""
@@ -20,10 +22,8 @@ def get_context(context):
     context.page_title = _("Account Settings")
 
     try:
-        # Get member record
-        member_name = frappe.db.get_value("Member", {"email": frappe.session.user}, "name")
-        if not member_name:
-            member_name = frappe.db.get_value("Member", {"user": frappe.session.user}, "name")
+        # Get member record using standardized utility
+        member_name = get_current_user_member_name()
 
         if member_name:
             # Get member document with error handling

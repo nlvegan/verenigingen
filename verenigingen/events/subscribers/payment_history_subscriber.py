@@ -138,7 +138,10 @@ def handle_invoice_submitted(event_name=None, event_data=None, **kwargs):
         return
 
     # Find members for this customer and update their payment history
-    members = frappe.get_all("Member", filters={"customer": customer}, fields=["name"])
+    from verenigingen.utils.financial_utils import get_member_for_customer
+
+    member_name = get_member_for_customer(customer)
+    members = [{"name": member_name}] if member_name else []
 
     for member in members:
         try:
@@ -175,7 +178,10 @@ def handle_invoice_cancelled(event_name=None, event_data=None, **kwargs):
         return
 
     # Find members for this customer and remove invoice from their payment history
-    members = frappe.get_all("Member", filters={"customer": customer}, fields=["name"])
+    from verenigingen.utils.financial_utils import get_member_for_customer
+
+    member_name = get_member_for_customer(customer)
+    members = [{"name": member_name}] if member_name else []
 
     for member in members:
         try:
@@ -212,7 +218,10 @@ def handle_invoice_updated(event_name=None, event_data=None, **kwargs):
         return
 
     # Find members for this customer and update their payment history incrementally
-    members = frappe.get_all("Member", filters={"customer": customer}, fields=["name"])
+    from verenigingen.utils.financial_utils import get_member_for_customer
+
+    member_name = get_member_for_customer(customer)
+    members = [{"name": member_name}] if member_name else []
 
     for member in members:
         try:

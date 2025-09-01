@@ -7,6 +7,13 @@ import frappe
 from frappe import _
 from frappe.utils import getdate, today
 
+from verenigingen.utils.member_utils import (
+    get_active_membership_for_member,
+    get_current_user_member_name,
+    get_member_customer,
+    get_volunteer_for_member,
+)
+
 
 def get_context(context):
     """Get context for member portal landing page"""
@@ -20,23 +27,20 @@ def get_context(context):
     context.title = _("Member Portal")
 
     # Get member record
-    member = frappe.db.get_value("Member", {"email": frappe.session.user})
+    member = get_current_user_member_name()
     if not member:
         frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
 
     context.member = frappe.get_doc("Member", member)
 
-    # Get active membership
-    membership = frappe.db.get_value(
-        "Membership",
-        {"member": member, "status": "Active", "docstatus": 1},
-        ["name", "membership_type", "start_date", "renewal_date", "status"],
-        as_dict=True,
+    # Get active membership using standardized utility
+    membership = get_active_membership_for_member(
+        member, ["name", "membership_type", "start_date", "renewal_date", "status"]
     )
     context.membership = membership
 
-    # Get volunteer record if exists
-    volunteer = frappe.db.get_value("Volunteer", {"member": member})
+    # Get volunteer record if exists using standardized utility
+    volunteer = get_volunteer_for_member(member)
     if volunteer:
         context.volunteer = frappe.get_doc("Volunteer", volunteer)
 
@@ -104,7 +108,7 @@ def get_member_activity(member_name):
         "Payment Entry",
         filters={
             "party_type": "Customer",
-            "party": frappe.db.get_value("Member", member_name, "customer"),
+            "party": get_member_customer(member_name),
             "docstatus": 1,
         },
         fields=["name", "posting_date", "paid_amount"],
@@ -123,8 +127,8 @@ def get_member_activity(member_name):
             }
         )
 
-    # Get recent volunteer assignments if applicable
-    volunteer = frappe.db.get_value("Volunteer", {"member": member_name})
+    # Get recent volunteer assignments if applicable using standardized utility
+    volunteer = get_volunteer_for_member(member_name)
     if volunteer:
         assignments = frappe.get_all(
             "Volunteer Assignment",
@@ -341,7 +345,7 @@ def get_payment_status(member, membership):
                 billing_frequency = "Annually"
 
         # Get outstanding invoices
-        customer = frappe.db.get_value("Member", member.name, "customer")
+        customer = get_member_customer(member.name)
         outstanding_invoices = []
         total_outstanding = 0
 

@@ -2,6 +2,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, formatdate, today
 
+from verenigingen.utils.member_utils import get_current_user_member_name, get_volunteer_for_current_user
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.volunteer_expense_setup import (
     create_default_cost_center,
@@ -22,9 +23,9 @@ def get_context(context):
     context.show_sidebar = True
     context.title = _("Volunteer Expenses")
 
-    # Get current user's volunteer record
-    volunteer = get_user_volunteer_record()
-    if not volunteer:
+    # Get current user's volunteer record using standardized utility
+    volunteer_name = get_volunteer_for_current_user()
+    if not volunteer_name:
         context.error_message = _(
             "No volunteer record found for your account. Please contact your chapter administrator."
         )
@@ -45,6 +46,8 @@ def get_context(context):
         context.national_chapter = None
         return context
 
+    # Get the full volunteer document
+    volunteer = frappe.get_doc("Volunteer", volunteer_name)
     context.volunteer = volunteer
 
     # Get volunteer's organizations (chapters and teams)
@@ -68,29 +71,6 @@ def get_context(context):
     context.national_chapter = get_national_chapter()
 
     return context
-
-
-def get_user_volunteer_record():
-    """Get volunteer record for current user"""
-    user_email = frappe.session.user
-
-    # First try to find by linked member
-    member = frappe.db.get_value("Member", {"email": user_email}, "name")
-    if member:
-        volunteer = frappe.db.get_value(
-            "Volunteer", {"member": member}, ["name", "volunteer_name", "member"], as_dict=True
-        )
-        if volunteer:
-            return volunteer
-
-    # Try to find volunteer directly by email (if volunteer has direct email)
-    volunteer = frappe.db.get_value(
-        "Volunteer", {"email": user_email}, ["name", "volunteer_name", "member"], as_dict=True
-    )
-    if volunteer:
-        return volunteer
-
-    return None
 
 
 @frappe.whitelist()
@@ -561,7 +541,10 @@ def submit_expense(expense_data):
 
             expense_data = json.loads(expense_data)
         # Get current user's volunteer record
-        volunteer = get_user_volunteer_record()
+        volunteer_name = get_volunteer_for_current_user()
+        if not volunteer_name:
+            return {"success": False, "message": _("No volunteer record found")}
+        volunteer = frappe.get_doc("Volunteer", volunteer_name)
         if not volunteer:
             # Provide more helpful error message with debugging info
             user_email = frappe.session.user
@@ -935,7 +918,10 @@ def submit_expense(expense_data):
 def get_organization_options(organization_type, volunteer_name=None):
     """Get organization options for the current volunteer"""
     if not volunteer_name:
-        volunteer = get_user_volunteer_record()
+        volunteer_name = get_volunteer_for_current_user()
+        if not volunteer_name:
+            return {"success": False, "message": _("No volunteer record found")}
+        volunteer = frappe.get_doc("Volunteer", volunteer_name)
         if not volunteer:
             return []
         volunteer_name = volunteer.name
@@ -953,7 +939,10 @@ def get_organization_options(organization_type, volunteer_name=None):
 @frappe.whitelist()
 def get_expense_details(expense_name):
     """Get details for a specific expense from ERPNext or legacy records"""
-    volunteer = get_user_volunteer_record()
+    volunteer_name = get_volunteer_for_current_user()
+    if not volunteer_name:
+        return {"success": False, "message": _("No volunteer record found")}
+    volunteer = frappe.get_doc("Volunteer", volunteer_name)
     if not volunteer:
         frappe.throw(_("Access denied"))
 
@@ -1246,7 +1235,10 @@ def submit_multiple_expenses(expenses):
             }
 
         # Get current user's volunteer record once
-        volunteer = get_user_volunteer_record()
+        volunteer_name = get_volunteer_for_current_user()
+        if not volunteer_name:
+            return {"success": False, "message": _("No volunteer record found")}
+        volunteer = frappe.get_doc("Volunteer", volunteer_name)
         if not volunteer:
             user_email = frappe.session.user
             member = frappe.db.get_value("Member", {"email": user_email}, "name")
@@ -1364,7 +1356,10 @@ def get_volunteer_expense_context():
             return {"success": False, "message": _("Please log in to access this feature")}
 
         # Get current user's volunteer record
-        volunteer = get_user_volunteer_record()
+        volunteer_name = get_volunteer_for_current_user()
+        if not volunteer_name:
+            return {"success": False, "message": _("No volunteer record found")}
+        volunteer = frappe.get_doc("Volunteer", volunteer_name)
         if not volunteer:
             return {"success": False, "message": _("No volunteer record found for your account")}
 

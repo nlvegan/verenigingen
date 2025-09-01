@@ -29,7 +29,14 @@ class TestDonationAgreement(EnhancedTestCase):
             "start_date": today(),
             "monetary_goal": 1000.00,
             "donor_goal": 10,
-            "is_public": 1
+            "is_public": 1,
+            # Initialize progress tracking fields to prevent NoneType errors
+            "total_raised": 0.0,
+            "total_donors": 0,
+            "total_donations": 0,
+            "monetary_progress": 0.0,
+            "donor_progress": 0.0,
+            "average_donation_amount": 0.0
         })
         self.campaign.save()
 
@@ -231,7 +238,7 @@ class TestDonationAgreement(EnhancedTestCase):
         donation = self.create_test_donation(
             donor=self.donor.name,
             amount=150.00,
-            donation_type="One-time",
+            donation_type="General",  # Use valid donation type
             campaign=self.campaign.name,
             paid=1  # Mark as paid to include in campaign totals
         )
@@ -258,7 +265,7 @@ class TestDonationAgreement(EnhancedTestCase):
         donation1 = self.create_test_donation(
             donor=self.donor.name,
             amount=200.00,
-            donation_type="One-time", 
+            donation_type="General", 
             campaign=self.campaign.name,
             paid=1
         )
@@ -267,7 +274,7 @@ class TestDonationAgreement(EnhancedTestCase):
         donation2 = self.create_test_donation(
             donor=donor2.name,
             amount=300.00,
-            donation_type="One-time",
+            donation_type="General",
             campaign=self.campaign.name, 
             paid=1
         )
@@ -291,7 +298,7 @@ class TestDonationAgreement(EnhancedTestCase):
         paid_donation = self.create_test_donation(
             donor=self.donor.name,
             amount=100.00,
-            donation_type="One-time",
+            donation_type="General",
             campaign=self.campaign.name,
             paid=1  # Paid
         )
@@ -300,7 +307,7 @@ class TestDonationAgreement(EnhancedTestCase):
         unpaid_donation = self.create_test_donation(
             donor=self.donor.name,
             amount=200.00,
-            donation_type="One-time", 
+            donation_type="General", 
             campaign=self.campaign.name,
             paid=0  # Not paid
         )
@@ -323,7 +330,7 @@ class TestDonationAgreement(EnhancedTestCase):
             "donor_name": "Form Integration Test Donor",
             "donor_email": "form.integration@example.com",
             "amount": "75.50",
-            "donation_type": "One-time", 
+            "donation_type": "General", 
             "donation_status": "One-time",
             "payment_method": "Bank Transfer",
             "donation_purpose_type": "Campaign", 
@@ -365,7 +372,7 @@ class TestDonationAgreement(EnhancedTestCase):
             "donor_name": "Fallback Test Donor",
             "donor_email": "fallback.test@example.com", 
             "amount": "50.00",
-            "donation_type": "One-time",
+            "donation_type": "General",
             "donation_status": "One-time",
             "payment_method": "Bank Transfer",
             "donation_purpose_type": "Campaign",

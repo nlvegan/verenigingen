@@ -120,6 +120,12 @@ def validate_permissions(doc, operation: str, required_permissions: List[str] = 
             for perm in required_permissions:
                 if ":" in perm:
                     doctype, perm_type = perm.split(":", 1)
+                    # SECURITY FIX: Check DocType existence first
+                    if not frappe.db.exists("DocType", doctype):
+                        frappe.logger().warning(
+                            f"Security validation failed: DocType '{doctype}' does not exist"
+                        )
+                        return False
                     if not frappe.has_permission(doctype, perm_type):
                         frappe.logger().warning(
                             f"Specific permission check failed: {frappe.session.user} "

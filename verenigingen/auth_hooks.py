@@ -71,6 +71,7 @@ Version: 1.0
 import frappe
 from frappe import _
 
+from verenigingen.utils.member_utils import get_member_name_for_user, get_volunteer_name_for_user
 from verenigingen.utils.security_wrappers import safe_get_roles
 
 # REMOVED: validate_session_before_request function (August 21, 2025)
@@ -139,7 +140,7 @@ def on_session_creation(login_manager):
             return
 
         # Check if user is a member by looking for linked member record
-        member_record = frappe.db.get_value("Member", {"user": user}, "name")
+        member_record = get_member_name_for_user(user)
 
         if member_record:
             # User is a member - redirect to member portal
@@ -159,7 +160,7 @@ def on_session_creation(login_manager):
             # Check if user has volunteer role
             if has_volunteer_role(user):
                 # User is a volunteer - could redirect to volunteer portal
-                volunteer_record = frappe.db.get_value("Volunteer", {"user": user}, "name")
+                volunteer_record = get_volunteer_name_for_user(user)
                 if volunteer_record:
                     # Could redirect to volunteer dashboard if it exists
                     # For now, keep default behavior
@@ -222,7 +223,7 @@ def get_default_home_page(user=None):
 
     # Check if user is a member
     try:
-        member_record = frappe.db.get_value("Member", {"user": user}, "name")
+        member_record = get_member_name_for_user(user)
     except Exception as e:
         frappe.logger().error(f"Error getting member record for user {repr(user)}: {str(e)}")
         member_record = None
@@ -232,7 +233,7 @@ def get_default_home_page(user=None):
 
     # Check if user is a volunteer
     try:
-        volunteer_record = frappe.db.get_value("Volunteer", {"user": user}, "name")
+        volunteer_record = get_volunteer_name_for_user(user)
     except Exception as e:
         frappe.logger().error(f"Error getting volunteer record for user {repr(user)}: {str(e)}")
         volunteer_record = None

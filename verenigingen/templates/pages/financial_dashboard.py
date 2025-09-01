@@ -8,6 +8,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, date_diff, flt, format_date, getdate, today
 
+from verenigingen.utils.member_utils import get_member_customer
+
 
 def get_context(context):
     """Get context for the enhanced financial dashboard"""
@@ -133,7 +135,7 @@ def get_current_dues_schedule(member):
 def get_financial_overview(member):
     """Get financial overview data for the member"""
 
-    customer = frappe.db.get_value("Member", member, "customer")
+    customer = get_member_customer(member)
     if not customer:
         return {
             "next_payment": None,
@@ -204,7 +206,7 @@ def get_financial_overview(member):
 def get_payment_data_for_calendar(member):
     """Get payment data formatted for calendar display"""
 
-    customer = frappe.db.get_value("Member", member, "customer")
+    customer = get_member_customer(member)
     if not customer:
         return []
 
@@ -245,7 +247,7 @@ def get_payment_data_for_calendar(member):
 def get_recent_activity(member):
     """Get recent financial activity for the member"""
 
-    customer = frappe.db.get_value("Member", member, "customer")
+    customer = get_member_customer(member)
     if not customer:
         return []
 
@@ -306,7 +308,7 @@ def get_recent_activity(member):
 def get_upcoming_payments(member):
     """Get upcoming payments for the member"""
 
-    customer = frappe.db.get_value("Member", member, "customer")
+    customer = get_member_customer(member)
     if not customer:
         return []
 
@@ -340,7 +342,7 @@ def get_upcoming_payments(member):
 def get_payment_history(member):
     """Get payment history for the member"""
 
-    customer = frappe.db.get_value("Member", member, "customer")
+    customer = get_member_customer(member)
     if not customer:
         return []
 
@@ -370,7 +372,7 @@ def get_payment_history(member):
 def get_payment_years(member):
     """Get years that have payments for filtering"""
 
-    customer = frappe.db.get_value("Member", member, "customer")
+    customer = get_member_customer(member)
     if not customer:
         return []
 
@@ -411,7 +413,7 @@ def get_notification_settings(member):
 def get_analytics_data(member):
     """Get analytics data for the member"""
 
-    customer = frappe.db.get_value("Member", member, "customer")
+    customer = get_member_customer(member)
     if not customer:
         return {"sepa_success_rate": 0, "avg_payment_time": 0}
 
@@ -499,7 +501,7 @@ def get_month_data(year, month):
     start_date = f"{year}-{month:02d}-01"
     end_date = f"{year}-{month:02d}-31"
 
-    customer = frappe.db.get_value("Member", member, "customer")
+    customer = get_member_customer(member)
     if not customer:
         return []
 

@@ -4,6 +4,8 @@ Get user's chapter memberships
 
 import frappe
 
+from verenigingen.utils.member_utils import get_member_name_for_user
+
 # Import security decorators
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
 
@@ -19,7 +21,7 @@ def get_user_chapter_data():
         return {"success": True, "user": user, "member": None, "chapters": [], "user_chapters": []}
 
     # Get member record
-    member = frappe.db.get_value("Member", {"email": user}, "name")
+    member = get_member_name_for_user(user)
 
     # Get all chapters with user membership status
     if member:

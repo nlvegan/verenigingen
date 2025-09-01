@@ -1,6 +1,8 @@
 import frappe
 from frappe import _
 
+from verenigingen.utils.member_utils import get_current_user_member_name
+
 
 def get_context(context):
     """Get context for my addresses portal page"""
@@ -9,11 +11,8 @@ def get_context(context):
     if frappe.session.user == "Guest":
         frappe.throw(_("Please login to access this page"), frappe.PermissionError)
 
-    # Get member record by email OR user field (same logic as address_change)
-    member_name = frappe.db.get_value("Member", {"email": frappe.session.user}, "name")
-    if not member_name:
-        member_name = frappe.db.get_value("Member", {"user": frappe.session.user}, "name")
-
+    # Get member record using standardized utility
+    member_name = get_current_user_member_name()
     if not member_name:
         frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
 

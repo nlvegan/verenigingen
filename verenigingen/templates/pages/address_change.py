@@ -4,6 +4,7 @@ import frappe
 from frappe import _
 from frappe.utils import validate_email_address
 
+from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.secure_operations import secure_document_operation
 
 
@@ -16,11 +17,8 @@ def get_context(context):
 
     # Get member record by email OR user field
 
-    # First try by email
-    member_name = frappe.db.get_value("Member", {"email": frappe.session.user}, "name")
-    if not member_name:
-        # Then try by user field
-        member_name = frappe.db.get_value("Member", {"user": frappe.session.user}, "name")
+    # Get member using standardized utility
+    member_name = get_current_user_member_name()
 
     if not member_name:
         frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
@@ -146,11 +144,8 @@ def update_member_address(address_data):
     if frappe.session.user == "Guest":
         frappe.throw(_("Please login"), frappe.PermissionError)
 
-    # Get member record
-    member_name = frappe.db.get_value("Member", {"email": frappe.session.user}, "name")
-    if not member_name:
-        member_name = frappe.db.get_value("Member", {"user": frappe.session.user}, "name")
-
+    # Get member record using standardized utility
+    member_name = get_current_user_member_name()
     if not member_name:
         frappe.throw(_("No member record found"), frappe.DoesNotExistError)
 
@@ -337,11 +332,8 @@ def get_current_address():
     if frappe.session.user == "Guest":
         frappe.throw(_("Please login"), frappe.PermissionError)
 
-    # Get member record
-    member_name = frappe.db.get_value("Member", {"email": frappe.session.user}, "name")
-    if not member_name:
-        member_name = frappe.db.get_value("Member", {"user": frappe.session.user}, "name")
-
+    # Get member record using standardized utility
+    member_name = get_current_user_member_name()
     if not member_name:
         frappe.throw(_("No member record found"), frappe.DoesNotExistError)
 

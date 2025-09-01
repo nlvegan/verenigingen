@@ -7,6 +7,8 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import add_days, add_months, add_years, flt, getdate, today
 
+from verenigingen.utils.member_utils import get_active_membership_for_member, get_member_chapters
+
 
 class MembershipDuesSchedule(Document):
     def get_template_values(self):
@@ -347,10 +349,11 @@ class MembershipDuesSchedule(Document):
         if not self.member:
             return False
 
-        # Get member's chapter through Chapter Member relationship
-        chapter = frappe.db.get_value("Chapter Member", {"member": self.member, "status": "Active"}, "parent")
-        if not chapter:
+        # Get member's chapter through standardized utility
+        chapters = get_member_chapters(self.member, active_only=True)
+        if not chapters:
             return False
+        chapter = chapters[0]  # Use first active chapter
 
         # Check if user is a board member of this chapter with finance permissions
         board_member = frappe.db.get_value(
@@ -2141,7 +2144,8 @@ def create_test_schedule(member_name, membership_name=None):
         # Fallback to manual creation if no template exists
         # Get membership if not provided
         if not membership_name:
-            membership_name = frappe.db.get_value("Membership", {"member": member_name}, "name")
+            membership_info = get_active_membership_for_member(member_name, ["name"])
+            membership_name = membership_info["name"] if membership_info else None
 
         if not membership_name:
             frappe.throw(f"No membership found for member {member_name}")

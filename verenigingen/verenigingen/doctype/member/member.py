@@ -47,6 +47,7 @@ from verenigingen.utils.dutch_name_utils import (
     get_full_last_name,
     is_dutch_installation,
 )
+from verenigingen.utils.member_utils import get_volunteer_for_member
 from verenigingen.utils.safe_member_optimizer import safe_member_optimizer
 from verenigingen.verenigingen.doctype.member.member_id_manager import validate_member_id_change
 from verenigingen.verenigingen.doctype.member.mixins.chapter_mixin import ChapterMixin
@@ -1814,7 +1815,7 @@ class Member(
 
         # Check board memberships
         # First get volunteer record for this member
-        volunteer = frappe.db.get_value("Volunteer", {"member": self.name}, "name")
+        volunteer = get_volunteer_for_member(self.name)
         board_members = []
         if volunteer:
             board_members = frappe.get_all(
@@ -3500,7 +3501,7 @@ def create_donor_from_member(member_name):
             self.volunteer_assignment_history = []
 
             # Get linked volunteer record
-            volunteer = frappe.db.get_value("Volunteer", {"member": self.name}, "name")
+            volunteer = get_volunteer_for_member(self.name)
             if not volunteer:
                 return
 
@@ -3529,7 +3530,7 @@ def create_donor_from_member(member_name):
         """Load volunteer details HTML for display"""
         try:
             # Get linked volunteer record
-            volunteer = frappe.db.get_value("Volunteer", {"member": self.name}, "name")
+            volunteer = get_volunteer_for_member(self.name)
             if not volunteer:
                 self.volunteer_details_html = '<div class="text-muted">No volunteer record linked</div>'
                 return

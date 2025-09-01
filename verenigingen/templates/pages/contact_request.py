@@ -6,6 +6,8 @@ Allows members to submit contact requests which integrate with CRM
 import frappe
 from frappe import _
 
+from verenigingen.utils.member_utils import get_current_user_member_name
+
 
 def get_context(context):
     """Get context for contact request page"""
@@ -18,8 +20,8 @@ def get_context(context):
     context.show_sidebar = True
     context.title = _("Contact Request")
 
-    # Get member record
-    member = frappe.db.get_value("Member", {"email": frappe.session.user})
+    # Get member record using standardized utility
+    member = get_current_user_member_name()
     if not member:
         # Show a graceful error message instead of throwing
         context.no_member_record = True
@@ -99,8 +101,8 @@ def submit_contact_request():
     # Get form data
     data = frappe.form_dict
 
-    # Get member record
-    member = frappe.db.get_value("Member", {"email": frappe.session.user})
+    # Get member record using standardized utility
+    member = get_current_user_member_name()
     if not member:
         frappe.throw(_("No member record found for your account"))
 

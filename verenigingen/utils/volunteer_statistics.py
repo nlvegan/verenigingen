@@ -13,6 +13,18 @@ from frappe import _
 from frappe.utils import add_months, flt, today
 
 
+def _get_empty_statistics():
+    """Return empty statistics dictionary for error cases or permission denied scenarios"""
+    return {
+        "total_submitted": 0,
+        "total_approved": 0,
+        "pending_amount": 0,
+        "pending_count": 0,
+        "approved_count": 0,
+        "total_count": 0,
+    }
+
+
 def get_volunteer_expense_statistics(volunteer_name, months_back=12):
     """
     Get comprehensive expense statistics for a volunteer
@@ -41,6 +53,18 @@ def get_volunteer_expense_statistics(volunteer_name, months_back=12):
         reimbursed_count = 0
         total_count = 0
 
+        # Check if volunteer exists and user has permission to access it
+        if not frappe.db.exists("Volunteer", volunteer_name):
+            frappe.logger().warning(f"Volunteer {volunteer_name} not found")
+            return _get_empty_statistics()
+
+        # Validate permission to read volunteer data
+        if not frappe.has_permission("Volunteer", "read", volunteer_name):
+            frappe.logger().warning(
+                f"Permission denied to access volunteer {volunteer_name} for user {frappe.session.user}"
+            )
+            return _get_empty_statistics()
+
         # Get volunteer document
         volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
 
@@ -59,12 +83,10 @@ def get_volunteer_expense_statistics(volunteer_name, months_back=12):
                     "docstatus": ["!=", 2],  # Not cancelled
                 },
                 fields=[
-                    "name",
                     "total_claimed_amount",
                     "total_sanctioned_amount",
                     "status",
                     "approval_status",
-                    "posting_date",
                 ],
             )
 
@@ -99,7 +121,7 @@ def get_volunteer_expense_statistics(volunteer_name, months_back=12):
                 "expense_date": [">=", from_date],
                 "docstatus": ["!=", 2],  # Not cancelled
             },
-            fields=["name", "amount", "status", "expense_date"],
+            fields=["amount", "status"],
         )
 
         for expense in volunteer_expenses:
@@ -130,14 +152,7 @@ def get_volunteer_expense_statistics(volunteer_name, months_back=12):
     except Exception as e:
         frappe.log_error(f"Error getting expense statistics: {str(e)}", "Volunteer Expense Statistics Error")
         # Return empty statistics if error occurs
-        return {
-            "total_submitted": 0,
-            "total_approved": 0,
-            "pending_amount": 0,
-            "pending_count": 0,
-            "approved_count": 0,
-            "total_count": 0,
-        }
+        return _get_empty_statistics()
 
 
 def get_volunteer_expense_summary(volunteer_name):

@@ -210,6 +210,8 @@ Version: 1.0
 import frappe
 from frappe import _
 
+from verenigingen.utils.member_utils import get_current_user_member_name
+
 
 def get_context(context):
     """Get context for chapters page"""
@@ -226,8 +228,8 @@ def get_context(context):
     else:
         context.logged_in = True
 
-        # Get member record for logged in user
-        member = frappe.db.get_value("Member", {"email": frappe.session.user}, "name")
+        # Get member record for logged in user using standardized utility
+        member = get_current_user_member_name()
         context.member = member
 
     return context

@@ -115,7 +115,10 @@ def _emit_invoice_event(event_name, event_data):
             customer = event_data.get("customer")
             if customer:
                 # Find all members for this customer
-                members = frappe.get_all("Member", filters={"customer": customer}, fields=["name"])
+                from verenigingen.utils.financial_utils import get_member_for_customer
+
+                member_name = get_member_for_customer(customer)
+                members = [{"name": member_name}] if member_name else []
 
                 for member in members:
                     # Use member-specific job name to serialize updates

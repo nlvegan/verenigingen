@@ -9,7 +9,9 @@ import frappe
 from frappe import _
 from frappe.utils import getdate
 
+from verenigingen.utils.member_utils import validate_member_ownership
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
 class PaymentGateway(ABC):
@@ -1532,10 +1534,12 @@ def create_member_subscription(member_id, amount, interval="1 month", descriptio
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def cancel_member_subscription(member_id):
-    """Cancel Mollie subscription for a member"""
-    if not frappe.has_permission("Member", "write"):
-        frappe.throw(_("Insufficient permissions"))
+    """Cancel Mollie subscription for a member - SECURED: users can only cancel their own subscriptions"""
+
+    # SECURITY: Validate user can only cancel their own subscription
+    validate_member_ownership(member_id, _("You can only cancel your own subscription"))
 
     try:
         member = frappe.get_doc("Member", member_id)

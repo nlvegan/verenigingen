@@ -6,6 +6,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
+from verenigingen.utils.member_utils import get_current_user_member_name, get_volunteer_for_member
+
 
 class ExpensePermissionManager:
     """Manages expense approval permissions based on user roles and amounts"""
@@ -62,10 +64,9 @@ class ExpensePermissionManager:
         )
 
         # Get current user's volunteer record
-        user_email = frappe.session.user
-        member = frappe.db.get_value("Member", {"email": user_email}, "name")
+        member = get_current_user_member_name()
         if member:
-            volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
+            volunteer = get_volunteer_for_member(member)
             if volunteer:
                 # Check if user is team leader
                 if any(lead.volunteer == volunteer for lead in team_leads):
@@ -174,7 +175,7 @@ def get_expense_permission_query_conditions(user=None):
     if not member:
         return "1=0"  # No access if no member record
 
-    volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
+    volunteer = get_volunteer_for_member(member)
     if not volunteer:
         return "1=0"  # No access if no volunteer record
 

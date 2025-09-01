@@ -6,6 +6,18 @@ Allows members to view and update their bank details and manage SEPA Direct Debi
 import frappe
 from frappe import _
 
+# Import standardized member utilities
+from verenigingen.utils.member_utils import (
+    get_current_user_member_doc,
+    get_current_user_member_name,
+    get_current_user_member_name_required,
+    get_member_name_for_user,
+    validate_member_ownership,
+)
+
+# Import security framework for proper API protection
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 def get_context(context):
     """Get context for bank details form"""
@@ -21,16 +33,8 @@ def get_context(context):
     # Ensure CSRF token is available
     context.csrf_token = frappe.session.csrf_token
 
-    # Get member record
-    member = frappe.db.get_value("Member", {"email": frappe.session.user})
-    if not member:
-        # Try alternative lookup by user field
-        member = frappe.db.get_value("Member", {"user": frappe.session.user})
-
-    if not member:
-        frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
-
-    context.member = frappe.get_doc("Member", member)
+    # Get member record using standardized utility
+    context.member = get_current_user_member_doc()
 
     # Get current bank details
     current_details = {
@@ -43,6 +47,18 @@ def get_context(context):
     # Check for active SEPA mandate
     context.current_mandate = get_active_sepa_mandate(member)
 
+    # Get Mollie subscription information if member uses Mollie
+    if context.member.payment_method == "Mollie" and context.member.mollie_customer_id:
+        context.mollie_subscription = {
+            "customer_id": context.member.mollie_customer_id,
+            "subscription_id": context.member.mollie_subscription_id,
+            "status": context.member.subscription_status,
+            "next_payment_date": context.member.next_payment_date,
+            "cancelled_date": context.member.subscription_cancelled_date,
+        }
+    else:
+        context.mollie_subscription = None
+
     return context
 
 
@@ -53,9 +69,8 @@ def has_website_permission(doc, ptype, user, verbose=False):
         return False
 
     # Check if user has a member record
-    member = frappe.db.get_value("Member", {"email": user})
-    if not member:
-        member = frappe.db.get_value("Member", {"user": user})
+    # Use standardized member lookup utility
+    member = get_member_name_for_user(user)
     return bool(member)
 
 
@@ -64,72 +79,24 @@ def update_bank_details():
     """Handle bank details form submission"""
 
     try:
-        # Write to a debug file to see if function is called
-        debug_msg = f"BANK DETAILS UPDATE CALLED - User: {frappe.session.user} - Time: {frappe.utils.now()}\n"
-        with open("/tmp/bank_details_debug.log", "a") as f:
-            f.write(debug_msg)
+        # Log function entry for audit purposes
+        frappe.logger().info(f"Bank details update requested by user: {frappe.session.user}")
 
-        # Log incoming request details
-        frappe.logger().info("=== BANK DETAILS UPDATE START ===")
-        frappe.logger().info(f"User: {frappe.session.user}")
-
-        # Safely check for request method
-        request_method = getattr(frappe.local, "request", None)
-        if request_method and hasattr(request_method, "method"):
-            frappe.logger().info(f"Request method: {request_method.method}")
-        else:
-            frappe.logger().info("Request method: Not available (direct execution)")
-
-        frappe.logger().info(f"Form dict keys: {list(frappe.local.form_dict.keys())}")
-        frappe.logger().info(f"Raw form dict: {frappe.local.form_dict}")
-
-        # Get member
-        with open("/tmp/bank_details_debug.log", "a") as f:
-            f.write("DEBUG: Starting member lookup\n")
-
-        member_name = frappe.db.get_value("Member", {"email": frappe.session.user})
-        if not member_name:
-            # Try alternative lookup by user field
-            member_name = frappe.db.get_value("Member", {"user": frappe.session.user})
-
-        with open("/tmp/bank_details_debug.log", "a") as f:
-            f.write(f"DEBUG: Member lookup result: {member_name}\n")
-
-        if not member_name:
-            frappe.logger().error(f"No member record found for user: {frappe.session.user}")
-            frappe.throw(_("No member record found"), frappe.DoesNotExistError)
+        # Get member record for current user using improved utility
+        member_name = get_current_user_member_name_required()
 
         frappe.logger().info(f"Found member: {member_name}")
         member = frappe.get_doc("Member", member_name)
 
-        # Get form data with error handling
+        # Parse and validate form data
         try:
-            with open("/tmp/bank_details_debug.log", "a") as f:
-                f.write("DEBUG: Starting form data parsing\n")
-
             form_data = frappe.local.form_dict
-            frappe.logger().info(f"Form data received: {form_data}")
-
-            with open("/tmp/bank_details_debug.log", "a") as f:
-                f.write(f"DEBUG: Form data: {form_data}\n")
-
             new_iban = form_data.get("iban", "").replace(" ", "").upper()
             new_bic = form_data.get("bic", "").strip().upper()
             new_account_holder = form_data.get("account_holder_name", "").strip()
             enable_dd = form_data.get("enable_direct_debit") == "on"
 
-            with open("/tmp/bank_details_debug.log", "a") as f:
-                f.write(
-                    f"DEBUG: Parsed - IBAN: {new_iban}, BIC: {new_bic}, Holder: {new_account_holder}, DD: {enable_dd}\n"
-                )
-
-            frappe.logger().info(
-                f"Parsed form data - IBAN: {new_iban}, BIC: {new_bic}, Account holder: {new_account_holder}, Enable DD: {enable_dd}"
-            )
-
         except Exception as form_error:
-            with open("/tmp/bank_details_debug.log", "a") as f:
-                f.write(f"DEBUG: Form parsing error: {str(form_error)}\n")
             frappe.logger().error(f"Error parsing form data: {str(form_error)}")
             frappe.throw(_("Error processing form data: {0}").format(str(form_error)))
 
@@ -160,18 +127,10 @@ def update_bank_details():
         current_mandate = get_active_sepa_mandate(member_name)
         current_payment_method = member.payment_method
 
-        # Determine action needed
-        with open("/tmp/bank_details_debug.log", "a") as f:
-            f.write(
-                f"DEBUG: Bank details changed: {bank_details_changed}, Current mandate: {current_mandate}\n"
-            )
-
+        # Determine action needed for SEPA mandate
         action_needed = determine_mandate_action(
             current_mandate, current_payment_method, enable_dd, bank_details_changed
         )
-
-        with open("/tmp/bank_details_debug.log", "a") as f:
-            f.write(f"DEBUG: Action needed: {action_needed}\n")
 
         # Prepare context for confirmation page (serialize member object) - unused
         # context = {
@@ -187,11 +146,7 @@ def update_bank_details():
         #     "current_payment_method": current_payment_method,
         # }
 
-        # For now, let's skip the confirmation page and process directly
-        with open("/tmp/bank_details_debug.log", "a") as f:
-            f.write("DEBUG: Processing bank details update directly\n")
-
-        # Process the update directly by calling the confirm function
+        # Process the update directly using the confirmation logic
         from verenigingen.templates.pages.bank_details_confirm import process_bank_details_update_direct
 
         try:
@@ -205,8 +160,8 @@ def update_bank_details():
                 current_mandate=current_mandate,
             )
 
-            with open("/tmp/bank_details_debug.log", "a") as f:
-                f.write(f"DEBUG: Direct processing result: {result}\n")
+            # Log successful processing
+            frappe.logger().info(f"Bank details updated successfully for member: {member.name}")
 
             # Prepare detailed success messages
             success_messages = []
@@ -255,20 +210,13 @@ def update_bank_details():
             # Store success messages in session
             frappe.session["bank_details_success"] = success_messages
 
-            with open("/tmp/bank_details_debug.log", "a") as f:
-                f.write(f"DEBUG: Success messages stored: {success_messages}\n")
-
             # Redirect to success page
             frappe.local.response["type"] = "redirect"
             frappe.local.response["location"] = "/bank_details_success"
 
         except Exception as process_error:
-            with open("/tmp/bank_details_debug.log", "a") as f:
-                f.write(f"DEBUG: Direct processing error: {str(process_error)}\n")
+            frappe.logger().error(f"Bank details processing failed: {str(process_error)}")
             frappe.throw(_("Failed to update bank details: {0}").format(str(process_error)))
-
-        with open("/tmp/bank_details_debug.log", "a") as f:
-            f.write("DEBUG: Redirect response set\n")
 
     except Exception as e:
         # Log the full error for debugging
@@ -351,16 +299,14 @@ def test_bank_details_api():
         current_user = frappe.session.user
         frappe.logger().info(f"Test API called by user: {current_user}")
 
-        # Check member lookup
-        member_by_email = frappe.db.get_value("Member", {"email": current_user}, "name")
-        member_by_user = frappe.db.get_value("Member", {"user": current_user}, "name")
+        # Check member lookup using standardized utility
+        member = get_member_name_for_user(current_user)
 
         result = {
             "success": True,
             "user": current_user,
-            "member_by_email": member_by_email,
-            "member_by_user": member_by_user,
-            "found_member": member_by_email or member_by_user,
+            "member": member,
+            "found_member": bool(member),
             "message": "Bank details API is accessible",
         }
 
@@ -398,3 +344,40 @@ def debug_form_submission():
 def simple_test():
     """Simple test endpoint"""
     return {"status": "working", "user": frappe.session.user}
+
+
+@frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def cancel_subscription():
+    """Cancel Mollie subscription for the current user - with proper security framework"""
+    try:
+        # Get member record using improved utility with automatic error handling
+        member_name = get_current_user_member_name_required()
+        member = frappe.get_doc("Member", member_name)
+
+        # Verify member has Mollie subscription
+        if not (
+            member.payment_method == "Mollie" and member.mollie_customer_id and member.mollie_subscription_id
+        ):
+            frappe.throw(_("No active Mollie subscription found"))
+
+        # Verify subscription is active
+        if member.subscription_status in ["cancelled", "inactive", "expired"]:
+            frappe.throw(_("Subscription is already cancelled or inactive"))
+
+        # Import and call the subscription cancellation function
+        from verenigingen.verenigingen_payments.utils.payment_gateways import cancel_member_subscription
+
+        result = cancel_member_subscription(member_name)
+
+        if result.get("status") == "success":
+            frappe.local.response["type"] = "redirect"
+            frappe.local.response["location"] = "/bank_details?cancelled=1"
+        else:
+            frappe.throw(_(result.get("message", "Failed to cancel subscription")))
+
+    except Exception as e:
+        frappe.log_error(f"Web subscription cancellation error: {str(e)}", "Bank Details Subscription Cancel")
+        frappe.throw(
+            _("An error occurred while cancelling your subscription. Please try again or contact support.")
+        )

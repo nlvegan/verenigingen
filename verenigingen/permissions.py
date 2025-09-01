@@ -60,6 +60,11 @@ from functools import lru_cache
 
 import frappe
 
+from verenigingen.utils.member_utils import (
+    get_current_user_member_name,
+    get_member_name_for_user,
+    get_volunteer_for_member,
+)
 from verenigingen.utils.secure_operations import secure_document_operation
 
 # Permission Caching System
@@ -177,12 +182,12 @@ def test_team_member_access(team_name=None):
     user_roles = frappe.get_roles(user)
 
     # Get user's member record
-    member = frappe.db.get_value("Member", {"user": user}, "name")
+    member = get_member_name_for_user(user)
     if not member:
         return {"error": "No member record found", "user": user, "roles": user_roles}
 
     # Get user's volunteer record
-    volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
+    volunteer = get_volunteer_for_member(member)
     if not volunteer:
         return {"error": "No volunteer record found", "member": member, "roles": user_roles}
 
@@ -296,7 +301,7 @@ def has_member_permission(doc, user=None, permission_type=None):
     # For regular members, check if they own the record
     if "Verenigingen Member" in user_roles:
         # Get user's member record
-        user_member = frappe.db.get_value("Member", {"user": user}, "name")
+        user_member = get_member_name_for_user(user)
         if user_member == member_name:
             frappe.logger().debug(f"User {user} accessing own member record")
             return True
@@ -355,7 +360,7 @@ def has_volunteer_permission(doc, user=None, permission_type=None):
         return False
 
     # Get current user's member record
-    user_member = frappe.db.get_value("Member", {"user": user}, "name")
+    user_member = get_member_name_for_user(user)
     if not user_member:
         frappe.logger().debug(f"User {user} has no Member record")
         return False
@@ -479,7 +484,7 @@ def has_donor_permission(doc, user=None, permission_type=None):
     if "Verenigingen Member" in frappe.get_roles(user):
         try:
             # Get the user's member record
-            user_member = frappe.db.get_value("Member", {"user": user}, "name")
+            user_member = get_member_name_for_user(user)
             if not user_member:
                 frappe.logger().debug(f"User {user} has Verenigingen Member role but no member record found")
                 return False
@@ -531,7 +536,7 @@ def get_donor_permission_query(user):
 
     # For regular members, limit to donor records linked to their member record
     if "Verenigingen Member" in frappe.get_roles(user):
-        user_member = frappe.db.get_value("Member", {"user": user}, "name")
+        user_member = get_member_name_for_user(user)
         if user_member:
             # FIXED: Proper SQL escaping to prevent injection
             return f"`tabDonor`.member = {frappe.db.escape(user_member)}"
@@ -551,9 +556,9 @@ def has_address_permission(doc, user=None, permission_type=None):
         return True
 
     # Check if this address is linked to the user's member record
-    member_name = frappe.db.get_value("Member", {"email": user}, "name")
+    member_name = get_member_name_for_user(user)
     if not member_name:
-        member_name = frappe.db.get_value("Member", {"user": user}, "name")
+        member_name = get_member_name_for_user(user)
 
     if member_name:
         # Check if address is linked to this member via Dynamic Link
@@ -592,9 +597,9 @@ def get_address_permission_query(user):
     conditions = []
 
     # Find member by email or user field
-    member_name = frappe.db.get_value("Member", {"email": user}, "name")
+    member_name = get_member_name_for_user(user)
     if not member_name:
-        member_name = frappe.db.get_value("Member", {"user": user}, "name")
+        member_name = get_member_name_for_user(user)
 
     if member_name:
         # Add condition for addresses linked to this member
@@ -666,7 +671,7 @@ def get_member_permission_query(user):
     if "Chapter Board Member" in user_roles:
         try:
             # Get the current user's member record
-            user_member = frappe.db.get_value("Member", {"user": user}, "name")
+            user_member = get_member_name_for_user(user)
             if user_member:
                 # Get chapters where the user is an active board member
                 user_chapters = frappe.db.sql(
@@ -735,7 +740,7 @@ def can_view_financial_info(doctype, name=None, user=None):
         return True
 
     # Get the member for this user
-    viewer_member = frappe.db.get_value("Member", {"user": user}, "name")
+    viewer_member = get_member_name_for_user(user)
     if not viewer_member:
         return False
 
@@ -803,7 +808,7 @@ def check_member_payment_access(member_name, user=None):
         return False
 
     # For Board Only - check if user is on board with financial permissions
-    viewer_member = frappe.db.get_value("Member", {"user": user}, "name")
+    viewer_member = get_member_name_for_user(user)
     if not viewer_member:
         return False
 
@@ -842,7 +847,7 @@ def can_terminate_member(member_name, user=None):
         return False
 
     # Get the user making the request as a member
-    requesting_member = frappe.db.get_value("Member", {"user": user}, "name")
+    requesting_member = get_member_name_for_user(user)
     if not requesting_member:
         frappe.logger().debug(f"User {user} is not a member")
         return False
@@ -908,7 +913,7 @@ def can_access_termination_functions(user=None):
         return True
 
     # Check if user is a board member of any chapter
-    requesting_member = frappe.db.get_value("Member", {"user": user}, "name")
+    requesting_member = get_member_name_for_user(user)
     if not requesting_member:
         return False
 
@@ -941,7 +946,7 @@ def get_chapter_member_permission_query(user):
     # Allow users to see Chapter Member records for:
     # 1. Their own member record
     # 2. Chapters where they have board access
-    requesting_member = frappe.db.get_value("Member", {"user": user}, "name")
+    requesting_member = get_member_name_for_user(user)
     if not requesting_member:
         return "1=0"  # No access if not a member
 
@@ -986,7 +991,7 @@ def get_termination_permission_query(user):
         return ""
 
     # Board members get filtered access based on their chapters
-    requesting_member = frappe.db.get_value("Member", {"user": user}, "name")
+    requesting_member = get_member_name_for_user(user)
     if not requesting_member:
         return "1=0"  # No access if not a member
 
@@ -1067,7 +1072,7 @@ def has_membership_termination_request_permission(doc, user=None, permission_typ
     if "Chapter Board Member" in user_roles:
         try:
             # Get the current user's member record
-            user_member = frappe.db.get_value("Member", {"user": user}, "name")
+            user_member = get_member_name_for_user(user)
             if not user_member:
                 frappe.logger().debug(f"User {user} has Chapter Board Member role but no Member record")
                 return False
@@ -1138,14 +1143,14 @@ def get_volunteer_expense_permission_query(user):
         return ""
 
     # Get user's member record
-    requesting_member = frappe.db.get_value("Member", {"user": user}, "name")
+    requesting_member = get_member_name_for_user(user)
     if not requesting_member:
         return "1=0"  # No access if not a member
 
     conditions = []
 
     # Users can always see their own volunteer expense records
-    user_volunteer = frappe.db.get_value("Volunteer", {"member": requesting_member}, "name")
+    user_volunteer = get_volunteer_for_member(requesting_member)
     if user_volunteer:
         conditions.append(f"`tabVolunteer Expense`.volunteer = {frappe.db.escape(user_volunteer)}")
 
@@ -1221,13 +1226,13 @@ def has_volunteer_expense_permission(doc, user=None, permission_type=None):
         return False
 
     # Get user's member record
-    user_member = frappe.db.get_value("Member", {"user": user}, "name")
+    user_member = get_member_name_for_user(user)
     if not user_member:
         frappe.logger().debug(f"User {user} has no Member record")
         return False
 
     # Users can access their own volunteer expenses
-    user_volunteer = frappe.db.get_value("Volunteer", {"member": user_member}, "name")
+    user_volunteer = get_volunteer_for_member(user_member)
     if user_volunteer == expense_volunteer:
         frappe.logger().debug(f"User {user} accessing own volunteer expense")
         return True
@@ -1268,7 +1273,7 @@ def can_approve_volunteer_expense(expense_doc, user=None):
         return True
 
     # Get user's member record
-    user_member = frappe.db.get_value("Member", {"user": user}, "name")
+    user_member = get_member_name_for_user(user)
     if not user_member:
         frappe.logger().debug(f"User {user} has no Member record")
         return False
@@ -1358,9 +1363,9 @@ def assign_chapter_board_role(user_email):
     """
     try:
         # Get user's member record
-        user_member = frappe.db.get_value("Member", {"user": user_email}, "name")
+        user_member = get_member_name_for_user(user_email)
         if not user_member:
-            user_member = frappe.db.get_value("Member", {"email": user_email}, "name")
+            user_member = get_member_name_for_user(user_email)
 
         if not user_member:
             frappe.logger().debug(f"No member record found for user {user_email}")
@@ -1445,9 +1450,9 @@ def update_all_chapter_board_roles():
 
         for user_role in users_with_role:
             user_email = user_role.user_email
-            user_member = frappe.db.get_value("Member", {"user": user_email}, "name")
+            user_member = get_member_name_for_user(user_email)
             if not user_member:
-                user_member = frappe.db.get_value("Member", {"email": user_email}, "name")
+                user_member = get_member_name_for_user(user_email)
 
             if user_member:
                 board_positions = get_user_chapter_board_positions(user_member)
@@ -1479,7 +1484,7 @@ def get_volunteer_permission_query(user):
         return ""
 
     # Get requesting user's member record
-    requesting_member = frappe.db.get_value("Member", {"user": user}, "name")
+    requesting_member = get_member_name_for_user(user)
     if not requesting_member:
         return "1=0"  # No access if not a member
 
@@ -1564,11 +1569,11 @@ def get_team_member_permission_query(user):
         return ""
 
     # Get requesting user's member and volunteer records
-    requesting_member = frappe.db.get_value("Member", {"user": user}, "name")
+    requesting_member = get_member_name_for_user(user)
     if not requesting_member:
         return "1=0"  # No access if not a member
 
-    requesting_volunteer = frappe.db.get_value("Volunteer", {"member": requesting_member}, "name")
+    requesting_volunteer = get_volunteer_for_member(requesting_member)
     if not requesting_volunteer:
         return "1=0"  # No access if not a volunteer
 

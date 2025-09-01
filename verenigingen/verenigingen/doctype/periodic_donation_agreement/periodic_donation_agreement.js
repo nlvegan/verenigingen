@@ -201,7 +201,7 @@ function link_donation_dialog(frm) {
 				periodic_donation_agreement: ['is', 'not set'],
 				docstatus: 1
 			},
-			fields: ['name', 'donation_date', 'amount', 'payment_method'],
+			fields: ['name', 'donation_date', 'amount', 'mode_of_payment'],
 			limit_page_length: 100
 		},
 		callback(r) {

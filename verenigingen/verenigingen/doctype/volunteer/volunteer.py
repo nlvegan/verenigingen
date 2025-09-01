@@ -66,6 +66,7 @@ from frappe.utils import getdate, today
 
 from verenigingen.utils.dutch_name_utils import format_dutch_full_name, is_dutch_installation
 from verenigingen.utils.error_handling import cache_with_ttl
+from verenigingen.utils.member_utils import get_volunteer_for_member
 
 
 def safe_log_error(message, title=None):
@@ -1061,7 +1062,7 @@ def create_volunteer_from_member(member_name, volunteer_name=None, status="New",
             return {"success": False, "error": f"Member {member_name} does not exist"}
 
         # Check if volunteer already exists for this member
-        existing_volunteer = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
+        existing_volunteer = get_volunteer_for_member(member_name)
         if existing_volunteer:
             return {
                 "success": False,

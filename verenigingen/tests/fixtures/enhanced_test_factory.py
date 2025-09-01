@@ -1243,6 +1243,14 @@ class EnhancedTestCase(FrappeTestCase):
     def ensure_dues_schedule_template(self, template_name, attributes=None):
         """Convenience method for ensuring dues schedule templates exist"""
         return self.factory.ensure_dues_schedule_template(template_name, attributes)
+    
+    def create_test_donor(self, **kwargs):
+        """Convenience method for creating test donors"""
+        return self.factory.create_test_donor(**kwargs)
+    
+    def create_test_donation(self, **kwargs):
+        """Convenience method for creating test donations"""
+        return self.factory.create_test_donation(**kwargs)
         
     def ensure_membership_type(self, type_name, attributes=None):
         """Convenience method for ensuring membership types exist"""
@@ -1411,19 +1419,25 @@ class EnhancedTestCase(FrappeTestCase):
     
     def create_test_donation(self, **kwargs):
         """Create a test donation record"""
+        # Ensure we have a company for the donation
+        company = kwargs.get("company") or frappe.get_list("Company", limit=1)[0].name
+        
         donation_data = {
             "doctype": "Donation",
+            "company": company,
             "donor": kwargs.get("donor"),
             "amount": kwargs.get("amount", 100.0),
             "donation_date": kwargs.get("donation_date", frappe.utils.today()),
             "currency": "EUR",
             "paid": kwargs.get("paid", 1),
             "mode_of_payment": kwargs.get("mode_of_payment", "Bank Transfer"),  # Mandatory field
-            "docstatus": 1  # Submitted status
+            # Don't set docstatus in initial data - handle submission below
         }
         
         # Add optional fields
-        for field in ["belastingdienst_reportable", "anbi_agreement_number", "periodic_donation_agreement"]:
+        for field in ["belastingdienst_reportable", "anbi_agreement_number", "periodic_donation_agreement", 
+                     "campaign", "donation_type", "status", "donation_purpose_type", "donation_notes",
+                     "company"]:
             if field in kwargs:
                 donation_data[field] = kwargs[field]
                 
@@ -1436,8 +1450,13 @@ class EnhancedTestCase(FrappeTestCase):
                 
         donation = frappe.get_doc(donation_data)
         donation.insert()
-        if donation.docstatus == 0:
-            donation.submit()  # Submit to make it official
+        # Always submit the donation in test context to ensure docstatus=1 for campaign queries
+        if frappe.flags.in_test:
+            # Use db_set to avoid fiscal year and other submission validation issues in tests
+            frappe.db.set_value("Donation", donation.name, "docstatus", 1)
+            donation.reload()
+        else:
+            donation.submit()  # Submit normally in production
         return donation
     
     def _ensure_test_item(self, item_code):
