@@ -18,6 +18,20 @@ class TestDonationAgreement(EnhancedTestCase):
 
         # Create test donor
         self.donor = self.create_test_donor(donor_name="Test Donor", donor_email="test@example.com")
+        
+        # Create test campaign for campaign donation tests
+        self.campaign = frappe.new_doc("Donation Campaign")
+        self.campaign.update({
+            "campaign_name": f"Test Campaign {frappe.generate_hash(length=6)}",
+            "campaign_type": "Annual Giving", 
+            "description": "Test campaign for donation integration",
+            "status": "Active",
+            "start_date": today(),
+            "monetary_goal": 1000.00,
+            "donor_goal": 10,
+            "is_public": 1
+        })
+        self.campaign.save()
 
     def test_recurring_donation_agreement_creation(self):
         """Test creation of recurring donation agreement"""
@@ -204,3 +218,174 @@ class TestDonationAgreement(EnhancedTestCase):
         donor.update({"donor_name": donor_name, "donor_email": donor_email, "donor_type": "Individual"})
         donor.save()
         return donor
+
+    # ============= CAMPAIGN DONATION INTEGRATION TESTS =============
+    
+    def test_donation_campaign_budget_integration(self):
+        """Test that donations properly update campaign budget totals"""
+        # Record initial campaign state
+        initial_raised = self.campaign.total_raised
+        initial_donors = self.campaign.total_donors
+        
+        # Create donation linked to campaign using Enhanced Test Factory
+        donation = self.create_test_donation(
+            donor=self.donor.name,
+            amount=150.00,
+            donation_type="One-time",
+            campaign=self.campaign.name,
+            paid=1  # Mark as paid to include in campaign totals
+        )
+        
+        # Update campaign progress to reflect new donation
+        self.campaign.reload()
+        self.campaign.update_progress()
+        
+        # Verify campaign budget totals updated correctly
+        self.assertEqual(flt(self.campaign.total_raised - initial_raised), 150.00)
+        self.assertEqual(self.campaign.total_donors - initial_donors, 1)
+        self.assertEqual(flt(self.campaign.average_donation_amount), 150.00)
+        
+        # Verify progress calculations
+        expected_progress = (self.campaign.total_raised / self.campaign.monetary_goal) * 100
+        self.assertEqual(flt(self.campaign.monetary_progress), expected_progress)
+
+    def test_multiple_donations_campaign_accumulation(self):
+        """Test multiple donations accumulating to campaign totals"""
+        # Create second donor for unique donor counting test
+        donor2 = self.create_test_donor("Test Donor 2", "test2@example.com")
+        
+        # Create first donation
+        donation1 = self.create_test_donation(
+            donor=self.donor.name,
+            amount=200.00,
+            donation_type="One-time", 
+            campaign=self.campaign.name,
+            paid=1
+        )
+        
+        # Create second donation from different donor
+        donation2 = self.create_test_donation(
+            donor=donor2.name,
+            amount=300.00,
+            donation_type="One-time",
+            campaign=self.campaign.name, 
+            paid=1
+        )
+        
+        # Update campaign progress
+        self.campaign.reload()
+        self.campaign.update_progress()
+        
+        # Verify accumulated totals (500.00 total, 2 donors, average 250.00)
+        self.assertEqual(flt(self.campaign.total_raised), 500.00)
+        self.assertEqual(self.campaign.total_donors, 2)
+        self.assertEqual(flt(self.campaign.average_donation_amount), 250.00)
+
+    def test_unpaid_donations_excluded_from_campaign_totals(self):
+        """Test that unpaid donations don't affect campaign budget totals"""
+        # Record baseline
+        baseline_raised = self.campaign.total_raised
+        baseline_donors = self.campaign.total_donors
+        
+        # Create paid donation
+        paid_donation = self.create_test_donation(
+            donor=self.donor.name,
+            amount=100.00,
+            donation_type="One-time",
+            campaign=self.campaign.name,
+            paid=1  # Paid
+        )
+        
+        # Create unpaid donation  
+        unpaid_donation = self.create_test_donation(
+            donor=self.donor.name,
+            amount=200.00,
+            donation_type="One-time", 
+            campaign=self.campaign.name,
+            paid=0  # Not paid
+        )
+        
+        # Update campaign progress
+        self.campaign.reload()
+        self.campaign.update_progress()
+        
+        # Verify only paid donation affects totals
+        self.assertEqual(flt(self.campaign.total_raised - baseline_raised), 100.00)
+        # Donor count should increase by 1 (only counting paid donations)
+        self.assertGreaterEqual(self.campaign.total_donors - baseline_donors, 1)
+
+    def test_campaign_donation_form_integration(self):
+        """Test complete donation form submission with campaign selection"""
+        from verenigingen.templates.pages.donate import submit_donation
+        
+        # Test form submission with existing campaign
+        form_data = {
+            "donor_name": "Form Integration Test Donor",
+            "donor_email": "form.integration@example.com",
+            "amount": "75.50",
+            "donation_type": "One-time", 
+            "donation_status": "One-time",
+            "payment_method": "Bank Transfer",
+            "donation_purpose_type": "Campaign", 
+            "campaign_reference": self.campaign.name,  # Existing campaign
+            "donation_notes": "Test form integration with campaign"
+        }
+        
+        # Submit donation through form handler
+        result = submit_donation(**form_data)
+        
+        # Verify successful submission
+        self.assertTrue(result.get("success"))
+        donation_id = result.get("donation_id")
+        self.assertIsNotNone(donation_id)
+        
+        # Verify donation created with proper campaign link
+        donation = frappe.get_doc("Donation", donation_id)
+        self.assertEqual(donation.campaign, self.campaign.name)
+        self.assertEqual(donation.donation_purpose_type, "Campaign")
+        self.assertIn("Test form integration", donation.donation_notes)
+        
+        # Mark as paid and verify campaign totals update
+        donation.paid = 1
+        donation.save()
+        
+        self.campaign.reload()
+        previous_total = self.campaign.total_raised
+        self.campaign.update_progress()
+        
+        # Campaign should reflect the new donation
+        self.assertGreater(self.campaign.total_raised, previous_total)
+
+    def test_campaign_fallback_to_notes_integration(self):
+        """Test campaign reference fallback for non-existent campaigns"""
+        from verenigingen.templates.pages.donate import submit_donation
+        
+        # Test with non-existent campaign
+        form_data = {
+            "donor_name": "Fallback Test Donor",
+            "donor_email": "fallback.test@example.com", 
+            "amount": "50.00",
+            "donation_type": "One-time",
+            "donation_status": "One-time",
+            "payment_method": "Bank Transfer",
+            "donation_purpose_type": "Campaign",
+            "campaign_reference": "Non-existent Campaign Reference",
+            "donation_notes": "Additional user notes"
+        }
+        
+        # Submit donation
+        result = submit_donation(**form_data)
+        self.assertTrue(result.get("success"))
+        
+        # Verify donation created with fallback behavior
+        donation = frappe.get_doc("Donation", result.get("donation_id"))
+        
+        # Campaign field should be empty (since it doesn't exist)
+        self.assertFalse(donation.campaign)
+        
+        # Campaign reference should be stored in notes
+        self.assertIn("Campaign: Non-existent Campaign Reference", donation.donation_notes)
+        self.assertIn("Additional user notes", donation.donation_notes)
+        
+        # Purpose type should still be set correctly
+        self.assertEqual(donation.donation_purpose_type, "Campaign")

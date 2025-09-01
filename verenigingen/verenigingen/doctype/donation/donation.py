@@ -220,13 +220,9 @@ class Donation(Document):
         # if the actual Donation Campaign doesn't exist yet
         # This is handled in the donate.py submission logic
         if purpose_type == "Campaign" and not campaign_ref:
-            # Check if there's a campaign reference in the notes (workaround for non-existent campaigns)
-            notes_check = self.donation_notes and "Campaign Reference:" in self.donation_notes
-            # Temporary debug logging
-            frappe.log_error(
-                f"Campaign validation debug - purpose_type: {purpose_type}, campaign_ref: {campaign_ref}, donation_notes: '{self.donation_notes}', notes_check: {notes_check}",
-                "Campaign Debug",
-            )
+            # Check if there's a campaign reference in the notes (fallback for non-existent campaigns)
+            # Look for "Campaign:" prefix which is how we store non-existent campaign references
+            notes_check = self.donation_notes and "Campaign:" in self.donation_notes
             if not notes_check:
                 frappe.throw(_("Campaign Reference is required when Purpose Type is Campaign"))
 

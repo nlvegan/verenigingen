@@ -321,7 +321,15 @@ class TrueBulkSEPAManager:
                     placeholders = ", ".join(["%s"] * len(mandate_names))
 
                     # Validate field name to prevent injection (whitelist approach)
-                    allowed_fields = ["account_holder", "iban", "mandate_reference", "status"]
+                    # Field names match actual SEPA Mandate DocType structure
+                    allowed_fields = [
+                        "account_holder_name",
+                        "iban",
+                        "mandate_id",
+                        "status",
+                        "bic",
+                        "bank_name",
+                    ]
                     if field not in allowed_fields:
                         frappe.logger().error(f"Invalid field name for bulk update: {field}")
                         continue

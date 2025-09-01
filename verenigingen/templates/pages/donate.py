@@ -313,25 +313,31 @@ def create_donation_record(donor, form_data):
         "paid": 0,  # Will be marked paid after payment processing
     }
 
-    # Only set purpose-specific fields if they have values
-    # The campaign field expects a link to Donation Campaign, not a text reference
+    # Set purpose-specific fields based on purpose type
     if purpose_type == "Campaign" and form_data.get("campaign_reference"):
-        # For now, store the campaign reference as text in donation_notes if it's not a valid link
-        # This allows the form to work while a proper Donation Campaign can be created later
         campaign_ref = form_data.get("campaign_reference")
-        # Check if it's a valid Donation Campaign
+        # Only set campaign field if it's a valid Donation Campaign
         if frappe.db.exists("Donation Campaign", campaign_ref):
             donation_data["campaign"] = campaign_ref
         else:
-            # Append to notes since we can't link to a non-existent campaign
-            existing_notes = donation_data.get("donation_notes", "")
-            donation_data["donation_notes"] = f"{existing_notes}\nCampaign Reference: {campaign_ref}".strip()
+            # If campaign doesn't exist, combine it with user notes for visibility
+            # This preserves user intent while keeping the notes field primarily for user content
+            user_notes = donation_data.get("donation_notes", "")
+            if user_notes:
+                donation_data["donation_notes"] = f"Campaign: {campaign_ref}\n\n{user_notes}"
+            else:
+                donation_data["donation_notes"] = f"Campaign: {campaign_ref}"
 
     if purpose_type == "Chapter" and form_data.get("chapter_reference"):
         donation_data["chapter_reference"] = form_data.get("chapter_reference")
 
-    if purpose_type == "Specific Goal" and form_data.get("specific_goal_description"):
-        donation_data["specific_goal_description"] = form_data.get("specific_goal_description")
+    if purpose_type == "Specific Goal":
+        # For specific goals, save the goal description in its proper field
+        if form_data.get("specific_goal_description"):
+            donation_data["specific_goal_description"] = form_data.get("specific_goal_description")
+
+        # The donation_notes field already contains user's additional notes from form_data
+        # No need to manipulate it further - it stays as-is for user notes
 
     donation_doc.update(donation_data)
 
