@@ -592,8 +592,16 @@ def process_mollie_subscription(donation, form_data, gateway):
             donation.db_set("donation_agreement", agreement.name)
             donation.db_set("payment_id", result.get("subscription_id"))
 
-            # Create initial payment for the first donation
-            initial_payment_result = gateway.process_payment(donation, form_data)
+            # Create initial payment for the first donation with subscription setup
+            # Add subscription setup flag to ensure proper sequenceType: "first"
+            subscription_form_data = form_data.copy()
+            subscription_form_data.update(
+                {
+                    "subscription_setup": True,
+                    "customer_id": result.get("customer_id"),  # Use customer from subscription
+                }
+            )
+            initial_payment_result = gateway.process_payment(donation, subscription_form_data)
 
             if initial_payment_result["status"] == "redirect_required":
                 return {

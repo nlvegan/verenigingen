@@ -163,6 +163,22 @@ class MollieGateway(PaymentGateway):
                 payment_data["billingAddress"] = {"email": email}
                 frappe.logger().info(f"📧 Added billing email: {email}")
 
+            # Add sequenceType for subscription setup (per Mollie API requirements)
+            if form_data.get("subscription_setup"):
+                # For first payment in subscription flow - establishes mandate
+                payment_data["sequenceType"] = "first"
+                frappe.logger().info("🎯 Added sequenceType: 'first' for subscription setup")
+
+                # Add customerId if available for recurring payments
+                if form_data.get("customer_id"):
+                    payment_data["customerId"] = form_data.get("customer_id")
+                    frappe.logger().info(f"👤 Added customerId: {form_data.get('customer_id')}")
+            elif form_data.get("recurring_payment"):
+                # For subsequent payments in subscription flow
+                payment_data["sequenceType"] = "recurring"
+                payment_data["customerId"] = form_data.get("customer_id")  # Required for recurring
+                frappe.logger().info("🔄 Added sequenceType: 'recurring' for recurring payment")
+
             frappe.logger().info(
                 f"📋 Payment data prepared: amount={payment_data['amount']}, description='{payment_data['description']}'"
             )
@@ -742,6 +758,234 @@ class PaymentGatewayFactory:
         return list(cls._gateways.keys())
 
 
+def _activate_subscription_after_first_payment(gateway, member_name, member_customer, payment_id):
+    """
+    Activate subscription after first payment establishes a mandate
+
+    Args:
+        gateway: MollieGateway instance
+        member_name (str): Member document name
+        member_customer (str): Customer name linked to member
+        payment_id (str): Mollie payment ID that was just completed
+
+    Returns:
+        dict: Subscription activation result
+    """
+    try:
+        # Get member and check if subscription is needed
+        member = frappe.get_doc("Member", member_name)
+
+        # Skip if member already has an active subscription
+        if member.mollie_subscription_id and member.subscription_status == "Active":
+            return {"status": "skipped", "reason": "Member already has active subscription"}
+
+        # Find any Membership Dues Schedule for this member to determine subscription details
+        dues_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_name, "status": "Active", "auto_generate": 1},
+            fields=["name", "dues_rate", "billing_frequency", "next_invoice_date"],
+            order_by="creation desc",
+            limit=1,
+        )
+
+        if not dues_schedules:
+            return {"status": "skipped", "reason": "No active dues schedule found for subscription"}
+
+        dues_schedule = dues_schedules[0]
+
+        # Convert billing frequency to Mollie interval format
+        frequency_map = {
+            "Monthly": "1 month",
+            "Quarterly": "3 months",
+            "Semi-Annual": "6 months",
+            "Annual": "12 months",
+        }
+
+        interval = frequency_map.get(dues_schedule["billing_frequency"], "1 month")
+
+        # Create subscription data
+        subscription_data = {
+            "amount": dues_schedule["dues_rate"],
+            "currency": "EUR",
+            "interval": interval,
+            "description": f"Membership dues for {member.first_name} {member.last_name}",
+            "startDate": dues_schedule.get("next_invoice_date")
+            or frappe.utils.add_months(frappe.utils.today(), 1),
+        }
+
+        # Attempt to create subscription now that mandate is established
+        result = gateway.create_subscription(member, subscription_data)
+
+        if result["status"] == "success":
+            frappe.logger().info(
+                f"Successfully activated subscription {result['subscription_id']} for member {member_name}"
+            )
+
+            # Update member with subscription details
+            member.db_set("mollie_subscription_id", result["subscription_id"])
+            member.db_set("subscription_status", "Active")
+            member.db_set("next_payment_date", subscription_data["startDate"])
+
+            return {
+                "status": "success",
+                "subscription_id": result["subscription_id"],
+                "customer_id": result.get("customer_id"),
+                "next_payment": subscription_data["startDate"],
+            }
+        else:
+            return {
+                "status": "failed",
+                "reason": result.get("message", "Unknown error creating subscription"),
+            }
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error activating subscription for member {member_name}: {str(e)}",
+            "Mollie Subscription Activation",
+        )
+        return {"status": "error", "message": str(e)}
+
+
+def retry_failed_subscription_activations():
+    """
+    Retry subscription activation for members who completed first payments
+    but don't have active subscriptions yet
+
+    This can be called from a scheduled job or manually to recover from
+    failed subscription creations after successful payments
+
+    Returns:
+        dict: Summary of retry results
+    """
+    try:
+        # Find members with completed Mollie payments but no active subscriptions
+        # Look for Payment Entries with Mollie mode_of_payment in the last 30 days
+        recent_payments = frappe.get_all(
+            "Payment Entry",
+            filters={
+                "mode_of_payment": "Mollie",
+                "docstatus": 1,
+                "posting_date": [">=", frappe.utils.add_days(frappe.utils.today(), -30)],
+            },
+            fields=["party", "reference_no", "posting_date"],
+            order_by="posting_date desc",
+        )
+
+        retry_results = {
+            "total_payments_checked": len(recent_payments),
+            "members_without_subscriptions": 0,
+            "retry_attempts": 0,
+            "successful_activations": 0,
+            "failed_retries": 0,
+            "details": [],
+        }
+
+        gateway = PaymentGatewayFactory.get_gateway("Mollie", "Default")
+
+        for payment_info in recent_payments:
+            customer_name = payment_info["party"]
+            payment_id = payment_info["reference_no"]
+
+            # Find member for this customer
+            members = frappe.get_all(
+                "Member",
+                filters={"customer": customer_name},
+                fields=["name", "mollie_subscription_id", "subscription_status"],
+            )
+
+            if not members:
+                continue
+
+            member = members[0]
+
+            # Skip if member already has active subscription
+            if member["mollie_subscription_id"] and member["subscription_status"] == "Active":
+                continue
+
+            retry_results["members_without_subscriptions"] += 1
+
+            # Check if this was a first payment by querying Mollie
+            try:
+                mollie_payment = gateway.client.payments.get(payment_id)
+                if mollie_payment.sequence_type != "first":
+                    continue
+
+                # Only retry if the payment was actually completed
+                if not mollie_payment.is_paid():
+                    continue
+
+                retry_results["retry_attempts"] += 1
+
+                # Attempt subscription activation
+                activation_result = _activate_subscription_after_first_payment(
+                    gateway, member["name"], customer_name, payment_id
+                )
+
+                if activation_result["status"] == "success":
+                    retry_results["successful_activations"] += 1
+                    retry_results["details"].append(
+                        {
+                            "member": member["name"],
+                            "customer": customer_name,
+                            "payment_id": payment_id,
+                            "result": "success",
+                            "subscription_id": activation_result.get("subscription_id"),
+                        }
+                    )
+                    frappe.logger().info(
+                        f"Successfully activated subscription for member {member['name']} on retry"
+                    )
+                else:
+                    retry_results["failed_retries"] += 1
+                    retry_results["details"].append(
+                        {
+                            "member": member["name"],
+                            "customer": customer_name,
+                            "payment_id": payment_id,
+                            "result": "failed",
+                            "reason": activation_result.get(
+                                "reason", activation_result.get("message", "Unknown error")
+                            ),
+                        }
+                    )
+
+            except Exception as e:
+                retry_results["failed_retries"] += 1
+                retry_results["details"].append(
+                    {
+                        "member": member["name"],
+                        "customer": customer_name,
+                        "payment_id": payment_id,
+                        "result": "error",
+                        "reason": str(e),
+                    }
+                )
+                frappe.log_error(
+                    f"Error during subscription retry for member {member['name']}: {str(e)}",
+                    "Mollie Subscription Retry Error",
+                )
+
+        frappe.logger().info(
+            f"Subscription retry completed: {retry_results['successful_activations']} successful, {retry_results['failed_retries']} failed"
+        )
+        return retry_results
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error in subscription retry process: {str(e)}", "Mollie Subscription Retry Process"
+        )
+        return {"error": str(e)}
+
+
+@frappe.whitelist()
+def manual_subscription_retry():
+    """
+    Manual trigger for subscription activation retry
+    Requires appropriate permissions
+    """
+    return retry_failed_subscription_activations()
+
+
 # Webhook endpoints
 @frappe.whitelist(allow_guest=True)
 def mollie_webhook():
@@ -1128,13 +1372,18 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
             "Global Defaults", "default_company"
         )
 
-        # Get appropriate accounts for Mollie payments
-        paid_to_account = frappe.db.get_value("Company", company, "default_cash_account")
+        # Get appropriate Bank account for Mollie electronic payments (not Cash)
+        paid_to_account = frappe.db.get_value(
+            "Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name"
+        )
         if not paid_to_account:
-            # Fallback to first cash account
-            paid_to_account = frappe.db.get_value(
-                "Account", {"company": company, "account_type": "Cash", "is_group": 0}, "name"
-            )
+            # Fallback to default cash account if no bank account found
+            paid_to_account = frappe.db.get_value("Company", company, "default_cash_account")
+            if not paid_to_account:
+                # Final fallback to first cash account
+                paid_to_account = frappe.db.get_value(
+                    "Account", {"company": company, "account_type": "Cash", "is_group": 0}, "name"
+                )
 
         if not paid_to_account:
             frappe.throw(
@@ -1174,13 +1423,35 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
             f"against invoice {invoice['name']} for member {member_name}"
         )
 
-        return {
+        # Check if this was a first payment (sequenceType: "first") and activate subscription
+        subscription_activation_result = None
+        try:
+            if payment.sequence_type == "first":
+                frappe.logger().info(
+                    f"First payment completed for member {member_name}, attempting subscription activation"
+                )
+                subscription_activation_result = _activate_subscription_after_first_payment(
+                    gateway, member_name, member_customer, payment_id
+                )
+        except Exception as activation_error:
+            frappe.log_error(
+                f"Subscription activation failed for member {member_name} after first payment {payment_id}: {str(activation_error)}",
+                "Mollie Subscription Activation Error",
+            )
+            subscription_activation_result = {"status": "error", "message": str(activation_error)}
+
+        result = {
             "status": "success",
             "payment_entry": payment_entry.name,
             "invoice": invoice["name"],
             "amount": payment_amount,
             "payment_id": payment_id,
         }
+
+        if subscription_activation_result:
+            result["subscription_activation"] = subscription_activation_result
+
+        return result
 
     except Exception as e:
         frappe.log_error(
