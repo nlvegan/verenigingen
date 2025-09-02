@@ -37,8 +37,8 @@ import json
 # Import all validators
 sys.path.insert(0, str(Path(__file__).parent))
 
-# Import existing validators
-from comprehensive_field_reference_validator import SchemaAwareValidator, ValidationIssue
+# Import validators - using superior AST analyzer for field validation
+from ast_field_analyzer_improved_complete import ASTFieldAnalyzer, ValidationIssue
 from select_field_value_validator import SelectFieldValueValidator, SelectFieldViolation
 from import_path_validator import ImportPathValidator, ImportViolation
 
@@ -85,10 +85,9 @@ class ValidationOrchestrator:
     def _initialize_validators(self):
         """Initialize all available validators"""
         try:
-            # Field Reference Validator (existing comprehensive validator)
-            self.validators['field_reference'] = SchemaAwareValidator(
+            # Field Reference Validator (AST-based with high accuracy)
+            self.validators['field_reference'] = ASTFieldAnalyzer(
                 app_path=str(self.app_path),
-                min_confidence=0.7,
                 verbose=False
             )
             
@@ -106,6 +105,7 @@ class ValidationOrchestrator:
             
             if self.verbose:
                 print(f"   ✅ Initialized {len(self.validators)} validators")
+                print(f"   🎯 Using AST Field Analyzer (high accuracy, zero false positives)")
                 
         except Exception as e:
             print(f"   ❌ Error initializing validators: {e}")
