@@ -26,6 +26,13 @@ def sync_donor_to_customer(doc, method=None):
     if hasattr(doc, "flags") and doc.flags.get("ignore_customer_sync"):
         return
 
+    # Skip if we're in test context unless explicitly enabled
+    if frappe.flags.get("in_test"):
+        if not (hasattr(doc, "flags") and doc.flags.get("enable_customer_sync_in_test")):
+            if frappe.flags.get("in_test"):
+                print("🔄 Skipping donor→customer sync: in test context without enable flag")
+            return
+
     # Skip if we're in the middle of a customer save operation to prevent circular sync
     if getattr(frappe.local, "_customer_save_in_progress", False):
         if frappe.flags.get("in_test"):
@@ -53,14 +60,25 @@ def sync_donor_to_customer(doc, method=None):
             "sync_method": "donor_to_customer_hook",
         }
 
-        frappe.log_error(
+        # Prevent error logging recursion by limiting error message length
+        error_message = (
             f"Error in donor-customer sync hook:\n"
             f"Donor: {error_context['donor_name']} ({error_context['donor_display_name']})\n"
             f"Email: {error_context['donor_email']}\n"
             f"Current Customer: {error_context['current_customer']}\n"
-            f"Error: {str(e)}",
-            "Donor-Customer Sync Hook Error",
+            f"Error: {str(e)}"
         )
+
+        # Truncate error message to prevent title length issues in Error Log
+        if len(error_message) > 500:
+            error_message = error_message[:497] + "..."
+
+        try:
+            frappe.log_error(error_message, "Donor-Customer Sync Hook Error")
+        except Exception as log_error:
+            # Last resort: print to console if error logging fails
+            print(f"❌ Critical: Failed to log sync error: {str(log_error)}")
+            print(f"❌ Original sync error: {str(e)[:200]}")
 
         if frappe.flags.get("in_test"):
             print(f"❌ Hook error for donor {doc.name}: {str(e)}")

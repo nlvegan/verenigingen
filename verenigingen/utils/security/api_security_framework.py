@@ -683,6 +683,61 @@ def api_security_framework(
         wrapper._security_level = security_level
         wrapper._operation_type = operation_type
 
+        # Preserve Frappe whitelist attribute (critical for admin tools)
+        # Enhanced preservation logic to handle all Frappe whitelist scenarios
+
+        # First, check direct attribute
+        if hasattr(func, "__func_is_whitelisted__"):
+            wrapper.__func_is_whitelisted__ = func.__func_is_whitelisted__
+            frappe.logger("verenigingen.security").debug(
+                f"Preserved __func_is_whitelisted__ from func: {func.__func_is_whitelisted__}"
+            )
+
+        # Check for allow_guest attribute (legacy pattern)
+        elif hasattr(func, "allow_guest") and func.allow_guest:
+            wrapper.__func_is_whitelisted__ = True
+            frappe.logger("verenigingen.security").debug("Set __func_is_whitelisted__ from allow_guest")
+
+        # Check wrapped function if exists
+        elif hasattr(func, "__wrapped__"):
+            wrapped_func = func.__wrapped__
+            if hasattr(wrapped_func, "__func_is_whitelisted__"):
+                wrapper.__func_is_whitelisted__ = wrapped_func.__func_is_whitelisted__
+                frappe.logger("verenigingen.security").debug(
+                    f"Preserved __func_is_whitelisted__ from wrapped: {wrapped_func.__func_is_whitelisted__}"
+                )
+
+            # Go deeper if needed
+            elif hasattr(wrapped_func, "__wrapped__") and hasattr(
+                wrapped_func.__wrapped__, "__func_is_whitelisted__"
+            ):
+                wrapper.__func_is_whitelisted__ = wrapped_func.__wrapped__.__func_is_whitelisted__
+                frappe.logger("verenigingen.security").debug(
+                    f"Preserved __func_is_whitelisted__ from deep wrapped: {wrapped_func.__wrapped__.__func_is_whitelisted__}"
+                )
+
+        # Force set to True if we know this function should be whitelisted
+        # This is a fallback for cases where the attribute chain is broken
+        if not hasattr(wrapper, "__func_is_whitelisted__"):
+            # Check if this function is explicitly in frappe's whitelist registry
+            method_path = f"{func.__module__}.{func.__name__}"
+            if method_path in getattr(frappe, "_whitelisted_methods", set()):
+                wrapper.__func_is_whitelisted__ = True
+                frappe.logger("verenigingen.security").debug(
+                    f"Set __func_is_whitelisted__ from whitelist registry for {method_path}"
+                )
+            else:
+                # As a last resort, assume True since our decorator is typically only used on whitelisted functions
+                wrapper.__func_is_whitelisted__ = True
+                frappe.logger("verenigingen.security").debug(
+                    f"Fallback: Set __func_is_whitelisted__ = True for {method_path}"
+                )
+
+        # Also preserve other common Frappe attributes
+        for attr in ["allow_guest", "_original_func_name"]:
+            if hasattr(func, attr):
+                setattr(wrapper, attr, getattr(func, attr))
+
         return wrapper
 
     return decorator

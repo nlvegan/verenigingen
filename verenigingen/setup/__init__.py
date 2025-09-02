@@ -276,6 +276,9 @@ def execute_after_install():
         # Validate dependencies
         validate_app_dependencies()
 
+        # Create default Verenigingen Settings FIRST (critical for campaign donations)
+        create_default_verenigingen_settings()
+
         # Create E-Boekhouden custom fields first
         create_eboekhouden_custom_fields()
 
@@ -321,6 +324,74 @@ def execute_after_install():
 def create_eboekhouden_custom_fields():
     """E-Boekhouden custom fields are now created via fixtures"""
     print("✅ E-Boekhouden custom fields created via fixtures")
+
+
+def create_default_verenigingen_settings():
+    """
+    Create default Verenigingen Settings single document.
+
+    CRITICAL: This is required for campaign donation functionality and many other features.
+    Without this, the system will fail with "Unable to load system settings" errors.
+    """
+    try:
+        if not frappe.db.exists("Verenigingen Settings", "Verenigingen Settings"):
+            # Get default company if exists
+            default_company = frappe.db.get_value("Company", {}, "name") or "Your Company"
+
+            settings = frappe.get_doc(
+                {
+                    "doctype": "Verenigingen Settings",
+                    # Company settings
+                    "company": default_company,
+                    "company_name": default_company,
+                    "organization_email_domain": "example.com",
+                    "member_contact_email": "members@example.com",
+                    "support_email": "support@example.com",
+                    "creation_user": frappe.session.user or "Administrator",
+                    # Campaign/Donation settings (REQUIRED for campaign donations)
+                    "donation_company": default_company,
+                    "default_donation_type": "General",
+                    "auto_create_donors": 1,
+                    "minimum_donation_amount": 1.00,
+                    "default_donor_type": "Individual",
+                    # Member settings
+                    "enable_chapter_management": 1,
+                    "member_id_start": 1000,
+                    "last_member_id": 1000,
+                    "default_grace_period_days": 30,
+                    "max_fee_adjustments_per_year": 2,
+                    "enable_income_calculator": 0,
+                    # SEPA settings (for payment processing)
+                    "company_iban": "",  # User needs to configure
+                    "company_account_holder": default_company,
+                    "company_bic": "",  # User needs to configure
+                    "creditor_id": "",  # User needs to configure
+                    # Automation settings (disabled by default for safety)
+                    "automate_membership_payment_entries": 0,
+                    "automate_donation_payment_entries": 0,
+                    "auto_cancel_sepa_mandates": 0,
+                    "auto_end_board_positions": 0,
+                    "send_termination_notifications": 0,
+                    # Termination system settings
+                    "enable_termination_system": 1,
+                    "require_secondary_approval": 1,
+                    "appeal_deadline_days": 30,
+                    "appeal_review_days": 60,
+                    "termination_grace_period_days": 30,
+                }
+            )
+
+            settings.insert(ignore_permissions=True)
+            frappe.db.commit()
+            print("✅ Created default Verenigingen Settings")
+            return settings
+        else:
+            print("✅ Verenigingen Settings already exists")
+            return frappe.get_doc("Verenigingen Settings")
+    except Exception as e:
+        print(f"⚠️ Failed to create Verenigingen Settings: {str(e)}")
+        # Don't fail installation if settings creation fails
+        return None
 
 
 def create_default_eboekhouden_settings():

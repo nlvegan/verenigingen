@@ -46,7 +46,10 @@ def get_context(context):
 
     settings = get_verenigingen_settings()
     if not settings:
-        frappe.throw(_("Unable to load system settings. Please try again later."), frappe.ValidationError)
+        frappe.throw(
+            _("Verenigingen Settings not configured. Please run app installation setup."),
+            frappe.ValidationError,
+        )
     context.settings = {
         "company_name": frappe.get_value("Company", settings.donation_company, "company_name"),
         "enable_chapter_management": settings.enable_chapter_management,
@@ -179,6 +182,7 @@ def submit_donation(**kwargs):
 
         return {
             "success": True,
+            "donation_created": True,
             "donation_id": donation.name,
             "message": _("Donation submitted successfully"),
             "payment_info": payment_result,
@@ -273,7 +277,10 @@ def create_donation_record(donor, form_data):
 
     settings = get_verenigingen_settings()
     if not settings:
-        frappe.throw(_("Unable to load system settings"), frappe.ValidationError)
+        frappe.throw(
+            _("Verenigingen Settings not configured. Please run app installation setup."),
+            frappe.ValidationError,
+        )
 
     # Determine donation type
     donation_type = form_data.get("donation_type") or settings.default_donation_type
@@ -358,46 +365,44 @@ def create_donation_record(donor, form_data):
         donation_doc.anbi_agreement_number = form_data.anbi_agreement_number
         donation_doc.anbi_agreement_date = getdate(form_data.get("anbi_agreement_date", getdate()))
 
-    # Use secure operations in production, fallback for test context
-    if frappe.flags.in_test:
-        # In test context: use direct operations with proper audit logging
-        frappe.logger().info(
-            f"TEST_MODE: Creating donation for {donor.donor_name} amount €{form_data.amount}"
-        )
-        donation_doc.insert()
-        donation_doc.submit()
-        # Success tracking for test compatibility
-        result = type("Result", (), {"success": True, "doc_name": donation_doc.name})()
-        submit_result = type("Result", (), {"success": True})()
-    else:
-        # Production: Use secure operations with explicit permission validation
-        result = secure_document_operation(
-            operation="insert",
-            doc=donation_doc,
-            justification=f"Create donation record for {donor.donor_name} amount €{form_data.amount} - public donation processing for {purpose_type} purpose",
-            required_permissions=["Donation:create"],
-        )
+    # Use secure operations for all environments
+    # For public donations, allow creation with system user fallback
+    result = secure_document_operation(
+        operation="insert",
+        doc=donation_doc,
+        justification=f"Create donation record for {donor.donor_name} amount €{form_data.amount} - public donation processing for {purpose_type} purpose",
+        required_permissions=[],  # Public donation creation - no specific permissions required
+        allow_system_user=True,  # Allow system user fallback for public donations
+    )
 
-        if not result.success:
-            frappe.log_error(
-                f"Failed to create donation record: {'; '.join(result.errors)}", "Donation Creation Security"
-            )
-            frappe.throw(_("Unable to process donation: Failed to create donation record"))
-
-        # Submit the donation record
-        submit_result = secure_document_operation(
-            operation="submit",
-            doc=donation_doc,
-            justification=f"Submit donation {donation_doc.name} from public donation form - financial transaction processing for {donor.donor_name}",
-            required_permissions=["Donation:submit"],
+    if not result.success:
+        frappe.log_error(
+            f"Failed to create donation record: {'; '.join(result.errors)}", "Donation Creation Security"
         )
+        frappe.throw(_("Unable to process donation: Failed to create donation record"))
+
+    # Submit the donation record - public donations are auto-submitted
+    submit_result = secure_document_operation(
+        operation="submit",
+        doc=donation_doc,
+        justification=f"Submit donation {donation_doc.name} from public donation form - financial transaction processing for {donor.donor_name}",
+        required_permissions=[],  # Public donation submission - no specific permissions required
+        allow_system_user=True,  # Allow system user fallback for public donations
+    )
 
     if not submit_result.success:
+        error_details = "; ".join(submit_result.errors) if submit_result.errors else "Unknown error"
         frappe.log_error(
-            f"Failed to submit donation record: {'; '.join(submit_result.errors)}",
+            f"Failed to submit donation record: {error_details}\n"
+            f"Donation: {donation_doc.as_dict()}\n"
+            f"Submit result: {submit_result.__dict__}",
             "Donation Submission Security",
         )
-        frappe.throw(_("Unable to process donation: Failed to submit donation record"))
+        frappe.throw(
+            _("Unable to process donation: Failed to submit donation record. Error: {0}").format(
+                error_details[:100]
+            )
+        )
 
     return donation_doc
 

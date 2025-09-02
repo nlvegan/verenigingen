@@ -83,6 +83,10 @@ class MollieDataValidator:
         if not from_status or not to_status:
             return True  # Allow initial status setting
 
+        # Allow same-state transitions (no change)
+        if from_status == to_status:
+            return True
+
         valid_transitions = self.VALID_STATUS_TRANSITIONS.get(from_status, [])
         is_valid = to_status in valid_transitions
 

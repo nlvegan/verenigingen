@@ -630,6 +630,18 @@ def get_address_members_html_api(member_id):
             member_name = other.get("name", "")
             member_full_name = other.get("full_name", "Unknown")
 
+            # Skip if member_name is empty - this prevents broken links
+            if not member_name or not member_name.strip():
+                frappe.log_error(f"Empty member name in same address query: {other}", "Member Management")
+                continue
+
+            # Validate member existence for security
+            if not frappe.db.exists("Member", member_name):
+                frappe.log_error(
+                    f"Invalid member reference in same address API: {member_name}", "Member Management"
+                )
+                continue
+
             # Calculate age in years
             age_text = ""
             if other.get("birth_date"):
@@ -641,11 +653,33 @@ def get_address_members_html_api(member_id):
             status_badges = {"Active": "success", "Pending": "warning", "Suspended": "danger"}
             status_color = status_badges.get(other.get("status", "Unknown"), "secondary")
 
+            # Use proper escaping for security - separate HTML and JavaScript contexts
+            import json
+
+            member_name_html = (
+                frappe.utils.cstr(member_name)
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace('"', "&quot;")
+                .replace("'", "&#39;")
+            )
+            member_full_name_html = (
+                frappe.utils.cstr(member_full_name)
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace('"', "&quot;")
+                .replace("'", "&#39;")
+            )
+            member_name_js = json.dumps(member_name)  # Proper JavaScript string escaping
+
             html_content += f"""
             <div class="member-card" style="border-left: 3px solid #dee2e6; padding: 10px; margin: 8px 0; background: #f8f9fa;">
-                <a href="#Form/Member/{member_name}" onclick="frappe.set_route('Form', 'Member', '{member_name}'); return false;"
-                   style="font-weight: 600; color: #007bff; text-decoration: none; cursor: pointer;">
-                    {member_full_name}
+                <a href="/app/member/{member_name_html}" onclick="event.preventDefault(); frappe.set_route('Form', 'Member', {member_name_js}); return false;"
+                   style="font-weight: 600; color: #007bff; text-decoration: none; cursor: pointer;"
+                   title="View {member_full_name_html}">
+                    {member_full_name_html}
                 </a>
                 <br>
                 <span class="badge badge-{status_color}">{other.get("status", "Unknown")}</span>

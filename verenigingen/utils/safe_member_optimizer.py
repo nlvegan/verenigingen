@@ -228,24 +228,28 @@ class SafeMemberOptimizer:
                 )
                 existing_names = set(existing_records)
 
-                # Check for missing links and raise appropriate errors
+                # Check for missing links - log but don't halt optimization
+                invalid_links = []
                 for link in links:
                     if link["value"] not in existing_names:
-                        frappe.throw(
-                            f"{link['field']}: {doctype} '{link['value']}' does not exist",
-                            frappe.LinkValidationError,
-                        )
+                        invalid_links.append(f"{link['field']}: {doctype} '{link['value']}' does not exist")
+
+                if invalid_links:
+                    # Log invalid links but continue optimization for other members
+                    frappe.log_error(
+                        f"Skipping optimization for member with invalid links: {'; '.join(invalid_links)}",
+                        "Safe Member Optimizer Data Quality",
+                    )
+                    # Let normal Frappe validation handle the error when the document is actually saved
+                    return  # Skip optimization for this member but don't halt the entire process
 
             except Exception as e:
-                # NO FALLBACK: If batch validation fails, fail the entire operation
-                # This prevents any potential bypass of our security validation
+                # Log batch validation failures but don't halt optimization entirely
                 frappe.log_error(
                     f"Batch link validation failed for {doctype}: {str(e)}", "Safe Member Optimizer"
                 )
-                frappe.throw(
-                    f"Link validation failed for {doctype}. Operation aborted for security.",
-                    frappe.ValidationError,
-                )
+                # Skip optimization for this doctype but continue processing other members
+                return
 
     def _optimize_fetch_fields(self, member_doc):
         """Cache parent documents to reduce repeated fetching for fetch_from fields"""

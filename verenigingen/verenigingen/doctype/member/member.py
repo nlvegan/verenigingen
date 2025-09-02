@@ -2005,6 +2005,13 @@ class Member(
                         member_name = member.get("name", "")
                         member_full_name = member.get("full_name", "")
 
+                        # Skip if member_name is empty - this prevents broken links
+                        if not member_name or not member_name.strip():
+                            frappe.log_error(
+                                f"Empty member name in same address display: {member}", "Member DocType"
+                            )
+                            continue
+
                         status_color = {"Active": "success", "Pending": "warning", "Suspended": "danger"}.get(
                             member.get("status", ""), "secondary"
                         )
@@ -2017,8 +2024,39 @@ class Member(
                             age_years = int(date_diff(today(), member["birth_date"]) / 365.25)
                             age_text = f"{age_years} years old"
 
+                        # Validate member name format and existence
+                        if not frappe.db.exists("Member", member_name):
+                            frappe.log_error(
+                                f"Invalid member reference in same address display: {member_name}",
+                                "Member DocType",
+                            )
+                            continue
+
+                        # Use Frappe's built-in escaping for security
+                        import json
+
+                        from frappe.utils import cstr
+
+                        member_name_html = (
+                            frappe.utils.cstr(member_name)
+                            .replace("&", "&amp;")
+                            .replace("<", "&lt;")
+                            .replace(">", "&gt;")
+                            .replace('"', "&quot;")
+                            .replace("'", "&#39;")
+                        )
+                        member_full_name_html = (
+                            frappe.utils.cstr(member_full_name)
+                            .replace("&", "&amp;")
+                            .replace("<", "&lt;")
+                            .replace(">", "&gt;")
+                            .replace('"', "&quot;")
+                            .replace("'", "&#39;")
+                        )
+                        member_name_js = json.dumps(member_name)  # Proper JavaScript string escaping
+
                         html_content += '<div class="member-card" style="border-left: 3px solid #dee2e6; padding: 10px; margin: 8px 0; background: #f8f9fa;">'
-                        html_content += f'<a href="#Form/Member/{member_name}" style="font-weight: 600; color: #007bff;">{member_full_name}</a><br>'
+                        html_content += f'<a href="/app/member/{member_name_html}" onclick="event.preventDefault(); frappe.set_route(\'Form\', \'Member\', {member_name_js}); return false;" style="font-weight: 600; color: #007bff; text-decoration: none; cursor: pointer;" title="View {member_full_name_html}">{member_full_name_html}</a><br>'
                         html_content += f'<span class="badge badge-{status_color}">{member.get("status", "Unknown")}</span>'
 
                         if member.get("member_since"):

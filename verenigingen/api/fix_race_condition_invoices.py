@@ -4,12 +4,27 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def check_and_fix_invoice(invoice_name):
     """Check and fix a specific invoice in payment history"""
 
+    # Input validation
+    if not invoice_name or not isinstance(invoice_name, str):
+        frappe.throw(_("Invalid invoice name provided"), frappe.ValidationError)
+
+    # Sanitize input
+    invoice_name = frappe.db.escape(invoice_name.strip())
+
     try:
+        # Log the operation for audit
+        frappe.logger("verenigingen.race_condition_fix").info(
+            f"Checking invoice {invoice_name} for race condition fix by user {frappe.session.user}"
+        )
+
         # Check if invoice exists
         if not frappe.db.exists("Sales Invoice", invoice_name):
             return {"success": False, "message": f"Invoice {invoice_name} does not exist"}
@@ -71,13 +86,27 @@ def check_and_fix_invoice(invoice_name):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def fix_recent_missing_invoices(days_back=7):
     """Find and fix invoices that are missing from payment history due to race condition"""
+
+    # Input validation and sanitization
+    try:
+        days_back = int(days_back)
+        if days_back < 1 or days_back > 90:
+            frappe.throw(_("Days back must be between 1 and 90"), frappe.ValidationError)
+    except (ValueError, TypeError):
+        frappe.throw(_("Invalid days_back value - must be a number"), frappe.ValidationError)
+
+    # Log the bulk operation for audit
+    frappe.logger("verenigingen.race_condition_fix").warning(
+        f"Bulk race condition fix initiated by {frappe.session.user} for last {days_back} days"
+    )
 
     # Get invoices from the specified days back
     recent_date = add_days(today(), -days_back)
 
-    # Query for recent invoices
+    # Query for recent invoices - using parameterized query for security
     invoices = frappe.db.sql(
         """
         SELECT
@@ -96,7 +125,7 @@ def fix_recent_missing_invoices(days_back=7):
         ORDER BY si.posting_date DESC
         LIMIT 100
     """,
-        recent_date,
+        (recent_date,),
         as_dict=True,
     )
 
@@ -130,12 +159,17 @@ def fix_recent_missing_invoices(days_back=7):
                     )
                 except Exception as e:
                     error_count += 1
+                    # Log the error for debugging but sanitize the message
+                    frappe.log_error(
+                        f"Failed to add invoice {invoice_data.invoice_name} to member {invoice_data.member_name}: {str(e)}",
+                        "Race Condition Fix Error",
+                    )
                     details.append(
                         {
                             "invoice": invoice_data.invoice_name,
                             "member": invoice_data.member_name,
                             "status": "error",
-                            "message": str(e),
+                            "message": "Failed to update payment history - see error log",
                         }
                     )
             else:
@@ -143,12 +177,14 @@ def fix_recent_missing_invoices(days_back=7):
 
         except Exception as e:
             error_count += 1
+            # Log the error for debugging
+            frappe.log_error(f"Error processing invoice data: {str(e)}", "Race Condition Fix Error")
             details.append(
                 {
-                    "invoice": invoice_data.invoice_name,
-                    "member": invoice_data.member_name if invoice_data else "Unknown",
+                    "invoice": getattr(invoice_data, "invoice_name", "Unknown"),
+                    "member": getattr(invoice_data, "member_name", "Unknown"),
                     "status": "error",
-                    "message": str(e),
+                    "message": "Processing error - see error log",
                 }
             )
 

@@ -81,6 +81,35 @@ class SecureOperationResult:
         )
 
 
+def _execute_document_operation(doc, operation: str):
+    """
+    Execute the correct document operation method
+
+    Frappe documents have different method names than the operation strings.
+    This function maps operations to the correct document methods.
+
+    Args:
+        doc: Document to operate on
+        operation: Operation string ("create", "save", "submit", etc.)
+    """
+    operation = operation.lower()
+
+    if operation in ["create", "insert"]:
+        doc.insert()
+    elif operation in ["save", "update"]:
+        doc.save()
+    elif operation == "submit":
+        doc.submit()
+    elif operation == "cancel":
+        doc.cancel()
+    elif operation == "delete":
+        doc.delete()
+    else:
+        # Fallback to direct method call for unknown operations
+        operation_func = getattr(doc, operation)
+        operation_func()
+
+
 def validate_permissions(doc, operation: str, required_permissions: List[str] = None) -> bool:
     """
     Validate that current user has required permissions for operation
@@ -274,8 +303,7 @@ def secure_document_operation(
             )
 
             # Perform operation with current user
-            operation_func = getattr(doc, operation.lower())
-            operation_func()
+            _execute_document_operation(doc, operation)
 
             result.doc_name = doc.name
             result.document = doc  # Add document reference to result
@@ -304,8 +332,7 @@ def secure_document_operation(
                     )
 
                 # Perform operation as system user
-                operation_func = getattr(doc, operation.lower())
-                operation_func()
+                _execute_document_operation(doc, operation)
 
                 result.doc_name = doc.name
                 result.document = doc  # Add document reference to result

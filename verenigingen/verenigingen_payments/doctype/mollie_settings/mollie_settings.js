@@ -78,8 +78,8 @@ function add_custom_buttons(frm) {
 }
 
 function setup_form_indicators(frm) {
-	// Clear existing indicators
-	frm.dashboard.clear_indicators();
+	// Clear existing dashboard content
+	frm.dashboard.clear_headline();
 
 	// Show test mode indicator
 	if (frm.doc.test_mode) {

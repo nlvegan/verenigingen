@@ -792,9 +792,17 @@ class MembershipDuesSchedule(Document):
 
             # Check member status
             if member.status in ["Terminated", "Expelled", "Deceased", "Suspended", "Quit"]:
-                frappe.log_error(
-                    f"Invoice blocked: member {self.member} status {member.status}",
-                    "Member Status Validation",
+                # Aggregate blocked members instead of logging individually
+                if not hasattr(frappe.local, "blocked_members"):
+                    frappe.local.blocked_members = {}
+                if member.status not in frappe.local.blocked_members:
+                    frappe.local.blocked_members[member.status] = []
+                frappe.local.blocked_members[member.status].append(
+                    {
+                        "member": self.member,
+                        "member_name": getattr(member, "member_name", self.member),
+                        "schedule": self.name,
+                    }
                 )
                 return False
 
@@ -1891,6 +1899,9 @@ def generate_dues_invoices(test_mode=False):
             f"{results['payment_history_updates']} payment history updates"
         )
 
+        # Generate aggregated blocked member report
+        _log_blocked_members_summary()
+
         return results
 
     finally:
@@ -2484,3 +2495,35 @@ def validate_and_fix_schedule_dates():
         results["error"] = str(e)
 
     return results
+
+
+def _log_blocked_members_summary():
+    """
+    Generate aggregated report for members blocked from invoice generation.
+    Reduces log spam by consolidating multiple blocked member reports into one.
+    """
+    if not hasattr(frappe.local, "blocked_members") or not frappe.local.blocked_members:
+        return
+
+    # Build summary report
+    total_blocked = sum(len(members) for members in frappe.local.blocked_members.values())
+
+    summary_lines = [
+        f"Daily Invoice Generation - Blocked Members Summary ({total_blocked} members blocked)",
+        "=" * 80,
+    ]
+
+    for status, members in frappe.local.blocked_members.items():
+        summary_lines.append(f"\n{status.upper()} STATUS: {len(members)} members")
+        for member_info in members[:10]:  # Show first 10, truncate if more
+            member_name = member_info.get("member_name", member_info["member"])
+            summary_lines.append(f"  - {member_info['member']} ({member_name})")
+
+        if len(members) > 10:
+            summary_lines.append(f"  ... and {len(members) - 10} more {status} members")
+
+    # Log as single consolidated report
+    frappe.log_error("\n".join(summary_lines), "Daily Blocked Members Summary")
+
+    # Clear the aggregated data
+    frappe.local.blocked_members = {}

@@ -100,8 +100,8 @@ class PaymentReconciliationManager:
     def reconcile_bank_transactions(self, bank_account=None, from_date=None, to_date=None):
         """Reconcile imported bank transactions with SEPA batches"""
 
-        # Get unreconciled bank transactions
-        filters = {"status": "Pending", "reference_type": ["is", "not set"]}
+        # Get unreconciled bank transactions (ones without payment allocations)
+        filters = {"status": "Pending", "allocated_amount": ["in", [0, None]]}
 
         if bank_account:
             filters["bank_account"] = bank_account
@@ -466,14 +466,12 @@ class PaymentReconciliationManager:
             if match["type"] in ["invoice", "batch"]:
                 # Create payment entry with proper validation
                 try:
-                    payment_entry = self.create_payment_entry_from_transaction(
+                    self.create_payment_entry_from_transaction(
                         bank_trans, match["reference"], match.get("batch")
                     )
 
                     # Update bank transaction
                     bank_trans.status = "Reconciled"
-                    bank_trans.reference_type = "Payment Entry"
-                    bank_trans.reference_name = payment_entry.name
                     bank_trans.add_comment(
                         "Comment",
                         f'Auto-reconciled: {match["match_reason"]} (Confidence: {match["confidence"]:.0%})',
@@ -518,8 +516,6 @@ class PaymentReconciliationManager:
 
                     # Update bank transaction
                     bank_trans.status = "Reconciled"
-                    bank_trans.reference_type = "Mollie Settlement"
-                    bank_trans.reference_name = match["reference"]
                     bank_trans.add_comment(
                         "Comment",
                         f'Auto-reconciled: {match["match_reason"]} (Confidence: {match["confidence"]:.0%})',

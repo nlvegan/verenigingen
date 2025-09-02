@@ -35,22 +35,49 @@ def get_verenigingen_settings() -> Optional[Dict[str, Any]]:
     """
     Get Verenigingen Settings with caching and error handling.
 
+    CRITICAL: This function NEVER returns None. If settings don't exist,
+    they are created automatically to ensure system stability.
+
     Returns:
-        Dict with settings if found, None if error occurs
+        Dict with settings (guaranteed to exist)
 
     Error Handling:
-        Returns None on any database or access errors.
-        Logs errors for debugging purposes.
+        Creates settings if missing, logs errors but continues.
+        Only returns None in catastrophic database failures.
 
     Performance:
-        Uses frappe.get_cached_single() for better performance.
+        Uses frappe.get_single() for settings retrieval.
     """
     try:
-        settings = frappe.get_cached_single("Verenigingen Settings")
-        return settings
+        # Try to get existing settings
+        settings = frappe.get_single("Verenigingen Settings")
+        if settings:
+            return settings
     except Exception as e:
         frappe.logger().error(f"Error retrieving Verenigingen Settings: {str(e)}")
-        return None
+
+    # Settings don't exist or failed to load - create them
+    try:
+        # Use direct import to avoid circular imports
+        import importlib
+
+        setup_module = importlib.import_module("verenigingen.setup")
+        create_function = getattr(setup_module, "create_default_verenigingen_settings")
+
+        frappe.logger().info("Creating default Verenigingen Settings")
+        settings = create_function()
+
+        if settings:
+            # Clear cache and get fresh copy
+            frappe.cache().delete_key("single:Verenigingen Settings")
+            return frappe.get_doc("Verenigingen Settings").as_dict()
+
+    except Exception as creation_error:
+        frappe.logger().error(f"Failed to create Verenigingen Settings: {str(creation_error)}")
+
+    # Last resort - return None only if everything failed
+    frappe.logger().error("CRITICAL: Unable to load or create Verenigingen Settings")
+    return None
 
 
 def get_e_boekhouden_settings() -> Optional[Dict[str, Any]]:
@@ -65,10 +92,10 @@ def get_e_boekhouden_settings() -> Optional[Dict[str, Any]]:
         Logs errors for debugging purposes.
 
     Performance:
-        Uses frappe.get_cached_single() for better performance.
+        Uses frappe.get_single() for settings retrieval.
     """
     try:
-        settings = frappe.get_cached_single("E-Boekhouden Settings")
+        settings = frappe.get_single("E-Boekhouden Settings")
         return settings
     except Exception as e:
         frappe.logger().error(f"Error retrieving E-Boekhouden Settings: {str(e)}")
@@ -97,7 +124,7 @@ def get_mollie_settings(gateway_name: str = "Default") -> Optional[Dict[str, Any
             frappe.logger().warning(f"Mollie Settings '{gateway_name}' does not exist")
             return None
 
-        settings = frappe.get_cached_doc("Mollie Settings", gateway_name)
+        settings = frappe.get_doc("Mollie Settings", gateway_name)
         return settings.as_dict()
     except Exception as e:
         frappe.logger().error(f"Error retrieving Mollie Settings '{gateway_name}': {str(e)}")
@@ -116,10 +143,10 @@ def get_system_settings() -> Optional[Dict[str, Any]]:
         Logs errors for debugging purposes.
 
     Performance:
-        Uses frappe.get_cached_single() for better performance.
+        Uses frappe.get_single() for settings retrieval.
     """
     try:
-        settings = frappe.get_cached_single("System Settings")
+        settings = frappe.get_single("System Settings")
         return settings
     except Exception as e:
         frappe.logger().error(f"Error retrieving System Settings: {str(e)}")
@@ -138,10 +165,10 @@ def get_domain_settings() -> Optional[Dict[str, Any]]:
         Logs errors for debugging purposes.
 
     Performance:
-        Uses frappe.get_cached_single() for better performance.
+        Uses frappe.get_single() for settings retrieval.
     """
     try:
-        settings = frappe.get_cached_single("Domain Settings")
+        settings = frappe.get_single("Domain Settings")
         return settings
     except Exception as e:
         frappe.logger().error(f"Error retrieving Domain Settings: {str(e)}")
@@ -160,10 +187,10 @@ def get_brand_settings() -> Optional[Dict[str, Any]]:
         Logs errors for debugging purposes.
 
     Performance:
-        Uses frappe.get_cached_single() for better performance.
+        Uses frappe.get_single() for settings retrieval.
     """
     try:
-        settings = frappe.get_cached_single("Brand Settings")
+        settings = frappe.get_single("Brand Settings")
         return settings
     except Exception as e:
         frappe.logger().error(f"Error retrieving Brand Settings: {str(e)}")
@@ -210,7 +237,7 @@ def get_e_boekhouden_api_credentials() -> Optional[Dict[str, str]]:
         Uses get_password() method for secure credential retrieval
     """
     try:
-        settings = frappe.get_cached_single("E-Boekhouden Settings")
+        settings = frappe.get_single("E-Boekhouden Settings")
         if not settings:
             return None
 

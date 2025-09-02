@@ -131,7 +131,7 @@ def create_comprehensive_email_templates():
         # Donation templates
         {
             "name": "donation_confirmation",
-            "subject": "Thank you for your donation - {{ doc.name }}",
+            "subject": "Thank you for your donation - {{ donation_id }}",
             "response": """
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                 <h2>Dear {{ donor_name }},</h2>
@@ -143,11 +143,11 @@ def create_comprehensive_email_templates():
                     <table style="width: 100%; border-collapse: collapse;">
                         <tr>
                             <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>Donation ID:</strong></td>
-                            <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">{{ doc.name }}</td>
+                            <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">{{ donation_id }}</td>
                         </tr>
                         <tr>
                             <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>Amount:</strong></td>
-                            <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">€{{ doc.amount }}</td>
+                            <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">€{{ donation_amount }}</td>
                         </tr>
                         <tr>
                             <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>Date:</strong></td>
@@ -159,16 +159,16 @@ def create_comprehensive_email_templates():
                         </tr>
                         <tr>
                             <td style="padding: 8px 0;"><strong>Status:</strong></td>
-                            <td style="padding: 8px 0;">{{ doc.donation_status }}</td>
+                            <td style="padding: 8px 0;">{{ donation_status }}</td>
                         </tr>
                     </table>
                 </div>
 
                 <p>Your donation helps us make a positive impact in our community. We will send you a payment confirmation once your payment has been processed.</p>
 
-                {% if doc.donation_notes %}
+                {% if donation_notes %}
                 <p><strong>Your message:</strong><br>
-                <em>{{ doc.donation_notes }}</em></p>
+                <em>{{ donation_notes }}</em></p>
                 {% endif %}
 
                 <p>If you have any questions about your donation, please don't hesitate to contact us at {{ organization_email }}.</p>
@@ -180,19 +180,19 @@ def create_comprehensive_email_templates():
         },
         {
             "name": "donation_payment_confirmation",
-            "subject": "Payment Received - Donation {{ doc.name }}",
+            "subject": "Payment Received - Donation {{ donation_id }}",
             "response": """
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                 <h2>Dear {{ donor_name }},</h2>
 
-                <p>We have received your payment for donation {{ doc.name }}. Thank you for your generous support!</p>
+                <p>We have received your payment for donation {{ donation_id }}. Thank you for your generous support!</p>
 
                 <div style="background-color: #d4edda; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #28a745;">
                     <h3 style="color: #155724; margin-top: 0;">Payment Confirmed</h3>
                     <table style="width: 100%; border-collapse: collapse;">
                         <tr>
                             <td style="padding: 8px 0; border-bottom: 1px solid #c3e6cb;"><strong>Amount Paid:</strong></td>
-                            <td style="padding: 8px 0; border-bottom: 1px solid #c3e6cb;">€{{ doc.amount }}</td>
+                            <td style="padding: 8px 0; border-bottom: 1px solid #c3e6cb;">€{{ donation_amount }}</td>
                         </tr>
                         <tr>
                             <td style="padding: 8px 0; border-bottom: 1px solid #c3e6cb;"><strong>Payment Date:</strong></td>
@@ -209,7 +209,7 @@ def create_comprehensive_email_templates():
                     </table>
                 </div>
 
-                <p>Your contribution of €{{ doc.amount }} for {{ earmarking }} will help us continue our important work.</p>
+                <p>Your contribution of €{{ donation_amount }} for {{ earmarking }} will help us continue our important work.</p>
 
                 <p>This email serves as your payment receipt. Please keep it for your records.</p>
 
@@ -244,7 +244,7 @@ def create_comprehensive_email_templates():
                         </tr>
                         <tr>
                             <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>Donation Amount:</strong></td>
-                            <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">€{{ doc.amount }}</td>
+                            <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">€{{ donation_amount }}</td>
                         </tr>
                         <tr>
                             <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>Tax Year:</strong></td>

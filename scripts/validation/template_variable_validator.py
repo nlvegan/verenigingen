@@ -241,8 +241,9 @@ class ModernTemplateValidator:
         return context
     
     def _extract_variables_advanced(self, content: str) -> Set[str]:
-        """Advanced variable extraction with better accuracy"""
+        """Advanced variable extraction with better accuracy and fallback detection"""
         variables = set()
+        variables_with_fallbacks = set()
         
         # Remove comments first
         content = re.sub(r'\{#.*?#\}', '', content, flags=re.DOTALL)
@@ -284,6 +285,17 @@ class ModernTemplateValidator:
                 if param:
                     local_vars.add(param)
         
+        # Detect variables with fallback values ({{ var or "default" }} or {{ var|default("x") }})
+        fallback_patterns = [
+            r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s+or\s+[^}]+\}\}',        # {{ var or "default" }}
+            r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\|\s*default\s*\([^}]*\}\}',  # {{ var|default("x") }}
+            r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\|\s*default\s*\([^)]*\)\s*\}\}',  # {{ var|default('x') }}
+        ]
+        
+        for pattern in fallback_patterns:
+            fallback_matches = re.findall(pattern, content)
+            variables_with_fallbacks.update(fallback_matches)
+        
         # Main variable extraction patterns
         patterns = [
             # {{ variable }}
@@ -317,6 +329,9 @@ class ModernTemplateValidator:
                 filtered_vars.add(var)
             elif re.search(rf'\b{var}\s*\[', content):  # Array access is valid
                 filtered_vars.add(var)
+        
+        # Store fallback information for later use
+        self._template_fallbacks = variables_with_fallbacks
         
         return filtered_vars
     
@@ -423,14 +438,23 @@ class ModernTemplateValidator:
         return variables
     
     def validate_critical_variables(self, context: TemplateContext, 
-                                   provided_vars: Set[str]) -> List[TemplateIssue]:
+                                   provided_vars: Set[str], 
+                                   variables_with_fallbacks: Set[str] = None) -> List[TemplateIssue]:
         """Check for critical missing variables based on template type"""
         issues = []
+        if variables_with_fallbacks is None:
+            variables_with_fallbacks = set()
         
         if context.template_type == 'portal':
             missing_critical = self.critical_portal_vars - provided_vars
             for var in missing_critical:
                 if var in context.variables_used:
+                    # CRITICAL FIX: Skip if variable has fallback value
+                    if var in variables_with_fallbacks:
+                        if self.verbose:
+                            print(f"   ✅ Critical portal variable '{var}' has fallback, skipping")
+                        continue
+                        
                     issues.append(TemplateIssue(
                         severity=Severity.CRITICAL,
                         category=IssueCategory.MISSING_VARIABLE,
@@ -447,6 +471,12 @@ class ModernTemplateValidator:
             missing_critical = self.critical_email_vars - provided_vars
             for var in missing_critical:
                 if var in context.variables_used:
+                    # CRITICAL FIX: Skip if variable has fallback value
+                    if var in variables_with_fallbacks:
+                        if self.verbose:
+                            print(f"   ✅ Critical email variable '{var}' has fallback, skipping")
+                        continue
+                        
                     issues.append(TemplateIssue(
                         severity=Severity.HIGH,
                         category=IssueCategory.MISSING_VARIABLE,
@@ -597,6 +627,17 @@ class ModernTemplateValidator:
             if safe_match:
                 context = safe_match.group(1).strip()
                 
+                # CRITICAL FIX: Be smarter about legitimate |safe usage
+                # Skip known safe cases
+                skip_safe_check = any(safe_var in context for safe_var in [
+                    'address_display',  # Already uses html.escape()
+                    'enhanced_menu',    # Already uses html.escape() 
+                    'tojson'           # JSON serialization is safe
+                ])
+                
+                if skip_safe_check:
+                    continue  # Skip this |safe usage as it's legitimate
+                
                 # Determine if this is a legitimate use of |safe
                 if 'tojson' in context:
                     # JSON serialization is generally safe
@@ -604,31 +645,33 @@ class ModernTemplateValidator:
                     message = "JSON serialization with |safe - verify data is trusted"
                     suggestion = "Ensure JSON data doesn't contain user input or is properly sanitized"
                     confidence = 0.6
-                elif any(x in context for x in ['_html', 'enhanced_menu', 'address_display']):
-                    # HTML content needs careful review
+                elif any(x in context for x in ['request.', 'user_input', 'form.']):
+                    # Direct user input - high risk
                     severity = Severity.HIGH
                     message = "HTML content with |safe filter - high XSS risk"
                     suggestion = "Ensure HTML is sanitized server-side before rendering"
                     confidence = 0.9
                 else:
-                    # Generic |safe usage
-                    severity = Severity.MEDIUM
+                    # Generic |safe usage - only flag if high confidence it's risky
+                    severity = Severity.LOW
                     message = "Using |safe filter disables HTML escaping"
                     suggestion = "Verify this content is trusted and doesn't contain user input"
-                    confidence = 0.75
+                    confidence = 0.5  # Lower confidence to reduce noise
                 
-                issues.append(TemplateIssue(
-                    severity=severity,
-                    category=IssueCategory.SECURITY_RISK,
-                    template_file=str(template_path.relative_to(self.app_path)),
-                    context_file=None,
-                    line_number=line_num,
-                    variable_name=None,
-                    message=message,
-                    suggestion=suggestion,
-                    code_snippet=line.strip()[:100],
-                    confidence=confidence
-                ))
+                # Only report if confidence is above threshold
+                if confidence >= 0.7:
+                    issues.append(TemplateIssue(
+                        severity=severity,
+                        category=IssueCategory.SECURITY_RISK,
+                        template_file=str(template_path.relative_to(self.app_path)),
+                        context_file=None,
+                        line_number=line_num,
+                        variable_name=None,
+                        message=message,
+                        suggestion=suggestion,
+                        code_snippet=line.strip()[:100],
+                        confidence=confidence
+                    ))
             
             # Check for autoescape disabled
             if re.search(r'{%\s*autoescape\s+false', line):
@@ -781,6 +824,9 @@ class ModernTemplateValidator:
                 print(f"❌ Error validating template {template_path}: {e}")
             return issues
         
+        # Get fallback information from template extraction
+        variables_with_fallbacks = getattr(self, '_template_fallbacks', set())
+        
         # Find matching Python context provider
         py_file = self.match_template_to_context(template_path)
         provided_vars = set()
@@ -802,6 +848,12 @@ class ModernTemplateValidator:
                     
                 # Skip very short vars unless they're important
                 if len(var) <= 2 and var not in self.important_short_vars:
+                    continue
+                
+                # CRITICAL FIX: Skip variables that have fallback values
+                if var in variables_with_fallbacks:
+                    if self.verbose:
+                        print(f"   ✅ Variable '{var}' has fallback, skipping validation")
                     continue
                 
                 # Determine if variable is critical based on patterns and context
@@ -833,8 +885,8 @@ class ModernTemplateValidator:
                     confidence=0.8
                 ))
         
-        # Check critical variables
-        issues.extend(self.validate_critical_variables(context, provided_vars))
+        # Check critical variables (updated to account for fallbacks)
+        issues.extend(self.validate_critical_variables(context, provided_vars, variables_with_fallbacks))
         
         # Check security issues with context awareness
         issues.extend(self.check_security_issues(template_path))

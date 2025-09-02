@@ -13,8 +13,8 @@ from frappe.utils import add_days, flt, getdate, today
 from verenigingen.utils.security.api_security_framework import critical_api, high_security_api
 
 
-@critical_api()
 @frappe.whitelist()
+@critical_api()
 def bulk_generate_dues_invoices(filter_criteria=None, dry_run=True, max_invoices=50):
     """
     Generate invoices for multiple dues schedules with comprehensive filtering and validation
@@ -218,8 +218,8 @@ def bulk_generate_dues_invoices(filter_criteria=None, dry_run=True, max_invoices
         return {"success": False, "error": str(e), "message": f"Bulk invoice generation failed: {str(e)}"}
 
 
-@high_security_api()
 @frappe.whitelist()
+@high_security_api()
 def get_dues_schedules_summary(include_orphaned=True, days_ahead=30):
     """
     Get a comprehensive summary of dues schedules for admin dashboard
@@ -312,8 +312,8 @@ def get_dues_schedules_summary(include_orphaned=True, days_ahead=30):
         return {"success": False, "error": str(e)}
 
 
-@critical_api()
 @frappe.whitelist()
+@critical_api()
 def cleanup_orphaned_schedules(dry_run=True, max_cleanup=20):
     """
     Clean up orphaned dues schedules that reference non-existent members
@@ -420,8 +420,8 @@ def cleanup_orphaned_schedules(dry_run=True, max_cleanup=20):
         return {"success": False, "error": str(e), "message": f"Cleanup failed: {str(e)}"}
 
 
-@high_security_api()
 @frappe.whitelist()
+@high_security_api()
 def validate_invoice_generation_readiness():
     """
     Validate system readiness for invoice generation and identify potential issues

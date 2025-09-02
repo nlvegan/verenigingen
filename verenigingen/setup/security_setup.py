@@ -252,6 +252,158 @@ def setup_password_policy():
         return False
 
 
+def setup_verenigingen_security_policies():
+    """
+    Validate and configure existing Verenigingen security framework.
+    This ensures the sophisticated audit logging and API security systems are properly enabled.
+
+    Returns:
+        dict: Results of security framework validation and configuration
+    """
+    try:
+        results = {
+            "validations_passed": 0,
+            "configurations_enabled": 0,
+            "errors": [],
+            "warnings": [],
+            "success": True,
+        }
+
+        print("   📋 Validating and configuring Verenigingen security framework...")
+
+        # 1. Validate API Security Framework is operational
+        try:
+            from verenigingen.utils.security.api_security_framework import get_security_framework
+
+            framework = get_security_framework()
+            if framework.audit_logger is not None:
+                results["validations_passed"] += 1
+                print("   ✅ API Security Framework operational with audit logging")
+            else:
+                results["warnings"].append("API Security Framework lacks audit logger")
+                print("   ⚠️  API Security Framework missing audit logger")
+        except Exception as e:
+            results["errors"].append(f"API Security Framework validation failed: {str(e)}")
+            print(f"   ❌ API Security Framework validation failed: {str(e)}")
+
+        # 2. Validate Audit Logging System is functional
+        try:
+            from verenigingen.utils.security.audit_logging import get_audit_logger, log_security_event
+
+            get_audit_logger()  # Test that audit logger is accessible
+
+            # Test audit logging with a security setup event
+            log_security_event(
+                "security_system_initialized",
+                details={"module": "security_setup", "validation": "system_startup"},
+                severity="info",
+            )
+            results["validations_passed"] += 1
+            print("   ✅ Audit logging system functional")
+        except Exception as e:
+            results["errors"].append(f"Audit logging validation failed: {str(e)}")
+            print(f"   ❌ Audit logging validation failed: {str(e)}")
+
+        # 3. Check if API Audit Log DocType exists and is accessible
+        try:
+            frappe.get_all("API Audit Log", limit=1)  # Test API Audit Log access
+            results["validations_passed"] += 1
+            print("   ✅ API Audit Log DocType accessible")
+        except Exception as e:
+            results["errors"].append(f"API Audit Log DocType validation failed: {str(e)}")
+            print(f"   ❌ API Audit Log DocType validation failed: {str(e)}")
+
+        # 3b. Check if SEPA Audit Log DocType exists and is accessible
+        try:
+            frappe.get_all("SEPA Audit Log", limit=1)  # Test SEPA Audit Log access
+            results["validations_passed"] += 1
+            print("   ✅ SEPA Audit Log DocType accessible")
+        except Exception as e:
+            results["errors"].append(f"SEPA Audit Log DocType validation failed: {str(e)}")
+            print(f"   ❌ SEPA Audit Log DocType validation failed: {str(e)}")
+
+        # 4. Validate that critical APIs are using security decorators across multiple modules
+        decorator_count = 0
+        modules_checked = 0
+        try:
+            import importlib
+            import inspect
+
+            # Check multiple API modules for comprehensive coverage
+            api_modules = [
+                "verenigingen.utils.invoice_management",
+                "verenigingen.api.member_management",
+                "verenigingen.api.payment_processing",
+                "verenigingen.utils.sepa_operations",
+            ]
+
+            for module_name in api_modules:
+                try:
+                    module = importlib.import_module(module_name)
+                    modules_checked += 1
+                    for name, func in inspect.getmembers(module):
+                        if hasattr(func, "_security_protected") and func._security_protected:
+                            decorator_count += 1
+                except ImportError:
+                    continue  # Module doesn't exist, skip
+
+            if decorator_count > 0:
+                results["validations_passed"] += 1
+                print(
+                    f"   ✅ Found {decorator_count} API functions with security decorators across {modules_checked} modules"
+                )
+            else:
+                results["warnings"].append("No API functions found with security decorators")
+                print("   ⚠️  No API functions found with security decorators")
+        except Exception as e:
+            results["warnings"].append(f"Security decorator validation incomplete: {str(e)}")
+            print(f"   ⚠️  Security decorator validation incomplete: {str(e)}")
+
+        # 5. Validate audit logging functionality through direct testing
+        try:
+            from verenigingen.utils.security.audit_logging import log_security_event
+
+            # Test audit logging by creating a test log entry
+            log_security_event(
+                "audit_system_test",
+                details={"test": True, "validation_run": frappe.utils.now()},
+                severity="info",
+            )
+            results["configurations_enabled"] += 1
+            print("   ✅ System audit logging verified through test log")
+        except Exception as e:
+            results["warnings"].append(f"System audit test failed: {str(e)}")
+            print(f"   ⚠️  System audit test failed: {str(e)}")
+
+        # 6. Log successful security framework validation
+        if results["validations_passed"] > 0:
+            from verenigingen.utils.security.audit_logging import log_security_event
+
+            log_security_event(
+                "security_framework_validated",
+                details={
+                    "validations_passed": results["validations_passed"],
+                    "configurations_enabled": results["configurations_enabled"],
+                    "setup_timestamp": frappe.utils.now(),
+                },
+                severity="info",
+            )
+
+        return results
+
+    except Exception as e:
+        frappe.log_error(f"Security framework validation failed: {str(e)}", "Security Framework Validation")
+        print(f"   ❌ Security framework validation failed: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "validations_passed": 0,
+            "configurations_enabled": 0,
+            "errors": [str(e)],
+            "warnings": [],
+        }
+
+
 def check_security_status():
     """
     Check the current security configuration status.
@@ -345,22 +497,7 @@ def log_security_audit(action, details, user=None):
                 "comment_by": user,
                 "ip_address": frappe.local.request_ip if hasattr(frappe.local, "request_ip") else None,
             }
-        )
-
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        result = secure_document_operation(
-            operation="insert",
-            doc=security_rule,
-            justification="Create Verenigingen security access rule during installation - security policy enforcement",
-            required_permissions=["Security Rule:create"],
-        )
-
-        if not result.success:
-            frappe.log_error(f"Failed to create security rule: {'; '.join(result.errors)}")
-            security_logger.error(f"Security setup failed - access rule: {'; '.join(result.errors)}")
-            return False
-
-        # security_rule created successfully via secure_document_operation
+        ).insert()
 
         # Also log to security-specific log file using configured logger
         security_logger.info(f"SECURITY AUDIT: {action} by {user} - {frappe.as_json(details)}")
@@ -388,6 +525,7 @@ def setup_all_security():
         "session_secret": generate_session_secret(),
         "password_policy": setup_password_policy(),
         "security_headers": setup_security_headers(),
+        "security_policies": setup_verenigingen_security_policies(),
     }
 
     # Check final status
@@ -421,9 +559,9 @@ def setup_all_security():
 # API Endpoints for manual security management
 
 
-@frappe.whitelist()
 @rate_limit(limit=5, seconds=60)  # 5 attempts per minute
 @security_rate_limit(limit=3, seconds=300)  # Additional: 3 attempts per 5 minutes
+@frappe.whitelist()
 def enable_csrf_protection():
     """Manually enable CSRF protection."""
     # Validate CSRF token if protection is enabled
@@ -461,8 +599,8 @@ def enable_csrf_protection():
         return {"success": False, "message": str(e)}
 
 
-@frappe.whitelist()
 @rate_limit(limit=10, seconds=60)  # 10 attempts per minute (read-only, less restrictive)
+@frappe.whitelist()
 def check_current_security_status():
     """Check current security configuration status."""
     # No CSRF validation needed for read-only operation

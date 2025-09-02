@@ -277,9 +277,22 @@ class DonationAgreement(Document):
             frappe.db.commit()
             return donation.name
         else:
+            # Use structured error logging instead of truncation
+            error_summary = f"Donation submission failed for agreement {self.name}"
+            error_details = {
+                "agreement_id": self.name,
+                "donor": self.donor,
+                "amount": self.amount,
+                "currency": self.currency,
+                "errors": submit_result.errors,
+                "context": "create_next_donation_transaction",
+                "timestamp": frappe.utils.now(),
+            }
+
+            # Log with proper title and structured details
             frappe.log_error(
-                f"Failed to submit donation from agreement {self.name}: {'; '.join(submit_result.errors)}",
-                "Donation Agreement Transaction Submission",
+                message=frappe.as_json(error_details, indent=2),
+                title=error_summary,
             )
             return None
 

@@ -676,9 +676,10 @@ class SEPAAuditLogger:
 
                 if sepa_deleted > 0 or api_deleted > 0:
                     self.log_event(
-                        "audit_cleanup",
+                        "configuration_change",
                         AuditSeverity.INFO,
                         details={
+                            "operation": "audit_log_cleanup",
                             "severity": severity.value,
                             "sepa_deleted_count": sepa_deleted,
                             "api_deleted_count": api_deleted,
