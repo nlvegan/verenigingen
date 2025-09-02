@@ -1876,7 +1876,7 @@ def get_chapter_member_emails(chapter_name):
 
     return {
         "success": True,
-        "chapter": {"name": chapter_name, "chapter_name": chapter.chapter_name, "region": chapter.region},
+        "chapter": {"name": chapter_name, "chapter_name": chapter.name, "region": chapter.region},
         "emails": valid_emails,
         "members": member_details,
         "total_members": len(member_details),

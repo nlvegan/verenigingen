@@ -1,0 +1,132 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-01-02 10:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "optimization_name",
+  "section_break_2",
+  "enable_database_indexing",
+  "enable_caching_layer",
+  "enable_query_optimization",
+  "column_break_5",
+  "optimization_status",
+  "optimization_completion_date",
+  "last_optimization_check",
+  "section_break_details",
+  "indexing_details",
+  "caching_details"
+ ],
+ "fields": [
+  {
+   "fieldname": "optimization_name",
+   "fieldtype": "Data",
+   "label": "Optimization Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_2",
+   "fieldtype": "Section Break",
+   "label": "Optimization Settings"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_database_indexing",
+   "fieldtype": "Check",
+   "label": "Enable Database Indexing"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_caching_layer",
+   "fieldtype": "Check",
+   "label": "Enable Caching Layer"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_query_optimization",
+   "fieldtype": "Check",
+   "label": "Enable Query Optimization"
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "optimization_status",
+   "fieldtype": "Select",
+   "label": "Optimization Status",
+   "options": "Pending\nIn Progress\nCompleted\nFailed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "optimization_completion_date",
+   "fieldtype": "Datetime",
+   "label": "Optimization Completion Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_optimization_check",
+   "fieldtype": "Datetime",
+   "label": "Last Optimization Check",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_details",
+   "fieldtype": "Section Break",
+   "label": "Optimization Details"
+  },
+  {
+   "fieldname": "indexing_details",
+   "fieldtype": "Long Text",
+   "label": "Database Indexing Details",
+   "read_only": 1
+  },
+  {
+   "fieldname": "caching_details",
+   "fieldtype": "Long Text",
+   "label": "Caching Configuration Details",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2025-01-02 10:00:00",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Performance Optimization Setup",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "optimization_name",
+ "track_changes": 1
+}

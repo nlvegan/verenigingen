@@ -320,8 +320,15 @@ doc_events = {
     # Core membership system events
     "Membership": {
         "validate": "verenigingen.validations.validate_membership_grace_period",
-        "on_submit": "verenigingen.verenigingen.doctype.membership.membership.on_submit",
-        "on_cancel": "verenigingen.verenigingen.doctype.membership.membership.on_cancel",
+        "on_submit": [
+            "verenigingen.verenigingen.doctype.membership.membership.on_submit",
+            "verenigingen.utils.performance_cache.on_membership_update",  # Performance cache invalidation
+        ],
+        "on_cancel": [
+            "verenigingen.verenigingen.doctype.membership.membership.on_cancel",
+            "verenigingen.utils.performance_cache.on_membership_update",  # Performance cache invalidation
+        ],
+        "on_update": "verenigingen.utils.performance_cache.on_membership_update",  # Performance cache invalidation
     },
     # Updated to use dues schedule system instead of subscription hooks
     "Chapter": {
@@ -459,11 +466,19 @@ doc_events = {
             "verenigingen.verenigingen.doctype.member.member.handle_fee_override_after_save",
             "verenigingen.email.email_group_sync.sync_member_on_change",
             "verenigingen.utils.cache_invalidation.on_document_update",  # Cache invalidation
+            "verenigingen.utils.performance_cache.on_member_update",  # Performance cache invalidation
         ],
         "on_update": [
             "verenigingen.utils.chapter_role_events.on_member_on_update",
             "verenigingen.utils.cache_invalidation.on_document_update",  # Cache invalidation
+            "verenigingen.utils.performance_cache.on_member_update",  # Performance cache invalidation
         ],
+    },
+    # Chapter Member events for performance cache invalidation
+    "Chapter Member": {
+        "after_save": "verenigingen.utils.performance_cache.on_chapter_member_update",
+        "on_update": "verenigingen.utils.performance_cache.on_chapter_member_update",
+        "on_trash": "verenigingen.utils.performance_cache.on_chapter_member_update",
     },
     # SEPA Mandate events for cache invalidation
     "SEPA Mandate": {
@@ -680,6 +695,11 @@ update_website_context = ["verenigingen.utils.portal_customization.add_brand_bod
 after_install = [
     "verenigingen.setup.execute_after_install",
     "verenigingen.setup.security_setup.setup_all_security",
+]
+
+# FIXED: Move performance optimization to after_migrate to ensure DocTypes exist
+after_migrate = [
+    "verenigingen.verenigingen.doctype.performance_optimization_setup.performance_optimization_setup.run_performance_optimization",
 ]
 
 # Permissions
