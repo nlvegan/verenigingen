@@ -11,11 +11,82 @@
   },
   "servers": [
     {
-      "url": "http://dev.veganisme.net/api/method/verenigingen.api",
+      "url": "{frappe.utils.get_url()}/api/method/verenigingen.api",
       "description": "Production server"
     }
   ],
-  "paths": {},
+  "paths": {
+    "/{module_name.replace('.', '/')}.{function.__name__}": {
+      "post": {
+        "summary": "Test Coverage Fields",
+        "description": "Test if coverage fields exist and have data",
+        "operationId": "{endpoint['module']}.{endpoint['function_name']}",
+        "tags": [
+          "test_coverage_fields"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "required": []
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "apiKey": []
+          },
+          {
+            "sessionAuth": []
+          }
+        ]
+      }
+    }
+  },
   "components": {
     "schemas": {
       "ErrorResponse": {
@@ -112,5 +183,530 @@
       "sessionAuth": []
     }
   ],
-  "tags": []
+  "tags": [
+    {
+      "name": "analyze_failing_mutations",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "anbi_operations",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "audit_reports_dashboards",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "background_job_status",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "cache_invalidation_api",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "chapter_dashboard_api",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "chapter_join",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "check_account_types",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "check_and_fix_workspace",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "check_customer_permissions",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "check_eboekhouden_fields",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "check_error_logs",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "check_opening_balance_date",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "check_past_imports",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "check_roles",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "check_sepa_indexes",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "check_specific_report_permissions",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "check_user",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "check_workspace",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "clean_test_chapter",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "cleanup_chapter_members",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "create_onboarding_steps",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "create_root_accounts",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "create_smart_item_mapping",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "customer_member_link",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "dashboard_charts",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "database_index_manager",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "database_index_manager_phase5a",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "debug_doctype_fields",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "debug_member_membership",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "debug_migration",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "debug_payment_history",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "debug_payment_history_issues",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "debug_refresh_issue",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "debug_test_memberships",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "decorator_analysis_test",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "decorator_compatibility_validator",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "deep_mutation_analysis",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "doctype_field_inspector",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "doctype_permissions_inventory",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "donor_auto_creation_management",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "donor_customer_management",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "eboekhouden_quick_test",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "eboekhouden_test_runner",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "email_template_manager",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "enhanced_background_jobs_api",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "enhanced_membership_application",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "final_decorator_test",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "final_refresh_test",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "fix_child_table_permissions",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "fix_custom_fields",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "fix_customer_permissions",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "fix_invalid_dates",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "fix_payment_history_today",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "fix_race_condition_invoices",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "fix_stuck_dues_schedule",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "fix_today_payment_history",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "fix_workspace",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "fix_workspace_links",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "generate_invoice_for_schedule",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "generate_test_applications",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "generate_test_members",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "generate_test_membership_types",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "get_unreconciled_payments",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "get_user_chapters",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "infrastructure_validator",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "job_status",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "manual_invoice_generation",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "manual_persona_test",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "member_management",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "member_performance_api",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "membership_application",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "membership_application_review",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "migration_cleanup_test",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "mollie_dashboard_api",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "monitoring_test_corrected",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "newsletter_demo",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "payment_dashboard",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "payment_plan_management",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "payment_processing",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "performance_api_validator",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "performance_convenience",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "performance_dashboard_activator",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "performance_measurement",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "performance_measurement_api",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "performance_monitoring_integration_api",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "performance_profiling_api",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "performance_validation",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "periodic_donation_operations",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "permission_testing_framework",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "phase2_2_validation",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "phase5a_test_execution",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "rebuild_workspace",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "regression_testing",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "restore_workspace",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "role_migration",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "run_chapter_basic_test",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "security_aware_caching_api",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "security_migration_validation",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "security_monitor_diagnostics",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "security_monitoring_dashboard",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "sepa_period_duplicate_prevention",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "simple_measurement_test",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "simple_mutation_test",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "simple_payment_history_check",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "smart_mapping_deployment_guide",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "suspension_api",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "termination_api",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "test_audit_routing",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "test_coverage_fields",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "test_dues_schedule_report",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "test_expense_fix",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "test_incremental_edge_cases",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "test_incremental_update_final",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "test_member_portal_coverage",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "test_monitoring",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "test_phase3_service",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "test_refresh_reliability",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "test_template_fixes",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "update_prepare_system_button",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "validate_coverage_report",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "validate_event_driven_fix",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "validate_sql_fixes",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "verenigingen_permissions_audit",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "verify_migration",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "volunteer_skills",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "workspace_content_validator",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "workspace_debug",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "workspace_reorganizer",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "workspace_validator",
+      "description": "Operations from {tag_name}.py"
+    },
+    {
+      "name": "workspace_validator_enhanced",
+      "description": "Operations from {tag_name}.py"
+    }
+  ]
 }

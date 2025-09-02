@@ -17,7 +17,7 @@ def validate_doctype_fields(doctype, required_fields):
         meta = frappe.get_meta(doctype)
         existing_fields = {field.fieldname for field in meta.fields if field.fieldname}
         # Add implicit fields that always exist on DocTypes
-        existing_fields.update(['name', 'creation', 'modified', 'owner', 'modified_by', 'docstatus'])
+        existing_fields.update(["name", "creation", "modified", "owner", "modified_by", "docstatus"])
         missing_fields = set(required_fields) - existing_fields
 
         if missing_fields:
@@ -218,6 +218,13 @@ def get_data(filters):
     customer_names = list(customer_data.keys())
     member_info_map = batch_get_member_info_by_customers(customer_names)
 
+    # OPTIMIZATION: Batch load chapter information for all members
+    member_names = [info.get("name") for info in member_info_map.values() if info.get("name")]
+    member_chapters_map = batch_get_member_chapters(member_names)
+
+    # OPTIMIZATION: Batch load last payment dates for all customers
+    payment_dates_map = batch_get_last_payment_dates(customer_names)
+
     # Get member information for each customer
     data = []
     user_chapters = get_user_accessible_chapters()
@@ -228,9 +235,11 @@ def get_data(filters):
         if not member_info:
             continue
 
+        # OPTIMIZED: Use pre-loaded chapter data
+        member_chapters = member_chapters_map.get(member_info.get("name"), [])
+
         # Apply chapter filtering
         if user_chapters is not None:  # None means see all
-            member_chapters = get_member_chapters(member_info.get("name"))
             if not any(ch in user_chapters for ch in member_chapters):
                 continue
 
@@ -241,18 +250,14 @@ def get_data(filters):
 
         # Apply chapter filter
         if filters and filters.get("chapter"):
-            member_chapters = get_member_chapters(member_info.get("name"))
             if filters.get("chapter") not in member_chapters:
                 continue
 
         # Calculate days overdue
         days_overdue = (getdate(today()) - getdate(agg_data["min_due_date"])).days
 
-        # Get last payment date
-        last_payment_date = get_last_payment_date(customer)
-
-        # Get member's primary chapter for display
-        member_chapters = get_member_chapters(member_info.get("name"))
+        # OPTIMIZED: Use pre-loaded payment and chapter data
+        last_payment_date = payment_dates_map.get(customer)
         primary_chapter = member_chapters[0] if member_chapters else None
 
         # Build row data
@@ -317,22 +322,26 @@ def get_members_for_customers(customer_names):
     """Get member names for multiple customers in a single query"""
     if not customer_names:
         return {}
-    
+
     try:
         # Get customers and their linked member records
-        customer_member_data = frappe.db.sql("""
+        customer_member_data = frappe.db.sql(
+            """
             SELECT customer as customer_name, name as member_name
             FROM `tabMember`
             WHERE customer IN %(customer_names)s
             AND docstatus != 2
-        """, {"customer_names": customer_names}, as_dict=True)
-        
+        """,
+            {"customer_names": customer_names},
+            as_dict=True,
+        )
+
         # Create mapping from customer name to member name
         customer_member_map = {}
         for row in customer_member_data:
             if row.customer_name and row.member_name:
                 customer_member_map[row.customer_name] = row.member_name
-        
+
         return customer_member_map
     except Exception as e:
         frappe.logger().error(f"Error getting members for customers: {str(e)}")
@@ -340,7 +349,7 @@ def get_members_for_customers(customer_names):
 
 
 def batch_get_member_info_by_customers(customer_names):
-    """Batch load member information for multiple customers to avoid N+1 queries"""
+    """Batch load member information for multiple customers to avoid N+1 queries - OPTIMIZED"""
     if not customer_names:
         return {}
 
@@ -353,24 +362,39 @@ def batch_get_member_info_by_customers(customer_names):
 
         member_names = list(customer_member_map.values())
 
-        # Batch load member data
+        # OPTIMIZATION: Batch load member data with more fields
         members = frappe.get_all(
             "Member", filters={"name": ["in", member_names]}, fields=["name", "full_name", "email"]
         )
 
-        # Create member info map
-        member_data_map = {member.name: member for member in members}
+        # OPTIMIZATION: Batch load membership data for all members
+        membership_data = frappe.get_all(
+            "Membership",
+            filters={"member": ["in", member_names], "status": "Active"},
+            fields=["member", "membership_type", "grace_period_status", "grace_period_expiry_date"],
+        )
+
+        # Create membership lookup map
+        membership_map = {ms.member: ms for ms in membership_data}
+
+        # Create member info map with membership data
+        member_data_map = {}
+        for member in members:
+            membership = membership_map.get(member.name, {})
+            member_data_map[member.name] = {
+                "name": member.name,
+                "full_name": member.full_name,
+                "email": member.email,
+                "membership_type": membership.get("membership_type"),
+                "grace_period_status": membership.get("grace_period_status"),
+                "grace_period_expiry_date": membership.get("grace_period_expiry_date"),
+            }
 
         # Map customers to their member info
         result = {}
         for customer, member_name in customer_member_map.items():
             if member_name in member_data_map:
-                member_data = member_data_map[member_name]
-                result[customer] = {
-                    "name": member_data.name,
-                    "full_name": member_data.full_name,
-                    "email": member_data.email,
-                }
+                result[customer] = member_data_map[member_name]
 
         return result
 
@@ -474,3 +498,68 @@ def get_chart_data(data):
         "type": "bar",
         "colors": ["#ff6b6b"],
     }
+
+
+def batch_get_member_chapters(member_names):
+    """Batch load chapter information for multiple members to avoid N+1 queries"""
+    if not member_names:
+        return {}
+
+    try:
+        # Single query to get all chapter memberships
+        chapter_memberships = frappe.db.sql(
+            """
+            SELECT cm.member, cm.parent as chapter_name
+            FROM `tabChapter Member` cm
+            WHERE cm.member IN %(member_names)s
+            AND cm.status = 'Active'
+            ORDER BY cm.member, cm.creation DESC
+        """,
+            {"member_names": member_names},
+            as_dict=True,
+        )
+
+        # Group chapters by member
+        member_chapters_map = {}
+        for cm in chapter_memberships:
+            if cm.member not in member_chapters_map:
+                member_chapters_map[cm.member] = []
+            member_chapters_map[cm.member].append(cm.chapter_name)
+
+        return member_chapters_map
+
+    except Exception as e:
+        frappe.logger().error(f"Error batch loading member chapters: {str(e)}")
+        return {}
+
+
+def batch_get_last_payment_dates(customer_names):
+    """Batch load last payment dates for multiple customers to avoid N+1 queries"""
+    if not customer_names:
+        return {}
+
+    try:
+        # Single query to get last payment dates for all customers
+        last_payments = frappe.db.sql(
+            """
+            SELECT
+                pe.party as customer,
+                MAX(pe.posting_date) as last_payment_date
+            FROM `tabPayment Entry` pe
+            WHERE pe.party_type = 'Customer'
+                AND pe.party IN %(customer_names)s
+                AND pe.docstatus = 1
+            GROUP BY pe.party
+        """,
+            {"customer_names": customer_names},
+            as_dict=True,
+        )
+
+        # Create payment dates map
+        payment_dates_map = {payment.customer: payment.last_payment_date for payment in last_payments}
+
+        return payment_dates_map
+
+    except Exception as e:
+        frappe.logger().error(f"Error batch loading last payment dates: {str(e)}")
+        return {}

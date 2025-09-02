@@ -129,11 +129,35 @@ def get_data(filters):
         as_dict=True,
     )
 
+    # Batch load member chapters to eliminate N+1 query pattern
+    member_names = [row.get("name") for row in data if row.get("name")]
+    member_chapters_map = {}
+
+    if member_names:
+        # Single query to get all chapter memberships
+        chapter_memberships = frappe.db.sql(
+            """
+            SELECT cm.member, cm.parent as chapter_name
+            FROM `tabChapter Member` cm
+            WHERE cm.member IN %(member_names)s
+            AND cm.status = 'Active'
+            ORDER BY cm.member, cm.creation DESC
+        """,
+            {"member_names": member_names},
+            as_dict=True,
+        )
+
+        # Group chapters by member
+        for cm in chapter_memberships:
+            if cm.member not in member_chapters_map:
+                member_chapters_map[cm.member] = []
+            member_chapters_map[cm.member].append(cm.chapter_name)
+
     # Process data
     processed_data = []
     for row in data:
-        # Get member chapters
-        member_chapters = get_member_chapters(row.get("name"))
+        # Get pre-loaded member chapters
+        member_chapters = member_chapters_map.get(row.get("name"), [])
         row["chapter"] = member_chapters[0] if member_chapters else "Unassigned"
 
         # Apply chapter filter if specified
@@ -209,85 +233,42 @@ def get_chart_data(data):
 
 def get_user_chapter_filter():
     """Get chapter filter based on user's role and permissions"""
+    from verenigingen.utils.chapter_utils import get_user_accessible_chapters
+
     user = frappe.session.user
 
-    # System managers and Association/Membership managers see all
-    admin_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Manager"]
-    if any(role in frappe.get_roles(user) for role in admin_roles):
+    # Use existing utility to get user's accessible chapters with proper permissions
+    accessible_chapters = get_user_accessible_chapters(
+        user, required_permission_levels=["Admin", "Membership"]
+    )
+
+    # None means admin access (see all)
+    if accessible_chapters is None:
         return None  # No filter - see all
 
-    # Get user's member record
-    user_member = frappe.db.get_value("Member", {"user": user}, "name")
-    if not user_member:
-        return "1=0"  # No access if not a member
+    # Empty list means no access
+    if not accessible_chapters:
+        return "1=0"  # No access if user has no chapter permissions
 
-    # Get chapters where user has board access with membership permissions
-    user_chapters = []
-    volunteer_records = frappe.get_all("Volunteer", filters={"member": user_member}, fields=["name"])
-
-    for volunteer_record in volunteer_records:
-        board_positions = frappe.get_all(
-            "Verenigingen Chapter Board Member",
-            filters={"volunteer": volunteer_record.name, "is_active": 1},
-            fields=["parent", "chapter_role"],
-        )
-
-        for position in board_positions:
-            # Check if the role has membership permissions
-            try:
-                role_doc = frappe.get_doc("Chapter Role", position.chapter_role)
-                if role_doc.permissions_level in ["Admin", "Membership"]:
-                    if position.parent not in user_chapters:
-                        user_chapters.append(position.parent)
-            except Exception:
-                continue
-
-    # Add national chapter if configured and user has access
+    # Check for national chapter access (existing logic preserved)
     try:
         settings = frappe.get_single("Verenigingen Settings")
-        if hasattr(settings, "national_chapter") and settings.national_chapter:
-            # Check if user has board access to national chapter
-            national_board_positions = frappe.get_all(
-                "Verenigingen Chapter Board Member",
-                filters={
-                    "parent": settings.national_chapter,
-                    "volunteer": ["in", [v.name for v in volunteer_records]],
-                    "is_active": 1,
-                },
-                fields=["chapter_role"],
-            )
-
-            for position in national_board_positions:
-                try:
-                    role_doc = frappe.get_doc("Chapter Role", position.chapter_role)
-                    if role_doc.permissions_level in ["Admin", "Membership"]:
-                        if settings.national_chapter not in user_chapters:
-                            user_chapters.append(settings.national_chapter)
-                        break
-                except Exception:
-                    continue
+        national_chapter = getattr(settings, "national_chapter", None)
+        if len(accessible_chapters) == 1 and accessible_chapters[0] == national_chapter and national_chapter:
+            # National chapter access - can see all including unassigned
+            return None
     except Exception:
         pass
 
-    if not user_chapters:
-        return "1=0"  # No access if not on any board with membership permissions
-
-    # Return filter for user's chapters
-    if len(user_chapters) == 1 and user_chapters[0] == getattr(
-        frappe.get_single("Verenigingen Settings"), "national_chapter", None
-    ):
-        # National chapter access - can see all including unassigned
-        return None
-    else:
-        # Chapter-specific access - proper JOIN-based filtering for security
-        chapter_list = "'" + "','".join(user_chapters) + "'"
-        return f"""(
-            EXISTS (
-                SELECT 1 FROM `tabChapter Member` cm
-                WHERE cm.member = m.name
-                AND cm.parent IN ({chapter_list})
-                AND cm.status = 'Active'
-            ) OR m.preferred_chapter IN ({chapter_list})
-            OR m.preferred_chapter IS NULL
-            OR m.preferred_chapter = ''
-        )"""
+    # Chapter-specific access - proper JOIN-based filtering for security
+    chapter_list = "'" + "','".join(accessible_chapters) + "'"
+    return f"""(
+        EXISTS (
+            SELECT 1 FROM `tabChapter Member` cm
+            WHERE cm.member = m.name
+            AND cm.parent IN ({chapter_list})
+            AND cm.status = 'Active'
+        ) OR m.preferred_chapter IN ({chapter_list})
+        OR m.preferred_chapter IS NULL
+        OR m.preferred_chapter = ''
+    )"""

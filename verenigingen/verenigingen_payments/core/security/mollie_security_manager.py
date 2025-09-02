@@ -90,8 +90,7 @@ class MollieSecurityManager:
             )
             raise SecurityException("Webhook signature validation failed - invalid signature")
 
-        # Log successful validation for audit
-        self._create_audit_log("WEBHOOK_VALIDATED", "success", {"signature": signature[:20] + "..."})
+        # Successful validations are routine infrastructure - no audit logging needed
 
         return True
 

@@ -115,22 +115,22 @@ def get_data(filters):
         earliest_memberships = frappe.get_all(
             "Membership",
             filters={"member": ["in", member_names]},
-            fields=["member", "from_date", "membership_type"],
-            order_by="member, from_date",
+            fields=["member", "start_date", "membership_type"],
+            order_by="member, start_date",
         )
 
         # Get current active memberships
         active_memberships = frappe.get_all(
             "Membership",
             filters={"member": ["in", member_names], "status": "Active"},
-            fields=["member", "from_date", "membership_type"],
+            fields=["member", "start_date", "membership_type"],
         )
 
         # Build membership info map (prefer earliest, fallback to active)
         for membership in earliest_memberships:
             if membership.member not in membership_map:
                 membership_map[membership.member] = {
-                    "member_since": membership.from_date,
+                    "member_since": membership.start_date,
                     "membership_type": membership.membership_type,
                 }
 
@@ -138,12 +138,40 @@ def get_data(filters):
         for membership in active_memberships:
             if membership.member not in membership_map:
                 membership_map[membership.member] = {
-                    "member_since": membership.from_date,
+                    "member_since": membership.start_date,
                     "membership_type": membership.membership_type,
                 }
 
+    # Batch load chapter information to avoid N+1 queries
+    chapter_map = {}
+    if member_names:
+        # Get primary chapters for all members
+        chapter_memberships = frappe.db.sql(
+            """
+            SELECT cm.member, cm.parent as chapter_name
+            FROM `tabChapter Member` cm
+            WHERE cm.member IN %(member_names)s
+            AND cm.status = 'Active'
+            ORDER BY cm.member, cm.creation DESC
+        """,
+            {"member_names": member_names},
+            as_dict=True,
+        )
+
+        # Use first (most recent) chapter as primary
+        for cm in chapter_memberships:
+            if cm.member not in chapter_map:
+                chapter_map[cm.member] = cm.chapter_name
+
     # Apply user-based chapter filtering
     user_chapters = get_user_accessible_chapters()
+
+    # Load settings once to avoid repeated lookups in loop
+    settings = None
+    try:
+        settings = frappe.get_single("Verenigingen Settings")
+    except Exception:
+        pass
 
     data = []
     for member in recent_members:
@@ -174,16 +202,8 @@ def get_data(filters):
             if getdate(member_since) > getdate(filters.get("to_date")):
                 continue
 
-        # Get primary chapter using optimized single query (avoid N+1)
-        try:
-            primary_chapter = frappe.db.get_value(
-                "Chapter Member",
-                {"member": member.name, "status": "Active"},
-                "parent",
-                order_by="creation desc",
-            )
-        except Exception:
-            primary_chapter = None
+        # Get primary chapter from batch-loaded data
+        primary_chapter = chapter_map.get(member.name, None)
 
         # Apply chapter filter if specified
         if filters and filters.get("chapter"):
@@ -193,18 +213,15 @@ def get_data(filters):
         # Apply user access filtering
         if user_chapters is not None:  # None means see all
             if primary_chapter and primary_chapter not in user_chapters:
-                # Check if user has national access
-                try:
-                    settings = frappe.get_single("Verenigingen Settings")
-                    if (
-                        hasattr(settings, "national_board_chapter")
-                        and settings.national_board_chapter in user_chapters
-                    ):
-                        pass  # User has national access
-                    else:
-                        continue  # Skip this member
-                except Exception:
-                    continue
+                # Check if user has national access using pre-loaded settings
+                if (
+                    settings
+                    and hasattr(settings, "national_board_chapter")
+                    and settings.national_board_chapter in user_chapters
+                ):
+                    pass  # User has national access
+                else:
+                    continue  # Skip this member
 
         # Calculate days active
         days_active = (getdate(today()) - getdate(member_since)).days

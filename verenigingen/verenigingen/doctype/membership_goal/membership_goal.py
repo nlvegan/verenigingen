@@ -87,35 +87,60 @@ class MembershipGoal(Document):
         return new_members - lost_members
 
     def calculate_revenue_growth(self) -> float:
-        """Calculate revenue growth"""
+        """Calculate revenue growth - OPTIMIZED to eliminate N+1 patterns"""
         # Get revenue from memberships
         if not self.applies_to_all_types and self.membership_type:
             membership_filters = {"membership_type": self.membership_type}
         else:
             membership_filters = {}
 
-        # Calculate projected annual revenue
+        # OPTIMIZATION: Bulk fetch memberships with member data in single query
         active_memberships = frappe.get_all(
             "Membership",
             filters={"status": "Active", **membership_filters},
-            fields=["name", "membership_type"],
+            fields=["name", "membership_type", "member"],  # Include member field
         )
 
+        if not active_memberships:
+            return 0
+
+        # OPTIMIZATION: Batch load member dues rates to avoid N+1
+        member_names = [m.member for m in active_memberships if m.member]
+        member_dues_map = {}
+
+        if member_names:
+            member_dues = frappe.get_all(
+                "Member",
+                filters={"name": ["in", member_names]},
+                fields=["name", "dues_rate"],
+            )
+            member_dues_map = {m.name: m.dues_rate for m in member_dues if m.dues_rate}
+
+        # OPTIMIZATION: Batch load membership type fees to avoid N+1
+        membership_types = list(set(m.membership_type for m in active_memberships))
+        membership_type_fees = {}
+
+        if membership_types:
+            type_fees = frappe.get_all(
+                "Membership Type",
+                filters={"name": ["in", membership_types]},
+                fields=["name", "minimum_amount"],
+            )
+            membership_type_fees = {t.name: (t.minimum_amount or 0) for t in type_fees}
+
+        # Calculate total revenue using pre-loaded data
         total_revenue = 0
         for membership in active_memberships:
-            # Get the membership fee
-            member = frappe.db.get_value("Membership", membership.name, "member")
-            if member:
-                fee_override = frappe.db.get_value("Member", member, "dues_rate")
-                if fee_override:
-                    total_revenue += fee_override
-                else:
-                    # Get minimum fee from membership type
-                    membership_fee = (
-                        frappe.db.get_value("Membership Type", membership.membership_type, "minimum_amount")
-                        or 0
-                    )
-                    total_revenue += membership_fee
+            if not membership.member:
+                continue
+
+            # Use pre-loaded member dues rate or membership type fee
+            fee_override = member_dues_map.get(membership.member)
+            if fee_override:
+                total_revenue += fee_override
+            else:
+                membership_fee = membership_type_fees.get(membership.membership_type, 0)
+                total_revenue += membership_fee
 
         return total_revenue
 
