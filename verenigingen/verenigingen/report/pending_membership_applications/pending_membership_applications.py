@@ -2,6 +2,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, today
 
+from verenigingen.utils.member_utils import get_member_chapters
+
 
 def execute(filters=None):
     """Generate Pending Membership Applications Report"""
@@ -270,27 +272,22 @@ def get_user_chapter_filter():
     if not user_chapters:
         return "1=0"  # No access if not on any board with membership permissions
 
-    # Return filter for user's chapters, including null/empty chapters for national access
+    # Return filter for user's chapters
     if len(user_chapters) == 1 and user_chapters[0] == getattr(
         frappe.get_single("Verenigingen Settings"), "national_chapter", None
     ):
         # National chapter access - can see all including unassigned
         return None
     else:
-        # Chapter-specific access - will be filtered post-query using Chapter Member table
-        # For now, return no restriction and filter in Python
-        return None
-
-
-def get_member_chapters(member_name):
-    """Get list of chapters a member belongs to"""
-    try:
-        chapters = frappe.get_all(
-            "Chapter Member",
-            filters={"member": member_name, "enabled": 1},
-            fields=["parent"],
-            order_by="chapter_join_date desc",
-        )
-        return [ch.parent for ch in chapters]
-    except Exception:
-        return []
+        # Chapter-specific access - proper JOIN-based filtering for security
+        chapter_list = "'" + "','".join(user_chapters) + "'"
+        return f"""(
+            EXISTS (
+                SELECT 1 FROM `tabChapter Member` cm
+                WHERE cm.member = m.name
+                AND cm.parent IN ({chapter_list})
+                AND cm.status = 'Active'
+            ) OR m.preferred_chapter IN ({chapter_list})
+            OR m.preferred_chapter IS NULL
+            OR m.preferred_chapter = ''
+        )"""

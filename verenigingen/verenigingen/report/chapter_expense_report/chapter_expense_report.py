@@ -2,6 +2,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, today
 
+from verenigingen.utils.chapter_utils import get_user_accessible_chapters
+
 
 def execute(filters=None):
     """Generate Chapter Expense Report"""
@@ -292,20 +294,6 @@ def build_expense_row(
         row["status_indicator"] = f'<span class="indicator grey">{status}</span>'
 
     return row
-
-
-def get_user_accessible_chapters():
-    """Get chapters accessible to current user"""
-    user = frappe.session.user
-
-    # System managers and Association managers see all
-    admin_roles = ["System Manager", "Verenigingen Administrator"]
-    if any(role in frappe.get_roles(user) for role in admin_roles):
-        return None  # No filter - see all
-
-    # For now, return None to allow all access since we may not have full volunteer/chapter setup
-    # This can be enhanced later when the full verenigingen system is deployed
-    return None
 
 
 def get_summary(data):

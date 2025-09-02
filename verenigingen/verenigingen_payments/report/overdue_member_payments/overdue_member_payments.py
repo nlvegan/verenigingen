@@ -2,6 +2,14 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, flt, getdate, today
 
+from verenigingen.utils.chapter_utils import get_user_accessible_chapters
+from verenigingen.utils.member_utils import (
+    get_active_membership_for_member,
+    get_member_chapters,
+    get_member_for_customer,
+)
+from verenigingen.utils.payment_utils import get_last_payment_date
+
 
 def execute(filters=None):
     """Generate Overdue Member Payments Report"""
@@ -241,116 +249,38 @@ def is_membership_related(document_name):
 
 
 def get_member_info_by_customer(customer):
-    """Get member information by customer"""
+    """Get member information by customer using standardized utilities"""
     try:
-        member = frappe.get_value(
-            "Member", {"customer": customer}, ["name", "full_name", "email"], as_dict=True
-        )
+        # Use standardized member lookup
+        member_name = get_member_for_customer(customer)
+        if not member_name:
+            return None
+
+        # Get basic member info
+        member = frappe.get_value("Member", member_name, ["name", "full_name", "email"], as_dict=True)
 
         if member:
-            # Get active membership with grace period info
-            membership = frappe.get_value(
-                "Membership",
-                {"member": member.name, "status": "Active"},
-                ["membership_type", "grace_period_status", "grace_period_expiry_date"],
-                as_dict=True,
+            # Get active membership info using standardized utility
+            membership = get_active_membership_for_member(
+                member_name, fields=["membership_type", "grace_period_status", "grace_period_expiry_date"]
             )
 
             if membership:
-                member["membership_type"] = membership.membership_type
-                member["grace_period_status"] = membership.grace_period_status
-                member["grace_period_expiry_date"] = membership.grace_period_expiry_date
+                member.update(
+                    {
+                        "membership_type": membership.get("membership_type"),
+                        "grace_period_status": membership.get("grace_period_status"),
+                        "grace_period_expiry_date": membership.get("grace_period_expiry_date"),
+                    }
+                )
             else:
-                member["membership_type"] = None
-                member["grace_period_status"] = None
-                member["grace_period_expiry_date"] = None
+                member.update(
+                    {"membership_type": None, "grace_period_status": None, "grace_period_expiry_date": None}
+                )
 
         return member
     except Exception:
         return None
-
-
-def get_last_payment_date(customer):
-    """Get the last payment date for a customer"""
-    try:
-        # Get latest payment entry for this customer
-        payment_entries = frappe.get_all(
-            "Payment Entry",
-            filters={"party_type": "Customer", "party": customer, "docstatus": 1},
-            fields=["posting_date"],
-            order_by="posting_date desc",
-            limit=1,
-        )
-
-        return payment_entries[0].posting_date if payment_entries else None
-    except Exception:
-        return None
-
-
-def get_user_accessible_chapters():
-    """Get chapters accessible to current user (same logic as before)"""
-    user = frappe.session.user
-
-    # System managers and Association/Membership managers see all
-    admin_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Manager"]
-    if any(role in frappe.get_roles(user) for role in admin_roles):
-        return None  # No filter - see all
-
-    # Get user's member record
-    user_member = frappe.db.get_value("Member", {"user": user}, "name")
-    if not user_member:
-        return []  # No access if not a member
-
-    # Get chapters where user has board access with membership or finance permissions
-    user_chapters = []
-    try:
-        volunteer_records = frappe.get_all("Volunteer", filters={"member": user_member}, fields=["name"])
-
-        for volunteer_record in volunteer_records:
-            board_positions = frappe.get_all(
-                "Verenigingen Chapter Board Member",
-                filters={"volunteer": volunteer_record.name, "is_active": 1},
-                fields=["parent", "chapter_role"],
-            )
-
-            for position in board_positions:
-                try:
-                    role_doc = frappe.get_doc("Chapter Role", position.chapter_role)
-                    if role_doc.permissions_level in ["Admin", "Membership", "Finance"]:
-                        if position.parent not in user_chapters:
-                            user_chapters.append(position.parent)
-                except Exception:
-                    continue
-
-        # Add national chapter if configured and user has access
-        try:
-            settings = frappe.get_single("Verenigingen Settings")
-            if hasattr(settings, "national_chapter") and settings.national_chapter:
-                national_board_positions = frappe.get_all(
-                    "Verenigingen Chapter Board Member",
-                    filters={
-                        "parent": settings.national_chapter,
-                        "volunteer": [v.name for v in volunteer_records],
-                        "is_active": 1,
-                    },
-                    fields=["chapter_role"],
-                )
-
-                for position in national_board_positions:
-                    try:
-                        role_doc = frappe.get_doc("Chapter Role", position.chapter_role)
-                        if role_doc.permissions_level in ["Admin", "Membership", "Finance"]:
-                            if settings.national_chapter not in user_chapters:
-                                user_chapters.append(settings.national_chapter)
-                            break
-                    except Exception:
-                        continue
-        except Exception:
-            pass
-    except Exception:
-        pass
-
-    return user_chapters if user_chapters else []
 
 
 def get_summary(data):
@@ -413,17 +343,3 @@ def get_chart_data(data):
         "type": "bar",
         "colors": ["#ff6b6b"],
     }
-
-
-def get_member_chapters(member_name):
-    """Get list of chapters a member belongs to"""
-    try:
-        chapters = frappe.get_all(
-            "Chapter Member",
-            filters={"member": member_name, "enabled": 1},
-            fields=["parent"],
-            order_by="chapter_join_date desc",
-        )
-        return [ch.parent for ch in chapters]
-    except Exception:
-        return []

@@ -2,20 +2,61 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, flt, getdate, today
 
+from verenigingen.utils.chapter_utils import get_user_accessible_chapters
+from verenigingen.utils.member_utils import (
+    get_active_membership_for_member,
+    get_member_chapters,
+    get_member_for_customer,
+)
+from verenigingen.utils.payment_utils import get_last_payment_date
+
+
+def validate_doctype_fields(doctype, required_fields):
+    """Validate that required fields exist in DocType for defensive programming"""
+    try:
+        meta = frappe.get_meta(doctype)
+        existing_fields = {field.fieldname for field in meta.fields if field.fieldname}
+        # Add implicit fields that always exist on DocTypes
+        existing_fields.update(['name', 'creation', 'modified', 'owner', 'modified_by', 'docstatus'])
+        missing_fields = set(required_fields) - existing_fields
+
+        if missing_fields:
+            frappe.logger().warning(f"Missing fields in {doctype}: {missing_fields}")
+            return False
+        return True
+    except Exception as e:
+        frappe.logger().error(f"Error validating {doctype} fields: {str(e)}")
+        return False
+
 
 def execute(filters=None):
     """Generate Overdue Member Payments Report"""
+    import time
 
-    columns = get_columns()
-    data = get_data(filters)
+    start_time = time.time()
 
-    # Add summary statistics
-    summary = get_summary(data)
+    try:
+        columns = get_columns()
+        data = get_data(filters)
 
-    # Add chart data
-    chart = get_chart_data(data)
+        # Add summary statistics
+        summary = get_summary(data)
 
-    return columns, data, None, chart, summary
+        # Add chart data
+        chart = get_chart_data(data)
+
+        # Log performance metrics
+        execution_time = time.time() - start_time
+        frappe.logger().info(
+            f"overdue_member_payments report: {len(data)} rows processed in {execution_time:.2f}s"
+        )
+
+        return columns, data, None, chart, summary
+
+    except Exception as e:
+        execution_time = time.time() - start_time
+        frappe.logger().error(f"overdue_member_payments report failed after {execution_time:.2f}s: {str(e)}")
+        raise
 
 
 def get_columns():
@@ -66,6 +107,34 @@ def get_columns():
 
 def get_data(filters):
     """Get report data using Frappe ORM methods"""
+
+    # Validate required fields exist before proceeding
+    required_invoice_fields = [
+        "name",
+        "customer",
+        "outstanding_amount",
+        "posting_date",
+        "due_date",
+        "status",
+        "docstatus",
+    ]
+    required_member_fields = ["name", "full_name", "email", "user"]
+    required_membership_fields = [
+        "member",
+        "membership_type",
+        "grace_period_status",
+        "grace_period_expiry_date",
+    ]
+
+    if not all(
+        [
+            validate_doctype_fields("Sales Invoice", required_invoice_fields),
+            validate_doctype_fields("Member", required_member_fields),
+            validate_doctype_fields("Membership", required_membership_fields),
+        ]
+    ):
+        frappe.logger().error("Field validation failed in overdue_member_payments report")
+        return []  # Return empty data if validation fails
 
     # Get all overdue invoices first
     invoice_filters = {
@@ -145,13 +214,17 @@ def get_data(filters):
         ):
             customer_data[customer]["min_due_date"] = invoice.due_date
 
+    # Batch load member information to avoid N+1 queries
+    customer_names = list(customer_data.keys())
+    member_info_map = batch_get_member_info_by_customers(customer_names)
+
     # Get member information for each customer
     data = []
     user_chapters = get_user_accessible_chapters()
 
     for customer, agg_data in customer_data.items():
-        # Get member info
-        member_info = get_member_info_by_customer(customer)
+        # Get pre-loaded member info
+        member_info = member_info_map.get(customer)
         if not member_info:
             continue
 
@@ -240,117 +313,105 @@ def is_membership_related(document_name):
     return True
 
 
-def get_member_info_by_customer(customer):
-    """Get member information by customer"""
+def get_members_for_customers(customer_names):
+    """Get member names for multiple customers in a single query"""
+    if not customer_names:
+        return {}
+    
     try:
-        member = frappe.get_value(
-            "Member", {"customer": customer}, ["name", "full_name", "email"], as_dict=True
+        # Get customers and their linked member records
+        customer_member_data = frappe.db.sql("""
+            SELECT customer as customer_name, name as member_name
+            FROM `tabMember`
+            WHERE customer IN %(customer_names)s
+            AND docstatus != 2
+        """, {"customer_names": customer_names}, as_dict=True)
+        
+        # Create mapping from customer name to member name
+        customer_member_map = {}
+        for row in customer_member_data:
+            if row.customer_name and row.member_name:
+                customer_member_map[row.customer_name] = row.member_name
+        
+        return customer_member_map
+    except Exception as e:
+        frappe.logger().error(f"Error getting members for customers: {str(e)}")
+        return {}
+
+
+def batch_get_member_info_by_customers(customer_names):
+    """Batch load member information for multiple customers to avoid N+1 queries"""
+    if not customer_names:
+        return {}
+
+    try:
+        # Get member names for all customers in one query
+        customer_member_map = get_members_for_customers(customer_names)
+
+        if not customer_member_map:
+            return {}
+
+        member_names = list(customer_member_map.values())
+
+        # Batch load member data
+        members = frappe.get_all(
+            "Member", filters={"name": ["in", member_names]}, fields=["name", "full_name", "email"]
         )
 
+        # Create member info map
+        member_data_map = {member.name: member for member in members}
+
+        # Map customers to their member info
+        result = {}
+        for customer, member_name in customer_member_map.items():
+            if member_name in member_data_map:
+                member_data = member_data_map[member_name]
+                result[customer] = {
+                    "name": member_data.name,
+                    "full_name": member_data.full_name,
+                    "email": member_data.email,
+                }
+
+        return result
+
+    except Exception as e:
+        frappe.logger().error(f"Error batch loading member info for customers: {str(e)}")
+        return {}
+
+
+def get_member_info_by_customer(customer):
+    """Get member information by customer using standardized utilities"""
+    try:
+        # Use standardized member lookup
+        member_name = get_member_for_customer(customer)
+        if not member_name:
+            return None
+
+        # Get basic member info
+        member = frappe.get_value("Member", member_name, ["name", "full_name", "email"], as_dict=True)
+
         if member:
-            # Get active membership with grace period info
-            membership = frappe.get_value(
-                "Membership",
-                {"member": member.name, "status": "Active"},
-                ["membership_type", "grace_period_status", "grace_period_expiry_date"],
-                as_dict=True,
+            # Get active membership info using standardized utility
+            membership = get_active_membership_for_member(
+                member_name, fields=["membership_type", "grace_period_status", "grace_period_expiry_date"]
             )
 
             if membership:
-                member["membership_type"] = membership.membership_type
-                member["grace_period_status"] = membership.grace_period_status
-                member["grace_period_expiry_date"] = membership.grace_period_expiry_date
+                member.update(
+                    {
+                        "membership_type": membership.get("membership_type"),
+                        "grace_period_status": membership.get("grace_period_status"),
+                        "grace_period_expiry_date": membership.get("grace_period_expiry_date"),
+                    }
+                )
             else:
-                member["membership_type"] = None
-                member["grace_period_status"] = None
-                member["grace_period_expiry_date"] = None
+                member.update(
+                    {"membership_type": None, "grace_period_status": None, "grace_period_expiry_date": None}
+                )
 
         return member
     except Exception:
         return None
-
-
-def get_last_payment_date(customer):
-    """Get the last payment date for a customer"""
-    try:
-        # Get latest payment entry for this customer
-        payment_entries = frappe.get_all(
-            "Payment Entry",
-            filters={"party_type": "Customer", "party": customer, "docstatus": 1},
-            fields=["posting_date"],
-            order_by="posting_date desc",
-            limit=1,
-        )
-
-        return payment_entries[0].posting_date if payment_entries else None
-    except Exception:
-        return None
-
-
-def get_user_accessible_chapters():
-    """Get chapters accessible to current user (same logic as before)"""
-    user = frappe.session.user
-
-    # System managers and Association/Membership managers see all
-    admin_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Manager"]
-    if any(role in frappe.get_roles(user) for role in admin_roles):
-        return None  # No filter - see all
-
-    # Get user's member record
-    user_member = frappe.db.get_value("Member", {"user": user}, "name")
-    if not user_member:
-        return []  # No access if not a member
-
-    # Get chapters where user has board access with membership or finance permissions
-    user_chapters = []
-    try:
-        volunteer_records = frappe.get_all("Volunteer", filters={"member": user_member}, fields=["name"])
-
-        for volunteer_record in volunteer_records:
-            board_positions = frappe.get_all(
-                "Verenigingen Chapter Board Member",
-                filters={"volunteer": volunteer_record.name, "is_active": 1},
-                fields=["parent", "chapter_role"],
-            )
-
-            for position in board_positions:
-                try:
-                    role_doc = frappe.get_doc("Chapter Role", position.chapter_role)
-                    if role_doc.permissions_level in ["Admin", "Membership", "Finance"]:
-                        if position.parent not in user_chapters:
-                            user_chapters.append(position.parent)
-                except Exception:
-                    continue
-
-        # Add national chapter if configured and user has access
-        try:
-            settings = frappe.get_single("Verenigingen Settings")
-            if hasattr(settings, "national_chapter") and settings.national_chapter:
-                national_board_positions = frappe.get_all(
-                    "Verenigingen Chapter Board Member",
-                    filters={
-                        "parent": settings.national_chapter,
-                        "volunteer": [v.name for v in volunteer_records],
-                        "is_active": 1,
-                    },
-                    fields=["chapter_role"],
-                )
-
-                for position in national_board_positions:
-                    try:
-                        role_doc = frappe.get_doc("Chapter Role", position.chapter_role)
-                        if role_doc.permissions_level in ["Admin", "Membership", "Finance"]:
-                            if settings.national_chapter not in user_chapters:
-                                user_chapters.append(settings.national_chapter)
-                            break
-                    except Exception:
-                        continue
-        except Exception:
-            pass
-    except Exception:
-        pass
-
-    return user_chapters if user_chapters else []
 
 
 def get_summary(data):
@@ -413,17 +474,3 @@ def get_chart_data(data):
         "type": "bar",
         "colors": ["#ff6b6b"],
     }
-
-
-def get_member_chapters(member_name):
-    """Get list of chapters a member belongs to"""
-    try:
-        chapters = frappe.get_all(
-            "Chapter Member",
-            filters={"member": member_name, "enabled": 1},
-            fields=["parent"],
-            order_by="chapter_join_date desc",
-        )
-        return [ch.parent for ch in chapters]
-    except Exception:
-        return []

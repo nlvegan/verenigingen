@@ -722,7 +722,18 @@ def get_chapter_permission_query_conditions(user=None):
 
 
 def get_user_accessible_chapters_optimized(user):
-    """Single optimized query to get all chapters accessible to a user"""
+    """Single optimized query to get all chapters accessible to a user
+
+    DEPRECATED: Use verenigingen.utils.chapter_utils.get_user_accessible_chapters() instead.
+    This function will be removed in a future version.
+    """
+    import warnings
+
+    warnings.warn(
+        "get_user_accessible_chapters_optimized is deprecated. Use verenigingen.utils.chapter_utils.get_user_accessible_chapters()",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     try:
         # Single query to get both board and member chapters
         query = """

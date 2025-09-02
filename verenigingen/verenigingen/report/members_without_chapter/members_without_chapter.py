@@ -1,20 +1,55 @@
 import frappe
 from frappe import _
 
+from verenigingen.utils.chapter_utils import get_user_accessible_chapters
+
+
+def validate_doctype_fields(doctype, required_fields):
+    """Validate that required fields exist in DocType for defensive programming"""
+    try:
+        meta = frappe.get_meta(doctype)
+        existing_fields = {field.fieldname for field in meta.fields if field.fieldname}
+        # Add implicit fields that always exist on DocTypes
+        existing_fields.update(['name', 'creation', 'modified', 'owner', 'modified_by', 'docstatus'])
+        missing_fields = set(required_fields) - existing_fields
+
+        if missing_fields:
+            frappe.logger().warning(f"Missing fields in {doctype}: {missing_fields}")
+            return False
+        return True
+    except Exception as e:
+        frappe.logger().error(f"Error validating {doctype} fields: {str(e)}")
+        return False
+
 
 def execute(filters=None):
     """Generate Members Without Chapter Report"""
+    import time
 
-    columns = get_columns()
-    data = get_data(filters)
+    start_time = time.time()
 
-    # Add summary statistics
-    summary = get_summary(data)
+    try:
+        columns = get_columns()
+        data = get_data(filters)
 
-    # Add chart data
-    chart = get_chart_data(data)
+        # Add summary statistics
+        summary = get_summary(data)
 
-    return columns, data, None, chart, summary
+        # Add chart data
+        chart = get_chart_data(data)
+
+        # Log performance metrics
+        execution_time = time.time() - start_time
+        frappe.logger().info(
+            f"members_without_chapter report: {len(data)} rows processed in {execution_time:.2f}s"
+        )
+
+        return columns, data, None, chart, summary
+
+    except Exception as e:
+        execution_time = time.time() - start_time
+        frappe.logger().error(f"members_without_chapter report failed after {execution_time:.2f}s: {str(e)}")
+        raise
 
 
 def get_columns():
@@ -52,6 +87,37 @@ def get_columns():
 
 def get_data(filters):
     """Get report data using Frappe ORM methods"""
+
+    # Validate required fields exist before proceeding
+    required_member_fields = [
+        "name",
+        "full_name",
+        "email",
+        "contact_number",
+        "primary_address",
+        "status",
+        "creation",
+    ]
+    required_address_fields = [
+        "name",
+        "city",
+        "pincode",
+        "country",
+        "address_line1",
+        "address_line2",
+        "state",
+    ]
+    required_membership_fields = ["member", "status", "membership_type", "start_date"]
+
+    if not all(
+        [
+            validate_doctype_fields("Member", required_member_fields),
+            validate_doctype_fields("Address", required_address_fields),
+            validate_doctype_fields("Membership", required_membership_fields),
+        ]
+    ):
+        frappe.logger().error("Field validation failed in members_without_chapter report")
+        return []  # Return empty data if validation fails
 
     # Get members who are not in any Chapter Member records
     members_with_chapters = frappe.get_all(
@@ -95,24 +161,111 @@ def get_data(filters):
     # Apply user-based chapter filtering
     user_chapters = get_user_accessible_chapters()
 
+    # Batch load data to avoid N+1 queries
+    member_names = [member.name for member in members]
+    primary_addresses = [member.primary_address for member in members if member.primary_address]
+
+    # Batch load address information
+    address_data = {}
+    if primary_addresses:
+        addresses = frappe.get_all(
+            "Address",
+            filters={"name": ["in", primary_addresses]},
+            fields=["name", "city", "pincode", "country", "address_line1", "address_line2", "state"],
+        )
+        for addr in addresses:
+            address_data[addr.name] = {
+                "city": addr.city,
+                "pincode": addr.pincode,
+                "country": addr.country,
+                "address_line1": addr.address_line1,
+                "address_line2": addr.address_line2,
+                "state": addr.state,
+            }
+
+    # Batch load membership information
+    membership_data = {}
+    member_since_data = {}
+    if member_names:
+        # Get active memberships
+        active_memberships = frappe.get_all(
+            "Membership",
+            filters={"member": ["in", member_names], "status": "Active"},
+            fields=["member", "membership_type", "status"],
+        )
+        for membership in active_memberships:
+            membership_data[membership.member] = f"Active ({membership.membership_type or 'Unknown Type'})"
+
+        # Get latest memberships for members without active ones
+        members_without_active = [name for name in member_names if name not in membership_data]
+        if members_without_active:
+            latest_memberships = frappe.db.sql(
+                """
+                SELECT m1.member, m1.status, m1.membership_type
+                FROM `tabMembership` m1
+                INNER JOIN (
+                    SELECT member, MAX(creation) as max_creation
+                    FROM `tabMembership`
+                    WHERE member IN %(member_names)s
+                    GROUP BY member
+                ) m2 ON m1.member = m2.member AND m1.creation = m2.max_creation
+            """,
+                {"member_names": members_without_active},
+                as_dict=True,
+            )
+
+            for membership in latest_memberships:
+                membership_data[membership.member] = membership.status or "Unknown"
+
+        # Set default for members with no memberships
+        for member_name in member_names:
+            if member_name not in membership_data:
+                membership_data[member_name] = "No Membership"
+
+        # Get member since dates (earliest membership)
+        earliest_memberships = frappe.db.sql(
+            """
+            SELECT member, MIN(start_date) as earliest_date
+            FROM `tabMembership`
+            WHERE member IN %(member_names)s
+            GROUP BY member
+        """,
+            {"member_names": member_names},
+            as_dict=True,
+        )
+
+        for membership in earliest_memberships:
+            member_since_data[membership.member] = membership.earliest_date
+
+    # Pre-load chapters for suggestion logic to avoid repeated queries
+    chapters_for_suggestion = frappe.get_all(
+        "Chapter", filters={"published": 1}, fields=["name", "region"], order_by="name"
+    )
+
     data = []
     for member in members:
-        # Get address information
-        address_info = get_member_address_info(member.primary_address)
+        # Get cached address information
+        address_info = address_data.get(member.primary_address, {})
 
         # Apply country filter if specified
         if filters and filters.get("country"):
             if address_info.get("country") != filters.get("country"):
                 continue
 
-        # Get membership status
-        membership_status = get_member_membership_status(member.name)
+        # Get cached membership status
+        membership_status = membership_data.get(member.name, "Unknown")
 
-        # Get member since date (earliest active membership)
-        member_since = get_member_since_date(member.name)
+        # Get cached member since date
+        member_since = member_since_data.get(member.name)
+        if not member_since:
+            from frappe.utils import getdate
+
+            member_since = getdate(member.creation)  # Fallback to member creation date
 
         # Suggest chapter based on location
-        suggested_chapter = suggest_chapter_for_member(member, address_info)
+        suggested_chapter = suggest_chapter_for_member_optimized(
+            member, address_info, chapters_for_suggestion
+        )
 
         # Apply user access filtering if needed
         if user_chapters is not None:  # None means see all
@@ -152,68 +305,8 @@ def get_data(filters):
     return data
 
 
-def get_member_membership_status(member_name):
-    """Get current membership status for a member"""
-    try:
-        active_membership = frappe.get_value(
-            "Membership", {"member": member_name, "status": "Active"}, ["membership_type", "status"]
-        )
-
-        if active_membership:
-            return f"Active ({active_membership[0] if active_membership[0] else 'Unknown Type'})"
-
-        # Check for other membership statuses
-        latest_membership = frappe.get_value(
-            "Membership", {"member": member_name}, ["status", "membership_type"], order_by="creation desc"
-        )
-
-        if latest_membership:
-            return latest_membership[0] or "Unknown"
-
-        return "No Membership"
-
-    except Exception:
-        return "Unknown"
-
-
-def get_member_address_info(primary_address):
-    """Get address information from linked Address record"""
-    if not primary_address:
-        return {}
-
-    try:
-        address = frappe.get_doc("Address", primary_address)
-        return {
-            "city": address.city,
-            "pincode": address.pincode,
-            "country": address.country,
-            "address_line1": address.address_line1,
-            "address_line2": address.address_line2,
-            "state": address.state,
-        }
-    except Exception:
-        return {}
-
-
-def get_member_since_date(member_name):
-    """Get the date when member first became active"""
-    try:
-        earliest_membership = frappe.get_value(
-            "Membership", {"member": member_name}, "from_date", order_by="from_date"
-        )
-
-        if earliest_membership:
-            return earliest_membership
-
-        # Fallback to member creation date
-        return frappe.get_value("Member", member_name, "creation")
-
-    except Exception:
-        return None
-
-
-def suggest_chapter_for_member(member, address_info):
-    """Suggest appropriate chapter for member based on location"""
+def suggest_chapter_for_member_optimized(member, address_info, preloaded_chapters):
+    """Optimized version that uses pre-loaded chapters to avoid N+1 queries"""
     postal_code = address_info.get("pincode")
     if not postal_code:
         return None
@@ -229,23 +322,26 @@ def suggest_chapter_for_member(member, address_info):
 
         return None
 
-    except Exception:
-        # Fallback: try simple proximity matching
+    except ImportError:
+        frappe.logger().warning("Chapter suggestion utility not available - falling back to simple matching")
+        # Fallback: use pre-loaded chapters for simple proximity matching
         try:
-            chapters = frappe.get_all(
-                "Chapter", filters={"published": 1}, fields=["name", "region"], order_by="name"
-            )
-
             # Simple heuristic: match by city/region if available
             city = address_info.get("city")
-            if city:
-                for chapter in chapters:
+            if city and preloaded_chapters:
+                for chapter in preloaded_chapters:
                     if chapter.region and city.lower() in chapter.region.lower():
                         return chapter.name
 
             return None
-        except Exception:
+        except Exception as e:
+            frappe.logger().error(
+                f"Error in fallback chapter suggestion for postal code {postal_code}: {str(e)}"
+            )
             return None
+    except Exception as e:
+        frappe.logger().error(f"Error in chapter suggestion for postal code {postal_code}: {str(e)}")
+        return None
 
 
 def get_action_buttons(member_name, suggested_chapter):
@@ -277,72 +373,6 @@ def get_action_buttons(member_name, suggested_chapter):
     )
 
     return " ".join(buttons)
-
-
-def get_user_accessible_chapters():
-    """Get chapters accessible to current user"""
-    user = frappe.session.user
-
-    # System managers and Association/Membership managers see all
-    admin_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Manager"]
-    if any(role in frappe.get_roles(user) for role in admin_roles):
-        return None  # No filter - see all
-
-    # Get user's member record
-    user_member = frappe.db.get_value("Member", {"user": user}, "name")
-    if not user_member:
-        return []  # No access if not a member
-
-    # Get chapters where user has board access with membership or admin permissions
-    user_chapters = []
-    try:
-        volunteer_records = frappe.get_all("Volunteer", filters={"member": user_member}, fields=["name"])
-
-        for volunteer_record in volunteer_records:
-            board_positions = frappe.get_all(
-                "Verenigingen Chapter Board Member",
-                filters={"volunteer": volunteer_record.name, "is_active": 1},
-                fields=["parent", "chapter_role"],
-            )
-
-            for position in board_positions:
-                try:
-                    role_doc = frappe.get_doc("Chapter Role", position.chapter_role)
-                    if role_doc.permissions_level in ["Admin", "Membership"]:
-                        if position.parent not in user_chapters:
-                            user_chapters.append(position.parent)
-                except Exception:
-                    continue
-
-        # Add national chapter if configured and user has access
-        try:
-            settings = frappe.get_single("Verenigingen Settings")
-            if hasattr(settings, "national_board_chapter") and settings.national_board_chapter:
-                national_board_positions = frappe.get_all(
-                    "Verenigingen Chapter Board Member",
-                    filters={
-                        "parent": settings.national_board_chapter,
-                        "volunteer": [v.name for v in volunteer_records],
-                        "is_active": 1,
-                    },
-                    fields=["chapter_role"],
-                )
-
-                for position in national_board_positions:
-                    try:
-                        role_doc = frappe.get_doc("Chapter Role", position.chapter_role)
-                        if role_doc.permissions_level in ["Admin", "Membership"]:
-                            if settings.national_board_chapter not in user_chapters:
-                                user_chapters.append(settings.national_board_chapter)
-                            break
-                    except Exception:
-                        continue
-        except Exception:
-            pass
-    except Exception:
-        pass
-
-    return user_chapters if user_chapters else []
 
 
 def get_summary(data):

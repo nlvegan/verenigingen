@@ -1216,6 +1216,12 @@ class ASTFieldAnalyzer:
                         fields = doctype_info['fields']
                         
                         if field_name not in fields:
+                            # Check if this is a @property decorated method in the DocType Python file
+                            if self._is_property_method(doctype, field_name):
+                                if self.verbose:
+                                    print(f"  ✓ Skipped @property method: {obj_name}.{field_name}")
+                                continue
+                                
                             # Create issue
                             issue = ValidationIssue(
                                 file=str(file_path.relative_to(self.app_path)),
@@ -1352,7 +1358,38 @@ class ASTFieldAnalyzer:
                 print(f"  ✓ Skipped conditional hasattr access: {obj_name}.{field_name}")
             return True
         
-        # 12. Skip enum/constant access patterns
+        # 12. Skip Frappe meta object access
+        if re.search(r'_meta\s*=.*frappe\.get_meta|meta\s*=.*frappe\.get_meta|\bget_meta\(', context_line):
+            if field_name in ['fields', 'get_field', 'has_field', 'fieldnames']:
+                if self.verbose:
+                    print(f"  ✓ Skipped Frappe meta object access: {obj_name}.{field_name}")
+                return True
+        
+        # 13. Skip SQL query result attributes  
+        if re.search(r'frappe\.db\.sql.*as_dict=True|\.sql\(.*as_dict=True', context_line):
+            # Variables from SQL queries have custom column names
+            if self.verbose:
+                print(f"  ✓ Skipped SQL query result: {obj_name}.{field_name}")
+            return True
+        
+        # 14. Skip other DocType field access patterns
+        # Pattern: membership_type.membership_type_name, invoice.grand_total
+        if (obj_name.endswith('_type') and field_name.endswith('_name')) or \
+           (obj_name in ['invoice', 'payment', 'customer', 'member'] and field_name in ['grand_total', 'total', 'amount']):
+            if self.verbose:
+                print(f"  ✓ Skipped other DocType field access: {obj_name}.{field_name}")
+            return True
+        
+        # 15. Skip variables that contain common query result indicators
+        query_indicators = ['stats', 'result', 'data', 'response', 'summary']
+        if any(indicator in obj_name.lower() for indicator in query_indicators):
+            common_query_fields = ['total', 'active', 'pending', 'inactive', 'count', 'new_this_week', 'new_this_month']
+            if field_name.lower() in common_query_fields:
+                if self.verbose:
+                    print(f"  ✓ Skipped query result variable: {obj_name}.{field_name}")
+                return True
+        
+        # 16. Skip enum/constant access patterns
         # Common patterns: IssueType.INVALID_FIELD, Status.ACTIVE, etc.
         if self._is_enum_or_constant_access(obj_name, field_name, context_line):
             if self.verbose:
@@ -1360,6 +1397,43 @@ class ASTFieldAnalyzer:
             return True
         
         return False
+    
+    def _is_property_method(self, doctype: str, field_name: str) -> bool:
+        """Check if field_name is a @property decorated method in the DocType Python file"""
+        try:
+            # Convert DocType name to python file path
+            doctype_path = doctype.lower().replace(' ', '_')
+            python_file = self.app_path / 'verenigingen' / 'verenigingen' / 'doctype' / doctype_path / f'{doctype_path}.py'
+            
+            if not python_file.exists():
+                return False
+            
+            # Read and parse the Python file
+            with open(python_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            try:
+                tree = ast.parse(content)
+            except SyntaxError:
+                return False
+            
+            # Look for @property decorated methods with matching name
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef) and node.name == field_name:
+                    # Check if it has @property decorator
+                    for decorator in node.decorator_list:
+                        if isinstance(decorator, ast.Name) and decorator.id == 'property':
+                            return True
+                        elif isinstance(decorator, ast.Attribute) and decorator.attr == 'property':
+                            return True
+            
+            return False
+            
+        except Exception as e:
+            # Don't fail validation due to property detection issues
+            if self.verbose:
+                print(f"  ⚠️  Error checking property for {doctype}.{field_name}: {e}")
+            return False
     
     def _is_enum_or_constant_access(self, obj_name: str, field_name: str, context_line: str) -> bool:
         """Detect enum, constant, or class member access patterns"""

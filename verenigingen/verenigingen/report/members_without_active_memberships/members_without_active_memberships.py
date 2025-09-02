@@ -6,10 +6,42 @@ from frappe import _
 from frappe.utils import getdate, today
 
 
+def validate_doctype_fields(doctype, required_fields):
+    """Validate that required fields exist in DocType for defensive programming"""
+    try:
+        meta = frappe.get_meta(doctype)
+        existing_fields = {field.fieldname for field in meta.fields if field.fieldname}
+        # Add implicit fields that always exist on DocTypes
+        existing_fields.update(['name', 'creation', 'modified', 'owner', 'modified_by', 'docstatus'])
+        missing_fields = set(required_fields) - existing_fields
+
+        if missing_fields:
+            frappe.logger().warning(f"Missing fields in {doctype}: {missing_fields}")
+            return False
+        return True
+    except Exception as e:
+        frappe.logger().error(f"Error validating {doctype} fields: {str(e)}")
+        return False
+
+
 def execute(filters=None):
-    columns = get_columns(filters)
-    data = get_data(filters)
-    return columns, data
+    import time
+    start_time = time.time()
+    
+    try:
+        columns = get_columns(filters)
+        data = get_data(filters)
+
+        # Log performance metrics
+        execution_time = time.time() - start_time
+        frappe.logger().info(f"members_without_active_memberships report: {len(data)} rows processed in {execution_time:.2f}s")
+
+        return columns, data
+
+    except Exception as e:
+        execution_time = time.time() - start_time
+        frappe.logger().error(f"members_without_active_memberships report failed after {execution_time:.2f}s: {str(e)}")
+        raise
 
 
 def get_columns(filters):
@@ -49,6 +81,19 @@ def get_data(filters):
     if filters is None:
         filters = {}
 
+    # Validate required fields exist before proceeding
+    required_member_fields = ["name", "full_name", "email", "status", "member_since"]
+    required_membership_fields = ["member", "status", "membership_type", "start_date", "creation"]
+    required_schedule_fields = ["member", "status", "next_invoice_date", "billing_frequency", "dues_rate"]
+
+    if not all([
+        validate_doctype_fields("Member", required_member_fields),
+        validate_doctype_fields("Membership", required_membership_fields),
+        validate_doctype_fields("Membership Dues Schedule", required_schedule_fields)
+    ]):
+        frappe.logger().error("Field validation failed in members_without_active_memberships report")
+        return []  # Return empty data if validation fails
+
     # Build dynamic WHERE conditions based on filters
     where_conditions = ["m.docstatus != 2"]  # Exclude cancelled member records
 
@@ -61,16 +106,22 @@ def get_data(filters):
     if not filters.get("include_suspended"):
         status_conditions.append("m.status != 'Suspended'")
 
+    # Build query parameters for safe SQL execution
+    query_params = {}
+
     # Specific status filter takes precedence
     if filters.get("member_status"):
-        status_conditions = [f"m.status = '{filters.get('member_status')}'"]
+        status_conditions = ["m.status = %(member_status)s"]
+        query_params["member_status"] = filters.get("member_status")
 
     if status_conditions:
         where_conditions.extend(status_conditions)
 
     # Chapter filter (skip for now since it's HTML field)
+    # Note: This would need parameterization if enabled
     # if filters.get("chapter"):
-    #     where_conditions.append(f"m.current_chapter_display LIKE '%{filters.get('chapter')}%'")
+    #     where_conditions.append("m.current_chapter_display LIKE %(chapter_filter)s")
+    #     query_params["chapter_filter"] = f"%{filters.get('chapter')}%"
 
     where_clause = " AND ".join(where_conditions)
 
@@ -125,7 +176,7 @@ def get_data(filters):
     """
 
     try:
-        data = frappe.db.sql(sql_query, as_dict=1)
+        data = frappe.db.sql(sql_query, query_params, as_dict=1)
 
         # Enhance with dues schedule information if requested
         if filters and filters.get("include_dues_schedule_info"):
@@ -180,8 +231,39 @@ def get_report_summary(filters=None):
 
 
 def enhance_with_dues_schedule_info(data):
-    """Enhance member data with dues schedule information"""
+    """Enhance member data with dues schedule information using batch loading"""
     from frappe.utils import date_diff
+
+    # Batch load all dues schedules to avoid N+1 queries
+    member_ids = [row.get("member_id") for row in data if row.get("member_id")]
+
+    if not member_ids:
+        return data
+
+    # Get all active dues schedules for all members in single query
+    all_schedules = frappe.get_all(
+        "Membership Dues Schedule",
+        filters={"member": ["in", member_ids], "status": "Active"},
+        fields=[
+            "member",
+            "name",
+            "next_invoice_date",
+            "last_invoice_date",
+            "billing_frequency",
+            "dues_rate",
+            "auto_generate",
+            "modified",
+        ],
+        order_by="member, modified desc"
+    )
+
+    # Group schedules by member for fast lookup
+    schedules_by_member = {}
+    for schedule in all_schedules:
+        member_id = schedule.member
+        if member_id not in schedules_by_member:
+            # Take the first (most recent) schedule for each member
+            schedules_by_member[member_id] = schedule
 
     enhanced_data = []
 
@@ -191,25 +273,12 @@ def enhance_with_dues_schedule_info(data):
             enhanced_data.append(row)
             continue
 
-        # Get dues schedule information
+        # Get pre-loaded dues schedule information
         try:
-            schedules = frappe.get_all(
-                "Membership Dues Schedule",
-                filters={"member": member_id, "status": "Active"},
-                fields=[
-                    "name",
-                    "next_invoice_date",
-                    "last_invoice_date",
-                    "billing_frequency",
-                    "dues_rate",
-                    "auto_generate",
-                ],
-                order_by="modified desc",
-                limit=1,
-            )
+            schedule = schedules_by_member.get(member_id)
 
-            if schedules:
-                schedule = schedules[0]
+            if schedule:
+
                 today_date = getdate(today())
 
                 # Calculate days overdue
@@ -238,7 +307,7 @@ def enhance_with_dues_schedule_info(data):
                 # Add dues schedule fields to row
                 row.update(
                     {
-                        "dues_schedule_status": "Active" if schedules else "None",
+                        "dues_schedule_status": "Active",
                         "next_invoice_date": schedule.next_invoice_date,
                         "days_overdue": days_overdue,
                         "billing_frequency": schedule.billing_frequency,
@@ -259,7 +328,8 @@ def enhance_with_dues_schedule_info(data):
                     }
                 )
 
-        except Exception:
+        except Exception as e:
+            frappe.logger().error(f"Error processing dues schedule for member {member_id}: {str(e)}")
             # On error, add empty dues schedule fields
             row.update(
                 {

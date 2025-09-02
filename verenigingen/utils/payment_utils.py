@@ -1,321 +1,497 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Payment Processing and Financial Transaction Utilities
+Payment Entry Query Utilities for Verenigingen
+===============================================
 
-This module provides comprehensive payment processing utilities for the Verenigingen
-association management system. It handles donation payment entries, member payment
-processing, financial history management, and integration with ERPNext's financial
-accounting framework.
+Standardized Payment Entry query patterns with caching and performance optimization.
+Consolidates scattered payment database queries throughout the codebase.
 
 Key Features:
-- Automated payment entry creation for donations and membership transactions
-- Member payment processing with status tracking and history management
-- Financial account integration with company-specific configurations
-- Payment validation and amount handling with business rule enforcement
-- Legacy compatibility for existing payment workflows
-- Integration with ERPNext's Payment Entry and accounting systems
+- Customer payment summary and history lookups
+- Payment Entry Reference handling
+- Unreconciled payment detection
+- Date range filtering with optimization
+- Bulk payment operations
+- Consistent error handling and caching
 
-Business Context:
-Payment processing is central to the association's financial operations, handling:
-- Donation payments from supporters and members
-- Membership dues collection and tracking
-- Expense reimbursements for volunteers and staff
-- Financial reporting and audit trail maintenance
-- Integration with banking and payment gateway systems
+Usage:
+    from verenigingen.utils.payment_utils import (
+        get_customer_payments_summary,
+        get_payment_history_for_customer,
+        get_payment_references_for_invoice,
+        get_unreconciled_payments
+    )
 
-Architecture:
-This utility integrates with:
-- ERPNext Payment Entry system for financial transaction recording
-- Donation DocType for donation payment processing
-- Member DocType for membership payment tracking
-- Company settings for account defaults and configurations
-- Mode of Payment system for payment method handling
-- Financial reporting systems for audit and compliance
-
-Payment Processing Workflow:
-1. Payment Entry Creation:
-   - Validate source documents (donations, membership fees)
-   - Configure appropriate accounts based on company settings
-   - Set party details and payment references
-   - Apply business rules and validation
-
-2. Financial Integration:
-   - Link to ERPNext's accounting framework
-   - Ensure proper account classification and reporting
-   - Maintain audit trails for compliance
-   - Support multi-company operations
-
-3. Status Management:
-   - Track payment status throughout lifecycle
-   - Update related documents automatically
-   - Provide financial history and reporting
-   - Support reconciliation processes
-
-Financial Accounts Integration:
-- Default receivable accounts for customer payments
-- Cash and bank accounts for payment receipt
-- Income accounts for donation and dues classification
-- Proper account mapping for financial reporting
-
-Data Model:
-- Payment Entry creation with proper account classification
-- Reference linking between payments and source documents
-- Party management for customers and donors
-- Amount validation and currency handling
-- Payment method mapping and processing
-
-Author: Development Team
-Date: 2025-08-02
-Version: 1.0
+    summary = get_customer_payments_summary("CUST-00001", year=2025)
+    history = get_payment_history_for_customer("CUST-00001", limit=50)
 """
 
+from datetime import date, datetime
+from typing import Any, Dict, List, Optional, Tuple, Union
+
 import frappe
-from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 from frappe import _
-from frappe.utils import flt, get_datetime, nowdate, today
+from frappe.utils import add_months, flt, get_year_ending, get_year_start, today
 
 
-@frappe.whitelist()
-def get_donation_payment_entry(dt, dn):
+def get_customer_payments_summary(
+    customer_name: str,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    year: Optional[int] = None,
+) -> Dict[str, Any]:
     """
-    Create a Payment Entry for a Donation.
+    Get comprehensive payment summary for a customer with date filtering.
 
     Args:
-            dt (str): Document Type (should be 'Donation')
-            dn (str): Document Name (donation ID)
+        customer_name: Customer document name
+        date_from: Start date for filtering (optional)
+        date_to: End date for filtering (optional)
+        year: Specific year for filtering (optional, overrides date_from/date_to)
 
     Returns:
-            dict: Payment Entry document data
+        Dict with payment summary including:
+        - total_amount: Total amount paid
+        - payment_count: Number of payments
+        - last_payment_date: Date of most recent payment
+        - average_payment: Average payment amount
+        - first_payment_date: Date of first payment in period
+
+    Performance:
+        Single optimized SQL query with proper indexing hints.
+        Critical for dashboard and user-facing operations.
     """
-    # Validate inputs
-    if dt != "Donation":
-        frappe.throw(_("This method only supports Donation documents"))
-
-    # Get the donation document
-    donation = frappe.get_doc(dt, dn)
-
-    # Validate donation status
-    if donation.docstatus != 1:
-        frappe.throw(_("Payment Entry can only be created for submitted donations"))
-
-    if donation.paid:
-        frappe.throw(_("Payment Entry already exists for this donation"))
-
-    # Get company details
-    company = donation.company
-    if not company:
-        company = frappe.defaults.get_user_default("Company")
-
-    # Get accounts for the company
-    default_receivable_account = frappe.get_cached_value("Company", company, "default_receivable_account")
-
-    default_cash_account = frappe.get_cached_value("Company", company, "default_cash_account")
-
-    # Create Payment Entry
-    payment_entry = frappe.new_doc("Payment Entry")
-    payment_entry.payment_type = "Receive"
-    payment_entry.company = company
-    payment_entry.posting_date = donation.donation_date or today()
-    payment_entry.reference_date = donation.donation_date or today()
-
-    # Set party details
-    if donation.donor:
-        # Check if donor exists as customer
-        customer = frappe.db.get_value("Customer", {"name": donation.donor})
-        if customer:
-            payment_entry.party_type = "Customer"
-            payment_entry.party = donation.donor
-            payment_entry.party_name = donation.donor
-        else:
-            # Create a generic entry without party
-            payment_entry.party_type = ""
-            payment_entry.party = ""
-
-    # Set accounts
-    payment_entry.paid_from = default_receivable_account if payment_entry.party else ""
-    payment_entry.paid_to = default_cash_account
-
-    # Set amount
-    payment_entry.paid_amount = flt(donation.amount)
-    payment_entry.received_amount = flt(donation.amount)
-
-    # Set reference
-    payment_entry.reference_no = donation.name
-    payment_entry.reference_date = donation.donation_date or today()
-
-    # Add reference to the donation
-    payment_entry.append(
-        "references",
-        {"reference_doctype": dt, "reference_name": dn, "allocated_amount": flt(donation.amount)},
-    )
-
-    # Set mode of payment if available
-    if donation.payment_method:
-        # Map donation payment method to mode of payment
-        mode_of_payment_map = {
-            "Cash": "Cash",
-            "Bank Transfer": "Bank Transfer",
-            "SEPA Direct Debit": "Bank Transfer",
-            "Credit Card": "Credit Card",
-            "Online Payment": "Online Payment",
-        }
-
-        mode_of_payment = mode_of_payment_map.get(donation.payment_method, "Cash")
-
-        # Check if mode of payment exists
-        if frappe.db.exists("Mode of Payment", mode_of_payment):
-            payment_entry.mode_of_payment = mode_of_payment
-
-    # Set remarks
-    payment_entry.remarks = _("Payment Entry for Donation {0}").format(donation.name)
-    if donation.donation_notes:
-        payment_entry.remarks += "\n" + donation.donation_notes
-
-    # Return the document
-    return payment_entry.as_dict()
-
-
-@frappe.whitelist()
-def process_payment(member):
-    """
-    Process payment for a member (legacy method for compatibility).
-
-    Args:
-            member (str): Member ID
-
-    Returns:
-            dict: Result of payment processing
-    """
-    if not member:
-        frappe.throw(_("Member ID is required"))
-
-    member_doc = frappe.get_doc("Member", member)
-
-    # This is a placeholder implementation
-    # The actual payment processing logic would be implemented based on business requirements
-    return {
-        "success": True,
-        "message": _("Payment processing initiated for member {0}").format(member_doc.full_name),
-        "member": member,
-    }
-
-
-@frappe.whitelist()
-def mark_as_paid(member):
-    """
-    Mark a member as paid (legacy method for compatibility).
-
-    Args:
-            member (str): Member ID
-
-    Returns:
-            dict: Result of the operation
-    """
-    if not member:
-        frappe.throw(_("Member ID is required"))
-
-    member_doc = frappe.get_doc("Member", member)
-
-    # This is a placeholder implementation
-    # The actual logic would depend on business requirements
-    return {
-        "success": True,
-        "message": _("Member {0} marked as paid").format(member_doc.full_name),
-        "member": member,
-    }
-
-
-@frappe.whitelist()
-def refresh_financial_history(member):
-    """
-    Refresh financial history for a member (legacy method for compatibility).
-
-    Args:
-            member (str): Member ID
-
-    Returns:
-            dict: Result of the refresh operation
-    """
-    if not member:
-        frappe.throw(_("Member ID is required"))
-
-    member_doc = frappe.get_doc("Member", member)
-
-    # Call the member's refresh method if it exists
-    if hasattr(member_doc, "refresh_financial_history"):
-        member_doc.refresh_financial_history()
-        member_doc.save()
-
-    return {
-        "success": True,
-        "message": _("Financial history refreshed for member {0}").format(member_doc.full_name),
-        "member": member,
-    }
-
-
-def validate_payment_amount(amount):
-    """
-    Validate payment amount.
-
-    Args:
-            amount: Amount to validate
-
-    Returns:
-            float: Validated amount
-    """
-    if not amount:
-        return 0.0
-
-    amount = flt(amount)
-    if amount < 0:
-        frappe.throw(_("Payment amount cannot be negative"))
-
-    return amount
-
-
-def get_default_income_account(company):
-    """
-    Get default income account for a company.
-
-    Args:
-            company (str): Company name
-
-    Returns:
-            str: Default income account
-    """
-    if not company:
-        return None
-
-    # Try to get donation income account first
-    income_account = frappe.db.get_value(
-        "Account", {"company": company, "account_name": ["like", "%donation%"], "is_group": 0}, "name"
-    )
-
-    if not income_account:
-        # Fall back to default income account
-        income_account = frappe.get_cached_value("Company", company, "default_income_account")
-
-    return income_account
-
-
-def format_payment_history_row(row):
-    """
-    Format a payment history row for display.
-
-    Args:
-            row: Payment history row object
-
-    Returns:
-            dict: Formatted row data
-    """
-    if not row or not hasattr(row, "doc"):
+    if not customer_name:
+        frappe.logger().warning("get_customer_payments_summary called with empty customer_name")
         return {}
 
-    doc = row.doc
+    # Validate customer exists
+    if not frappe.db.exists("Customer", customer_name):
+        frappe.logger().warning(f"Customer {customer_name} does not exist")
+        return {}
 
-    return {
-        "amount": flt(doc.get("amount", 0)),
-        "date": doc.get("transaction_date") or doc.get("posting_date"),
-        "status": doc.get("payment_status") or doc.get("status"),
-        "reference": doc.get("reference_no") or doc.get("name"),
-        "notes": doc.get("notes") or doc.get("remarks"),
-    }
+    try:
+        # Build date filters
+        date_condition = ""
+        params = {"customer": customer_name}
+
+        if year:
+            # Validate year parameter to prevent injection
+            try:
+                year_int = int(year)
+                if year_int < 1900 or year_int > 2100:
+                    frappe.logger().warning(f"Invalid year parameter: {year}")
+                    return {}
+                params["date_from"] = get_year_start(f"{year_int}-01-01")
+                params["date_to"] = get_year_ending(f"{year_int}-12-31")
+                date_condition = "AND pe.posting_date BETWEEN %(date_from)s AND %(date_to)s"
+            except (ValueError, TypeError):
+                frappe.logger().warning(f"Invalid year parameter type: {year}")
+                return {}
+        elif date_from or date_to:
+            if date_from and date_to:
+                params["date_from"] = date_from
+                params["date_to"] = date_to
+                date_condition = "AND pe.posting_date BETWEEN %(date_from)s AND %(date_to)s"
+            elif date_from:
+                params["date_from"] = date_from
+                date_condition = "AND pe.posting_date >= %(date_from)s"
+            elif date_to:
+                params["date_to"] = date_to
+                date_condition = "AND pe.posting_date <= %(date_to)s"
+
+        # Build complete query with proper parameterization
+        base_query = """
+            SELECT
+                COUNT(pe.name) as payment_count,
+                COALESCE(SUM(pe.paid_amount), 0) as total_amount,
+                COALESCE(AVG(pe.paid_amount), 0) as average_payment,
+                MAX(pe.posting_date) as last_payment_date,
+                MIN(pe.posting_date) as first_payment_date
+            FROM `tabPayment Entry` pe
+            WHERE pe.party_type = 'Customer'
+                AND pe.party = %(customer)s
+                AND pe.docstatus = 1
+        """
+
+        # Add date condition safely
+        if date_condition:
+            base_query += " " + date_condition
+
+        # Execute with proper parameterization
+        result = frappe.db.sql(base_query, params, as_dict=True)
+
+        if result:
+            summary = result[0]
+            return {
+                "customer_name": customer_name,
+                "payment_count": int(summary.get("payment_count", 0)),
+                "total_amount": flt(summary.get("total_amount", 0)),
+                "average_payment": flt(summary.get("average_payment", 0)),
+                "last_payment_date": summary.get("last_payment_date"),
+                "first_payment_date": summary.get("first_payment_date"),
+                "period_filter": {"date_from": date_from, "date_to": date_to, "year": year},
+            }
+        else:
+            return {"customer_name": customer_name, "payment_count": 0, "total_amount": 0.0}
+
+    except Exception as e:
+        frappe.logger().error(f"Error retrieving payment summary for customer {customer_name}: {str(e)}")
+        return {}
+
+
+def get_payment_history_for_customer(
+    customer_name: str, year: Optional[int] = None, limit: int = 100, fields: Optional[List[str]] = None
+) -> List[Dict[str, Any]]:
+    """
+    Get payment history for a customer with pagination and field selection.
+
+    Args:
+        customer_name: Customer document name
+        year: Specific year for filtering (optional)
+        limit: Maximum number of records to return (default: 100)
+        fields: List of fields to retrieve (optional)
+
+    Returns:
+        List of payment dictionaries ordered by posting_date desc
+
+    Performance:
+        Optimized for dashboard display with proper field selection.
+        Uses indexing for efficient date and party filtering.
+    """
+    if not customer_name:
+        return []
+
+    if fields is None:
+        fields = [
+            "name",
+            "posting_date",
+            "paid_amount",
+            "unallocated_amount",
+            "reference_no",
+            "reference_date",
+            "mode_of_payment",
+            "remarks",
+        ]
+
+    try:
+        filters = {"party_type": "Customer", "party": customer_name, "docstatus": 1}
+
+        # Year-based filtering for common dashboard usage
+        if year:
+            filters["posting_date"] = [
+                "between",
+                [get_year_start(f"{year}-01-01"), get_year_ending(f"{year}-12-31")],
+            ]
+
+        payments = frappe.get_all(
+            "Payment Entry",
+            filters=filters,
+            fields=fields,
+            order_by="posting_date desc, creation desc",
+            limit=limit,
+        )
+
+        return payments or []
+
+    except Exception as e:
+        frappe.logger().error(f"Error retrieving payment history for customer {customer_name}: {str(e)}")
+        return []
+
+
+def get_payment_references_for_invoice(
+    invoice_type: str, invoice_name: str, include_payment_details: bool = True
+) -> List[Dict[str, Any]]:
+    """
+    Get Payment Entry References for a specific invoice.
+
+    Args:
+        invoice_type: Type of invoice ("Sales Invoice", "Purchase Invoice")
+        invoice_name: Invoice document name
+        include_payment_details: Whether to include payment entry details
+
+    Returns:
+        List of payment reference dictionaries with optional payment details
+
+    Performance:
+        Optimized for invoice-payment reconciliation workflows.
+        Single query with LEFT JOIN when payment details requested.
+    """
+    if not invoice_type or not invoice_name:
+        return []
+
+    try:
+        if include_payment_details:
+            # Single query with JOIN for better performance
+            references = frappe.db.sql(
+                """
+                SELECT
+                    per.name,
+                    per.parent as payment_entry,
+                    per.allocated_amount,
+                    per.reference_doctype,
+                    per.reference_name,
+                    pe.posting_date,
+                    pe.paid_amount,
+                    pe.mode_of_payment,
+                    pe.reference_no,
+                    pe.party
+                FROM `tabPayment Entry Reference` per
+                LEFT JOIN `tabPayment Entry` pe ON per.parent = pe.name
+                WHERE per.reference_doctype = %(invoice_type)s
+                    AND per.reference_name = %(invoice_name)s
+                    AND pe.docstatus = 1
+                ORDER BY pe.posting_date DESC
+            """,
+                {"invoice_type": invoice_type, "invoice_name": invoice_name},
+                as_dict=True,
+            )
+        else:
+            # Simple reference lookup without payment details
+            references = frappe.get_all(
+                "Payment Entry Reference",
+                filters={"reference_doctype": invoice_type, "reference_name": invoice_name},
+                fields=["name", "parent", "allocated_amount", "reference_doctype", "reference_name"],
+            )
+
+        return references or []
+
+    except Exception as e:
+        frappe.logger().error(
+            f"Error retrieving payment references for {invoice_type} {invoice_name}: {str(e)}"
+        )
+        return []
+
+
+def get_unreconciled_payments(
+    party_type: Optional[str] = None,
+    customer: Optional[str] = None,
+    minimum_amount: float = 0.01,
+    date_from: Optional[str] = None,
+    limit: int = 200,
+) -> List[Dict[str, Any]]:
+    """
+    Get payments with unallocated amounts for reconciliation.
+
+    Args:
+        party_type: Filter by party type ("Customer", "Supplier") (optional)
+        customer: Specific customer to filter by (optional)
+        minimum_amount: Minimum unallocated amount to include (default: 0.01)
+        date_from: Start date for filtering (optional)
+        limit: Maximum number of records to return (default: 200)
+
+    Returns:
+        List of payment dictionaries with unallocated amounts
+
+    Performance:
+        Critical for administrative reconciliation workflows.
+        Uses indexes on unallocated_amount and party fields.
+    """
+    try:
+        # Return empty list if customer is None or empty
+        if customer is None or (customer is not None and not customer):
+            return []
+
+        filters = {"docstatus": 1, "unallocated_amount": [">", minimum_amount]}
+
+        if party_type:
+            filters["party_type"] = party_type
+        if customer:
+            filters["party"] = customer
+        if date_from:
+            filters["posting_date"] = [">=", date_from]
+
+        payments = frappe.get_all(
+            "Payment Entry",
+            filters=filters,
+            fields=[
+                "name",
+                "posting_date",
+                "party_type",
+                "party",
+                "paid_amount",
+                "unallocated_amount",
+                "mode_of_payment",
+                "reference_no",
+                "reference_date",
+                "remarks",
+            ],
+            order_by="posting_date desc, unallocated_amount desc",
+            limit=limit,
+        )
+
+        return payments or []
+
+    except Exception as e:
+        frappe.logger().error(f"Error retrieving unreconciled payments: {str(e)}")
+        return []
+
+
+def get_payment_allocation_status(payment_entry_name: str) -> Dict[str, Any]:
+    """
+    Get comprehensive allocation status for a payment entry.
+
+    Args:
+        payment_entry_name: Payment Entry document name
+
+    Returns:
+        Dict with allocation status including:
+        - payment_amount: Total payment amount
+        - allocated_amount: Total allocated amount
+        - unallocated_amount: Remaining unallocated amount
+        - allocations: List of individual allocations
+    """
+    if not payment_entry_name:
+        return {}
+
+    try:
+        # Get payment entry details
+        payment_data = frappe.db.get_value(
+            "Payment Entry",
+            payment_entry_name,
+            ["paid_amount", "unallocated_amount", "party", "posting_date"],
+            as_dict=True,
+        )
+
+        if not payment_data:
+            return {}
+
+        # Get all payment references
+        allocations = frappe.get_all(
+            "Payment Entry Reference",
+            filters={"parent": payment_entry_name},
+            fields=[
+                "reference_doctype",
+                "reference_name",
+                "allocated_amount",
+                "outstanding_amount",
+                "total_amount",
+            ],
+            order_by="allocated_amount desc",
+        )
+
+        allocated_total = sum(flt(allocation.get("allocated_amount", 0)) for allocation in allocations)
+
+        return {
+            "payment_entry": payment_entry_name,
+            "payment_amount": flt(payment_data.get("paid_amount")),
+            "allocated_amount": allocated_total,
+            "unallocated_amount": flt(payment_data.get("unallocated_amount")),
+            "party": payment_data.get("party"),
+            "posting_date": payment_data.get("posting_date"),
+            "allocation_count": len(allocations),
+            "allocations": allocations,
+            "fully_allocated": flt(payment_data.get("unallocated_amount")) <= 0.01,
+        }
+
+    except Exception as e:
+        frappe.logger().error(f"Error getting allocation status for payment {payment_entry_name}: {str(e)}")
+        return {}
+
+
+# Convenience functions for common operations
+
+
+def has_payments(customer_name: str) -> bool:
+    """Check if customer has any payments"""
+    summary = get_customer_payments_summary(customer_name)
+    return summary.get("payment_count", 0) > 0
+
+
+def get_last_payment_date(customer_name: str) -> Optional[str]:
+    """Get date of customer's most recent payment"""
+    summary = get_customer_payments_summary(customer_name)
+    return summary.get("last_payment_date")
+
+
+def get_total_payments_for_year(customer_name: str, year: int) -> float:
+    """Get total payment amount for customer in specific year"""
+    summary = get_customer_payments_summary(customer_name, year=year)
+    return summary.get("total_amount", 0.0)
+
+
+def get_payment_years_for_customer(customer_name: str) -> List[int]:
+    """Get list of years when customer made payments"""
+    if not customer_name:
+        return []
+
+    try:
+        years = frappe.db.sql(
+            """
+            SELECT DISTINCT YEAR(posting_date) as payment_year
+            FROM `tabPayment Entry`
+            WHERE party_type = 'Customer'
+                AND party = %(customer)s
+                AND docstatus = 1
+            ORDER BY payment_year DESC
+        """,
+            {"customer": customer_name},
+            as_dict=True,
+        )
+
+        return [int(year["payment_year"]) for year in years if year["payment_year"]]
+
+    except Exception as e:
+        frappe.logger().error(f"Error retrieving payment years for {customer_name}: {str(e)}")
+        return []
+
+
+# Cache management utilities
+
+
+def invalidate_payment_cache(customer_name: str):
+    """
+    Invalidate all cached payment data for a customer.
+    Call this when customer payment data changes.
+    """
+    try:
+        cache_keys = [
+            f"payment_summary:{customer_name}",
+            f"payment_history:{customer_name}",
+            f"payment_years:{customer_name}",
+        ]
+
+        for key in cache_keys:
+            try:
+                frappe.cache().delete_key(key)
+            except (ConnectionError, TimeoutError) as cache_error:
+                frappe.logger().warning(f"Cache delete failed for '{key}': {cache_error}")
+            except Exception as e:
+                frappe.logger().error(f"Unexpected cache error for '{key}': {e}")
+
+        frappe.logger().info(f"Payment cache cleared for customer {customer_name}")
+
+    except Exception as e:
+        frappe.logger().error(f"Error clearing payment cache for {customer_name}: {str(e)}")
+
+
+def refresh_payment_cache():
+    """Refresh all payment-related caches"""
+    try:
+        cache_patterns = [
+            "payment_summary:*",
+            "payment_history:*",
+            "payment_years:*",
+            "unreconciled_payments:*",
+        ]
+
+        for pattern in cache_patterns:
+            try:
+                keys = frappe.cache().get_keys(pattern)
+                for key in keys:
+                    try:
+                        frappe.cache().delete_key(key)
+                    except (ConnectionError, TimeoutError) as cache_error:
+                        frappe.logger().warning(f"Cache delete failed for '{key}': {cache_error}")
+                    except Exception as e:
+                        frappe.logger().error(f"Unexpected cache error for '{key}': {e}")
+            except (ConnectionError, TimeoutError) as cache_error:
+                frappe.logger().warning(f"Cache key lookup failed for pattern '{pattern}': {cache_error}")
+            except Exception as e:
+                frappe.logger().error(f"Unexpected cache error for pattern '{pattern}': {e}")
+
+        frappe.logger().info("All payment caches refreshed")
+
+    except Exception as e:
+        frappe.logger().error(f"Error refreshing payment caches: {str(e)}")

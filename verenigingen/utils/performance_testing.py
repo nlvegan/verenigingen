@@ -341,9 +341,9 @@ class PerformanceTester:
                         from verenigingen.utils.financial_utils import get_customer_invoices
 
                         invoices = get_customer_invoices(member_data.customer)
-                        payments = frappe.get_all(
-                            "Payment Entry", filters={"party": member_data.customer, "party_type": "Customer"}
-                        )
+                        from verenigingen.utils.payment_utils import get_payment_history_for_customer
+
+                        payments = get_payment_history_for_customer(member_data.customer, limit=50)
                         individual_results.append(
                             {"member": member_name, "invoices": len(invoices), "payments": len(payments)}
                         )

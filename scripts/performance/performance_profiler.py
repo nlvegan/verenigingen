@@ -177,12 +177,9 @@ def profile_payment_reconciliation() -> Dict[str, Any]:
 def process_payment_batch_simulation(batch_size: int):
     """Simulate payment batch processing"""
     
-    # Get sample payment entries
-    payments = frappe.get_all("Payment Entry", 
-        fields=["name", "party", "paid_amount", "posting_date"],
-        limit=batch_size,
-        order_by="creation desc"
-    )
+    # Get sample payment entries using standardized utility
+    from verenigingen.utils.payment_utils import get_unreconciled_payments
+    payments = get_unreconciled_payments(minimum_amount=0.0, limit=batch_size)
     
     processed_count = 0
     

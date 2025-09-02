@@ -3,6 +3,8 @@
 import frappe
 from frappe import _
 
+from verenigingen.utils.member_utils import get_member_chapters
+
 
 def execute(filters=None):
     """Generate Volunteer Interest Analysis Report"""
@@ -266,17 +268,3 @@ def get_interest_distribution_chart(data):
         "colors": ["#7cd6fd"],
         "height": 300,
     }
-
-
-def get_member_chapters(member_name):
-    """Get list of chapters a member belongs to"""
-    try:
-        chapters = frappe.get_all(
-            "Chapter Member",
-            filters={"member": member_name, "enabled": 1},
-            fields=["parent"],
-            order_by="chapter_join_date desc",
-        )
-        return [ch.parent for ch in chapters]
-    except Exception:
-        return []

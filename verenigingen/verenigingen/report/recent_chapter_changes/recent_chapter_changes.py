@@ -2,6 +2,9 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, today
 
+from verenigingen.utils.chapter_utils import get_user_accessible_chapters
+from verenigingen.utils.member_utils import get_member_chapters
+
 
 def execute(filters=None):
     """Generate Recent Chapter Changes Report"""
@@ -198,72 +201,6 @@ def get_change_type(previous_chapter, current_chapter):
         return '<span class="indicator grey">Unknown</span>'
 
 
-def get_user_accessible_chapters():
-    """Get chapters accessible to current user"""
-    user = frappe.session.user
-
-    # System managers and Association/Membership managers see all
-    admin_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Manager"]
-    if any(role in frappe.get_roles(user) for role in admin_roles):
-        return None  # No filter - see all
-
-    # Get user's member record
-    user_member = frappe.db.get_value("Member", {"user": user}, "name")
-    if not user_member:
-        return []  # No access if not a member
-
-    # Get chapters where user has board access with membership or admin permissions
-    user_chapters = []
-    try:
-        volunteer_records = frappe.get_all("Volunteer", filters={"member": user_member}, fields=["name"])
-
-        for volunteer_record in volunteer_records:
-            board_positions = frappe.get_all(
-                "Verenigingen Chapter Board Member",
-                filters={"volunteer": volunteer_record.name, "is_active": 1},
-                fields=["parent", "chapter_role"],
-            )
-
-            for position in board_positions:
-                try:
-                    role_doc = frappe.get_doc("Chapter Role", position.chapter_role)
-                    if role_doc.permissions_level in ["Admin", "Membership"]:
-                        if position.parent not in user_chapters:
-                            user_chapters.append(position.parent)
-                except Exception:
-                    continue
-
-        # Add national chapter if configured and user has access
-        try:
-            settings = frappe.get_single("Verenigingen Settings")
-            if hasattr(settings, "national_board_chapter") and settings.national_board_chapter:
-                national_board_positions = frappe.get_all(
-                    "Verenigingen Chapter Board Member",
-                    filters={
-                        "parent": settings.national_board_chapter,
-                        "volunteer": [v.name for v in volunteer_records],
-                        "is_active": 1,
-                    },
-                    fields=["chapter_role"],
-                )
-
-                for position in national_board_positions:
-                    try:
-                        role_doc = frappe.get_doc("Chapter Role", position.chapter_role)
-                        if role_doc.permissions_level in ["Admin", "Membership"]:
-                            if settings.national_board_chapter not in user_chapters:
-                                user_chapters.append(settings.national_board_chapter)
-                            break
-                    except Exception:
-                        continue
-        except Exception:
-            pass
-    except Exception:
-        pass
-
-    return user_chapters if user_chapters else []
-
-
 def get_summary(data):
     """Get summary statistics"""
     if not data:
@@ -334,17 +271,3 @@ def get_chart_data(data):
         "type": "donut",
         "colors": ["#28a745", "#007bf", "#dc3545", "#6c757d"],
     }
-
-
-def get_member_chapters(member_name):
-    """Get list of chapters a member belongs to"""
-    try:
-        chapters = frappe.get_all(
-            "Chapter Member",
-            filters={"member": member_name, "enabled": 1},
-            fields=["parent"],
-            order_by="chapter_join_date desc",
-        )
-        return [ch.parent for ch in chapters]
-    except Exception:
-        return []

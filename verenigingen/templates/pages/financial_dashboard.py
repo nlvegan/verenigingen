@@ -159,23 +159,11 @@ def get_financial_overview(member):
         next_payment["amount"] = next_payment["outstanding_amount"]
 
     # Calculate total paid this year
-    year_start = f"{datetime.now().year}-01-01"
-    year_end = f"{datetime.now().year}-12-31"
+    # Note: year_start and year_end are prepared for future use
 
-    total_paid_year = (
-        frappe.db.sql(
-            """
-        SELECT SUM(pe.paid_amount)
-        FROM `tabPayment Entry` pe
-        WHERE pe.party_type = 'Customer'
-        AND pe.party = %s
-        AND pe.docstatus = 1
-        AND pe.posting_date BETWEEN %s AND %s
-    """,
-            (customer, year_start, year_end),
-        )[0][0]
-        or 0
-    )
+    from verenigingen.utils.payment_utils import get_total_payments_for_year
+
+    total_paid_year = get_total_payments_for_year(customer, datetime.now().year)
 
     # Get annual target from current schedule
     current_schedule = get_current_dues_schedule(member)

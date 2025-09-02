@@ -4,6 +4,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, today
 
+from verenigingen.utils.chapter_utils import get_user_accessible_chapters
+
 
 def execute(filters=None):
     """Generate New Members Report"""
@@ -104,13 +106,51 @@ def get_data(filters):
     if not recent_members:
         return []
 
+    # Batch load membership information to avoid N+1 queries
+    member_names = [member.name for member in recent_members]
+    membership_map = {}
+
+    if member_names:
+        # Get earliest memberships for all members
+        earliest_memberships = frappe.get_all(
+            "Membership",
+            filters={"member": ["in", member_names]},
+            fields=["member", "from_date", "membership_type"],
+            order_by="member, from_date",
+        )
+
+        # Get current active memberships
+        active_memberships = frappe.get_all(
+            "Membership",
+            filters={"member": ["in", member_names], "status": "Active"},
+            fields=["member", "from_date", "membership_type"],
+        )
+
+        # Build membership info map (prefer earliest, fallback to active)
+        for membership in earliest_memberships:
+            if membership.member not in membership_map:
+                membership_map[membership.member] = {
+                    "member_since": membership.from_date,
+                    "membership_type": membership.membership_type,
+                }
+
+        # Fill gaps with active memberships
+        for membership in active_memberships:
+            if membership.member not in membership_map:
+                membership_map[membership.member] = {
+                    "member_since": membership.from_date,
+                    "membership_type": membership.membership_type,
+                }
+
     # Apply user-based chapter filtering
     user_chapters = get_user_accessible_chapters()
 
     data = []
     for member in recent_members:
-        # Get membership information
-        membership_info = get_member_membership_info(member.name)
+        # Get membership information from batch-loaded data
+        membership_info = membership_map.get(
+            member.name, {"member_since": None, "membership_type": "No Membership"}
+        )
         member_since = membership_info.get("member_since")
         membership_type = membership_info.get("membership_type")
 
@@ -134,24 +174,16 @@ def get_data(filters):
             if getdate(member_since) > getdate(filters.get("to_date")):
                 continue
 
-        # Get primary chapter using chapter membership system
+        # Get primary chapter using optimized single query (avoid N+1)
         try:
-            # Load the full Member document to access the get_current_chapters method
-            member_doc = frappe.get_doc("Member", member.name)
-            member_chapters = member_doc.get_current_chapters()
-            primary_chapter = member_chapters[0]["chapter"] if member_chapters else None
+            primary_chapter = frappe.db.get_value(
+                "Chapter Member",
+                {"member": member.name, "status": "Active"},
+                "parent",
+                order_by="creation desc",
+            )
         except Exception:
-            # Fallback: Try to get chapter from current_chapter_display field or Chapter Member records
-            try:
-                chapter_member = frappe.get_value(
-                    "Chapter Member",
-                    {"member": member.name, "status": "Active"},
-                    ["chapter"],
-                    order_by="creation desc",
-                )
-                primary_chapter = chapter_member if chapter_member else None
-            except Exception:
-                primary_chapter = None
+            primary_chapter = None
 
         # Apply chapter filter if specified
         if filters and filters.get("chapter"):
@@ -203,31 +235,6 @@ def get_data(filters):
     return data
 
 
-def get_member_membership_info(member_name):
-    """Get membership information for a member"""
-    try:
-        # Get the earliest active membership to determine "member since" date
-        earliest_membership = frappe.get_value(
-            "Membership", {"member": member_name}, ["from_date", "membership_type"], order_by="from_date"
-        )
-
-        if earliest_membership:
-            return {"member_since": earliest_membership[0], "membership_type": earliest_membership[1]}
-
-        # If no membership found, get current membership
-        current_membership = frappe.get_value(
-            "Membership", {"member": member_name, "status": "Active"}, ["from_date", "membership_type"]
-        )
-
-        if current_membership:
-            return {"member_since": current_membership[0], "membership_type": current_membership[1]}
-
-        return {"member_since": None, "membership_type": "No Membership"}
-
-    except Exception:
-        return {"member_since": None, "membership_type": "Unknown"}
-
-
 def get_status_indicator(days_active, is_chapter_change):
     """Generate status indicator with color coding"""
     if is_chapter_change:
@@ -240,72 +247,6 @@ def get_status_indicator(days_active, is_chapter_change):
         return '<span class="indicator orange">Recent</span>'
     else:
         return '<span class="indicator grey">Established</span>'
-
-
-def get_user_accessible_chapters():
-    """Get chapters accessible to current user"""
-    user = frappe.session.user
-
-    # System managers and Association/Membership managers see all
-    admin_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Manager"]
-    if any(role in frappe.get_roles(user) for role in admin_roles):
-        return None  # No filter - see all
-
-    # Get user's member record
-    user_member = frappe.db.get_value("Member", {"user": user}, "name")
-    if not user_member:
-        return []  # No access if not a member
-
-    # Get chapters where user has board access with membership or admin permissions
-    user_chapters = []
-    try:
-        volunteer_records = frappe.get_all("Volunteer", filters={"member": user_member}, fields=["name"])
-
-        for volunteer_record in volunteer_records:
-            board_positions = frappe.get_all(
-                "Verenigingen Chapter Board Member",
-                filters={"volunteer": volunteer_record.name, "is_active": 1},
-                fields=["parent", "chapter_role"],
-            )
-
-            for position in board_positions:
-                try:
-                    role_doc = frappe.get_doc("Chapter Role", position.chapter_role)
-                    if role_doc.permissions_level in ["Admin", "Membership"]:
-                        if position.parent not in user_chapters:
-                            user_chapters.append(position.parent)
-                except Exception:
-                    continue
-
-        # Add national chapter if configured and user has access
-        try:
-            settings = frappe.get_single("Verenigingen Settings")
-            if hasattr(settings, "national_board_chapter") and settings.national_board_chapter:
-                national_board_positions = frappe.get_all(
-                    "Verenigingen Chapter Board Member",
-                    filters={
-                        "parent": settings.national_board_chapter,
-                        "volunteer": [v.name for v in volunteer_records],
-                        "is_active": 1,
-                    },
-                    fields=["chapter_role"],
-                )
-
-                for position in national_board_positions:
-                    try:
-                        role_doc = frappe.get_doc("Chapter Role", position.chapter_role)
-                        if role_doc.permissions_level in ["Admin", "Membership"]:
-                            if settings.national_board_chapter not in user_chapters:
-                                user_chapters.append(settings.national_board_chapter)
-                            break
-                    except Exception:
-                        continue
-        except Exception:
-            pass
-    except Exception:
-        pass
-
-    return user_chapters if user_chapters else []
 
 
 def get_summary(data):
