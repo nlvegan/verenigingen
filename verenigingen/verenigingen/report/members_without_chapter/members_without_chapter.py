@@ -10,7 +10,7 @@ def validate_doctype_fields(doctype, required_fields):
         meta = frappe.get_meta(doctype)
         existing_fields = {field.fieldname for field in meta.fields if field.fieldname}
         # Add implicit fields that always exist on DocTypes
-        existing_fields.update(['name', 'creation', 'modified', 'owner', 'modified_by', 'docstatus'])
+        existing_fields.update(["name", "creation", "modified", "owner", "modified_by", "docstatus"])
         missing_fields = set(required_fields) - existing_fields
 
         if missing_fields:

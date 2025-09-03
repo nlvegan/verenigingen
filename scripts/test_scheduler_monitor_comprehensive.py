@@ -1,28 +1,28 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Comprehensive Scheduler Protection Test Runner
+Comprehensive Scheduler Monitor Test Runner
 =============================================
 
-Executes the complete test suite for scheduler protection system,
+Executes the complete test suite for scheduler monitor system,
 including realistic scenarios and advanced edge cases.
 
 Usage:
     # Run all tests
-    python scripts/test_scheduler_protection_comprehensive.py
+    python scripts/test_scheduler_monitor_comprehensive.py
 
     # Run specific test categories
-    python scripts/test_scheduler_protection_comprehensive.py --category realistic
-    python scripts/test_scheduler_protection_comprehensive.py --category edge_cases
-    python scripts/test_scheduler_protection_comprehensive.py --category integration
+    python scripts/test_scheduler_monitor_comprehensive.py --category realistic
+    python scripts/test_scheduler_monitor_comprehensive.py --category edge_cases
+    python scripts/test_scheduler_monitor_comprehensive.py --category integration
 
     # Run with specific focus areas
-    python scripts/test_scheduler_protection_comprehensive.py --focus resource_contention
-    python scripts/test_scheduler_protection_comprehensive.py --focus timing_issues
-    python scripts/test_scheduler_protection_comprehensive.py --focus recovery_validation
+    python scripts/test_scheduler_monitor_comprehensive.py --focus resource_contention
+    python scripts/test_scheduler_monitor_comprehensive.py --focus timing_issues
+    python scripts/test_scheduler_monitor_comprehensive.py --focus recovery_validation
 
     # Generate detailed report
-    python scripts/test_scheduler_protection_comprehensive.py --report detailed
+    python scripts/test_scheduler_monitor_comprehensive.py --report detailed
 
 Features:
 - Realistic production failure pattern testing
@@ -45,7 +45,7 @@ import frappe
 
 
 def setup_test_environment():
-    """Setup test environment for scheduler protection testing"""
+    """Setup test environment for scheduler monitor testing"""
     print("Setting up test environment...")
     
     # Ensure we're in test mode
@@ -64,7 +64,7 @@ def discover_test_modules() -> Dict[str, Any]:
     """Discover available test modules and their categories"""
     test_modules = {
         'realistic': {
-            'module': 'verenigingen.tests.test_scheduler_protection_realistic_scenarios',
+            'module': 'frappe.tests.test_scheduler_monitor_realistic_scenarios',
             'classes': [
                 'TestSchedulerProtectionRealisticScenarios',
                 'SchedulerProtectionIntegrationTests'
@@ -79,7 +79,7 @@ def discover_test_modules() -> Dict[str, Any]:
             ]
         },
         'edge_cases': {
-            'module': 'verenigingen.tests.test_scheduler_protection_edge_cases',
+            'module': 'frappe.tests.test_scheduler_monitor_edge_cases',
             'classes': [
                 'TestSchedulerProtectionAdvancedEdgeCases',
                 'RecoveryValidationTests'
@@ -276,7 +276,7 @@ def analyze_category_performance(test_timings: Dict[str, float]) -> Dict[str, Di
 
 
 def analyze_test_coverage(result) -> Dict[str, Any]:
-    """Analyze what areas of the scheduler protection system are covered"""
+    """Analyze what areas of the scheduler monitor system are covered"""
     coverage_areas = {
         'resource_contention': 0,
         'timing_anomalies': 0,
@@ -439,7 +439,7 @@ def generate_detailed_report(test_results: Dict[str, Any], output_file: str = No
 
 def main():
     """Main test runner entry point"""
-    parser = argparse.ArgumentParser(description='Comprehensive Scheduler Protection Test Runner')
+    parser = argparse.ArgumentParser(description='Comprehensive Scheduler Monitor Test Runner')
     parser.add_argument('--category', action='append', choices=['realistic', 'edge_cases', 'integration'],
                        help='Test categories to run (can specify multiple)')
     parser.add_argument('--focus', action='append', 

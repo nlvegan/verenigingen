@@ -319,8 +319,21 @@ def execute_member_payment_history_update(
         # Get member document
         member = frappe.get_doc("Member", member_name)
 
-        # Use optimized payment history update method
-        result = refresh_member_financial_history_optimized(member, payment_entry)
+        # FIXED: Use atomic/incremental update when we have a specific payment entry
+        # This prevents clearing the entire payment history
+        if payment_entry and hasattr(member, "refresh_payment_entry"):
+            # Use atomic update for specific payment entry
+            result = member.refresh_payment_entry(payment_entry)
+            frappe.logger("payment_history").info(
+                f"Used atomic payment history update for member {member_name}, payment {payment_entry}"
+            )
+        else:
+            # Only use full rebuild when no specific payment entry is provided
+            # This should be rare - typically only for manual refresh operations
+            result = refresh_member_financial_history_optimized(member, payment_entry)
+            frappe.logger("payment_history").info(
+                f"Used full payment history rebuild for member {member_name} (no specific payment entry)"
+            )
 
         if job_name:
             BackgroundJobManager.update_job_status(job_name, "Completed", result)
@@ -830,14 +843,22 @@ def queue_member_payment_history_update_handler(doc, method=None):
         # Get all members for this customer
         members = frappe.get_all("Member", filters={"customer": doc.party}, fields=["name"])
 
+        # FIXED: Use unified batching system instead of separate BackgroundJobManager
+        from verenigingen.utils.financial_history_batch_processor import queue_payment_update
+
         for member_doc in members:
-            # Queue background job for each member
-            job_id = BackgroundJobManager.queue_member_payment_history_update(
-                member_name=member_doc.name, payment_entry=doc.name, priority="default"
+            # Find related invoices that need updating due to this payment
+            invoices = frappe.get_all(
+                "Sales Invoice", filters={"customer": doc.party, "docstatus": 1}, fields=["name"]
             )
 
-            # Log for monitoring
-            frappe.logger().info(f"Queued payment history update for member {member_doc.name}, job: {job_id}")
+            # Queue updates for all affected invoices
+            for invoice in invoices:
+                queue_payment_update(member_doc.name, invoice.name)
+
+            frappe.logger("payment_history").info(
+                f"Queued payment history updates for member {member_doc.name} - {len(invoices)} invoices affected by payment {doc.name} (batching system)"
+            )
 
     except Exception as e:
         frappe.log_error(f"Failed to queue payment history updates for payment {doc.name}: {e}")

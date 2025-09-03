@@ -12,7 +12,7 @@ def validate_doctype_fields(doctype, required_fields):
         meta = frappe.get_meta(doctype)
         existing_fields = {field.fieldname for field in meta.fields if field.fieldname}
         # Add implicit fields that always exist on DocTypes
-        existing_fields.update(['name', 'creation', 'modified', 'owner', 'modified_by', 'docstatus'])
+        existing_fields.update(["name", "creation", "modified", "owner", "modified_by", "docstatus"])
         missing_fields = set(required_fields) - existing_fields
 
         if missing_fields:
@@ -26,21 +26,26 @@ def validate_doctype_fields(doctype, required_fields):
 
 def execute(filters=None):
     import time
+
     start_time = time.time()
-    
+
     try:
         columns = get_columns(filters)
         data = get_data(filters)
 
         # Log performance metrics
         execution_time = time.time() - start_time
-        frappe.logger().info(f"members_without_active_memberships report: {len(data)} rows processed in {execution_time:.2f}s")
+        frappe.logger().info(
+            f"members_without_active_memberships report: {len(data)} rows processed in {execution_time:.2f}s"
+        )
 
         return columns, data
 
     except Exception as e:
         execution_time = time.time() - start_time
-        frappe.logger().error(f"members_without_active_memberships report failed after {execution_time:.2f}s: {str(e)}")
+        frappe.logger().error(
+            f"members_without_active_memberships report failed after {execution_time:.2f}s: {str(e)}"
+        )
         raise
 
 
@@ -86,11 +91,13 @@ def get_data(filters):
     required_membership_fields = ["member", "status", "membership_type", "start_date", "creation"]
     required_schedule_fields = ["member", "status", "next_invoice_date", "billing_frequency", "dues_rate"]
 
-    if not all([
-        validate_doctype_fields("Member", required_member_fields),
-        validate_doctype_fields("Membership", required_membership_fields),
-        validate_doctype_fields("Membership Dues Schedule", required_schedule_fields)
-    ]):
+    if not all(
+        [
+            validate_doctype_fields("Member", required_member_fields),
+            validate_doctype_fields("Membership", required_membership_fields),
+            validate_doctype_fields("Membership Dues Schedule", required_schedule_fields),
+        ]
+    ):
         frappe.logger().error("Field validation failed in members_without_active_memberships report")
         return []  # Return empty data if validation fails
 
@@ -254,7 +261,7 @@ def enhance_with_dues_schedule_info(data):
             "auto_generate",
             "modified",
         ],
-        order_by="member, modified desc"
+        order_by="member, modified desc",
     )
 
     # Group schedules by member for fast lookup
@@ -278,7 +285,6 @@ def enhance_with_dues_schedule_info(data):
             schedule = schedules_by_member.get(member_id)
 
             if schedule:
-
                 today_date = getdate(today())
 
                 # Calculate days overdue

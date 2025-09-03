@@ -979,6 +979,93 @@ def retry_failed_subscription_activations():
         return {"error": str(e)}
 
 
+def _activate_donation_subscription_after_first_payment(gateway, payment):
+    """
+    Create Mollie subscription for recurring donation after first payment establishes mandate
+
+    Args:
+        gateway: MollieGateway instance
+        payment: Mollie payment object from first payment
+
+    Returns:
+        dict: Subscription creation result
+    """
+    try:
+        # Get donation and agreement info from payment metadata
+        donation_id = payment.metadata.get("donation_id")
+        if not donation_id:
+            return {"status": "skipped", "reason": "No donation ID in payment metadata"}
+
+        # Get donation and associated agreement
+        donation = frappe.get_doc("Donation", donation_id)
+        if not donation.donation_agreement:
+            return {"status": "skipped", "reason": "No donation agreement found"}
+
+        agreement = frappe.get_doc("Donation Agreement", donation.donation_agreement)
+
+        # Get customer ID from payment
+        customer_id = payment.customer_id
+        if not customer_id:
+            return {"status": "error", "reason": "No customer ID found in payment"}
+
+        # Create subscription data based on agreement
+        subscription_data = {
+            "amount": {"currency": "EUR", "value": f"{float(agreement.amount):.2f}"},
+            "interval": _convert_frequency_to_mollie_interval(agreement.recurring_frequency),
+            "description": f"Recurring donation - {donation.donation_type}",
+            "startDate": agreement.next_due_date.strftime("%Y-%m-%d") if agreement.next_due_date else None,
+            "metadata": {
+                "donation_agreement_id": agreement.name,
+                "donation_id": donation_id,
+                "donor_id": donation.donor,
+                "donation_type": donation.donation_type,
+                "purpose": donation.donation_purpose_type,
+            },
+        }
+
+        # Create subscription using Mollie API directly
+        customer = gateway.client.customers.get(customer_id)
+        subscription = customer.subscriptions.create(data=subscription_data)
+
+        # Update donation agreement with subscription details
+        agreement.db_set("mollie_subscription_id", subscription.id)
+        agreement.db_set("status", "Active")
+
+        frappe.logger().info(
+            f"Successfully created subscription {subscription.id} for donation agreement {agreement.name}"
+        )
+
+        return {
+            "status": "success",
+            "subscription_id": subscription.id,
+            "customer_id": customer_id,
+            "agreement_id": agreement.name,
+            "next_payment": subscription_data.get("startDate"),
+        }
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error creating donation subscription after first payment: {str(e)}",
+            "Mollie Donation Subscription Creation",
+        )
+        return {"status": "error", "message": str(e)}
+
+
+def _convert_frequency_to_mollie_interval(frequency):
+    """Convert Donation Agreement frequency to Mollie interval format"""
+    frequency_map = {
+        "Monthly": "1 month",
+        "Quarterly": "3 months",
+        "Semi-Annual": "6 months",
+        "Annual": "12 months",
+        "1 month": "1 month",  # Direct mapping
+        "3 months": "3 months",
+        "6 months": "6 months",
+        "12 months": "12 months",
+    }
+    return frequency_map.get(frequency, "1 month")
+
+
 @frappe.whitelist()
 def manual_subscription_retry():
     """
@@ -989,9 +1076,17 @@ def manual_subscription_retry():
 
 
 # Webhook endpoints
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist()
 def mollie_webhook():
     """Handle Mollie webhook notifications with security verification"""
+
+    # SECURITY: Verify system user permissions for webhook processing
+    if frappe.session.user == "Guest":
+        # For webhook calls, create system context
+        frappe.set_user("Administrator")
+
+    if not frappe.has_permission("Payment Entry", "create"):
+        frappe.throw("Insufficient permissions for payment processing")
     try:
         # Import webhook security utilities
         from verenigingen.utils.webhook_security import (
@@ -1095,7 +1190,7 @@ def mollie_webhook():
         return {"status": "error", "message": str(e)}
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist()
 def mollie_subscription_webhook():
     """
     Handle Mollie subscription webhook notifications with security verification
@@ -1200,8 +1295,11 @@ def mollie_subscription_webhook():
         if not subscription_id:
             return {"status": "ignored", "reason": "No subscription ID in payload"}
 
-        # Check if this is a payment notification
+        # IDEMPOTENCY: Check if webhook already processed
         payment_id = data.get("payment", {}).get("id") if data.get("payment") else None
+        if payment_id and frappe.db.exists("Payment Entry", {"reference_no": payment_id}):
+            frappe.logger().info(f"Payment {payment_id} already processed, skipping webhook")
+            return {"status": "already_processed", "payment_id": payment_id}
 
         # Find member by Customer's Mollie subscription ID (correct data location)
         customers_with_subscription = frappe.get_all(
@@ -1353,91 +1451,112 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
             )
             # Continue anyway - partial payments are handled by ERPNext
 
-        # Create Payment Entry to mark invoice as paid
-        payment_entry = frappe.new_doc("Payment Entry")
-        payment_entry.payment_type = "Receive"
-        payment_entry.party_type = "Customer"
-        payment_entry.party = member_customer
-        payment_entry.posting_date = frappe.utils.today()
-        payment_entry.paid_amount = payment_amount
-        payment_entry.received_amount = payment_amount
-        payment_entry.reference_no = payment_id
-        payment_entry.reference_date = frappe.utils.today()
-        payment_entry.mode_of_payment = "Mollie"
+        # TRANSACTION SAFETY: Wrap payment processing in database transaction
+        # Use proper Frappe transaction handling for MariaDB
+        frappe.db.begin()
+        try:
+            # Create Payment Entry to mark invoice as paid
+            payment_entry = frappe.new_doc("Payment Entry")
+            payment_entry.payment_type = "Receive"
+            payment_entry.party_type = "Customer"
+            payment_entry.party = member_customer
+            payment_entry.posting_date = frappe.utils.today()
+            payment_entry.paid_amount = payment_amount
+            payment_entry.received_amount = payment_amount
+            payment_entry.reference_no = payment_id
+            payment_entry.reference_date = frappe.utils.today()
+            payment_entry.mode_of_payment = "Mollie"
 
-        # Set currency
-        payment_entry.paid_from_account_currency = invoice["currency"]
-        payment_entry.paid_to_account_currency = invoice["currency"]
+            # Set currency
+            payment_entry.paid_from_account_currency = invoice["currency"]
+            payment_entry.paid_to_account_currency = invoice["currency"]
 
-        # Get default accounts (this should be configured in Mollie Settings or Company)
-        company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value(
-            "Global Defaults", "default_company"
-        )
-
-        # Get appropriate Bank account for Mollie electronic payments (not Cash)
-        paid_to_account = frappe.db.get_value(
-            "Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name"
-        )
-        if not paid_to_account:
-            # Fallback to default cash account if no bank account found
-            paid_to_account = frappe.db.get_value("Company", company, "default_cash_account")
-            if not paid_to_account:
-                # Final fallback to first cash account
-                paid_to_account = frappe.db.get_value(
-                    "Account", {"company": company, "account_type": "Cash", "is_group": 0}, "name"
-                )
-
-        if not paid_to_account:
-            frappe.throw(
-                f"No cash account found for company {company}. Please configure Mollie payment accounts."
+            # Get default accounts (this should be configured in Mollie Settings or Company)
+            company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value(
+                "Global Defaults", "default_company"
             )
 
-        payment_entry.paid_to = paid_to_account
+            # Get appropriate Bank account for Mollie electronic payments (not Cash)
+            paid_to_account = frappe.db.get_value(
+                "Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name"
+            )
+            if not paid_to_account:
+                # Fallback to default cash account if no bank account found
+                paid_to_account = frappe.db.get_value("Company", company, "default_cash_account")
+                if not paid_to_account:
+                    # Final fallback to first cash account
+                    paid_to_account = frappe.db.get_value(
+                        "Account", {"company": company, "account_type": "Cash", "is_group": 0}, "name"
+                    )
 
-        # Link to the invoice
-        payment_entry.append(
-            "references",
-            {
-                "reference_doctype": "Sales Invoice",
-                "reference_name": invoice["name"],
-                "allocated_amount": min(payment_amount, invoice_amount),
-            },
-        )
+            if not paid_to_account:
+                frappe.throw(
+                    f"No cash account found for company {company}. Please configure Mollie payment accounts."
+                )
 
-        # Add notes about subscription payment
-        payment_entry.remarks = (
-            f"Automatic payment via Mollie subscription {subscription_id}. Payment ID: {payment_id}"
-        )
+            payment_entry.paid_to = paid_to_account
 
-        # Set accounts manually (avoid EmployeePaymentEntry issues)
-        # Use the same receivable account as the invoice to avoid validation errors
-        invoice_receivable_account = frappe.db.get_value("Sales Invoice", invoice["name"], "debit_to")
+            # Link to the invoice
+            payment_entry.append(
+                "references",
+                {
+                    "reference_doctype": "Sales Invoice",
+                    "reference_name": invoice["name"],
+                    "allocated_amount": min(payment_amount, invoice_amount),
+                },
+            )
 
-        if invoice_receivable_account:
-            payment_entry.paid_from = invoice_receivable_account
+            # Add notes about subscription payment
+            payment_entry.remarks = (
+                f"Automatic payment via Mollie subscription {subscription_id}. Payment ID: {payment_id}"
+            )
 
-        # Submit the payment entry
-        payment_entry.insert()
-        payment_entry.submit()
+            # Set accounts manually (avoid EmployeePaymentEntry issues)
+            # Use the same receivable account as the invoice to avoid validation errors
+            invoice_receivable_account = frappe.db.get_value("Sales Invoice", invoice["name"], "debit_to")
 
-        frappe.logger().info(
-            f"Created Payment Entry {payment_entry.name} for Mollie subscription payment {payment_id} "
-            f"against invoice {invoice['name']} for member {member_name}"
-        )
+            if invoice_receivable_account:
+                payment_entry.paid_from = invoice_receivable_account
+
+            # Submit the payment entry
+            payment_entry.insert()
+            payment_entry.submit()
+
+            frappe.logger().info(
+                f"Created Payment Entry {payment_entry.name} for Mollie subscription payment {payment_id} "
+                f"against invoice {invoice['name']} for member {member_name}"
+            )
+
+            # Commit transaction
+            frappe.db.commit()
+
+        except Exception:
+            # Rollback on error
+            frappe.db.rollback()
+            raise
 
         # Check if this was a first payment (sequenceType: "first") and activate subscription
         subscription_activation_result = None
         try:
             if payment.sequence_type == "first":
-                frappe.logger().info(
-                    f"First payment completed for member {member_name}, attempting subscription activation"
-                )
-                subscription_activation_result = _activate_subscription_after_first_payment(
-                    gateway, member_name, member_customer, payment_id
-                )
+                # Check if this is for a donation or member subscription
+                if payment.metadata.get("reference_doctype") == "Donation":
+                    frappe.logger().info(
+                        "First payment completed for donation, attempting subscription creation"
+                    )
+                    subscription_activation_result = _activate_donation_subscription_after_first_payment(
+                        gateway, payment
+                    )
+                else:
+                    frappe.logger().info(
+                        f"First payment completed for member {member_name}, attempting subscription activation"
+                    )
+                    subscription_activation_result = _activate_subscription_after_first_payment(
+                        gateway, member_name, member_customer, payment_id
+                    )
         except Exception as activation_error:
             frappe.log_error(
-                f"Subscription activation failed for member {member_name} after first payment {payment_id}: {str(activation_error)}",
+                f"Subscription activation failed for payment {payment_id}: {str(activation_error)}",
                 "Mollie Subscription Activation Error",
             )
             subscription_activation_result = {"status": "error", "message": str(activation_error)}

@@ -1007,7 +1007,7 @@ def validate_entity_configuration(config: EntityConfig, entity_name: str) -> Opt
                 if role and not frappe.db.exists(config.role_doctype, role):
                     return {
                         "success": False,
-                        "error": f"Role '{role}' does not exist in role-specific configuration for {config.entity_label} '{entity_name}'",
+                        "error": f"Role '{role}' is not present in role-specific configuration for {config.entity_label} '{entity_name}'",
                         "error_code": ERROR_CODES["CONFIGURATION_ERROR"],
                     }
 

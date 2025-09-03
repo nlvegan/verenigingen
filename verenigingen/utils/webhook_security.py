@@ -35,6 +35,12 @@ def verify_mollie_webhook_signature(payload: str, signature_header: Optional[str
     settings = frappe.get_single("Mollie Settings")
     webhook_secret = settings.get_webhook_secret()
 
+    # IMPORTANT: In Mollie test mode, webhooks don't include signature headers
+    # This is documented behavior for Mollie's test environment
+    if settings.test_mode and not signature_header:
+        frappe.logger().info("🔒 Test mode: Accepting webhook without signature (Mollie test mode behavior)")
+        return True
+
     # Check if webhook secret is configured
     if not webhook_secret:
         frappe.logger().error("🔒 Webhook secret not configured in Mollie Settings")
@@ -42,9 +48,9 @@ def verify_mollie_webhook_signature(payload: str, signature_header: Optional[str
             "Webhook secret not configured. Please add your webhook secret key to Mollie Settings."
         )
 
-    # Check if signature header is present
+    # Check if signature header is present (only required in live mode)
     if not signature_header:
-        frappe.logger().warning("🔒 Webhook received without signature header")
+        frappe.logger().warning("🔒 Webhook received without signature header in live mode")
         raise WebhookAuthenticationError("Missing X-Mollie-Signature header")
 
     try:

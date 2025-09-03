@@ -1143,261 +1143,58 @@ class PaymentMixin:
     # ===== NEW INCREMENTAL UPDATE METHODS =====
 
     def add_invoice_to_payment_history(self, invoice_name):
-        """Add a single invoice to payment history incrementally with race condition protection"""
+        """Add a single invoice to payment history using batched processing"""
         if not self.customer:
             return
 
-        # Use database-level locking to prevent race conditions
-        max_save_attempts = 5
-        save_attempt = 0
+        # IMPROVED: Use 10s batching to eliminate lock contention
+        from verenigingen.utils.financial_history_batch_processor import queue_payment_update
 
-        while save_attempt < max_save_attempts:
+        queue_payment_update(self.name, invoice_name)
+        return True  # Queued successfully
+
+    def _get_invoice_with_retry(self, invoice_name, max_retries=3):
+        """Get invoice with retry mechanism for race conditions"""
+        is_bulk_processing = getattr(frappe.flags, "bulk_invoice_generation", False)
+
+        for retry_count in range(max_retries):
             try:
-                # Reload the document to get the latest version
-                self.reload()
-
-                # Check if invoice already exists in payment history
-                existing_idx = None
-                for idx, row in enumerate(self.payment_history or []):
-                    if row.invoice == invoice_name:
-                        existing_idx = idx
-                        break
-
-                # Get invoice details with retry mechanism for race conditions
-                max_retries = 3
-                retry_count = 0
-                invoice = None
-
-                # Detect if we're in bulk processing mode for extended timeouts
-                is_bulk_processing = getattr(frappe.flags, "bulk_invoice_generation", False)
-
-                while retry_count < max_retries and not invoice:
-                    try:
-                        invoice = frappe.get_doc("Sales Invoice", invoice_name)
-                    except frappe.DoesNotExistError:
-                        retry_count += 1
-                        if retry_count < max_retries:
-                            # Extended timeout for bulk operations (120s) vs normal operations (1s)
-                            import time
-
-                            sleep_duration = 120 if is_bulk_processing else 1
-
-                            frappe.logger("payment_history").info(
-                                f"Invoice {invoice_name} not found (attempt {retry_count}/{max_retries}). "
-                                f"Waiting {sleep_duration}s before retry {'(bulk mode)' if is_bulk_processing else '(normal mode)'}"
-                            )
-
-                            time.sleep(sleep_duration)
-                            # Commit any pending transactions and try again
-                            frappe.db.commit()
-                        else:
-                            # Log and skip if invoice still not found after retries
-                            timeout_info = (
-                                "360s total (bulk mode)" if is_bulk_processing else "3s total (normal mode)"
-                            )
-                            frappe.log_error(
-                                f"Sales Invoice {invoice_name} not found after {max_retries} retries ({timeout_info}) - possible race condition",
-                                "Payment History Race Condition",
-                            )
-                            return
-
-                # Skip if not for this customer
-                if invoice.customer != self.customer:
-                    return
-
-                # Build payment history entry
-                entry_data = self._build_payment_history_entry(invoice)
-
-                if existing_idx is not None:
-                    # Update existing entry
-                    for key, value in entry_data.items():
-                        setattr(self.payment_history[existing_idx], key, value)
-                else:
-                    # Add new entry at the beginning for newest-first display
-                    self.append("payment_history", entry_data)
-
-                    # Move the newly added entry (which was appended to the end) to the beginning
-                    if len(self.payment_history) > 1:
-                        new_entry = self.payment_history.pop()  # Remove from end
-                        self.payment_history.insert(0, new_entry)  # Insert at beginning
-
-                # Use database transaction with row locking to prevent race conditions
-                try:
-                    # Start a transaction with row locking
-                    frappe.db.sql("SELECT name FROM `tabMember` WHERE name = %s FOR UPDATE", (self.name,))
-
-                    # Save with minimal logging and proper flags
-                    self.flags.ignore_version = True
-                    self.flags.ignore_links = True
-                    self.flags.ignore_validate = True
-
-                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                    member_result = secure_document_operation(
-                        operation="save",
-                        doc=self,
-                        justification=f"Add invoice {invoice_name} to payment history for member {self.name}",
-                        required_permissions=["Member:write"],
-                    )
-
-                    if not member_result.success:
-                        frappe.log_error(
-                            f"Failed to save invoice addition: {'; '.join(member_result.errors)}",
-                            "Member Payment History Security",
-                        )
-                        return
-
-                    # Trim payment history if needed
-                    if len(self.payment_history) > 20:
-                        while len(self.payment_history) > 20:
-                            self.payment_history.pop()  # Remove from end (oldest entries)
-
-                        # Save again to persist the trimming
-                        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                        trim_result = secure_document_operation(
-                            operation="save",
-                            doc=self,
-                            justification=f"Trim payment history to 20 entries for member {self.name}",
-                            required_permissions=["Member:write"],
-                        )
-
-                        if not trim_result.success:
-                            frappe.log_error(
-                                f"Failed to save payment history trimming: {'; '.join(trim_result.errors)}",
-                                "Member Payment History Security",
-                            )
-                            return
-
-                    # If we get here, save was successful
-                    frappe.db.commit()
-                    return
-
-                except frappe.exceptions.TimestampMismatchError:
-                    save_attempt += 1
-                    if save_attempt < max_save_attempts:
-                        # Wait a short random time before retrying to reduce collision probability
-                        import random
-                        import time
-
-                        time.sleep(random.uniform(0.1, 0.5))
-                        frappe.db.rollback()
-                        continue
-                    else:
-                        # Maximum attempts reached, log error with shorter message
-                        error_msg = (
-                            f"Race condition in payment history for member {self.name} invoice {invoice_name}"
-                        )
-                        frappe.log_error(error_msg, "Payment History Race Condition")
-                        return
-
-            except Exception as e:
-                save_attempt += 1
-                if save_attempt >= max_save_attempts:
-                    # Log error with controlled message length
-                    error_msg = f"Error adding invoice {invoice_name} to payment history: {str(e)[:100]}..."
-                    frappe.log_error(error_msg, "Payment History Update Error")
-                    return
-                else:
-                    # Wait and retry
-                    import random
+                return frappe.get_doc("Sales Invoice", invoice_name)
+            except frappe.DoesNotExistError:
+                if retry_count < max_retries - 1:
                     import time
 
-                    time.sleep(random.uniform(0.1, 0.5))
-                    frappe.db.rollback()
+                    sleep_duration = 120 if is_bulk_processing else 1
+
+                    frappe.logger("payment_history").info(
+                        f"Invoice {invoice_name} not found (attempt {retry_count + 1}/{max_retries}). "
+                        f"Waiting {sleep_duration}s before retry {'(bulk mode)' if is_bulk_processing else '(normal mode)'}"
+                    )
+
+                    time.sleep(sleep_duration)
+                    frappe.db.commit()
+                else:
+                    timeout_info = (
+                        "360s total (bulk mode)" if is_bulk_processing else "3s total (normal mode)"
+                    )
+                    frappe.log_error(
+                        f"Sales Invoice {invoice_name} not found after {max_retries} retries ({timeout_info}) - possible race condition",
+                        "Payment History Race Condition",
+                    )
+                    return None
+        return None
 
     def remove_invoice_from_payment_history(self, invoice_name):
-        """Remove a cancelled invoice from payment history"""
-        if not hasattr(self, "payment_history") or not self.payment_history:
-            return
+        """Remove a cancelled invoice from payment history using batched processing"""
+        from verenigingen.utils.financial_history_batch_processor import queue_payment_removal
 
-        try:
-            # Find and remove the invoice
-            updated_history = []
-            removed = False
-
-            for row in self.payment_history:
-                if row.invoice != invoice_name:
-                    updated_history.append(row)
-                else:
-                    removed = True
-
-            if removed:
-                self.payment_history = updated_history
-
-                # Save with minimal logging
-                self.flags.ignore_version = True
-                self.flags.ignore_links = True
-
-                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                member_result = secure_document_operation(
-                    operation="save",
-                    doc=self,
-                    justification=f"Remove cancelled invoice {invoice_name} from payment history for member {self.name}",
-                    required_permissions=["Member:write"],
-                )
-
-                if not member_result.success:
-                    frappe.log_error(
-                        f"Failed to save invoice removal: {'; '.join(member_result.errors)}",
-                        "Member Payment History Security",
-                    )
-                    return
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error removing invoice {invoice_name} from payment history: {str(e)}",
-                "Incremental Payment History Update",
-            )
+        queue_payment_removal(self.name, invoice_name)
+        return True  # Queued successfully
 
     def update_invoice_in_payment_history(self, invoice_name):
-        """Update an existing invoice in payment history"""
-        if not hasattr(self, "payment_history") or not self.payment_history:
-            # If no history exists, just add it
-            self.add_invoice_to_payment_history(invoice_name)
-            return
-
-        try:
-            # Find the invoice in payment history
-            found = False
-            for idx, row in enumerate(self.payment_history):
-                if row.invoice == invoice_name:
-                    found = True
-                    # Get updated invoice details
-                    invoice = frappe.get_doc("Sales Invoice", invoice_name)
-                    entry_data = self._build_payment_history_entry(invoice)
-
-                    # Update the entry
-                    for key, value in entry_data.items():
-                        setattr(self.payment_history[idx], key, value)
-                    break
-
-            if not found:
-                # Invoice not in history, add it
-                self.add_invoice_to_payment_history(invoice_name)
-            else:
-                # Save the updates with minimal logging
-                self.flags.ignore_version = True
-                self.flags.ignore_links = True
-
-                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                member_result = secure_document_operation(
-                    operation="save",
-                    doc=self,
-                    justification=f"Update existing invoice {invoice_name} in payment history for member {self.name}",
-                    required_permissions=["Member:write"],
-                )
-
-                if not member_result.success:
-                    frappe.log_error(
-                        f"Failed to save invoice update: {'; '.join(member_result.errors)}",
-                        "Member Payment History Security",
-                    )
-                    return
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error updating invoice {invoice_name} in payment history: {str(e)}",
-                "Incremental Payment History Update",
-            )
+        """Update an existing invoice in payment history using consolidated manager"""
+        # This is essentially the same as add_or_update, so just call that
+        return self.add_invoice_to_payment_history(invoice_name)
 
     def _build_payment_history_entry(self, invoice):
         """Build a payment history entry from an invoice document"""
@@ -1524,5 +1321,5 @@ class PaymentMixin:
                 "posting_date": invoice.posting_date,
                 "amount": invoice.grand_total,
                 "status": invoice.status,
-                "payment_status": "Unknown",
+                "payment_status": "Draft",  # FIXED: Use valid payment status instead of "Unknown"
             }

@@ -2458,7 +2458,7 @@ class Member(
                 "payment_date": None,
                 "paid_amount": 0,
                 "payment_method": None,
-                "payment_status": "Unknown",
+                "payment_status": "Draft",  # FIXED: Use valid payment status instead of "Unknown"
             }
 
 

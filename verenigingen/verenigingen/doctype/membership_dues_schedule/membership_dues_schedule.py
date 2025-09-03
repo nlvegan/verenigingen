@@ -1939,11 +1939,24 @@ def _bulk_update_payment_history(member_names, successful_invoices):
             if member_invoices:
                 member_doc = frappe.get_doc("Member", member_name)
 
-                # Add each invoice to payment history using atomic method
+                # Add each invoice to payment history using direct processing for bulk operations
                 for inv_data in member_invoices:
                     try:
-                        # Use existing atomic method from payment mixin
-                        member_doc.add_invoice_to_payment_history(inv_data["invoice"])
+                        # FIXED: Use direct manager during bulk processing to avoid queueing conflicts
+                        from verenigingen.utils.member_financial_history_manager import (
+                            get_payment_history_manager,
+                        )
+
+                        manager = get_payment_history_manager(member_doc)
+
+                        def build_invoice_entry():
+                            invoice = member_doc._get_invoice_with_retry(inv_data["invoice"])
+                            if invoice and invoice.customer == member_doc.customer:
+                                return member_doc._build_payment_history_entry(invoice)
+                            return None
+
+                        # Direct processing during bulk operations (no 10s delay needed)
+                        manager.add_or_update_entry(inv_data["invoice"], build_invoice_entry, "invoice")
                     except Exception as inv_error:
                         frappe.log_error(
                             f"Failed to add invoice {inv_data['invoice']} to payment history for member {member_name}: {str(inv_error)}",

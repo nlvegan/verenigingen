@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Validation script for scheduler protection test suite
+Validation script for scheduler monitor test suite
 """
 
 import sys
@@ -166,15 +166,15 @@ def validate_test_structure():
     print("\nValidating Test Structure...")
     
     test_files = [
-        'test_scheduler_protection_realistic_scenarios.py',
-        'test_scheduler_protection_edge_cases.py'
+        'test_scheduler_monitor_realistic_scenarios.py',
+        'test_scheduler_monitor_edge_cases.py'
     ]
     
     script_files = [
-        'test_scheduler_protection_comprehensive.py'
+        'test_scheduler_monitor_comprehensive.py'
     ]
     
-    base_path = '/home/frappe/frappe-bench/apps/verenigingen'
+    base_path = '/tmp/frappe'
     
     # Check test files exist
     for test_file in test_files:

@@ -3,10 +3,10 @@ Mollie Security Manager
 Comprehensive security management for Mollie integration
 
 Features:
-- API key rotation with zero downtime
-- Webhook signature validation
-- Data encryption/decryption
-- Security audit logging
+- Webhook signature validation using HMAC-SHA256
+- Manual API key management (Mollie doesn't support automatic rotation)
+- Data encryption/decryption for sensitive information
+- Security audit logging and monitoring
 """
 
 import base64
@@ -32,7 +32,7 @@ class MollieSecurityManager:
 
     Provides multi-layer security for financial data including:
     - Webhook signature validation using HMAC-SHA256
-    - API key rotation with zero-downtime fallback
+    - Manual API key management (Mollie doesn't support automatic rotation)
     - AES encryption for sensitive data storage
     - Immutable audit trail logging
     """
@@ -98,63 +98,45 @@ class MollieSecurityManager:
         """
         Rotate API keys with graceful fallback for zero downtime
 
-        Process:
-        1. Store current key as fallback
-        2. Validate new key connectivity
-        3. Update primary key
-        4. Keep fallback for 24 hours
-        5. Schedule cleanup of old key
+        NOTE: Mollie does not support automatic API key rotation.
+        This method is disabled as it's not applicable to Mollie's API model.
+        API keys should be manually rotated through the Mollie dashboard.
 
         Returns:
-            Dict with rotation status and metadata
-
-        Raises:
-            SecurityException: If rotation fails
+            Dict with status and information about manual rotation process
         """
         try:
-            # Get current API key
-            current_key = self.settings.get_password("secret_key")
-            if not current_key:
-                raise SecurityException("No current API key found")
+            # Log that automatic rotation is not supported
+            self._create_audit_log(
+                "API_KEY_ROTATION",
+                "skipped",
+                {
+                    "reason": "Mollie does not support automatic API key rotation",
+                    "action_required": "Manual rotation through Mollie dashboard",
+                    "timestamp": frappe.utils.now(),
+                },
+            )
 
-            # Store current key as fallback with timestamp
-            frappe.db.set_value("Mollie Settings", None, "secret_key_fallback", current_key)
-            self.settings.db_set("key_rotation_date", frappe.utils.now())
-            self.settings.db_set("fallback_key_expiry", frappe.utils.add_days(frappe.utils.now(), 1))
-
-            # Note: New key should be obtained from Mollie dashboard
-            # This is a placeholder for the rotation process
-            new_key = self.settings.get_password("secret_key_pending")
-            if not new_key:
-                raise SecurityException("No pending API key found for rotation")
-
-            # Test connectivity with new key
-            if self._test_api_connectivity(new_key):
-                # Update primary key
-                frappe.db.set_value("Mollie Settings", None, "secret_key", new_key)
-                frappe.db.set_value("Mollie Settings", None, "secret_key_pending", "")  # Clear pending
-
-                # Schedule cleanup of fallback key after 24 hours
-                self._schedule_fallback_cleanup()
-
-                # Create audit log
-                self._create_audit_log("API_KEY_ROTATION", "success", {"rotation_date": frappe.utils.now()})
-
-                return {
-                    "status": "success",
-                    "rotation_date": frappe.utils.now(),
-                    "fallback_expiry": self.settings.fallback_key_expiry,
-                    "message": _("API key rotated successfully with 24-hour fallback"),
-                }
-            else:
-                # Rollback on failure
-                frappe.db.set_value("Mollie Settings", None, "secret_key_fallback", "")
-                raise SecurityException("New API key validation failed")
+            return {
+                "status": "info",
+                "message": _(
+                    "Mollie API keys do not support automatic rotation. Please rotate keys manually through the Mollie dashboard."
+                ),
+                "manual_process": [
+                    "1. Generate new API key in Mollie dashboard",
+                    "2. Update key in Verenigingen settings",
+                    "3. Monitor for any issues",
+                    "4. Keep old key for 24 hours as backup",
+                ],
+            }
 
         except Exception as e:
-            self._create_audit_log("API_KEY_ROTATION", "failed", str(e))
-            self._create_security_alert("API_KEY_ROTATION_FAILED", "critical", str(e))
-            raise SecurityException(f"API key rotation failed: {str(e)}")
+            # Don't create critical alerts for disabled functionality
+            frappe.log_error(f"API key rotation info: {str(e)}", "Mollie Security Info")
+            return {
+                "status": "info",
+                "message": _("API key rotation is not available for Mollie integration"),
+            }
 
     def encrypt_sensitive_data(self, data: str) -> str:
         """

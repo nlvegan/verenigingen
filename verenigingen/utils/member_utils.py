@@ -37,7 +37,7 @@ def _validate_member_fields(fields: List[str]) -> List[str]:
             if field in standard_fields or member_meta.has_field(field):
                 valid_fields.append(field)
             else:
-                frappe.logger().warning(f"Field '{field}' does not exist in Member DocType - skipping")
+                frappe.logger().warning(f"Field '{field}' is not present in Member DocType - skipping")
 
         return valid_fields
     except Exception as e:
@@ -384,7 +384,7 @@ def get_active_membership_for_member(
             if field in standard_fields or membership_meta.has_field(field):
                 valid_fields.append(field)
             else:
-                frappe.logger().warning(f"Field '{field}' does not exist in Membership DocType - skipping")
+                frappe.logger().warning(f"Field '{field}' is not present in Membership DocType - skipping")
 
         if not valid_fields:
             frappe.logger().warning("No valid fields specified for membership lookup")

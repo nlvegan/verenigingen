@@ -1,8 +1,8 @@
-# Scheduler Protection System - Comprehensive Testing Guide
+# Scheduler Monitor System - Comprehensive Testing Guide
 
 ## Overview
 
-This guide covers the comprehensive test suite designed to validate the **Frappe Scheduler Protection System** across realistic production scenarios and advanced edge cases. The test suite focuses on **real-world failure patterns** with **minimal mocking** to ensure robust validation of scheduler monitoring and recovery capabilities.
+This guide covers the comprehensive test suite designed to validate the **Frappe Scheduler Monitor System** across realistic production scenarios and advanced edge cases. The test suite focuses on **real-world failure patterns** with **minimal mocking** to ensure robust validation of scheduler monitoring and recovery capabilities.
 
 ## Test Philosophy
 
@@ -415,7 +415,7 @@ bench --site dev.veganisme.net run-tests --module verenigingen.tests.test_schedu
 bench --site dev.veganisme.net run-tests --module verenigingen.tests.test_scheduler_protection_edge_cases --coverage
 
 # Run specific test methods
-bench --site dev.veganisme.net run-tests --module verenigingen.tests.test_scheduler_protection_realistic_scenarios::TestSchedulerProtectionRealisticScenarios::test_resource_contention_memory_exhaustion
+bench --site dev.veganisme.net run-tests --module verenigingen.tests.test_scheduler_monitor_realistic_scenarios::TestSchedulerMonitorRealisticScenarios::test_resource_contention_memory_exhaustion
 ```
 
 ## Test Results Interpretation

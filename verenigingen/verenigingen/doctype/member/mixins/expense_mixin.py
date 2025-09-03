@@ -7,162 +7,55 @@ class ExpenseMixin:
     """Mixin for volunteer expense-related functionality"""
 
     def add_expense_to_history(self, expense_claim_name):
-        """Add a volunteer expense claim to member history incrementally"""
+        """Add a volunteer expense claim to member history using batched processing"""
         if not hasattr(self, "volunteer_expenses"):
             return
 
-        try:
-            # Check if expense already exists in history
-            existing_idx = None
-            # Safe iteration over volunteer expenses
-            volunteer_expenses = getattr(self, "volunteer_expenses", None)
-            if not volunteer_expenses:
-                volunteer_expenses = []
+        # IMPROVED: Use 10s batching to eliminate lock contention
+        from verenigingen.utils.financial_history_batch_processor import queue_expense_update
 
-            for idx, row in enumerate(volunteer_expenses):
-                if row.expense_claim == expense_claim_name:
-                    existing_idx = idx
-                    break
-
-            # Get expense claim details
-            expense_doc = frappe.get_doc("Expense Claim", expense_claim_name)
-
-            # Build expense history entry
-            entry_data = self._build_expense_history_entry(expense_doc)
-
-            if existing_idx is not None:
-                # Update existing entry
-                existing_row = self.volunteer_expenses[existing_idx]
-                # Check if any meaningful data changed to avoid unnecessary saves
-                data_changed = False
-                for key, value in entry_data.items():
-                    if getattr(existing_row, key, None) != value:
-                        setattr(existing_row, key, value)
-                        data_changed = True
-
-                if not data_changed:
-                    # No meaningful changes, skip save to prevent duplicate entries
-                    frappe.logger("expense_history").debug(
-                        f"No changes detected for expense claim {expense_claim_name} in member {self.name} history, skipping update"
-                    )
-                    return
-
-                frappe.logger("expense_history").info(
-                    f"Updated existing expense claim {expense_claim_name} in member {self.name} history"
-                )
-            else:
-                # Add new entry using Frappe's append method to create proper child document
-                self.append("volunteer_expenses", entry_data)
-
-                frappe.logger("expense_history").info(
-                    f"Added new expense claim {expense_claim_name} to member {self.name} history"
-                )
-
-                # Keep only 20 most recent expense entries (remove from the end)
-                if len(self.volunteer_expenses) > 20:
-                    # Remove entries from the end
-                    self.volunteer_expenses = self.volunteer_expenses[:20]
-
-            # Save with minimal logging using secure operations
-            self.flags.ignore_version = True
-            self.flags.ignore_links = True
-
-            # Use secure operations for saving member expense history
-            from verenigingen.utils.secure_operations import secure_document_operation
-
-            result = secure_document_operation(
-                operation="save",
-                doc=self,
-                justification=f"Update expense history for member {self.name} - expense claim {expense_claim_name}",
-                required_permissions=["Member:write"],
-            )
-
-            if not result.success:
-                frappe.log_error(
-                    f"Failed to save member expense history: {'; '.join(result.errors)}",
-                    "Expense History Save Error",
-                )
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error adding expense claim {expense_claim_name} to member history: {str(e)}",
-                "Expense History Update",
-            )
+        queue_expense_update(self.name, expense_claim_name)
+        return True  # Queued successfully
 
     def remove_expense_from_history(self, expense_claim_name):
-        """Remove a cancelled expense claim from member history"""
-        if not hasattr(self, "volunteer_expenses") or not self.volunteer_expenses:
+        """Remove a cancelled expense claim from member history using batched processing"""
+        if not hasattr(self, "volunteer_expenses"):
             return
 
-        try:
-            # Find and remove the expense
-            updated_expenses = []
-            removed = False
+        from verenigingen.utils.financial_history_batch_processor import queue_expense_removal
 
-            for row in self.volunteer_expenses:
-                if row.expense_claim != expense_claim_name:
-                    updated_expenses.append(row)
-                else:
-                    removed = True
-
-            if removed:
-                self.volunteer_expenses = updated_expenses
-
-                # Save with minimal logging
-                self.flags.ignore_version = True
-                self.flags.ignore_links = True
-                self.save()
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error removing expense claim {expense_claim_name} from member history: {str(e)}",
-                "Expense History Update",
-            )
+        queue_expense_removal(self.name, expense_claim_name)
+        return True  # Queued successfully
 
     def update_expense_payment_status(self, expense_claim_name, payment_entry_name):
-        """Update payment status for an expense claim in member history"""
-        if not hasattr(self, "volunteer_expenses") or not self.volunteer_expenses:
+        """Update payment status for an expense claim in member history using batched processing"""
+        if not hasattr(self, "volunteer_expenses"):
             return
 
+        from verenigingen.utils.financial_history_batch_processor import queue_expense_payment_update
+
         try:
-            # Find the expense in history and update payment info
-            for row in self.volunteer_expenses:
-                if row.expense_claim == expense_claim_name:
-                    # Get payment entry details
-                    payment_doc = frappe.get_doc("Payment Entry", payment_entry_name)
+            # Get payment entry details
+            payment_doc = frappe.get_doc("Payment Entry", payment_entry_name)
 
-                    # Update payment fields
-                    row.payment_entry = payment_entry_name
-                    row.payment_date = payment_doc.posting_date
-                    row.paid_amount = payment_doc.paid_amount
-                    row.payment_method = payment_doc.mode_of_payment
-                    row.payment_status = "Paid"
-                    break
+            # Prepare payment field updates
+            payment_updates = {
+                "payment_entry": payment_entry_name,
+                "payment_date": payment_doc.posting_date,
+                "paid_amount": payment_doc.paid_amount,
+                "payment_method": payment_doc.mode_of_payment,
+                "payment_status": "Paid",
+            }
 
-            # Save with minimal logging using secure operations
-            self.flags.ignore_version = True
-            self.flags.ignore_links = True
-
-            # Use secure operations for saving member expense payment update
-            from verenigingen.utils.secure_operations import secure_document_operation
-
-            result = secure_document_operation(
-                operation="save",
-                doc=self,
-                justification=f"Update expense payment status for member {self.name} - expense claim {expense_claim_name}",
-                required_permissions=["Member:write"],
-            )
-
-            if not result.success:
-                frappe.log_error(
-                    f"Failed to save member expense payment update: {'; '.join(result.errors)}",
-                    "Expense Payment Update Save Error",
-                )
+            queue_expense_payment_update(self.name, expense_claim_name, payment_updates)
+            return True  # Queued successfully
 
         except Exception as e:
             frappe.log_error(
-                f"Error updating expense payment for {expense_claim_name}: {str(e)}", "Expense Payment Update"
+                f"Error queuing expense payment status update for {expense_claim_name}: {str(e)}",
+                "Expense Payment Status Update Error",
             )
+            return False
 
     def _build_expense_history_entry(self, expense_doc):
         """Build an expense history entry from an expense claim document"""
@@ -249,5 +142,5 @@ class ExpenseMixin:
                 "posting_date": expense_doc.posting_date,
                 "total_sanctioned_amount": expense_doc.total_sanctioned_amount,
                 "status": expense_doc.status,
-                "payment_status": "Unknown",
+                "payment_status": "Draft",  # FIXED: Use valid payment status instead of "Unknown"
             }

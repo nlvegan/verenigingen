@@ -45,7 +45,7 @@ def get_context(context):
     context.current_details = current_details
 
     # Check for active SEPA mandate
-    context.current_mandate = get_active_sepa_mandate(member)
+    context.current_mandate = get_active_sepa_mandate(context.member.name)
 
     # Get Mollie subscription information if member uses Mollie
     if context.member.payment_method == "Mollie" and context.member.mollie_customer_id:

@@ -145,12 +145,13 @@ def handle_invoice_submitted(event_name=None, event_data=None, **kwargs):
 
     for member in members:
         try:
-            # Use atomic add method instead of full rebuild
-            member_doc = frappe.get_doc("Member", member.name)
-            member_doc.add_invoice_to_payment_history(invoice)
+            # FIXED: Use batching system directly to avoid double-queueing
+            from verenigingen.utils.financial_history_batch_processor import queue_payment_update
+
+            queue_payment_update(member.name, invoice)
 
             frappe.logger("payment_history").info(
-                f"Added invoice {invoice} to payment history for member {member.name}"
+                f"Queued invoice {invoice} for payment history update for member {member.name} (batching system)"
             )
         except Exception as e:
             frappe.log_error(
@@ -185,12 +186,13 @@ def handle_invoice_cancelled(event_name=None, event_data=None, **kwargs):
 
     for member in members:
         try:
-            # Use atomic removal method
-            member_doc = frappe.get_doc("Member", member.name)
-            member_doc.remove_invoice_from_payment_history(invoice)
+            # FIXED: Use batching system for removal as well
+            from verenigingen.utils.financial_history_batch_processor import queue_payment_removal
+
+            queue_payment_removal(member.name, invoice)
 
             frappe.logger("payment_history").info(
-                f"Removed cancelled invoice {invoice} from payment history for member {member.name}"
+                f"Queued removal of cancelled invoice {invoice} from payment history for member {member.name} (batching system)"
             )
         except Exception as e:
             frappe.log_error(

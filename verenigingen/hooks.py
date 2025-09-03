@@ -624,6 +624,15 @@ scheduler_events = {
     ],
 }
 
+# Cron Jobs
+# ---------
+# Custom cron expressions for high-frequency processing
+cron = {
+    "*/10 * * * * *": [  # Every 10 seconds
+        "verenigingen.utils.financial_history_batch_processor.schedule_financial_history_processing"
+    ]
+}
+
 # Jinja
 # -----
 jinja = {"methods": ["verenigingen.utils.jinja_methods"], "filters": ["verenigingen.utils.jinja_filters"]}

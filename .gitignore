@@ -9,7 +9,7 @@ tags
 node_modules
 CLAUDE.md
 TEST_SUMMARY.md
-
+.claude
 # Cypress test artifacts
 cypress/videos/
 cypress/screenshots/

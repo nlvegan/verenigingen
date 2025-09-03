@@ -14,11 +14,10 @@ from frappe import _
 
 def schedule_member_expense_history_update(doc, method=None):
     """
-    Schedule a delayed member expense history update to avoid race conditions.
+    Schedule a member expense history update using the new batching system.
 
-    This hook is called immediately when an expense claim is saved/updated,
-    but it schedules the actual member history update for later execution
-    with retry logic.
+    UPDATED: Now uses the 10s batching system instead of custom delayed processing
+    to avoid duplicate queueing and reduce total processing time.
     """
     if doc.doctype != "Expense Claim":
         return
@@ -35,16 +34,13 @@ def schedule_member_expense_history_update(doc, method=None):
     if not volunteer_record or not volunteer_record.member:
         return
 
-    # Schedule the first delayed update (15 seconds)
-    frappe.enqueue(
-        method="verenigingen.events.delayed_expense_hooks.update_member_expense_history_with_retry",
-        queue="short",
-        delay=15,  # 15 second delay
-        expense_claim_name=doc.name,
-        member_name=volunteer_record.member,
-        attempt=1,
-        max_attempts=3,
-        timeout=120,
+    # FIXED: Use new batching system directly (eliminates 15s delay + 10s batch = 25s total)
+    from verenigingen.utils.financial_history_batch_processor import queue_expense_update
+
+    queue_expense_update(volunteer_record.member, doc.name)
+
+    frappe.logger("delayed_expense_hooks").info(
+        f"Queued expense history update for member {volunteer_record.member}, expense {doc.name} (batching system)"
     )
 
     frappe.logger("delayed_expense_hooks").info(
@@ -144,7 +140,9 @@ def update_member_expense_history_with_retry(expense_claim_name, member_name, at
 
 def schedule_member_expense_history_removal(doc, method=None):
     """
-    Schedule removal of expense from member history when expense is cancelled.
+    Schedule removal of expense from member history using the new batching system.
+
+    UPDATED: Now uses the 10s batching system for consistency.
     """
     if doc.doctype != "Expense Claim":
         return
@@ -159,14 +157,13 @@ def schedule_member_expense_history_removal(doc, method=None):
     if not volunteer_record or not volunteer_record.member:
         return
 
-    # Schedule removal with shorter delay since removal is less conflict-prone
-    frappe.enqueue(
-        method="verenigingen.events.delayed_expense_hooks.remove_member_expense_history_with_retry",
-        queue="short",
-        delay=10,  # 10 second delay for removals
-        expense_claim_name=doc.name,
-        member_name=volunteer_record.member,
-        timeout=60,
+    # FIXED: Use new batching system for removal as well
+    from verenigingen.utils.financial_history_batch_processor import queue_expense_removal
+
+    queue_expense_removal(volunteer_record.member, doc.name)
+
+    frappe.logger("delayed_expense_hooks").info(
+        f"Queued expense history removal for member {volunteer_record.member}, expense {doc.name} (batching system)"
     )
 
 

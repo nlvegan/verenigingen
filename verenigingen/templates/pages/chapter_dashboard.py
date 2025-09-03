@@ -62,11 +62,11 @@ def get_context(context):
     # Handle chapter selection with explicit fallback logic
     selected_chapter = frappe.form_dict.get("chapter")
     if not selected_chapter and user_chapters:
-        selected_chapter = user_chapters[0]["chapter_name"]
+        selected_chapter = user_chapters[0].get("parent") or user_chapters[0].get("chapter_name")
 
     # Verify user has access to selected chapter
-    if not any(ch["chapter_name"] == selected_chapter for ch in user_chapters):
-        selected_chapter = user_chapters[0]["chapter_name"]
+    if not any((ch.get("parent") or ch.get("chapter_name")) == selected_chapter for ch in user_chapters):
+        selected_chapter = user_chapters[0].get("parent") or user_chapters[0].get("chapter_name")
 
     # Set context variables
     if hasattr(context, "selected_chapter"):
