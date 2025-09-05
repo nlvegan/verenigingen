@@ -91,8 +91,8 @@ class SimpleSEPAManager:
         TODO: Replace with bulk permission validation
         """
         try:
-            # Basic existence and permission check
-            member = frappe.get_doc("Member", member_id)
+            # Basic existence check - simplified permission model
+            frappe.get_doc("Member", member_id)
             return True  # Simplified - assume access if member exists
         except:
             return False

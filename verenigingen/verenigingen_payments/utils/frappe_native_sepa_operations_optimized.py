@@ -72,11 +72,11 @@ class FrappeNativeSEPAManagerOptimized:
 
         start_time = time.time()
 
-        # Get performance estimator and audit context
-        estimator = get_clean_performance_estimator()
+        # Get performance estimator and audit context (for logging/monitoring)
+        get_clean_performance_estimator()
         # Convert operations to format expected by performance estimator
         operation_dicts = [{"operation_type": op.operation_type} for op in operations]
-        estimated_duration = estimate_sepa_operation_performance_clean(operation_dicts)
+        estimate_sepa_operation_performance_clean(operation_dicts)
 
         # Create audit context manager
         from verenigingen.verenigingen_payments.utils.audit_context import AuditContextManagerClean

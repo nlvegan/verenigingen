@@ -307,7 +307,6 @@ class TrueBulkSEPAManager:
                 if updates:
                     # SECURITY: Use parameterized queries to prevent SQL injection
                     mandate_names = list(updates.keys())
-                    field_values = list(updates.values())
 
                     # Build parameterized CASE statement
                     case_conditions = []

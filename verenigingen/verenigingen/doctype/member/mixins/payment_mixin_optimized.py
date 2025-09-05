@@ -500,13 +500,7 @@ class PaymentMixinOptimized:
         member_chapters = self.get_member_chapters()  # Already optimized
 
         if member_chapters:
-            # Bulk check chapter permissions
-            chapters_data = frappe.get_all(
-                "Chapter",
-                filters={"name": ["in", member_chapters]},
-                fields=["name"],  # Add permission fields as needed
-            )
-
+            # TODO: Optimize with bulk chapter permissions check
             # This would need more optimization based on actual chapter permission logic
             # For now, keeping original structure
             for chapter_name in member_chapters:

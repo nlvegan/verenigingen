@@ -1,0 +1,145 @@
+{
+ "actions": [],
+ "allow_copy": 0,
+ "allow_events_in_timeline": 0,
+ "allow_guest_to_view": 0,
+ "allow_import": 0,
+ "allow_rename": 0,
+ "autoname": "format:WEBHOOK-{#####}",
+ "beta": 0,
+ "creation": "2025-09-03 23:30:00.000000",
+ "custom": 0,
+ "docstatus": 0,
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "webhook_id",
+  "webhook_type",
+  "webhook_hash",
+  "column_break_4",
+  "processed_at",
+  "status",
+  "section_break_7",
+  "processing_result",
+  "error_details",
+  "raw_payload"
+ ],
+ "fields": [
+  {
+   "fieldname": "webhook_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Webhook ID",
+   "reqd": 1
+  },
+  {
+   "fieldname": "webhook_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Webhook Type",
+   "options": "\npayment\nsubscription\ncustomer\nchargeback",
+   "reqd": 1
+  },
+  {
+   "fieldname": "webhook_hash",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Webhook Hash",
+   "unique": 1
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "processed_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Processed At",
+   "reqd": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "\nsuccess\nerror\nignored",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_7",
+   "fieldtype": "Section Break",
+   "label": "Processing Details"
+  },
+  {
+   "fieldname": "processing_result",
+   "fieldtype": "Long Text",
+   "label": "Processing Result"
+  },
+  {
+   "fieldname": "error_details",
+   "fieldtype": "Text",
+   "label": "Error Details"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "raw_payload",
+   "fieldtype": "Long Text",
+   "label": "Raw Webhook Payload",
+   "description": "Original webhook data for debugging and replay testing"
+  }
+ ],
+ "has_web_view": 0,
+ "hide_heading": 0,
+ "hide_toolbar": 0,
+ "idx": 0,
+ "image_view": 0,
+ "in_create": 0,
+ "is_submittable": 0,
+ "issingle": 0,
+ "istable": 0,
+ "max_attachments": 0,
+ "modified": "2025-09-03 23:30:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen Payments",
+ "name": "Webhook Processing Log",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Admin",
+   "share": 1,
+   "write": 0
+  }
+ ],
+ "quick_entry": 0,
+ "read_only": 0,
+ "read_only_onload": 0,
+ "show_name_in_global_search": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "title_field": "webhook_id",
+ "track_changes": 1,
+ "track_seen": 0,
+ "track_views": 0
+}
