@@ -54,19 +54,8 @@ def mollie_payment_webhook():
 
 @frappe.whitelist(allow_guest=True)
 def mollie_webhook():
-    """
-    Generic webhook endpoint for general Mollie webhooks
+    """Simplified Mollie webhook handler for existing donations"""
+    frappe.logger().info("🔄 Main Mollie webhook redirecting to service handler")
+    from verenigingen.api.mollie_donation_webhook import handle_mollie_payment_webhook
 
-    General-purpose webhook URL for Mollie dashboard configuration.
-    Forwards to the same unified webhook handler.
-    """
-    frappe.logger().info("🔄 General webhook endpoint called")
-    frappe.logger().info(
-        f"🔄 Request headers: {dict(frappe.request.headers) if frappe.request else 'No request'}"
-    )
-
-    payload = frappe.request.get_data(as_text=True) if frappe.request else ""
-    frappe.logger().info(f"🔄 General webhook payload preview: {payload[:200]}...")
-
-    # Redirect to the working simple webhook handler
-    return handle_payment_first_donation()
+    return handle_mollie_payment_webhook()

@@ -365,10 +365,10 @@ def process_payment_method(donation, form_data):
 def process_mollie_payment(donation, form_data):
     """Process Mollie payment - maintains exact same logic"""
     try:
-        from verenigingen.utils.payment_gateways import MolliePaymentGateway
+        from verenigingen.verenigingen_payments.utils.payment_gateways import PaymentGatewayFactory
 
-        # Initialize Mollie gateway
-        mollie_gateway = MolliePaymentGateway()
+        # Initialize Mollie gateway using the correct factory
+        mollie_gateway = PaymentGatewayFactory.get_gateway("Mollie")
 
         if form_data.get("is_recurring"):
             # Handle recurring donations via subscription
@@ -390,49 +390,39 @@ def process_mollie_payment(donation, form_data):
 
 
 def process_mollie_onetime(donation, mollie_gateway):
-    """Process one-time Mollie payment - maintains exact same logic"""
+    """Process one-time Mollie payment - fixed customer ID handling"""
     try:
         # Get donor information
         donor = frappe.get_doc("Donor", donation.donor)
 
-        # Prepare customer data for Mollie
-        customer_data = {
-            "name": donor.donor_name,
-            "email": donor.donor_email,
-        }
-
-        # Create or get customer
-        customer_result = mollie_gateway.get_or_create_customer(customer_data)
-        if not customer_result.get("success"):
+        # Get or create Mollie customer ID
+        customer_id = _get_or_create_mollie_customer(donor)
+        if not customer_id:
             return {
                 "status": "error",
                 "message": _("Failed to set up payment customer"),
-                "info": customer_result.get("message", "Customer setup failed"),
+                "info": "Customer creation failed",
             }
 
-        customer_id = customer_result["customer_id"]
-
-        # Create payment
-        payment_data = {
-            "amount": {"currency": "EUR", "value": f"{donation.amount:.2f}"},
-            "description": f"Donation to {frappe.get_value('Company', frappe.defaults.get_global_default('company'), 'company_name')}",
-            "redirectUrl": f"{frappe.utils.get_url()}/donation-success?donation={donation.name}",
-            "webhookUrl": f"{frappe.utils.get_url()}/api/method/verenigingen.utils.payment_gateways.mollie_webhook",
-            "metadata": {"donation_id": donation.name, "donor_id": donation.donor},
-            "customerId": customer_id,
+        # Prepare form data with customer ID for the gateway
+        form_data_with_customer = {
+            "customer_id": customer_id,
+            "description_override": f"Donation to {frappe.get_value('Company', frappe.defaults.get_global_default('company'), 'company_name')}",
         }
 
-        payment_result = mollie_gateway.create_payment(payment_data)
+        # Use the gateway's process_payment method instead of create_payment
+        payment_result = mollie_gateway.process_payment(donation, form_data_with_customer)
 
-        if payment_result.get("success"):
-            # Store payment reference
-            donation.payment_id = payment_result["payment_id"]
-            donation.save()
+        if payment_result.get("status") == "success":
+            # Store payment reference if provided
+            if payment_result.get("payment_id"):
+                donation.payment_id = payment_result["payment_id"]
+                donation.save()
 
             return {
                 "status": "redirect",
-                "payment_url": payment_result["payment_url"],
-                "payment_id": payment_result["payment_id"],
+                "payment_url": payment_result.get("payment_url") or payment_result.get("checkout_url"),
+                "payment_id": payment_result.get("payment_id"),
                 "message": _("Redirecting to payment provider"),
                 "info": "You will be redirected to complete your payment",
             }
@@ -453,60 +443,57 @@ def process_mollie_onetime(donation, mollie_gateway):
 
 
 def process_mollie_subscription(donation, form_data, mollie_gateway):
-    """Process Mollie subscription - maintains exact same logic"""
+    """Process Mollie subscription - fixed customer ID handling"""
     try:
         # Get donor information
         donor = frappe.get_doc("Donor", donation.donor)
 
-        # Prepare customer data for Mollie
-        customer_data = {
-            "name": donor.donor_name,
-            "email": donor.donor_email,
-        }
-
-        # Create or get customer
-        customer_result = mollie_gateway.get_or_create_customer(customer_data)
-        if not customer_result.get("success"):
+        # Get or create Mollie customer ID
+        customer_id = _get_or_create_mollie_customer(donor)
+        if not customer_id:
             return {
                 "status": "error",
                 "message": _("Failed to set up payment customer"),
-                "info": customer_result.get("message", "Customer setup failed"),
+                "info": "Customer creation failed",
             }
 
-        customer_id = customer_result["customer_id"]
-
-        # Create subscription
-        subscription_data = {
-            "amount": {"currency": "EUR", "value": f"{donation.amount:.2f}"},
-            "interval": form_data.get("recurring_frequency", "1 month"),
-            "description": f"Monthly donation to {frappe.get_value('Company', frappe.defaults.get_global_default('company'), 'company_name')}",
-            "webhookUrl": f"{frappe.utils.get_url()}/api/method/verenigingen.utils.payment_gateways.mollie_subscription_webhook",
-            "metadata": {"donation_id": donation.name, "donor_id": donation.donor},
+        # For subscriptions, we need to create the first payment with sequenceType: "first"
+        # This establishes the mandate, then the subscription is created via webhook
+        form_data_with_customer = {
+            "customer_id": customer_id,
+            "subscription_setup": True,  # Tells gateway to set sequenceType: "first"
+            "description_override": f"First payment - recurring donation to {frappe.get_value('Company', frappe.defaults.get_global_default('company'), 'company_name')}",
+            "subscription_interval": form_data.get("recurring_frequency", "1 month"),
+            "create_donation_on_success": "true",  # For webhook processing
         }
 
-        subscription_result = mollie_gateway.create_subscription(customer_id, subscription_data)
+        # Create first payment (which establishes mandate for subscription)
+        payment_result = mollie_gateway.process_payment(donation, form_data_with_customer)
 
-        if subscription_result.get("success"):
-            # Store subscription reference
-            donation.subscription_id = subscription_result["subscription_id"]
-            donation.save()
+        if payment_result.get("status") == "success":
+            # Store payment reference
+            if payment_result.get("payment_id"):
+                donation.payment_id = payment_result["payment_id"]
+                donation.is_recurring = 1  # Mark as recurring donation
+                donation.save()
 
             return {
-                "status": "success",
-                "subscription_id": subscription_result["subscription_id"],
-                "message": _("Subscription created successfully"),
-                "info": "Your recurring donation has been set up. You will receive confirmation via email.",
+                "status": "redirect",
+                "payment_url": payment_result.get("payment_url") or payment_result.get("checkout_url"),
+                "payment_id": payment_result.get("payment_id"),
+                "message": _("Redirecting to setup recurring donation"),
+                "info": "Complete this payment to activate your recurring donation subscription",
             }
         else:
             return {
                 "status": "error",
-                "message": _("Failed to create subscription"),
-                "info": subscription_result.get("message", "Subscription creation failed"),
+                "message": _("Failed to create subscription setup"),
+                "info": payment_result.get("message", "Subscription setup failed"),
             }
 
     except Exception as e:
         frappe.log_error(
-            f"Mollie subscription creation error for donation {donation.name}: {str(e)}\nFull traceback: {frappe.get_traceback()}",
+            f"Mollie subscription setup error for donation {donation.name}: {str(e)}\nFull traceback: {frappe.get_traceback()}",
             "Mollie Subscription Error",
         )
         return {
@@ -568,7 +555,7 @@ def get_donation_status(donation_id):
         "donation_id": donation.name,
         "status": "paid" if donation.paid else "pending",
         "amount": donation.amount,
-        "payment_method": donation.payment_method,
+        "payment_method": donation.mode_of_payment,
         "donation_date": donation.donation_date,
     }
 
@@ -659,3 +646,64 @@ def get_performance_comparison():
         frappe.db.sql = original_sql
 
     return results
+
+
+def _get_or_create_mollie_customer(donor):
+    """
+    Get existing Mollie customer ID or create new customer
+
+    Args:
+        donor: Donor document
+
+    Returns:
+        str: Mollie customer ID or None if creation failed
+    """
+    try:
+        # Check if donor already has a Mollie customer ID
+        if hasattr(donor, "mollie_customer_id") and donor.mollie_customer_id:
+            return donor.mollie_customer_id
+
+        # Check if linked member has Mollie customer ID
+        member = None
+        if hasattr(donor, "member") and donor.member:
+            member = frappe.get_doc("Member", donor.member)
+            if hasattr(member, "mollie_customer_id") and member.mollie_customer_id:
+                # Save to donor for future use
+                donor.db_set("mollie_customer_id", member.mollie_customer_id)
+                return member.mollie_customer_id
+
+        # Need to create new Mollie customer
+        from verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings import MollieSettings
+
+        settings = frappe.get_single("Mollie Settings")
+        if not settings:
+            frappe.log_error("Mollie Settings not found", "Mollie Customer Creation")
+            return None
+
+        # Prepare customer data
+        customer_data = {
+            "name": donor.donor_name,
+            "email": donor.donor_email,
+        }
+
+        # Create customer via Mollie Settings
+        result = settings.create_customer(customer_data)
+
+        if result.get("success") and result.get("customer_id"):
+            customer_id = result["customer_id"]
+
+            # Save customer ID to donor
+            donor.db_set("mollie_customer_id", customer_id)
+
+            # Also save to member if linked
+            if member:
+                member.db_set("mollie_customer_id", customer_id)
+
+            return customer_id
+        else:
+            frappe.log_error(f"Failed to create Mollie customer: {result}", "Mollie Customer Creation")
+            return None
+
+    except Exception as e:
+        frappe.log_error(f"Error in _get_or_create_mollie_customer: {str(e)}", "Mollie Customer Creation")
+        return None

@@ -856,12 +856,13 @@ class PaymentMixin:
         payment_entry = payment_result.doc
         payment_entry.submit()
 
-        self.payment_status = "Paid"
-        self.payment_date = payment_date
-        self.paid_amount = amount
-        self.db_set("payment_status", "Paid")
-        self.db_set("payment_date", payment_date)
-        self.db_set("paid_amount", amount)
+        # Update payment status only if the field exists on the DocType
+        if hasattr(self, "payment_status"):
+            self.payment_status = "Paid"
+            self.db_set("payment_status", "Paid")
+
+        # Skip payment_date and paid_amount - these fields don't exist on Member DocType
+        # The payment information is stored in the Payment Entry instead
 
         return payment_entry.name
 
@@ -928,9 +929,12 @@ class PaymentMixin:
         if not amount:
             amount = self.payment_amount
 
-        self.payment_status = "Paid"
-        self.payment_date = payment_date
-        self.paid_amount = amount
+        # Update payment status only if the field exists on the DocType
+        if hasattr(self, "payment_status"):
+            self.payment_status = "Paid"
+
+        # Skip payment_date and paid_amount - these fields don't exist on Member DocType
+        # The payment information is stored in Payment Entry instead
 
         self.save()
 

@@ -279,7 +279,6 @@ class MollieWebhookProcessor:
             Processing result dict
         """
         try:
-            payment_id = payment_details.get("id")
             payment_type = metadata.get("type")
 
             if payment_type == "single_donation":

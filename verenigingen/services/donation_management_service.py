@@ -74,7 +74,41 @@ class DonationManagementService:
                     raise frappe.DoesNotExistError(f"Referenced donation {donation_name} not found")
 
             elif flow_type == "payment_first":
-                # Payment-first flow: Check if donation already exists for this payment
+                # Payment-first flow: For subscription payments, find by subscription_id first
+                # Extract IDs from payment data
+                subscription_id = None
+                mandate_id = None
+                if hasattr(payment_data, "_data") and isinstance(payment_data._data, dict):
+                    subscription_id = payment_data._data.get("subscriptionId")
+                    mandate_id = payment_data._data.get("mandateId")
+                if not subscription_id and hasattr(payment_data, "subscription_id"):
+                    subscription_id = payment_data.subscription_id
+
+                # For recurring payments with subscription_id, find existing donation
+                if subscription_id:
+                    existing_donations = frappe.get_all(
+                        "Donation", filters={"mollie_subscription_id": subscription_id}
+                    )
+                    if existing_donations:
+                        donation = frappe.get_doc("Donation", existing_donations[0]["name"])
+                        self.logger.info(
+                            f"🔍 [{self.debug_context}] Found existing subscription donation {donation.name} for subscription {subscription_id}"
+                        )
+                        return donation, False
+
+                # For first payments with mandate_id (sequenceType: "first"), find by mandate_id
+                # This handles the case where subscription_id doesn't exist yet but mandate_id does
+                # Since mandate_id is unique to a subscription, no need to filter by is_recurring
+                if not subscription_id and mandate_id:
+                    existing_donations = frappe.get_all("Donation", filters={"mollie_mandate_id": mandate_id})
+                    if existing_donations:
+                        donation = frappe.get_doc("Donation", existing_donations[0]["name"])
+                        self.logger.info(
+                            f"🔍 [{self.debug_context}] Found existing subscription donation {donation.name} for mandate {mandate_id}"
+                        )
+                        return donation, False
+
+                # If not a recurring payment, check by payment_id (for single payments)
                 existing_donations = frappe.get_all("Donation", filters={"payment_id": payment_id})
                 if existing_donations:
                     donation = frappe.get_doc("Donation", existing_donations[0]["name"])
@@ -82,10 +116,10 @@ class DonationManagementService:
                         f"🔍 [{self.debug_context}] Found existing donation {donation.name} for payment {payment_id}"
                     )
                     return donation, False
-                else:
-                    # Create new donation
-                    donation = self._create_new_donation(payment_data, payment_id, flow_details["metadata"])
-                    return donation, True
+
+                # No existing donation found - create new donation
+                donation = self._create_new_donation(payment_data, payment_id, flow_details["metadata"])
+                return donation, True
 
             else:
                 raise ValueError(f"Unknown flow type: {flow_type}")

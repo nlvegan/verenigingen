@@ -555,7 +555,7 @@ class DonationFactory:
                     "payment_entry": payment_entry_id,
                     "donation": donation_doc.name,
                     "status": "Completed",
-                    "notes": f"Donation payment via Mollie",
+                    "notes": "Donation payment via Mollie",
                 }
             )
 
@@ -612,7 +612,7 @@ class DonationFactory:
         result = secure_document_operation(
             operation="insert",
             doc=donation_doc,
-            justification=f"Create recurring donation from Mollie payment - webhook processing",
+            justification="Create recurring donation from Mollie payment - webhook processing",
             required_permissions=[],
             allow_system_user=True,
         )

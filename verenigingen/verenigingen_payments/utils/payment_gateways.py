@@ -281,37 +281,76 @@ class MollieGateway(PaymentGateway):
         """
         try:
             payment_id = payload.get("id")
+            print(f"🔍 WEBHOOK START: Processing payment_id = {payment_id}")
             if not payment_id:
+                print("❌ WEBHOOK ERROR: No payment ID in payload")
                 return {"status": "ignored", "reason": "No payment ID in payload"}
 
             # Get payment from Mollie
+            print(f"🔍 MOLLIE API: Calling client.payments.get({payment_id})")
             payment = self.client.payments.get(payment_id)
+            print("✅ MOLLIE API: Payment retrieved successfully")
+
+            # Debug: Print payment data structure
+            print("🔍 MOLLIE API RESPONSE:")
+            print(f"   Payment ID: {payment.id}")
+            print(f"   Status: {payment.status}")
+            print(f"   Amount: {payment.amount}")
+            print(
+                f"   Currency: {getattr(payment.amount, 'currency', 'N/A') if hasattr(payment, 'amount') else 'N/A'}"
+            )
+            print(f"   Description: {getattr(payment, 'description', 'N/A')}")
+            print(f"   Method: {getattr(payment, 'method', 'N/A')}")
+            print(f"   Created: {getattr(payment, 'created_at', 'N/A')}")
+            print(f"   Paid at: {getattr(payment, 'paid_at', 'N/A')}")
+            print(f"   Metadata: {getattr(payment, 'metadata', 'N/A')}")
+            print(f"   Checkout URL: {getattr(payment, 'checkout_url', 'N/A')}")
 
             # Find the related document
-            reference_doctype = payment.metadata.get("reference_doctype")
-            reference_docname = payment.metadata.get("reference_docname")
+            metadata = getattr(payment, "metadata", {})
+            reference_doctype = metadata.get("reference_doctype") if metadata else None
+            reference_docname = metadata.get("reference_docname") if metadata else None
+
+            print("🔍 METADATA EXTRACTION:")
+            print(f"   reference_doctype: {reference_doctype}")
+            print(f"   reference_docname: {reference_docname}")
 
             if not (reference_doctype and reference_docname):
+                print("❌ WEBHOOK IGNORED: No reference document in metadata")
+                print(f"   Expected metadata fields but got: {metadata}")
                 return {"status": "ignored", "reason": "No reference document in metadata"}
 
             # Update document based on payment status
             doc = frappe.get_doc(reference_doctype, reference_docname)
 
             if payment.is_paid():
+                print("✅ PAYMENT PAID: Processing payment completion")
                 # Payment successful
                 doc.db_set("paid", 1)
+                print(f"✅ Set paid = 1 on {reference_docname}")
+
                 if hasattr(doc, "payment_status"):
                     doc.db_set("payment_status", "Completed")
+                    print(f"✅ Set payment_status = Completed on {reference_docname}")
 
                 # Create payment entry if method exists
                 if hasattr(doc, "create_payment_entry"):
-                    doc.create_payment_entry()
+                    print(f"🔍 CALLING: doc.create_payment_entry() on {reference_docname}")
+                    result = doc.create_payment_entry()
+                    print(f"✅ create_payment_entry() returned: {result}")
+                else:
+                    print(f"❌ NO create_payment_entry method on {reference_doctype}")
 
                 # Call custom payment completion hook if exists
                 if hasattr(doc, "on_payment_authorized"):
+                    print(f"🔍 CALLING: doc.on_payment_authorized('Completed') on {reference_docname}")
                     doc.on_payment_authorized("Completed")
+                    print("✅ on_payment_authorized() completed")
+                else:
+                    print(f"❌ NO on_payment_authorized method on {reference_doctype}")
 
                 frappe.logger().info(f"Payment {payment_id} completed for {reference_docname}")
+                print(f"✅ WEBHOOK SUCCESS: Payment {payment_id} completed for {reference_docname}")
                 return {"status": "processed", "payment_status": "completed"}
 
             elif payment.is_canceled() or payment.is_expired() or payment.is_failed():
@@ -1015,13 +1054,13 @@ def _activate_donation_subscription_after_first_payment(gateway, payment):
         subscription_data = {
             "amount": {"currency": "EUR", "value": f"{float(agreement.amount):.2f}"},
             "interval": _convert_frequency_to_mollie_interval(agreement.recurring_frequency),
-            "description": f"Recurring donation - {donation.donation_type}",
+            "description": f"Recurring donation - {donation.donation_category or donation.donation_purpose_type}",
             "startDate": agreement.next_due_date.strftime("%Y-%m-%d") if agreement.next_due_date else None,
             "metadata": {
                 "donation_agreement_id": agreement.name,
                 "donation_id": donation_id,
                 "donor_id": donation.donor,
-                "donation_type": donation.donation_type,
+                "donation_type": donation.donation_category or donation.donation_purpose_type,
                 "purpose": donation.donation_purpose_type,
             },
         }
@@ -1079,171 +1118,80 @@ def manual_subscription_retry():
 
 
 # Webhook endpoints
-@frappe.whitelist(allow_guest=True)
-def mollie_webhook():
-    """Handle Mollie webhook notifications with security verification"""
+def _create_webhook_processing_log(
+    webhook_id, webhook_type, status, payload, processing_result=None, error_details=None
+):
+    """
+    Create a webhook processing log entry for audit trail
 
-    # EXTENSIVE DEBUG LOGGING - START OF REQUEST
-    print("=" * 80)
-    print("🚨 MOLLIE WEBHOOK DEBUG: Request received!")
-    print(f"🔍 Timestamp: {frappe.utils.now_datetime()}")
-    print(f"🔍 Request Method: {frappe.request.method if hasattr(frappe, 'request') else 'Unknown'}")
-    print(f"🔍 Session User: {frappe.session.user}")
-    print(
-        f"🔍 Request Headers: {dict(frappe.request.headers) if hasattr(frappe, 'request') and hasattr(frappe.request, 'headers') else 'No headers available'}"
-    )
-    print(
-        f"🔍 Request Data: {frappe.request.data if hasattr(frappe, 'request') and hasattr(frappe.request, 'data') else 'No data available'}"
-    )
-    print(
-        f"🔍 Request Form: {dict(frappe.request.form) if hasattr(frappe, 'request') and hasattr(frappe.request, 'form') else 'No form data available'}"
-    )
-    print(
-        f"🔍 Request Args: {dict(frappe.request.args) if hasattr(frappe, 'request') and hasattr(frappe.request, 'args') else 'No args available'}"
-    )
-    print("=" * 80)
-
-    # SECURITY: Verify system user permissions for webhook processing
-    if frappe.session.user == "Guest":
-        # For webhook calls, create system context
-        frappe.set_user("Administrator")
-
-    print(
-        f"🔍 Permissions check: Payment Entry create permission = {frappe.has_permission('Payment Entry', 'create')}"
-    )
-
-    if not frappe.has_permission("Payment Entry", "create"):
-        print("❌ Permission check failed!")
-        frappe.throw("Insufficient permissions for payment processing")
-
-    print("✅ Permission check passed!")
-
+    Args:
+        webhook_id: Mollie webhook ID (payment ID, subscription ID, etc.)
+        webhook_type: Type of webhook (payment, subscription, etc.)
+        status: Processing status (success, error, ignored)
+        payload: Raw webhook payload for debugging
+        processing_result: Success result details
+        error_details: Error details if status is 'error'
+    """
     try:
-        print("🔍 Importing webhook security utilities...")
-        # Import webhook security utilities
-        from verenigingen.utils.webhook_security import (
-            authenticate_mollie_webhook,
-            log_webhook_security_event,
+        import hashlib
+        import json
+
+        # Generate unique hash for deduplication
+        payload_str = str(payload) if payload else ""
+        webhook_hash = hashlib.md5(
+            f"{webhook_id}_{payload_str}_{frappe.utils.now_datetime()}".encode()
+        ).hexdigest()
+
+        log_entry = frappe.new_doc("Webhook Processing Log")
+        # Safe payload serialization
+        safe_payload = None
+        if payload:
+            try:
+                if isinstance(payload, bytes):
+                    safe_payload = payload.decode("utf-8", errors="replace")
+                elif isinstance(payload, str):
+                    safe_payload = payload
+                else:
+                    safe_payload = json.dumps(payload, indent=2, default=str)
+            except Exception as e:
+                safe_payload = f"<Serialization failed: {str(e)}>"
+
+        log_entry.update(
+            {
+                "webhook_id": webhook_id or "unknown",
+                "webhook_type": webhook_type,
+                "webhook_hash": webhook_hash,
+                "processed_at": frappe.utils.now_datetime(),
+                "status": status,
+                "processing_result": json.dumps(processing_result, default=str)
+                if processing_result
+                else None,
+                "error_details": error_details,
+                "raw_payload": safe_payload,
+            }
         )
 
-        print("✅ Security utilities imported successfully!")
-
-        # Authenticate webhook and get validated payload
-        try:
-            print("🔍 Attempting webhook authentication...")
-            payload = authenticate_mollie_webhook()
-            print(f"✅ Authentication successful! Payload length: {len(payload) if payload else 0}")
-            print(f"🔍 Raw payload preview (first 200 chars): {repr(payload[:200]) if payload else 'Empty'}")
-            log_webhook_security_event(
-                "success", {"event": "donation_webhook_authenticated", "payload_length": len(payload)}
-            )
-        except Exception as auth_error:
-            print(f"❌ Authentication failed: {str(auth_error)}")
-            print(f"🔍 Traceback: {frappe.get_traceback()}")
-            log_webhook_security_event(
-                "failure",
-                {
-                    "event": "donation_authentication_failed",
-                    "error": str(auth_error),
-                    "headers": dict(frappe.request.headers),
-                },
-            )
-            return {"status": "error", "message": "Webhook authentication failed", "details": str(auth_error)}
-
-        # Enhanced logging for webhook debugging
-        frappe.logger().info("🪝 Mollie webhook received and authenticated")
-        frappe.logger().info(f"📊 Payload length: {len(payload) if payload else 0}")
-
-        # Check for empty payload
-        if not payload:
-            return {"status": "ignored", "reason": "Empty payload received"}
-
-        # Parse payload - handle both JSON and form-encoded data
-        try:
-            # First try JSON parsing
-            data = frappe.parse_json(payload)
-            frappe.logger().info("✅ Successfully parsed JSON payload")
-        except (ValueError, TypeError) as json_error:
-            frappe.logger().info(f"🔄 JSON parsing failed, trying form-encoded parsing: {str(json_error)}")
-
-            # Check if it looks like form-encoded data (key=value format)
-            if "=" in payload and not payload.strip().startswith("{"):
-                try:
-                    # Parse form-encoded data
-                    from urllib.parse import parse_qs, unquote_plus
-
-                    # Handle single key=value or multiple key=value&key=value
-                    if "&" in payload:
-                        # Multiple parameters
-                        parsed_data = parse_qs(payload)
-                        # Convert lists to single values for simple cases
-                        data = {k: (v[0] if len(v) == 1 else v) for k, v in parsed_data.items()}
-                    else:
-                        # Single parameter like 'id=tr_abc123'
-                        key, value = payload.split("=", 1)
-                        data = {unquote_plus(key): unquote_plus(value)}
-
-                    frappe.logger().info(f"✅ Successfully parsed form-encoded payload: {data}")
-
-                except Exception as form_error:
-                    frappe.logger().error(f"❌ Form-encoded parsing also failed: {str(form_error)}")
-                    frappe.log_error(
-                        f"Mollie webhook parsing failed: Neither JSON nor form-encoded\nJSON error: {str(json_error)}\nForm error: {str(form_error)}\nFull payload: {repr(payload)}",
-                        "Mollie Webhook Parsing Error",
-                    )
-                    return {"status": "error", "message": "Invalid payload format"}
-            else:
-                # Check if payload looks truncated (ends with incomplete JSON)
-                is_truncated = (
-                    payload.endswith("{")
-                    or payload.endswith(",")
-                    or payload.count("{") > payload.count("}")
-                    or payload.count("[") > payload.count("]")
-                )
-
-                if is_truncated:
-                    frappe.logger().error("⚠️ Payload appears to be truncated - possible size limit issue")
-                    error_msg = f"Webhook payload appears truncated: {str(json_error)}"
-                else:
-                    error_msg = f"Invalid JSON in webhook payload: {str(json_error)}"
-
-                frappe.log_error(
-                    f"Mollie webhook JSON parsing failed: {error_msg}\nFull payload: {repr(payload)}",
-                    "Mollie Webhook JSON Error",
-                )
-                return {"status": "error", "message": "Invalid JSON payload"}
-
-        print(f"🔍 Parsed webhook data: {data}")
-
-        # Process webhook with gateway
-        print("🔍 Getting Mollie gateway...")
-        gateway = PaymentGatewayFactory.get_gateway("Mollie")
-        print(f"✅ Gateway obtained: {type(gateway)}")
-
-        print("🔍 Processing webhook with gateway...")
-        result = gateway.handle_webhook(data)
-        print(f"✅ Webhook processed successfully! Result: {result}")
-
-        frappe.logger().info("✅ Webhook processed successfully")
-        print("=" * 80)
-        print("🎉 MOLLIE WEBHOOK DEBUG: Request completed successfully!")
-        print("=" * 80)
-        return {"status": "success", "result": result}
+        print(f"🗃️ Creating webhook processing log: {webhook_id} - {status}")
+        log_entry.insert(ignore_permissions=True)
+        print(f"✅ Webhook processing log created: {log_entry.name}")
 
     except Exception as e:
-        print("=" * 80)
-        print(f"💥 MOLLIE WEBHOOK DEBUG: Exception occurred!")
-        print(f"🔍 Exception type: {type(e)}")
-        print(f"🔍 Exception message: {str(e)}")
-        print(f"🔍 Full traceback: {frappe.get_traceback()}")
-        print("=" * 80)
+        print(f"❌ Failed to create webhook processing log: {str(e)}")
+        frappe.log_error(f"Webhook logging failed: {str(e)}", "Webhook Log Creation Error")
 
-        frappe.logger().error(f"💥 Mollie webhook processing failed: {str(e)}")
-        frappe.log_error(
-            f"Mollie webhook error: {str(e)}\nPayload: {repr(payload[:1000]) if 'payload' in locals() else 'N/A'}",
-            "Payment Gateway Webhook",
-        )
-        return {"status": "error", "message": str(e)}
+
+@frappe.whitelist(allow_guest=True)
+def mollie_webhook():
+    """
+    Simplified Mollie webhook handler for existing donations
+
+    Redirects to the robust service-based handler for proper PE creation
+    """
+    frappe.logger().info("🔄 Main Mollie webhook redirecting to service handler")
+
+    from verenigingen.api.mollie_donation_webhook import handle_mollie_payment_webhook
+
+    return handle_mollie_payment_webhook()
 
 
 @frappe.whitelist()
@@ -1663,8 +1611,8 @@ def get_payment_status(donation_id):
         if donation.paid:
             return {"status": "paid", "payment_date": donation.modified}
 
-        if donation.payment_method and donation.payment_id:
-            gateway = PaymentGatewayFactory.get_gateway(donation.payment_method)
+        if donation.mode_of_payment and donation.payment_id:
+            gateway = PaymentGatewayFactory.get_gateway(donation.mode_of_payment)
             return gateway.get_payment_status(donation.payment_id)
 
         return {"status": "pending", "message": "Payment not yet initiated"}

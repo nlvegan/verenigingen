@@ -110,7 +110,7 @@ class MolliePaymentService:
 
             # Create payment metadata for webhook processing
             payment_metadata = self._build_payment_metadata(donation_doc, form_data, is_recurring=True)
-            print(f"DEBUG: Payment metadata created successfully")
+            print("DEBUG: Payment metadata created successfully")
 
             # Create or get customer first for recurring payments
             customer_result = self._create_or_get_mollie_customer(donation_doc, form_data)

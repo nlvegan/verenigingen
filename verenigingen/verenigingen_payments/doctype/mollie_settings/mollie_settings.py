@@ -261,6 +261,28 @@ class MollieSettings(Document):
 
         return get_url(f"payment-success?{url_params}")
 
+    def create_customer(self, customer_data):
+        """
+        Create a Mollie customer for payments
+
+        Args:
+            customer_data (dict): Customer information for Mollie
+
+        Returns:
+            dict: Result with customer_id and success status
+        """
+        try:
+            client = self.get_mollie_client()
+
+            # Create customer
+            customer = client.customers.create(customer_data)
+
+            return {"success": True, "customer_id": customer.id, "message": "Customer created successfully"}
+
+        except Exception as e:
+            frappe.log_error(f"Failed to create Mollie customer: {str(e)}", "Mollie Customer Creation")
+            return {"success": False, "customer_id": None, "message": f"Customer creation failed: {str(e)}"}
+
     def create_subscription(self, customer_data, subscription_data):
         """
         Create a Mollie subscription for recurring payments
