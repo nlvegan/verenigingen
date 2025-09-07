@@ -247,7 +247,7 @@ class SecurityFrameworkIntegrationTests(EnhancedTestCase):
         from unittest.mock import patch
         
         # Mock logger to capture security events
-        with patch('vereingingen.utils.security_wrappers.security_logger') as mock_logger:
+        with patch('verenigingen.utils.security_wrappers.security_logger') as mock_logger:
             
             # Test logging of suspicious calls
             safe_get_roles("None")

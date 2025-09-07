@@ -520,7 +520,7 @@ def enable_full_functionality():
         # Test 4: Performance baseline recording
         baseline_test = False
         try:
-            from vereiningen.api.performance_measurement import run_comprehensive_performance_analysis
+            from verenigingen.api.performance_measurement import run_comprehensive_performance_analysis
 
             analysis_result = run_comprehensive_performance_analysis()
             baseline_test = isinstance(analysis_result, dict) and not analysis_result.get("error")

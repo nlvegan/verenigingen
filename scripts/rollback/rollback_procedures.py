@@ -533,7 +533,7 @@ class RollbackManager:
         """Get list of files with ORM migrations to rollback"""
         
         return [
-            'vereiningen/api/member_management.py',
+            'verenigingen/api/member_management.py',
             'verenigingen/utils/payment_notifications.py'
         ]
     

@@ -460,7 +460,7 @@ location /api/method/verenigingen.utils.payment_gateways.mollie_webhook {
 
 ```bash
 # Run test suite
-bench --site prod.verenigingen.nl run-tests --app verenigingen --module vereinigingen.tests
+bench --site prod.verenigingen.nl run-tests --app verenigingen --module verenigingen.tests
 
 # Run security tests
 bench --site prod.verenigingen.nl run-tests --module verenigingen.tests.security.test_security_penetration

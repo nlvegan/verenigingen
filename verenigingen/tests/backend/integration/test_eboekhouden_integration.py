@@ -289,7 +289,7 @@ class TestEBoekhoudenIntegration(FrappeTestCase):
         
     def test_api_rate_limiting(self):
         """Test API rate limiting"""
-        from vereiningen.utils.decorators import rate_limit
+        from verenigingen.utils.decorators import rate_limit
         
         # Create a rate-limited function
         call_count = 0

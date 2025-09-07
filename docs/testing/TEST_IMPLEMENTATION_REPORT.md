@@ -19,7 +19,7 @@ I have successfully designed and implemented comprehensive tests for the recent 
 - ✅ Performance comparison between normal and bulk modes
 
 ### 2. Payment History Validator
-**Location**: `/home/frappe/frappe-bench/apps/verenigingen/vereinigingen/utils/payment_history_validator.py`
+**Location**: `/home/frappe/frappe-bench/apps/verenigingen/verenigingen/utils/payment_history_validator.py`
 **Functions**: `validate_and_repair_payment_history`, `get_payment_history_validation_stats`
 
 **Key Features Tested**:
@@ -31,7 +31,7 @@ I have successfully designed and implemented comprehensive tests for the recent 
 - ✅ Error handling and graceful degradation
 
 ### 3. API Security Framework Decorators
-**Location**: `/home/frappe/frappe-bench/apps/verenigingen/vereinigingen/utils/security/api_security_framework.py`
+**Location**: `/home/frappe/frappe-bench/apps/verenigingen/verenigingen/utils/security/api_security_framework.py`
 **Functions**: `standard_api`, `utility_api`, `public_api`, `critical_api`, `high_security_api`
 
 **Key Features Tested**:

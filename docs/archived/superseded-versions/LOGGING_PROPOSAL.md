@@ -71,7 +71,7 @@ Instead of building custom logging infrastructure, we'll maximize Frappe's capab
 
 #### **1. Standardization Layer**
 ```python
-# vereinigingen/utils/enhanced_logging.py
+# verenigingen/utils/enhanced_logging.py
 class VerenigingenLogger:
     """
     Thin wrapper around frappe.logger() adding business context

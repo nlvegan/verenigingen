@@ -313,7 +313,7 @@ grep "MollieAPIError" /opt/frappe-bench/logs/frappe.log | \
 
 # 2. Check rate limiting
 bench --site prod.verenigingen.nl console << 'EOF'
-from vereinigingen.vereinigingen_payments.core.resilience.rate_limiter import RateLimiter
+from verenigingen.verenigingen_payments.core.resilience.rate_limiter import RateLimiter
 limiter = RateLimiter()
 print(f"Current rate: {limiter.get_current_rate()}/s")
 print(f"Remaining capacity: {limiter.get_remaining_capacity()}")
@@ -321,7 +321,7 @@ EOF
 
 # 3. Check circuit breaker status
 bench --site prod.verenigingen.nl console << 'EOF'
-from vereinigingen.vereinigingen_payments.core.resilience.circuit_breaker import CircuitBreaker
+from verenigingen.verenigingen_payments.core.resilience.circuit_breaker import CircuitBreaker
 breaker = CircuitBreaker.get_instance("mollie_api")
 print(f"Circuit breaker state: {breaker.state}")
 print(f"Failure count: {breaker.failure_count}")
@@ -355,14 +355,14 @@ mysql -e "DELETE FROM tabMollie_Audit_Log WHERE created < DATE_SUB(NOW(), INTERV
 
 # 3. Archive old data
 bench --site prod.verenigingen.nl console << 'EOF'
-from vereinigingen.utils.archive import archive_old_transactions
+from verenigingen.utils.archive import archive_old_transactions
 archived = archive_old_transactions(days=180)
 print(f"Archived {archived} old transactions")
 EOF
 
 # 4. Update statistics
 bench --site prod.verenigingen.nl console << 'EOF'
-from vereinigingen.utils.statistics import update_statistics_cache
+from verenigingen.utils.statistics import update_statistics_cache
 update_statistics_cache()
 EOF
 
@@ -395,7 +395,7 @@ def monthly_maintenance():
     }
 
     # 1. Rotate API keys
-    from vereinigingen.vereinigingen_payments.core.security import MollieSecurityManager
+    from verenigingen.verenigingen_payments.core.security import MollieSecurityManager
     manager = MollieSecurityManager("Production")
     new_key = manager.rotate_api_key()
     results["tasks"].append({"task": "API key rotation", "status": "complete"})
@@ -417,7 +417,7 @@ def monthly_maintenance():
     })
 
     # 3. Generate monthly reports
-    from vereinigingen.reports import generate_monthly_financial_report
+    from verenigingen.reports import generate_monthly_financial_report
     report = generate_monthly_financial_report()
     results["tasks"].append({
         "task": "Monthly report",
@@ -426,7 +426,7 @@ def monthly_maintenance():
     })
 
     # 4. Security audit
-    from vereinigingen.security import run_security_audit
+    from verenigingen.security import run_security_audit
     audit = run_security_audit()
     results["tasks"].append({
         "task": "Security audit",
@@ -658,7 +658,7 @@ POINT_IN_TIME_RECOVERY() {
     RESTORE_DATABASE $BACKUP_FILE
 
     # Apply binary logs up to target time
-    mysqlbinlog --stop-datetime="$TARGET_TIME" /var/log/mysql/binlog.* | mysql vereiningen_prod
+    mysqlbinlog --stop-datetime="$TARGET_TIME" /var/log/mysql/binlog.* | mysql verenigingen_prod
 
     echo "Recovery complete to $TARGET_TIME"
 }
@@ -846,7 +846,7 @@ def diagnose_performance():
     profiler.enable()
 
     # Run suspect operation
-    from vereinigingen.vereinigingen_payments.workflows.reconciliation_engine import ReconciliationEngine
+    from verenigingen.verenigingen_payments.workflows.reconciliation_engine import ReconciliationEngine
     engine = ReconciliationEngine("Production")
     engine.run_reconciliation()
 

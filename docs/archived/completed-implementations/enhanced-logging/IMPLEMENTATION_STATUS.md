@@ -96,7 +96,7 @@ Based on comprehensive codebase analysis, the Enhanced Logging Implementation Pl
 ## Test Coverage Evidence
 
 ### Test Files Verified
-- `vereinigingen/tests/test_sepa_audit_log.py` - Comprehensive test suite
+- `verenigingen/tests/test_sepa_audit_log.py` - Comprehensive test suite
 - Integration tests in SEPA processing modules
 - Performance benchmarking tests
 - Error handling validation tests

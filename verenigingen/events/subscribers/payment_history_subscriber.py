@@ -256,7 +256,7 @@ def sync_payment_histories():
 
     Add this to hooks.py scheduler_events:
     "*/5 * * * *": [
-        "vereiningen.events.subscribers.payment_history_subscriber.sync_payment_histories"
+        "verenigingen.events.subscribers.payment_history_subscriber.sync_payment_histories"
     ]
     """
     try:

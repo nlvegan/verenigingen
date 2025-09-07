@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.verenigingen_payments.clients.balances_client import BalancesClient
 from verenigingen.verenigingen_payments.clients.chargebacks_client import ChargebacksClient
@@ -26,7 +27,7 @@ from verenigingen.verenigingen_payments.workflows.reconciliation_engine import R
 from verenigingen.verenigingen_payments.workflows.subscription_manager import SubscriptionManager
 
 
-class TestMollieBackendIntegration(FrappeTestCase):
+class TestMollieBackendIntegration(EnhancedTestCase):
     """
     Integration tests for Mollie Backend API system
     
@@ -52,7 +53,7 @@ class TestMollieBackendIntegration(FrappeTestCase):
             settings.enable_backend_api = True
             settings.enable_audit_trail = True
             settings.enable_encryption = True
-            settings.insert(ignore_permissions=True)
+            settings.insert()
             frappe.db.commit()
     
     def setUp(self):
@@ -487,7 +488,7 @@ class TestMollieBackendIntegration(FrappeTestCase):
         member.last_name = "Integration"
         member.email = f"test_{frappe.generate_hash(length=5)}@example.com"
         member.mollie_customer_id = f"cst_test_{frappe.generate_hash(length=8)}"
-        member.insert(ignore_permissions=True)
+        member = self.create_test_member(first_name="Backend", last_name="Test", birth_date="1990-01-01")
         return member
     
     def _create_mock_list(self, items, item_type):

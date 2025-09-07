@@ -57,13 +57,6 @@ def get_context(context):
         "anbi_minimum_reportable_amount": flt(getattr(settings, "anbi_minimum_reportable_amount", 500)),
     }
 
-    # Get donation types
-    donation_types = frappe.get_all(
-        "Donation Type", fields=["name", "donation_type"], order_by="donation_type"
-    )
-    context.donation_types = donation_types
-    context.default_donation_type = settings.default_donation_type
-
     # Get chapters for earmarking
     chapters = []
     if settings.enable_chapter_management:
@@ -158,27 +151,61 @@ def submit_donation(**kwargs):
         if not donor:
             return {"success": False, "message": _("Failed to create donor record")}
 
-        # Create donation
-        donation = create_donation_record(donor, form_data)
-        if not donation:
-            return {"success": False, "message": _("Failed to create donation record")}
+        # For Mollie payments: payment-first flow (no donation created yet)
+        if form_data.get("payment_method") == "Mollie":
+            try:
+                # Create draft donation (not submitted) with metadata for payment
+                donation = create_draft_donation_for_payment(donor, form_data)
+                if not donation:
+                    return {"success": False, "message": _("Failed to create donation record")}
 
-        # Process payment based on method
-        try:
-            payment_result = process_payment_method(donation, form_data)
-        except Exception:
-            # Return partial success response - donation created but payment setup failed
-            return {
-                "success": False,  # Overall process failed due to payment setup
-                "donation_created": True,  # But donation record was created
-                "donation_id": donation.name,
-                "message": _("Donation record created but payment setup failed"),
-                "payment_info": {
-                    "status": "error",
-                    "message": "Payment setup failed. Please try again or contact support.",
-                    "info": "Your donation is recorded, but payment needs to be completed separately",
-                },
-            }
+                # Process Mollie payment (creates payment, donation will be submitted by webhook)
+                payment_result = process_mollie_payment(donation, form_data)
+
+                # Wrap result in expected format for frontend
+                if payment_result.get("status") in ["redirect_required", "subscription_redirect_required"]:
+                    return {"success": True, "donation_id": donation.name, "payment_info": payment_result}
+                else:
+                    return {
+                        "success": False,
+                        "message": payment_result.get("message", _("Payment setup failed")),
+                        "info": payment_result.get("info", _("Please try again")),
+                    }
+
+            except Exception as e:
+                frappe.log_error(
+                    f"Mollie payment processing error for donation {donation.name if 'donation' in locals() else 'unknown'}: {str(e)}",
+                    "Mollie Payment Error",
+                )
+                return {
+                    "success": False,
+                    "message": _("Payment setup temporarily unavailable"),
+                    "info": _("Please try again or contact support"),
+                }
+
+        # For non-Mollie payments: traditional flow (create donation then process payment)
+        else:
+            # Create donation
+            donation = create_donation_record(donor, form_data)
+            if not donation:
+                return {"success": False, "message": _("Failed to create donation record")}
+
+            # Process payment based on method
+            try:
+                payment_result = process_payment_method(donation, form_data)
+            except Exception:
+                # Return partial success response - donation created but payment setup failed
+                return {
+                    "success": False,  # Overall process failed due to payment setup
+                    "donation_created": True,  # But donation record was created
+                    "donation_id": donation.name,
+                    "message": _("Donation record created but payment setup failed"),
+                    "payment_info": {
+                        "status": "error",
+                        "message": "Payment setup failed. Please try again or contact support.",
+                        "info": "Your donation is recorded, but payment needs to be completed separately",
+                    },
+                }
 
         return {
             "success": True,
@@ -271,6 +298,64 @@ def get_or_create_donor(form_data):
         return donor_doc
 
 
+def create_draft_donation_for_payment(donor, form_data):
+    """Create draft donation record for payment-first flow (not submitted until webhook)"""
+    from verenigingen.utils.settings_utils import get_verenigingen_settings
+
+    settings = get_verenigingen_settings()
+    if not settings:
+        frappe.throw(
+            _("Verenigingen Settings not configured. Please run app installation setup."),
+            frappe.ValidationError,
+        )
+
+    # Determine purpose and earmarking
+    purpose_type = form_data.get("donation_purpose_type", "General")
+
+    donation_doc = frappe.new_doc("Donation")
+    donation_data = {
+        "company": settings.donation_company,
+        "donor": donor.name,
+        "donation_date": getdate(),
+        "amount": flt(form_data.amount),
+        "mode_of_payment": form_data.get("payment_method"),
+        "status": "Promised",  # All Mollie payments start as promised until payment confirmation
+        "donation_purpose_type": purpose_type,
+        "donation_notes": form_data.get("donation_notes", ""),
+        "paid": 0,  # Will be marked paid by webhook
+    }
+
+    # Set purpose-specific fields based on purpose type
+    if purpose_type == "Campaign" and form_data.get("campaign_reference"):
+        donation_data["campaign"] = form_data["campaign_reference"]
+    elif purpose_type == "Chapter" and form_data.get("chapter_reference"):
+        donation_data["chapter_reference"] = form_data["chapter_reference"]
+    elif purpose_type == "Specific Goal" and form_data.get("specific_goal_description"):
+        donation_data["specific_goal_description"] = form_data["specific_goal_description"]
+
+    donation_doc.update(donation_data)
+
+    # Validate the donation
+    donation_doc.validate()
+
+    # Save as DRAFT (do not submit - webhook will submit after payment)
+    result = secure_document_operation(
+        operation="insert",
+        doc=donation_doc,
+        justification=f"Create draft donation for payment-first flow - {donor.donor_name} amount €{form_data.amount}",
+        required_permissions=[],
+        allow_system_user=True,
+    )
+
+    if not result.success:
+        frappe.log_error(
+            f"Failed to create draft donation: {'; '.join(result.errors)}", "Draft Donation Creation"
+        )
+        frappe.throw(_("Unable to process donation: Failed to create donation record"))
+
+    return donation_doc
+
+
 def create_donation_record(donor, form_data):
     """Create donation record"""
     from verenigingen.utils.settings_utils import get_verenigingen_settings
@@ -282,38 +367,6 @@ def create_donation_record(donor, form_data):
             frappe.ValidationError,
         )
 
-    # Determine donation type
-    donation_type = form_data.get("donation_type") or settings.default_donation_type
-
-    # Ensure we have a valid donation type
-    if not donation_type:
-        # Create or get default donation type
-        if not frappe.db.exists("Donation Type", "General Donation"):
-            donation_type_doc = frappe.get_doc(
-                {
-                    "doctype": "Donation Type",
-                    "donation_type": "General Donation",
-                    "description": "General donation without specific purpose",
-                }
-            )
-
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            result = secure_document_operation(
-                operation="insert",
-                doc=donation_type_doc,
-                justification="Create default 'General Donation' type for donation processing - system setup operation for donation classification",
-                required_permissions=["Donation Type:create"],
-            )
-
-            if not result.success:
-                frappe.log_error(
-                    f"Failed to create default donation type: {'; '.join(result.errors)}",
-                    "Donation Type Security",
-                )
-                # Use fallback donation type
-                donation_type = "General"
-        donation_type = "General Donation"
-
     # Determine purpose and earmarking
     purpose_type = form_data.get("donation_purpose_type", "General")
 
@@ -323,7 +376,6 @@ def create_donation_record(donor, form_data):
         "donor": donor.name,
         "donation_date": getdate(),
         "amount": flt(form_data.amount),
-        "donation_type": donation_type,
         # Set mode_of_payment from form data - it's a required field
         "mode_of_payment": form_data.get("payment_method"),
         "status": map_donation_status(form_data.get("donation_status", "One-time")),
@@ -381,28 +433,8 @@ def create_donation_record(donor, form_data):
         )
         frappe.throw(_("Unable to process donation: Failed to create donation record"))
 
-    # Submit the donation record - public donations are auto-submitted
-    submit_result = secure_document_operation(
-        operation="submit",
-        doc=donation_doc,
-        justification=f"Submit donation {donation_doc.name} from public donation form - financial transaction processing for {donor.donor_name}",
-        required_permissions=[],  # Public donation submission - no specific permissions required
-        allow_system_user=True,  # Allow system user fallback for public donations
-    )
-
-    if not submit_result.success:
-        error_details = "; ".join(submit_result.errors) if submit_result.errors else "Unknown error"
-        frappe.log_error(
-            f"Failed to submit donation record: {error_details}\n"
-            f"Donation: {donation_doc.as_dict()}\n"
-            f"Submit result: {submit_result.__dict__}",
-            "Donation Submission Security",
-        )
-        frappe.throw(
-            _("Unable to process donation: Failed to submit donation record. Error: {0}").format(
-                error_details[:100]
-            )
-        )
+    # Donation records are no longer submittable - they remain as saved documents
+    # Payment processing will update the donation with payment details via webhook
 
     return donation_doc
 
@@ -514,16 +546,9 @@ def process_sepa_direct_debit(donation, form_data):
 
 
 def process_mollie_payment(donation, form_data):
-    """Handle Mollie payment using the integrated gateway"""
+    """Handle Mollie payment using the new payment-first architecture"""
     try:
-        # Import the payment gateway factory
-        from verenigingen.verenigingen_payments.utils.payment_gateways import PaymentGatewayFactory
-
-        # Get the Mollie gateway
-        gateway = PaymentGatewayFactory.get_gateway("Mollie", "Default")
-
-        # Check if this is a recurring donation (subscription)
-        is_recurring = form_data.get("donation_status") == "Recurring"
+        from verenigingen.utils.payment_services import MolliePaymentService
 
         # Set payment method using secure operation
         donation.mode_of_payment = "Mollie"
@@ -546,30 +571,20 @@ def process_mollie_payment(donation, form_data):
                 "info": _("Please try again or contact support"),
             }
 
-        if is_recurring:
-            # Handle subscription creation
-            return process_mollie_subscription(donation, form_data, gateway)
-        else:
-            # Handle one-time payment
-            result = gateway.process_payment(donation, form_data)
+        # Initialize payment service
+        payment_service = MolliePaymentService()
 
-            if result["status"] == "redirect_required":
-                return {
-                    "status": "redirect_required",
-                    "payment_url": result["payment_url"],
-                    "payment_id": result["payment_id"],
-                    "message": _("Redirecting to Mollie for secure payment"),
-                    "info": _(
-                        "You will be redirected to complete payment with iDEAL, credit card, or other methods"
-                    ),
-                    "expires_at": result.get("expires_at"),
-                }
-            else:
-                return {
-                    "status": "error",
-                    "message": result.get("message", _("Payment setup failed")),
-                    "info": _("Please try a different payment method or contact support"),
-                }
+        # Check if this is a recurring donation (subscription)
+        is_recurring = form_data.get("donation_status") == "Recurring"
+
+        if is_recurring:
+            # Create first payment for recurring donation (establishes mandate)
+            result = payment_service.create_recurring_first_payment(donation, form_data)
+        else:
+            # Create single payment
+            result = payment_service.create_single_payment(donation, form_data)
+
+        return result
 
     except Exception as e:
         frappe.log_error(
@@ -583,180 +598,7 @@ def process_mollie_payment(donation, form_data):
         }
 
 
-def process_mollie_subscription(donation, form_data, gateway):
-    """Handle Mollie subscription creation for recurring donations"""
-    try:
-        # Get donor information
-        donor = frappe.get_doc("Donor", donation.donor)
-
-        # Use the new enhanced architecture that properly handles subscription flow
-        from verenigingen.utils.mollie_integration import process_mollie_subscription
-
-        # The enhanced integration handles the entire flow:
-        # 1. Creates/verifies ERPNext Customer
-        # 2. Creates Mollie Customer
-        # 3. Creates Donation Agreement (Pending status)
-        # 4. Creates first payment with sequenceType="first"
-        # 5. Returns payment URL for user completion
-        # 6. Subscription will be created via webhook after payment
-
-        result = process_mollie_subscription(donor, donation, form_data, gateway)
-
-        # Return the result from the enhanced integration
-        return result
-
-        # ORIGINAL CODE BELOW IS COMMENTED OUT BUT PRESERVED FOR REFERENCE
-        # This can be removed once the new flow is tested and verified
-        """
-
-        # Prepare customer data for Mollie
-        customer_data = {
-            "name": donor.donor_name,
-            "email": donor.donor_email,
-        }
-
-        # Add phone if available
-        if hasattr(donor, "phone") and donor.phone:
-            customer_data["phone"] = donor.phone
-
-        # Prepare subscription data
-        subscription_interval = form_data.get("subscription_interval", "1 month")
-
-        subscription_data = {
-            "amount": {"currency": "EUR", "value": f"{donation.amount:.2f}"},
-            "interval": subscription_interval,
-            "description": f"Recurring donation - {donation.donation_type}",
-            "metadata": {
-                "donation_id": donation.name,
-                "donor_id": donor.name,
-                "donation_type": donation.donation_type,
-                "purpose": donation.donation_purpose_type,
-            },
-        }
-
-        # Add start date (first payment immediate, then recurring)
-        from datetime import datetime
-
-        from frappe.utils import add_to_date, getdate
-
-        # Get today as a proper date object
-        today_date = getdate()
-
-        # Calculate next payment date based on interval
-        if subscription_interval == "1 month":
-            next_date = add_to_date(today_date, months=1)
-        elif subscription_interval == "3 months":
-            next_date = add_to_date(today_date, months=3)
-        elif subscription_interval == "6 months":
-            next_date = add_to_date(today_date, months=6)
-        elif subscription_interval == "1 year":
-            next_date = add_to_date(today_date, years=1)
-        else:
-            next_date = add_to_date(today_date, months=1)  # Default to monthly
-
-        # Ensure consistent date handling
-        # Convert to date object regardless of input type for consistent formatting
-        from frappe.utils import getdate
-
-        next_date_obj = getdate(next_date)
-        subscription_data["startDate"] = next_date_obj.strftime("%Y-%m-%d")
-
-        # CORRECTED FLOW: Create customer first, then "first" payment, subscription created via webhook later
-
-        # Step 1: Create Mollie customer (required for subscriptions)
-        try:
-            client = gateway.client  # Access the Mollie client from gateway
-            customer_data = {
-                "name": donor.donor_name,
-                "email": donor.donor_email,
-                "metadata": {
-                    "donor_id": donor.name,
-                    "subscription_type": "recurring_donation"
-                }
-            }
-            customer = client.customers.create(customer_data)
-            frappe.logger().info(f"Created Mollie customer {customer.id} for donor {donor.name}")
-        except Exception as e:
-            frappe.log_error(f"Failed to create Mollie customer: {str(e)}", "Mollie Customer Creation")
-            return {
-                "status": "error",
-                "message": _("Failed to create customer account"),
-                "info": _("Please try again or contact support"),
-            }
-
-        # Step 2: Create Donation Agreement (pending subscription creation)
-        agreement = frappe.new_doc("Donation Agreement")
-        agreement.update(
-            {
-                "donor": donor.name,
-                "agreement_type": "Recurring",
-                "amount": donation.amount,
-                "currency": "EUR",
-                "recurring_frequency": subscription_interval,
-                "start_date": today(),
-                "next_due_date": next_date,
-                "status": "Pending",  # Will be activated after first payment
-                "enable_mollie_subscription": 1,
-                "mollie_customer_id": customer.id,
-                "mollie_subscription_id": "",  # Will be set after first payment
-                "donation_purpose": donation.donation_purpose,
-                "auto_create_transactions": 1,
-                "notification_settings": "Donor Only",
-                "donor_remarks": f"Created from donation form with subscription interval: {subscription_interval}",
-            }
-        )
-
-        agreement.insert()
-        agreement.submit()
-
-        # Link the original donation to the agreement
-        donation.donation_agreement = agreement.name
-        donation.db_set("donation_agreement", agreement.name)
-
-        # Step 3: Create "first" payment to establish mandate and trigger subscription creation
-        subscription_form_data = form_data.copy()
-        subscription_form_data.update(
-            {
-                "subscription_setup": True,
-                "customer_id": customer.id,
-                "agreement_id": agreement.name,
-                "subscription_interval": subscription_interval,
-            }
-        )
-        initial_payment_result = gateway.process_payment(donation, subscription_form_data)
-
-        if initial_payment_result["status"] == "redirect_required":
-            return {
-                "status": "subscription_redirect_required",
-                "payment_url": initial_payment_result["payment_url"],
-                "payment_id": initial_payment_result["payment_id"],
-                "customer_id": customer.id,
-                "agreement_id": agreement.name,
-                "message": _("Setting up your recurring donation agreement"),
-                "info": _(
-                    f"Agreement {agreement.name} created. After this payment, you'll automatically donate €{donation.amount:.2f} {subscription_interval.replace('1 ', 'every ')}"
-                ),
-                "expires_at": initial_payment_result.get("expires_at"),
-            }
-        else:
-            return {
-                "status": "error",
-                "message": _("Failed to set up initial payment for subscription"),
-                "info": _("Please try again or contact support"),
-            }
-
-        """  # End of commented out original code
-
-    except Exception as e:
-        frappe.log_error(
-            f"Mollie subscription creation error for donation {donation.name}: {str(e)}\nFull traceback: {frappe.get_traceback()}",
-            "Mollie Subscription Error",
-        )
-        return {
-            "status": "error",
-            "message": _("Subscription setup temporarily unavailable"),
-            "info": _("Please try a one-time donation instead or contact support"),
-        }
+# process_mollie_subscription function removed - now handled by MolliePaymentService
 
 
 def process_cash_payment(donation, form_data):
@@ -845,20 +687,6 @@ def test_donation_system():
 
     results = {"status": "success", "tests": []}
 
-    # Test 1: Check if Donation Type doctype exists
-    try:
-        donation_types = frappe.get_all("Donation Type", fields=["name", "donation_type"])
-        results["tests"].append(
-            {
-                "name": "Donation Types",
-                "status": "pass",
-                "count": len(donation_types),
-                "details": [{"name": dt.name, "type": dt.donation_type} for dt in donation_types],
-            }
-        )
-    except Exception as e:
-        results["tests"].append({"name": "Donation Types", "status": "fail", "error": str(e)})
-
     # Test 2: Check donor types (using hardcoded options)
     try:
         donor_types = [
@@ -883,7 +711,6 @@ def test_donation_system():
                 "name": "Settings",
                 "status": "pass",
                 "details": {
-                    "default_donation_type": getattr(settings, "default_donation_type", None),
                     "default_donor_type": getattr(settings, "default_donor_type", None),
                     "anbi_minimum_amount": getattr(settings, "anbi_minimum_reportable_amount", None),
                     "chapter_management": getattr(settings, "enable_chapter_management", None),
@@ -903,7 +730,6 @@ def test_donation_system():
                 "status": "pass",
                 "details": {
                     "payment_methods": len(context.get("payment_methods", [])),
-                    "donation_types": len(context.get("donation_types", [])),
                     "donor_types": len(context.get("donor_types", [])),
                     "chapters": len(context.get("chapters", [])),
                 },
@@ -946,7 +772,6 @@ def test_donation_submission():
         "donor_phone": "+31612345678",
         "donor_type": "Individual",
         "amount": "50.00",
-        "donation_type": "General",
         "donation_status": "One-time",
         "payment_method": "Bank Transfer",
         "donation_purpose_type": "General",
@@ -1057,23 +882,6 @@ def create_test_data():
     results = {"created": [], "errors": []}
 
     try:
-        # Create test Donation Type
-        if not frappe.db.exists("Donation Type", "General Donation"):
-            doc = frappe.get_doc({"doctype": "Donation Type", "donation_type": "General Donation"})
-
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            result = secure_document_operation(
-                operation="insert",
-                doc=doc,
-                justification="Create test Donation Type 'General Donation' for system testing and donation form functionality",
-                required_permissions=["Donation Type:create"],
-            )
-
-            if result.success:
-                results["created"].append("Donation Type: General Donation")
-            else:
-                results["errors"].append(f"Failed to create Donation Type: {'; '.join(result.errors)}")
-
         # Create test Chapter (skip if complex requirements)
         try:
             if not frappe.db.exists("Chapter", "Test Chapter"):

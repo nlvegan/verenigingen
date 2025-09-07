@@ -339,7 +339,7 @@ def test_integration_corrected():
         print("  ✓ API Integration: Dashboard data complete")
 
         # Test system health check
-        from vereinigingen.utils.resource_monitor import get_system_health
+        from verenigingen.utils.resource_monitor import get_system_health
 
         health = get_system_health()
         results["system_health"]["check"] = "PASS" if health else "FAIL"

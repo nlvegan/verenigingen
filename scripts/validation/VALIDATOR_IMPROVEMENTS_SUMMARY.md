@@ -136,7 +136,7 @@ python scripts/validation/method_call_validator.py --rebuild-cache
 
 1. **`class_hierarchy: Dict[str, Set[str]]`**
    - Maps class names to their method sets
-   - Supports both simple names (`Member`) and full module names (`vereiningen.doctype.member.Member`)
+   - Supports both simple names (`Member`) and full module names (`verenigingen.doctype.member.Member`)
 
 2. **`static_method_calls: Dict[str, Set[str]]`**
    - Maps class names to their static/class methods

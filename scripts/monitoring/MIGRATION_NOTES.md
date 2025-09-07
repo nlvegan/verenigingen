@@ -8,7 +8,7 @@ The monitoring implementation has been consolidated from two locations into a si
 ### What Was Done
 
 1. **Created Enhanced Integration**
-   - Location: `vereinigingen/monitoring/zabbix_integration_enhanced.py`
+   - Location: `verenigingen/monitoring/zabbix_integration_enhanced.py`
    - Combines features from both implementations
    - Adds Zabbix 7.0 support from the advanced script
    - Maintains backward compatibility
@@ -31,7 +31,7 @@ The monitoring implementation has been consolidated from two locations into a si
 
 1. **Update the main integration to use enhanced version**:
    ```python
-   # In vereinigingen/monitoring/zabbix_integration.py
+   # In verenigingen/monitoring/zabbix_integration.py
    # Import from enhanced version instead
    from .zabbix_integration_enhanced import *
    ```
@@ -97,6 +97,6 @@ The Zabbix template should be updated to include:
 ### Rollback Plan
 
 If issues occur:
-1. Revert vereinigingen/monitoring/zabbix_integration.py to original
+1. Revert verenigingen/monitoring/zabbix_integration.py to original
 2. Keep enhanced version for gradual migration
 3. Scripts in scripts/monitoring can be used as fallback

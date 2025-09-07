@@ -147,9 +147,12 @@ class MollieGateway(PaymentGateway):
             frappe.logger().info(f"🔗 Redirect URL: {redirect_url}")
             frappe.logger().info(f"🪝 Webhook URL: {webhook_url}")
 
+            # Use custom description if provided (for webhook metadata), otherwise default
+            description = form_data.get("description_override", f"Donation {donation.name}")
+
             payment_data = {
                 "amount": {"value": f"{float(donation.amount):.2f}", "currency": currency},
-                "description": f"Donation {donation.name}",
+                "description": description,
                 "redirectUrl": redirect_url,
                 "webhookUrl": webhook_url,
                 "metadata": {
@@ -1076,31 +1079,67 @@ def manual_subscription_retry():
 
 
 # Webhook endpoints
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 def mollie_webhook():
     """Handle Mollie webhook notifications with security verification"""
+
+    # EXTENSIVE DEBUG LOGGING - START OF REQUEST
+    print("=" * 80)
+    print("🚨 MOLLIE WEBHOOK DEBUG: Request received!")
+    print(f"🔍 Timestamp: {frappe.utils.now_datetime()}")
+    print(f"🔍 Request Method: {frappe.request.method if hasattr(frappe, 'request') else 'Unknown'}")
+    print(f"🔍 Session User: {frappe.session.user}")
+    print(
+        f"🔍 Request Headers: {dict(frappe.request.headers) if hasattr(frappe, 'request') and hasattr(frappe.request, 'headers') else 'No headers available'}"
+    )
+    print(
+        f"🔍 Request Data: {frappe.request.data if hasattr(frappe, 'request') and hasattr(frappe.request, 'data') else 'No data available'}"
+    )
+    print(
+        f"🔍 Request Form: {dict(frappe.request.form) if hasattr(frappe, 'request') and hasattr(frappe.request, 'form') else 'No form data available'}"
+    )
+    print(
+        f"🔍 Request Args: {dict(frappe.request.args) if hasattr(frappe, 'request') and hasattr(frappe.request, 'args') else 'No args available'}"
+    )
+    print("=" * 80)
 
     # SECURITY: Verify system user permissions for webhook processing
     if frappe.session.user == "Guest":
         # For webhook calls, create system context
         frappe.set_user("Administrator")
 
+    print(
+        f"🔍 Permissions check: Payment Entry create permission = {frappe.has_permission('Payment Entry', 'create')}"
+    )
+
     if not frappe.has_permission("Payment Entry", "create"):
+        print("❌ Permission check failed!")
         frappe.throw("Insufficient permissions for payment processing")
+
+    print("✅ Permission check passed!")
+
     try:
+        print("🔍 Importing webhook security utilities...")
         # Import webhook security utilities
         from verenigingen.utils.webhook_security import (
             authenticate_mollie_webhook,
             log_webhook_security_event,
         )
 
+        print("✅ Security utilities imported successfully!")
+
         # Authenticate webhook and get validated payload
         try:
+            print("🔍 Attempting webhook authentication...")
             payload = authenticate_mollie_webhook()
+            print(f"✅ Authentication successful! Payload length: {len(payload) if payload else 0}")
+            print(f"🔍 Raw payload preview (first 200 chars): {repr(payload[:200]) if payload else 'Empty'}")
             log_webhook_security_event(
                 "success", {"event": "donation_webhook_authenticated", "payload_length": len(payload)}
             )
         except Exception as auth_error:
+            print(f"❌ Authentication failed: {str(auth_error)}")
+            print(f"🔍 Traceback: {frappe.get_traceback()}")
             log_webhook_security_event(
                 "failure",
                 {
@@ -1174,14 +1213,31 @@ def mollie_webhook():
                 )
                 return {"status": "error", "message": "Invalid JSON payload"}
 
+        print(f"🔍 Parsed webhook data: {data}")
+
         # Process webhook with gateway
+        print("🔍 Getting Mollie gateway...")
         gateway = PaymentGatewayFactory.get_gateway("Mollie")
+        print(f"✅ Gateway obtained: {type(gateway)}")
+
+        print("🔍 Processing webhook with gateway...")
         result = gateway.handle_webhook(data)
+        print(f"✅ Webhook processed successfully! Result: {result}")
 
         frappe.logger().info("✅ Webhook processed successfully")
+        print("=" * 80)
+        print("🎉 MOLLIE WEBHOOK DEBUG: Request completed successfully!")
+        print("=" * 80)
         return {"status": "success", "result": result}
 
     except Exception as e:
+        print("=" * 80)
+        print(f"💥 MOLLIE WEBHOOK DEBUG: Exception occurred!")
+        print(f"🔍 Exception type: {type(e)}")
+        print(f"🔍 Exception message: {str(e)}")
+        print(f"🔍 Full traceback: {frappe.get_traceback()}")
+        print("=" * 80)
+
         frappe.logger().error(f"💥 Mollie webhook processing failed: {str(e)}")
         frappe.log_error(
             f"Mollie webhook error: {str(e)}\nPayload: {repr(payload[:1000]) if 'payload' in locals() else 'N/A'}",

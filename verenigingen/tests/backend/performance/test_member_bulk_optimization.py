@@ -6,7 +6,7 @@ Validates that the new bulk loading eliminates the 114 queries/member performanc
 """
 
 import frappe
-from vereinigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.utils.batch_performance_optimizer import get_batch_performance_optimizer
 
 

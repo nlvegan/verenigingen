@@ -74,14 +74,6 @@ class Donation(Document):
             else:
                 frappe.throw(_("Please select a Donor"))
 
-        # Set default donation type if not provided
-        if not self.donation_type:
-            default_donation_type = frappe.db.get_single_value(
-                "Verenigingen Settings", "default_donation_type"
-            )
-            if default_donation_type:
-                self.donation_type = default_donation_type
-
         # Validate payment method dependencies
         self.validate_payment_method()
 
@@ -128,12 +120,9 @@ class Donation(Document):
             self.donor = donor_name
 
     def on_payment_authorized(self, *args, **kwargs):
+        """Called when payment is authorized (legacy hook - payment-first system doesn't use this)"""
         self.db_set("paid", 1)
         self.load_from_db()
-        # Create payment entry unless disabled in settings
-        settings = frappe.get_single("Verenigingen Settings")
-        if not settings.automate_donation_payment_entries:
-            self.create_payment_entry()
 
     def validate_payment_method(self):
         """Validate payment method specific requirements"""
@@ -254,304 +243,25 @@ class Donation(Document):
         else:
             return self.donation_category or "Unspecified"
 
-    def create_payment_entry_for_sales_invoice(self, date=None):
-        """Create payment entry for the Sales Invoice (if donation is marked as paid)"""
-        if not self.paid or not hasattr(self, "sales_invoice") or not self.sales_invoice:
-            return
-
-        # Use standard ERPNext payment entry creation
-        from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
-
-        pe = get_payment_entry("Sales Invoice", self.sales_invoice)
-        pe.posting_date = date or getdate()
-        pe.reference_no = f"Donation-{self.name}"
-        pe.reference_date = date or getdate()
-
-        pe.flags.ignore_mandatory = True
-        pe.insert()
-        pe.submit()
-
-        return pe
-
-    def get_accounting_accounts(self):
-        """Get appropriate debit and credit accounts based on donation purpose"""
-        settings = frappe.get_doc("Verenigingen Settings")
-
-        # Default accounts
-        debit_account = settings.donation_debit_account
-        credit_account = settings.donation_payment_account
-
-        # Override based on donation purpose
-        if self.donation_purpose_type == "Chapter" and self.chapter_reference:
-            # Use the same credit_account but will assign to chapter's cost center
-            # Chapter accounting is handled via cost centers, not separate accounts
-            pass
-
-        elif self.donation_purpose_type == "Campaign" and self.campaign:
-            # Use campaign donation account from settings
-            campaign_account = settings.campaign_donation_account
-            if campaign_account:
-                credit_account = campaign_account
-
-        return debit_account, credit_account
-
-    def get_campaign_accounting_dimension(self):
-        """Get accounting dimension value from linked campaign"""
-        if self.campaign and self.donation_purpose_type == "Campaign":
-            return frappe.db.get_value("Donation Campaign", self.campaign, "accounting_dimension_value")
-        return None
-
-    def get_campaign_project(self):
-        """Get project from linked campaign"""
-        if self.campaign and self.donation_purpose_type == "Campaign":
-            return frappe.db.get_value("Donation Campaign", self.campaign, "project")
-        return None
-
-    def create_earmarking_journal_entry(self, date=None):
-        """Create journal entry to move earmarked donations to specific funds"""
-        if self.donation_purpose_type == "General":
-            return  # No earmarking needed for general donations
-
-        # Only create earmarking entry for substantial amounts to avoid clutter
-        if not self.amount or flt(self.amount) < 100:
-            return
-
-        from_account, to_account = self.get_earmarking_accounts()
-        if not from_account or not to_account or from_account == to_account:
-            return
-
-        # Create journal entry for fund earmarking
-        je = frappe.new_doc("Journal Entry")
-        je.voucher_type = "Journal Entry"
-        je.company = self.company
-        je.posting_date = date or getdate()
-        je.user_remark = f"Earmarking donation {self.name} for {self.get_earmarking_summary()}"
-
-        # Add campaign dimension and project if available
-        campaign_dimension = self.get_campaign_accounting_dimension()
-        campaign_project = self.get_campaign_project()
-
-        if campaign_dimension:
-            je.custom_campaign_dimension = campaign_dimension
-
-        if campaign_project:
-            je.project = campaign_project
-
-        # Get cost center for chapter donations
-        cost_center = None
-        if self.donation_purpose_type == "Chapter" and self.chapter_reference:
-            cost_center = frappe.db.get_value("Chapter", self.chapter_reference, "cost_center")
-
-        # Credit general donation account
-        credit_entry = {
-            "account": from_account,
-            "credit_in_account_currency": self.amount,
-            "reference_type": "Donation",
-            "reference_name": self.name,
-        }
-        if cost_center:
-            credit_entry["cost_center"] = cost_center
-        je.append("accounts", credit_entry)
-
-        # Debit specific purpose account
-        debit_entry = {
-            "account": to_account,
-            "debit_in_account_currency": self.amount,
-            "reference_type": "Donation",
-            "reference_name": self.name,
-        }
-        if cost_center:
-            debit_entry["cost_center"] = cost_center
-        je.append("accounts", debit_entry)
-
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        from verenigingen.utils.secure_operations import secure_document_operation
-
-        # Secure journal entry creation with explicit permission validation
-        je_result = secure_document_operation(
-            operation="insert",
-            doc=je,
-            justification=f"Earmarking journal entry for donation {self.name}",
-            required_permissions=["Journal Entry:create"],
-        )
-
-        if not je_result.success:
-            frappe.logger().error(f"Failed to create earmarking journal entry: {'; '.join(je_result.errors)}")
-            frappe.throw(
-                _("Failed to create earmarking journal entry: {0}").format("; ".join(je_result.errors))
-            )
-
-        # Secure journal entry submission with explicit permission validation
-        submit_result = secure_document_operation(
-            operation="submit",
-            doc=je,
-            justification=f"Earmarking journal entry submission for donation {self.name}",
-            required_permissions=["Journal Entry:submit"],
-        )
-
-        if not submit_result.success:
-            frappe.logger().error(
-                f"Failed to submit earmarking journal entry: {'; '.join(submit_result.errors)}"
-            )
-            frappe.throw(
-                _("Failed to submit earmarking journal entry: {0}").format("; ".join(submit_result.errors))
-            )
-
-        return je.name
-
-    def get_earmarking_accounts(self):
-        """Get accounts for earmarking journal entries"""
-        settings = frappe.get_doc("Verenigingen Settings")
-        from_account = settings.donation_payment_account  # General donation account
-        to_account = None
-
-        if self.donation_purpose_type == "Chapter" and self.chapter_reference:
-            # Use default account - chapter tracking is handled via cost center
-            to_account = None
-
-        elif self.donation_purpose_type == "Campaign":
-            # Could be expanded to use campaign-specific accounts
-            to_account = frappe.db.get_single_value("Verenigingen Settings", "campaign_donation_account")
-
-        elif self.donation_purpose_type == "Specific Goal":
-            # Use a general "restricted funds" account
-            to_account = frappe.db.get_single_value("Verenigingen Settings", "restricted_donation_account")
-
-        return from_account, to_account
-
-    def create_sales_invoice(self):
-        """Create Sales Invoice from donation for standard ERPNext accounting flow"""
-        # Convert donor to customer if needed
-        customer = self.get_or_create_customer_from_donor()
-
-        # Create Sales Invoice
-        sales_invoice = frappe.new_doc("Sales Invoice")
-        sales_invoice.customer = customer
-        sales_invoice.company = self.company
-        sales_invoice.posting_date = self.donation_date
-        sales_invoice.due_date = self.donation_date  # Donations are immediate
-        sales_invoice.currency = frappe.get_cached_value("Company", self.company, "default_currency")
-
-        # Add donation item
-        sales_invoice.append(
-            "items",
-            {
-                "item_code": "DONATION",
-                "item_name": "Donation",
-                "description": f"Donation: {self.get_earmarking_summary()}",
-                "qty": 1,
-                "rate": self.amount,
-                "amount": self.amount,
-            },
-        )
-
-        # Apply tax exemption for nonprofit donations
-        sales_invoice.exempt_from_tax = 1
-        sales_invoice.btw_exemption_type = "EXEMPT_NONPROFIT"
-        sales_invoice.btw_exemption_reason = "Donation to nonprofit organization - exempt under Dutch tax law"
-
-        # Link back to donation
-        sales_invoice.custom_source_donation = self.name
-
-        # Add campaign accounting dimension and project if available
-        campaign_dimension = self.get_campaign_accounting_dimension()
-        campaign_project = self.get_campaign_project()
-
-        if campaign_dimension:
-            sales_invoice.custom_campaign_dimension = campaign_dimension
-
-        if campaign_project:
-            sales_invoice.project = campaign_project
-
-        sales_invoice.flags.ignore_mandatory = True
-        sales_invoice.insert()
-        sales_invoice.submit()
-
-        # Link Sales Invoice back to donation
-        self.db_set("sales_invoice", sales_invoice.name, update_modified=False)
-
-        return sales_invoice
-
-    def _get_default_territory(self):
-        """Get default territory for customer creation"""
-        # Try to get from Selling Settings first
-        territory = frappe.db.get_single_value("Selling Settings", "territory")
-        if territory:
-            return territory
-
-        # Fallback to root territory
-        return frappe.db.get_value("Territory", {"is_group": 0}, "name") or "All Territories"
-
-    def get_or_create_customer_from_donor(self):
-        """Convert donor to customer for standard ERPNext flow"""
-        donor_doc = frappe.get_doc("Donor", self.donor)
-
-        # Check if customer already exists for this donor
-        existing_customer = frappe.db.get_value("Customer", filters={"donor": self.donor})
-
-        if existing_customer:
-            return existing_customer
-
-        # Create new customer from donor
-        customer = frappe.new_doc("Customer")
-        customer.customer_name = getattr(donor_doc, "donor_name", f"Donor {self.donor}")
-        customer.customer_type = "Individual"
-        customer.territory = self._get_default_territory()
-        customer.customer_group = "Donors"
-
-        # Link back to donor
-        customer.donor = self.donor
-
-        # Copy contact information
-        if hasattr(donor_doc, "donor_email") and donor_doc.donor_email:
-            customer.email_id = donor_doc.donor_email
-
-        customer.flags.ignore_mandatory = True
-        customer.insert()
-
-        return customer.name
-
-    def on_submit(self):
-        """Called when donation is submitted"""
-        # Create Sales Invoice for standard ERPNext integration
-        self.create_sales_invoice()
-
-        # Send confirmation email
+    def after_insert(self):
+        """Called after donation is created"""
+        # Send confirmation email for new donations
         from verenigingen.utils.donation_emails import send_donation_confirmation
 
         frappe.enqueue(send_donation_confirmation, donation_id=self.name, queue="short", timeout=300)
 
-    def on_update_after_submit(self):
-        """Called when submitted donation is updated"""
-        # Create payment entry if marked as paid
+    def on_update(self):
+        """Called when donation is updated"""
+        # Send payment confirmation if marked as paid for first time
         if self.paid and self.has_value_changed("paid"):
-            # Create payment entry unless disabled in settings
-            settings = frappe.get_single("Verenigingen Settings")
-            if not settings.automate_donation_payment_entries:
-                self.create_payment_entry_for_sales_invoice()
-
-            # Send payment confirmation
             from verenigingen.utils.donation_emails import send_payment_confirmation
 
             frappe.enqueue(send_payment_confirmation, donation_id=self.name, queue="short", timeout=300)
 
-    def on_cancel(self):
-        self.ignore_linked_doctypes = (
-            "GL Entry",
-            "Stock Ledger Entry",
-            "Payment Ledger Entry",
-            "Repost Payment Ledger",
-            "Repost Payment Ledger Items",
-            "Repost Accounting Ledger",
-            "Repost Accounting Ledger Items",
-            "Unreconcile Payment",
-            "Unreconcile Payment Entries",
-        )
-
 
 @frappe.whitelist()
 def create_donation_from_bank_transfer(donor, amount, date, bank_reference, donation_type=None):
-    """Create donation from bank transfer details"""
+    """Create donation from bank transfer details (payment-first architecture)"""
     if not donation_type:
         donation_type = frappe.db.get_single_value("Verenigingen Settings", "default_donation_type")
 
@@ -571,7 +281,7 @@ def create_donation_from_bank_transfer(donor, amount, date, bank_reference, dona
     ).insert()
 
     donation.submit()
-    # Payment entry will be created automatically when marked as paid
+    # Note: Payment Entry should be created separately by bank reconciliation system
     return donation
 
 

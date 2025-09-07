@@ -166,7 +166,7 @@ bench --site [site] execute "verenigingen.utils.workspace_link_validator.validat
 # 3. Preview fixes
 bench --site [site] execute "verenigingen.utils.workspace_content_fixer.fix_workspace_content" --args "[workspace],True"
 # 4. Apply fixes
-bench --site [site] execute "vereinigingen.utils.workspace_content_fixer.fix_workspace_content" --args "[workspace],False"
+bench --site [site] execute "verenigingen.utils.workspace_content_fixer.fix_workspace_content" --args "[workspace],False"
 
 # Legacy direct access
 verenigingen.utils.workspace_content_fixer.fix_workspace_content

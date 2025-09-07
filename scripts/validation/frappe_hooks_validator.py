@@ -26,7 +26,7 @@ class HookIssue:
     """Represents a hook/event handler issue"""
     hook_type: str  # e.g., "doc_events", "scheduler_events"
     hook_name: str  # e.g., "Sales Invoice", "daily"
-    method_path: str  # e.g., "vereiningen.events.invoice_events.emit_invoice_submitted"
+    method_path: str  # e.g., "verenigingen.events.invoice_events.emit_invoice_submitted"
     issue_type: str  # e.g., "missing_method", "invalid_module"
     message: str
     line_number: Optional[int] = None

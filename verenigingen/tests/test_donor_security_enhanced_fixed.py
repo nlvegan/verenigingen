@@ -81,12 +81,12 @@ class TestDonorSecurityEnhancedFixed(EnhancedTestCase):
                 "send_welcome_email": 0,
                 "enabled": 1
             })
-            user.insert(ignore_permissions=True)
+            user = self.create_test_user(email=user.email, roles=["Employee"])
         
         # Ensure user has the specified role
         if not any(role.role == role_name for role in user.roles):
             user.append("roles", {"role": role_name})
-            user.save(ignore_permissions=True)
+            user.save()
         
         self.test_users[email] = user
         
@@ -109,7 +109,7 @@ class TestDonorSecurityEnhancedFixed(EnhancedTestCase):
             "donor_email": user_email,
             "member": member.name  # Link to member record
         })
-        donor.insert(ignore_permissions=True)
+        donor.insert()
         self.test_donors[user_email] = donor
         
     def create_orphaned_donor(self):
@@ -121,7 +121,7 @@ class TestDonorSecurityEnhancedFixed(EnhancedTestCase):
             "donor_email": "realorphaned@securitytest.invalid"
             # No member field set - this is the orphaned donor
         })
-        orphaned_donor.insert(ignore_permissions=True)
+        orphaned_donor.insert()
         self.orphaned_donor = orphaned_donor
         
     def test_real_user_permission_chain_validation(self):
@@ -519,13 +519,13 @@ class TestRealWorldUserScenarios(EnhancedTestCase):
                     "send_welcome_email": 0,
                     "enabled": 1
                 })
-                user.insert(ignore_permissions=True)
+                user = self.create_test_user(email=user.email, roles=["Employee"])
                 
             # Add roles
             for role in roles:
                 if not any(r.role == role for r in user.roles):
                     user.append("roles", {"role": role})
-            user.save(ignore_permissions=True)
+            user.save()
             
             self.org_users[email] = user
             
@@ -550,7 +550,7 @@ class TestRealWorldUserScenarios(EnhancedTestCase):
                     "donor_email": email,
                     "member": member.name
                 })
-                donor.insert(ignore_permissions=True)
+                donor.insert()
                 self.org_donors[email] = donor
                 
     def test_organizational_permission_matrix(self):

@@ -16,7 +16,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 try:
-    from vereinigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+    from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 except ImportError:
     # Fallback to basic TestCase if enhanced factory not available
     from unittest import TestCase as EnhancedTestCase
@@ -46,8 +46,7 @@ class TestDuesScheduleSync(EnhancedTestCase):
         
     def tearDown(self):
         """Clean up test data"""
-        # Delete test data
-        frappe.delete_doc("Membership Type", self.membership_type.name, ignore_permissions=True)
+        # EnhancedTestCase handles automatic rollback, no manual cleanup needed
         super().tearDown()
     
     def test_current_dues_schedule_set_on_creation(self):
@@ -69,8 +68,7 @@ class TestDuesScheduleSync(EnhancedTestCase):
         # Assert the schedule is set as current
         self.assertEqual(self.member.current_dues_schedule, schedule.name)
         
-        # Clean up
-        frappe.delete_doc("Membership Dues Schedule", schedule.name, ignore_permissions=True)
+        # EnhancedTestCase handles automatic rollback, no manual cleanup needed
     
     def test_current_schedule_updates_when_status_changes(self):
         """Test that deactivating a schedule updates the member's current schedule"""
@@ -110,9 +108,7 @@ class TestDuesScheduleSync(EnhancedTestCase):
         self.member.reload()
         self.assertEqual(self.member.current_dues_schedule, schedule1.name)
         
-        # Clean up
-        frappe.delete_doc("Membership Dues Schedule", schedule1.name, ignore_permissions=True)
-        frappe.delete_doc("Membership Dues Schedule", schedule2.name, ignore_permissions=True)
+        # EnhancedTestCase handles automatic rollback, no manual cleanup needed
     
     def test_next_invoice_date_sync_after_invoice_generation(self):
         """Test that generating an invoice updates the member's next_invoice_date"""
@@ -147,8 +143,7 @@ class TestDuesScheduleSync(EnhancedTestCase):
             getdate(today())
         )
         
-        # Clean up
-        frappe.delete_doc("Membership Dues Schedule", schedule.name, ignore_permissions=True)
+        # EnhancedTestCase handles automatic rollback, no manual cleanup needed
     
     def test_billing_period_shows_next_period(self):
         """Test that billing period dates show the NEXT period to be invoiced"""
@@ -192,8 +187,7 @@ class TestDuesScheduleSync(EnhancedTestCase):
             self.assertGreaterEqual(days_in_period, 28)
             self.assertLessEqual(days_in_period, 31)
         
-        # Clean up
-        frappe.delete_doc("Membership Dues Schedule", schedule.name, ignore_permissions=True)
+        # EnhancedTestCase handles automatic rollback, no manual cleanup needed
     
     def test_race_condition_prevention(self):
         """Test that concurrent schedule updates don't cause race conditions"""
@@ -211,7 +205,7 @@ class TestDuesScheduleSync(EnhancedTestCase):
         
         # The hook should use FOR UPDATE to prevent concurrent modifications
         # We can't easily test the actual lock, but we can verify the query structure
-        from vereinigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule_hooks import (
+        from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule_hooks import (
             update_member_current_dues_schedule
         )
         
@@ -222,8 +216,7 @@ class TestDuesScheduleSync(EnhancedTestCase):
         self.member.reload()
         self.assertEqual(self.member.current_dues_schedule, schedule.name)
         
-        # Clean up
-        frappe.delete_doc("Membership Dues Schedule", schedule.name, ignore_permissions=True)
+        # EnhancedTestCase handles automatic rollback, no manual cleanup needed
 
 
 def run_tests():

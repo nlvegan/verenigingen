@@ -521,7 +521,7 @@ class TestChapterBoardRoleManagement(EnhancedTestCase):
             "last_name": "User",
             "enabled": 1
         })
-        user.insert(ignore_permissions=True)
+        user = self.create_test_user(email=user.email, roles=["Employee"])
         self.track_doc("User", user.name)
         return user
 

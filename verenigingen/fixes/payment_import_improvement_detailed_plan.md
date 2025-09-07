@@ -9,7 +9,7 @@ The current payment import system has a critical flaw: it hardcodes all payments
 ### 1.1 Create Clear Module Structure
 
 ```
-vereiningen/utils/eboekhouden/
+verenigingen/utils/eboekhouden/
 ├── payment_processing/
 │   ├── __init__.py
 │   ├── payment_processor.py          # Main payment processing logic
@@ -347,7 +347,7 @@ class BankAccountMapper:
             return None
 
         # Check payment account configuration
-        from vereiningen.utils.eboekhouden.eboekhouden_migration_config import get_payment_account_info
+        from verenigingen.utils.eboekhouden.eboekhouden_migration_config import get_payment_account_info
 
         account_info = get_payment_account_info(ledger_code, self.company)
         if account_info and account_info.get('erpnext_account'):
@@ -634,7 +634,7 @@ def _create_payment_entry(mutation, company, cost_center, debug_info):
 
     # Check if enhanced processing is enabled
     if frappe.db.get_single_value("E-Boekhouden Settings", "use_enhanced_payment_processing"):
-        from vereiningen.utils.eboekhouden.payment_processing import create_enhanced_payment_entry
+        from verenigingen.utils.eboekhouden.payment_processing import create_enhanced_payment_entry
         return create_enhanced_payment_entry(mutation, company, cost_center, debug_info)
 
     # ... existing hardcoded logic ...
@@ -658,7 +658,7 @@ This script:
 
 import frappe
 from frappe.utils import nowdate
-from vereiningen.utils.eboekhouden.payment_processing import BankAccountMapper
+from verenigingen.utils.eboekhouden.payment_processing import BankAccountMapper
 
 @frappe.whitelist()
 def fix_payment_bank_accounts(dry_run=True, limit=None):
@@ -745,7 +745,7 @@ def fix_payment_bank_accounts(dry_run=True, limit=None):
 import unittest
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from vereiningen.utils.eboekhouden.payment_processing import PaymentProcessor
+from verenigingen.utils.eboekhouden.payment_processing import PaymentProcessor
 
 class TestPaymentProcessing(FrappeTestCase):
     """
@@ -859,7 +859,7 @@ frappe.ui.form.on('E-Boekhouden Settings', {
         // Add section for payment processing
         frm.add_custom_button(__('Test Payment Processing'), function() {
             frappe.call({
-                method: 'vereiningen.utils.eboekhouden.payment_processing.test_configuration',
+                method: 'verenigingen.utils.eboekhouden.payment_processing.test_configuration',
                 args: {
                     company: frm.doc.default_company
                 },
@@ -944,7 +944,7 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 ### 6.1 Payment Processing Dashboard
 
 ```python
-# vereiningen/utils/eboekhouden/payment_dashboard.py
+# verenigingen/utils/eboekhouden/payment_dashboard.py
 @frappe.whitelist()
 def get_payment_processing_stats(from_date=None, to_date=None):
     """Get statistics for payment processing dashboard."""

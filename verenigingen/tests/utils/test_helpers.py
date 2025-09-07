@@ -30,7 +30,7 @@ Usage Patterns
 -------------
 ```python
 # Direct test execution with metrics
-from vereinigingen.tests.utils.test_helpers import run_member_tests
+from verenigingen.tests.utils.test_helpers import run_member_tests
 
 results = run_member_tests()
 print(f"Success rate: {results['success_rate']:.1f}%")

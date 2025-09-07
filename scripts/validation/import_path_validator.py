@@ -97,7 +97,7 @@ class ImportPathValidator:
     def _build_common_mistakes(self) -> Dict[str, str]:
         """Build a map of common import mistakes to their corrections"""
         return {
-            # Common vereinigingen mistakes
+            # Common verenigingen mistakes
             "verenigingen.utils.iban_validator": "verenigingen.utils.validation.iban_validator",
             "verenigingen.api.member": "verenigingen.api.member_management",
             "verenigingen.doctype.member": "verenigingen.verenigingen.doctype.member",

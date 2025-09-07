@@ -164,10 +164,10 @@ The validation system successfully identified and helped fix critical field refe
 **System Alert DocType Issues:**
 ```bash
 # Issues caught by enhanced_field_validator.py
-🔴 vereinigingen/www/monitoring_dashboard.py:
+🔴 verenigingen/www/monitoring_dashboard.py:
    Line 45: compliance_status not found in doctype 'System Alert'
 
-🔴 vereinigingen/doctype/system_alert/system_alert.py:
+🔴 verenigingen/doctype/system_alert/system_alert.py:
    Line 28: compliance_status not found in doctype 'System Alert'
 ```
 

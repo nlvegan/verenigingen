@@ -109,6 +109,23 @@ document.addEventListener('DOMContentLoaded', () => {
  * // Validates step 1 data, advances to step 2
  * nextStep();
  */
+
+// Function to convert technical interval to friendly text
+function getFrequencyDisplayText(interval) {
+	switch(interval) {
+		case '1 month':
+			return 'Monthly';
+		case '3 months':
+			return 'Quarterly';
+		case '6 months':
+			return 'Semi-annually';
+		case '1 year':
+			return 'Annually';
+		default:
+			return `Every ${interval}`;
+	}
+}
+
 function nextStep() {
 	if (validateCurrentStep()) {
 		collectStepData();
@@ -456,35 +473,37 @@ function populateConfirmation() {
 		}
 	}
 
+
+	// Determine frequency display text
+	let frequencyText = donationStatus;
+	let nextPaymentText = '';
+
+	if (donationStatus === 'Recurring') {
+		const subscriptionInterval = window.formData.subscription_interval || '1 month';
+
+		// Convert billing cycle to readable format
+		frequencyText = getFrequencyDisplayText(subscriptionInterval);
+		nextPaymentText = `${frequencyText} after initial payment`;
+	} else {
+		frequencyText = 'One-time';
+	}
+
 	let summaryHtml = `
         <div class="summary-row">
             <span>${__('Donation Amount')}:</span>
             <span><strong>€${amount.toFixed(2)}</strong></span>
         </div>
         <div class="summary-row">
-            <span>${__('Donation Type')}:</span>
-            <span>${donationType}</span>
-        </div>
-        <div class="summary-row">
             <span>${__('Frequency')}:</span>
-            <span>${donationStatus}</span>
+            <span>${frequencyText}</span>
         </div>`;
 
-	// Add subscription details if this is a recurring donation
+	// Add next payment info for recurring donations only
 	if (donationStatus === 'Recurring') {
-		const subscriptionInterval = window.formData.subscription_interval || '1 month';
-		const intervalText = subscriptionInterval.replace('1 ', 'Every ');
-
 		summaryHtml += `
-        <div class="summary-row" style="background-color: #f0f8ff; padding: 10px; border-radius: 4px; margin: 10px 0;">
-            <div>
-                <strong style="color: #007bff;">${__('Subscription Details')}</strong><br>
-                <span style="font-size: 14px;">
-                    ${__('Billing Cycle')}: ${intervalText}<br>
-                    ${__('Next Payment')}: After initial payment<br>
-                    ${__('Cancellation')}: Anytime through member portal
-                </span>
-            </div>
+        <div class="summary-row">
+            <span>${__('Next Payment')}:</span>
+            <span>${nextPaymentText}</span>
         </div>`;
 	}
 
@@ -604,14 +623,14 @@ function showSuccessStep(response) {
 			// Handle Mollie subscription redirect
 			successContent += `
                 <div class="alert alert-success">
-                    <h5>${__('Setting Up Your Subscription')}</h5>
+                    <h5>${__('Setting Up Your Recurring Donation')}</h5>
                     <p>${response.payment_info.message}</p>
                     <p><small>${response.payment_info.info}</small></p>
                     <div style="margin-top: 10px;">
-                        <strong>Subscription Details:</strong><br>
+                        <strong>Details:</strong><br>
                         • Subscription ID: ${response.payment_info.subscription_id}<br>
                         • Amount: €${window.formData.amount}<br>
-                        • Frequency: ${window.formData.subscription_interval || 'Monthly'}<br>
+                        • Frequency: ${getFrequencyDisplayText(window.formData.subscription_interval || '1 month')}<br>
                     </div>
                 </div>
                 <p class="text-primary">${__('You will be redirected to complete the initial payment in 3 seconds...')}</p>
@@ -870,6 +889,7 @@ window.prevStep = prevStep;
 window.setAmount = setAmount;
 window.selectPaymentMethod = selectPaymentMethod;
 window.togglePurposeFields = togglePurposeFields;
+window.toggleRecurringOptions = toggleRecurringOptions;
 window.toggleAnbiFields = toggleAnbiFields;
 window.submitDonation = submitDonation;
 window.copyToClipboard = copyToClipboard;

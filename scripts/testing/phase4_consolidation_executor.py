@@ -100,7 +100,7 @@ class Phase4ConsolidationExecutor:
         consolidated_content = self.create_consolidated_test_content(domain, files)
         
         # Write consolidated file
-        consolidated_path = self.app_path / "vereiningen" / "tests" / suggested_name
+        consolidated_path = self.app_path / "verenigingen" / "tests" / suggested_name
         with open(consolidated_path, 'w') as f:
             f.write(consolidated_content)
         

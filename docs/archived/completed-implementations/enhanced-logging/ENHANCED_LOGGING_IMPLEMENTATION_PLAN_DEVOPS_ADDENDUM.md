@@ -25,7 +25,7 @@ Given the association's limited BI resources but availability of a Senior DevOps
 
 2. **Create Simple Monitoring Endpoints**
    ```python
-   # vereinigingen/api/monitoring.py
+   # verenigingen/api/monitoring.py
 
    @frappe.whitelist(allow_guest=True)
    def metrics():
@@ -131,7 +131,7 @@ Given the association's limited BI resources but availability of a Senior DevOps
 
 1. **Implement Alert Rules**
    ```python
-   # vereinigingen/monitoring/alerts.py
+   # verenigingen/monitoring/alerts.py
 
    class AlertManager:
        """Simple threshold-based alerting"""
@@ -191,7 +191,7 @@ Given the association's limited BI resources but availability of a Senior DevOps
 
 3. **Implement Slack/Webhook Notifications**
    ```python
-   # vereinigingen/monitoring/notifications.py
+   # verenigingen/monitoring/notifications.py
 
    def send_slack_alert(message, severity="info"):
        """Send alert to Slack channel"""
@@ -260,7 +260,7 @@ Given the association's limited BI resources but availability of a Senior DevOps
    ## Monitoring Queries
 
    All monitoring queries are maintained in:
-   - `/apps/vereinigingen/monitoring/queries.sql`
+   - `/apps/verenigingen/monitoring/queries.sql`
    - Grafana dashboard JSON files
    - Monitoring API endpoints
    ```

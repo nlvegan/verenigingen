@@ -95,12 +95,12 @@ The health check endpoint now returns:
 ### Performance Triggers
 ```yaml
 - name: "High Response Time (p95)"
-  expression: "{vereiningen:frappe.performance.response_time_p95.avg(5m)}>1000"
+  expression: "{verenigingen:frappe.performance.response_time_p95.avg(5m)}>1000"
   priority: WARNING
   description: "95th percentile response time exceeds 1 second"
 
 - name: "Critical Response Time (p99)"
-  expression: "{vereiningen:frappe.performance.response_time_p99.last()}>5000"
+  expression: "{verenigingen:frappe.performance.response_time_p99.last()}>5000"
   priority: HIGH
   description: "1% of requests taking longer than 5 seconds"
 ```

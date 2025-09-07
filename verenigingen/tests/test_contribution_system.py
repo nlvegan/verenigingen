@@ -6,9 +6,10 @@ Test to verify the new contribution system works
 import unittest
 import frappe
 from frappe.test_runner import make_test_records
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestContributionSystem(unittest.TestCase):
+class TestContributionSystem(EnhancedTestCase):
     """Test contribution system functionality"""
     
     def setUp(self):
@@ -18,17 +19,8 @@ class TestContributionSystem(unittest.TestCase):
         
     def tearDown(self):
         """Clean up test data"""
-        if self.template and hasattr(self.template, "name"):
-            try:
-                frappe.delete_doc("Membership Dues Schedule", self.template.name, force=True)
-            except Exception:
-                pass
-        
-        if self.membership_type and hasattr(self.membership_type, "name"):
-            try:
-                frappe.delete_doc("Membership Type", self.membership_type.name, force=True)
-            except Exception:
-                pass
+        # EnhancedTestCase handles automatic rollback, no manual cleanup needed
+        super().tearDown()
 
     def test_contribution_system_creation(self):
         """Test creating a membership type with contribution system"""
@@ -61,7 +53,7 @@ class TestContributionSystem(unittest.TestCase):
         # Set template-specific fields to avoid validation errors
         self.template.member = None  # Templates don't have specific members
         self.template.membership = None  # Templates don't have specific memberships
-        self.template.insert(ignore_permissions=True)
+        self.template.insert()
 
         # Update membership type with template reference
         self.membership_type.dues_schedule_template = self.template.name

@@ -449,7 +449,7 @@ bench --site dev.veganisme.net execute "verenigingen.utils.analytics_engine.anal
 bench --site dev.veganisme.net execute "frappe.cache().delete_keys('optimization_*')"
 
 # Reset to baseline configuration
-bench --site dev.veganisme.net execute "vereinigingen.utils.performance_optimizer.reset_to_baseline"
+bench --site dev.veganisme.net execute "verenigingen.utils.performance_optimizer.reset_to_baseline"
 ```
 
 ### Dashboard Access Issues

@@ -310,18 +310,6 @@
                 <h3>{{ _("How much would you like to donate?") }}</h3>
 
                 <div class="form-group">
-                    <label for="donation_type">{{ _("Donation Type") }}</label>
-                    <select class="form-control" name="donation_type" id="donation_type">
-                        {% for dtype in donation_types %}
-                        <option value="{{ dtype.name }}"
-                                {% if dtype.name == default_donation_type %}selected{% endif %}>
-                            {{ dtype.donation_type }}
-                        </option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-                <div class="form-group">
                     <label for="amount">{{ _("Amount (€)") }}</label>
                     <input type="number" class="form-control" name="amount" id="amount"
                            min="1" step="0.01" required placeholder="50.00">
@@ -341,8 +329,7 @@
                     <label for="donation_status">{{ _("Donation Frequency") }}</label>
                     <select class="form-control" name="donation_status" id="donation_status" onchange="toggleRecurringOptions()">
                         <option value="One-time">{{ _("One-time donation") }}</option>
-                        <option value="Recurring">{{ _("Monthly recurring subscription") }}</option>
-                        <option value="Promised">{{ _("Promised donation") }}</option>
+                        <option value="Recurring">{{ _("Recurring donation") }}</option>
                     </select>
                     <small class="text-muted">{{ _("Recurring donations help us plan better and have more impact") }}</small>
                 </div>
@@ -351,16 +338,14 @@
                 <div class="form-group" id="recurring-options" style="display: none;">
                     <div class="card" style="background-color: #f0f8ff; border: 1px solid #007bff;">
                         <div style="padding: 15px;">
-                            <h5 style="color: #007bff; margin-bottom: 10px;">{{ _("Monthly Subscription Benefits") }}</h5>
+                            <h5 style="color: #007bff; margin-bottom: 10px;">{{ _("Benefits") }}</h5>
                             <ul style="margin: 0; padding-left: 20px; color: #495057;">
-                                <li>{{ _("Automatic monthly donations - no need to remember") }}</li>
                                 <li>{{ _("Greater impact with predictable support") }}</li>
                                 <li>{{ _("Cancel anytime through your member portal") }}</li>
-                                <li>{{ _("Secure payments through Mollie") }}</li>
                             </ul>
 
                             <div style="margin-top: 15px;">
-                                <label for="subscription_interval">{{ _("Subscription Frequency") }}</label>
+                                <label for="subscription_interval">{{ _("Donation Frequency") }}</label>
                                 <select class="form-control" name="subscription_interval" id="subscription_interval" style="margin-top: 5px;">
                                     <option value="1 month">{{ _("Every month") }}</option>
                                     <option value="3 months">{{ _("Every 3 months") }}</option>

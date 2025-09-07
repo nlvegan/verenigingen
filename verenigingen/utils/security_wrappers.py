@@ -47,7 +47,7 @@ import frappe
 from frappe import _
 
 # Configure security logger
-security_logger = logging.getLogger("vereingingen.security")
+security_logger = logging.getLogger("verenigingen.security")
 
 
 def safe_get_roles(user: Optional[Union[str, None]] = None) -> List[str]:

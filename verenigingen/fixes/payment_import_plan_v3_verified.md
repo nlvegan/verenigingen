@@ -373,7 +373,7 @@ def _create_payment_entry(mutation_detail, company, cost_center, debug_info):
     ENHANCED: Create payment entry with multi-invoice support.
     """
     # Use new handler
-    from vereiningen.utils.eboekhouden.payment_processing import PaymentEntryHandler
+    from verenigingen.utils.eboekhouden.payment_processing import PaymentEntryHandler
 
     handler = PaymentEntryHandler(company, cost_center)
     payment_name = handler.process_payment_mutation(mutation_detail)

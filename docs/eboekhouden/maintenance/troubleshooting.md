@@ -95,7 +95,7 @@ The system includes automatic rate limiting. If issues persist:
 **Solution**:
 ```python
 # Check for stuck migrations
-from vereiniginen.utils.eboekhouden.migration_api import reset_stuck_migration
+from verenigingen.utils.eboekhouden.migration_api import reset_stuck_migration
 reset_stuck_migration()
 ```
 

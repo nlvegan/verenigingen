@@ -26,7 +26,7 @@ This roadmap outlines the implementation of comprehensive fixes for the e-boekho
 **Files to modify:**
 - `eboekhouden_rest_iterator.py` - Add VAT field extraction
 - `eboekhouden_importer.py` - Implement tax line creation
-- New: `vereinigingen/doctype/vat_account_mapping/`
+- New: `verenigingen/doctype/vat_account_mapping/`
 
 ### 1.2 Multi-line Item Support (Week 2-3)
 **Priority: HIGH**
@@ -38,7 +38,7 @@ This roadmap outlines the implementation of comprehensive fixes for the e-boekho
 **Files to modify:**
 - `eboekhouden_rest_iterator.py` - Extract line items array
 - `eboekhouden_importer.py` - Process multiple items
-- New: `vereinigingen/doctype/item_mapping/`
+- New: `verenigingen/doctype/item_mapping/`
 
 ### 1.3 Party Deduplication (Week 3-4)
 **Priority: HIGH**
@@ -48,9 +48,9 @@ This roadmap outlines the implementation of comprehensive fixes for the e-boekho
 - Add party creation enhancements
 
 **Files to create:**
-- `vereinigingen/doctype/eboekhouden_relation_mapping/`
-- `vereinigingen/utils/party_matcher.py`
-- `vereinigingen/page/party_mapping_wizard/`
+- `verenigingen/doctype/eboekhouden_relation_mapping/`
+- `verenigingen/utils/party_matcher.py`
+- `verenigingen/page/party_mapping_wizard/`
 
 ## Phase 2: Robustness & Usability (3-4 weeks)
 
@@ -62,8 +62,8 @@ This roadmap outlines the implementation of comprehensive fixes for the e-boekho
 - Add validation and smart defaults
 
 **Files to create:**
-- `vereinigingen/doctype/eboekhouden_account_mapping/`
-- `vereinigingen/page/account_mapping_wizard/`
+- `verenigingen/doctype/eboekhouden_account_mapping/`
+- `verenigingen/page/account_mapping_wizard/`
 
 ### 2.2 Invoice Metadata (Week 6)
 **Priority: MEDIUM**
@@ -84,9 +84,9 @@ This roadmap outlines the implementation of comprehensive fixes for the e-boekho
 - Add intelligent error messages
 
 **Files to create:**
-- `vereinigingen/doctype/import_error_log/`
-- `vereinigingen/utils/import_error_handler.py`
-- `vereinigingen/page/import_error_dashboard/`
+- `verenigingen/doctype/import_error_log/`
+- `verenigingen/utils/import_error_handler.py`
+- `verenigingen/page/import_error_dashboard/`
 
 ## Phase 3: Performance & Monitoring (2-3 weeks)
 
@@ -99,7 +99,7 @@ This roadmap outlines the implementation of comprehensive fixes for the e-boekho
 
 **Files to modify:**
 - `eboekhouden_importer.py` - Batch processing
-- `vereinigingen/utils/import_optimizer.py` (new)
+- `verenigingen/utils/import_optimizer.py` (new)
 
 ### 3.2 Reconciliation & Audit (Week 10-11)
 **Priority: LOW**
@@ -109,9 +109,9 @@ This roadmap outlines the implementation of comprehensive fixes for the e-boekho
 - Implement scheduled reconciliation
 
 **Files to create:**
-- `vereinigingen/doctype/eboekhouden_import_log/`
-- `vereinigingen/doctype/eboekhouden_reconciliation/`
-- `vereinigingen/report/import_reconciliation_report/`
+- `verenigingen/doctype/eboekhouden_import_log/`
+- `verenigingen/doctype/eboekhouden_reconciliation/`
+- `verenigingen/report/import_reconciliation_report/`
 
 ## Implementation Guidelines
 
@@ -185,7 +185,7 @@ This roadmap outlines the implementation of comprehensive fixes for the e-boekho
 ## Appendix: File Structure
 
 ```
-vereinigingen/
+verenigingen/
 ├── doctype/
 │   ├── eboekhouden_relation_mapping/    # New
 │   ├── eboekhouden_account_mapping/     # New

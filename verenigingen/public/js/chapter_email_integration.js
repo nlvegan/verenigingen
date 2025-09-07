@@ -102,7 +102,7 @@ frappe.verenigingen.email = {
 							hidden: 1,
 							onchange() {
 								if (this.get_value()) {
-									frappe.vereiningen.email.load_template(dialog, this.get_value());
+									frappe.verenigingen.email.load_template(dialog, this.get_value());
 								}
 							}
 						},
@@ -133,7 +133,7 @@ frappe.verenigingen.email = {
 							: __('Send email to {0} recipients?', [recipient_count]);
 
 						frappe.confirm(confirm_msg, () => {
-							frappe.vereiningen.email.send_email(
+							frappe.verenigingen.email.send_email(
 								chapter_name,
 								segment,
 								values.subject,

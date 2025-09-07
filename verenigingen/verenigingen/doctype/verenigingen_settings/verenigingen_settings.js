@@ -75,7 +75,7 @@
  *
  * @requires frappe.ui.form
  * @requires frappe.utils
- * @requires vereinigen.utils.member_portal_utils
+ * @requires verenigingen.utils.member_portal_utils
  *
  * @see {@link member.js} Member Management Integration
  * @see {@link membership.js} Membership Configuration

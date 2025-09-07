@@ -14,6 +14,7 @@ from typing import Dict, List, Any
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.utils.base_role_profile_manager import (
     BaseRoleProfileManager,
@@ -37,7 +38,7 @@ from verenigingen.utils.chapter_role_profile_manager import (
 )
 
 
-class TestValidationFunctions(FrappeTestCase):
+class TestValidationFunctions(EnhancedTestCase):
     """Test standalone validation functions"""
     
     def setUp(self):
@@ -57,13 +58,13 @@ class TestValidationFunctions(FrappeTestCase):
         test_profiles = ["Test Role Profile", "Test Empty Profile", "Test Invalid Profile"]
         for profile in test_profiles:
             if frappe.db.exists("Role Profile", profile):
-                frappe.delete_doc("Role Profile", profile, ignore_permissions=True)
+                # EnhancedTestCase handles cleanup automatically
         
         # Delete test teams
         test_teams = ["Test Team", "Test Team No Config", "Test Team Invalid"]
         for team in test_teams:
             if frappe.db.exists("Team", team):
-                frappe.delete_doc("Team", team, ignore_permissions=True)
+                # EnhancedTestCase handles cleanup automatically
     
     def test_validate_doctype_fields_success(self):
         """Test successful DocType field validation"""
@@ -100,7 +101,7 @@ class TestValidationFunctions(FrappeTestCase):
                 {"role": "All"}
             ]
         })
-        role_profile.insert(ignore_permissions=True)
+        role_profile.insert()
         
         result = validate_role_profile_dependencies("Test Role Profile", TEAM_CONFIG)
         self.assertIsNone(result)
@@ -121,7 +122,7 @@ class TestValidationFunctions(FrappeTestCase):
             "doctype": "Role Profile",
             "role_profile": "Test Empty Profile"
         })
-        role_profile.insert(ignore_permissions=True)
+        role_profile.insert()
         
         result = validate_role_profile_dependencies("Test Empty Profile", TEAM_CONFIG)
         
@@ -131,7 +132,7 @@ class TestValidationFunctions(FrappeTestCase):
         self.assertEqual(result["error_code"], ERROR_CODES["CONFIGURATION_ERROR"])
 
 
-class TestTeamRoleProfileManager(FrappeTestCase):
+class TestTeamRoleProfileManager(EnhancedTestCase):
     """Test TeamRoleProfileManager functionality"""
     
     def setUp(self):
@@ -160,7 +161,7 @@ class TestTeamRoleProfileManager(FrappeTestCase):
         for doctype, names in test_items:
             for name in names:
                 if frappe.db.exists(doctype, name):
-                    frappe.delete_doc(doctype, name, ignore_permissions=True)
+                    # EnhancedTestCase handles cleanup automatically
     
     def create_test_data(self):
         """Create test data for team role profile testing"""
@@ -170,21 +171,21 @@ class TestTeamRoleProfileManager(FrappeTestCase):
             "role_profile": "Test Team Profile",
             "roles": [{"role": "System Manager"}]
         })
-        test_role_profile.insert(ignore_permissions=True)
+        test_role_profile.insert()
         
         chair_profile = frappe.get_doc({
             "doctype": "Role Profile", 
             "role_profile": "Test Chair Profile",
             "roles": [{"role": "System Manager"}, {"role": "All"}]
         })
-        chair_profile.insert(ignore_permissions=True)
+        chair_profile.insert()
         
         member_profile = frappe.get_doc({
             "doctype": "Role Profile",
             "role_profile": "Test Member Profile", 
             "roles": [{"role": "All"}]
         })
-        member_profile.insert(ignore_permissions=True)
+        member_profile.insert()
         
         # Create test teams
         team_valid = frappe.get_doc({
@@ -195,7 +196,7 @@ class TestTeamRoleProfileManager(FrappeTestCase):
             "default_role_profile": "Test Team Profile",
             "enable_role_specific_profiles": 0
         })
-        team_valid.insert(ignore_permissions=True)
+        team_valid.insert()
         
         team_no_config = frappe.get_doc({
             "doctype": "Team",
@@ -204,7 +205,7 @@ class TestTeamRoleProfileManager(FrappeTestCase):
             "status": "Active",
             "enable_role_specific_profiles": 0
         })
-        team_no_config.insert(ignore_permissions=True)
+        team_no_config.insert()
         
         team_role_specific = frappe.get_doc({
             "doctype": "Team",
@@ -214,7 +215,7 @@ class TestTeamRoleProfileManager(FrappeTestCase):
             "enable_role_specific_profiles": 1,
             "role_specific_profiles": []
         })
-        team_role_specific.insert(ignore_permissions=True)
+        team_role_specific.insert()
         
         # Create test user/member/volunteer
         test_user = frappe.get_doc({
@@ -225,7 +226,7 @@ class TestTeamRoleProfileManager(FrappeTestCase):
             "enabled": 1,
             "user_type": "System User"
         })
-        test_user.insert(ignore_permissions=True)
+        test_user.insert()
         
         test_member = frappe.get_doc({
             "doctype": "Member",
@@ -236,14 +237,14 @@ class TestTeamRoleProfileManager(FrappeTestCase):
             "user": "test.volunteer@example.com",
             "status": "Active"
         })
-        test_member.insert(ignore_permissions=True)
+        test_member.insert()
         
         test_volunteer = frappe.get_doc({
             "doctype": "Volunteer",
             "name": "Test Volunteer",
             "member": "Test Member"
         })
-        test_volunteer.insert(ignore_permissions=True)
+        test_volunteer.insert()
     
     def test_get_entity_role_profile_config_valid(self):
         """Test getting role profile config for valid team"""
@@ -338,7 +339,7 @@ class TestTeamRoleProfileManager(FrappeTestCase):
             "team_role": "Member",
             "status": "Active"
         })
-        team_member.insert(ignore_permissions=True)
+        team_member.insert()
         
         result = self.manager.bulk_assign_role_profiles("Test Team Valid")
         
@@ -348,7 +349,7 @@ class TestTeamRoleProfileManager(FrappeTestCase):
         self.assertEqual(result["skipped"], 0)
 
 
-class TestChapterRoleProfileManager(FrappeTestCase):
+class TestChapterRoleProfileManager(EnhancedTestCase):
     """Test ChapterRoleProfileManager functionality"""
     
     def setUp(self):
@@ -375,7 +376,7 @@ class TestChapterRoleProfileManager(FrappeTestCase):
         for doctype, names in test_items:
             for name in names:
                 if frappe.db.exists(doctype, name):
-                    frappe.delete_doc(doctype, name, ignore_permissions=True)
+                    # EnhancedTestCase handles cleanup automatically
     
     def create_test_data(self):
         """Create test data for chapter role profile testing"""
@@ -385,7 +386,7 @@ class TestChapterRoleProfileManager(FrappeTestCase):
             "role_profile": "Test Board Profile",
             "roles": [{"role": "System Manager"}]
         })
-        board_profile.insert(ignore_permissions=True)
+        board_profile.insert()
         
         # Create test chapters
         chapter_valid = frappe.get_doc({
@@ -395,7 +396,7 @@ class TestChapterRoleProfileManager(FrappeTestCase):
             "default_board_role_profile": "Test Board Profile",
             "enable_board_role_specific_profiles": 0
         })
-        chapter_valid.insert(ignore_permissions=True)
+        chapter_valid.insert()
         
         chapter_no_config = frappe.get_doc({
             "doctype": "Chapter",
@@ -403,7 +404,7 @@ class TestChapterRoleProfileManager(FrappeTestCase):
             "status": "Active",
             "enable_board_role_specific_profiles": 0
         })
-        chapter_no_config.insert(ignore_permissions=True)
+        chapter_no_config.insert()
         
         # Create test user/member
         test_user = frappe.get_doc({
@@ -414,7 +415,7 @@ class TestChapterRoleProfileManager(FrappeTestCase):
             "enabled": 1,
             "user_type": "System User"
         })
-        test_user.insert(ignore_permissions=True)
+        test_user.insert()
         
         test_member = frappe.get_doc({
             "doctype": "Member",
@@ -425,7 +426,7 @@ class TestChapterRoleProfileManager(FrappeTestCase):
             "user": "test.board@example.com",
             "status": "Active"
         })
-        test_member.insert(ignore_permissions=True)
+        test_member.insert()
     
     def test_get_chapter_role_profile_config_valid(self):
         """Test getting role profile config for valid chapter"""
@@ -457,7 +458,7 @@ class TestChapterRoleProfileManager(FrappeTestCase):
         self.assertIn("Test Board Profile", role_profiles)
 
 
-class TestSystemValidation(FrappeTestCase):
+class TestSystemValidation(EnhancedTestCase):
     """Test system-wide validation functions"""
     
     def test_validate_system_configuration(self):
@@ -491,7 +492,7 @@ class TestSystemValidation(FrappeTestCase):
         self.assertGreaterEqual(result["profiles_checked"], 0)
 
 
-class TestBaseRoleProfileManagerAbstract(FrappeTestCase):
+class TestBaseRoleProfileManagerAbstract(EnhancedTestCase):
     """Test BaseRoleProfileManager abstract behavior"""
     
     def test_cannot_instantiate_base_class_directly(self):

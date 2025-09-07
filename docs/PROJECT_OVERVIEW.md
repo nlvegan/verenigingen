@@ -344,7 +344,7 @@ Frappe uses a multi-level permission system where fields can be assigned differe
 - Fields hidden despite user having correct roles (missing permlevel permissions)
 - JavaScript cannot force-show permlevel-restricted fields
 - Session permissions may not immediately reflect permlevel changes
-- you misspell 'verenigingen' as 'vereiningen' or other misspellings.
+- you misspell 'verenigingen' as 'verenigingen' or other misspellings.
 
 ### Scheduled Tasks
 Daily and weekly schedulers handle:

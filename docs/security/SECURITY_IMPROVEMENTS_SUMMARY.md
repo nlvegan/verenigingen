@@ -65,7 +65,7 @@ This document summarizes the security improvements made to the Verenigingen app 
 
 ### Admin Interface
 1. `verenigingen/templates/pages/admin_tools.py` - Backend with security controls
-2. `vereinigen/templates/pages/admin_tools.html` - Frontend with security UI
+2. `verenigingen/templates/pages/admin_tools.html` - Frontend with security UI
 
 ### Documentation
 1. `SECURITY_SETUP.md` - User documentation
@@ -147,7 +147,7 @@ The implementation follows:
 
 ## Support & Maintenance
 
-- Security logs location: `logs/vereinigen.security.log`
+- Security logs location: `logs/verenigingen.security.log`
 - Audit trail: Activity Log DocType in Frappe
 - Admin interface: `/admin-tools` page
 - API documentation: See SECURITY_SETUP.md

@@ -32,7 +32,7 @@ The 70 unsafe queries represent immediate security vulnerabilities due to:
 - Dynamic query construction without parameterization
 
 **High-Risk Files Identified:**
-1. `vereinigen/fixtures/add_sepa_database_indexes.py` - 3 unsafe queries
+1. `verenigingen/fixtures/add_sepa_database_indexes.py` - 3 unsafe queries
 2. `verenigingen/utils/simple_robust_cleanup.py` - 4 unsafe queries
 3. `verenigingen/api/database_index_manager.py` - 2 unsafe queries
 4. `verenigingen/utils/sepa_rollback_manager.py` - 1 unsafe query

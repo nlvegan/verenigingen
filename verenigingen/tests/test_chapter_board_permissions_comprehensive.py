@@ -459,7 +459,7 @@ class TestChapterBoardPermissionsComprehensive(VereningingenTestCase):
         with self.as_user(self.treasurer_a["user"].email):
             # Import permission functions
             try:
-                from vereinigungen.permissions import has_volunteer_expense_permission
+                from verenigingen.permissions import has_volunteer_expense_permission
                 can_view = has_volunteer_expense_permission(expense, self.treasurer_a["user"].email)
                 self.assertTrue(can_view, "Treasurer should be able to view expenses from their chapter")
             except ImportError:
@@ -515,7 +515,7 @@ class TestChapterBoardPermissionsComprehensive(VereningingenTestCase):
         # Chapter A treasurer should NOT access Chapter B expense
         with self.as_user(self.treasurer_a["user"].email):
             try:
-                from vereinigingen.permissions import has_volunteer_expense_permission
+                from verenigingen.permissions import has_volunteer_expense_permission
                 can_view = has_volunteer_expense_permission(expense_b, self.treasurer_a["user"].email)
                 self.assertFalse(can_view, "Treasurer should NOT access expenses from other chapters")
             except ImportError:
@@ -537,7 +537,7 @@ class TestChapterBoardPermissionsComprehensive(VereningingenTestCase):
         # Chapter A treasurer should NOT access Chapter B membership applications
         with self.as_user(self.treasurer_a["user"].email):
             try:
-                from vereinigungen.permissions import has_membership_application_permission
+                from verenigingen.permissions import has_membership_application_permission
                 can_view = has_membership_application_permission(application_b, self.treasurer_a["user"].email)
                 self.assertFalse(can_view, "Board member should NOT access membership applications from other chapters")
             except ImportError:
@@ -734,7 +734,7 @@ class TestChapterBoardPermissionsComprehensive(VereningingenTestCase):
         
         # Test that permission queries handle orphaned records gracefully
         try:
-            from vereinigungen.permissions import get_volunteer_expense_permission_query
+            from verenigingen.permissions import get_volunteer_expense_permission_query
             query = get_volunteer_expense_permission_query(temp_member.email)
             # Should not raise an exception, should handle gracefully
             self.assertIsNotNone(query, "Permission query should handle orphaned records gracefully")

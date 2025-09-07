@@ -122,7 +122,7 @@ def create_billing_conflict_scenario(self):
 **Specific Files to Create/Restore**:
 ```python
 # New Integration Test Suite
-vereiningen/tests/integration/
+verenigingen/tests/integration/
 ├── test_member_payment_workflow.py
 ├── test_expense_processing_workflow.py
 ├── test_sepa_batch_workflow.py
@@ -179,7 +179,7 @@ class EnhancedTestDataFactory(TestDataFactory):
 ### **Week 1: Critical Business Logic**
 ```bash
 # Day 1-2: Restore expense workflow tests
-git show HEAD~1:test_expense_full_integration.py > vereiningen/tests/test_expense_full_integration_restored.py
+git show HEAD~1:test_expense_full_integration.py > verenigingen/tests/test_expense_full_integration_restored.py
 git show HEAD~1:test_expense_workflow.py > verenigingen/tests/test_expense_workflow_restored.py
 # Fix imports, type annotations, and validate execution
 

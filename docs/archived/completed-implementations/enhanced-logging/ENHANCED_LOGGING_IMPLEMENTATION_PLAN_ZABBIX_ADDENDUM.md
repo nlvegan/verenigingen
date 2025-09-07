@@ -15,7 +15,7 @@ The association already has comprehensive Zabbix monitoring in place with busine
 
 1. **Add Logging-Specific Metrics to Zabbix**
    ```python
-   # Extend vereiningen/monitoring/zabbix_integration.py
+   # Extend verenigingen/monitoring/zabbix_integration.py
 
    def get_logging_metrics():
        """Add logging infrastructure metrics to existing Zabbix integration"""
@@ -121,7 +121,7 @@ The association already has comprehensive Zabbix monitoring in place with busine
 
 1. **Create Zabbix Report Templates**
    ```python
-   # vereiningen/monitoring/zabbix_reports.py
+   # verenigingen/monitoring/zabbix_reports.py
 
    def generate_compliance_report():
        """Generate compliance report from Zabbix data"""
@@ -152,7 +152,7 @@ The association already has comprehensive Zabbix monitoring in place with busine
    # scripts/monitoring/generate_zabbix_reports.sh
 
    # Pull data from Zabbix API
-   python -m vereinigingen.monitoring.zabbix_reports generate_all
+   python -m verenigingen.monitoring.zabbix_reports generate_all
 
    # Convert to PDF
    wkhtmltopdf compliance_report.html compliance_report_$(date +%Y%m%d).pdf

@@ -34,7 +34,7 @@ class Member(Document):
 ### Core Service Layer Structure
 
 ```
-vereinigingen/services/
+verenigingen/services/
 ├── __init__.py
 ├── base/
 │   ├── bulk_operation_service.py      # Abstract bulk operations

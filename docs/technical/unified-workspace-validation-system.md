@@ -211,14 +211,14 @@ The unified system successfully addresses:
 ### **Troubleshooting Workflow**
 ```bash
 # 1. Quick status check
-bench --site [site] execute "vereinigingen.utils.workspace_analyzer.analyze_workspace" --args "[workspace]"
+bench --site [site] execute "verenigingen.utils.workspace_analyzer.analyze_workspace" --args "[workspace]"
 
 # 2. If not synchronized, get details
 bench --site [site] execute "verenigingen.utils.workspace_link_validator.validate_workspace_links" --args "[workspace]"
 
 # 3. Preview and apply fixes
 bench --site [site] execute "verenigingen.utils.workspace_content_fixer.fix_workspace_content" --args "[workspace],True"
-bench --site [site] execute "vereinigingen.utils.workspace_content_fixer.fix_workspace_content" --args "[workspace],False"
+bench --site [site] execute "verenigingen.utils.workspace_content_fixer.fix_workspace_content" --args "[workspace],False"
 ```
 
 ## 🔮 **Future Enhancements**

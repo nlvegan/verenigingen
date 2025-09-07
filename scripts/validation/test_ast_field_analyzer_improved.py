@@ -34,7 +34,7 @@ class TestASTFieldAnalyzer(unittest.TestCase):
         cls.app_path = Path(cls.temp_dir) / "test_app"
         cls.app_path.mkdir()
         
-        # Create vereinigingen module directory
+        # Create verenigingen module directory
         cls.module_path = cls.app_path / "verenigingen"
         cls.module_path.mkdir()
         
@@ -285,7 +285,7 @@ def validate(doc):
         # Test 2: Non-hook file in doctype directory
         content = "# Utility file"
         file_path = self.create_test_file(
-            "vereiningen/doctype/membership_dues_schedule/utils.py",
+            "verenigingen/doctype/membership_dues_schedule/utils.py",
             content
         )
         context = ValidationContext(file_path=file_path)

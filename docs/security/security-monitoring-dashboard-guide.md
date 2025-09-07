@@ -195,7 +195,7 @@ Provides data for security monitoring dashboard
 """
 
 import frappe
-from vereinigingen.utils.security.security_metrics_calculator import SecurityMetricsCalculator
+from verenigingen.utils.security.security_metrics_calculator import SecurityMetricsCalculator
 from verenigingen.utils.security.api_security_framework import standard_api, OperationType
 
 @frappe.whitelist()

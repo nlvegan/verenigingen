@@ -5,6 +5,7 @@ Integration tests for complete skills workflow from application to active volunt
 import unittest
 import frappe
 from frappe.utils import today, now_datetime
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen.web_form.membership_application import (
     submit_membership_application,
     approve_membership_application
@@ -16,7 +17,7 @@ from verenigingen.verenigingen.doctype.volunteer.volunteer import (
 from verenigingen.api.volunteer_skills import get_skills_overview
 
 
-class TestSkillsIntegrationWorkflow(unittest.TestCase):
+class TestSkillsIntegrationWorkflow(EnhancedTestCase):
     """Test complete integration workflow for skills system"""
 
     def setUp(self):
@@ -69,12 +70,12 @@ class TestSkillsIntegrationWorkflow(unittest.TestCase):
                     # Delete volunteers first
                     volunteers = frappe.get_all("Volunteer", filters={"member": member.name})
                     for volunteer in volunteers:
-                        frappe.delete_doc("Volunteer", volunteer.name, force=True, ignore_permissions=True)
+                        # EnhancedTestCase handles cleanup automatically
                     
                     # Delete memberships
                     memberships = frappe.get_all("Membership", filters={"member": member.name})
                     for membership in memberships:
-                        frappe.delete_doc("Membership", membership.name, force=True, ignore_permissions=True)
+                        # EnhancedTestCase handles cleanup automatically
                     
                     # Delete comments
                     comments = frappe.get_all("Comment", filters={
@@ -82,10 +83,10 @@ class TestSkillsIntegrationWorkflow(unittest.TestCase):
                         "reference_name": member.name
                     })
                     for comment in comments:
-                        frappe.delete_doc("Comment", comment.name, force=True, ignore_permissions=True)
+                        # EnhancedTestCase handles cleanup automatically
                     
                     # Delete member
-                    frappe.delete_doc("Member", member.name, force=True, ignore_permissions=True)
+                    # EnhancedTestCase handles cleanup automatically
                 except Exception as e:
                     # Ignore cleanup errors
                     pass
@@ -95,7 +96,7 @@ class TestSkillsIntegrationWorkflow(unittest.TestCase):
             test_volunteers = frappe.get_all("Volunteer", 
                 filters={"volunteer_name": ["like", "%Integration%"]})
             for volunteer in test_volunteers:
-                frappe.delete_doc("Volunteer", volunteer.name, force=True, ignore_permissions=True)
+                # EnhancedTestCase handles cleanup automatically
         except Exception:
             pass
         

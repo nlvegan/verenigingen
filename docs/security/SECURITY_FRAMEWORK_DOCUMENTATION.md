@@ -216,7 +216,7 @@ print(audit_info)
 
 ```bash
 # View security logs
-tail -f /home/frappe/frappe-bench/logs/frappe.log | grep "vereingingen.security"
+tail -f /home/frappe/frappe-bench/logs/frappe.log | grep "verenigingen.security"
 
 # Search for suspicious activity
 grep "suspicious\|invalid\|security" /home/frappe/frappe-bench/logs/frappe.log

@@ -127,7 +127,7 @@ def test_api_endpoints():
     """Test bulk importer API endpoints"""
 
     try:
-        from vereiningen.verenigingen_payments.clients.bulk_transaction_importer import (
+        from verenigingen.verenigingen_payments.clients.bulk_transaction_importer import (
             estimate_bulk_import_size,
             get_bulk_import_history,
         )

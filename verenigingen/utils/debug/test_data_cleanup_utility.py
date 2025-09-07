@@ -35,7 +35,7 @@ def cleanup_test_roles():
                 frappe.db.delete("Has Role", {"role": role_name})
 
                 # Then delete the role itself
-                frappe.delete_doc("Role", role_name, ignore_permissions=True)
+                frappe.delete_doc("Role", role_name)
                 deleted_roles.append(role_name)
                 frappe.logger().info(f"Deleted test role: {role_name}")
 
@@ -51,7 +51,7 @@ def cleanup_test_roles():
 
             for role in chapter_roles:
                 try:
-                    frappe.delete_doc("Chapter Role", role.name, ignore_permissions=True)
+                    frappe.delete_doc("Chapter Role", role.name)
                     deleted_roles.append(f"Chapter Role: {role.role_name}")
                     frappe.logger().info(f"Deleted test chapter role: {role.role_name}")
                 except Exception as e:
@@ -97,7 +97,7 @@ def cleanup_test_members():
 
             for member in members:
                 try:
-                    frappe.delete_doc("Member", member.name, ignore_permissions=True)
+                    frappe.delete_doc("Member", member.name)
                     deleted_members.append(member.email)
                     frappe.logger().info(f"Deleted test member: {member.email}")
                 except Exception as e:
@@ -121,7 +121,7 @@ def cleanup_test_chapters():
 
             for chapter in chapters:
                 try:
-                    frappe.delete_doc("Chapter", chapter.name, ignore_permissions=True)
+                    frappe.delete_doc("Chapter", chapter.name)
                     deleted_chapters.append(chapter.name)
                     frappe.logger().info(f"Deleted test chapter: {chapter.name}")
                 except Exception as e:

@@ -9,7 +9,7 @@ the comprehensive DocTypeLoader instead of manual DocType loading.
 Test Coverage:
 - Core DocType loading functionality (1,049+ DocTypes expected)
 - Custom field integration (36+ custom fields expected)
-- Multi-app support (9 apps: frappe, erpnext, payments, vereinigingen, banking, crm, hrms, owl_theme, erpnext_expenses)
+- Multi-app support (9 apps: frappe, erpnext, payments, verenigingen, banking, crm, hrms, owl_theme, erpnext_expenses)
 - Field metadata completeness and accuracy
 - Caching performance and correctness
 - Child table relationship mapping

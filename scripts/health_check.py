@@ -69,7 +69,7 @@ def check_tests():
     """Check test suite status"""
     print("🧪 Checking Test Suite...")
     success, stdout, stderr = run_command(
-        "bench --site dev.veganisme.net run-tests --app vereinigingen --module verenigingen.tests.test_validation_regression",
+        "bench --site dev.veganisme.net run-tests --app verenigingen --module verenigingen.tests.test_validation_regression",
         timeout=60
     )
     

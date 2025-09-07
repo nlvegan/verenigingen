@@ -28,7 +28,7 @@ I have successfully implemented comprehensive database query measurement tools f
 - **Health Score Calculation**: Overall system health scoring (0-100%)
 - **Optimization Roadmap**: Prioritized implementation roadmap with timelines
 
-### 2. API Endpoints (`/vereinigingen/api/performance_measurement_api.py`)
+### 2. API Endpoints (`/verenigingen/api/performance_measurement_api.py`)
 
 **Available Endpoints:**
 - `measure_member_performance(member_name)` - Comprehensive member analysis
@@ -161,9 +161,9 @@ Based on the measurement infrastructure, Phase 2 should focus on:
 ## Files Created
 
 ### Core Infrastructure
-- `/vereinigungen/utils/performance/query_measurement.py` (1,300+ lines)
+- `/verenigingen/utils/performance/query_measurement.py` (1,300+ lines)
 - `/verenigingen/utils/performance/bottleneck_analyzer.py` (800+ lines)
-- `/vereinigungen/utils/performance/performance_reporter.py` (900+ lines)
+- `/verenigingen/utils/performance/performance_reporter.py` (900+ lines)
 - `/verenigingen/api/performance_measurement_api.py` (660+ lines)
 - `/verenigingen/api/simple_measurement_test.py` (300+ lines)
 

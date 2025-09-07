@@ -120,7 +120,7 @@
 5. [ ] Document issues for resolution
 
 ### Backup Locations
-- API backups: `vereiningen/api_backups/[timestamp]`
+- API backups: `verenigingen/api_backups/[timestamp]`
 - Git commits: Tagged with `pre-optimization-[date]`
 - Database backups: Daily automated backups
 

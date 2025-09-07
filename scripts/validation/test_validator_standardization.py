@@ -356,9 +356,9 @@ class ValidatorStandardizationTest(unittest.TestCase):
         self.assertIsInstance(legacy_detailed, dict)
         
         # Test single app loading (legacy pattern)
-        vereinigingen_doctypes = loader.load_from_single_app('verenigingen')
+        verenigingen_doctypes = loader.load_from_single_app('verenigingen')
         self.assertIsInstance(verenigigingen_doctypes, dict)
-        self.assertGreater(len(vereinigingen_doctypes), 0)
+        self.assertGreater(len(verenigingen_doctypes), 0)
         
         print("✅ Backward compatibility: All legacy interfaces work correctly")
     

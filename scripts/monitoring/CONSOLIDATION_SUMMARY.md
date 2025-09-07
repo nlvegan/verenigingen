@@ -76,8 +76,8 @@ scripts/monitoring/
 
 ## Testing Checklist
 
-- [ ] Verify metrics endpoint: `/api/method/vereiningen.monitoring.zabbix_integration.get_metrics_for_zabbix`
-- [ ] Test health check: `/api/method/vereiningen.monitoring.zabbix_integration.health_check`
+- [ ] Verify metrics endpoint: `/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix`
+- [ ] Test health check: `/api/method/verenigingen.monitoring.zabbix_integration.health_check`
 - [ ] Verify webhook receiver works
 - [ ] Check new performance metrics appear
 - [ ] Test auto-remediation (if enabled)

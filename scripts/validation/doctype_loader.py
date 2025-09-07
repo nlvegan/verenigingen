@@ -186,7 +186,7 @@ class DocTypeLoader:
             # Fallback to standard apps if discovery fails
             if self.verbose:
                 logger.warning(f"Failed to discover apps, using fallback: {e}")
-            apps = ['frappe', 'erpnext', 'payments', 'vereinigingen']
+            apps = ['frappe', 'erpnext', 'payments', 'verenigingen']
         
         return apps
         

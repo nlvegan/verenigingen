@@ -77,7 +77,6 @@ class TestDonorCustomerAPI(VereningingenTestCase):
         # First unlink customer to test recreation
         fresh_donor.customer = ""
         fresh_donor.customer_sync_status = "Pending"
-        fresh_donor.flags.ignore_permissions = True
         success = self.save_doc_with_retry(fresh_donor)
         self.assertTrue(success, "Failed to update donor for sync test")
         

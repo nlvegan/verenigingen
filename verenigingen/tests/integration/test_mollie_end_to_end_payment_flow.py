@@ -291,11 +291,11 @@ class TestMollieEndToEndPaymentFlow(EnhancedTestCase):
                 'webhook_url': 'https://dev.veganisme.net/api/method/mollie_webhook',
                 'is_active': 1
             })
-            mollie_settings.insert(ignore_permissions=True)
+            mollie_settings.insert()
             
             # Set test API key
             mollie_settings.set_password('secret_key', 'test_dHar4XY7LxsDOtmnkVtjNVWXLSlXsM')
-            mollie_settings.save(ignore_permissions=True)
+            mollie_settings.save()
             frappe.db.commit()
         
         # Mock frappe.utils.get_url for webhook URLs
@@ -338,11 +338,11 @@ class TestMollieEndToEndPaymentFlow(EnhancedTestCase):
             'territory': 'Netherlands',
             'customer_group': 'Individual'
         })
-        customer.insert(ignore_permissions=True)
+        customer.insert()
         
         # Link customer to member
         member.customer = customer.name
-        member.save(ignore_permissions=True)
+        member.save()
         
         # Step 3: Create SEPA mandate
         sepa_mandate = frappe.get_doc({
@@ -357,7 +357,7 @@ class TestMollieEndToEndPaymentFlow(EnhancedTestCase):
             'status': 'Active',
             'mandate_type': 'Recurring'
         })
-        sepa_mandate.insert(ignore_permissions=True)
+        sepa_mandate.insert()
         sepa_mandate.submit()
         
         # Step 4: Create Mollie customer via API
@@ -377,7 +377,7 @@ class TestMollieEndToEndPaymentFlow(EnhancedTestCase):
         # Update member with Mollie customer ID
         member.mollie_customer_id = mollie_customer.id
         member.payment_method = 'Mollie'
-        member.save(ignore_permissions=True)
+        member.save()
         
         # Step 5: Create subscription
         subscription = connector.client.customers.get(mollie_customer.id).subscriptions.create({
@@ -394,7 +394,7 @@ class TestMollieEndToEndPaymentFlow(EnhancedTestCase):
         member.mollie_subscription_id = subscription.id
         member.subscription_status = 'active'
         member.next_payment_date = subscription.next_payment_date
-        member.save(ignore_permissions=True)
+        member.save()
         
         # Step 6: Create membership dues schedule
         dues_schedule = frappe.get_doc({
@@ -408,11 +408,11 @@ class TestMollieEndToEndPaymentFlow(EnhancedTestCase):
             'status': 'Active',
             'payment_method': 'Mollie'
         })
-        dues_schedule.insert(ignore_permissions=True)
+        dues_schedule.insert()
         
         # Update member with dues schedule
         member.current_dues_schedule = dues_schedule.name
-        member.save(ignore_permissions=True)
+        member.save()
         
         # Step 7: Generate invoice
         invoice_name = dues_schedule.generate_invoice(force=True)
@@ -519,9 +519,9 @@ class TestMollieEndToEndPaymentFlow(EnhancedTestCase):
             'customer_type': 'Individual',
             'territory': 'Netherlands'
         })
-        customer.insert(ignore_permissions=True)
+        customer.insert()
         member.customer = customer.name
-        member.save(ignore_permissions=True)
+        member.save()
         
         # Create Mollie customer and subscription
         from verenigingen.verenigingen_payments.integration.mollie_connector import get_mollie_connector
@@ -534,7 +534,7 @@ class TestMollieEndToEndPaymentFlow(EnhancedTestCase):
         })
         
         member.mollie_customer_id = mollie_customer.id
-        member.save(ignore_permissions=True)
+        member.save()
         
         # Create dues schedule and invoice
         dues_schedule = frappe.get_doc({
@@ -546,7 +546,7 @@ class TestMollieEndToEndPaymentFlow(EnhancedTestCase):
             'auto_generate': 1,
             'status': 'Active'
         })
-        dues_schedule.insert(ignore_permissions=True)
+        dues_schedule.insert()
         
         invoice_name = dues_schedule.generate_invoice(force=True)
         invoice = frappe.get_doc('Sales Invoice', invoice_name)
@@ -647,10 +647,10 @@ class TestMollieEndToEndPaymentFlow(EnhancedTestCase):
                 'customer_type': 'Individual',
                 'territory': 'Netherlands'
             })
-            customer.insert(ignore_permissions=True)
+            customer.insert()
             
             member.customer = customer.name
-            member.save(ignore_permissions=True)
+            member.save()
             
             # Create dues schedule and invoice
             dues_schedule = frappe.get_doc({
@@ -662,7 +662,7 @@ class TestMollieEndToEndPaymentFlow(EnhancedTestCase):
                 'auto_generate': 1,
                 'status': 'Active'
             })
-            dues_schedule.insert(ignore_permissions=True)
+            dues_schedule.insert()
             
             invoice_name = dues_schedule.generate_invoice(force=True)
             invoice = frappe.get_doc('Sales Invoice', invoice_name)
@@ -820,9 +820,9 @@ class TestMollieEndToEndPaymentFlow(EnhancedTestCase):
             'customer_type': 'Individual',
             'territory': 'Netherlands'
         })
-        customer.insert(ignore_permissions=True)
+        customer.insert()
         member.customer = customer.name
-        member.save(ignore_permissions=True)
+        member.save()
         
         # Create and process payment
         from verenigingen.verenigingen_payments.integration.mollie_connector import get_mollie_connector
@@ -841,7 +841,7 @@ class TestMollieEndToEndPaymentFlow(EnhancedTestCase):
             'auto_generate': 1,
             'status': 'Active'
         })
-        dues_schedule.insert(ignore_permissions=True)
+        dues_schedule.insert()
         
         invoice_name = dues_schedule.generate_invoice(force=True)
         

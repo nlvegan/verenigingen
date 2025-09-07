@@ -12,7 +12,7 @@ The Week 1 SEPA billing improvements have been successfully implemented with sol
 
 ### ✅ **N+1 Query Elimination** - EXCELLENT
 **Files Reviewed:**
-- `/vereinigingen/api/sepa_batch_ui.py`
+- `/verenigingen/api/sepa_batch_ui.py`
 
 **Key Optimizations:**
 - `load_unpaid_invoices()`: Single batch query replacing individual lookups

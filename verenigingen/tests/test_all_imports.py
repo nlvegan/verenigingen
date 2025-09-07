@@ -137,13 +137,13 @@ class TestAllImports(FrappeTestCase):
             
     def test_no_typo_imports(self):
         """Specifically test for common typos in import statements"""
-        # This test ensures we're not importing 'vereiningen' (missing 'g')
+        # This test ensures we're not importing 'verenigingen' (missing 'g')
         import ast
         import os
         
         app_path = frappe.get_app_path('verenigingen')
         typo_patterns = [
-            'vereinigen.',  # Missing 'g'
+            'verenigingen.',  # Missing 'g'
             'verenigigen.',  # Missing 'i'  
             'verenigingn.',  # Transposed
         ]

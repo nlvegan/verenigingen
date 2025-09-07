@@ -479,7 +479,7 @@ class TestMollieSubscriptionIntegrationPhase4D(EnhancedTestCase):
         })
         
         invoice.calculate_taxes_and_totals()
-        invoice.insert(ignore_permissions=True)
+        invoice.insert()
         
         try:
             invoice.submit()

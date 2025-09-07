@@ -28,7 +28,7 @@ def test_monitoring():
     print("\n2. Checking Python Modules...")
     try:
         # Import directly
-        from vereinigingen.utils.alert_manager import AlertManager
+        from verenigingen.utils.alert_manager import AlertManager
         print("   ✓ Alert Manager: Found")
         results.append(("Alert Manager", True))
     except:
@@ -36,7 +36,7 @@ def test_monitoring():
         results.append(("Alert Manager", False))
     
     try:
-        from vereinigingen.utils.resource_monitor import ResourceMonitor
+        from verenigingen.utils.resource_monitor import ResourceMonitor
         print("   ✓ Resource Monitor: Found")
         results.append(("Resource Monitor", True))
     except:
@@ -44,7 +44,7 @@ def test_monitoring():
         results.append(("Resource Monitor", False))
     
     try:
-        from vereinigingen.utils.analytics_engine import AnalyticsEngine
+        from verenigingen.utils.analytics_engine import AnalyticsEngine
         print("   ✓ Analytics Engine: Found")
         results.append(("Analytics Engine", True))
     except:
@@ -52,7 +52,7 @@ def test_monitoring():
         results.append(("Analytics Engine", False))
     
     try:
-        from vereinigingen.utils.performance_optimizer import PerformanceOptimizer
+        from verenigingen.utils.performance_optimizer import PerformanceOptimizer
         print("   ✓ Performance Optimizer: Found")
         results.append(("Performance Optimizer", True))
     except:
@@ -64,7 +64,7 @@ def test_monitoring():
     
     # Try to create a test alert
     try:
-        from vereinigingen.utils.alert_manager import AlertManager
+        from verenigingen.utils.alert_manager import AlertManager
         am = AlertManager()
         alert_id = am.create_alert(
             error_type="TestValidation",
@@ -91,7 +91,7 @@ def test_monitoring():
     # Test 4: Check APIs
     print("\n4. Testing API Endpoints...")
     try:
-        from vereinigingen.api.monitoring_dashboard import get_system_metrics
+        from verenigingen.api.monitoring_dashboard import get_system_metrics
         metrics = get_system_metrics()
         print("   ✓ System Metrics API: Working")
         results.append(("System Metrics API", True))
@@ -100,7 +100,7 @@ def test_monitoring():
         results.append(("System Metrics API", False))
     
     try:
-        from vereinigingen.api.monitoring_dashboard import get_recent_errors
+        from verenigingen.api.monitoring_dashboard import get_recent_errors
         errors = get_recent_errors()
         print("   ✓ Recent Errors API: Working")
         results.append(("Recent Errors API", True))

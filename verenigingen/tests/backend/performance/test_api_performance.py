@@ -77,7 +77,7 @@ class TestAPIPerformance(FrappeTestCase):
         
     def test_performance_threshold_alerts(self):
         """Test performance monitoring and alerting"""
-        from vereiningen.utils.decorators import performance_monitor
+        from verenigingen.utils.decorators import performance_monitor
         
         # Create monitored function
         alert_triggered = False

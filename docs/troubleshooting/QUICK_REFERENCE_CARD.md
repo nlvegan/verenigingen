@@ -31,14 +31,14 @@ WHERE sb.status = 'Failed'
 ORDER BY sb.creation DESC LIMIT 10;"
 
 # Create retry batch
-bench --site dev.veganisme.net execute vereinigingen.utils.sepa_retry_manager.create_retry_batch --args "['BATCH_ID']"
+bench --site dev.veganisme.net execute verenigingen.utils.sepa_retry_manager.create_retry_batch --args "['BATCH_ID']"
 ```
 
 ### Mandate Creation Failed
 ```bash
 # Manual mandate creation
 bench --site dev.veganisme.net console
->>> from vereinigingen.utils.sepa_mandate_service import SEPAMandateService
+>>> from verenigingen.utils.sepa_mandate_service import SEPAMandateService
 >>> service = SEPAMandateService()
 >>> service.create_mandate(member="MEMBER_ID", iban="VALIDATED_IBAN", bic="BIC_CODE")
 ```
@@ -62,7 +62,7 @@ bench --site dev.veganisme.net console
 ### Permission Denied
 ```bash
 # Fix member permissions
-bench --site dev.veganisme.net execute vereinigingen.api.fix_customer_permissions.fix_member_permissions --args "['user@email.com']"
+bench --site dev.veganisme.net execute verenigingen.api.fix_customer_permissions.fix_member_permissions --args "['user@email.com']"
 
 # Clear cache
 bench --site dev.veganisme.net execute verenigigingen.utils.clear_permission_cache.clear_cache --args "['user@email.com']"

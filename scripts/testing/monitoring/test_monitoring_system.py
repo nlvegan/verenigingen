@@ -80,7 +80,7 @@ def test_phase1_components():
     try:
         # Test Alert Manager
         print("Testing Alert Manager...")
-        from vereinigingen.utils.alert_manager import AlertManager
+        from verenigingen.utils.alert_manager import AlertManager
         
         # Create test error
         alert_manager = AlertManager()
@@ -158,7 +158,7 @@ def test_phase2_components():
         
         # Test Resource Monitor
         print("Testing Resource Monitor...")
-        from vereinigingen.utils.resource_monitor import ResourceMonitor
+        from verenigingen.utils.resource_monitor import ResourceMonitor
         
         monitor = ResourceMonitor()
         metrics = monitor.get_current_metrics()
@@ -171,7 +171,7 @@ def test_phase2_components():
         
         # Test Dashboard APIs
         print("Testing Dashboard APIs...")
-        from vereinigingen.api.monitoring_dashboard import (
+        from verenigingen.api.monitoring_dashboard import (
             get_system_metrics, get_recent_errors, get_audit_summary
         )
         
@@ -210,7 +210,7 @@ def test_phase3_components():
     try:
         # Test Analytics Engine
         print("Testing Analytics Engine...")
-        from vereinigingen.utils.analytics_engine import AnalyticsEngine
+        from verenigingen.utils.analytics_engine import AnalyticsEngine
         
         analytics = AnalyticsEngine()
         
@@ -228,7 +228,7 @@ def test_phase3_components():
         
         # Test Performance Optimizer
         print("Testing Performance Optimizer...")
-        from vereinigingen.utils.performance_optimizer import PerformanceOptimizer
+        from verenigingen.utils.performance_optimizer import PerformanceOptimizer
         
         optimizer = PerformanceOptimizer()
         
@@ -274,8 +274,8 @@ def test_integration():
         print("Testing Data Flow...")
         
         # Create test event and track through system
-        from vereinigingen.utils.alert_manager import AlertManager
-        from vereinigingen.utils.analytics_engine import AnalyticsEngine
+        from verenigingen.utils.alert_manager import AlertManager
+        from verenigingen.utils.analytics_engine import AnalyticsEngine
         
         alert_manager = AlertManager()
         analytics = AnalyticsEngine()
@@ -298,7 +298,7 @@ def test_integration():
         
         # Test API integration
         print("Testing API Integration...")
-        from vereinigingen.api.monitoring_dashboard import get_system_health
+        from verenigingen.api.monitoring_dashboard import get_system_health
         
         health = get_system_health()
         results["api_integration"]["system_health"] = "PASS" if health else "FAIL"
@@ -336,7 +336,7 @@ def test_performance():
     try:
         # Measure monitoring overhead
         print("Measuring Monitoring Overhead...")
-        from vereinigingen.utils.resource_monitor import ResourceMonitor
+        from verenigingen.utils.resource_monitor import ResourceMonitor
         
         monitor = ResourceMonitor()
         
@@ -356,7 +356,7 @@ def test_performance():
         
         # Test API response times
         print("Testing API Response Times...")
-        from vereinigingen.api.monitoring_dashboard import get_system_metrics
+        from verenigingen.api.monitoring_dashboard import get_system_metrics
         
         api_times = []
         for _ in range(5):
@@ -380,7 +380,7 @@ def test_performance():
         load_test_start = time.time()
         
         # Create multiple alerts
-        from vereinigingen.utils.alert_manager import AlertManager
+        from verenigingen.utils.alert_manager import AlertManager
         alert_manager = AlertManager()
         
         for i in range(50):

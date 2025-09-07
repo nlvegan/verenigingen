@@ -30,7 +30,7 @@ import time
 import frappe
 from frappe.utils import random_string
 
-from vereinigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.e_boekhouden.fixtures.cost_center_test_factory import CostCenterTestDataFactory
 
 
@@ -492,7 +492,7 @@ class TestCostCenterUIWorkflows(EnhancedTestCase):
         
         # Step 2: User clicks "Parse Groups & Configure Cost Centers"
         parse_result = frappe.call(
-            "vereinigingeng.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.parse_groups_and_suggest_cost_centers",
+            "verenigingeng.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.parse_groups_and_suggest_cost_centers",
             group_mappings_text=text_input,
             company=self.test_company.name
         )

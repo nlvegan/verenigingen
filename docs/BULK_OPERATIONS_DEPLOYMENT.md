@@ -212,7 +212,7 @@ Production monitoring generates alerts via:
 ```python
 # Queue bulk account creation
 result = frappe.call({
-    method: 'vereiniginen.utils.account_creation_manager.queue_bulk_account_creation_for_members',
+    method: 'verenigingen.utils.account_creation_manager.queue_bulk_account_creation_for_members',
     args: {
         member_names: ['member1', 'member2', ...],
         roles: ['Verenigingen Member'],

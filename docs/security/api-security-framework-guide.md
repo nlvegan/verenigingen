@@ -220,7 +220,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.security.api_classifie
 ```
 
 **Target APIs:**
-- All SEPA batch operations (`vereinigingen/api/sepa_*`)
+- All SEPA batch operations (`verenigingen/api/sepa_*`)
 - Payment processing (`verenigingen/api/payment_*`)
 - Administrative functions (`verenigingen/api/*admin*`, `verenigingen/api/*manage*`)
 

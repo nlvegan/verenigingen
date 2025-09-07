@@ -120,7 +120,7 @@ class EnhancedTestDataFactory(TestDataFactory):
         conflict_membership = self.create_test_membership(member=conflict_member.name)
 
         # Clear auto-schedules for controlled testing
-        from vereiningen.tests.utils.base import VereningingenTestCase
+        from verenigingen.tests.utils.base import VereningingenTestCase
         test_case = VereningingenTestCase()
         test_case.clear_member_auto_schedules(conflict_member.name)
 
@@ -284,7 +284,7 @@ class ComprehensiveTestRunner:
         for module_name in test_modules:
             try:
                 # Import and add tests
-                module = __import__(f'vereiningen.tests.{module_name}', fromlist=[module_name])
+                module = __import__(f'verenigingen.tests.{module_name}', fromlist=[module_name])
                 suite.addTests(unittest.TestLoader().loadTestsFromModule(module))
             except ImportError as e:
                 print(f"Warning: Could not import {module_name}: {e}")

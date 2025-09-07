@@ -165,7 +165,7 @@ Successfully implemented a comprehensive Mollie Backend API integration for the 
 ## Repository Structure
 
 ```
-vereinigingen-mollie-backend/
+verenigingen-mollie-backend/
 ├── config/                     # Configuration templates
 ├── docs/                       # Documentation
 ├── monitoring/                 # Monitoring configs

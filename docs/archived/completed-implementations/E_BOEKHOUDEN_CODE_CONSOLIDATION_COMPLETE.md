@@ -183,7 +183,7 @@ All existing code continues to work through compatibility wrappers:
 
 ```python
 # Old code still works:
-from vereinigungen.e_boekhouden.utils.simple_party_handler import get_or_create_customer_simple
+from verenigingen.e_boekhouden.utils.simple_party_handler import get_or_create_customer_simple
 customer = get_or_create_customer_simple("12345")
 
 # New consolidated implementation handles it automatically:

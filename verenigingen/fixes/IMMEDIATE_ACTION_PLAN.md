@@ -21,7 +21,7 @@ Run these commands to see the data quality difference:
 cd /home/frappe/frappe-bench
 
 # Test what data we can actually get
-bench --site dev.veganisme.net execute vereinigingen.fixes.test_new_implementation.test_data_comparison
+bench --site dev.veganisme.net execute verenigingen.fixes.test_new_implementation.test_data_comparison
 
 # Compare old vs new invoice creation
 bench --site dev.veganisme.net execute verenigingen.fixes.test_new_implementation.test_invoice_creation_comparison
@@ -66,7 +66,7 @@ bench --site dev.veganisme.net execute verenigingen.fixes.test_new_implementatio
 
 ### Step 4: Replace Current Implementation (2 hours)
 
-**Replace in:** `vereinigingen/utils/eboekhouden/eboekhouden_rest_full_migration.py`
+**Replace in:** `verenigingen/utils/eboekhouden/eboekhouden_rest_full_migration.py`
 
 **Current problematic functions:**
 - `_create_sales_invoice()` - Line 2038
@@ -107,7 +107,7 @@ bench --site dev.veganisme.net execute verenigingen.fixes.test_new_implementatio
 ### After Each Change:
 ```bash
 # Validate improvements
-bench --site dev.veganisme.net execute vereinigingen.fixes.step1_fix_data_fetching.test_new_invoice_creation --args '{"mutation_id": 7420}'
+bench --site dev.veganisme.net execute verenigingen.fixes.step1_fix_data_fetching.test_new_invoice_creation --args '{"mutation_id": 7420}'
 
 # Compare data quality
 bench --site dev.veganisme.net execute verenigingen.fixes.step1_fix_data_fetching.compare_old_vs_new_import --args '{"mutation_id": 7420}'
@@ -172,7 +172,7 @@ bench --site dev.veganisme.net execute verenigingen.fixes.step1_fix_data_fetchin
 ## 🔗 FILES TO MODIFY
 
 ### Primary Implementation:
-- `vereinigingen/utils/eboekhouden/eboekhouden_rest_full_migration.py` (main changes)
+- `verenigingen/utils/eboekhouden/eboekhouden_rest_full_migration.py` (main changes)
 - `verenigingen/utils/eboekhouden/eboekhouden_rest_iterator.py` (ensure proper usage)
 
 ### New Supporting Files:

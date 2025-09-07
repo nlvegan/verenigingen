@@ -20,6 +20,7 @@ from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
 import frappe
 from frappe.utils import add_days, add_months, flt, get_datetime, today
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 class MockMollieClient:
@@ -199,7 +200,7 @@ class MockSettlementResource:
         ]
 
 
-class TestMollieIntegration(unittest.TestCase):
+class TestMollieIntegration(EnhancedTestCase):
     """Comprehensive Mollie integration test suite"""
 
     @classmethod
@@ -223,11 +224,11 @@ class TestMollieIntegration(unittest.TestCase):
                     "profile_id": "pfl_test123",
                     "webhook_url": "https://test.example.com/webhook",
                 }
-            ).insert(ignore_permissions=True)
+            ).insert()
 
             # Set test API key
             self.settings.secret_key = "test_abc123xyz456"
-            self.settings.save(ignore_permissions=True)
+            self.settings.save()
         else:
             self.settings = frappe.get_doc("Mollie Settings", "Mollie Settings")
 
@@ -248,7 +249,7 @@ class TestMollieIntegration(unittest.TestCase):
                 "customer_type": "Individual",
                 "territory": "Netherlands",
             }
-        ).insert(ignore_permissions=True)
+        ).insert()
 
         # Create member
         member = frappe.get_doc(
@@ -262,7 +263,7 @@ class TestMollieIntegration(unittest.TestCase):
                 "customer": customer.name,
                 "payment_method": "Mollie",
             }
-        ).insert(ignore_permissions=True)
+        ).insert()
 
         return member
 

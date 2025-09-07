@@ -456,7 +456,7 @@ Phase 1C of the documentation consolidation process executed comprehensive deep 
 **Core Implementation Files:**
 - `verenigingen/verenigingen/doctype/membership_dues_schedule/membership_dues_schedule.py` - 444 lines of comprehensive dues management
 - `verenigingen/verenigingen/doctype/membership_dues_schedule/membership_dues_integration.py` - 362 lines of integration logic
-- `vereinigingen/verenigingen/report/membership_dues_coverage_analysis/membership_dues_coverage_analysis.js` - 1,052 lines of reporting
+- `verenigingen/verenigingen/report/membership_dues_coverage_analysis/membership_dues_coverage_analysis.js` - 1,052 lines of reporting
 - Mobile interface integration components
 
 **Implementation Status:** ✅ **SUBSTANTIALLY IMPLEMENTED (85-90%)**

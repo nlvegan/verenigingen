@@ -233,7 +233,7 @@
 **Tasks:**
 1. **Implement Enhanced Logger**
    ```python
-   # vereinigingen/utils/enhanced_logging.py
+   # verenigingen/utils/enhanced_logging.py
 
    import frappe
    from frappe.utils import get_request_site_address
@@ -627,7 +627,7 @@
 **Tasks:**
 1. **Create Analytics Framework**
    ```python
-   # vereinigingen/analytics/dashboard_config.py
+   # verenigingen/analytics/dashboard_config.py
 
    DASHBOARDS = {
        "operational_health": {

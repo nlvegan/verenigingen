@@ -26,7 +26,7 @@ def generate_monitoring_test_data():
         ("BusinessLogicError", "Duplicate membership detected", "low")
     ]
     
-    from vereinigingen.utils.alert_manager import AlertManager
+    from verenigingen.utils.alert_manager import AlertManager
     alert_manager = AlertManager()
     
     for error_type, message, severity in error_types:
@@ -93,7 +93,7 @@ def generate_monitoring_test_data():
     
     # 4. Simulate resource usage patterns
     print("\n4. Simulating resource usage...")
-    from vereinigingen.utils.resource_monitor import ResourceMonitor
+    from verenigingen.utils.resource_monitor import ResourceMonitor
     monitor = ResourceMonitor()
     
     # Generate some load
@@ -104,7 +104,7 @@ def generate_monitoring_test_data():
     
     # 5. Generate analytics data
     print("\n5. Generating analytics data...")
-    from vereinigingen.utils.analytics_engine import AnalyticsEngine
+    from verenigingen.utils.analytics_engine import AnalyticsEngine
     analytics = AnalyticsEngine()
     
     # Trigger analytics calculations
@@ -118,7 +118,7 @@ def generate_monitoring_test_data():
     
     # 6. Test performance optimizer
     print("\n6. Testing performance optimizer...")
-    from vereinigingen.utils.performance_optimizer import PerformanceOptimizer
+    from verenigingen.utils.performance_optimizer import PerformanceOptimizer
     optimizer = PerformanceOptimizer()
     
     analysis = optimizer.analyze_performance()

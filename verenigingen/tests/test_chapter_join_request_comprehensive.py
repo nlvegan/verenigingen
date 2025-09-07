@@ -115,7 +115,7 @@ class TestChapterJoinRequestComprehensive(EnhancedTestCase):
         )
 
         # Insert with ignore_permissions for testing
-        valid_request.insert(ignore_permissions=True)
+        valid_request.insert()
         self.assertEqual(valid_request.status, "Pending")
 
         # Test 2: Suspended member - should fail validation
@@ -129,7 +129,7 @@ class TestChapterJoinRequestComprehensive(EnhancedTestCase):
         )
 
         with self.assertRaises(frappe.ValidationError):
-            invalid_request.insert(ignore_permissions=True)
+            invalid_request.insert()
 
     def test_duplicate_request_prevention(self):
         """Test that duplicate requests are properly prevented"""
@@ -142,7 +142,7 @@ class TestChapterJoinRequestComprehensive(EnhancedTestCase):
                 "introduction": "First request",
             }
         )
-        first_request.insert(ignore_permissions=True)
+        first_request.insert()
         first_request.submit()
 
         # Attempt duplicate request - should fail
@@ -156,7 +156,7 @@ class TestChapterJoinRequestComprehensive(EnhancedTestCase):
         )
 
         with self.assertRaises(frappe.ValidationError):
-            duplicate_request.insert(ignore_permissions=True)
+            duplicate_request.insert()
 
     def test_status_workflow(self):
         """Test the status workflow (Pending -> Approved/Rejected)"""
@@ -168,7 +168,7 @@ class TestChapterJoinRequestComprehensive(EnhancedTestCase):
                 "introduction": "Status workflow test",
             }
         )
-        request.insert(ignore_permissions=True)
+        request.insert()
         request.submit()
 
         # Initial status should be Pending
@@ -257,7 +257,7 @@ class TestChapterJoinRequestComprehensive(EnhancedTestCase):
         )
 
         # Should handle long text
-        long_request.insert(ignore_permissions=True)
+        long_request.insert()
         self.assertEqual(long_request.introduction, long_intro)
 
         # Test with special characters
@@ -273,7 +273,7 @@ class TestChapterJoinRequestComprehensive(EnhancedTestCase):
         )
 
         # Should handle special characters
-        special_request.insert(ignore_permissions=True)
+        special_request.insert()
         self.assertEqual(special_request.introduction, special_intro)
 
     def test_existing_chapter_functionality(self):
@@ -313,7 +313,7 @@ class TestChapterJoinRequestComprehensive(EnhancedTestCase):
                 "introduction": "Notification test request",
             }
         )
-        request.insert(ignore_permissions=True)
+        request.insert()
 
         # Test that notification methods exist and can be called
         try:
@@ -335,7 +335,7 @@ class TestChapterJoinRequestComprehensive(EnhancedTestCase):
                 "introduction": "Data integrity test",
             }
         )
-        request.insert(ignore_permissions=True)
+        request.insert()
         request.submit()
 
         # Test that member_name and member_email are populated

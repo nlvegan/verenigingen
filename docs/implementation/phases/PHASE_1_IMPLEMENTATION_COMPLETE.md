@@ -217,7 +217,7 @@ The system is now fully prepared for Phase 2 optimization:
 - [x] Before/after comparison capabilities
 
 ### ✅ Implementation Requirements
-- [x] Measurement utilities in `/vereinigingen/utils/performance/`
+- [x] Measurement utilities in `/verenigingen/utils/performance/`
 - [x] Baseline measurement results documented
 - [x] Detailed analysis of query patterns and bottlenecks
 - [x] Specific optimization target recommendations

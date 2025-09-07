@@ -88,7 +88,7 @@ def debug_payment_history_system():
 
     # Test bulk update function
     try:
-        from vereinigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
+        from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
             _bulk_update_payment_history,
         )
 
@@ -100,7 +100,7 @@ def debug_payment_history_system():
 
     # Test event system
     try:
-        from vereinigingen.events.invoice_events import _get_event_subscribers
+        from verenigingen.events.invoice_events import _get_event_subscribers
 
         subscribers = _get_event_subscribers("invoice_submitted")
         results["event_system_test"] = {"subscribers_found": len(subscribers), "subscribers": subscribers}

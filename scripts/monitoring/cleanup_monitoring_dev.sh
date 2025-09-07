@@ -33,13 +33,13 @@ cat > MONITORING_STRUCTURE.md << 'EOF'
 ## How It Works
 
 1. All monitoring code is in `scripts/monitoring/zabbix_integration_enhanced.py`
-2. The module `vereinigingen/monitoring/zabbix_integration.py` imports everything from here
+2. The module `verenigingen/monitoring/zabbix_integration.py` imports everything from here
 3. API endpoints are accessed via: `verenigingen.monitoring.zabbix_integration.*`
 
 ## Available Endpoints
 - `/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix`
 - `/api/method/verenigingen.monitoring.zabbix_integration.health_check`
-- `/api/method/vereiningen.monitoring.zabbix_integration.zabbix_webhook_receiver`
+- `/api/method/verenigingen.monitoring.zabbix_integration.zabbix_webhook_receiver`
 
 ## Configuration
 Enable advanced features in site config:
@@ -56,6 +56,6 @@ echo "Cleanup complete!"
 echo ""
 echo "Summary:"
 echo "- Single implementation: zabbix_integration_enhanced.py"
-echo "- Simple import in: vereinigingen/monitoring/zabbix_integration.py"
+echo "- Simple import in: verenigingen/monitoring/zabbix_integration.py"
 echo "- All duplicates removed"
 echo "- Templates and docs preserved"

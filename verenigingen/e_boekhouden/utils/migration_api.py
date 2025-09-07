@@ -35,7 +35,7 @@ def start_migration_api(migration_name, dry_run=1):
 
         # Start the actual migration in background
         frappe.enqueue(
-            method="vereininggen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.run_migration_background",
+            method="verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.run_migration_background",
             queue="long",
             timeout=3600,
             migration_name=migration_name,

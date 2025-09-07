@@ -384,7 +384,7 @@ class RollbackManager:
         """Validate that imports work correctly"""
         try:
             # Try to import key modules
-            import vereiningen.api.member_management
+            import verenigingen.api.member_management
             import verenigingen.api.sepa_mandate_management
             self.log("Import validation passed")
             return True

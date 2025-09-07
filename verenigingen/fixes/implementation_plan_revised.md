@@ -23,7 +23,7 @@ The current implementation wastes ~80% of available data from the e-boekhouden R
 
 ### 1.1 Fix Data Fetching
 
-**File:** `vereinigingen/utils/eboekhouden/eboekhouden_rest_full_migration.py`
+**File:** `verenigingen/utils/eboekhouden/eboekhouden_rest_full_migration.py`
 
 ```python
 def import_mutation_properly(mutation_id, company):

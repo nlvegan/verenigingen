@@ -947,6 +947,6 @@ if __name__ == "__main__":
     import unittest
     
     # You can run individual test classes like:
-    # python -m unittest vereinigingen.tests.test_email_newsletter_system.TestEmailNewsletterSystemSecurity
+    # python -m unittest verenigingen.tests.test_email_newsletter_system.TestEmailNewsletterSystemSecurity
     
     unittest.main()

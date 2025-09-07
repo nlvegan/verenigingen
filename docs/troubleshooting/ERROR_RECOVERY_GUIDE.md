@@ -70,10 +70,10 @@ AND sb.creation >= DATE_SUB(NOW(), INTERVAL 7 DAY)
 ORDER BY sb.creation DESC;"
 
 # Check mandate status
-bench --site dev.veganisme.net execute vereinigingen.utils.sepa_validator.validate_mandates
+bench --site dev.veganisme.net execute verenigingen.utils.sepa_validator.validate_mandates
 
 # Test SEPA connectivity
-bench --site dev.veganisme.net execute vereinigingen.utils.sepa_mandate_service.test_connection
+bench --site dev.veganisme.net execute verenigingen.utils.sepa_mandate_service.test_connection
 ```
 
 #### Recovery Steps
@@ -140,14 +140,14 @@ WHERE creation >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
 ORDER BY creation DESC;"
 
 # Validate IBAN format issues
-bench --site dev.veganisme.net execute vereinigingen.utils.sepa_input_validation.diagnose_iban_failures
+bench --site dev.veganisme.net execute verenigingen.utils.sepa_input_validation.diagnose_iban_failures
 ```
 
 #### Recovery Steps
 ```bash
 # Manual mandate creation for specific member
 bench --site dev.veganisme.net console
->>> from vereinigingen.utils.sepa_mandate_service import SEPAMandateService
+>>> from verenigingen.utils.sepa_mandate_service import SEPAMandateService
 >>> service = SEPAMandateService()
 >>> result = service.create_mandate(
 ...     member="[MEMBER_ID]",
@@ -191,17 +191,17 @@ GROUP BY reference_no
 HAVING count > 1;"
 
 # Analyze reconciliation gaps
-bench --site dev.veganisme.net execute vereinigingen.utils.payment_utils.analyze_reconciliation_gaps
+bench --site dev.veganisme.net execute verenigingen.utils.payment_utils.analyze_reconciliation_gaps
 ```
 
 #### Recovery Steps
 ```bash
 # Auto-reconcile by reference number
-bench --site dev.veganisme.net execute vereinigingen.utils.sepa_reconciliation.auto_reconcile_payments
+bench --site dev.veganisme.net execute verenigingen.utils.sepa_reconciliation.auto_reconcile_payments
 
 # Manual reconciliation for specific payment
 bench --site dev.veganisme.net console
->>> from vereinigungen.utils.payment_utils import reconcile_payment
+>>> from verenigingen.utils.payment_utils import reconcile_payment
 >>> reconcile_payment(
 ...     payment_entry="[PAYMENT_ID]",
 ...     bank_transaction="[TRANSACTION_REF]",
@@ -209,7 +209,7 @@ bench --site dev.veganisme.net console
 ... )
 
 # Fix duplicate payments
-bench --site dev.veganisme.net execute vereinigingen.utils.payment_utils.resolve_duplicate_payments
+bench --site dev.veganisme.net execute verenigingen.utils.payment_utils.resolve_duplicate_payments
 ```
 
 ---
@@ -263,7 +263,7 @@ bench --site dev.veganisme.net console
 >>> reset_password("[USER_EMAIL]")
 
 # Bulk password reset for multiple users
-bench --site dev.veganisme.net execute vereinigingen.utils.member_portal_utils.bulk_password_reset --args "['[CSV_FILE_PATH]']"
+bench --site dev.veganisme.net execute verenigingen.utils.member_portal_utils.bulk_password_reset --args "['[CSV_FILE_PATH]']"
 ```
 
 #### Prevention
@@ -311,10 +311,10 @@ bench --site dev.veganisme.net console
 >>> user.save()
 
 # Fix member portal permissions
-bench --site dev.veganisme.net execute vereinigingen.api.fix_customer_permissions.fix_member_permissions --args "['[USER_EMAIL]']"
+bench --site dev.veganisme.net execute verenigingen.api.fix_customer_permissions.fix_member_permissions --args "['[USER_EMAIL]']"
 
 # Clear permission cache
-bench --site dev.veganisme.net execute vereinigingen.utils.clear_permission_cache.clear_cache --args "['[USER_EMAIL]']"
+bench --site dev.veganisme.net execute verenigingen.utils.clear_permission_cache.clear_cache --args "['[USER_EMAIL]']"
 
 # Bulk permission fix for member category
 bench --site dev.veganisme.net execute verenigigingen.utils.member_portal_utils.fix_member_category_permissions --args "['[MEMBER_TYPE]']"
@@ -405,7 +405,7 @@ ORDER BY creation DESC;"
 bench --site dev.veganisme.net execute frappe.core.page.data_import.data_import.cancel_data_import --args "['[IMPORT_ID]']"
 
 # Bulk retry imports
-bench --site dev.veganisme.net execute vereinigingen.utils.data_quality_utils.bulk_retry_imports
+bench --site dev.veganisme.net execute verenigingen.utils.data_quality_utils.bulk_retry_imports
 ```
 
 ---
@@ -424,7 +424,7 @@ bench --site dev.veganisme.net execute vereinigingen.utils.data_quality_utils.bu
 ```bash
 # Check member validation rules
 bench --site dev.veganisme.net console
->>> from vereinigungen.utils.member_portal_utils import validate_member_data
+>>> from verenigingen.utils.member_portal_utils import validate_member_data
 >>> result = validate_member_data({
 ...     "first_name": "[FIRST_NAME]",
 ...     "last_name": "[LAST_NAME]",
@@ -434,16 +434,16 @@ bench --site dev.veganisme.net console
 >>> print(f"Validation result: {result}")
 
 # Fix phone number formatting
-bench --site dev.veganisme.net execute vereinigingen.utils.dutch_name_utils.standardize_phone_numbers
+bench --site dev.veganisme.net execute verenigingen.utils.dutch_name_utils.standardize_phone_numbers
 
 # Validate email addresses
-bench --site dev.veganisme.net execute vereinigingen.utils.member_portal_utils.validate_email_addresses
+bench --site dev.veganisme.net execute verenigingen.utils.member_portal_utils.validate_email_addresses
 ```
 
 **SEPA Validation Errors**
 ```bash
 # Test IBAN validation
-bench --site dev.veganisme.net execute vereinigingen.utils.sepa_input_validation.validate_iban --args "['[IBAN]']"
+bench --site dev.veganisme.net execute verenigingen.utils.sepa_input_validation.validate_iban --args "['[IBAN]']"
 
 # Fix BIC code validation
 bench --site dev.veganisme.net execute verenigigingen.utils.sepa_validator.validate_bic --args "['[BIC]']"
@@ -506,7 +506,7 @@ bench --site dev.veganisme.net execute verenigigingen.utils.member_portal_utils.
 bench --site dev.veganisme.net execute verenigingen.utils.sepa_mandate_service.resolve_duplicate_mandates
 
 # Fix duplicate payments
-bench --site dev.veganisme.net execute vereinigingen.utils.payment_utils.merge_duplicate_payments --args "['[PAYMENT_IDS]']"
+bench --site dev.veganisme.net execute verenigingen.utils.payment_utils.merge_duplicate_payments --args "['[PAYMENT_IDS]']"
 ```
 
 ---
@@ -544,7 +544,7 @@ LIMIT 10;"
 #### Recovery Steps
 ```bash
 # Refresh API credentials
-bench --site dev.veganisme.net execute vereinigingen.e_boekhouden.utils.eboekhouden_api.refresh_credentials
+bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.eboekhouden_api.refresh_credentials
 
 # Retry failed API calls
 bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.migration_api.retry_failed_api_calls
@@ -940,7 +940,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.resource_monitor.get_s
 bench doctor
 
 # Resource usage
-bench --site dev.veganisme.net execute vereinigingen.utils.resource_monitor.get_system_health
+bench --site dev.veganisme.net execute verenigingen.utils.resource_monitor.get_system_health
 
 # Service status
 bench status

@@ -48,7 +48,7 @@ def test_phase1_alert_and_audit():
 
     # Test Alert Manager
     try:
-        from vereinigingen.utils.alert_manager import AlertManager
+        from verenigingen.utils.alert_manager import AlertManager
 
         am = AlertManager()
 
@@ -131,7 +131,7 @@ def test_phase2_dashboard_and_alerts():
 
     # Test Resource Monitor
     try:
-        from vereinigingen.utils.resource_monitor import ResourceMonitor
+        from verenigingen.utils.resource_monitor import ResourceMonitor
 
         rm = ResourceMonitor()
 
@@ -148,7 +148,7 @@ def test_phase2_dashboard_and_alerts():
 
     # Test Dashboard APIs
     try:
-        from vereinigingen.api.monitoring_dashboard import (
+        from verenigingen.api.monitoring_dashboard import (
             get_audit_summary,
             get_recent_errors,
             get_system_metrics,
@@ -183,7 +183,7 @@ def test_phase3_analytics_and_performance():
 
     # Test Analytics Engine
     try:
-        from vereinigingen.utils.analytics_engine import AnalyticsEngine
+        from verenigingen.utils.analytics_engine import AnalyticsEngine
 
         ae = AnalyticsEngine()
 
@@ -210,7 +210,7 @@ def test_phase3_analytics_and_performance():
 
     # Test Performance Optimizer
     try:
-        from vereinigingen.utils.performance_optimizer import PerformanceOptimizer
+        from verenigingen.utils.performance_optimizer import PerformanceOptimizer
 
         po = PerformanceOptimizer()
 
@@ -242,8 +242,8 @@ def test_end_to_end_integration():
 
     try:
         # Create an alert and track it through the system
-        from vereinigingen.utils.alert_manager import AlertManager
-        from vereinigingen.utils.analytics_engine import AnalyticsEngine
+        from verenigingen.utils.alert_manager import AlertManager
+        from verenigingen.utils.analytics_engine import AnalyticsEngine
 
         am = AlertManager()
         ae = AnalyticsEngine()
@@ -291,8 +291,8 @@ def test_system_performance():
     try:
         import time
 
-        from vereinigingen.api.monitoring_dashboard import get_system_metrics
-        from vereinigingen.utils.resource_monitor import ResourceMonitor
+        from verenigingen.api.monitoring_dashboard import get_system_metrics
+        from verenigingen.utils.resource_monitor import ResourceMonitor
 
         rm = ResourceMonitor()
 

@@ -29,10 +29,10 @@ def validate_monitoring_components():
     # 2. Check Python modules
     print("\n2. Checking Python Modules...")
     modules = [
-        ("Alert Manager", "vereinigingen.utils.alert_manager", "AlertManager"),
-        ("Resource Monitor", "vereinigingen.utils.resource_monitor", "ResourceMonitor"),
-        ("Analytics Engine", "vereinigingen.utils.analytics_engine", "AnalyticsEngine"),
-        ("Performance Optimizer", "vereinigingen.utils.performance_optimizer", "PerformanceOptimizer")
+        ("Alert Manager", "verenigingen.utils.alert_manager", "AlertManager"),
+        ("Resource Monitor", "verenigingen.utils.resource_monitor", "ResourceMonitor"),
+        ("Analytics Engine", "verenigingen.utils.analytics_engine", "AnalyticsEngine"),
+        ("Performance Optimizer", "verenigingen.utils.performance_optimizer", "PerformanceOptimizer")
     ]
     
     for name, module_path, class_name in modules:
@@ -50,10 +50,10 @@ def validate_monitoring_components():
     # 3. Check APIs
     print("\n3. Checking API Endpoints...")
     apis = [
-        ("System Metrics", "vereinigingen.api.monitoring_dashboard.get_system_metrics"),
-        ("Recent Errors", "vereinigingen.api.monitoring_dashboard.get_recent_errors"),
-        ("Audit Summary", "vereinigingen.api.monitoring_dashboard.get_audit_summary"),
-        ("System Health", "vereinigingen.api.monitoring_dashboard.get_system_health")
+        ("System Metrics", "verenigingen.api.monitoring_dashboard.get_system_metrics"),
+        ("Recent Errors", "verenigingen.api.monitoring_dashboard.get_recent_errors"),
+        ("Audit Summary", "verenigingen.api.monitoring_dashboard.get_audit_summary"),
+        ("System Health", "verenigingen.api.monitoring_dashboard.get_system_health")
     ]
     
     for name, api_path in apis:
@@ -75,8 +75,8 @@ def validate_monitoring_components():
     # 4. Check scheduled jobs
     print("\n4. Checking Scheduled Jobs...")
     scheduled_methods = [
-        "vereinigingen.utils.alert_manager.check_system_alerts",
-        "vereinigingen.utils.alert_manager.daily_alert_summary"
+        "verenigingen.utils.alert_manager.check_system_alerts",
+        "verenigingen.utils.alert_manager.daily_alert_summary"
     ]
     
     for method in scheduled_methods:
@@ -121,7 +121,7 @@ def test_monitoring_functionality():
     print("\n1. Testing Alert Creation and Retrieval...")
     tests_total += 1
     try:
-        from vereinigingen.utils.alert_manager import AlertManager
+        from verenigingen.utils.alert_manager import AlertManager
         am = AlertManager()
         
         # Create test alert
@@ -148,7 +148,7 @@ def test_monitoring_functionality():
     print("\n2. Testing Resource Monitoring...")
     tests_total += 1
     try:
-        from vereinigingen.utils.resource_monitor import ResourceMonitor
+        from verenigingen.utils.resource_monitor import ResourceMonitor
         rm = ResourceMonitor()
         
         metrics = rm.get_current_metrics()
@@ -164,7 +164,7 @@ def test_monitoring_functionality():
     print("\n3. Testing Analytics Engine...")
     tests_total += 1
     try:
-        from vereinigingen.utils.analytics_engine import AnalyticsEngine
+        from verenigingen.utils.analytics_engine import AnalyticsEngine
         ae = AnalyticsEngine()
         
         patterns = ae.analyze_error_patterns(days=1)
@@ -180,7 +180,7 @@ def test_monitoring_functionality():
     print("\n4. Testing Performance Optimizer...")
     tests_total += 1
     try:
-        from vereinigingen.utils.performance_optimizer import PerformanceOptimizer
+        from verenigingen.utils.performance_optimizer import PerformanceOptimizer
         po = PerformanceOptimizer()
         
         analysis = po.analyze_performance()

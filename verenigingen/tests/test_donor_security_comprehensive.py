@@ -80,16 +80,13 @@ class TestDonorSecurityComprehensive(EnhancedTestCase):
         
         for user_data in test_users:
             if not frappe.db.exists('User', user_data['email']):
-                user = frappe.get_doc({
-                    'doctype': 'User',
-                    'email': user_data['email'],
-                    'first_name': user_data['first_name'],
-                    'last_name': user_data['last_name'],
-                    'enabled': 1,
-                    'new_password': 'testpassword123',
-                    'roles': [{'role': role} for role in user_data['roles']]
-                })
-                user.insert(ignore_permissions=True)
+                user = self.create_test_user(
+                    email=user_data['email'],
+                    roles=user_data['roles'],
+                    first_name=user_data['first_name'],
+                    last_name=user_data['last_name'],
+                    password='testpassword123'
+                )
                 
     def _create_test_members(self):
         """Create test members linked to test users"""

@@ -48,7 +48,7 @@ def test_rest_mutation_fetch():
 
 ### 0.2 Fix JavaScript Typo ✅ **COMPLETED**
 **File**: `e_boekhouden_migration.js` line 1639
-**Fix**: Changed `vereiningen.api.test_eboekhouden_connection` to `verenigingen.api.test_eboekhouden_connection`
+**Fix**: Changed `verenigingen.api.test_eboekhouden_connection` to `verenigingen.api.test_eboekhouden_connection`
 
 ### 0.3 Fix F-String Issues ✅ **COMPLETED**
 **Impact**: High - String formatting failures throughout app

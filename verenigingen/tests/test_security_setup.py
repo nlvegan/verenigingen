@@ -477,7 +477,7 @@ class TestSecurityIntegration(FrappeTestCase):
     @patch('frappe.get_site_config')
     @patch('frappe.installer.update_site_config')
     @patch('frappe.get_single')
-    @patch('vereinigen.setup.security_setup.log_security_audit')
+    @patch('verenigingen.setup.security_setup.log_security_audit')
     def test_setup_all_security_integration(self, mock_audit, mock_get_single, mock_update_config, mock_get_config):
         """Test complete security setup integration"""
         # Mock configuration

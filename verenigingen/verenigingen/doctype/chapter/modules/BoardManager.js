@@ -924,7 +924,7 @@ export class BoardManager {
 
 	async updateVolunteerHistory(boardMember) {
 		try {
-			const result = await this.api.call('vereinigingen.verenigingen.doctype.chapter.chapter.update_volunteer_assignment_history', {
+			const result = await this.api.call('verenigingen.verenigingen.doctype.chapter.chapter.update_volunteer_assignment_history', {
 				volunteer_id: boardMember.volunteer,
 				role: boardMember.chapter_role,
 				start_date: boardMember.from_date,

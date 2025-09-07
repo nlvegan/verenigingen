@@ -431,7 +431,7 @@ class TestPortalAuthenticationSecurity(EnhancedTestCase):
         """Test portal context generation edge cases"""
         
         with self.as_user(self.portal_users['portal_limited'].email):
-            from vereinigingen.templates.pages.member_portal import get_context
+            from verenigingen.templates.pages.member_portal import get_context
             
             # Test with member that has minimal data
             context = {}

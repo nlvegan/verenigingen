@@ -23,7 +23,7 @@ For JavaScript-specific testing setup and patterns:
 
 ### Python Testing
 - **Python testing documentation** is located in `/docs/testing/` directory
-- **Enhanced Test Factory** guide available in `vereinigingen/tests/fixtures/`
+- **Enhanced Test Factory** guide available in `verenigingen/tests/fixtures/`
 
 ## Test Structure
 

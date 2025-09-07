@@ -92,7 +92,7 @@ class TestExpenseEventHandlers(VereningingenTestCase):
         
         # Save with ignore_links to avoid validation issues with non-existent expense claim
         member_doc.flags.ignore_links = True
-        member_doc.save(ignore_permissions=True)
+        member_doc.save()
         
         # Verify the entry was added
         member_doc.reload()
@@ -234,7 +234,7 @@ class TestExpenseEventHandlers(VereningingenTestCase):
         
         # Save with ignore_links
         member_doc.flags.ignore_links = True
-        member_doc.save(ignore_permissions=True)
+        member_doc.save()
         
         # Verify only 10 entries are kept (as per the mixin logic)
         member_doc.reload()
@@ -247,7 +247,7 @@ class TestExpenseEventHandlers(VereningingenTestCase):
             # Simulate the mixin's limiting behavior
             member_doc.volunteer_expenses = member_doc.volunteer_expenses[:10]
             member_doc.flags.ignore_links = True
-            member_doc.save(ignore_permissions=True)
+            member_doc.save()
             
             member_doc.reload()
             final_count = len(member_doc.volunteer_expenses or [])

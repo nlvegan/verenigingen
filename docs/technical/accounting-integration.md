@@ -157,7 +157,7 @@ Progress updates are processed via background jobs to maintain system responsive
 ```python
 # Triggered by donation save/update hooks
 frappe.enqueue(
-    'vereinigungen.vereinigungen.doctype.donation_campaign.donation_campaign.update_campaign_progress',
+    'verenigingen.verenigingen.doctype.donation_campaign.donation_campaign.update_campaign_progress',
     campaign_name=self.campaign,
     queue='short'
 )

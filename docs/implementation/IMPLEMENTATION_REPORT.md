@@ -151,7 +151,7 @@ Core Components Test Results:
 ## 📁 Project Structure
 
 ```
-vereinigen-mollie-backend/
+verenigingen-mollie-backend/
 ├── pyproject.toml                 # Dependencies and metadata
 ├── setup_test_env.py              # Test environment setup
 └── scripts/testing/runners/

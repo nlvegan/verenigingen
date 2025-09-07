@@ -73,12 +73,12 @@ class TestValidator:
         print_header("VALIDATING PROJECT STRUCTURE")
 
         required_dirs = [
-            "vereiningen/vereiningen_payments/clients",
-            "vereiningen/vereiningen_payments/core/security",
-            "verenigingen/vereiningen_payments/core/resilience",
+            "verenigingen/verenigingen_payments/clients",
+            "verenigingen/verenigingen_payments/core/security",
+            "verenigingen/verenigingen_payments/core/resilience",
             "verenigingen/verenigingen_payments/core/compliance",
             "verenigingen/verenigingen_payments/workflows",
-            "verenigingen/vereiningen_payments/monitoring",
+            "verenigingen/verenigingen_payments/monitoring",
             "verenigingen/verenigingen_payments/integration",
             "verenigingen/tests",
             "docs",
@@ -168,7 +168,7 @@ class TestValidator:
         print_header("VALIDATING CODE IMPORTS")
 
         test_imports = [
-            ("vereiningen.verenigingen_payments.core.security.encryption_handler", "EncryptionHandler"),
+            ("verenigingen.verenigingen_payments.core.security.encryption_handler", "EncryptionHandler"),
             ("verenigingen.verenigingen_payments.core.security.webhook_validator", "WebhookValidator"),
             ("verenigingen.verenigingen_payments.core.resilience.circuit_breaker", "CircuitBreaker"),
             ("verenigingen.verenigingen_payments.core.resilience.rate_limiter", "RateLimiter"),

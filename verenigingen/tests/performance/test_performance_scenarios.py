@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.verenigingen_payments.clients.balances_client import BalancesClient
 from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
@@ -23,7 +24,7 @@ from verenigingen.verenigingen_payments.workflows.financial_dashboard import Fin
 from verenigingen.verenigingen_payments.workflows.reconciliation_engine import ReconciliationEngine
 
 
-class TestPerformanceScenarios(FrappeTestCase):
+class TestPerformanceScenarios(EnhancedTestCase):
     """
     Performance tests for Mollie Backend API system
     
@@ -51,7 +52,7 @@ class TestPerformanceScenarios(FrappeTestCase):
             settings.circuit_breaker_failure_threshold = 10
             settings.connection_timeout = 5
             settings.request_timeout = 10
-            settings.insert(ignore_permissions=True)
+            settings.insert()
             frappe.db.commit()
     
     def setUp(self):

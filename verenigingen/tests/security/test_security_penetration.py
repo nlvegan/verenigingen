@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.verenigingen_payments.core.security.encryption_handler import EncryptionHandler
 from verenigingen.verenigingen_payments.core.security.mollie_security_manager import (
@@ -24,7 +25,7 @@ from verenigingen.verenigingen_payments.core.security.mollie_security_manager im
 from verenigingen.verenigingen_payments.core.security.webhook_validator import WebhookValidator
 
 
-class TestSecurityPenetration(FrappeTestCase):
+class TestSecurityPenetration(EnhancedTestCase):
     """
     Security penetration tests for Mollie Backend API
     
@@ -53,7 +54,7 @@ class TestSecurityPenetration(FrappeTestCase):
             settings.enable_encryption = True
             settings.enable_audit_trail = True
             settings.webhook_secret = "webhook_secret_123"
-            settings.insert(ignore_permissions=True)
+            settings.insert()
             frappe.db.commit()
     
     def setUp(self):
@@ -78,7 +79,7 @@ class TestSecurityPenetration(FrappeTestCase):
             "'; EXEC xp_cmdshell('net user hack3r password /add')--"
         ]
         
-        from verenigingen.vereinigingen_payments.workflows.reconciliation_engine import (
+        from verenigingen.verenigingen_payments.workflows.reconciliation_engine import (
             ReconciliationEngine
         )
         
@@ -113,7 +114,7 @@ class TestSecurityPenetration(FrappeTestCase):
                 doc = frappe.new_doc("Mollie Audit Log")
                 doc.event_type = payload
                 doc.message = "Test"
-                doc.insert(ignore_permissions=True)
+                doc.insert()
                 # Should escape properly
                 self.assertEqual(doc.event_type, payload)
                 doc.delete()
@@ -150,7 +151,7 @@ class TestSecurityPenetration(FrappeTestCase):
                 doc.event_type = "test"
                 doc.message = "test"
                 doc.details = json.dumps(payload)
-                doc.insert(ignore_permissions=True)
+                doc.insert()
                 
                 # Verify it's stored as string, not executed
                 retrieved = frappe.get_doc("Mollie Audit Log", doc.name)
@@ -346,7 +347,7 @@ class TestSecurityPenetration(FrappeTestCase):
     def test_rate_limiting_bypass_attempts(self):
         """Test resistance to rate limiting bypass attempts"""
         
-        from vereinigingen.vereinigingen_payments.core.resilience.rate_limiter import RateLimiter
+        from verenigingen.verenigingen_payments.core.resilience.rate_limiter import RateLimiter
         
         limiter = RateLimiter(requests_per_second=10, burst_size=20)
         
@@ -415,24 +416,22 @@ class TestSecurityPenetration(FrappeTestCase):
                 pass  # Expected
             
         # Test 2: Permission bypass via API
-        from vereinigingen.vereinigingen_payments.workflows.financial_dashboard import (
+        from verenigingen.verenigingen_payments.workflows.financial_dashboard import (
             get_dashboard_data
         )
         
         # Test with regular user (insufficient permissions)
         frappe.set_user("test_user@example.com")
         
-        # Ensure user has only basic role
+        # Ensure user has only basic role - using Enhanced Test Factory
         if not frappe.db.exists("User", "test_user@example.com"):
-            user_doc = frappe.get_doc({
-                "doctype": "User",
-                "email": "test_user@example.com",
-                "first_name": "Test",
-                "last_name": "User",
-                "enabled": 1
-            })
-            user_doc.insert(ignore_permissions=True)
-            user_doc.add_roles("Employee")
+            # Use Enhanced Test Factory for consistent test user creation
+            test_user = self.create_test_user(
+                email="test_user@example.com",
+                first_name="Test",
+                last_name="User"
+            )
+            test_user.add_roles("Employee")
         
         with self.assertRaises((frappe.PermissionError, Exception)):
             # Should check permissions and reject access
@@ -460,7 +459,7 @@ class TestSecurityPenetration(FrappeTestCase):
         }
         
         # Log with sensitive data
-        from vereinigingen.vereinigingen_payments.core.compliance.audit_trail import (
+        from verenigingen.verenigingen_payments.core.compliance.audit_trail import (
             AuditEventType,
             AuditSeverity,
             AuditTrail
@@ -602,7 +601,7 @@ class TestSecurityPenetration(FrappeTestCase):
         for num in numeric_tests:
             try:
                 # Should validate numeric inputs
-                from vereinigingen.vereinigingen_payments.core.compliance.financial_validator import (
+                from verenigingen.verenigingen_payments.core.compliance.financial_validator import (
                     FinancialValidator
                 )
                 validator = FinancialValidator()

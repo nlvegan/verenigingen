@@ -76,7 +76,7 @@ def check_python_method_exists(method_path):
     if '.' not in method_path:
         return False, "Invalid method path format"
     
-    # Split method path: vereinigingen.api.member_management.get_member_data
+    # Split method path: verenigingen.api.member_management.get_member_data
     parts = method_path.split('.')
     
     if len(parts) < 3:

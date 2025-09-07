@@ -25,9 +25,6 @@
   "grace_period_notification_days",
   "max_fee_adjustments_per_year",
   "column_break_membership",
-  "enable_income_calculator",
-  "income_percentage_rate",
-  "calculator_description",
   "maximum_fee_multiplier",
   "max_reasonable_dues_rate",
   "max_rate_change_percent",
@@ -39,27 +36,20 @@
   "sepa_mandate_naming_pattern",
   "sepa_mandate_starting_counter",
   "column_break_financial",
-  "default_receivable_account",
   "membership_payment_account",
+  "donation_receivable_account",
+  "default_cash_account",
   "automate_membership_payment_entries",
-  "invoicing_section",
-  "send_email",
-  "send_invoice",
-  "email_template",
-  "column_break_invoicing",
-  "membership_print_format",
-  "inv_print_format",
-  "membership_webhook_secret",
   "donations_section",
   "donation_company",
-  "default_donation_type",
   "automate_donation_payment_entries",
   "donation_debit_account",
-  "donation_payment_account",
   "tax_exempt_for_contributions",
-  "organization_has_anbi_status",
   "enable_anbi_functionality",
   "anbi_minimum_reportable_amount",
+  "default_tax_exemption_type",
+  "default_tax_template",
+  "kor_exemption_applied",
   "column_break_donations",
   "donations_gl_account",
   "auto_create_donors",
@@ -69,34 +59,37 @@
   "default_donor_type",
   "campaign_donation_account",
   "restricted_donation_account",
-  "tax_section",
-  "default_tax_exemption_type",
-  "default_tax_template",
-  "kor_exemption_applied",
+  "batch_processing_section",
+  "enable_auto_batch_creation",
+  "sepa_strict_period_mode",
+  "batch_creation_days",
+  "financial_admin_emails",
+  "batch_optimization_config",
+  "column_break_batch",
+  "last_batch_creation_run",
+  "contact_email",
+  "sepa_allowed_ips",
+  "auto_submit_membership_invoices",
+  "default_item_group",
   "automation_section",
   "auto_cancel_sepa_mandates",
   "auto_end_board_positions",
   "send_termination_notifications",
-  "batch_processing_section",
-  "enable_auto_batch_creation",
-  "batch_creation_days",
-  "financial_admin_emails",
-  "column_break_batch",
-  "batch_optimization_config",
-  "last_batch_creation_run",
-  "sepa_strict_period_mode",
-  "contact_email",
-  "default_periodic_donation_type",
-  "sepa_allowed_ips",
-  "default_cash_account",
-  "auto_submit_membership_invoices",
-  "default_item_group",
+  "column_break_hzjj",
+  "enable_email_group_sync",
+  "enable_email_analytics",
+  "invoicing_section",
+  "send_email",
+  "send_invoice",
+  "email_template",
+  "column_break_invoicing",
+  "membership_print_format",
+  "inv_print_format",
+  "membership_webhook_secret",
   "monitoring_section",
   "stuck_schedule_notification_emails",
-  "payment_history_failure_threshold",
-  "email_section",
-  "enable_email_group_sync",
-  "enable_email_analytics"
+  "column_break_ybid",
+  "payment_history_failure_threshold"
  ],
  "fields": [
   {
@@ -172,11 +165,6 @@
    "fieldname": "minimum_donation_amount",
    "fieldtype": "Currency",
    "label": "Minimum Donation Amount"
-  },
-  {
-   "fieldname": "tax_section",
-   "fieldtype": "Section Break",
-   "label": "Tax Settings (Dutch BTW/VAT)"
   },
   {
    "description": "This company will be set for the Memberships created via webhook.",
@@ -326,26 +314,10 @@
    "options": "Account"
   },
   {
-   "description": "Default receivable account for payment plans and member transactions",
-   "fieldname": "default_receivable_account",
-   "fieldtype": "Link",
-   "label": "Default Receivable Account",
-   "options": "Account"
-  },
-  {
    "fieldname": "membership_webhook_secret",
    "fieldtype": "Password",
    "label": "Membership Webhook Secret",
    "read_only": 1
-  },
-  {
-   "depends_on": "automate_donation_payment_entries",
-   "description": "Account for accepting donation payments",
-   "fieldname": "donation_payment_account",
-   "fieldtype": "Link",
-   "label": "Donation Payment To",
-   "mandatory_depends_on": "automate_donation_payment_entries",
-   "options": "Account"
   },
   {
    "default": "0",
@@ -455,28 +427,11 @@
    "label": "Send Notifications"
   },
   {
-   "description": "This Donation Type will be set for the Donation created via Donation web form entry.",
-   "fieldname": "default_donation_type",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Default Donation Type",
-   "options": "Donation Type",
-   "reqd": 1
-  },
-  {
    "default": "1",
    "description": "Enable ANBI (Algemeen Nut Beogende Instelling) functionality for tax-deductible donations and periodic donation agreements",
    "fieldname": "enable_anbi_functionality",
    "fieldtype": "Check",
    "label": "Enable ANBI Functionality"
-  },
-  {
-   "default": "1",
-   "depends_on": "eval:doc.enable_anbi_functionality",
-   "description": "Check if your organization has ANBI status from the Belastingdienst",
-   "fieldname": "organization_has_anbi_status",
-   "fieldtype": "Check",
-   "label": "Organization has ANBI Status"
   },
   {
    "default": "500",
@@ -517,29 +472,6 @@
    "options": "Account"
   },
   {
-   "default": "0",
-   "description": "When enabled, membership application forms will show an income-based contribution calculator",
-   "fieldname": "enable_income_calculator",
-   "fieldtype": "Check",
-   "label": "Enable Income-Based Calculator"
-  },
-  {
-   "default": "0.5",
-   "depends_on": "eval:doc.enable_income_calculator",
-   "description": "Percentage of monthly income to suggest as contribution (default: 0.5%)",
-   "fieldname": "income_percentage_rate",
-   "fieldtype": "Percent",
-   "label": "Income Percentage Rate"
-  },
-  {
-   "default": "Our suggested contribution is 0.5% of your monthly net income. This helps ensure fair and equitable contributions based on your financial capacity.",
-   "depends_on": "eval:doc.enable_income_calculator",
-   "description": "Text to display with the calculator explaining how contributions are calculated",
-   "fieldname": "calculator_description",
-   "fieldtype": "Text",
-   "label": "Calculator Description"
-  },
-  {
    "default": "10",
    "description": "Maximum multiplier for membership fee contributions (e.g., 10 allows up to 10x the base membership fee)",
    "fieldname": "maximum_fee_multiplier",
@@ -548,7 +480,7 @@
   },
   {
    "default": "10000",
-   "description": "Maximum reasonable dues rate to prevent obviously incorrect entries (e.g., €10,000 per year)",
+   "description": "Maximum reasonable dues rate to prevent obviously incorrect entries (e.g., \u20ac10,000 per year)",
    "fieldname": "max_reasonable_dues_rate",
    "fieldtype": "Currency",
    "label": "Maximum Reasonable Dues Rate"
@@ -649,13 +581,6 @@
    "options": "Email"
   },
   {
-   "description": "Default type for periodic donation agreements created through the system",
-   "fieldname": "default_periodic_donation_type",
-   "fieldtype": "Link",
-   "label": "Default Periodic Donation Type",
-   "options": "Donation Type"
-  },
-  {
    "description": "Comma-separated list of IP addresses allowed for SEPA operations (for security)",
    "fieldname": "sepa_allowed_ips",
    "fieldtype": "Text",
@@ -701,11 +626,6 @@
    "label": "Payment History Failure Threshold"
   },
   {
-   "fieldname": "email_section",
-   "fieldtype": "Section Break",
-   "label": "Email Settings"
-  },
-  {
    "default": "0",
    "description": "Enable automatic synchronization of email groups",
    "fieldname": "enable_email_group_sync",
@@ -718,12 +638,27 @@
    "fieldname": "enable_email_analytics",
    "fieldtype": "Check",
    "label": "Enable Email Analytics"
+  },
+  {
+   "description": "Default receivable account for payment plans and member transactions",
+   "fieldname": "donation_receivable_account",
+   "fieldtype": "Link",
+   "label": "Donation Receivable Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "column_break_hzjj",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_ybid",
+   "fieldtype": "Column Break"
   }
  ],
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2025-07-27 14:30:00.000000",
+ "modified": "2025-09-07 07:29:18.159189",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Verenigingen Settings",

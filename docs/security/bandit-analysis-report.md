@@ -65,7 +65,7 @@ hashlib.sha256(data.encode()).hexdigest()
 - Input is typically from Frappe's validated filters (lower risk)
 
 **Most Affected Files:**
-- `vereiningen/api/payment_dashboard.py` - Dynamic invoice filtering
+- `verenigingen/api/payment_dashboard.py` - Dynamic invoice filtering
 - `verenigingen/api/periodic_donation_operations.py` - Date filtering
 - `verenigingen/verenigingen/report/` - Multiple report files
 - `verenigingen/api/volunteer_skills.py` - Dynamic query building

@@ -155,7 +155,7 @@ def main():
                 print(f"Warning: Could not process {file_path}: {e}")
     else:
         # Test on the problematic hook file
-        hook_file = Path("/home/frappe/frappe-bench/apps/verenigingen/verenigingen/vereinigen/doctype/membership_dues_schedule/membership_dues_schedule_hooks.py")
+        hook_file = Path("/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/membership_dues_schedule/membership_dues_schedule_hooks.py")
         if hook_file.exists():
             print(f"🔍 Testing on hook file: {hook_file.name}")
             violations = analyzer.validate_file(hook_file)

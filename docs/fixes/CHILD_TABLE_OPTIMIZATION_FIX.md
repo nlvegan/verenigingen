@@ -135,7 +135,7 @@ This fix unblocks Member-related patterns within the 840+ identified N+1 targets
   - Comprehensive logging for debugging
 
 ### Testing
-- `/home/frappe/frappe-bench/apps/verenigingen/vereinigen/utils/test_safe_member_optimizer_fix.py`
+- `/home/frappe/frappe-bench/apps/verenigingen/verenigingen/utils/test_safe_member_optimizer_fix.py`
   - Created validation test for child table optimization
   - Mock Member document with all 7 child tables
   - Verifies fix resolves '_cached_meta' errors

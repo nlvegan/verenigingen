@@ -66,7 +66,7 @@ file_path = os.path.join(tempfile.gettempdir(), file_name)
 
 ```bash
 # 1. Fix MD5 usage in test base class
-sed -i 's/hashlib.md5(test_context.encode())/hashlib.md5(test_context.encode(), usedforsecurity=False)/' vereiningen/tests/utils/base.py
+sed -i 's/hashlib.md5(test_context.encode())/hashlib.md5(test_context.encode(), usedforsecurity=False)/' verenigingen/tests/utils/base.py
 
 # 2. Fix SEPA race condition manager (requires manual edit due to multiple patterns)
 # Edit verenigingen/utils/sepa_race_condition_manager.py manually

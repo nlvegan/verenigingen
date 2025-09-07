@@ -276,7 +276,7 @@ class MollieOperationManager:
     def _create_or_update_customer(self, member_data: Dict) -> str:
         """Create or update ERPNext Customer record"""
         # Use existing utility patterns
-        from vereinigen.utils.member_utils import get_member_customer
+        from verenigingen.utils.member_utils import get_member_customer
 
         existing_customer = get_member_customer(member_data["name"])
 

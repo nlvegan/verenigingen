@@ -686,7 +686,7 @@ else:
 **Solution**: Always check DocType JSON first:
 ```python
 # Read DocType structure before using fields
-vereiningen/doctype/member/member.json
+verenigingen/doctype/member/member.json
 ```
 
 ### Pitfall 3: Test Data Conflicts
