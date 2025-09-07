@@ -246,7 +246,7 @@ class DatabaseValidator {
     
     const paymentHistory = await this.executeQuery('payment_history_list', {
       doctype: 'Member Payment History',
-      fields: ['*'],
+      fields: ['name', 'amount'],
       filters: filters,
       limit: 1
     });
@@ -280,7 +280,7 @@ class DatabaseValidator {
     
     const logs = await this.executeQuery('webhook_log_list', {
       doctype: 'Webhook Processing Log',
-      fields: ['*'],
+      fields: ['name', 'status'],
       filters: filters,
       limit: 1
     });
@@ -315,7 +315,7 @@ class DatabaseValidator {
     
     const invoices = await this.executeQuery('sales_invoice_list', {
       doctype: 'Sales Invoice',
-      fields: ['*'],
+      fields: ['name', 'grand_total'],
       filters: filters,
       limit: 1
     });

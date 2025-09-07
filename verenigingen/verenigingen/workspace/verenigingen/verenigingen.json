@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\": \"card_0\", \"type\": \"card\", \"data\": {\"card_name\": \"Memberships\", \"col\": 4}}, {\"id\": \"card_1\", \"type\": \"card\", \"data\": {\"card_name\": \"Billing & Dues\", \"col\": 4}}, {\"id\": \"card_2\", \"type\": \"card\", \"data\": {\"card_name\": \"Applications & Requests\", \"col\": 4}}, {\"id\": \"spacer_0\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"card_3\", \"type\": \"card\", \"data\": {\"card_name\": \"Accounting (Misc.)\", \"col\": 4}}, {\"id\": \"card_4\", \"type\": \"card\", \"data\": {\"card_name\": \"Chapters\", \"col\": 4}}, {\"id\": \"card_5\", \"type\": \"card\", \"data\": {\"card_name\": \"Payment Processing\", \"col\": 4}}, {\"id\": \"spacer_1\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"card_6\", \"type\": \"card\", \"data\": {\"card_name\": \"Donations\", \"col\": 4}}, {\"id\": \"card_7\", \"type\": \"card\", \"data\": {\"card_name\": \"Member Reports\", \"col\": 4}}, {\"id\": \"card_8\", \"type\": \"card\", \"data\": {\"card_name\": \"Financial Reports\", \"col\": 4}}, {\"id\": \"spacer_2\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"card_9\", \"type\": \"card\", \"data\": {\"card_name\": \"Administrative Reports\", \"col\": 4}}, {\"id\": \"card_10\", \"type\": \"card\", \"data\": {\"card_name\": \"Teams and Commissions\", \"col\": 4}}, {\"id\": \"card_11\", \"type\": \"card\", \"data\": {\"card_name\": \"Banking\", \"col\": 4}}, {\"id\": \"spacer_3\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"card_12\", \"type\": \"card\", \"data\": {\"card_name\": \"Settings\", \"col\": 4}}, {\"id\": \"card_13\", \"type\": \"card\", \"data\": {\"card_name\": \"Volunteers\", \"col\": 4}}, {\"id\": \"card_14\", \"type\": \"card\", \"data\": {\"card_name\": \"Expenses\", \"col\": 4}}]",
+ "content": "[{\"id\":\"NFcjh9I8BH\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Members/Memberships</b></span>\",\"col\":12}},{\"id\":\"oIk2CrSoAH\",\"type\":\"card\",\"data\":{\"card_name\":\"Memberships\",\"col\":4}},{\"id\":\"BillingCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Billing & Dues\",\"col\":4}},{\"id\":\"ApplicationsCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Applications & Requests\",\"col\":4}},{\"id\":\"ZvroSYo9F3\",\"type\":\"card\",\"data\":{\"card_name\":\"Donations\",\"col\":4}},{\"id\":\"zGoLYG0xRM\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"jMy1CTqEJS\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Volunteering</b></span>\",\"col\":12}},{\"id\":\"2vHgUjgQcL\",\"type\":\"card\",\"data\":{\"card_name\":\"Volunteers\",\"col\":4}},{\"id\":\"3KeWFt5e3L\",\"type\":\"card\",\"data\":{\"card_name\":\"Expenses\",\"col\":4}},{\"id\":\"zGoLYG0xRM2\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"jMy1CTqEJS2\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Chapters/Teams</b></span>\",\"col\":12}},{\"id\":\"S8Mi0T41U7\",\"type\":\"card\",\"data\":{\"card_name\":\"Chapters\",\"col\":4}},{\"id\":\"XXEhdaTHF_\",\"type\":\"card\",\"data\":{\"card_name\":\"Teams and Commissions\",\"col\":4}},{\"id\":\"zGoLYG0xRM3\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"jMy1CTqEJS3\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Financial</b></span>\",\"col\":12}},{\"id\":\"PaymentCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Payment Processing\",\"col\":4}},{\"id\":\"lYnozqzRgf\",\"type\":\"card\",\"data\":{\"card_name\":\"Banking\",\"col\":4}},{\"id\":\"VN3xecH16c\",\"type\":\"card\",\"data\":{\"card_name\":\"Accounting (Misc.)\",\"col\":4}},{\"id\":\"zGoLYG0xRM4\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"jMy1CTqEJS4\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Reports</b></span>\",\"col\":12}},{\"id\":\"MemberReportsCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Member Reports\",\"col\":4}},{\"id\":\"FinancialReportsCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Financial Reports\",\"col\":4}},{\"id\":\"AdministrativeReportsCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Administrative Reports\",\"col\":4}},{\"id\":\"SettingsHeader\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Settings &amp; Configuration</b></span>\",\"col\":12}},{\"id\":\"SettingsCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Settings\",\"col\":4}},{\"id\":\"0ausPss1qk\",\"type\":\"custom_block\",\"data\":{\"custom_block_name\":\"Page Links\",\"col\":12}}]",
  "creation": "2025-08-15 12:08:13.082966",
  "custom_blocks": [
   {
@@ -433,16 +433,6 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Donation Type",
-   "link_count": 0,
-   "link_to": "Donation Type",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
    "label": "Periodic Donation Agreement",
    "link_count": 0,
    "link_to": "Periodic Donation Agreement",
@@ -794,6 +784,16 @@
   {
    "hidden": 0,
    "is_query_report": 0,
+   "label": "Member CSV Import",
+   "link_count": 0,
+   "link_to": "member-csv-import",
+   "link_type": "Page",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
    "label": "Expenses",
    "link_count": 5,
    "link_type": "DocType",
@@ -849,19 +849,9 @@
    "link_type": "Page",
    "onboard": 0,
    "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Bulk Operations Monitor",
-   "link_count": 0,
-   "link_to": "bulk-operations-monitor",
-   "link_type": "Page",
-   "onboard": 0,
-   "type": "Link"
   }
  ],
- "modified": "2025-08-20 00:46:37.742225",
+ "modified": "2025-09-05 10:41:32.447061",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Verenigingen",
