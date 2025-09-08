@@ -89,8 +89,8 @@ class MollieSettings(Document):
 
     def on_update(self):
         """Called after document is saved"""
-        # Update subscription webhook URL if subscriptions are enabled
-        self.update_subscription_webhook_url()
+        # Update webhook URLs (always needed for payments)
+        self.update_webhook_urls()
 
         # Register this gateway with the payment gateway factory
         self.register_payment_gateway()
@@ -224,7 +224,33 @@ class MollieSettings(Document):
         Returns:
             str: Complete webhook URL
         """
-        return get_url("/api/method/verenigingen.verenigingen_payments.utils.payment_gateways.mollie_webhook")
+        return get_url("/api/method/verenigingen.api.mollie_payment_webhook.handle_mollie_payment_webhook")
+
+    def get_test_webhook_url(self):
+        """
+        Get test webhook URL for Mollie test environment
+
+        Returns:
+            str: Complete test webhook URL
+        """
+        # Distinct test webhook URL with environment parameter
+        url = get_url("/api/method/verenigingen.api.mollie_payment_webhook.handle_mollie_payment_webhook")
+        url += "?env=test"
+        # Ensure HTTPS for Mollie webhook reliability (even in test)
+        return url.replace("http://", "https://")
+
+    def get_live_webhook_url(self):
+        """
+        Get live webhook URL for Mollie production environment
+
+        Returns:
+            str: Complete live webhook URL
+        """
+        # Distinct live webhook URL with environment parameter
+        url = get_url("/api/method/verenigingen.api.mollie_payment_webhook.handle_mollie_payment_webhook")
+        url += "?env=live"
+        # Ensure HTTPS for production
+        return url.replace("http://", "https://")
 
     def get_subscription_webhook_url(self):
         """
@@ -399,12 +425,15 @@ class MollieSettings(Document):
             frappe.log_error(f"Error cancelling Mollie subscription: {str(e)}", "Mollie Subscription Cancel")
             return False
 
+    def update_webhook_urls(self):
+        """Update webhook URL fields"""
+        # Always populate webhook URLs as they're needed for all payments, not just subscriptions
+        self.testing_webhook_url = self.get_test_webhook_url()
+        self.live_webhook_url = self.get_live_webhook_url()
+
     def update_subscription_webhook_url(self):
-        """Update the subscription webhook URL field"""
-        if self.enable_subscriptions:
-            self.subscription_webhook_url = self.get_subscription_webhook_url()
-        else:
-            self.subscription_webhook_url = ""
+        """Deprecated - use update_webhook_urls()"""
+        self.update_webhook_urls()
 
     def get_active_api_key(self):
         """Get the active API key based on test_mode setting"""
@@ -424,8 +453,19 @@ class MollieSettings(Document):
         return None
 
     def get_webhook_secret(self):
-        """Get webhook secret key for signature verification"""
-        return self.get_password(fieldname="webhook_secret_key", raise_exception=False)
+        """Get webhook secret key for signature verification based on test mode"""
+        if self.test_mode:
+            return self.get_password(fieldname="testing_webhook_secret_key", raise_exception=False)
+        else:
+            return self.get_password(fieldname="live_webhook_secret_key", raise_exception=False)
+
+    def get_testing_webhook_secret(self):
+        """Get testing webhook secret key"""
+        return self.get_password(fieldname="testing_webhook_secret_key", raise_exception=False)
+
+    def get_live_webhook_secret(self):
+        """Get live webhook secret key"""
+        return self.get_password(fieldname="live_webhook_secret_key", raise_exception=False)
 
 
 @frappe.whitelist()
@@ -455,6 +495,29 @@ def test_mollie_connection():
 
     except Exception as e:
         return {"success": False, "message": _("Mollie connection test failed: {0}").format(str(e))}
+
+
+@frappe.whitelist()
+def update_webhook_urls():
+    """
+    Update webhook URLs in Mollie Settings
+
+    Returns:
+        dict: Updated URLs
+    """
+    try:
+        settings = frappe.get_single("Mollie Settings")
+        settings.update_webhook_urls()
+        settings.save()
+
+        return {
+            "success": True,
+            "testing_webhook_url": settings.testing_webhook_url,
+            "live_webhook_url": settings.live_webhook_url,
+            "message": _("Webhook URLs updated successfully"),
+        }
+    except Exception as e:
+        return {"success": False, "message": _("Failed to update webhook URLs: {0}").format(str(e))}
 
 
 def get_supported_currencies():

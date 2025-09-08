@@ -347,7 +347,10 @@
                             <div style="margin-top: 15px;">
                                 <label for="subscription_interval">{{ _("Donation Frequency") }}</label>
                                 <select class="form-control" name="subscription_interval" id="subscription_interval" style="margin-top: 5px;">
-                                    <option value="1 month">{{ _("Every month") }}</option>
+                                    <option value="1 day">{{ _("Daily") }}</option>
+                                    <option value="7 days">{{ _("Weekly") }}</option>
+                                    <option value="14 days">{{ _("Every 2 weeks") }}</option>
+                                    <option value="1 month" selected>{{ _("Every month") }}</option>
                                     <option value="3 months">{{ _("Every 3 months") }}</option>
                                     <option value="6 months">{{ _("Every 6 months") }}</option>
                                     <option value="1 year">{{ _("Every year") }}</option>

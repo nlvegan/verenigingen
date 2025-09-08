@@ -35,12 +35,17 @@ class MolliePaymentService:
         donor_meta = frappe.get_meta("Donor")
         mollie_fields = ["mollie_customer_id", "mollie_mandate_id", "mollie_subscription_id"]
 
+        missing_fields = []
         for field in mollie_fields:
             if not donor_meta.has_field(field):
-                frappe.log_error(
-                    f"Donor DocType missing field: {field}. This should be added as a custom field.",
-                    "Donor Field Validation Warning",
-                )
+                missing_fields.append(field)
+
+        if missing_fields:
+            frappe.throw(
+                frappe._(
+                    "Required Mollie fields missing from Donor DocType: {0}. Please add these as custom fields."
+                ).format(", ".join(missing_fields))
+            )
 
     def create_single_payment(self, donation_doc: "Document", form_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -183,41 +188,21 @@ class MolliePaymentService:
         """
         donor_doc = frappe.get_doc("Donor", donation_doc.donor)
 
+        # Compact generic metadata to fit Mollie's description length limit (~255 chars)
+        # Priority: type field first (most important for webhook processing)
         metadata = {
-            "type": "recurring_donation" if is_recurring else "single_donation",
-            "donation_id": donation_doc.name,
-            "donor_id": donor_doc.name,
-            "donor_email": donor_doc.donor_email,
-            "donor_name": donor_doc.donor_name,
+            "type": "recurring" if is_recurring else "single",
+            "record_id": donation_doc.name,
+            "customer_id": donor_doc.name,
             "amount": flt(donation_doc.amount),
-            "currency": "EUR",
-            "purpose_type": donation_doc.donation_purpose_type,
-            "payment_method": "Mollie",
-            "created_at": now_datetime().isoformat(),
         }
 
-        # Add recurring-specific metadata
+        # Add only essential recurring info to stay under length limit
         if is_recurring:
-            metadata.update(
-                {
-                    "subscription_interval": form_data.get("subscription_interval", "1 month"),
-                    "next_payment_date": form_data.get("next_payment_date"),
-                }
-            )
-
-        # Add optional purpose-specific data
-        if donation_doc.donation_purpose_type == "Campaign" and donation_doc.get("campaign"):
-            metadata["campaign"] = donation_doc.campaign
-        elif donation_doc.donation_purpose_type == "Chapter" and donation_doc.get("chapter_reference"):
-            metadata["chapter_reference"] = donation_doc.chapter_reference
-        elif donation_doc.donation_purpose_type == "Specific Goal" and donation_doc.get(
-            "specific_goal_description"
-        ):
-            metadata["specific_goal_description"] = donation_doc.specific_goal_description
-
-        # Add notes if present
-        if donation_doc.get("donation_notes"):
-            metadata["donation_notes"] = donation_doc.donation_notes
+            interval = form_data.get("subscription_interval", "1 month")
+            # Abbreviate common intervals
+            interval_abbrev = interval.replace("month", "m").replace("week", "w").replace("day", "d")
+            metadata["interval"] = interval_abbrev
 
         return metadata
 
@@ -232,12 +217,8 @@ class MolliePaymentService:
             frappe.logger().debug(f"Got donor doc: {donor_doc.donor_name} ({donor_doc.donor_email})")
 
             # Check if donor already has a Mollie customer ID
-            # Use safe field access in case custom field doesn't exist
-            existing_customer_id = (
-                getattr(donor_doc, "mollie_customer_id", None)
-                if hasattr(donor_doc, "mollie_customer_id")
-                else None
-            )
+            # Field existence validated in __init__, so direct access is safe
+            existing_customer_id = donor_doc.mollie_customer_id
 
             if existing_customer_id:
                 frappe.logger().debug(f"Using existing customer ID: {existing_customer_id}")
@@ -270,18 +251,11 @@ class MolliePaymentService:
                 }
 
             if customer and customer.id:
-                # Store customer ID on donor (safe field access)
+                # Store customer ID on donor
                 try:
-                    if hasattr(donor_doc, "mollie_customer_id"):
-                        donor_doc.mollie_customer_id = customer.id
-                        donor_doc.save()
-                        frappe.logger().debug(f"Saved customer ID {customer.id} to donor")
-                    else:
-                        frappe.logger().debug("Donor DocType missing mollie_customer_id field")
-                        frappe.log_error(
-                            "Donor DocType missing mollie_customer_id field - customer ID not stored",
-                            "Custom Field Missing",
-                        )
+                    donor_doc.mollie_customer_id = customer.id
+                    donor_doc.save()
+                    frappe.logger().debug(f"Saved customer ID {customer.id} to donor")
                 except Exception as e:
                     frappe.logger().debug(f"Failed to save customer ID: {str(e)}")
                     frappe.log_error(
@@ -312,9 +286,9 @@ class MolliePaymentService:
         is_test_environment = self._is_test_environment()
 
         if is_test_environment:
-            return f"{base_url}/api/method/verenigingen.verenigingen_payments.utils.mollie_webhook_handler.handle_mollie_webhook_test"
+            return f"{base_url}/api/method/verenigingen.api.mollie_payment_webhook.handle_mollie_payment_webhook?env=test"
         else:
-            return f"{base_url}/api/method/verenigingen.verenigingen_payments.utils.mollie_webhook_handler.handle_mollie_webhook_live"
+            return f"{base_url}/api/method/verenigingen.api.mollie_payment_webhook.handle_mollie_payment_webhook?env=live"
 
     def _is_test_environment(self) -> bool:
         """Determine if we're in test environment based on Mollie API key."""

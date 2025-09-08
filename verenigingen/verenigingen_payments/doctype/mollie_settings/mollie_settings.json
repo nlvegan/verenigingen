@@ -20,12 +20,16 @@
   "redirect_url",
   "subscription_section",
   "enable_subscriptions",
-  "subscription_webhook_url",
+  "testing_webhook_url",
   "column_break_subscription",
+  "live_webhook_url",
+  "section_break_subscription_2",
   "default_subscription_interval",
   "subscription_description_template",
   "webhook_security_section",
-  "webhook_secret_key",
+  "testing_webhook_secret_key",
+  "column_break_webhook_security",
+  "live_webhook_secret_key",
   "backend_api_section",
   "enable_backend_api",
   "organization_access_token",
@@ -103,15 +107,27 @@
    "label": "Enable Subscriptions"
   },
   {
-   "depends_on": "eval:doc.enable_subscriptions",
-   "fieldname": "subscription_webhook_url",
+   "fieldname": "testing_webhook_url",
    "fieldtype": "Data",
-   "label": "Subscription Webhook URL",
-   "read_only": 1
+   "label": "Testing Webhook URL",
+   "read_only": 1,
+   "description": "Webhook URL for Mollie test environment payments"
   },
   {
    "fieldname": "column_break_subscription",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "live_webhook_url",
+   "fieldtype": "Data",
+   "label": "Live Webhook URL",
+   "read_only": 1,
+   "description": "Webhook URL for Mollie production environment payments"
+  },
+  {
+   "fieldname": "section_break_subscription_2",
+   "fieldtype": "Section Break",
+   "label": "Subscription Configuration"
   },
   {
    "default": "1 month",
@@ -119,7 +135,7 @@
    "fieldname": "default_subscription_interval",
    "fieldtype": "Select",
    "label": "Default Subscription Interval",
-   "options": "1 month\n3 months\n6 months\n1 year"
+   "options": "1 day\n7 days\n14 days\n1 month\n3 months\n6 months\n1 year"
   },
   {
    "default": "Membership dues for {member_name}",
@@ -134,10 +150,20 @@
    "label": "Webhook Security"
   },
   {
-   "fieldname": "webhook_secret_key",
+   "fieldname": "testing_webhook_secret_key",
    "fieldtype": "Password",
-   "label": "Webhook Secret Key",
-   "description": "Secret key from Mollie for webhook signature verification (obtained when configuring webhook endpoint)"
+   "label": "Testing Webhook Secret Key",
+   "description": "Secret key from Mollie for test webhook signature verification"
+  },
+  {
+   "fieldname": "column_break_webhook_security",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "live_webhook_secret_key",
+   "fieldtype": "Password",
+   "label": "Live Webhook Secret Key",
+   "description": "Secret key from Mollie for live webhook signature verification"
   },
   {
    "fieldname": "backend_api_section",

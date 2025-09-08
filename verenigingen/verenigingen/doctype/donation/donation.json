@@ -271,7 +271,7 @@
    "fieldname": "recurring_frequency",
    "fieldtype": "Select",
    "label": "Recurring Frequency",
-   "options": "Monthly\nQuarterly\nYearly"
+   "options": "Daily\nWeekly\nBi-weekly\nMonthly\nQuarterly\nYearly"
   },
   {
    "depends_on": "eval:doc.status != 'One-time'",

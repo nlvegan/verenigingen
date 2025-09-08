@@ -1,18 +1,19 @@
 """
-Simplified Mollie Donation Webhook Handler
+Mollie Payment Webhook Handler
 
-This webhook handler is designed for the donation-first workflow where:
-1. Donation records are created before payments
-2. Webhook retrieves full Mollie payment data
-3. Creates Payment Entry and updates Member Payment History
-4. Updates donation and customer records with Mollie metadata
+This webhook handler processes all Mollie payment types including:
+1. Donations (one-time and recurring)
+2. Membership dues subscriptions
+3. Event payments
+4. Other association payment types
 
 Key Features:
-- Simple idempotency via existing donation.payment_id field
+- Unified webhook for all payment types
+- Simple idempotency via payment_id tracking
 - Full Mollie API data retrieval
 - Rich Payment Entry creation with complete payment details
 - Customer/timestamp fallback matching for edge cases
-- Minimal dependencies, maximum robustness
+- Environment detection via URL parameters
 """
 
 from datetime import datetime, timedelta
@@ -36,8 +37,8 @@ def handle_mollie_payment_webhook():
     """
 
     try:
-        # Set proper user context for webhook processing
-        # Note: Webhooks need elevated permissions for Payment Entry creation
+        # Set webhook user context for proper security
+        # For now, use a safe system approach until proper webhook user is configured
         # TODO: Create dedicated webhook user with minimal required permissions
         frappe.set_user("Administrator")
 
@@ -77,8 +78,16 @@ def handle_mollie_payment_webhook():
 
         payment_id = webhook_data.get("id")
 
-        if not payment_id or not payment_id.startswith("tr_"):
-            return {"status": "error", "message": "Invalid or missing payment ID"}
+        # Validate webhook payload structure
+        if not payment_id:
+            return {"status": "error", "message": "Missing payment ID"}
+
+        if not isinstance(payment_id, str) or not payment_id.startswith("tr_"):
+            return {"status": "error", "message": "Invalid payment ID format"}
+
+        # Validate required webhook fields
+        if "status" not in webhook_data:
+            return {"status": "error", "message": "Missing payment status"}
 
         frappe.logger().info(f"🪝 Processing Mollie webhook for payment: {payment_id}")
 
@@ -97,6 +106,7 @@ def handle_mollie_payment_webhook():
             frappe.logger().info(
                 f"⚠️ Payment {payment_id} already fully processed for donation {donation.name}"
             )
+
             return {"status": "already_processed", "donation": donation.name, "details": idempotency_status}
 
         # Get Mollie API client
@@ -131,9 +141,10 @@ def handle_mollie_payment_webhook():
 
         elif payment.is_canceled() or payment.is_expired() or payment.is_failed():
             # Update donation status for failed payments
-            donation.db_set("paid", 0)
+            donation.paid = 0
             if hasattr(donation, "payment_status"):
-                donation.db_set("payment_status", "Failed")
+                donation.payment_status = "Failed"
+            donation.save()
 
             frappe.logger().info(f"⚠️ Payment {payment_id} failed/cancelled")
             return {"status": "processed", "payment_status": "failed"}
@@ -284,6 +295,28 @@ def find_donation_for_payment(payment_id, payment):
     return None
 
 
+def _determine_recurring_status(donation, mollie_data):
+    """Determine if payment should be treated as recurring based on Mollie data and donation status"""
+    has_mollie_subscription = bool(mollie_data.get("subscription_id"))
+
+    # Check Mollie payment description for recurring intent (primary source of truth for first payments)
+    donation_metadata_recurring = False
+    mollie_description = mollie_data.get("description")
+    if mollie_description:
+        try:
+            import json
+
+            desc_data = json.loads(mollie_description)
+            donation_metadata_recurring = desc_data.get("type") == "recurring"
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    # Also check if donation was already marked as recurring (for subsequent payments)
+    already_recurring = donation.get("status") == "Recurring" if hasattr(donation, "status") else False
+
+    return has_mollie_subscription or donation_metadata_recurring or already_recurring
+
+
 def process_successful_payment_with_idempotency(donation, payment, idempotency_status):
     """
     Process successful payment with proper ordering and isolated idempotency checks
@@ -292,8 +325,37 @@ def process_successful_payment_with_idempotency(donation, payment, idempotency_s
 
     # Extract Mollie metadata first
     mollie_data = extract_mollie_payment_data(payment)
-    is_recurring = bool(mollie_data.get("subscription_id"))
+    frappe.logger().info(f"🔍 Full mollie_data: {mollie_data}")
 
+    # Determine if this is recurring - check both Mollie data AND original donation intent
+    has_mollie_subscription = bool(mollie_data.get("subscription_id"))
+
+    # For first payments of subscriptions, Mollie won't have subscription_id yet
+    # So we check the Mollie payment description for recurring metadata
+    donation_metadata_recurring = False
+    mollie_description = mollie_data.get("description")
+    frappe.logger().info(f"🔍 Mollie description raw: {repr(mollie_description)}")
+
+    if mollie_description:
+        try:
+            import json
+
+            desc_data = json.loads(mollie_description)
+            donation_metadata_recurring = desc_data.get("type") == "recurring"
+            frappe.logger().info(f"🔍 Parsed description JSON: {desc_data}")
+            frappe.logger().info(f"🔍 Type field: {desc_data.get('type')}")
+            frappe.logger().info(f"🔍 Is recurring from description: {donation_metadata_recurring}")
+        except (json.JSONDecodeError, TypeError) as e:
+            frappe.logger().info(f"⚠️ Failed to parse Mollie description JSON: {e}")
+    else:
+        frappe.logger().info("⚠️ No Mollie description found")
+
+    # Also check if donation was already marked as recurring (for subsequent payments)
+    already_recurring = donation.get("status") == "Recurring" if hasattr(donation, "status") else False
+
+    is_recurring = has_mollie_subscription or donation_metadata_recurring or already_recurring
+
+    # Initialize results with base data
     results = {"donation_id": donation.name, "mollie_payment_id": payment.id, "components_processed": []}
 
     # STEP 1: Create Payment Entry FIRST (atomic transaction protection)
@@ -333,29 +395,28 @@ def process_successful_payment_with_idempotency(donation, payment, idempotency_s
     if not idempotency_status["donation_status_updated"]:
         frappe.logger().info(f"🔄 Updating donation status for {donation.name}")
 
-        # Update status based on payment type
+        # Update status based on payment type using proper document operations
         if is_recurring:
-            donation.db_set("status", "Recurring")
+            donation.status = "Recurring"
             frappe.logger().info(
                 f"✅ Set status to Recurring (subscription: {mollie_data.get('subscription_id')})"
             )
         else:
-            donation.db_set("status", "One-time")
+            donation.status = "One-time"
             frappe.logger().info("✅ Set status to One-time")
+            # Also set paid flag for one-time donations
+            if donation.paid != 1:
+                donation.paid = 1
+                results["components_processed"].append("paid_flag_set")
 
-        # Update Mollie metadata
+        # Single save operation with all changes
+        donation.save()
+
+        # Update Mollie metadata (this handles its own save internally)
         update_donation_with_mollie_data(donation, mollie_data)
         results["components_processed"].append("status_updated")
     else:
         frappe.logger().info("⏭️ Donation status already updated")
-
-    # STEP 4: Set paid flag LAST and ONLY for one-time donations
-    if not is_recurring and donation.paid != 1:
-        donation.db_set("paid", 1)
-        frappe.logger().info("✅ Set one-time donation as paid")
-        results["components_processed"].append("paid_flag_set")
-    elif is_recurring:
-        frappe.logger().info("⏭️ Recurring donation - paid flag not applicable")
 
     # Populate final result data
     results["amount"] = donation.amount
@@ -373,20 +434,43 @@ def process_successful_payment(donation, payment):
     # Extract Mollie metadata first
     mollie_data = extract_mollie_payment_data(payment)
 
-    # Update donation status
-    donation.db_set("paid", 1)
+    # Determine if this is recurring - same logic as process_successful_payment_with_idempotency
+    has_mollie_subscription = bool(mollie_data.get("subscription_id"))
+
+    # Check Mollie payment description for recurring intent (primary source of truth for first payments)
+    donation_metadata_recurring = False
+    mollie_description = mollie_data.get("description")
+    if mollie_description:
+        try:
+            import json
+
+            desc_data = json.loads(mollie_description)
+            donation_metadata_recurring = desc_data.get("type") == "recurring"
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    # Also check if donation was already marked as recurring (for subsequent payments)
+    already_recurring = donation.get("status") == "Recurring" if hasattr(donation, "status") else False
+
+    is_recurring = has_mollie_subscription or donation_metadata_recurring or already_recurring
+
+    # Update donation status using proper document operations
+    donation.paid = 1
     if hasattr(donation, "payment_status"):
-        donation.db_set("payment_status", "Completed")
+        donation.payment_status = "Completed"
 
     # Update donation status based on payment type (One-time vs Recurring)
-    if mollie_data.get("subscription_id"):
-        donation.db_set("status", "Recurring")
+    if is_recurring:
+        donation.status = "Recurring"
         frappe.logger().info(
-            f"✅ Set donation {donation.name} status to Recurring (subscription_id: {mollie_data['subscription_id']})"
+            f"✅ Set donation {donation.name} status to Recurring (has_subscription={has_mollie_subscription}, already_recurring={already_recurring}, metadata_recurring={donation_metadata_recurring})"
         )
     else:
-        donation.db_set("status", "One-time")
+        donation.status = "One-time"
         frappe.logger().info(f"✅ Set donation {donation.name} status to One-time")
+
+    # Save all changes in one operation
+    donation.save()
 
     # Update donation with Mollie metadata
     update_donation_with_mollie_data(donation, mollie_data)
@@ -394,9 +478,19 @@ def process_successful_payment(donation, payment):
     # Create Payment Entry
     payment_entry = create_payment_entry_for_donation(donation, mollie_data)
 
+    # Update payment history - this was missing!
+    payment_entry_name = payment_entry.name if payment_entry else None
+    history_updated = update_donation_payment_history(donation, mollie_data, payment_entry_name)
+
+    if history_updated:
+        frappe.logger().info(f"✅ Payment history updated for donation {donation.name}")
+    else:
+        frappe.logger().error(f"⚠️ Payment history update failed for donation {donation.name}")
+
     return {
         "donation_id": donation.name,
-        "payment_entry": payment_entry.name if payment_entry else None,
+        "payment_entry": payment_entry_name,
+        "payment_history_updated": history_updated,
         "amount": donation.amount,
         "payment_method": mollie_data.get("method"),
         "mollie_payment_id": payment.id,
@@ -442,10 +536,11 @@ def update_donation_with_mollie_data(donation, mollie_data):
     # Skip payment_date - field doesn't exist on Donation DocType
     # paid_at info is stored in Payment Entry instead
 
-    # Bulk update to minimize DB calls
+    # Update fields and save document
     if updates:
         for field, value in updates.items():
-            donation.db_set(field, value)
+            setattr(donation, field, value)
+        donation.save()
 
         frappe.logger().info(
             f"✅ Updated donation {donation.name} with Mollie metadata: {list(updates.keys())}"
@@ -606,6 +701,3 @@ def update_donation_payment_history(donation, mollie_data, payment_entry_name):
             "Donation Payment History",
         )
         return False
-
-
-# Legacy function kept for backward compatibility - not used in new idempotent flow

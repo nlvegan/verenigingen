@@ -679,7 +679,7 @@ def create_sepa_mandate(application):
         # Create mandate
         mandate = frappe.new_doc("SEPA Mandate")
         mandate.iban = application.iban
-        mandate.account_holder_name = application.account_holder_name
+        mandate.account_holder_name = application.bank_account_name
         mandate.bic = derive_bic_from_iban(application.iban)
         mandate.status = "Draft"
         mandate.mandate_type = "RCUR"  # Recurring
