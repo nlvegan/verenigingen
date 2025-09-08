@@ -120,11 +120,14 @@
                                 <i class="fa fa-calendar"></i> {{ _("Upcoming Events") }}
                             </a>
                             <a href="/bank_details" class="list-group-item list-group-item-action">
-                                <i class="fa fa-file-text"></i> {{ _("Payment Details") }}
+                                <i class="fa fa-credit-card"></i> {{ _("Payment Details") }}
+                            </a>
+                            <a href="/manage_donations" class="list-group-item list-group-item-action">
+                                <i class="fa fa-heart"></i> {{ _("Manage Donations") }}
                             </a>
                             {% if member.interested_in_volunteering %}
                             <a href="/volunteer/opportunities" class="list-group-item list-group-item-action">
-                                <i class="fa fa-heart"></i> {{ _("Volunteer Opportunities") }}
+                                <i class="fa fa-hands-helping"></i> {{ _("Volunteer Opportunities") }}
                             </a>
                             {% endif %}
                             {% if volunteer %}

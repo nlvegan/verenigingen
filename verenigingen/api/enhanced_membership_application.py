@@ -442,7 +442,7 @@ def create_membership_application(data):
     application.selected_membership_type = cstr(data.get("membership_type"))
 
     # Generate human-readable description for audit trail and member communications
-    application.contribution_description = generate_contribution_description(data)
+    # Note: contribution_description is stored in data for reference but not on Member record
 
     # IMPORTANT: Set owner to the configured creation user
     # This prevents the applicant from becoming the owner of the member record
@@ -538,19 +538,19 @@ def create_initial_dues_schedule(application, data):
         # These will be linked when the application is approved and formal records created
         dues_schedule.member = None  # Will be set when member is created
         dues_schedule.membership = None  # Will be set when membership is created
-        dues_schedule.membership_type = application.membership_type
+        dues_schedule.membership_type = data.get("membership_type")
 
         # Contribution configuration
-        dues_schedule.contribution_mode = application.contribution_mode
-        dues_schedule.dues_rate = application.contribution_amount
+        dues_schedule.contribution_mode = data.get("contribution_mode")
+        dues_schedule.dues_rate = data.get("contribution_amount")
 
-        if hasattr(application, "selected_tier") and application.selected_tier:
-            dues_schedule.selected_tier = application.selected_tier
-        if hasattr(application, "base_multiplier") and application.base_multiplier:
-            dues_schedule.base_multiplier = application.base_multiplier
+        if data.get("selected_tier"):
+            dues_schedule.selected_tier = data.get("selected_tier")
+        if data.get("base_multiplier"):
+            dues_schedule.base_multiplier = data.get("base_multiplier")
 
         # Get membership type details for defaults
-        mt_doc = frappe.get_doc("Membership Type", application.membership_type)
+        mt_doc = frappe.get_doc("Membership Type", data.get("membership_type"))
 
         # Get amounts from template if available
         template_minimum_amount = 0
@@ -569,13 +569,13 @@ def create_initial_dues_schedule(application, data):
         dues_schedule.suggested_amount = template_suggested_amount or 15.0
 
         # Custom amount handling
-        if application.contribution_mode == "Custom":
+        if data.get("contribution_mode") == "Custom":
             dues_schedule.uses_custom_amount = 1
-            if hasattr(application, "custom_amount_reason"):
-                dues_schedule.custom_amount_reason = application.custom_amount_reason
+            if data.get("custom_amount_reason"):
+                dues_schedule.custom_amount_reason = data.get("custom_amount_reason")
 
         # Payment configuration
-        dues_schedule.payment_method = application.payment_method
+        dues_schedule.payment_method = data.get("payment_method")
         dues_schedule.billing_frequency = "Monthly"  # Default, can be changed later
         dues_schedule.billing_day = 1  # Will be updated when member is created
 
@@ -745,12 +745,12 @@ def create_first_payment_invoice(application, dues_schedule, data):
         invoice.append(
             "items",
             {
-                "item_code": get_or_create_membership_item(application.membership_type),
-                "item_name": f"Membership - {application.membership_type}",
-                "description": f"First membership payment\nContribution: {application.contribution_description}",
+                "item_code": get_or_create_membership_item(application.selected_membership_type),
+                "item_name": f"Membership - {application.selected_membership_type}",
+                "description": f"First membership payment\nContribution: {generate_contribution_description(data)}",
                 "qty": 1,
-                "rate": application.contribution_amount,
-                "amount": application.contribution_amount,
+                "rate": data.get("contribution_amount"),
+                "amount": data.get("contribution_amount"),
             },
         )
 
@@ -870,12 +870,12 @@ def send_application_confirmation(application, invoice):
 
         Thank you for your membership application! We have received your application with the following details:
 
-        Membership Type: {application.membership_type}
-        Contribution: {application.contribution_description}
-        Payment Method: {application.payment_method}
+        Membership Type: {application.selected_membership_type}
+        Contribution: {generate_contribution_description(data)}
+        Payment Method: {data.get("payment_method")}
 
         Next Steps:
-        1. Complete your first payment of €{application.contribution_amount:.2f}
+        1. Complete your first payment of €{data.get("contribution_amount"):.2f}
         2. We will review your application
         3. You will receive a welcome package once approved
 

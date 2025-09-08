@@ -20,25 +20,10 @@ def process_recurring_donations():
     4. Send notifications if configured
     """
     try:
-        from verenigingen.verenigingen.doctype.donation_agreement.donation_agreement import (
-            process_due_agreements,
-        )
-
-        results = process_due_agreements()
-
-        # Log results
-        if results["processed"] > 0:
-            frappe.logger().info(
-                f"Processed {results['processed']} donation agreements, "
-                f"created {len(results['donations_created'])} transactions"
-            )
-
-        if results["errors"] > 0:
-            frappe.logger().warning(
-                f"Encountered {results['errors']} errors while processing donation agreements"
-            )
-
-        return results
+        # TODO: Migrate this to work with Periodic Donation Agreement DocType
+        # The original Donation Agreement DocType was replaced by Periodic Donation Agreement
+        frappe.logger().info("Donation agreement processing temporarily disabled during DocType migration")
+        return {"processed": 0, "errors": 0}
 
     except Exception as e:
         frappe.log_error(

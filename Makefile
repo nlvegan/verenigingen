@@ -1,10 +1,11 @@
 # Makefile for Verenigingen app development
 
-.PHONY: help test test-quick test-all coverage lint format install clean
+.PHONY: help test test-quick test-all coverage lint format install clean test-mollie test-mollie-core test-mollie-performance test-mollie-security
 
 BENCH_DIR=/home/frappe/frappe-bench
 SITE=dev.veganisme.net
 APP=verenigingen
+MOLLIE_ORCHESTRATOR=verenigingen/tests/mollie_test_orchestrator.py
 
 help:
 	@echo "Verenigingen Development Commands:"
@@ -12,6 +13,14 @@ help:
 	@echo "  make test-quick   - Run quick validation tests"
 	@echo "  make test-all     - Run all test categories"
 	@echo "  make coverage     - Run tests with coverage report"
+	@echo ""
+	@echo "Mollie-specific tests:"
+	@echo "  make test-mollie         - Run all Mollie test categories"
+	@echo "  make test-mollie-core    - Run core consolidated Mollie tests"
+	@echo "  make test-mollie-performance - Run Mollie performance benchmarks"
+	@echo "  make test-mollie-security    - Run Mollie security tests"
+	@echo ""
+	@echo "Code quality:"
 	@echo "  make lint         - Run code linting"
 	@echo "  make format       - Format code with black"
 	@echo "  make install      - Install pre-commit hooks"
@@ -64,3 +73,34 @@ clean:
 	@rm -rf .coverage htmlcov
 	@rm -rf $(BENCH_DIR)/sites/$(SITE)/test-results/*.json
 	@echo "✓ Cleanup complete"
+
+# Mollie Test Orchestrator Commands
+test-mollie:
+	@echo "Running all Mollie test categories..."
+	@cd $(BENCH_DIR) && python $(PWD)/$(MOLLIE_ORCHESTRATOR) --all
+
+test-mollie-core:
+	@echo "Running core Mollie integration tests..."
+	@cd $(BENCH_DIR) && python $(PWD)/$(MOLLIE_ORCHESTRATOR) --category core --verbose
+
+test-mollie-performance:
+	@echo "Running Mollie performance benchmarks..."
+	@cd $(BENCH_DIR) && python $(PWD)/$(MOLLIE_ORCHESTRATOR) --category performance --verbose
+
+test-mollie-security:
+	@echo "Running Mollie security tests..."
+	@cd $(BENCH_DIR) && python $(PWD)/$(MOLLIE_ORCHESTRATOR) --category security --verbose
+
+test-mollie-integration:
+	@echo "Running Mollie integration tests..."
+	@cd $(BENCH_DIR) && python $(PWD)/$(MOLLIE_ORCHESTRATOR) --category integration --verbose
+
+test-mollie-specialized:
+	@echo "Running specialized Mollie tests..."
+	@cd $(BENCH_DIR) && python $(PWD)/$(MOLLIE_ORCHESTRATOR) --category specialized --verbose
+
+mollie-test-status:
+	@echo "Mollie test configuration status..."
+	@cd $(BENCH_DIR) && python $(PWD)/$(MOLLIE_ORCHESTRATOR) --list-categories
+	@echo ""
+	@cd $(BENCH_DIR) && python $(PWD)/$(MOLLIE_ORCHESTRATOR) --validate

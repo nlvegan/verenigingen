@@ -106,18 +106,18 @@ class MolliePaymentService:
             Dict with payment_url, payment_id for mandate establishment
         """
         try:
-            print(f"DEBUG: Starting recurring payment creation for donation {donation_doc.name}")
+            frappe.logger().debug(f"Starting recurring payment creation for donation {donation_doc.name}")
 
             # Create payment metadata for webhook processing
             payment_metadata = self._build_payment_metadata(donation_doc, form_data, is_recurring=True)
-            print("DEBUG: Payment metadata created successfully")
+            frappe.logger().debug("Payment metadata created successfully")
 
             # Create or get customer first for recurring payments
             customer_result = self._create_or_get_mollie_customer(donation_doc, form_data)
-            print(f"DEBUG: Customer result status: {customer_result.get('status')}")
+            frappe.logger().debug(f"Customer result status: {customer_result.get('status')}")
 
             if not customer_result.get("customer_id"):
-                print(f"DEBUG: Customer creation failed: {customer_result}")
+                frappe.logger().debug(f"Customer creation failed: {customer_result}")
                 return {
                     "status": "error",
                     "message": _("Failed to create customer for recurring payment"),
@@ -135,11 +135,11 @@ class MolliePaymentService:
                 }
             )
 
-            print(f"DEBUG: Form data prepared with customer_id: {customer_result['customer_id']}")
+            frappe.logger().debug(f"Form data prepared with customer_id: {customer_result['customer_id']}")
 
             # Use gateway's process_payment method
             result = self.gateway.process_payment(donation_doc, form_data_with_metadata)
-            print(f"DEBUG: Gateway result status: {result.get('status')}")
+            frappe.logger().debug(f"Gateway result status: {result.get('status')}")
 
             if result.get("status") == "redirect_required":
                 return {
@@ -152,8 +152,8 @@ class MolliePaymentService:
                     "expires_at": result.get("expires_at"),
                 }
             else:
-                print(
-                    f"DEBUG: Gateway returned non-redirect status: {result.get('status')} - {result.get('message')}"
+                frappe.logger().debug(
+                    f"Gateway returned non-redirect status: {result.get('status')} - {result.get('message')}"
                 )
                 return {
                     "status": "error",
@@ -229,7 +229,7 @@ class MolliePaymentService:
         """
         try:
             donor_doc = frappe.get_doc("Donor", donation_doc.donor)
-            print(f"DEBUG: Got donor doc: {donor_doc.donor_name} ({donor_doc.donor_email})")
+            frappe.logger().debug(f"Got donor doc: {donor_doc.donor_name} ({donor_doc.donor_email})")
 
             # Check if donor already has a Mollie customer ID
             # Use safe field access in case custom field doesn't exist
@@ -240,10 +240,10 @@ class MolliePaymentService:
             )
 
             if existing_customer_id:
-                print(f"DEBUG: Using existing customer ID: {existing_customer_id}")
+                frappe.logger().debug(f"Using existing customer ID: {existing_customer_id}")
                 return {"status": "existing", "customer_id": existing_customer_id}
 
-            print("DEBUG: Creating new Mollie customer...")
+            frappe.logger().debug("Creating new Mollie customer...")
             # Create new Mollie customer using gateway's client directly
             customer_data = {
                 "name": donor_doc.donor_name,
@@ -255,15 +255,15 @@ class MolliePaymentService:
             if hasattr(donor_doc, "phone") and donor_doc.phone:
                 customer_data["phone"] = donor_doc.phone
 
-            print(f"DEBUG: Customer data: {customer_data}")
-            print(f"DEBUG: Gateway client type: {type(self.gateway.client)}")
+            frappe.logger().debug(f"Customer data: {customer_data}")
+            frappe.logger().debug(f"Gateway client type: {type(self.gateway.client)}")
 
             # Create customer using Mollie client directly
             try:
                 customer = self.gateway.client.customers.create(customer_data)
-                print(f"DEBUG: Customer creation successful: {customer.id if customer else 'None'}")
+                frappe.logger().debug(f"Customer creation successful: {customer.id if customer else 'None'}")
             except Exception as create_error:
-                print(f"DEBUG: Customer creation failed with error: {str(create_error)}")
+                frappe.logger().debug(f"Customer creation failed with error: {str(create_error)}")
                 return {
                     "status": "error",
                     "message": f"Customer creation API call failed: {str(create_error)}",
@@ -274,27 +274,27 @@ class MolliePaymentService:
                 try:
                     if hasattr(donor_doc, "mollie_customer_id"):
                         donor_doc.mollie_customer_id = customer.id
-                        donor_doc.save(ignore_permissions=True)
-                        print(f"DEBUG: Saved customer ID {customer.id} to donor")
+                        donor_doc.save()
+                        frappe.logger().debug(f"Saved customer ID {customer.id} to donor")
                     else:
-                        print("DEBUG: Donor DocType missing mollie_customer_id field")
+                        frappe.logger().debug("Donor DocType missing mollie_customer_id field")
                         frappe.log_error(
                             "Donor DocType missing mollie_customer_id field - customer ID not stored",
                             "Custom Field Missing",
                         )
                 except Exception as e:
-                    print(f"DEBUG: Failed to save customer ID: {str(e)}")
+                    frappe.logger().debug(f"Failed to save customer ID: {str(e)}")
                     frappe.log_error(
                         f"Failed to save Mollie customer ID: {str(e)}", "Customer ID Storage Error"
                     )
 
                 return {"status": "created", "customer_id": customer.id}
             else:
-                print("DEBUG: Customer creation returned no valid response")
+                frappe.logger().debug("Customer creation returned no valid response")
                 return {"status": "error", "message": "Customer creation returned invalid response"}
 
         except Exception as e:
-            print(f"DEBUG: Overall customer creation error: {str(e)}")
+            frappe.logger().debug(f"Overall customer creation error: {str(e)}")
             frappe.log_error(f"Mollie customer creation error: {str(e)}", "Mollie Customer Error")
             return {"status": "error", "message": "Customer creation failed"}
 
@@ -326,3 +326,75 @@ class MolliePaymentService:
         except Exception:
             # Default to test for safety
             return True
+
+    def create_refund(
+        self, payment_id: str, amount: Optional[float] = None, description: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Create a refund for a Mollie payment.
+
+        Args:
+            payment_id: Mollie payment ID
+            amount: Optional amount to refund (defaults to full payment amount)
+            description: Optional refund description
+
+        Returns:
+            Dict with refund status and details
+        """
+        try:
+            # Validate inputs
+            if not payment_id:
+                return {"status": "error", "message": _("Payment ID is required for refunds")}
+
+            # Build refund data
+            refund_data = {}
+
+            if amount is not None:
+                # Convert amount to Decimal for precise monetary calculations
+                amount_decimal = Decimal(str(amount))
+                if amount_decimal <= 0:
+                    return {"status": "error", "message": _("Refund amount must be positive")}
+                refund_data["amount"] = {"currency": "EUR", "value": f"{amount_decimal:.2f}"}
+
+            if description:
+                refund_data["description"] = description[:255]  # Mollie description limit
+
+            # Create refund via Mollie API
+            try:
+                refund = self.gateway.client.payment_refunds.create(payment_id, refund_data)
+
+                if refund and refund.id:
+                    return {
+                        "status": "success",
+                        "refund_id": refund.id,
+                        "amount": refund.amount.value if refund.amount else amount,
+                        "currency": refund.amount.currency if refund.amount else "EUR",
+                        "description": refund.description,
+                        "refund_status": refund.status,
+                        "created_at": refund.created_at.isoformat() if refund.created_at else None,
+                        "message": _("Refund created successfully"),
+                    }
+                else:
+                    return {"status": "error", "message": _("Refund creation returned invalid response")}
+
+            except Exception as api_error:
+                # Handle specific Mollie API errors
+                error_message = str(api_error)
+                if "payment is not paid" in error_message.lower():
+                    return {"status": "error", "message": _("Cannot refund unpaid payment")}
+                elif "insufficient" in error_message.lower():
+                    return {"status": "error", "message": _("Insufficient funds available for refund")}
+                elif "already refunded" in error_message.lower():
+                    return {"status": "error", "message": _("Payment has already been fully refunded")}
+                else:
+                    frappe.log_error(
+                        f"Mollie refund API error for payment {payment_id}: {error_message}",
+                        "Mollie Refund API Error",
+                    )
+                    return {"status": "error", "message": _("Refund request failed - please try again")}
+
+        except Exception as e:
+            frappe.log_error(
+                f"Refund creation error for payment {payment_id}: {str(e)}", "Mollie Refund Error"
+            )
+            return {"status": "error", "message": _("Refund processing temporarily unavailable")}

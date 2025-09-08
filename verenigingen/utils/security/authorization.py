@@ -421,8 +421,14 @@ class SEPAAuthorizationManager:
             if has_perm:
                 # Log successful authorization
                 log_security_event(
-                    "sepa_operation_authorized",
-                    details={"operation": operation.value, "user": user, "context": context or {}},
+                    "sensitive_data_access",
+                    details={
+                        "operation": operation.value,
+                        "user": user,
+                        "context": context or {},
+                        "authorization_result": "granted",
+                        "resource_type": "sepa_operation",
+                    },
                     severity="info",
                 )
                 return True

@@ -1009,19 +1009,13 @@ class MembershipDuesSchedule(Document):
             self.update_schedule_dates()  # Test mode uses fallback behavior
             return "TEST_INVOICE"
 
-        # ✅ NEW: Transaction safety - wrap critical operations in transaction
+        # ✅ FIX: Let Frappe handle transactions automatically - avoid micromanaging
         try:
             # Set flag to skip strict validation during invoice generation
             frappe.flags.in_invoice_generation = True
 
-            # Start explicit transaction for invoice generation
-            frappe.db.begin()
-
             # ✅ ENHANCED: Calculate coverage period (authoritative source)
             coverage_start, coverage_end = self.calculate_billing_period(frappe.utils.today())
-
-            # Don't set billing period dates here - they'll be set in update_schedule_dates()
-            # after we know the actual next_invoice_date
 
             # Create actual invoice
             invoice_name = self.create_sales_invoice()
@@ -1037,20 +1031,15 @@ class MembershipDuesSchedule(Document):
             invoice.flags.ignore_links = True
             invoice.save()
 
-            # ✅ ENHANCED: Create direct link and track coverage (no ambiguity)
-            self.db_set("last_generated_invoice", invoice.name)
-            self.db_set("last_invoice_coverage_start", coverage_start)
-            self.db_set("last_invoice_coverage_end", coverage_end)
+            # ✅ ENHANCED: Create direct link and track coverage (use normal fields instead of db_set)
+            self.last_generated_invoice = invoice.name
+            self.last_invoice_coverage_start = coverage_start
+            self.last_invoice_coverage_end = coverage_end
 
             # ✅ CRITICAL FIX: Update schedule with actual invoice posting date
             self.update_schedule_dates(actual_invoice_date=invoice.posting_date)
 
-            # Commit transaction only after all operations succeed
-            frappe.db.commit()
-
         except Exception as e:
-            # Rollback transaction on any failure
-            frappe.db.rollback()
             # Shorten error message to avoid database field length limits
             error_msg = f"Invoice gen failed for {self.name}: {str(e)[:100]}"
             try:
@@ -1170,7 +1159,7 @@ class MembershipDuesSchedule(Document):
         return invoice.name
 
     def get_membership_dues_item(self):
-        """Get or create the membership dues item"""
+        """Get the membership dues item name (assumes it exists)"""
         if self.billing_frequency == "Custom":
             # Get custom frequency settings with validation
             frequency_number = getattr(self, "custom_frequency_number", None)
@@ -1185,7 +1174,14 @@ class MembershipDuesSchedule(Document):
         else:
             item_name = f"Membership Dues - {self.billing_frequency}"
 
+        return item_name
+
+    def ensure_membership_dues_item_exists(self):
+        """Ensure the membership dues item exists - called before transaction starts"""
+        item_name = self.get_membership_dues_item()
+
         if not frappe.db.exists("Item", item_name):
+            # Create item outside of the main transaction to avoid implicit commits
             item = frappe.new_doc("Item")
             item.item_code = item_name
             item.item_name = item_name
@@ -1195,6 +1191,7 @@ class MembershipDuesSchedule(Document):
             # Note: ERPNext Item doctype doesn't have is_service_item field
             # Using is_sales_item which is appropriate for membership services
             item.insert()
+            frappe.db.commit()  # Explicit commit for item creation
 
         return item_name
 
@@ -1239,8 +1236,11 @@ class MembershipDuesSchedule(Document):
 
         # Also update the Member's next_invoice_date field
         if self.member:
-            frappe.db.set_value("Member", self.member, "next_invoice_date", self.next_invoice_date)
-            # Don't commit here - let the transaction complete normally
+            # ✅ FIX: Use document model instead of direct db.set_value to avoid implicit commits
+            member_doc = frappe.get_doc("Member", self.member)
+            member_doc.next_invoice_date = self.next_invoice_date
+            member_doc.flags.ignore_version = True  # Avoid version tracking for automated updates
+            member_doc.save()
 
     def get_member_payment_method(self):
         """Get member's preferred payment method"""

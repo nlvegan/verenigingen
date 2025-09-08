@@ -635,6 +635,49 @@ class MollieGateway(PaymentGateway):
             )
             return {"status": "error", "message": f"Error cancelling subscription: {str(e)}"}
 
+    def update_subscription(self, customer_id, subscription_id, update_data):
+        """
+        Update Mollie subscription with new data
+
+        Args:
+            customer_id: Mollie customer ID
+            subscription_id: Mollie subscription ID
+            update_data: Dictionary with update data (e.g., {"amount": {"value": "25.00", "currency": "EUR"}})
+
+        Returns:
+            dict: Status and result information
+        """
+        try:
+            # Get Mollie client
+            mollie_client = self.client
+
+            # Get the customer
+            customer = mollie_client.customers.get(customer_id)
+
+            # Get the subscription
+            subscription = customer.subscriptions.get(subscription_id)
+
+            # Update the subscription
+            updated_subscription = subscription.update(update_data)
+
+            return {
+                "status": "success",
+                "message": _("Subscription updated successfully"),
+                "subscription": {
+                    "id": updated_subscription.id,
+                    "status": updated_subscription.status,
+                    "amount": updated_subscription.amount,
+                    "next_payment_date": getattr(updated_subscription, "next_payment_date", None),
+                },
+            }
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error updating Mollie subscription {subscription_id}: {str(e)}",
+                "Mollie Subscription Update",
+            )
+            return {"status": "error", "message": f"Error updating subscription: {str(e)}"}
+
 
 class SEPAGateway(PaymentGateway):
     """Handler for SEPA Direct Debit"""
@@ -1728,3 +1771,85 @@ def manual_payment_confirmation(donation_id, payment_reference, notes=None):
     except Exception as e:
         frappe.log_error(f"Manual payment confirmation error: {str(e)}", "Payment Confirmation")
         return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def cancel_mollie_subscription_by_id(subscription_id):
+    """Cancel Mollie subscription by subscription ID"""
+    try:
+        # Find member with this subscription ID
+        members = frappe.get_all(
+            "Member", filters={"mollie_subscription_id": subscription_id}, fields=["name"], limit=1
+        )
+
+        if not members:
+            return {"status": "error", "message": "No member found for subscription ID"}
+
+        member_id = members[0].name
+        return cancel_member_subscription(member_id)
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error cancelling subscription by ID {subscription_id}: {str(e)}",
+            "Mollie Subscription Cancellation",
+        )
+        return {"status": "error", "message": str(e)}
+
+
+@frappe.whitelist()
+def update_mollie_subscription_amount(subscription_id, new_amount):
+    """Update Mollie subscription amount"""
+    try:
+        # Find member with this subscription ID
+        members = frappe.get_all(
+            "Member",
+            filters={"mollie_subscription_id": subscription_id},
+            fields=["name", "mollie_customer_id"],
+            limit=1,
+        )
+
+        if not members:
+            return {"status": "error", "message": "No member found for subscription ID"}
+
+        member_data = members[0]
+        customer_id = member_data.mollie_customer_id
+
+        if not customer_id:
+            return {"status": "error", "message": "No Mollie customer ID found"}
+
+        # Get Mollie gateway
+        gateway = PaymentGatewayFactory.get_gateway("Mollie", "Default")
+
+        # Update subscription amount via Mollie API
+        result = gateway.update_subscription(
+            customer_id, subscription_id, {"amount": {"value": f"{new_amount:.2f}", "currency": "EUR"}}
+        )
+
+        if result.get("status") == "success":
+            # Update related donation records
+            donations = frappe.get_all(
+                "Donation",
+                filters={"mollie_subscription_id": subscription_id, "status": "Recurring"},
+                fields=["name"],
+            )
+
+            for donation in donations:
+                frappe.db.set_value("Donation", donation.name, "amount", new_amount)
+
+            frappe.db.commit()
+
+            return {
+                "status": "success",
+                "message": f"Subscription amount updated to €{new_amount:.2f}",
+                "subscription_id": subscription_id,
+                "new_amount": new_amount,
+            }
+        else:
+            return {"status": "error", "message": result.get("message", "Failed to update subscription")}
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error updating subscription amount for {subscription_id}: {str(e)}",
+            "Mollie Subscription Update",
+        )
+        return {"status": "error", "message": str(e)}

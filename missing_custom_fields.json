@@ -1,0 +1,46 @@
+[
+  {
+    "doctype": "Custom Field",
+    "dt": "Payment Entry",
+    "fieldname": "custom_donation",
+    "fieldtype": "Link",
+    "options": "Donation",
+    "label": "Related Donation",
+    "insert_after": "reference_date",
+    "read_only": 1,
+    "description": "Links payment entry to source donation for refund tracking"
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "Payment Entry",
+    "fieldname": "custom_reversal_type",
+    "fieldtype": "Select",
+    "options": "\nRefund\nChargeback\nReversal",
+    "label": "Reversal Type",
+    "insert_after": "custom_donation",
+    "read_only": 1,
+    "description": "Type of payment reversal (refund, chargeback, etc.)"
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "Payment Entry",
+    "fieldname": "custom_original_payment_id",
+    "fieldtype": "Data",
+    "label": "Original Payment ID",
+    "insert_after": "custom_reversal_type",
+    "read_only": 1,
+    "length": 140,
+    "description": "Mollie payment ID that this entry reverses"
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "Mollie Settings",
+    "fieldname": "mollie_clearing_account",
+    "fieldtype": "Link",
+    "options": "Account",
+    "label": "Mollie Clearing Account",
+    "insert_after": "webhook_url",
+    "reqd": 1,
+    "description": "Account used for Mollie payment processing and reversals"
+  }
+]

@@ -1,0 +1,440 @@
+"""
+Refund Utility Module
+
+Provides utility functions for processing refunds and chargebacks that can be called
+from donation forms, payment entry forms, and member portal pages.
+"""
+
+from decimal import Decimal
+from typing import Any, Dict, Optional
+
+import frappe
+from frappe import _
+from frappe.utils import flt, now_datetime
+
+from verenigingen.utils.payment_services.constants import (
+    LOG_CATEGORY_REFUND,
+    LOG_CATEGORY_VALIDATION,
+    MAX_REFUND_DESCRIPTION_LENGTH,
+    MIN_REFUND_AMOUNT,
+    MOLLIE_VALID_PREFIXES,
+    REFUND_QUERY_BATCH_SIZE,
+    STANDARD_ERROR_RESPONSE,
+    STANDARD_SUCCESS_RESPONSE,
+)
+from verenigingen.utils.payment_services.mollie_payment_service import MolliePaymentService
+
+
+def _create_error_response(
+    message: str, error_code: Optional[str] = None, details: Optional[Any] = None
+) -> Dict[str, Any]:
+    """Create standardized error response."""
+    response = STANDARD_ERROR_RESPONSE.copy()
+    response.update(
+        {
+            "message": message,
+            "error_code": error_code,
+            "details": details,
+            "timestamp": now_datetime().isoformat(),
+        }
+    )
+    return response
+
+
+def _create_success_response(message: str, data: Optional[Any] = None) -> Dict[str, Any]:
+    """Create standardized success response."""
+    response = STANDARD_SUCCESS_RESPONSE.copy()
+    response.update({"message": message, "data": data, "timestamp": now_datetime().isoformat()})
+    return response
+
+
+def _validate_mollie_payment_id(payment_id: str) -> bool:
+    """Validate Mollie payment ID format using constants."""
+    return payment_id and payment_id.startswith(MOLLIE_VALID_PREFIXES)
+
+
+def _validate_refund_amount(amount: float, max_amount: float) -> Optional[Dict[str, Any]]:
+    """Validate refund amount against business rules."""
+    if amount < MIN_REFUND_AMOUNT:
+        return _create_error_response(
+            f"Refund amount must be at least {MIN_REFUND_AMOUNT}", error_code="INVALID_AMOUNT"
+        )
+
+    if amount > max_amount:
+        return _create_error_response(
+            f"Refund amount cannot exceed payment amount of {max_amount}", error_code="AMOUNT_EXCEEDS_PAYMENT"
+        )
+
+    return None
+
+
+def _validate_refund_reason(reason: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Validate refund reason/description."""
+    if reason and len(reason) > MAX_REFUND_DESCRIPTION_LENGTH:
+        return _create_error_response(
+            f"Refund description cannot exceed {MAX_REFUND_DESCRIPTION_LENGTH} characters",
+            error_code="DESCRIPTION_TOO_LONG",
+        )
+
+    return None
+
+
+@frappe.whitelist()
+def initiate_refund(
+    payment_entry_name: str, amount: Optional[float] = None, reason: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Initiate a refund for a Payment Entry (callable from UI).
+
+    Args:
+        payment_entry_name: Name of the Payment Entry to refund
+        amount: Optional partial refund amount (defaults to full payment amount)
+        reason: Optional refund reason description
+
+    Returns:
+        Dict with refund status and details
+    """
+    try:
+        # Input validation
+        if not payment_entry_name:
+            return _create_error_response("Payment Entry name is required", "MISSING_PAYMENT_ENTRY")
+
+        # Validate refund reason
+        reason_validation = _validate_refund_reason(reason)
+        if reason_validation:
+            return reason_validation
+
+        # Get the Payment Entry document
+        try:
+            payment_entry = frappe.get_doc("Payment Entry", payment_entry_name)
+        except frappe.DoesNotExistError:
+            return _create_error_response("Payment Entry not found", "PAYMENT_ENTRY_NOT_FOUND")
+
+        # Validate this is a payment we can refund
+        if payment_entry.payment_type != "Receive":
+            return _create_error_response("Can only refund received payments", "INVALID_PAYMENT_TYPE")
+
+        # Check if payment was made via Mollie using standardized validation
+        mollie_payment_id = payment_entry.reference_no
+        if not _validate_mollie_payment_id(mollie_payment_id):
+            return _create_error_response("Payment was not processed via Mollie", "NOT_MOLLIE_PAYMENT")
+
+        # Validate and set refund amount
+        max_refund_amount = payment_entry.paid_amount
+        if amount is not None:
+            amount_validation = _validate_refund_amount(amount, max_refund_amount)
+            if amount_validation:
+                return amount_validation
+        else:
+            amount = max_refund_amount
+
+        # Use database transaction to prevent race conditions
+        with frappe.db.transaction():
+            # Optimized query: Check for existing refunds to prevent over-refunding (with row lock and index hint)
+            existing_refunds = frappe.db.sql(
+                """
+                SELECT
+                    COALESCE(SUM(paid_amount), 0) as total_refunded,
+                    COUNT(*) as refund_count
+                FROM `tabPayment Entry` USE INDEX (idx_payment_refunds)
+                WHERE payment_type = 'Pay'
+                    AND custom_original_payment_id = %s
+                    AND custom_reversal_type = 'Refund'
+                    AND docstatus = 1
+                    AND creation > DATE_SUB(NOW(), INTERVAL 1 YEAR)
+                FOR UPDATE
+            """,
+                (mollie_payment_id,),
+                as_dict=True,
+            )
+
+            refund_data = (
+                existing_refunds[0] if existing_refunds else {"total_refunded": 0, "refund_count": 0}
+            )
+            total_refunded = flt(refund_data["total_refunded"])
+            available_amount = max_refund_amount - total_refunded
+
+            if amount > available_amount:
+                return _create_error_response(
+                    f"Only {available_amount} available for refund (already refunded: {total_refunded})",
+                    error_code="INSUFFICIENT_REFUNDABLE_AMOUNT",
+                    details={
+                        "available_amount": available_amount,
+                        "total_refunded": total_refunded,
+                        "refund_count": refund_data["refund_count"],
+                    },
+                )
+
+            # Initialize Mollie service and create refund within transaction
+            mollie_service = MolliePaymentService()
+            refund_result = mollie_service.create_refund(
+                payment_id=mollie_payment_id,
+                amount=amount,
+                description=reason or f"Refund for payment {payment_entry_name}",
+            )
+
+        if refund_result["status"] == "success":
+            # Return success - webhook will handle creating reverse Payment Entry
+            return _create_success_response(
+                "Refund initiated successfully",
+                data={
+                    "refund_id": refund_result["refund_id"],
+                    "amount": refund_result["amount"],
+                    "payment_entry": payment_entry_name,
+                    "info": "The refund will be processed automatically when confirmed by Mollie",
+                },
+            )
+        else:
+            return refund_result
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error initiating refund for payment {payment_entry_name}: {str(e)}", LOG_CATEGORY_REFUND
+        )
+        return _create_error_response(
+            "Failed to initiate refund - please try again", error_code="REFUND_INITIATION_FAILED"
+        )
+
+
+@frappe.whitelist()
+def get_payment_refund_info(payment_entry_name: str) -> Dict[str, Any]:
+    """
+    Get refund information for a Payment Entry.
+
+    Args:
+        payment_entry_name: Name of the Payment Entry
+
+    Returns:
+        Dict with refund status and history
+    """
+    try:
+        # Get the Payment Entry document
+        try:
+            payment_entry = frappe.get_doc("Payment Entry", payment_entry_name)
+        except frappe.DoesNotExistError:
+            return _create_error_response("Payment Entry not found", "PAYMENT_ENTRY_NOT_FOUND")
+
+        mollie_payment_id = payment_entry.reference_no
+        if not mollie_payment_id or not mollie_payment_id.startswith(("tr_", "test_")):
+            return _create_error_response("Payment was not processed via Mollie", "NOT_MOLLIE_PAYMENT")
+
+        # Get existing refunds
+        refunds = frappe.db.sql(
+            """
+            SELECT name, paid_amount, reference_no, reference_date, remarks, docstatus
+            FROM `tabPayment Entry`
+            WHERE payment_type = 'Pay'
+            AND custom_original_payment_id = %s
+            AND custom_reversal_type = 'Refund'
+            ORDER BY creation DESC
+        """,
+            (mollie_payment_id,),
+            as_dict=True,
+        )
+
+        total_refunded = sum(flt(r.paid_amount) for r in refunds if r.docstatus == 1)
+        available_amount = payment_entry.paid_amount - total_refunded
+
+        return _create_success_response(
+            "Payment refund information retrieved successfully",
+            data={
+                "can_refund": available_amount > 0,
+                "original_amount": payment_entry.paid_amount,
+                "total_refunded": total_refunded,
+                "available_amount": available_amount,
+                "refund_history": refunds,
+                "mollie_payment_id": mollie_payment_id,
+            },
+        )
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error getting refund info for payment {payment_entry_name}: {str(e)}", LOG_CATEGORY_REFUND
+        )
+        return _create_error_response("Failed to get refund information", error_code="REFUND_INFO_FAILED")
+
+
+@frappe.whitelist()
+def get_donation_refund_info(donation_name: str) -> Dict[str, Any]:
+    """
+    Get refund information for a Donation.
+
+    Args:
+        donation_name: Name of the Donation
+
+    Returns:
+        Dict with refund status and payment history
+    """
+    try:
+        # Get the Donation document
+        try:
+            donation_doc = frappe.get_doc("Donation", donation_name)
+        except frappe.DoesNotExistError:
+            return _create_error_response("Donation not found", "DONATION_NOT_FOUND")
+
+        # Get associated payment entries
+        payment_entries = frappe.db.sql(
+            """
+            SELECT name, payment_type, paid_amount, reference_no, custom_reversal_type, docstatus
+            FROM `tabPayment Entry`
+            WHERE custom_donation = %s
+            ORDER BY creation ASC
+        """,
+            (donation_name,),
+            as_dict=True,
+        )
+
+        if not payment_entries:
+            return _create_error_response("No payment entries found for this donation", "NO_PAYMENT_ENTRIES")
+
+        # Separate original payments from refunds/chargebacks
+        original_payments = [pe for pe in payment_entries if pe.payment_type == "Receive"]
+        refunds = [
+            pe for pe in payment_entries if pe.payment_type == "Pay" and pe.custom_reversal_type == "Refund"
+        ]
+        chargebacks = [
+            pe
+            for pe in payment_entries
+            if pe.payment_type == "Pay" and pe.custom_reversal_type == "Chargeback"
+        ]
+
+        # Calculate totals
+        total_paid = sum(flt(pe.paid_amount) for pe in original_payments if pe.docstatus == 1)
+        total_refunded = sum(flt(pe.paid_amount) for pe in refunds if pe.docstatus == 1)
+        total_chargebacks = sum(flt(pe.paid_amount) for pe in chargebacks if pe.docstatus == 1)
+
+        net_amount = total_paid - total_refunded - total_chargebacks
+
+        # Check if any original payments can be refunded
+        can_refund = any(
+            pe.reference_no and pe.reference_no.startswith(("tr_", "test_"))
+            for pe in original_payments
+            if pe.docstatus == 1
+        )
+
+        return _create_success_response(
+            "Donation refund information retrieved successfully",
+            data={
+                "can_refund": can_refund and net_amount > 0,
+                "total_paid": total_paid,
+                "total_refunded": total_refunded,
+                "total_chargebacks": total_chargebacks,
+                "net_amount": net_amount,
+                "original_payments": original_payments,
+                "refunds": refunds,
+                "chargebacks": chargebacks,
+                "payment_history": donation_doc.get("payment_history", []),
+            },
+        )
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error getting donation refund info for {donation_name}: {str(e)}", LOG_CATEGORY_REFUND
+        )
+        return _create_error_response(
+            "Failed to get donation refund information", error_code="DONATION_REFUND_INFO_FAILED"
+        )
+
+
+@frappe.whitelist()
+def initiate_donation_refund(
+    donation_name: str, amount: Optional[float] = None, reason: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Initiate a refund for a Donation (callable from UI).
+
+    Args:
+        donation_name: Name of the Donation to refund
+        amount: Optional partial refund amount
+        reason: Optional refund reason description
+
+    Returns:
+        Dict with refund status and details
+    """
+    try:
+        # Get donation refund info first
+        refund_info = get_donation_refund_info(donation_name)
+
+        if refund_info["status"] != "success":
+            return refund_info
+
+        if not refund_info["data"]["can_refund"]:
+            return _create_error_response("This donation cannot be refunded", "DONATION_NOT_REFUNDABLE")
+
+        # Find the best payment entry to refund from
+        original_payments = refund_info["data"]["original_payments"]
+        mollie_payments = [
+            pe
+            for pe in original_payments
+            if pe.docstatus == 1 and pe.reference_no and pe.reference_no.startswith(("tr_", "test_"))
+        ]
+
+        if not mollie_payments:
+            return _create_error_response("No Mollie payments found to refund", "NO_MOLLIE_PAYMENTS")
+
+        # Use the most recent Mollie payment
+        payment_to_refund = max(mollie_payments, key=lambda pe: pe.name)
+
+        # Use database transaction to prevent race conditions
+        with frappe.db.transaction():
+            # Calculate available amount for this specific payment (with row lock)
+            existing_refunds = frappe.db.sql(
+                """
+                SELECT SUM(paid_amount) as total_refunded
+                FROM `tabPayment Entry`
+                WHERE payment_type = 'Pay'
+                AND custom_original_payment_id = %s
+                AND custom_reversal_type = 'Refund'
+                AND docstatus = 1
+                FOR UPDATE
+            """,
+                (payment_to_refund.reference_no,),
+            )
+
+            total_refunded = flt(existing_refunds[0][0] if existing_refunds and existing_refunds[0][0] else 0)
+            available_amount = payment_to_refund.paid_amount - total_refunded
+
+            if amount is None:
+                amount = min(available_amount, refund_info["data"]["net_amount"])
+
+            if amount > available_amount:
+                return _create_error_response(
+                    f"Only {available_amount} available for refund from this payment",
+                    error_code="INSUFFICIENT_REFUNDABLE_AMOUNT",
+                    details={"available_amount": available_amount, "requested_amount": amount},
+                )
+
+            # Initiate the refund using the payment entry within transaction
+            return initiate_refund(
+                payment_entry_name=payment_to_refund.name,
+                amount=amount,
+                reason=reason or f"Refund for donation {donation_name}",
+            )
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error initiating donation refund for {donation_name}: {str(e)}", LOG_CATEGORY_REFUND
+        )
+        return _create_error_response(
+            "Failed to initiate donation refund - please try again",
+            error_code="DONATION_REFUND_INITIATION_FAILED",
+        )
+
+
+def validate_refund_permissions(user: Optional[str] = None) -> bool:
+    """
+    Validate if user has permissions to process refunds.
+
+    Args:
+        user: Optional user to check (defaults to current user)
+
+    Returns:
+        Boolean indicating if user can process refunds
+    """
+    if not user:
+        user = frappe.session.user
+
+    # Check if user has required roles or permissions
+    return frappe.has_permission("Payment Entry", "write", user=user) and (
+        "Accounts Manager" in frappe.get_roles(user) or "Verenigingen Admin" in frappe.get_roles(user)
+    )

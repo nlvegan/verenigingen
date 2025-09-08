@@ -943,7 +943,7 @@ class Volunteer(Document):
 
             if fallback_approver:
                 # Ensure user has expense approver role
-                self.ensure_user_has_expense_approver_role(fallback_approver)
+                self._ensure_user_has_expense_approver_role(fallback_approver)
                 return fallback_approver
 
             # Last resort: Administrator
@@ -987,12 +987,18 @@ class Volunteer(Document):
                     user = frappe.get_doc("User", user_email)
                     if user.enabled:
                         # Ensure user has expense approver role
-                        self.ensure_user_has_expense_approver_role(user_email)
+                        self._ensure_user_has_expense_approver_role(user_email)
                         return user_email
 
         return None
 
-    # Removed ensure_user_has_expense_approver_role method - now handled by secure AccountCreationManager
+    def _ensure_user_has_expense_approver_role(self, user_email):
+        """Ensure user has expense approver role"""
+        user = frappe.get_doc("User", user_email)
+
+        if "Expense Approver" not in [r.role for r in user.roles]:
+            user.append("roles", {"role": "Expense Approver"})
+            user.save(ignore_permissions=True)
 
     # Removed assign_employee_role method - now handled by secure AccountCreationManager
 
