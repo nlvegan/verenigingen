@@ -1558,7 +1558,7 @@ class MijnroodCSVImport(Document):
 
             # Update member's current membership reference
             # Note: These fields are fetch fields and will be updated automatically from the membership record
-            member_doc.current_membership_details = membership.name
+            member_doc.current_membership_plan = membership.name
             member_doc.save()
 
             frappe.logger().info(f"Created membership {membership.name} for member {member_doc.name}")

@@ -945,7 +945,6 @@ def create_test_data():
             else:
                 results["errors"].append(f"Failed to create Donor: {'; '.join(result.errors)}")
 
-        frappe.db.commit()
         results["success"] = True
 
     except Exception as e:

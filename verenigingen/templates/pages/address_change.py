@@ -86,11 +86,9 @@ def get_context(context):
             except frappe.DoesNotExistError:
                 # Address was deleted, clear the reference
                 frappe.db.set_value("Member", member_name, "primary_address", None)
-                frappe.db.commit()
         except frappe.DoesNotExistError:
             # Address was deleted, clear the reference
             frappe.db.set_value("Member", member_name, "primary_address", None)
-            frappe.db.commit()
 
     context.current_address = current_address
 
@@ -298,7 +296,6 @@ def update_member_address(address_data):
 
             # Link to member using database update to bypass permissions
             frappe.db.set_value("Member", member_name, "primary_address", address_doc.name)
-            frappe.db.commit()
             action = "created"
 
         # Log the change
@@ -389,5 +386,4 @@ def get_current_address():
     except frappe.DoesNotExistError:
         # Address was deleted, clear the reference
         frappe.db.set_value("Member", member_name, "primary_address", None)
-        frappe.db.commit()
         return {"address": None}

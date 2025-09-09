@@ -33,9 +33,7 @@ class TestRefundFunctionality(EnhancedTestCase):
         results = []
 
         def process_webhook():
-            from verenigingen.archived.obsolete_webhook_system.mollie_webhook_processor import (
-                MollieWebhookProcessor,
-            )
+            from archived.obsolete_webhook_system.mollie_webhook_processor import MollieWebhookProcessor
 
             processor = MollieWebhookProcessor()
             result = processor.process_refund_webhook(webhook_payload)
@@ -86,9 +84,7 @@ class TestRefundFunctionality(EnhancedTestCase):
 
     def test_4_partial_failure_transaction_safety(self):
         """Test transaction rollback on partial failures."""
-        from verenigingen.archived.obsolete_webhook_system.mollie_webhook_processor import (
-            MollieWebhookProcessor,
-        )
+        from archived.obsolete_webhook_system.mollie_webhook_processor import MollieWebhookProcessor
 
         processor = MollieWebhookProcessor()
 
@@ -112,9 +108,7 @@ class TestRefundFunctionality(EnhancedTestCase):
 
     def test_5_mollie_clearing_account_validation(self):
         """Test handling of missing/invalid Mollie clearing account."""
-        from verenigingen.archived.obsolete_webhook_system.mollie_webhook_processor import (
-            MollieWebhookProcessor,
-        )
+        from archived.obsolete_webhook_system.mollie_webhook_processor import MollieWebhookProcessor
 
         # Clear mollie_clearing_account in settings
         mollie_settings = frappe.get_single("Mollie Settings")
@@ -179,9 +173,7 @@ class TestRefundFunctionality(EnhancedTestCase):
 
     def test_8_chargeback_vs_refund_differentiation(self):
         """Test proper handling of chargebacks vs refunds."""
-        from verenigingen.archived.obsolete_webhook_system.mollie_webhook_processor import (
-            MollieWebhookProcessor,
-        )
+        from archived.obsolete_webhook_system.mollie_webhook_processor import MollieWebhookProcessor
 
         processor = MollieWebhookProcessor()
 

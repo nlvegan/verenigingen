@@ -79,8 +79,6 @@ def handle_join_chapter_request(context, chapter, member):
                 {"website_url": website_url, "introduction": introduction, "join_date": frappe.utils.today()},
             )
 
-            frappe.db.commit()
-
             # Set success context
             context.join_success = True
             frappe.msgprint(_("Successfully joined chapter {0}!").format(chapter.name), indicator="green")

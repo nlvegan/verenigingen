@@ -31,7 +31,7 @@
   "notes_section",
   "notes",
   "membership_tab",
-  "current_membership_details",
+  "current_membership_plan",
   "current_dues_schedule",
   "next_invoice_date",
   "current_membership_type",
@@ -603,13 +603,6 @@
    "read_only": 1
   },
   {
-   "fieldname": "current_membership_details",
-   "fieldtype": "Link",
-   "label": "Current Membership",
-   "options": "Membership",
-   "read_only": 1
-  },
-  {
    "fieldname": "current_dues_schedule",
    "fieldtype": "Link",
    "label": "Current Dues Schedule",
@@ -625,21 +618,21 @@
    "read_only": 1
   },
   {
-   "fetch_from": "current_membership_details.membership_type",
+   "fetch_from": "current_membership_plan.membership_type",
    "fieldname": "current_membership_type",
    "fieldtype": "Data",
    "label": "Membership Type",
    "read_only": 1
   },
   {
-   "fetch_from": "current_membership_details.start_date",
+   "fetch_from": "current_membership_plan.start_date",
    "fieldname": "current_membership_start",
    "fieldtype": "Date",
    "label": "Start Date",
    "read_only": 1
   },
   {
-   "fetch_from": "current_membership_details.renewal_date",
+   "fetch_from": "current_membership_plan.renewal_date",
    "fieldname": "current_membership_end",
    "fieldtype": "Date",
    "label": "End Date",
@@ -650,7 +643,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "fetch_from": "current_membership_details.status",
+   "fetch_from": "current_membership.plan.status",
    "fieldname": "membership_status",
    "fieldtype": "Data",
    "label": "Membership Status",
@@ -912,6 +905,13 @@
    "no_copy": 1,
    "read_only": 1,
    "report_hide": 1
+  },
+  {
+   "fieldname": "current_membership_plan",
+   "fieldtype": "Link",
+   "label": "Current Membership",
+   "options": "Membership",
+   "read_only": 1
   }
  ],
  "links": [
@@ -972,7 +972,7 @@
    "link_fieldname": "volunteer"
   }
  ],
- "modified": "2025-08-17 10:48:01.203029",
+ "modified": "2025-09-09 07:10:12.716187",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Member",

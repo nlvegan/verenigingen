@@ -60,9 +60,11 @@ class VerenigingenTestRunner:
         success = True
         for test_file in test_files:
             try:
+                # Use bench to run tests with proper Frappe environment
+                module_path = str(test_file.relative_to(self.app_root)).replace('/', '.').replace('.py', '')
                 result = subprocess.run([
-                    sys.executable, str(test_file)
-                ], cwd=str(self.app_root), capture_output=True, text=True)
+                    'bench', '--site', 'dev.veganisme.net', 'run-tests', '--module', module_path
+                ], cwd='/home/frappe/frappe-bench', capture_output=True, text=True)
                 
                 if result.returncode == 0:
                     print(f"  ✅ {test_file.name}")

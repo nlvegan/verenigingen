@@ -1086,8 +1086,8 @@ class MembershipDuesSchedule(Document):
 
         # Link to member and membership records
         invoice.member = self.member
-        if self.current_membership:
-            invoice.membership = self.current_membership
+        if member_doc.current_membership_plan:
+            invoice.membership = member_doc.current_membership_plan
 
         # Set proper due date - use payment terms or default to 30 days from posting date
         from frappe.utils import add_days

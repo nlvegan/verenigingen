@@ -229,5 +229,12 @@
     "module": "Desk"
    }
   ]
+ },
+ {
+  "doctype": "Module Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Webhook User",
+  "module_profile_name": "Verenigingen Webhook User",
+  "modules": []
  }
 ]

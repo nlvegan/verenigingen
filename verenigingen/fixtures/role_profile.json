@@ -334,5 +334,16 @@
         "role": "Support Team"
       }
     ]
+  },
+  {
+    "doctype": "Role Profile",
+    "docstatus": 0,
+    "name": "Verenigingen Webhook User",
+    "role_profile": "Verenigingen Webhook User",
+    "roles": [
+      {
+        "role": "Verenigingen Webhook User"
+      }
+    ]
   }
 ]

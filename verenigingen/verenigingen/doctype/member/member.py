@@ -765,10 +765,14 @@ class Member(
                     "member": self.name,
                     "membership_type": self.selected_membership_type,
                     "start_date": today(),
-                    "status": "Pending",  # Will become Active after payment
+                    "status": "Active",  # Active immediately on approval
                 }
             )
             membership.insert()
+            membership.submit()  # Submit to make it fully active
+
+            # Set this as the member's current membership plan
+            self.current_membership_plan = membership.name
 
             # Generate invoice with member's custom fee if applicable
             from verenigingen.utils.application_payments import create_membership_invoice

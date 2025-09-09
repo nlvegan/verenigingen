@@ -95,7 +95,6 @@ def handle_join_chapter_request(context, chapter, member):
             frappe.throw(
                 _("Failed to join chapter: {}").format("; ".join(result.errors)), frappe.ValidationError
             )
-        frappe.db.commit()
 
         # Set success context
         context.join_success = True

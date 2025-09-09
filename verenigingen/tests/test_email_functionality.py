@@ -7,7 +7,7 @@ Phase 2 Implementation - Testing
 import frappe
 import unittest
 from frappe.test_runner import make_test_records
-from verenigingen.tests.fixtures.test_data_factory import VereningingenTestCase
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
 class TestEmailFunctionality(VereningingenTestCase):
@@ -158,27 +158,3 @@ class TestEmailFunctionality(VereningingenTestCase):
         self.assertIsNotNone(send_chapter_email)
         self.assertIsNotNone(get_segment_recipient_count)
 
-
-def run_tests():
-    """Run the email functionality tests"""
-    # Set up test environment
-    frappe.init(site="dev.veganisme.net")
-    frappe.connect()
-    frappe.set_user("Administrator")
-    
-    # Create test suite
-    suite = unittest.TestLoader().loadTestsFromTestCase(TestEmailFunctionality)
-    
-    # Run tests
-    runner = unittest.TextTestRunner(verbosity=2)
-    result = runner.run(suite)
-    
-    # Clean up
-    frappe.db.rollback()
-    
-    return result.wasSuccessful()
-
-
-if __name__ == "__main__":
-    success = run_tests()
-    exit(0 if success else 1)

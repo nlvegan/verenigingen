@@ -11,10 +11,11 @@ from unittest.mock import MagicMock, patch
 import frappe
 
 from verenigingen.templates.pages.volunteer.expenses import (
+    submit_expense,
+)
+from verenigingen.utils.volunteer_expense_setup import (
     get_or_create_expense_type,
     get_organization_cost_center,
-    submit_expense,
-    test_expense_integration,
 )
 
 # Note: setup_expense_claim_types function removed in ERPNext integration simplification

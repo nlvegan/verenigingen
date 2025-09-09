@@ -12,8 +12,9 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
-from verenigingen.archived.obsolete_webhook_system.mollie_webhook_processor import MollieWebhookProcessor
 from verenigingen.utils.webhook_security import authenticate_mollie_webhook
+
+from .mollie_webhook_processor import MollieWebhookProcessor
 
 
 @frappe.whitelist()

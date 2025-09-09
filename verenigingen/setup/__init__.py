@@ -312,6 +312,19 @@ def execute_after_install():
             print(f"⚠️ Security setup failed: {str(e)}")
             frappe.logger().warning(f"Security setup failed: {str(e)}")
 
+        # Set up webhook user for secure payment processing
+        try:
+            from verenigingen.setup.webhook_user_setup import setup_webhook_user
+
+            webhook_result = setup_webhook_user()
+            if webhook_result.get("success"):
+                print("✅ Webhook user setup completed successfully")
+            else:
+                print(f"⚠️ Webhook user setup failed: {webhook_result.get('message')}")
+        except Exception as e:
+            print(f"⚠️ Webhook user setup failed: {str(e)}")
+            frappe.logger().warning(f"Webhook user setup failed: {str(e)}")
+
         # Log the successful setup
         frappe.logger().info("Verenigingen setup completed successfully")
         print("Verenigingen app setup completed successfully")

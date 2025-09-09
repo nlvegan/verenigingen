@@ -16,6 +16,7 @@ class Membership(Document):
     def on_submit(self):
         """Create or update dues schedule when membership is submitted"""
         self.create_or_update_dues_schedule()
+        self.update_member_current_membership_plan()
 
     def on_cancel(self):
         """Handle dues schedule when membership is cancelled"""
@@ -760,6 +761,31 @@ class Membership(Document):
                 frappe.logger().debug(
                     f"Skipping member status update for {self.member} due to permission error"
                 )
+
+    def update_member_current_membership_plan(self):
+        """Update the member's current_membership_plan and current_dues_schedule fields when membership becomes active"""
+        if not self.member or self.status != "Active":
+            return
+
+        try:
+            member_doc = frappe.get_doc("Member", self.member)
+            member_doc.current_membership_plan = self.name
+
+            # Also update current_dues_schedule to match the member's dues schedule
+            dues_schedule = frappe.db.get_value(
+                "Membership Dues Schedule", {"member": self.member, "is_template": 0}, "name"
+            )
+            if dues_schedule:
+                member_doc.current_dues_schedule = dues_schedule
+
+            member_doc.save()
+            frappe.logger().info(
+                f"Updated current_membership_plan for member {self.member} to {self.name}"
+                + (f" and current_dues_schedule to {dues_schedule}" if dues_schedule else "")
+            )
+        except Exception as e:
+            frappe.logger().error(f"Failed to update member fields for {self.member}: {str(e)}")
+            # Don't fail the membership submission if this update fails
 
 
 def on_submit(doc, method=None):

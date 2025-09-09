@@ -1,11 +1,6 @@
 {
- "charts": [
-  {
-   "chart_name": "SEPA Payment Status",
-   "label": "Payment Status Overview"
-  }
- ],
- "content": "[]",
+ "charts": [],
+ "content": "[{\"id\":\"PaymentGatewaysHeader\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Payment Gateways</b></span>\",\"col\":12}},{\"id\":\"PaymentGatewaysCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Payment Gateways\",\"col\":4}},{\"id\":\"SEPAProcessingCard\",\"type\":\"card\",\"data\":{\"card_name\":\"SEPA Processing\",\"col\":4}},{\"id\":\"PaymentPlansCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Payment Plans\",\"col\":4}},{\"id\":\"Spacer1\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"ProcessingHeader\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Payment Processing</b></span>\",\"col\":12}},{\"id\":\"PaymentProcessingCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Payment Processing\",\"col\":4}},{\"id\":\"AuditingCard\",\"type\":\"card\",\"data\":{\"card_name\":\"SEPA Auditing & Retry\",\"col\":4}},{\"id\":\"Spacer2\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"ReportsHeader\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Reports &amp; Analytics</b></span>\",\"col\":12}},{\"id\":\"ReportsAnalyticsCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Reports & Analytics\",\"col\":8}},{\"id\":\"PnnoSSvVaN\",\"type\":\"card\",\"data\":{\"card_name\":\"Mollie Backend\",\"col\":4}},{\"id\":\"YBRoY1mFry\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Mollie Dashboard\",\"col\":3}}]",
  "creation": "2025-08-13 18:34:22.315066",
  "custom_blocks": [],
  "docstatus": 0,
@@ -176,9 +171,10 @@
   },
   {
    "hidden": 0,
+   "icon": "credit-card",
    "is_query_report": 0,
-   "label": "Financial Reports",
-   "link_count": 4,
+   "label": "Mollie Backend",
+   "link_count": 0,
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
@@ -186,49 +182,36 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Overdue Member Payments",
+   "label": "Mollie Settings",
    "link_count": 0,
-   "link_to": "Overdue Member Payments",
-   "link_type": "Report",
+   "link_to": "Mollie Settings",
+   "link_type": "DocType",
    "onboard": 0,
-   "report_ref_doctype": "Sales Invoice",
    "type": "Link"
   },
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Members Without Dues Schedule",
+   "label": "Mollie Audit Log",
    "link_count": 0,
-   "link_to": "Members Without Dues Schedule",
-   "link_type": "Report",
+   "link_to": "Mollie Audit Log",
+   "link_type": "DocType",
    "onboard": 0,
-   "report_ref_doctype": "Member",
    "type": "Link"
   },
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Membership Dues Coverage Analysis",
+   "label": "Balance Report",
    "link_count": 0,
-   "link_to": "Membership Dues Coverage Analysis",
+   "link_to": "Mollie Balance Report",
    "link_type": "Report",
    "onboard": 0,
-   "report_ref_doctype": "Member",
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Membership Revenue Projection",
-   "link_count": 0,
-   "link_to": "Membership Revenue Projection",
-   "link_type": "Report",
-   "onboard": 0,
-   "report_ref_doctype": "Membership Dues Schedule",
+   "report_ref_doctype": "",
    "type": "Link"
   }
  ],
- "modified": "2025-08-15 16:14:06.914549",
+ "modified": "2025-09-08 23:16:26.279283",
  "modified_by": "Administrator",
  "module": "Verenigingen Payments",
  "name": "Verenigingen Payments",
@@ -239,6 +222,14 @@
  "quick_lists": [],
  "roles": [],
  "sequence_id": 2.0,
- "shortcuts": [],
+ "shortcuts": [
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Mollie Dashboard",
+   "type": "URL",
+   "url": "/mollie_dashboard"
+  }
+ ],
  "title": "Verenigingen Payments"
 }

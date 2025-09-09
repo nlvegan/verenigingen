@@ -376,8 +376,11 @@ class ContributionAmendmentRequest(Document):
 
             if is_pure_fee_change:
                 # For pure fee changes, just update the existing dues schedule
+                # Look for Active or Paused schedules (Paused schedules can still be amended)
                 existing_schedule = frappe.db.get_value(
-                    "Membership Dues Schedule", {"member": self.member, "status": "Active"}, "name"
+                    "Membership Dues Schedule",
+                    {"member": self.member, "status": ["in", ["Active", "Paused"]]},
+                    "name",
                 )
 
                 if existing_schedule:
@@ -480,9 +483,11 @@ class ContributionAmendmentRequest(Document):
             if not membership:
                 frappe.throw(_("No active membership found for creating dues schedule"))
 
-            # Deactivate existing active dues schedule
+            # Deactivate existing active or paused dues schedule
             existing_schedule = frappe.db.get_value(
-                "Membership Dues Schedule", {"member": self.member, "status": "Active"}, "name"
+                "Membership Dues Schedule",
+                {"member": self.member, "status": ["in", ["Active", "Paused"]]},
+                "name",
             )
 
             if existing_schedule:
@@ -618,7 +623,9 @@ class ContributionAmendmentRequest(Document):
 
             # Cancel existing dues schedule and create new one with proper billing frequency
             existing_schedule = frappe.db.get_value(
-                "Membership Dues Schedule", {"member": self.member, "status": "Active"}, "name"
+                "Membership Dues Schedule",
+                {"member": self.member, "status": ["in", ["Active", "Paused"]]},
+                "name",
             )
 
             if existing_schedule:

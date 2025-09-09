@@ -1,7 +1,7 @@
 {
  "charts": [],
  "content": "[]",
- "creation": "2025-08-15 11:52:35.542514",
+ "creation": "2025-09-08 20:18:22.759928",
  "custom_blocks": [],
  "docstatus": 0,
  "doctype": "Workspace",
@@ -111,13 +111,13 @@
    "type": "Link"
   }
  ],
- "modified": "2025-08-15 16:14:06.957234",
+ "modified": "2025-09-08 23:16:26.321375",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "E-Boekhouden",
  "number_cards": [],
  "owner": "Administrator",
- "parent_page": "Verenigingen Payments",
+ "parent_page": "Verenigingen",
  "public": 1,
  "quick_lists": [],
  "roles": [],

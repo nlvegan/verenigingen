@@ -106,7 +106,6 @@ def install_templates():
                 step = frappe.get_doc("Onboarding Step", "Verenigingen-Install-Email-Templates")
                 step.is_complete = 1
                 step.save(ignore_permissions=True)
-                frappe.db.commit()
         except Exception:
             pass
 

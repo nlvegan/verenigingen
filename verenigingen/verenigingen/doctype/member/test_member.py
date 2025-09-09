@@ -324,8 +324,8 @@ class TestMember(FrappeTestCase):
             self.assertEqual(member.status, "Active")  # Default status
 
             # Verify membership status fields are empty for new members
-            self.assertFalse(member.current_membership_details)
-            self.assertFalse(member.current_membership_type)
+            self.assertFalse(member.current_membership_plan)
+            self.assertFalse(member.current_dues_schedule)
 
         except Exception as e:
             self.fail(f"Member creation failed with error: {str(e)}")
@@ -427,8 +427,8 @@ class TestMember(FrappeTestCase):
         member.insert()
 
         # These fields should be empty for new members
-        self.assertFalse(member.current_membership_details)
-        self.assertFalse(member.current_membership_type)
+        self.assertFalse(member.current_membership_plan)
+        self.assertFalse(member.current_dues_schedule)
         self.assertFalse(member.current_membership_start)
         self.assertFalse(member.current_membership_end)
         self.assertFalse(member.membership_status)

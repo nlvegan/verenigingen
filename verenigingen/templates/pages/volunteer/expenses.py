@@ -1550,3 +1550,51 @@ def validate_expense_data(expense_data, line_number):
                 )
 
     return errors
+
+
+def get_user_volunteer_record():
+    """Get the volunteer record for the current user"""
+    if frappe.session.user == "Guest":
+        frappe.throw(_("Please login to access volunteer information"), frappe.PermissionError)
+
+    try:
+        # Use the standardized utility function
+        volunteer_name = get_volunteer_for_current_user()
+        if not volunteer_name:
+            return None
+
+        # Get the volunteer document with required fields including member field
+        volunteer = frappe.get_doc("Volunteer", volunteer_name)
+
+        # Return the volunteer document as dict to ensure all fields are available
+        volunteer_dict = volunteer.as_dict()
+
+        # Ensure member field is available for tests
+        if hasattr(volunteer, "member") and volunteer.member:
+            volunteer_dict["member"] = volunteer.member
+
+        return volunteer_dict
+
+    except Exception as e:
+        frappe.log_error(f"Error getting user volunteer record: {str(e)}", "Volunteer Record Error")
+        return None
+
+
+def map_erpnext_status_to_volunteer_status(status, approval_status=None):
+    """Map ERPNext Expense Claim status to volunteer expense status"""
+    # This function was referenced but not defined - adding implementation
+    if status == "Draft":
+        return "Draft"
+    elif status == "Submitted":
+        if approval_status == "Approved":
+            return "Approved"
+        elif approval_status == "Rejected":
+            return "Rejected"
+        else:
+            return "Submitted"
+    elif status == "Paid":
+        return "Reimbursed"
+    elif status == "Cancelled":
+        return "Rejected"
+    else:
+        return status  # Fallback to original status

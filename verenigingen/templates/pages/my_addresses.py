@@ -49,11 +49,9 @@ def get_context(context):
             except frappe.DoesNotExistError:
                 # Address was deleted, clear the reference
                 frappe.db.set_value("Member", member_name, "primary_address", None)
-                frappe.db.commit()
         except frappe.DoesNotExistError:
             # Address was deleted, clear the reference
             frappe.db.set_value("Member", member_name, "primary_address", None)
-            frappe.db.commit()
 
     context.current_address = current_address
 

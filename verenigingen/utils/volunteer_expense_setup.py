@@ -144,6 +144,20 @@ def create_default_cost_center(company):
         return get_fallback_cost_center()
 
 
+def get_organization_cost_center(company=None):
+    """Get organization's main cost center for volunteer expenses"""
+    if not company:
+        company = frappe.db.get_single_value("Global Defaults", "default_company")
+
+    # Try to find existing volunteer expense cost center
+    cost_center_name = f"Volunteer Expenses - {company}"
+    if frappe.db.exists("Cost Center", cost_center_name):
+        return cost_center_name
+
+    # If not found, create it
+    return create_default_cost_center(company)
+
+
 def get_fallback_cost_center():
     """Get any available cost center as fallback"""
     try:

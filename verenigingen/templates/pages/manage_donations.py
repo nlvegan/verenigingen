@@ -321,8 +321,6 @@ def cancel_recurring_donation():
 
         donation.save()
 
-        frappe.db.commit()
-
         return {
             "status": "success",
             "message": _("Recurring donation cancelled successfully"),
@@ -415,8 +413,6 @@ def update_recurring_donation():
             frappe.throw(_("Insufficient permissions to update donation"))
 
         donation.save()
-
-        frappe.db.commit()
 
         return {
             "status": "success",

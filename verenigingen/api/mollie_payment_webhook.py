@@ -38,24 +38,24 @@ def handle_mollie_payment_webhook():
 
     try:
         # Set webhook user context for proper security
-        # For now, use a safe system approach until proper webhook user is configured
-        # TODO: Create dedicated webhook user with minimal required permissions
-        frappe.set_user("Administrator")
+        payment_settings = frappe.get_single("Verenigingen Payments Settings")
+
+        if not payment_settings or not payment_settings.webhook_user:
+            frappe.throw(
+                "Webhook user not configured in Verenigingen Payments Settings. Please configure a dedicated webhook user with 'Verenigingen Webhook User' role."
+            )
+
+        webhook_user = payment_settings.webhook_user
+        frappe.set_user(webhook_user)
 
         # Get payment ID from webhook data - handle both JSON and form-encoded
         raw_payload = frappe.request.get_data(as_text=True) if frappe.request else ""
-
-        frappe.logger().info(
-            f"🔍 Raw webhook payload (length={len(raw_payload)}): '{raw_payload[:100]}{'...' if len(raw_payload) > 100 else ''}'"
-        )
 
         if raw_payload and raw_payload.strip():
             try:
                 # Try JSON first
                 webhook_data = frappe.parse_json(raw_payload)
-                frappe.logger().info("✅ Successfully parsed JSON payload")
-            except (ValueError, TypeError, Exception) as e:
-                frappe.logger().info(f"⚠️ JSON parsing failed: {str(e)}, trying form-encoded")
+            except (ValueError, TypeError, Exception):
                 # Fall back to form-encoded parsing
                 if "=" in raw_payload:
                     from urllib.parse import parse_qs, unquote_plus
@@ -66,15 +66,10 @@ def handle_mollie_payment_webhook():
                     else:
                         key, value = raw_payload.split("=", 1)
                         webhook_data = {unquote_plus(key): unquote_plus(value)}
-                    frappe.logger().info("✅ Successfully parsed form-encoded payload")
                 else:
-                    frappe.logger().info("⚠️ Could not parse payload, using empty dict")
                     webhook_data = {}
         else:
-            frappe.logger().info("ℹ️ No raw payload, using form_dict")
             webhook_data = frappe.form_dict
-
-        frappe.logger().info(f"📄 Final webhook_data: {webhook_data}")
 
         payment_id = webhook_data.get("id")
 
@@ -89,24 +84,15 @@ def handle_mollie_payment_webhook():
         if "status" not in webhook_data:
             return {"status": "error", "message": "Missing payment status"}
 
-        frappe.logger().info(f"🪝 Processing Mollie webhook for payment: {payment_id}")
-
         # Find donation for this payment ID with database lock to prevent race conditions
         donation = find_donation_for_payment_by_id(payment_id, with_lock=True)
         if not donation:
-            frappe.logger().error(f"❌ No donation found for payment {payment_id}")
             return {"status": "error", "message": "No matching donation found"}
-
-        frappe.logger().info(f"✅ Found donation: {donation.name}")
 
         # Check granular idempotency for each component AFTER acquiring lock
         idempotency_status = check_payment_processing_status(donation, payment_id)
 
         if idempotency_status["all_complete"]:
-            frappe.logger().info(
-                f"⚠️ Payment {payment_id} already fully processed for donation {donation.name}"
-            )
-
             return {"status": "already_processed", "donation": donation.name, "details": idempotency_status}
 
         # Get Mollie API client
@@ -122,9 +108,7 @@ def handle_mollie_payment_webhook():
         # Retrieve full payment details from Mollie API
         try:
             payment = client.payments.get(payment_id)
-            frappe.logger().info(f"✅ Retrieved payment from Mollie API: status={payment.status}")
         except Exception as e:
-            frappe.logger().error(f"❌ Failed to retrieve payment from Mollie: {str(e)}")
             return {"status": "error", "message": f"Failed to retrieve payment data: {str(e)}"}
 
         # Process payment based on status with proper Frappe transaction management
@@ -132,10 +116,8 @@ def handle_mollie_payment_webhook():
             try:
                 # Use Frappe's transaction system instead of raw SQL
                 result = process_successful_payment_with_idempotency(donation, payment, idempotency_status)
-                frappe.logger().info(f"✅ Payment processed successfully: {result}")
                 return {"status": "success", "result": result}
             except Exception as e:
-                frappe.logger().error(f"❌ Payment processing failed: {str(e)}")
                 # Frappe automatically handles rollback in webhook context
                 raise
 
@@ -145,22 +127,16 @@ def handle_mollie_payment_webhook():
             if hasattr(donation, "payment_status"):
                 donation.payment_status = "Failed"
             donation.save()
-
-            frappe.logger().info(f"⚠️ Payment {payment_id} failed/cancelled")
             return {"status": "processed", "payment_status": "failed"}
 
         else:
             # Payment still pending
-            frappe.logger().info(f"⏳ Payment {payment_id} still pending")
             return {"status": "processed", "payment_status": "pending"}
 
     except Exception as e:
         import traceback
 
         error_details = traceback.format_exc()
-        frappe.logger().error(f"💥 Mollie webhook error: {str(e)}")
-        frappe.logger().error(f"🔍 Full traceback:\n{error_details}")
-
         payment_id_str = payment_id if "payment_id" in locals() else "unknown"
         raw_payload_str = raw_payload if "raw_payload" in locals() else "unknown"
 
@@ -187,7 +163,6 @@ def find_donation_for_payment_by_id(payment_id, with_lock=False):
         if with_lock:
             # Acquire row-level lock to prevent concurrent webhook processing
             frappe.db.sql("SELECT name FROM `tabDonation` WHERE name = %s FOR UPDATE", (donation_name,))
-            frappe.logger().info(f"🔒 Acquired lock for donation {donation_name}")
         return frappe.get_doc("Donation", donation_name)
     return None
 
@@ -229,7 +204,7 @@ def check_payment_processing_status(donation, payment_id):
 
     all_complete = payment_entry_created and payment_history_exists and donation_status_updated
 
-    status = {
+    return {
         "payment_entry_created": payment_entry_created,
         "payment_history_exists": payment_history_exists,
         "donation_status_updated": donation_status_updated,
@@ -237,9 +212,6 @@ def check_payment_processing_status(donation, payment_id):
         "donation_history_updated": payment_history_exists,
         "all_complete": all_complete,
     }
-
-    frappe.logger().info(f"🔍 Idempotency check for {donation.name}: {status}")
-    return status
 
 
 def find_donation_for_payment(payment_id, payment):
