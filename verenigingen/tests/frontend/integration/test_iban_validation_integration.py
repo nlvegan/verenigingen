@@ -7,11 +7,12 @@ import unittest
 
 import frappe
 from frappe.utils import today
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.utils.validation.iban_validator import derive_bic_from_iban, validate_iban
 
 
-class TestIBANValidationIntegration(unittest.TestCase):
+class TestIBANValidationIntegration(EnhancedTestCase):
     """Test IBAN validation integration across the system"""
 
     def setUp(self):

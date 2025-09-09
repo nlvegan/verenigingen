@@ -128,7 +128,9 @@ def test_approve_membership_application():
     finally:
         # Cleanup
         try:
-            frappe.delete_doc("Member", member.name, force=True, ignore_permissions=True)
+            frappe.delete_doc(
+                "Member", member.name, force=True
+            )  # Cleanup - script runs with admin permissions
             print(f"🧹 Cleaned up test member: {member.name}")
         except Exception as e:
             print(f"⚠️ Cleanup warning: {str(e)}")
@@ -173,7 +175,9 @@ def test_reject_membership_application():
     finally:
         # Cleanup
         try:
-            frappe.delete_doc("Member", member.name, force=True, ignore_permissions=True)
+            frappe.delete_doc(
+                "Member", member.name, force=True
+            )  # Cleanup - script runs with admin permissions
             print(f"🧹 Cleaned up test member: {member.name}")
         except Exception as e:
             print(f"⚠️ Cleanup warning: {str(e)}")
@@ -215,7 +219,9 @@ def test_helper_functions():
     finally:
         # Cleanup
         try:
-            frappe.delete_doc("Member", member.name, force=True, ignore_permissions=True)
+            frappe.delete_doc(
+                "Member", member.name, force=True
+            )  # Cleanup - script runs with admin permissions
             print(f"🧹 Cleaned up test member: {member.name}")
         except Exception as e:
             print(f"⚠️ Cleanup warning: {str(e)}")

@@ -346,7 +346,7 @@ class TestVolunteerExpenseEdgeCases(unittest.TestCase):
         expense.cancel()
         expense.delete()
 
-    @patch("frappe.sendmail")
+    @patch("frappe.sendmail")  # Mock external email service (appropriate for notification testing)
     def test_notification_with_invalid_email(self, mock_sendmail):
         """Test notification handling when volunteer has invalid email"""
         # Create member with invalid email
@@ -408,7 +408,7 @@ class TestVolunteerExpenseEdgeCases(unittest.TestCase):
         chapter_membership.delete()
         invalid_member.delete()
 
-    @patch("frappe.sendmail")
+    @patch("frappe.sendmail")  # Mock external email service (appropriate for notification testing)
     def test_notification_with_missing_email(self, mock_sendmail):
         """Test notification handling when volunteer has no email"""
         # Create member without email

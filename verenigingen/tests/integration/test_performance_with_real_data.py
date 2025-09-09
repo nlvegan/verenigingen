@@ -17,11 +17,11 @@ from unittest import mock
 from typing import Dict, List, Any
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from frappe.utils import today
 
 
-class TestRealDataPerformance(FrappeTestCase):
+class TestRealDataPerformance(EnhancedTestCase):
     """Performance tests using existing system data"""
     
     def setUp(self):
@@ -330,7 +330,7 @@ class TestRealDataPerformance(FrappeTestCase):
                     print(f"    Note: Result discrepancy for {customer_name}: individual={bool(individual_result)}, batch={bool(batch_result_item)}")
 
 
-class TestRealDataScenarios(FrappeTestCase):
+class TestRealDataScenarios(EnhancedTestCase):
     """Test realistic scenarios with existing data"""
     
     def setUp(self):

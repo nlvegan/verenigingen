@@ -15,10 +15,10 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import add_days, now_datetime, today
 
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestPaymentHistoryRaceCondition(VereningingenTestCase):
+class TestPaymentHistoryRaceCondition(EnhancedTestCase):
     """Test payment history race condition handling with realistic scenarios"""
 
     def setUp(self):
@@ -135,21 +135,43 @@ class TestPaymentHistoryRaceCondition(VereningingenTestCase):
                     raise frappe.DoesNotExistError(f"Sales Invoice {name} not found")
             return original_get_doc(doctype, name, *args, **kwargs)
         
-        # Test with simulated race condition
-        with patch('frappe.get_doc', side_effect=mock_get_doc_with_delay):
-            start_time = time.time()
+        # Test real race condition with concurrent access
+        import threading
+        import time
+        
+        results = []
+        exceptions = []
+        
+        def concurrent_payment_addition():
+            try:
+                # Real concurrent access to payment history
+                time.sleep(0.01)  # Small delay to increase race condition chance
+                self.test_member.add_invoice_to_payment_history(invoice.name)
+                results.append("success")
+            except Exception as e:
+                exceptions.append(str(e))
+        
+        # Start multiple threads to create real race condition
+        threads = []
+        for i in range(3):
+            thread = threading.Thread(target=concurrent_payment_addition)
+            threads.append(thread)
+            thread.start()
+        
+        # Wait for all threads to complete
+        for thread in threads:
+            thread.join()
+        
+        # At least one should succeed, others may fail due to real race conditions
+        self.assertGreater(len(results), 0, "At least one concurrent operation should succeed")
+        
+        # Verify that concurrent operations were handled
+        total_operations = len(results) + len(exceptions)
+        self.assertEqual(total_operations, 3, "All concurrent operations should complete")
             
-            # This should succeed after retries
-            self.test_member.add_invoice_to_payment_history(invoice.name)
-            
-            execution_time = time.time() - start_time
-            
-            # Verify retries occurred
-            self.assertGreater(retry_count[0], 1, "Retry mechanism should have been triggered")
-            
-            # Verify invoice was eventually added
-            found_entry = None
-            for entry in self.test_member.payment_history:
+        # Verify invoice was eventually added
+        found_entry = None
+        for entry in self.test_member.payment_history:
                 if entry.invoice == invoice.name:
                     found_entry = entry
                     break

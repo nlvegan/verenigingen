@@ -39,11 +39,11 @@ def setup_webhook_user():
         if not config_result["success"]:
             return config_result
 
-        print(f"✅ Webhook user setup completed successfully")
+        print("✅ Webhook user setup completed successfully")
         print(f"   📧 User: {webhook_user_email}")
         print(f"   🔐 Password: {webhook_password}")
-        print(f"   🛡️ Role: Verenigingen Webhook User")
-        print(f"   ⚙️ Configured in Verenigingen Payments Settings")
+        print("   🛡️ Role: Verenigingen Webhook User")
+        print("   ⚙️ Configured in Verenigingen Payments Settings")
 
         return {
             "success": True,
@@ -69,7 +69,7 @@ def generate_webhook_user_email():
 
         # Ensure uniqueness by adding suffix if needed
         counter = 1
-        original_email = webhook_email
+        # Store original for reference if needed later
         while frappe.db.exists("User", webhook_email):
             webhook_email = f"webhook-user-{counter}@{clean_site}"
             counter += 1
@@ -79,7 +79,7 @@ def generate_webhook_user_email():
     except Exception:
         # Fallback to a generic webhook user email
         counter = 1
-        webhook_email = f"webhook-user@verenigingen-app.local"
+        webhook_email = "webhook-user@verenigingen-app.local"
         while frappe.db.exists("User", webhook_email):
             webhook_email = f"webhook-user-{counter}@verenigingen-app.local"
             counter += 1

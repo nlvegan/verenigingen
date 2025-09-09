@@ -8,11 +8,11 @@ Tests the core member journey without complex dependencies
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from frappe.utils import add_days, add_months, today, random_string
 
 
-class TestMemberLifecycleBasic(FrappeTestCase):
+class TestMemberLifecycleBasic(EnhancedTestCase):
     """
     Basic Member Lifecycle Test
     
@@ -47,7 +47,7 @@ class TestMemberLifecycleBasic(FrappeTestCase):
             "status": "Active",
             "chapter": chapter
         })
-        member.insert(ignore_permissions=True)
+        member.insert()  # Enhanced Test Factory handles permissions
         
         # Verify member created
         self.assertEqual(member.status, "Active")
@@ -68,12 +68,12 @@ class TestMemberLifecycleBasic(FrappeTestCase):
         # Add role if it exists
         if frappe.db.exists("Role", "Verenigingen Member"):
             user.append("roles", {"role": "Verenigingen Member"})
-        user.insert(ignore_permissions=True)
+        user.insert()  # Enhanced Test Factory handles permissions
         
         # Link user to member
         member.reload()
         member.user = user.name
-        member.save(ignore_permissions=True)
+        member.save()  # Enhanced Test Factory handles permissions
         
         # Verify user created and linked
         self.assertEqual(member.user, user.name)
@@ -98,7 +98,7 @@ class TestMemberLifecycleBasic(FrappeTestCase):
                 "renewal_date": add_months(today(), 12),
                 "status": "Active"
             })
-            membership.insert(ignore_permissions=True)
+            membership.insert()  # Enhanced Test Factory handles permissions
             membership.submit()
             
             # Verify membership
@@ -116,7 +116,7 @@ class TestMemberLifecycleBasic(FrappeTestCase):
             "status": "Active",
             "start_date": today()
         })
-        volunteer.insert(ignore_permissions=True)
+        volunteer.insert()  # Enhanced Test Factory handles permissions
         
         # Verify volunteer
         self.assertEqual(volunteer.status, "Active")
@@ -129,19 +129,19 @@ class TestMemberLifecycleBasic(FrappeTestCase):
         # Suspend member
         member.reload()
         member.status = "Suspended"
-        member.save(ignore_permissions=True)
+        member.save()  # Enhanced Test Factory handles permissions
         self.assertEqual(member.status, "Suspended")
         print("✅ Member suspended")
         
         # Reactivate member
         member.status = "Active"
-        member.save(ignore_permissions=True)
+        member.save()  # Enhanced Test Factory handles permissions
         self.assertEqual(member.status, "Active")
         print("✅ Member reactivated")
         
         # Terminate member
         member.status = "Terminated"
-        member.save(ignore_permissions=True)
+        member.save()  # Enhanced Test Factory handles permissions
         self.assertEqual(member.status, "Terminated")
         print("✅ Member terminated")
         

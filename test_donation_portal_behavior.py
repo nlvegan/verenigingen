@@ -68,7 +68,7 @@ def create_test_donation():
 def test_cancel_recurring_donation_current_behavior(donation_id):
     """Test current behavior of cancel_recurring_donation function"""
 
-    print(f"\n=== Testing CURRENT cancel_recurring_donation behavior ===")
+    print("\n=== Testing CURRENT cancel_recurring_donation behavior ===")
     print(f"Testing with donation ID: {donation_id}")
 
     # Import the function we're testing
@@ -113,7 +113,7 @@ def test_cancel_recurring_donation_current_behavior(donation_id):
 def test_update_donation_amount_current_behavior(donation_id, new_amount=35.0):
     """Test current behavior of update_recurring_donation_amount function"""
 
-    print(f"\n=== Testing CURRENT update_recurring_donation_amount behavior ===")
+    print("\n=== Testing CURRENT update_recurring_donation_amount behavior ===")
     print(f"Testing with donation ID: {donation_id}, new amount: {new_amount}")
 
     # First, create a fresh active donation for this test
@@ -154,7 +154,7 @@ def test_update_donation_amount_current_behavior(donation_id, new_amount=35.0):
 def check_for_transaction_warnings():
     """Check recent logs for any implicit commit warnings"""
 
-    print(f"\n=== Checking for transaction warnings ===")
+    print("\n=== Checking for transaction warnings ===")
 
     # This is a placeholder - in a real system you'd check the actual log files
     # For now, we'll just note that we should monitor the logs
@@ -177,21 +177,21 @@ def main():
     print(f"Created test donation: {donation_id}")
 
     # Test current behavior
-    cancel_success, cancel_result = test_cancel_recurring_donation_current_behavior(donation_id)
-    update_success, update_result = test_update_donation_amount_current_behavior(donation_id)
+    cancel_success, _cancel_result = test_cancel_recurring_donation_current_behavior(donation_id)
+    update_success, _update_result = test_update_donation_amount_current_behavior(donation_id)
 
     # Check for warnings
     check_for_transaction_warnings()
 
     # Summary
-    print(f"\n=== TEST SUMMARY ===")
+    print("\n=== TEST SUMMARY ===")
     print(f"Cancel donation function: {'PASS' if cancel_success else 'FAIL'}")
     print(f"Update donation amount function: {'PASS' if update_success else 'FAIL'}")
     print(
         f"Overall portal behavior: {'WORKING' if (cancel_success and update_success) else 'ISSUES DETECTED'}"
     )
 
-    print(f"\n=== NEXT STEPS ===")
+    print("\n=== NEXT STEPS ===")
     print("1. Run this test to establish baseline behavior")
     print("2. Remove frappe.db.commit() calls from manage_donations.py")
     print("3. Run this test again to validate no regression")

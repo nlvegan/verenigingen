@@ -4,14 +4,13 @@ Critical Business Logic Tests for Membership Termination Request
 These tests verify that essential methods exist and core termination workflows work.
 """
 
-import unittest
-
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, today
 
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-class TestMembershipTerminationRequestCritical(FrappeTestCase):
+
+class TestMembershipTerminationRequestCritical(EnhancedTestCase):
     """Critical tests for Membership Termination Request doctype"""
 
     def test_required_methods_exist(self):
@@ -114,7 +113,7 @@ class TestMembershipTerminationRequestCritical(FrappeTestCase):
         )
 
         try:
-            test_member.insert(ignore_permissions=True)
+            test_member.insert()  # Enhanced Test Factory handles permissions
 
             # Create termination request
             termination_request = frappe.get_doc(
@@ -128,7 +127,7 @@ class TestMembershipTerminationRequestCritical(FrappeTestCase):
             )
 
             # Test document creation (should not raise exceptions)
-            termination_request.insert(ignore_permissions=True)
+            termination_request.insert()  # Enhanced Test Factory handles permissions
 
             # Verify defaults were set
             self.assertEqual(termination_request.status, "Pending")

@@ -8,13 +8,13 @@ Tests for chapter dashboard functionality and permissions
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from unittest.mock import patch, Mock
+from verenigingen.tests.utils.base import VereningingenTestCase
 import json
 from datetime import datetime, timedelta
 
 
-class TestChapterDashboard(FrappeTestCase):
+class TestChapterDashboard(VereningingenTestCase):
     """Test chapter dashboard functionality"""
     
     @classmethod
@@ -46,7 +46,7 @@ class TestChapterDashboard(FrappeTestCase):
                 "introduction": "Test chapter for dashboard testing",
                 "published": 1
             })
-            chapter.insert(ignore_permissions=True)
+            chapter.insert(# VereningingenTestCase handles permissions)
             return chapter
         return frappe.get_doc("Chapter", chapter_name)
         
@@ -68,7 +68,7 @@ class TestChapterDashboard(FrappeTestCase):
                 "status": status,
                 "chapter": cls.test_chapter.name
             })
-            member.insert(ignore_permissions=True)
+            member.insert()  # VereningingenTestCase handles permissions
             members.append(member)
             
             # Add to chapter members
@@ -79,7 +79,7 @@ class TestChapterDashboard(FrappeTestCase):
                 "enabled": 1
             })
             
-        cls.test_chapter.save(ignore_permissions=True)
+        cls.test_chapter.save()  # VereningingenTestCase handles permissions
         return members
         
     @classmethod
@@ -100,7 +100,7 @@ class TestChapterDashboard(FrappeTestCase):
             
             # Add Chapter Board Member role
             user.append("roles", {"role": "Verenigingen Chapter Board Member"})
-            user.insert(ignore_permissions=True)
+            user.insert(# VereningingenTestCase handles permissions)
             return user
         return frappe.get_doc("User", email)
         
@@ -127,8 +127,7 @@ class TestChapterDashboard(FrappeTestCase):
             self.assertEqual(dashboard_data["chapter"], self.test_chapter.name)
             self.assertIsNotNone(dashboard_data["stats"])
             
-        # Reset user
-        frappe.set_user("Administrator")
+        # VereningingenTestCase handles user reset in tearDown
         
     def test_statistics_accuracy(self):
         """Test dashboard statistics calculation"""
@@ -230,7 +229,7 @@ class TestChapterDashboard(FrappeTestCase):
         pending_member.reload()
         pending_member.status = "Active"
         pending_member.application_status = "Approved"
-        pending_member.save(ignore_permissions=True)
+        pending_member.save(# VereningingenTestCase handles permissions)
         
         # Verify approval
         pending_member.reload()
@@ -370,7 +369,7 @@ class TestChapterDashboard(FrappeTestCase):
                 member = frappe.get_doc("Member", member_id)
                 if member.status != bulk_update["new_status"]:
                     member.status = bulk_update["new_status"]
-                    member.save(ignore_permissions=True)
+                    member.save(# VereningingenTestCase handles permissions)
                     updated_count += 1
             except Exception:
                 pass

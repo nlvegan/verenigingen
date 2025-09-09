@@ -405,6 +405,7 @@ class Membership(Document):
                     months = 12
                     # Only show message once per session and if renewal date is not already set
                     message_key = f"renewal_message_{self.name or 'new'}"
+                    self.renewal_date = None
                     if not frappe.flags.get(message_key) and not self.renewal_date:
                         frappe.msgprint(
                             _(
@@ -499,6 +500,7 @@ class Membership(Document):
 
     def set_grace_period_expiry(self):
         """Set grace period expiry date based on settings if grace period status is set"""
+        self.grace_period_expiry_date = None
         if self.grace_period_status == "Grace Period" and not self.grace_period_expiry_date:
             # Get default grace period days from settings
             settings = frappe.get_single("Verenigingen Settings")
@@ -682,14 +684,13 @@ class Membership(Document):
     def on_submit_legacy(self):  # Renamed to avoid duplicate definition
         import json
 
-        import frappe
-        from frappe import _
-        from frappe.utils import add_days, add_months, getdate
-
+        # using frappe from top-level import
+        # using frappe._, add_days, add_months, getdate from top-level import
         # Update member's current membership
         self.update_member_status()
 
         # Make sure unpaid_amount is set if field exists and not already set
+        self.unpaid_amount = None
         if hasattr(self, "unpaid_amount") and not self.unpaid_amount:
             self.unpaid_amount = 0
 
@@ -724,7 +725,7 @@ class Membership(Document):
 
     def on_cancel_legacy(self):  # Renamed to avoid duplicate definition
         """Handle when membership is cancelled directly (not the same as member cancellation)"""
-        from frappe.utils import add_months, getdate, nowdate, today
+        # using add_months, getdate, nowdate, today from top-level import
 
         # Check if membership is submitted (docstatus == 1) before enforcing the 1-year rule
         if self.docstatus == 1 and getdate(self.start_date):
@@ -922,7 +923,7 @@ def process_membership_statuses():
     - Mark memberships as inactive if payment is overdue
     - Auto-renew memberships if configured
     """
-    from frappe.utils import getdate, today
+    # using getdate, today from top-level import
 
     # Get memberships that need status updates
     memberships = frappe.get_all(
@@ -993,7 +994,7 @@ def verify_signature(data, signature, secret_key=None):
     import hashlib
     import hmac
 
-    import frappe
+    # using frappe from top-level import
 
     if not secret_key:
         # Get secret key from configuration

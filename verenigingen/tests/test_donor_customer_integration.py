@@ -6,10 +6,10 @@ Donor and Customer records, following CLAUDE.md testing requirements.
 """
 
 import frappe
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestDonorCustomerIntegration(VereningingenTestCase):
+class TestDonorCustomerIntegration(EnhancedTestCase):
     """Test suite for Donor-Customer integration functionality"""
     
     def setUp(self):
@@ -22,7 +22,7 @@ class TestDonorCustomerIntegration(VereningingenTestCase):
             donor_group.customer_group_name = "Donors"
             donor_group.parent_customer_group = "All Customer Groups"
             donor_group.is_group = 0
-            donor_group.flags.ignore_permissions = True
+            # Permission context handled by Enhanced Test Factory
             donor_group.insert()
             self.track_doc("Customer Group", donor_group.name)
 

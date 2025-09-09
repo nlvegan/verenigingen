@@ -646,7 +646,7 @@ class TestVolunteerExpense(unittest.TestCase):
                 }
             ).insert()
 
-    @patch("frappe.sendmail")
+    @patch("frappe.sendmail")  # Mock external email service (appropriate for workflow testing)
     def test_expense_approval_workflow(self, mock_sendmail):
         """Test expense approval workflow"""
         from verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense import approve_expense
@@ -680,7 +680,7 @@ class TestVolunteerExpense(unittest.TestCase):
         expense.cancel()
         expense.delete()
 
-    @patch("frappe.sendmail")
+    @patch("frappe.sendmail")  # Mock external email service (appropriate for workflow testing)
     def test_expense_rejection_workflow(self, mock_sendmail):
         """Test expense rejection workflow"""
         from verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense import reject_expense

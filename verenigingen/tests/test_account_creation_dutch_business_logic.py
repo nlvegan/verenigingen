@@ -40,6 +40,8 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self.original_user = frappe.session.user
+        # Set Administrator for account creation pipeline testing
+        frappe.set_user("Administrator")
         
     def tearDown(self):
         frappe.set_user(self.original_user)
@@ -135,7 +137,7 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
         self.assertIn("Verenigingen Member", requested_roles)
         
         # Process and verify
-        frappe.set_user("Administrator")
+        # Already running as Administrator from setUp
         manager = AccountCreationManager(request.name)
         manager.process_complete_pipeline()
         
@@ -178,7 +180,7 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
         self.assertEqual(request.role_profile, "Verenigingen Volunteer")
         
         # Process and verify role assignment
-        frappe.set_user("Administrator")
+        # Already running as Administrator from setUp
         manager = AccountCreationManager(request.name)
         manager.process_complete_pipeline()
         
@@ -208,7 +210,7 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
         result = queue_account_creation_for_volunteer(volunteer.name)
         request = frappe.get_doc("Account Creation Request", result["request_name"])
         
-        frappe.set_user("Administrator")
+        # Already running as Administrator from setUp
         manager = AccountCreationManager(request.name)
         manager.process_complete_pipeline()
         
@@ -251,7 +253,7 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
                 request = frappe.get_doc("Account Creation Request", result["request_name"])
                 
                 # Process account creation
-                frappe.set_user("Administrator")
+                # Already running as Administrator from setUp
                 manager = AccountCreationManager(request.name)
                 manager.process_complete_pipeline()
                 
@@ -292,7 +294,7 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
         result = queue_account_creation_for_volunteer(volunteer.name)
         request = frappe.get_doc("Account Creation Request", result["request_name"])
         
-        frappe.set_user("Administrator")
+        # Already running as Administrator from setUp
         manager = AccountCreationManager(request.name)
         manager.process_complete_pipeline()
         
@@ -329,7 +331,7 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
         result = queue_account_creation_for_volunteer(volunteer.name)
         request = frappe.get_doc("Account Creation Request", result["request_name"])
         
-        frappe.set_user("Administrator") 
+        # Already running as Administrator from setUp
         manager = AccountCreationManager(request.name)
         manager.process_complete_pipeline()
         
@@ -417,7 +419,7 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
         result = queue_account_creation_for_volunteer(volunteer.name)
         request = frappe.get_doc("Account Creation Request", result["request_name"])
         
-        frappe.set_user("Administrator")
+        # Already running as Administrator from setUp
         manager = AccountCreationManager(request.name)
         manager.process_complete_pipeline()
         

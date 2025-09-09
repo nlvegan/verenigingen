@@ -12,9 +12,8 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
+from verenigingen.archived.obsolete_webhook_system.mollie_webhook_processor import MollieWebhookProcessor
 from verenigingen.utils.webhook_security import authenticate_mollie_webhook
-
-from .mollie_webhook_processor import MollieWebhookProcessor
 
 
 @frappe.whitelist()
@@ -67,7 +66,7 @@ def _process_mollie_webhook(environment: str) -> Dict[str, Any]:
 
         # Log successful processing
         frappe.logger().info(
-            f"Mollie webhook processed successfully ({environment}): {result.get('payment_id', 'unknown')}"
+            "Mollie webhook processed successfully (%s): %s", environment, result.get("payment_id", "unknown")
         )
 
         return result

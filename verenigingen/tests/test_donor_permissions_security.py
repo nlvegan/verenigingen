@@ -27,6 +27,8 @@ class TestDonorPermissionsSecurity(VereningingenTestCase):
     def setUp(self):
         """Set up test data using proper factory methods"""
         super().setUp()
+        # Set Administrator for security testing
+        frappe.set_user("Administrator")
         
         # Create realistic test users and members using factory
         self.test_member_user = "security_test_member@example.com"
@@ -169,15 +171,15 @@ class TestDonorPermissionsSecurity(VereningingenTestCase):
         malicious_doc = MaliciousDoc()
         
         # Mock user without proper roles
-        with frappe.set_user("Administrator"):  # Use admin to create test user
-            test_user = frappe.get_doc({
-                "doctype": "User",
-                "email": "bypass_attempt@example.com", 
-                "first_name": "Bypass",
-                "user_type": "Website User"
-            })
-            test_user.insert()
-            self.track_doc("User", test_user.name)
+        # Already running as Administrator from setUp
+        test_user = frappe.get_doc({
+            "doctype": "User",
+            "email": "bypass_attempt@example.com", 
+            "first_name": "Bypass",
+            "user_type": "Website User"
+        })
+        test_user.insert()
+        self.track_doc("User", test_user.name)
         
         with frappe.set_user("bypass_attempt@example.com"):
             # Should not have access even with manipulated object
@@ -298,14 +300,14 @@ class TestDonorPermissionsSecurity(VereningingenTestCase):
         """Test that permissions work correctly with Frappe ORM queries"""
         
         # Create user with proper roles and test actual ORM integration
-        with frappe.set_user("Administrator"):
-            test_user = frappe.get_doc({
-                "doctype": "User",
-                "email": "orm_test@example.com",
-                "first_name": "ORM",
-                "user_type": "System User"
-            })
-            test_user.insert()
+        # Already running as Administrator from setUp
+        test_user = frappe.get_doc({
+            "doctype": "User",
+            "email": "orm_test@example.com",
+            "first_name": "ORM",
+            "user_type": "System User"
+        })
+        test_user.insert()
             
             # Add proper role
             test_user.add_roles("Verenigingen Member")

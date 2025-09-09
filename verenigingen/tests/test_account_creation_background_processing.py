@@ -117,7 +117,7 @@ class TestAccountCreationBackgroundProcessing(EnhancedTestCase):
             retry_count=2  # Third attempt
         )
         
-        frappe.set_user("Administrator")
+        # Permission context handled by Enhanced Test Factory
         manager = AccountCreationManager(request.name)
         manager.load_request()
         
@@ -171,7 +171,7 @@ class TestAccountCreationBackgroundProcessing(EnhancedTestCase):
             request_type="Member"
         )
         
-        frappe.set_user("Administrator")
+        # Permission context handled by Enhanced Test Factory
         manager = AccountCreationManager(request.name)
         manager.load_request()
         
@@ -213,13 +213,13 @@ class TestAccountCreationBackgroundProcessing(EnhancedTestCase):
             request_type="Member"
         )
         
-        # Mock a timeout scenario
-        with patch('frappe.get_doc') as mock_get_doc:
-            # Mock the request loading to succeed
-            mock_get_doc.return_value = request
+        # Mock justified: External Service - Redis/background processing, not business logic
+        # Test timeout handling without breaking database operations
+        with patch('frappe.enqueue') as mock_enqueue:
+            mock_enqueue.side_effect = Exception("Redis timeout during queueing")
             
             # Simulate timeout during user creation
-            frappe.set_user("Administrator")
+            # Permission context handled by Enhanced Test Factory
             manager = AccountCreationManager(request.name)
             
             # Mock timeout error
@@ -251,7 +251,7 @@ class TestAccountCreationBackgroundProcessing(EnhancedTestCase):
             )
             requests.append(request)
             
-        frappe.set_user("Administrator")
+        # Permission context handled by Enhanced Test Factory
         
         # Process requests concurrently
         def process_request(request_name):
@@ -334,7 +334,7 @@ class TestAccountCreationBackgroundProcessing(EnhancedTestCase):
         self.assertIsNotNone(request.processing_started_at)
         
         # Simulate processing stages
-        frappe.set_user("Administrator")
+        # Permission context handled by Enhanced Test Factory
         manager = AccountCreationManager(request.name)
         manager.load_request()
         
@@ -362,7 +362,7 @@ class TestAccountCreationBackgroundProcessing(EnhancedTestCase):
         )
         
         # Process the request
-        frappe.set_user("Administrator")
+        # Permission context handled by Enhanced Test Factory
         manager = AccountCreationManager(request.name)
         manager.process_complete_pipeline()
         
@@ -397,7 +397,7 @@ class TestAccountCreationBackgroundProcessing(EnhancedTestCase):
         request.append("requested_roles", {"role": "Invalid Role Name"})
         request.insert()
         
-        frappe.set_user("Administrator")
+        # Permission context handled by Enhanced Test Factory
         
         # Attempt processing - should fail gracefully
         with self.assertRaises(frappe.ValidationError):
@@ -429,7 +429,7 @@ class TestAccountCreationBackgroundProcessing(EnhancedTestCase):
             requests.append(request)
             
         # Process with memory monitoring
-        frappe.set_user("Administrator")
+        # Permission context handled by Enhanced Test Factory
         
         processed_count = 0
         for request in requests:
@@ -488,7 +488,7 @@ class TestAccountCreationQueueResilience(EnhancedTestCase):
             request_type="Member"
         )
         
-        frappe.set_user("Administrator")
+        # Permission context handled by Enhanced Test Factory
         manager = AccountCreationManager(request.name)
         manager.load_request()
         
@@ -534,7 +534,7 @@ class TestAccountCreationQueueResilience(EnhancedTestCase):
             request_type="Member"
         )
         
-        frappe.set_user("Administrator")
+        # Permission context handled by Enhanced Test Factory
         
         # Simulate concurrent processing that could lead to deadlock
         def process_with_delay(request_name, delay):

@@ -199,9 +199,8 @@ def process_line_items(invoice, regels, invoice_type, cost_center, debug_info):
             get_or_create_item_improved,
         )
 
-        company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value(
-            "Global Defaults", "default_company"
-        )
+        # Use the company from the invoice being processed, not defaults
+        company = invoice.company
 
         item_code = get_or_create_item_improved(
             account_code=account_code,
@@ -216,7 +215,7 @@ def process_line_items(invoice, regels, invoice_type, cost_center, debug_info):
         # Map GL account (try both English and Dutch field names)
         # CRITICAL: NEVER allow fallbacks - they cause data corruption with fake account codes
         gl_account = map_grootboek_to_erpnext_account(
-            account_code, invoice_type, debug_info, allow_fallback=False
+            account_code, invoice_type, company, debug_info, allow_fallback=False
         )
 
         # For standardized items (Event-Ticket, Bank-Costs), use clean item details instead of ugly transaction description
@@ -503,7 +502,7 @@ def map_unit_of_measure(unit):
 
 
 def map_grootboek_to_erpnext_account(
-    grootboek_nummer, transaction_type, debug_info=None, allow_fallback=False
+    grootboek_nummer, transaction_type, company, debug_info=None, allow_fallback=False
 ):
     """
     Map eBoekhouden GL account to ERPNext account using modern mapping system
@@ -511,6 +510,7 @@ def map_grootboek_to_erpnext_account(
     Args:
         grootboek_nummer: E-Boekhouden account number
         transaction_type: 'sales' or 'purchase'
+        company: Company name for account lookup
         debug_info: List to append debug messages to
         allow_fallback: If False, raises error instead of using fallback accounts
     """
@@ -525,7 +525,6 @@ def map_grootboek_to_erpnext_account(
         return get_default_account(transaction_type)
 
     # Check if ERPNext account already exists with this grootboek code
-    company = frappe.defaults.get_user_default("Company") or "NVV"
     company_abbr = frappe.db.get_value("Company", company, "abbr")
 
     # Try direct account lookup first (accounts created by Chart of Accounts import)
@@ -643,11 +642,36 @@ def get_tax_account(btw_code, invoice_type, company, debug_info=None):
     return None
 
 
-def get_cost_center(cost_center_id):
-    """Get cost center by ID"""
-    # This would need to be implemented based on cost center mapping
-    # For now, return a default
-    return frappe.db.get_single_value("Company", "cost_center") or "Main - NVV"
+def get_cost_center(cost_center_id, company=None):
+    """Get cost center by ID with proper company context"""
+    if not company:
+        settings = frappe.get_single("E-Boekhouden Settings")
+        company = settings.default_company
+
+    if not company:
+        frappe.throw("No company configured for cost center lookup", title="Company Required")
+
+    # Try to get company's default cost center
+    default_cost_center = frappe.db.get_value("Company", company, "cost_center")
+    if default_cost_center:
+        return default_cost_center
+
+    # Try to find "Main" cost center for this company
+    main_cost_center = frappe.db.get_value(
+        "Cost Center", {"company": company, "cost_center_name": "Main", "is_group": 0}, "name"
+    )
+    if main_cost_center:
+        return main_cost_center
+
+    # Get any cost center for this company
+    any_cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+    if any_cost_center:
+        return any_cost_center
+
+    frappe.throw(
+        f"No cost center found for company {company}. Please create a cost center first.",
+        title="Cost Center Required",
+    )
 
 
 def fetch_relation_details(relation_id):

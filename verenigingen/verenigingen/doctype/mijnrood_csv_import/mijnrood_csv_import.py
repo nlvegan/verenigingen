@@ -87,7 +87,7 @@ class MijnroodCSVImport(Document):
                 _("File encoding error. Please check the encoding setting or try a different encoding.")
             )
         except Exception as e:
-            frappe.log_error(f"CSV file reading error: {str(e)}")
+            frappe.log_error("CSV file reading error: %s", str(e))
             frappe.throw(_("Error reading CSV file: {0}").format(str(e)))
 
     def _sanitize_filename(self) -> str:
@@ -126,7 +126,9 @@ class MijnroodCSVImport(Document):
                 file_path = file_doc.get_full_path()
                 if hasattr(file_doc, "get_content"):
                     file_content = file_doc.get_content()
-        except (frappe.DoesNotExistError, Exception):
+        except frappe.DoesNotExistError:
+            pass
+        except Exception:
             pass
 
         # Method 2: Try to find by sanitized file name
@@ -137,7 +139,9 @@ class MijnroodCSVImport(Document):
                     file_path = file_doc.get_full_path()
                     if hasattr(file_doc, "get_content"):
                         file_content = file_doc.get_content()
-            except (frappe.DoesNotExistError, Exception):
+            except frappe.DoesNotExistError:
+                pass
+            except Exception:
                 pass
 
         return file_path, file_content
@@ -196,7 +200,7 @@ class MijnroodCSVImport(Document):
 
             # Ensure file is within site directory structure
             return abs_path.startswith(site_path)
-        except Exception:
+        except OSError:
             return False
 
     def _read_file_from_path(self, file_path: str) -> List[Dict]:
@@ -238,7 +242,7 @@ class MijnroodCSVImport(Document):
                         return self._parse_csv_content(csvfile)
                 except UnicodeDecodeError:
                     continue
-                except Exception as e:
+                except (UnicodeDecodeError, OSError) as e:
                     # If it's not an encoding issue, re-raise
                     if "codec" not in str(e).lower():
                         raise
@@ -312,7 +316,7 @@ class MijnroodCSVImport(Document):
                         reader = csv.DictReader(csvfile, delimiter=delimiter)
                         data = [first_row] + list(reader)
                         break
-                except Exception:
+                except (csv.Error, ValueError):
                     continue
 
             if not data:
@@ -540,7 +544,7 @@ class MijnroodCSVImport(Document):
             return phone
         else:
             # Invalid format - return empty string to skip this field
-            frappe.logger().warning(f"Invalid phone number format during CSV import: {phone_number}")
+            frappe.logger().warning("Invalid phone number format during CSV import: %s", phone_number)
             return ""
 
     def _convert_membership_type(self, membership_type: str) -> str:
@@ -568,7 +572,7 @@ class MijnroodCSVImport(Document):
         for fmt in formats:
             try:
                 return getdate(date_str).strftime("%Y-%m-%d")
-            except:
+            except (ValueError, TypeError):
                 continue
 
         return None
@@ -620,7 +624,7 @@ class MijnroodCSVImport(Document):
                         errors.append(
                             f"Row {row_num}: Birth date seems unrealistic (age {age}): {birth_date_str}"
                         )
-                except Exception:
+                except (ValueError, TypeError):
                     errors.append(f"Row {row_num}: Invalid birth date format: {birth_date_str}")
 
         # Contact number validation
@@ -851,7 +855,7 @@ class MijnroodCSVImport(Document):
     def _process_user_account_creation(self, processed_members: List[str]) -> str:
         """Queue bulk user account creation for successfully imported members using AccountCreationManager"""
         try:
-            frappe.logger().info(f"Queuing bulk account creation for {len(processed_members)} members")
+            frappe.logger().info("Queuing bulk account creation for %d members", len(processed_members))
 
             # Use the secure AccountCreationManager bulk processing system
             result = queue_bulk_account_creation_for_members(
@@ -909,7 +913,7 @@ class MijnroodCSVImport(Document):
             if result.get("request_names"):
                 # Store first 10 request names for tracking (avoid overwhelming the log)
                 sample_requests = result["request_names"][:10]
-                frappe.logger().info(f"Sample account creation requests: {sample_requests}")
+                frappe.logger().info("Sample account creation requests: %s", sample_requests)
 
                 # Log any batches that failed to queue
                 failed_batches = [
@@ -987,7 +991,7 @@ class MijnroodCSVImport(Document):
             validation_issues.append(f"Validation error: {str(e)}")
 
         if validation_issues:
-            frappe.logger().warning(f"Mollie data validation found {len(validation_issues)} issues")
+            frappe.logger().warning("Mollie data validation found %d issues", len(validation_issues))
             # Log issues for review but don't fail the import
             frappe.log_error(
                 "Mollie data preservation issues:\n" + "\n".join(validation_issues),
@@ -1052,7 +1056,7 @@ class MijnroodCSVImport(Document):
         optimization_applied = False
         try:
             optimization_applied = safe_member_optimizer.enabled and self.use_safe_optimization
-        except:
+        except (AttributeError, TypeError):
             pass
 
         # Save member with safe optimizations applied automatically via before_save() hook
@@ -1293,7 +1297,7 @@ class MijnroodCSVImport(Document):
 
             # Log warnings
             for warning in warnings:
-                frappe.logger().warning(f"CSV import Mollie data warning: {warning}")
+                frappe.logger().warning("CSV import Mollie data warning: %s", warning)
 
             # First ensure customer exists (create if needed)
             if not member_doc.customer:
@@ -1358,7 +1362,9 @@ class MijnroodCSVImport(Document):
 
         except Exception as e:
             # Log error but don't fail the entire member creation for related record issues
-            frappe.logger().error(f"Failed to create related records for member {member_doc.name}: {str(e)}")
+            frappe.logger().error(
+                "Failed to create related records for member %s: %s", member_doc.name, str(e)
+            )
 
     def _create_termination_record(self, member_doc: Document, termination_data: dict):
         """Create a membership termination record for historical accuracy."""
@@ -1384,10 +1390,10 @@ class MijnroodCSVImport(Document):
 
             # Insert termination record with proper permissions
             termination_doc.insert()
-            frappe.logger().info(f"Created termination record for member {member_doc.name}")
+            frappe.logger().info("Created termination record for member %s", member_doc.name)
 
         except Exception as e:
-            frappe.logger().error(f"Failed to create termination record for {member_doc.name}: {str(e)}")
+            frappe.logger().error("Failed to create termination record for %s: %s", member_doc.name, str(e))
             # Don't fail the entire import for termination record issues
 
     def _assign_member_to_chapter(self, member_doc: Document, chapter_name: str):
@@ -1455,7 +1461,9 @@ class MijnroodCSVImport(Document):
                         f"Successfully assigned member {member_doc.name} to chapter {chapter_name}"
                     )
                 else:
-                    frappe.logger().info(f"Member {member_doc.name} already exists in chapter {chapter_name}")
+                    frappe.logger().info(
+                        "Member %s already exists in chapter %s", member_doc.name, chapter_name
+                    )
             except Exception as e:
                 frappe.logger().warning(
                     f"Could not assign member {member_doc.name} to chapter {chapter_name}: {str(e)}"
@@ -1515,10 +1523,12 @@ class MijnroodCSVImport(Document):
             member_doc.next_invoice_date = dues_schedule.next_invoice_date
             member_doc.save()
 
-            frappe.logger().info(f"Created dues schedule {dues_schedule.name} for member {member_doc.name}")
+            frappe.logger().info(
+                "Created dues schedule %s for member %s", dues_schedule.name, member_doc.name
+            )
 
         except Exception as e:
-            frappe.logger().error(f"Failed to create dues schedule for {member_doc.name}: {str(e)}")
+            frappe.logger().error("Failed to create dues schedule for %s: %s", member_doc.name, str(e))
             # Don't fail the entire import for dues schedule issues
 
     def _create_membership_from_import(self, member_doc: Document, row_data: dict):
@@ -1561,10 +1571,10 @@ class MijnroodCSVImport(Document):
             member_doc.current_membership_plan = membership.name
             member_doc.save()
 
-            frappe.logger().info(f"Created membership {membership.name} for member {member_doc.name}")
+            frappe.logger().info("Created membership %s for member %s", membership.name, member_doc.name)
 
         except Exception as e:
-            frappe.logger().error(f"Failed to create membership for {member_doc.name}: {str(e)}")
+            frappe.logger().error("Failed to create membership for %s: %s", member_doc.name, str(e))
             # Don't fail the entire import for membership creation issues
 
     def _map_payment_period_to_frequency(self, payment_period: str) -> str:
@@ -1654,7 +1664,7 @@ class MijnroodCSVImport(Document):
         try:
             return frappe.db.exists("Membership Type", membership_type) is not None
         except Exception as e:
-            frappe.logger().error(f"Error validating membership type '{membership_type}': {str(e)}")
+            frappe.logger().error("Error validating membership type '%s': %s", membership_type, str(e))
             return False
 
     def _validate_doctype_field(self, doctype: str, fieldname: str) -> bool:
@@ -1663,7 +1673,9 @@ class MijnroodCSVImport(Document):
             meta = frappe.get_meta(doctype)
             return meta.has_field(fieldname)
         except Exception as e:
-            frappe.logger().error(f"Error validating field '{fieldname}' on DocType '{doctype}': {str(e)}")
+            frappe.logger().error(
+                "Error validating field '%s' on DocType '%s': %s", fieldname, doctype, str(e)
+            )
             return False
 
     def _ensure_nl_region_exists(self) -> str:
@@ -1699,7 +1711,7 @@ class MijnroodCSVImport(Document):
             return region.name
 
         except Exception as e:
-            frappe.logger().error(f"Failed to create Netherlands region: {str(e)}")
+            frappe.logger().error("Failed to create Netherlands region: %s", str(e))
             # Return None to indicate failure
             return None
 
@@ -1737,7 +1749,7 @@ class MijnroodCSVImport(Document):
             return chapter.name
 
         except Exception as e:
-            frappe.logger().error(f"Failed to create chapter '{chapter_name}': {str(e)}")
+            frappe.logger().error("Failed to create chapter '%s': %s", chapter_name, str(e))
             return None
 
 

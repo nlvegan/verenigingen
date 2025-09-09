@@ -8,10 +8,10 @@ all validation tests pass in the development environment.
 
 import unittest
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestComprehensiveRoleProfileValidation(FrappeTestCase):
+class TestComprehensiveRoleProfileValidation(EnhancedTestCase):
     """Test comprehensive role profile system validation"""
 
     def test_run_comprehensive_validation(self):

@@ -299,7 +299,7 @@ def update_member_address(address_data):
             action = "created"
 
         # Log the change
-        frappe.logger().info(f"Address {action} for member {member_name}: {address_doc.name}")
+        frappe.logger().info("Address %s for member %s: %s", action, member_name, address_doc.name)
 
         # Prepare response with formatted address using Dutch conventions
         from verenigingen.utils.address_formatter import format_address_for_country
@@ -315,7 +315,7 @@ def update_member_address(address_data):
         }
 
     except Exception as e:
-        frappe.log_error(f"Error updating address for member {member_name}: {str(e)}")
+        frappe.log_error("Error updating address for member %s: %s", member_name, str(e))
         frappe.throw(_("An error occurred while updating your address. Please try again."))
 
 

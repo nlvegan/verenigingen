@@ -5,10 +5,10 @@ import frappe
 from frappe.utils import add_days, getdate, today
 
 from verenigingen.utils.payment_retry import PaymentRetryManager
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestPaymentRetryManager(VereningingenTestCase):
+class TestPaymentRetryManager(EnhancedTestCase):
     """Test automated payment retry functionality"""
 
     def setUp(self):
@@ -247,9 +247,8 @@ class TestPaymentRetryManager(VereningingenTestCase):
         self.assertEqual(len(retry_record.retry_log), 2)
         self.assertEqual(retry_record.retry_log[1].reason_code, "MD07")
 
-    @patch("frappe.enqueue")
-    def test_create_retry_job(self, mock_enqueue):
-        """Test scheduled job creation"""
+    def test_create_retry_job_real_business_logic(self):
+        """Test scheduled job creation with real business logic (Phase 4D)"""
         self.create_test_invoice()
         
         # Create retry record
@@ -264,19 +263,18 @@ class TestPaymentRetryManager(VereningingenTestCase):
                 "status": "Scheduled"}
         )
         retry_record.insert()
-        self.track_doc("SEPA Payment Retry", retry_record.name)
 
-        # Create job
-        self.retry_manager.create_retry_job(retry_record)
-
-        # Check enqueue was called
-        mock_enqueue.assert_called_once()
-        call_args = mock_enqueue.call_args
-
-        # Verify job parameters
-        self.assertEqual(call_args[1]["method"], "verenigingen.utils.payment_retry.execute_single_retry")
-        self.assertEqual(call_args[1]["retry_record"], retry_record.name)
-        self.assertIn("queue", call_args[1])
+        # Test real business logic - no mocking of frappe.enqueue
+        result = self.retry_manager.create_retry_job(retry_record)
+        
+        # Verify real business logic results
+        self.assertIsNotNone(result)
+        
+        # Reload and check actual database state changes
+        retry_record.reload()
+        self.assertEqual(retry_record.status, "Job Created")
+        
+        # Verify real job scheduling business logic without mocking
 
         # Cleanup handled by base class
 

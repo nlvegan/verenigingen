@@ -2,31 +2,30 @@
 Unit tests for per-membership-type minimum period enforcement
 """
 
-import unittest
-
 import frappe
 from frappe.utils import add_months, getdate, today
-
-from .test_data_factory import TestDataFactory
-from .test_membership_utilities import MembershipTestUtilities
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestMembershipTypeMinimumPeriod(unittest.TestCase):
+class TestMembershipTypeMinimumPeriod(EnhancedTestCase):
     """Test cases for the per-membership-type enforce_minimum_period setting"""
 
     @classmethod
     def setUpClass(cls):
-        """Set up test data"""
-        cls.factory = TestDataFactory()
+        """Set up test data using Enhanced Test Factory"""
+        pass  # Enhanced Test Factory handles this automatically
 
     def setUp(self):
-        """Set up before each test"""
-        frappe.db.rollback()
-        frappe.set_user("Administrator")
-
-        # Create test data
-        self.chapter = self.factory.create_test_chapters(count=1)[0]
-        self.member = self.factory.create_test_members([self.chapter], count=1)[0]
+        """Set up before each test using Enhanced Test Factory"""
+        super().setUp()
+        
+        # Create test data with Enhanced Test Factory
+        self.test_chapter = self.create_test_chapter()
+        self.test_member = self.create_test_member()
+        
+        # Maintain compatibility with existing tests
+        self.chapter = self.test_chapter
+        self.member = self.test_member
 
     def tearDown(self):
         """Clean up after each test"""
@@ -54,7 +53,7 @@ class TestMembershipTypeMinimumPeriod(unittest.TestCase):
                 "subscription_period": "Monthly",
                 "is_active": 1}
         )
-        mt.insert(ignore_permissions=True)
+        mt.insert()  # EnhancedTestCase handles permissions
 
         # Default should be 1 (enforced)
         self.assertEqual(mt.enforce_minimum_period, 1)
@@ -278,7 +277,7 @@ class TestMembershipTypeMinimumPeriod(unittest.TestCase):
 
         self.assertIn("1 year", str(cm.exception))
 
-        frappe.set_user("Administrator")
+        # EnhancedTestCase tearDown handles user restoration
 
     def test_cancellation_allowed_without_enforcement(self):
         """Test that cancellation is allowed when enforcement is disabled"""

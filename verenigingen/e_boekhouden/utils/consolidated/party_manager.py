@@ -347,15 +347,40 @@ class EBoekhoudenPartyManager:
 
     def _get_default_customer_group(self) -> str:
         """Get default customer group."""
-        return frappe.db.get_value("Customer Group", {"is_group": 0}, "name") or "All Customer Groups"
+        # First try to get a reasonable default customer group
+        default_group = frappe.db.get_value("Customer Group", {"is_group": 0}, "name")
+        if default_group:
+            return default_group
+
+        # "All Customer Groups" is ERPNext's default root group, this is safe
+        return "All Customer Groups"
 
     def _get_default_territory(self) -> str:
-        """Get default territory."""
-        return frappe.db.get_value("Territory", {"is_group": 0}, "name") or "All Territories"
+        """Get default territory using consistent error handling."""
+        from verenigingen.e_boekhouden.utils.error_handling_framework import ErrorHandler, safe_get_value
+
+        handler = ErrorHandler("Party Manager")
+
+        # Try to get default territory configured for company
+        company_territory = frappe.db.get_value("Company", self.company, "default_territory")
+        if company_territory:
+            return company_territory
+
+        # Get any territory using safe method
+        return safe_get_value(
+            "Territory", {"is_group": 0}, "name", handler, context="party creation", required=True
+        )
 
     def _get_default_supplier_group(self) -> str:
         """Get default supplier group."""
-        return frappe.db.get_value("Supplier Group", {"is_group": 0}, "name") or "All Supplier Groups"
+        # Get any supplier group, but don't use random fallback text
+        supplier_group = frappe.db.get_value("Supplier Group", {"is_group": 0}, "name")
+        if supplier_group:
+            return supplier_group
+
+        frappe.throw(
+            "No supplier group found. Please create supplier groups first.", title="Supplier Group Required"
+        )
 
     def _queue_for_enrichment(self, party_type: str, party_name: str, relation_id: str):
         """Queue party for enrichment with API data."""

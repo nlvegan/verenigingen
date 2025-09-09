@@ -1,8 +1,6 @@
-import unittest
-
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import today
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 def get_member_primary_chapter(member_name):
@@ -20,7 +18,7 @@ def get_member_primary_chapter(member_name):
         return None
 
 
-class TestChapterEdgeCases(FrappeTestCase):
+class TestChapterEdgeCases(EnhancedTestCase):
     """Comprehensive edge case tests for Chapter doctype"""
 
     @classmethod
@@ -30,23 +28,18 @@ class TestChapterEdgeCases(FrappeTestCase):
         cls.test_counter = 0
 
     def setUp(self):
-        """Set up for each test"""
+        """Set up for each test using Enhanced Test Factory"""
+        super().setUp()
         TestChapterEdgeCases.test_counter += 1
         self.test_id = f"EDGE{TestChapterEdgeCases.test_counter:03d}"
-        self.docs_to_cleanup = []
 
-        # Create test prerequisites
+        # Create test prerequisites with Enhanced Test Factory
         self.create_test_prerequisites()
 
     def tearDown(self):
-        """Clean up after each test"""
-        for doctype, name in reversed(self.docs_to_cleanup):
-            try:
-                if frappe.db.exists(doctype, name):
-                    frappe.delete_doc(doctype, name, force=True)
-            except Exception as e:
-                print(f"Error cleaning up {doctype} {name}: {e}")
-        frappe.db.commit()
+        """Clean up after each test - Enhanced Test Factory handles automatic cleanup"""
+        # Enhanced Test Factory handles automatic cleanup
+        super().tearDown()
 
     def create_test_prerequisites(self):
         """Create test prerequisites"""

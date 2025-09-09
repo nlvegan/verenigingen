@@ -23,8 +23,21 @@ def get_or_create_customer_simple(relation_id, debug_log=None):
     try:
         customer = frappe.new_doc("Customer")
         customer.customer_name = f"E-Boekhouden Customer {relation_id}"
-        customer.customer_group = frappe.db.get_value("Customer Group", {}, "name")
-        customer.territory = frappe.db.get_value("Territory", {}, "name")
+
+        # Get appropriate customer group
+        customer_group = frappe.db.get_value("Customer Group", {"is_group": 0}, "name")
+        if not customer_group:
+            customer_group = "All Customer Groups"  # ERPNext default
+        customer.customer_group = customer_group
+
+        # Get appropriate territory
+        territory = frappe.db.get_value("Territory", {"is_group": 0}, "name")
+        if not territory:
+            frappe.throw(
+                "No territory found. Please create territories before importing customers.",
+                title="Territory Required",
+            )
+        customer.territory = territory
         customer.save()
 
         if debug_log:
@@ -86,7 +99,14 @@ def _create_supplier_from_description(relation_id, description, debug_log):
 
         supplier = frappe.new_doc("Supplier")
         supplier.supplier_name = supplier_name
-        supplier.supplier_group = frappe.db.get_value("Supplier Group", {}, "name")
+        # Get appropriate supplier group
+        supplier_group = frappe.db.get_value("Supplier Group", {"is_group": 0}, "name")
+        if not supplier_group:
+            frappe.throw(
+                "No supplier group found. Please create supplier groups before importing suppliers.",
+                title="Supplier Group Required",
+            )
+        supplier.supplier_group = supplier_group
         if hasattr(supplier, "eboekhouden_relation_code"):
             supplier.eboekhouden_relation_code = str(relation_id)
         supplier.save()

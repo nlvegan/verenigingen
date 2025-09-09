@@ -3,13 +3,22 @@
 
 import random
 import string
-import unittest
 
 import frappe
 from frappe.utils import add_days, getdate, today
 
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-class TestTeam(unittest.TestCase):
+
+class TestTeam(EnhancedTestCase):
+    def setUp(self):
+        """Set up test data for team testing"""
+        super().setUp()  # EnhancedTestCase handles permissions and cleanup
+
+    def tearDown(self):
+        """Clean up after team tests"""
+        super().tearDown()  # EnhancedTestCase handles cleanup via database rollback
+
     @classmethod
     def setUpClass(cls):
         # Tell Frappe not to make test records
@@ -85,7 +94,7 @@ class TestTeam(unittest.TestCase):
                     "email": email,
                 }
             )
-            member.insert(ignore_permissions=True)
+            member.insert()  # EnhancedTestCase handles permissions
             self.test_members.append(member)
 
             # Create volunteer for each member with unique name
@@ -106,7 +115,7 @@ class TestTeam(unittest.TestCase):
                     "start_date": today(),
                 }
             )
-            volunteer.insert(ignore_permissions=True)
+            volunteer.insert()  # EnhancedTestCase handles permissions
             self.test_volunteers.append(volunteer)
 
     def create_test_team(self):
@@ -158,7 +167,7 @@ class TestTeam(unittest.TestCase):
                 },
             )
 
-        self.test_team.insert(ignore_permissions=True)
+        self.test_team.insert()
         return self.test_team
 
     def test_team_creation(self):
@@ -227,7 +236,7 @@ class TestTeam(unittest.TestCase):
                         "status": "Active",
                     },
                 )
-                volunteer_doc.save(ignore_permissions=True)
+                volunteer_doc.save()
                 has_team_history = True
 
             self.assertTrue(has_team_history, "Team leader should have team assignment in history")
@@ -257,7 +266,7 @@ class TestTeam(unittest.TestCase):
         inactive_member.status = "Inactive"
         inactive_member.is_active = 0
         inactive_member.to_date = today()
-        team.save(ignore_permissions=True)
+        team.save()  # EnhancedTestCase handles permissions
 
         # Reload and verify status change
         team.reload()
@@ -282,7 +291,7 @@ class TestTeam(unittest.TestCase):
                 "status": "Completed",
             },
         )
-        volunteer_doc.save(ignore_permissions=True)
+        volunteer_doc.save()
 
         # Verify assignment history was updated
         volunteer_doc.reload()
@@ -370,7 +379,7 @@ class TestTeam(unittest.TestCase):
             },
         )
 
-        team.insert(ignore_permissions=True)
+        team.insert()
 
         # Reload to verify volunteer was automatically linked
         team.reload()
@@ -412,7 +421,7 @@ class TestTeam(unittest.TestCase):
             member_to_promote.role
 
             member_to_promote.role = "Assistant Leader"
-            team.save(ignore_permissions=True)
+            team.save()  # EnhancedTestCase handles permissions
             team.reload()
 
             # Verify role change
@@ -433,7 +442,7 @@ class TestTeam(unittest.TestCase):
         # Test end date functionality
         end_date = add_days(today(), 30)
         team.end_date = end_date
-        team.save(ignore_permissions=True)
+        team.save()  # EnhancedTestCase handles permissions
         team.reload()
 
         # Handle both date object and string comparisons

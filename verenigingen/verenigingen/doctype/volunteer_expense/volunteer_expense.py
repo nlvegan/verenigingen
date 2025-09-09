@@ -21,7 +21,7 @@ class VolunteerExpense(Document):
 
     def validate_amount(self):
         """Validate amount is positive"""
-        if self.amount and flt(self.amount) <= 0:
+        if self.amount is not None and flt(self.amount) <= 0:
             frappe.throw(_("Amount must be greater than zero"))
 
     def validate_organization_selection(self):

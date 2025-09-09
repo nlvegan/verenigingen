@@ -196,6 +196,7 @@ class ContributionAmendmentRequest(Document):
     def set_default_effective_date(self):
         """Set default effective date to next billing period"""
         if not self.effective_date and self.membership:
+            self.effective_date = None
             try:
                 # Check if there's an active dues schedule
                 active_dues_schedule = frappe.db.get_value(
@@ -222,6 +223,7 @@ class ContributionAmendmentRequest(Document):
     def set_requested_by(self):
         """Set requested by to current user"""
         if not self.requested_by:
+            self.requested_by = None
             self.requested_by = frappe.session.user
 
     def before_insert(self):
@@ -237,7 +239,7 @@ class ContributionAmendmentRequest(Document):
             max_auto_approve_amount = getattr(settings, "max_auto_approve_amount", 1000)
 
             # Check if this is a member self-request
-            is_member_request = frappe.session.user == member.user or frappe.session.user == member.email
+            is_member_request = frappe.session.user in (member.user, member.email)
 
             # Auto-approve fee increases by current member (with limits)
             if (
@@ -400,7 +402,6 @@ class ContributionAmendmentRequest(Document):
                     ) + f"\nAmended via {self.name} on {today()}: €{self.requested_amount:.2f}"
 
                     # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                    from verenigingen.utils.secure_operations import secure_document_operation
 
                     schedule_result = secure_document_operation(
                         operation="save",
@@ -449,7 +450,7 @@ class ContributionAmendmentRequest(Document):
             # Set flag to bypass permission check for system updates
             member_doc._system_update = True
             # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            from verenigingen.utils.secure_operations import secure_document_operation
+            # using secure_document_operation from top-level import
 
             member_result = secure_document_operation(
                 operation="save",
@@ -579,7 +580,7 @@ class ContributionAmendmentRequest(Document):
             )
 
             # Create new dues schedule with proper security validation
-            from verenigingen.utils.secure_operations import secure_document_operation
+            # using secure_document_operation from top-level import
 
             create_result = secure_document_operation(
                 operation="save",
@@ -1036,7 +1037,7 @@ def create_fee_change_amendment(member_name, new_amount, reason, effective_date=
 @frappe.whitelist()
 def get_member_pending_contribution_amendments(member_name):
     """Get pending contribution amendments for a member"""
-    from frappe.utils import getdate, today
+    # using getdate, today from top-level import
 
     amendments = frappe.get_all(
         "Contribution Amendment Request",
@@ -1439,7 +1440,9 @@ def fix_membership_type_billing_periods():
                     required_permissions=["Membership Type:write"],
                 )
                 if not type_result.success:
-                    raise Exception(f"Failed to update membership type: {'; '.join(type_result.errors)}")
+                    raise frappe.ValidationError(
+                        f"Failed to update membership type: {'; '.join(type_result.errors)}"
+                    )
 
                 applied_corrections.append(
                     {
@@ -1522,7 +1525,7 @@ def fix_membership_dues_schedule_templates():
                     required_permissions=["Membership Dues Schedule:write"],
                 )
                 if not schedule_result.success:
-                    raise Exception(
+                    raise frappe.ValidationError(
                         f"Failed to update dues schedule template: {'; '.join(schedule_result.errors)}"
                     )
 
@@ -1551,6 +1554,92 @@ def fix_membership_dues_schedule_templates():
         return {"success": False, "error": str(e)}
 
 
+def _process_template_schedule(schedule, orphaned_templates, corrected_templates, errors):
+    """Process a single template schedule for orphaned or mismatched data"""
+    # Check if membership type exists
+    if schedule.membership_type and not frappe.db.exists("Membership Type", schedule.membership_type):
+        orphaned_templates.append(
+            {
+                "name": schedule.name,
+                "schedule_name": schedule.schedule_name,
+                "missing_membership_type": schedule.membership_type,
+                "billing_frequency": schedule.billing_frequency,
+            }
+        )
+        return
+
+    # Check for billing frequency mismatches in existing types
+    if not schedule.membership_type:
+        return
+
+    try:
+        membership_type = frappe.get_doc("Membership Type", schedule.membership_type)
+        if schedule.billing_frequency == membership_type.billing_period:
+            return
+
+        # Update template to match membership type
+        schedule_doc = frappe.get_doc("Membership Dues Schedule", schedule.name)
+        old_frequency = schedule_doc.billing_frequency
+        schedule_doc.billing_frequency = membership_type.billing_period
+
+        template_result = secure_document_operation(
+            operation="save",
+            doc=schedule_doc,
+            justification=f"Align template billing frequency with membership type {membership_type.name}",
+            required_permissions=["Membership Dues Schedule:write"],
+        )
+
+        if not template_result.success:
+            raise frappe.ValidationError(
+                f"Failed to update template frequency: {'; '.join(template_result.errors)}"
+            )
+
+        corrected_templates.append(
+            {
+                "schedule_name": schedule.schedule_name,
+                "old_frequency": old_frequency,
+                "new_frequency": membership_type.billing_period,
+                "matched_to_membership_type": membership_type.name,
+            }
+        )
+
+    except Exception as e:
+        errors.append({"schedule_name": schedule.schedule_name, "error": str(e)})
+
+
+def _cleanup_orphaned_template(orphan, cleanup_results, errors):
+    """Clean up a single orphaned template"""
+    try:
+        # Delete orphaned templates
+        orphan_doc = frappe.get_doc("Membership Dues Schedule", orphan["name"])
+        delete_result = secure_document_operation(
+            operation="delete",
+            doc=orphan_doc,
+            justification=f"Delete orphaned dues schedule template {orphan['schedule_name']} - references non-existent membership type",
+            required_permissions=["Membership Dues Schedule:delete"],
+        )
+
+        if not delete_result.success:
+            raise frappe.ValidationError(
+                f"Failed to delete orphaned template: {'; '.join(delete_result.errors)}"
+            )
+
+        # Use frappe.delete_doc if secure_document_operation doesn't handle delete properly
+        if orphan_doc.name:
+            frappe.delete_doc("Membership Dues Schedule", orphan["name"], force=True)
+
+        cleanup_results.append(
+            {
+                "schedule_name": orphan["schedule_name"],
+                "action": "deleted",
+                "reason": f"Referenced non-existent membership type: {orphan['missing_membership_type']}",
+            }
+        )
+
+    except Exception as e:
+        errors.append({"schedule_name": orphan["schedule_name"], "error": f"Failed to delete: {str(e)}"})
+
+
 @frappe.whitelist()
 def fix_orphaned_schedule_templates():
     """Fix or remove schedule templates that reference non-existent membership types"""
@@ -1568,78 +1657,12 @@ def fix_orphaned_schedule_templates():
         errors = []
 
         for schedule in template_schedules:
-            # Check if membership type exists
-            if schedule.membership_type and not frappe.db.exists("Membership Type", schedule.membership_type):
-                orphaned_templates.append(
-                    {
-                        "name": schedule.name,
-                        "schedule_name": schedule.schedule_name,
-                        "missing_membership_type": schedule.membership_type,
-                        "billing_frequency": schedule.billing_frequency,
-                    }
-                )
-
-            # Also check for billing frequency mismatches in existing types
-            elif schedule.membership_type:
-                try:
-                    membership_type = frappe.get_doc("Membership Type", schedule.membership_type)
-                    if schedule.billing_frequency != membership_type.billing_period:
-                        # Update template to match membership type
-                        schedule_doc = frappe.get_doc("Membership Dues Schedule", schedule.name)
-                        old_frequency = schedule_doc.billing_frequency
-                        schedule_doc.billing_frequency = membership_type.billing_period
-                        template_result = secure_document_operation(
-                            operation="save",
-                            doc=schedule_doc,
-                            justification=f"Align template billing frequency with membership type {membership_type.name}",
-                            required_permissions=["Membership Dues Schedule:write"],
-                        )
-                        if not template_result.success:
-                            raise Exception(
-                                f"Failed to update template frequency: {'; '.join(template_result.errors)}"
-                            )
-
-                        corrected_templates.append(
-                            {
-                                "schedule_name": schedule.schedule_name,
-                                "old_frequency": old_frequency,
-                                "new_frequency": membership_type.billing_period,
-                                "matched_to_membership_type": membership_type.name,
-                            }
-                        )
-
-                except Exception as e:
-                    errors.append({"schedule_name": schedule.schedule_name, "error": str(e)})
+            _process_template_schedule(schedule, orphaned_templates, corrected_templates, errors)
 
         # For orphaned templates, try to clean them up or fix them
         cleanup_results = []
         for orphan in orphaned_templates:
-            try:
-                # Delete orphaned templates
-                # Create a temporary document to represent the delete operation
-                orphan_doc = frappe.get_doc("Membership Dues Schedule", orphan["name"])
-                delete_result = secure_document_operation(
-                    operation="delete",
-                    doc=orphan_doc,
-                    justification=f"Delete orphaned dues schedule template {orphan['schedule_name']} - references non-existent membership type",
-                    required_permissions=["Membership Dues Schedule:delete"],
-                )
-                if not delete_result.success:
-                    raise Exception(f"Failed to delete orphaned template: {'; '.join(delete_result.errors)}")
-                # Use frappe.delete_doc if secure_document_operation doesn't handle delete properly
-                if orphan_doc.name:
-                    frappe.delete_doc("Membership Dues Schedule", orphan["name"], force=True)
-                cleanup_results.append(
-                    {
-                        "schedule_name": orphan["schedule_name"],
-                        "action": "deleted",
-                        "reason": f"Referenced non-existent membership type: {orphan['missing_membership_type']}",
-                    }
-                )
-            except Exception as e:
-                errors.append(
-                    {"schedule_name": orphan["schedule_name"], "error": f"Failed to delete: {str(e)}"}
-                )
+            _cleanup_orphaned_template(orphan, cleanup_results, errors)
 
         return {
             "success": len(errors) == 0,
@@ -1723,7 +1746,7 @@ def test_silvia_scenario_after_fixes():
         )
 
         # Simulate what would happen if Silvia was on Test Daily Membership now
-        from frappe.utils import add_days, today
+        # using add_days, today from top-level import
 
         expected_daily_next_invoice = add_days(today(), 1)  # Tomorrow for daily
 
@@ -1917,7 +1940,7 @@ def investigate_7_day_discrepancy():
         analysis_results = []
 
         # Check if this is related to add_days(today(), 7) somewhere
-        from frappe.utils import add_days, today
+        # using add_days, today from top-level import
 
         seven_days_from_today = add_days(today(), 7)
         analysis_results.append(
@@ -2165,7 +2188,7 @@ def debug_silvia_schedule_issue():
         )
 
         # Check what should be the next invoice date for daily billing
-        from frappe.utils import add_days, today
+        # using add_days, today from top-level import
 
         expected_daily_next_invoice = add_days(today(), 1)  # Tomorrow for daily
 

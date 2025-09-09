@@ -761,13 +761,9 @@ class EnhancedTestDataFactory:
         chapter_data = {
             "doctype": "Chapter",
             "name": chapter_name,
-            "chapter_name": chapter_name,
-            "short_name": attributes.get("short_name", "TST") if attributes else "TST",
-            "country": attributes.get("country", "Netherlands") if attributes else "Netherlands",
             "published": attributes.get("published", 1) if attributes else 1,
             # Required fields for chapter
             "introduction": attributes.get("introduction", "Test chapter for automated testing") if attributes else "Test chapter for automated testing",
-            "contact_email": attributes.get("contact_email", "test@example.com") if attributes else "test@example.com"
         }
         
         if region:

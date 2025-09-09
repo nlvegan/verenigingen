@@ -90,7 +90,7 @@ def setup_expense_claim_types():
         return expense_type_name
 
     except Exception as e:
-        frappe.logger().error(f"Error setting up expense claim types: {str(e)}")
+        frappe.logger().error("Error setting up expense claim types: %s", str(e))
         import traceback
 
         traceback.print_exc()
@@ -133,14 +133,14 @@ def create_default_cost_center(company):
         )
 
         if not center_result.success:
-            frappe.logger().error(f"Failed to create default cost center: {'; '.join(center_result.errors)}")
+            frappe.logger().error("Failed to create default cost center: %s", "; ".join(center_result.errors))
             return get_fallback_cost_center()
 
-        frappe.logger().info(f"Created default cost center: {cost_center_name}")
+        frappe.logger().info("Created default cost center: %s", cost_center_name)
         return cost_center_name
 
     except Exception as e:
-        frappe.log_error(f"Error creating default cost center: {str(e)}", "Cost Center Creation Error")
+        frappe.log_error("Error creating default cost center: %s", str(e), "Cost Center Creation Error")
         return get_fallback_cost_center()
 
 
@@ -216,9 +216,9 @@ def get_or_create_expense_type(category):
             )
             return "Travel"  # Fallback to standard type
 
-        frappe.logger().info(f"Created expense type: {category}")
+        frappe.logger().info("Created expense type: %s", category)
         return category
 
     except Exception as e:
-        frappe.log_error(f"Error creating expense type {category}: {str(e)}")
+        frappe.log_error("Error creating expense type %s: %s", category, str(e))
         return "Travel"  # Fallback

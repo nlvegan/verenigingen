@@ -5,12 +5,11 @@ API Contract Tests for Role Profile System
 Tests that all API contracts are maintained and functionality works correctly.
 """
 
-import unittest
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestRoleProfileAPIContracts(FrappeTestCase):
+class TestRoleProfileAPIContracts(EnhancedTestCase):
     """Test role profile system API contracts"""
 
     def test_imports_work(self):

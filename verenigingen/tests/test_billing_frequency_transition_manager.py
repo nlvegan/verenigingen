@@ -7,11 +7,11 @@ prorated calculations, and audit trails.
 
 import frappe
 from frappe.utils import today, add_days, add_months
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.billing_frequency_transition_manager import BillingFrequencyTransitionManager
 
 
-class TestBillingFrequencyTransitionManager(VereningingenTestCase):
+class TestBillingFrequencyTransitionManager(EnhancedTestCase):
     """Test billing frequency transition functionality"""
 
     def setUp(self):
@@ -26,20 +26,40 @@ class TestBillingFrequencyTransitionManager(VereningingenTestCase):
         
         # Create membership first (required for dues schedule)
         self.membership = self.create_test_membership(
-            member=self.member.name,
-            membership_type="Monthly Standard"
+            member_name=self.member.name,
+            membership_type_name="Monthly Standard"
         )
         
-        # Create active monthly schedule using factory method
-        self.monthly_schedule = self.create_test_dues_schedule(
-            member=self.member.name,
-            billing_frequency="Monthly",
-            dues_rate=25.0,
-            start_date=add_days(today(), -30),
-            end_date=add_days(today(), 30),
-            next_due_date=add_days(today(), 7),
-            status="Active"
+        # Get the automatically created dues schedule from the membership
+        dues_schedules = frappe.get_all("Membership Dues Schedule", 
+            filters={"member": self.member.name, "status": "Active"},
+            fields=["name", "billing_frequency", "dues_rate"]
         )
+        
+        if dues_schedules:
+            self.monthly_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
+            # Update it to match test requirements
+            self.monthly_schedule.dues_rate = 25.0
+            self.monthly_schedule.start_date = add_days(today(), -30)
+            self.monthly_schedule.end_date = add_days(today(), 30)
+            self.monthly_schedule.next_due_date = add_days(today(), 7)
+            self.monthly_schedule.save()
+        else:
+            # Fallback: create manually if none exists
+            self.monthly_schedule = frappe.get_doc({
+                "doctype": "Membership Dues Schedule",
+                "member": self.member.name,
+                "membership": self.membership.name,
+                "schedule_name": "Test Monthly Schedule",
+                "billing_frequency": "Monthly",
+                "dues_rate": 25.0,
+                "start_date": add_days(today(), -30),
+                "end_date": add_days(today(), 30),
+                "next_due_date": add_days(today(), 7),
+                "status": "Active",
+                "currency": "EUR"
+            })
+            self.monthly_schedule.insert()
 
     def test_validate_transition_success(self):
         """Test successful transition validation"""
@@ -52,11 +72,12 @@ class TestBillingFrequencyTransitionManager(VereningingenTestCase):
         )
         
         # Should be valid
-        self.assertTrue(result["valid"], f"Validation failed: {result.get('issues', [])}")
+        self.assertTrue(result["valid"], f"Validation failed: {result.get('issues', [])} - Result: {result}")
         self.assertIn("calculations", result)
         
         # Should have calculated prorated amounts
         calculations = result["calculations"]
+        print(f"Debug - calculations: {calculations}")  # Debug output
         self.assertIn("old_monthly_rate", calculations)
         self.assertIn("new_monthly_rate", calculations)
         self.assertEqual(calculations["old_monthly_rate"], 25.0)  # 25/1 month
@@ -154,7 +175,6 @@ class TestBillingFrequencyTransitionManager(VereningingenTestCase):
         # Verify new schedule was created
         new_schedule_name = result["created_schedules"][0]
         new_schedule = frappe.get_doc("Membership Dues Schedule", new_schedule_name)
-        self.track_doc("Membership Dues Schedule", new_schedule_name)
         
         self.assertEqual(new_schedule.billing_frequency, "Annual")
         self.assertEqual(new_schedule.member, self.member.name)
@@ -176,9 +196,6 @@ class TestBillingFrequencyTransitionManager(VereningingenTestCase):
         self.assertEqual(audit_record.old_frequency, "Monthly")
         self.assertEqual(audit_record.new_frequency, "Annual")
         self.assertEqual(audit_record.transition_status, "Completed")
-        
-        # Track audit record for cleanup
-        self.track_doc("Billing Frequency Transition Audit", audit_record.name)
 
     def test_execute_transition_validation_failure(self):
         """Test transition execution with validation failure"""
@@ -241,16 +258,21 @@ class TestBillingFrequencyTransitionManager(VereningingenTestCase):
     def test_quarterly_to_monthly_transition(self):
         """Test transition from quarterly to monthly billing"""
         
-        # Create quarterly schedule using factory method
-        quarterly_schedule = self.create_test_dues_schedule(
-            member=self.member.name,
-            billing_frequency="Quarterly",
-            dues_rate=75.0,  # 25/month * 3 months
-            start_date=add_days(today(), -60),
-            end_date=add_days(today(), 30),
-            next_due_date=add_days(today(), 14),
-            status="Active"
-        )
+        # Create quarterly schedule manually
+        quarterly_schedule = frappe.get_doc({
+            "doctype": "Membership Dues Schedule",
+            "member": self.member.name,
+            "membership": self.membership.name,
+            "schedule_name": "Test Quarterly Schedule",
+            "billing_frequency": "Quarterly",
+            "dues_rate": 75.0,  # 25/month * 3 months
+            "start_date": add_days(today(), -60),
+            "end_date": add_days(today(), 30),
+            "next_due_date": add_days(today(), 14),
+            "status": "Active",
+            "currency": "EUR"
+        })
+        quarterly_schedule.insert()
         
         # Cancel the monthly schedule to avoid conflicts
         self.monthly_schedule.status = "Cancelled"
@@ -278,15 +300,20 @@ class TestBillingFrequencyTransitionManager(VereningingenTestCase):
         
         effective_date = add_days(today(), 7)
         
-        # Create overlapping annual schedule using factory method
-        overlapping_schedule = self.create_test_dues_schedule(
-            member=self.member.name,
-            billing_frequency="Annual",
-            dues_rate=300.0,
-            start_date=add_days(today(), -10),
-            end_date=add_days(today(), 355),
-            status="Active"
-        )
+        # Create overlapping annual schedule manually
+        overlapping_schedule = frappe.get_doc({
+            "doctype": "Membership Dues Schedule",
+            "member": self.member.name,
+            "membership": self.membership.name,
+            "schedule_name": "Test Overlapping Annual Schedule",
+            "billing_frequency": "Annual",
+            "dues_rate": 300.0,
+            "start_date": add_days(today(), -10),
+            "end_date": add_days(today(), 355),
+            "status": "Active",
+            "currency": "EUR"
+        })
+        overlapping_schedule.insert()
         
         # Test validation - should detect overlap
         result = self.manager.validate_transition(

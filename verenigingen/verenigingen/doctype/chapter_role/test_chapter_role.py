@@ -2,12 +2,12 @@ import random
 import string
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen.doctype.chapter_role.chapter_role import update_chapters_with_role
 
 
-class TestChapterRole(FrappeTestCase):
+class TestChapterRole(EnhancedTestCase):
     def setUp(self):
         # Generate a unique identifier using only alphanumeric characters
         self.unique_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
@@ -25,7 +25,7 @@ class TestChapterRole(FrappeTestCase):
                 "is_active": 1,
             }
         )
-        self.test_role.insert(ignore_permissions=True)
+        self.test_role.insert()  # EnhancedTestCase handles permissions
 
     def tearDown(self):
         self.cleanup_test_data()
@@ -86,7 +86,7 @@ class TestChapterRole(FrappeTestCase):
                 "is_active": 1,
             }
         )
-        role1.insert(ignore_permissions=True)
+        role1.insert()  # EnhancedTestCase handles permissions
 
         # Create second chair role
         role2 = frappe.get_doc(
@@ -100,7 +100,7 @@ class TestChapterRole(FrappeTestCase):
         )
 
         # Should not raise an error, just show a warning
-        role2.insert(ignore_permissions=True)
+        role2.insert()  # EnhancedTestCase handles permissions
 
         # Verify both roles exist and are marked as chair
         self.assertTrue(role1.is_chair, "First role should be marked as chair")

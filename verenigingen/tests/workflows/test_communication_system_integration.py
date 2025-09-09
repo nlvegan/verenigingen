@@ -6,12 +6,12 @@ and multi-language content delivery workflows
 
 import frappe
 from frappe.utils import today, add_days, now_datetime, get_datetime
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 import json
 from unittest.mock import patch, MagicMock
 
 
-class TestCommunicationSystemIntegration(VereningingenTestCase):
+class TestCommunicationSystemIntegration(EnhancedTestCase):
     """Comprehensive communication system integration testing"""
 
     def setUp(self):

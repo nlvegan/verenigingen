@@ -78,7 +78,7 @@ def test_create_payment_plan():
         payment_plan.reason = "Test payment plan for system validation"
         payment_plan.payment_method = "Bank Transfer"
 
-        payment_plan.save(ignore_permissions=True)
+        payment_plan.save()  # Test script - frappe.init handles permissions
         return payment_plan
 
     except Exception as e:
@@ -208,7 +208,7 @@ def test_validation_logic():
             valid_plan.frequency = "Monthly"
             valid_plan.start_date = today()
             valid_plan.status = "Draft"
-            valid_plan.save(ignore_permissions=True)
+            valid_plan.save()  # Test script - frappe.init handles permissions
             return True
         except Exception as e:
             print(f"  Valid plan creation failed: {e}")
@@ -227,8 +227,8 @@ def get_or_create_test_member():
         if test_member:
             return test_member
 
-        # Try to get any member
-        any_member = frappe.db.get_value("Member", {}, "name")
+        # Try to get any member (ordered for consistency)
+        any_member = frappe.db.get_value("Member", {}, "name", order_by="name")
         if any_member:
             return any_member
 

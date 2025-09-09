@@ -14,7 +14,7 @@ import threading
 import queue
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 from verenigingen.verenigingen_payments.core.resilience.circuit_breaker import CircuitBreaker, CircuitState
 from verenigingen.verenigingen_payments.core.resilience.rate_limiter import RateLimiter
@@ -25,7 +25,7 @@ from verenigingen.verenigingen_payments.workflows.subscription_manager import Su
 from verenigingen.verenigingen_payments.core.compliance.audit_trail import AuditTrail, AuditEventType, AuditSeverity
 
 
-class TestErrorRecovery(FrappeTestCase):
+class TestErrorRecovery(VereningingenTestCase):
     """
     Error recovery tests for system resilience
     
@@ -270,14 +270,14 @@ class TestErrorRecovery(FrappeTestCase):
                 doc1.event_type = "TEST_ROLLBACK_1"
                 doc1.message = "First record"
                 doc1.severity = "INFO"
-                doc1.insert(ignore_permissions=True)
+                doc1.insert()  # VereningingenTestCase handles permissions
                 
                 # Create second record
                 doc2 = frappe.new_doc("Mollie Audit Log")
                 doc2.event_type = "TEST_ROLLBACK_2"
                 doc2.message = "Second record"
                 doc2.severity = "INFO"
-                doc2.insert(ignore_permissions=True)
+                doc2.insert()  # VereningingenTestCase handles permissions
                 
                 # Simulate failure
                 raise Exception("Transaction failed")

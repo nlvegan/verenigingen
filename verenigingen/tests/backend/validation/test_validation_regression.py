@@ -2,32 +2,19 @@
 Validation regression test suite to prevent field validation bugs
 """
 
-import unittest
 import sys
 import os
 from pathlib import Path
 
 import frappe
 from frappe.utils import today
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestValidationRegression(unittest.TestCase):
+class TestValidationRegression(EnhancedTestCase):
     """Regression tests to catch validation issues before they reach production"""
 
-    @classmethod
-    def setUpClass(cls):
-        """Set up class-level fixtures"""
-        frappe.set_user("Administrator")
-
-    def setUp(self):
-        """Set up test environment"""
-        self.cleanup_records = []
-
-    def tearDown(self):
-        """Clean up test records"""
-        try:
-            for doctype, name in self.cleanup_records:
-                if frappe.db.exists(doctype, name):
+    # Enhanced Test Factory handles setup and cleanup automatically
                     frappe.delete_doc(doctype, name, force=True)
             frappe.db.commit()
         except Exception:
@@ -62,7 +49,7 @@ class TestValidationRegression(unittest.TestCase):
                             doc_data[field_name] = valid_value
 
                             doc = frappe.get_doc(doc_data)
-                            doc.insert(ignore_permissions=True)
+                            doc.insert()
                             self.add_cleanup(doctype_name, doc.name)
 
                         except Exception as e:
@@ -81,7 +68,7 @@ class TestValidationRegression(unittest.TestCase):
 
                             # This should raise a ValidationError
                             with self.assertRaises(frappe.ValidationError):
-                                doc.insert(ignore_permissions=True)
+                                doc.insert()
 
                         except AssertionError:
                             raise  # Re-raise assertion errors
@@ -208,7 +195,7 @@ class TestValidationRegression(unittest.TestCase):
                 "email": f"helper.function.{frappe.utils.random_string(5).lower()}@example.com",
                 "application_status": "Pending"}
         )
-        member.insert(ignore_permissions=True)
+        member.insert()
         self.add_cleanup("Member", member.name)
 
         # Test with volunteer interest

@@ -129,7 +129,7 @@ class TestSmallScalePaymentHistory(VereningingenTestCase):
             # Update payment history for this member
             member_doc = frappe.get_doc("Member", member.name)
             member_doc.load_payment_history()
-            member_doc.save(ignore_permissions=True)
+            member_doc.save()  # VereningingenTestCase handles permissions
             
             member_time = time.time() - member_start
             update_times.append(member_time)

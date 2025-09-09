@@ -161,6 +161,7 @@ class MembershipDuesSchedule(Document):
                 frappe.throw(f"Member {self.member} does not have an active membership")
 
             # Auto-link to membership type from active membership if not set
+            self.membership_type = None
             if not self.membership_type:
                 membership_type = frappe.db.get_value("Membership", active_membership, "membership_type")
                 if membership_type:
@@ -506,13 +507,16 @@ class MembershipDuesSchedule(Document):
         if min_contribution and self.dues_rate < min_contribution:
             # Zero dues rates are allowed with reason (free memberships)
             if self.dues_rate == 0:
+                self.custom_amount_reason = None
                 if not self.custom_amount_reason:
                     frappe.throw("Zero dues rate memberships require a reason")
                 # Mark as custom amount for tracking
                 self.uses_custom_amount = 1
             # Custom approved amounts can be below minimum
-            elif self.uses_custom_amount and self.custom_amount_approved:
-                pass  # Allow approved custom amounts below minimum
+            elif self.uses_custom_amount:
+                self.custom_amount_approved = None
+                if self.custom_amount_approved:
+                    pass  # Allow approved custom amounts below minimum
             else:
                 # Auto-raise to minimum for non-custom amounts
                 self.dues_rate = min_contribution
@@ -542,6 +546,7 @@ class MembershipDuesSchedule(Document):
                     self.custom_amount_approved = 1
                     self.custom_amount_approved_by = frappe.session.user
                     self.custom_amount_approved_date = today()
+                    self.custom_amount_reason = None
                     if not self.custom_amount_reason:
                         self.custom_amount_reason = f"Approved by {frappe.session.user} (Manager Override)"
 
@@ -559,6 +564,7 @@ class MembershipDuesSchedule(Document):
             pass
         else:
             # Instances should have required member data
+            self.member_name = None
             if not self.member_name:
                 if self.member:
                     member_doc = frappe.get_doc("Member", self.member)
@@ -574,6 +580,7 @@ class MembershipDuesSchedule(Document):
 
     def set_billing_day(self):
         """Set billing day based on member's anniversary date"""
+        self.billing_day = None
         if not self.billing_day or self.billing_day == 0:
             if self.member:
                 # Get the member_since value directly from database to avoid field object issues
@@ -1090,7 +1097,7 @@ class MembershipDuesSchedule(Document):
             invoice.membership = member_doc.current_membership_plan
 
         # Set proper due date - use payment terms or default to 30 days from posting date
-        from frappe.utils import add_days
+        # using add_days from top-level import
 
         if self.payment_terms_template:
             # Let ERPNext calculate due date from payment terms
@@ -2417,7 +2424,7 @@ def validate_and_fix_schedule_dates():
     Validate and fix all dues schedule dates to prevent issues like Assoc-Member-2025-07-0030
     Returns a report of issues found and fixed
     """
-    from frappe.utils import add_days, getdate, today
+    # using add_days, getdate, today from top-level import
 
     today_date = getdate(today())
     results = {"total_schedules": 0, "issues_found": 0, "fixes_applied": 0, "issues": [], "success": True}

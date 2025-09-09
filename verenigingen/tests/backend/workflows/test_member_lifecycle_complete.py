@@ -8,13 +8,13 @@ Tests the entire journey from application submission to termination with full en
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from frappe.utils import add_days, add_months, today, random_string, now_datetime
 from verenigingen.tests.utils.setup_helpers import TestEnvironmentSetup
 from verenigingen.tests.test_data_factory import TestDataFactory
 
 
-class TestMemberLifecycleComplete(FrappeTestCase):
+class TestMemberLifecycleComplete(EnhancedTestCase):
     """
     Complete Member Lifecycle Test with Full Environment
     

@@ -186,7 +186,13 @@ class PaymentHistoryTestFactory(StreamlinedTestDataFactory):
                 "default_currency": "EUR",
                 "country": "Netherlands"
             })
-            company.insert(ignore_permissions=True)
+            # Use proper permissions context for test data creation
+            original_user = frappe.session.user
+            try:
+                frappe.set_user("Administrator")
+                company.insert()
+            finally:
+                frappe.session.user = original_user
             self.track_doc("Company", company.name)
             companies = [company.name]
             
@@ -237,7 +243,7 @@ class PaymentHistoryTestFactory(StreamlinedTestDataFactory):
             "root_type": root_type,
             "is_group": 0
         })
-        account.insert(ignore_permissions=True)
+        account.insert()
         self.track_doc("Account", account.name)
         return account.name
 
@@ -257,7 +263,7 @@ class PaymentHistoryTestFactory(StreamlinedTestDataFactory):
                     "type": "Bank" if method != "Cash" else "Cash",
                     "enabled": 1
                 })
-                payment_method.insert(ignore_permissions=True)
+                payment_method.insert()
                 self.track_doc("Mode of Payment", payment_method.name)
                 existing_methods.append(method)
                 
@@ -285,7 +291,7 @@ class PaymentHistoryTestFactory(StreamlinedTestDataFactory):
                     "is_stock_item": 0,
                     "standard_rate": 25.0
                 })
-                item.insert(ignore_permissions=True)
+                item.insert()
                 self.track_doc("Item", item.name)
                 existing_items.append(item_code)
                 
@@ -313,11 +319,11 @@ class PaymentHistoryTestFactory(StreamlinedTestDataFactory):
                     "customer_type": "Individual",
                     "member": member.name
                 })
-                customer.insert(ignore_permissions=True)
+                customer.insert()
                 self.track_doc("Customer", customer.name)
                 
                 member.customer = customer.name
-                member.save(ignore_permissions=True)
+                member.save()
             
             members.append(member)
             
@@ -406,7 +412,7 @@ class PaymentHistoryTestFactory(StreamlinedTestDataFactory):
             }]
         })
         
-        invoice.insert(ignore_permissions=True)
+        invoice.insert()
         invoice.submit()
         self.track_doc("Sales Invoice", invoice.name)
         
@@ -441,7 +447,7 @@ class PaymentHistoryTestFactory(StreamlinedTestDataFactory):
             }]
         })
         
-        payment.insert(ignore_permissions=True)
+        payment.insert()
         payment.submit()
         self.track_doc("Payment Entry", payment.name)
         
@@ -471,7 +477,7 @@ class PaymentHistoryTestFactory(StreamlinedTestDataFactory):
                 # Trigger payment history update
                 member_doc = frappe.get_doc("Member", member.name)
                 member_doc.load_payment_history()
-                member_doc.save(ignore_permissions=True)
+                member_doc.save()
                 
                 # Get the created history records
                 member_history = frappe.get_all(

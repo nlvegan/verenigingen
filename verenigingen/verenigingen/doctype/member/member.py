@@ -136,6 +136,7 @@ class Member(
                 frappe.logger().info(f"Generated member ID: {self.member_id} for {self.name}")
             elif self.is_application_member() and not self.application_id:
                 # Assign application ID for tracking pending applications
+                self.application_id = None
                 self.application_id = self.generate_application_id()
         else:
             frappe.logger().debug(f"Member {self.name} already has member_id: {self.member_id}")
@@ -151,6 +152,7 @@ class Member(
 
         # Clear counter reset flag after processing to prevent repeated resets
         if hasattr(self, "reset_counter_to") and self.reset_counter_to:
+            self.reset_counter_to = None
             self.reset_counter_to = None
 
         # Ensure application status is properly set based on member state
@@ -920,6 +922,7 @@ class Member(
                 if self.application_status == "Approved" and self.status != "Active":
                     self.status = "Active"
                     # Set member_since date when application becomes approved
+                    self.member_since = None
                     if not self.member_since:
                         self.member_since = today()
                 elif self.application_status == "Rejected" and self.status != "Rejected":
@@ -1187,12 +1190,14 @@ class Member(
 
             full_name = " ".join(name_parts)
 
+        self.full_name = None
         if self.full_name != full_name:
             self.full_name = full_name
 
     @frappe.whitelist()
     def create_customer(self):
         """Create a customer for this member in ERPNext"""
+        self.customer = None
         if self.customer:
             # Only show existing customer message if not during application submission
             if not getattr(self, "_suppress_customer_messages", False):
@@ -1306,6 +1311,7 @@ class Member(
     @frappe.whitelist()
     def create_user(self):
         """Create a user account for this member"""
+        self.user = None
         if self.user:
             frappe.msgprint(_("User {0} already exists for this member").format(self.user))
             return self.user
@@ -2023,7 +2029,7 @@ class Member(
                         # Calculate age in years
                         age_text = ""
                         if member.get("birth_date"):
-                            from frappe.utils import date_diff, today
+                            # using date_diff, today from top-level import
 
                             age_years = int(date_diff(today(), member["birth_date"]) / 365.25)
                             age_text = f"{age_years} years old"
@@ -2141,6 +2147,7 @@ class Member(
         try:
             # Check if entry already exists for this schedule
             existing_idx = None
+            self.fee_change_history = None
             for idx, row in enumerate(self.fee_change_history or []):
                 if row.dues_schedule == schedule_data.get(
                     "schedule_name"
@@ -2175,6 +2182,7 @@ class Member(
                     setattr(self.fee_change_history[existing_idx], key, value)
             else:
                 # Add new entry at the beginning (most recent first)
+                self.fee_change_history = getattr(self, "fee_change_history", [])  # Ensure it's initialized
                 self.fee_change_history.insert(0, entry_data)
 
                 # Keep only 50 most recent entries to prevent unlimited growth
@@ -2208,7 +2216,7 @@ class Member(
             found = False
             schedule_name = schedule_data.get("name") or schedule_data.get("schedule_name")
 
-            for idx, row in enumerate(self.fee_change_history):
+            for _idx, row in enumerate(self.fee_change_history):
                 if row.dues_schedule == schedule_name:
                     found = True
                     # Update the entry with new data
@@ -2246,6 +2254,88 @@ class Member(
                 "Fee Change History Update",
             )
 
+    def _update_donation_history(self):
+        """Update donation history for this member"""
+        if not (hasattr(self, "donor") and self.donor):
+            return 0
+
+        from verenigingen.utils.donation_history_manager import update_donor_history_table
+
+        # This already does incremental updates - check if it made changes
+        original_donation_count = len(getattr(self, "donation_history", []))
+        update_donor_history_table(self.donor)
+        # Reload to get updated donation history
+        self.reload()
+        new_donation_count = len(getattr(self, "donation_history", []))
+        return abs(new_donation_count - original_donation_count)
+
+    def _update_volunteer_expense_history(self):
+        """Update volunteer expense history for this member"""
+        if not (hasattr(self, "employee") and self.employee):
+            return 0
+
+        removed_count = 0
+        updated_count = 0
+        added_count = 0
+
+        # Get the 20 most recent expense claims
+        current_claims = frappe.get_all(
+            "Expense Claim",
+            filters={"employee": self.employee},
+            fields=[
+                "name",
+                "employee",
+                "posting_date",
+                "total_claimed_amount",
+                "total_sanctioned_amount",
+                "status",
+                "approval_status",
+                "docstatus",
+            ],
+            order_by="posting_date desc",
+            limit=20,
+        )
+
+        # Build a lookup of existing expense entries
+        existing_expenses = {row.expense_claim: row for row in (self.volunteer_expenses or [])}
+        current_claim_names = {claim.name for claim in current_claims}
+
+        # Remove entries that are no longer in the top 20
+        rows_to_remove = [
+            idx
+            for idx, row in enumerate(self.volunteer_expenses or [])
+            if row.expense_claim not in current_claim_names
+        ]
+
+        # Remove in reverse order to maintain indices
+        for idx in reversed(rows_to_remove):
+            self.volunteer_expenses.pop(idx)
+            removed_count += 1
+
+        # Process each current claim
+        for claim in current_claims:
+            # Build what the row should look like using available data
+            expected_row = self._build_lightweight_expense_entry(claim)
+
+            if claim.name in existing_expenses:
+                # Check if existing row needs updating
+                existing_row = existing_expenses[claim.name]
+                needs_update = any(
+                    getattr(existing_row, field, None) != expected_value
+                    for field, expected_value in expected_row.items()
+                )
+
+                if needs_update:
+                    for field, expected_value in expected_row.items():
+                        setattr(existing_row, field, expected_value)
+                    updated_count += 1
+            else:
+                # Add new row using the mixin method
+                self.add_expense_to_history(claim.name)
+                added_count += 1
+
+        return removed_count + updated_count + added_count
+
     @frappe.whitelist()
     def incremental_update_history_tables(self):
         """
@@ -2258,83 +2348,14 @@ class Member(
             expense_changes = 0
 
             # Update donation history if donor is linked
-            if hasattr(self, "donor") and self.donor:
-                from verenigingen.utils.donation_history_manager import update_donor_history_table
-
-                # This already does incremental updates - check if it made changes
-                original_donation_count = len(getattr(self, "donation_history", []))
-                update_donor_history_table(self.donor)
-                # Reload to get updated donation history
-                self.reload()
-                new_donation_count = len(getattr(self, "donation_history", []))
-                donation_changes = abs(new_donation_count - original_donation_count)
-                if donation_changes > 0:
-                    changes_made = True
+            donation_changes = self._update_donation_history()
+            if donation_changes > 0:
+                changes_made = True
 
             # Update volunteer expense history if employee is linked
-            if hasattr(self, "employee") and self.employee:
-                removed_count = 0
-                updated_count = 0
-                added_count = 0
-
-                # Get the 20 most recent expense claims
-                current_claims = frappe.get_all(
-                    "Expense Claim",
-                    filters={"employee": self.employee},
-                    fields=[
-                        "name",
-                        "employee",
-                        "posting_date",
-                        "total_claimed_amount",
-                        "total_sanctioned_amount",
-                        "status",
-                        "approval_status",
-                        "docstatus",
-                    ],
-                    order_by="posting_date desc",
-                    limit=20,
-                )
-
-                # Build a lookup of existing expense entries
-                existing_expenses = {row.expense_claim: row for row in (self.volunteer_expenses or [])}
-                current_claim_names = {claim.name for claim in current_claims}
-
-                # Remove entries that are no longer in the top 20
-                rows_to_remove = []
-                for idx, row in enumerate(self.volunteer_expenses or []):
-                    if row.expense_claim not in current_claim_names:
-                        rows_to_remove.append(idx)
-
-                # Remove in reverse order to maintain indices
-                for idx in reversed(rows_to_remove):
-                    self.volunteer_expenses.pop(idx)
-                    removed_count += 1
-
-                # Process each current claim
-                for claim in current_claims:
-                    # Build what the row should look like using available data (avoid loading full doc)
-                    expected_row = self._build_lightweight_expense_entry(claim)
-
-                    if claim.name in existing_expenses:
-                        # Check if existing row needs updating
-                        existing_row = existing_expenses[claim.name]
-                        needs_update = False
-
-                        for field, expected_value in expected_row.items():
-                            if getattr(existing_row, field, None) != expected_value:
-                                setattr(existing_row, field, expected_value)
-                                needs_update = True
-
-                        if needs_update:
-                            updated_count += 1
-                    else:
-                        # Add new row using the mixin method (which handles proper insertion)
-                        self.add_expense_to_history(claim.name)
-                        added_count += 1
-
-                expense_changes = removed_count + updated_count + added_count
-                if expense_changes > 0:
-                    changes_made = True
+            expense_changes = self._update_volunteer_expense_history()
+            if expense_changes > 0:
+                changes_made = True
 
             # Only save if something actually changed
             if changes_made:
@@ -2564,7 +2585,7 @@ def test_incremental_update_result():
         # Check what's in the volunteer_expenses child table
         expense_info = []
         if hasattr(member_doc, "volunteer_expenses") and member_doc.volunteer_expenses:
-            for i, row in enumerate(member_doc.volunteer_expenses[:5]):  # Show first 5
+            for _i, row in enumerate(member_doc.volunteer_expenses[:5]):  # Show first 5
                 expense_info.append(
                     {
                         "expense_claim": row.expense_claim,
@@ -3536,7 +3557,7 @@ def create_donor_from_member(member_name):
             "message": _("Failed to create donor record: {0}").format(str(e)),
         }
 
-    def load_volunteer_assignment_history(self):
+    def _load_volunteer_assignment_history(self):
         """Load volunteer assignment history from linked volunteer record"""
         try:
             # Clear existing volunteer assignment history
@@ -3568,7 +3589,7 @@ def create_donor_from_member(member_name):
         except Exception as e:
             frappe.log_error(f"Error loading volunteer assignment history for member {self.name}: {str(e)}")
 
-    def load_volunteer_details_html(self):
+    def _load_volunteer_details_html(self):
         """Load volunteer details HTML for display"""
         try:
             # Get linked volunteer record
@@ -3642,7 +3663,7 @@ def create_donor_from_member(member_name):
         except Exception as e:
             return {"error": str(e), "traceback": frappe.get_traceback()}
 
-    def get_linked_donations(self):
+    def _get_linked_donations(self):
         """Get donations linked to this member"""
         try:
             return frappe.get_all(
@@ -4013,7 +4034,7 @@ def test_amendment_filtering():
         if amendment.effective_date:
             date_status = f"(effective: {amendment.effective_date})"
             if amendment.status == "Approved":
-                from frappe.utils import getdate, today
+                # using getdate, today from top-level import
 
                 is_future = getdate(amendment.effective_date) >= getdate(today())
                 date_status += f" - {'FUTURE' if is_future else 'PAST'}"

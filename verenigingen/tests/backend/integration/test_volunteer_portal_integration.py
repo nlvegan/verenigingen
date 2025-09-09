@@ -2,10 +2,10 @@ from unittest.mock import patch
 
 import frappe
 from frappe.utils import today
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestVolunteerPortalIntegration(VereningingenTestCase):
+class TestVolunteerPortalIntegration(EnhancedTestCase):
     """Integration tests for the volunteer portal with approval workflow"""
 
     def setUp(self):
@@ -264,11 +264,11 @@ class TestVolunteerPortalIntegration(VereningingenTestCase):
 
     def setUp(self):
         """Set up for each test"""
-        frappe.set_user("Administrator")
+        # EnhancedTestCase tearDown handles user restoration
 
     def tearDown(self):
         """Clean up after each test"""
-        frappe.set_user("Administrator")
+        # EnhancedTestCase tearDown handles user restoration
         # Clean up test expenses
         expenses = frappe.get_all(
             "Volunteer Expense", filters={"volunteer": ["in", [self.test_volunteer, self.board_volunteer]]}
@@ -331,7 +331,7 @@ class TestVolunteerPortalIntegration(VereningingenTestCase):
         self.assertEqual(updated_details["status"], "Approved")
 
         # Clean up
-        frappe.set_user("Administrator")
+        # EnhancedTestCase tearDown handles user restoration
         frappe.delete_doc("Volunteer Expense", expense_name, force=1)
 
     def test_complete_expense_workflow_admin_approval_required(self):
@@ -377,7 +377,7 @@ class TestVolunteerPortalIntegration(VereningingenTestCase):
         self.assertEqual(expense.approved_by, self.board_member_email)
 
         # Clean up
-        frappe.set_user("Administrator")
+        # EnhancedTestCase tearDown handles user restoration
         frappe.delete_doc("Volunteer Expense", expense_name, force=1)
 
     def test_expense_rejection_workflow(self):
@@ -419,7 +419,7 @@ class TestVolunteerPortalIntegration(VereningingenTestCase):
         self.assertEqual(details["status"], "Rejected")
 
         # Clean up
-        frappe.set_user("Administrator")
+        # EnhancedTestCase tearDown handles user restoration
         frappe.delete_doc("Volunteer Expense", expense_name, force=1)
 
     # PERMISSION INTEGRATION TESTS
@@ -465,7 +465,7 @@ class TestVolunteerPortalIntegration(VereningingenTestCase):
 
         finally:
             # Clean up
-            frappe.set_user("Administrator")
+            # EnhancedTestCase tearDown handles user restoration
             for expense_name in expense_names:
                 try:
                     frappe.delete_doc("Volunteer Expense", expense_name, force=1)
@@ -521,7 +521,7 @@ class TestVolunteerPortalIntegration(VereningingenTestCase):
 
         finally:
             # Clean up
-            frappe.set_user("Administrator")
+            # EnhancedTestCase tearDown handles user restoration
             for expense_name in expense_names:
                 try:
                     frappe.delete_doc("Volunteer Expense", expense_name, force=1)
@@ -530,6 +530,7 @@ class TestVolunteerPortalIntegration(VereningingenTestCase):
 
     # NOTIFICATION INTEGRATION TESTS
 
+    # Mock justified: External service - email notifications, not business logic
     @patch("frappe.sendmail")
     def test_notification_system_integration(self, mock_sendmail):
         """Test integration with notification system"""
@@ -565,7 +566,7 @@ class TestVolunteerPortalIntegration(VereningingenTestCase):
         self.assertTrue(mock_sendmail.called)
 
         # Clean up
-        frappe.set_user("Administrator")
+        # EnhancedTestCase tearDown handles user restoration
         frappe.delete_doc("Volunteer Expense", expense_name, force=1)
 
     # ORGANIZATION ACCESS INTEGRATION TESTS
@@ -657,7 +658,7 @@ class TestVolunteerPortalIntegration(VereningingenTestCase):
 
         finally:
             # Clean up team
-            frappe.set_user("Administrator")
+            # EnhancedTestCase tearDown handles user restoration
             try:
                 frappe.delete_doc("Team", extra_team, force=1)
             except Exception:
@@ -716,7 +717,7 @@ class TestVolunteerPortalIntegration(VereningingenTestCase):
 
         finally:
             # Clean up
-            frappe.set_user("Administrator")
+            # EnhancedTestCase tearDown handles user restoration
             for expense_name in expense_names:
                 try:
                     frappe.delete_doc("Volunteer Expense", expense_name, force=1)

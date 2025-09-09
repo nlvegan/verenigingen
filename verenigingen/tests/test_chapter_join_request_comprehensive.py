@@ -21,8 +21,7 @@ class TestChapterJoinRequestComprehensive(EnhancedTestCase):
         """Set up comprehensive test environment"""
         super().setUp()
 
-        # Set Administrator context for all tests
-        frappe.set_user("Administrator")
+        # Enhanced Test Factory handles user context - no manual setting needed
 
         # Create test members with realistic data
         self.active_member = self.create_test_member(
@@ -372,8 +371,7 @@ def run_comprehensive_tests():
 
 
 if __name__ == "__main__":
-    # Set test context
-    frappe.set_user("Administrator")
+    # Enhanced Test Factory handles user context
 
     # Run tests
     success = run_comprehensive_tests()

@@ -358,21 +358,42 @@ class EBoekhoudenMigrationCoordinator:
             return {"passed": False, "errors": [f"Settings check failed: {str(e)}"]}
 
     def _check_company_config(self, config: Dict) -> Dict:
-        """Check company configuration."""
+        """Check company configuration and required master data."""
         try:
             company_doc = frappe.get_doc("Company", self.company)
 
-            checks = [
+            # Check basic company configuration
+            basic_checks = [
                 ("Company exists", True),
                 ("Cost Center", bool(company_doc.cost_center)),
                 ("Default Currency", bool(company_doc.default_currency)),
             ]
 
-            passed = all(result for _, result in checks)
+            # Check required master data that causes empty dict patterns
+            master_data_checks = [
+                ("Customer Groups exist", frappe.db.count("Customer Group", {"is_group": 0}) > 0),
+                ("Territories exist", frappe.db.count("Territory", {"is_group": 0}) > 0),
+                ("Supplier Groups exist", frappe.db.count("Supplier Group", {"is_group": 0}) > 0),
+                ("Item Groups exist", frappe.db.count("Item Group", {"is_group": 0}) > 0),
+                (
+                    "Bank accounts exist",
+                    frappe.db.count(
+                        "Account", {"company": self.company, "account_type": "Bank", "is_group": 0}
+                    )
+                    > 0,
+                ),
+                (
+                    "Cash account exists",
+                    frappe.db.exists("Account", {"company": self.company, "account_number": "10000"}),
+                ),
+            ]
+
+            all_checks = basic_checks + master_data_checks
+            passed = all(result for _, result in all_checks)
 
             return {
                 "passed": passed,
-                "details": [f"{name}: {'✓' if result else '✗'}" for name, result in checks],
+                "details": [f"{name}: {'✓' if result else '✗'}" for name, result in all_checks],
             }
 
         except Exception as e:

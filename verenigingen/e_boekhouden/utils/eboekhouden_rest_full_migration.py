@@ -2195,8 +2195,9 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
     customer = resolve_customer(relation_id, debug_info)
     si.customer = customer
 
-    # Currency
-    si.currency = "EUR"
+    # Currency - use company's default currency
+    company_currency = frappe.db.get_value("Company", company, "default_currency") or "EUR"
+    si.currency = company_currency
     si.conversion_rate = 1.0
 
     # Payment terms and due date
@@ -2530,8 +2531,9 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
     supplier = resolve_supplier(relation_id, debug_info)
     pi.supplier = supplier
 
-    # Currency
-    pi.currency = "EUR"
+    # Currency - use company's default currency
+    company_currency = frappe.db.get_value("Company", company, "default_currency") or "EUR"
+    pi.currency = company_currency
     pi.conversion_rate = 1.0
 
     # Payment terms and due date

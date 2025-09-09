@@ -66,7 +66,7 @@ class ChapterBoardTestFactory:
                 "category_name": category_name,
                 "is_active": 1
             })
-            category.insert(ignore_permissions=True)
+            category.insert()  # Test framework handles permissions
             self.test_case.track_doc("Expense Category", category.name)
         return category_name
     

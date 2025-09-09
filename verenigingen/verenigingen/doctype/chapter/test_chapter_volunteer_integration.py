@@ -4,10 +4,11 @@ import uuid
 import frappe
 from frappe.utils import today
 
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen.doctype.volunteer.volunteer import sync_chapter_board_members
 
 
-class TestChapterVolunteerIntegration(unittest.TestCase):
+class TestChapterVolunteerIntegration(EnhancedTestCase):
     def setUp(self):
         # Create a unique identifier for this test run
         self.test_id = str(uuid.uuid4()).replace("-", "")[:12]
@@ -28,48 +29,41 @@ class TestChapterVolunteerIntegration(unittest.TestCase):
             try:
                 self.test_chapter = frappe.get_doc("Chapter", self.test_chapter.name)
                 self.test_chapter.board_members = []
-                self.test_chapter.save(ignore_permissions=True)
+                self.test_chapter.save()  # EnhancedTestCase handles permissions properly
             except Exception as e:
                 print(f"Error clearing board members: {e}")
 
         # Delete test volunteers
         for volunteer in self.test_volunteers:
             try:
-                frappe.delete_doc("Volunteer", volunteer, force=True, ignore_permissions=True)
+                frappe.delete_doc("Volunteer", volunteer, force=True)
             except Exception as e:
                 print(f"Error deleting volunteer {volunteer}: {e}")
 
         # Delete test members
         for member in self.test_members:
             try:
-                frappe.delete_doc("Member", member.name, force=True, ignore_permissions=True)
+                frappe.delete_doc("Member", member.name, force=True)
             except Exception as e:
                 print(f"Error deleting member {member.name}: {e}")
 
         # Delete the chapter
         if hasattr(self, "test_chapter") and self.test_chapter:
             try:
-                frappe.delete_doc("Chapter", self.test_chapter.name, force=True, ignore_permissions=True)
+                frappe.delete_doc("Chapter", self.test_chapter.name, force=True)
             except Exception as e:
                 print(f"Error deleting chapter {self.test_chapter.name}: {e}")
 
         # Delete the chapter head member and volunteer
         if hasattr(self, "chapter_head_member") and self.chapter_head_member:
             try:
-                frappe.delete_doc(
-                    "Member", self.chapter_head_member.name, force=True, ignore_permissions=True
-                )
+                frappe.delete_doc("Member", self.chapter_head_member.name, force=True)
             except Exception as e:
                 print(f"Error deleting chapter head {self.chapter_head_member.name}: {e}")
 
         if hasattr(self, "chapter_head_volunteer") and self.chapter_head_volunteer:
             try:
-                frappe.delete_doc(
-                    "Verenigingen Volunteer",
-                    self.chapter_head_volunteer.name,
-                    force=True,
-                    ignore_permissions=True,
-                )
+                frappe.delete_doc("Verenigingen Volunteer", self.chapter_head_volunteer.name, force=True)
             except Exception as e:
                 print(f"Error deleting chapter head volunteer {self.chapter_head_volunteer.name}: {e}")
 
@@ -77,7 +71,7 @@ class TestChapterVolunteerIntegration(unittest.TestCase):
         for role in ["Chair", "Secretary", "Treasurer", "New Role"]:
             try:
                 if frappe.db.exists("Chapter Role", role):
-                    frappe.delete_doc("Chapter Role", role, force=True, ignore_permissions=True)
+                    frappe.delete_doc("Chapter Role", role, force=True)
             except Exception as e:
                 print(f"Error deleting role {role}: {e}")
 
@@ -103,7 +97,7 @@ class TestChapterVolunteerIntegration(unittest.TestCase):
                         "is_active": 1,
                     }
                 )
-                role_doc.insert(ignore_permissions=True)
+                role_doc.insert()  # EnhancedTestCase handles permissions properly
 
     def create_test_chapter(self):
         """Create a test chapter with unique name using UUID"""
@@ -119,7 +113,7 @@ class TestChapterVolunteerIntegration(unittest.TestCase):
                 "email": head_email,
             }
         )
-        self.chapter_head_member.insert(ignore_permissions=True)
+        self.chapter_head_member.insert()  # EnhancedTestCase handles permissions properly
 
         # Create volunteer for chapter head
         self.chapter_head_volunteer = frappe.get_doc(
@@ -132,7 +126,7 @@ class TestChapterVolunteerIntegration(unittest.TestCase):
                 "start_date": today(),
             }
         )
-        self.chapter_head_volunteer.insert(ignore_permissions=True)
+        self.chapter_head_volunteer.insert()  # EnhancedTestCase handles permissions properly
 
         # Generate a unique name for the test chapter
         test_chapter_name = f"TestChapter{self.test_id[:8]}"
@@ -147,7 +141,7 @@ class TestChapterVolunteerIntegration(unittest.TestCase):
                 "introduction": "Test chapter for integration tests",
             }
         )
-        self.test_chapter.insert(ignore_permissions=True)
+        self.test_chapter.insert()  # EnhancedTestCase handles permissions properly
 
         return self.test_chapter
 
@@ -166,7 +160,7 @@ class TestChapterVolunteerIntegration(unittest.TestCase):
                     "email": email,
                 }
             )
-            member.insert(ignore_permissions=True)
+            member.insert()  # EnhancedTestCase handles permissions properly
             self.test_members.append(member)
 
             # Create volunteer for member
@@ -181,7 +175,7 @@ class TestChapterVolunteerIntegration(unittest.TestCase):
                     "start_date": today(),
                 }
             )
-            volunteer.insert(ignore_permissions=True)
+            volunteer.insert()  # EnhancedTestCase handles permissions properly
             self.test_volunteers.append(volunteer.name)
 
     def add_board_members_to_chapter(self):
@@ -212,7 +206,7 @@ class TestChapterVolunteerIntegration(unittest.TestCase):
                 },
             )
 
-        self.test_chapter.save(ignore_permissions=True)
+        self.test_chapter.save()  # EnhancedTestCase handles permissions properly
 
     def test_board_assignments_sync(self):
         """Test syncing board positions to volunteer assignments"""
@@ -257,7 +251,7 @@ class TestChapterVolunteerIntegration(unittest.TestCase):
                 "is_active": 1,
             },
         )
-        self.test_chapter.save(ignore_permissions=True)
+        self.test_chapter.save()  # EnhancedTestCase handles permissions properly
 
         # Try to add another board member with same unique role
         # This should fail validation
@@ -275,7 +269,7 @@ class TestChapterVolunteerIntegration(unittest.TestCase):
                     "is_active": 1,
                 },
             )
-            self.test_chapter.save(ignore_permissions=True)
+            self.test_chapter.save()  # EnhancedTestCase handles permissions properly
 
     def test_non_unique_roles(self):
         """Test that non-unique roles can be assigned to multiple people"""
@@ -293,7 +287,7 @@ class TestChapterVolunteerIntegration(unittest.TestCase):
                 "is_active": 1,
             },
         )
-        self.test_chapter.save(ignore_permissions=True)
+        self.test_chapter.save()  # EnhancedTestCase handles permissions properly
 
         # Add another board member with same non-unique role
         # This should succeed
@@ -311,7 +305,7 @@ class TestChapterVolunteerIntegration(unittest.TestCase):
                     "is_active": 1,
                 },
             )
-            self.test_chapter.save(ignore_permissions=True)
+            self.test_chapter.save()  # EnhancedTestCase handles permissions properly
 
             # Count board members with this role
             count = 0

@@ -214,7 +214,7 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
                 "status": "Active",
                 "start_date": today()}
         )
-        activity.insert(ignore_permissions=True)
+        activity.insert()  # VereningingenUnitTestCase handles permissions
         self.track_doc("Volunteer Activity", activity.name)
 
         # Test aggregated assignments
@@ -244,7 +244,7 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
                 "team_type": "Project Team",
                 "start_date": today()}
         )
-        team_doc.insert(ignore_permissions=True)
+        team_doc.insert()
         self.track_doc("Team", team_doc.name)
         team_doc.append(
             "team_members",

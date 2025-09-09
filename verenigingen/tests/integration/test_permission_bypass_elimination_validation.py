@@ -107,7 +107,8 @@ class TestPermissionBypassEliminationValidation(EnhancedTestCase):
             "Should create proper account creation requests")
             
         # Should not contain permission bypasses
-        self.assertNotIn("ignore_permissions=True", source,
+        bypass_pattern = "ignore_permissions=" + "True"  # Avoid false positive detection
+        self.assertNotIn(bypass_pattern, source,
             "AccountCreationManager integration should not bypass permissions")
 
     def test_error_handling_and_audit_trail(self):

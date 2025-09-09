@@ -81,12 +81,12 @@ class TestDonorSecurityEnhanced(EnhancedTestCase):
                 "send_welcome_email": 0,
                 "enabled": 1
             })
-            user.insert(ignore_permissions=True)
+            user.insert()  # Already running as Administrator from setUp
         
         # Ensure user has the specified role
         if not any(role.role == role_name for role in user.roles):
             user.append("roles", {"role": role_name})
-            user.save(ignore_permissions=True)
+            user.save()  # Already running as Administrator from setUp
         
         self.test_users[email] = user
         
@@ -109,7 +109,7 @@ class TestDonorSecurityEnhanced(EnhancedTestCase):
             "donor_email": user_email,
             "member": member.name  # Link to member record
         })
-        donor.insert(ignore_permissions=True)
+        donor.insert()  # Already running as Administrator from setUp
         self.test_donors[user_email] = donor
         
     def create_orphaned_donor(self):
@@ -121,7 +121,7 @@ class TestDonorSecurityEnhanced(EnhancedTestCase):
             "donor_email": "orphaned@unittest.test"
             # No member field set - this is the orphaned donor
         })
-        orphaned_donor.insert(ignore_permissions=True)
+        orphaned_donor.insert()  # Already running as Administrator from setUp
         self.orphaned_donor = orphaned_donor
         
     def test_real_user_permission_chain_validation(self):
@@ -255,12 +255,12 @@ class TestDonorSecurityEnhanced(EnhancedTestCase):
             
         # Test permission changes when role is removed
         with self.subTest("Role removal effects"):
-            frappe.set_user("Administrator")
+            # Already running as Administrator from setUp
             
             # Remove Verenigingen Member role temporarily
             user = frappe.get_doc("User", member1_email)
             user.roles = [role for role in user.roles if role.role != "Verenigingen Member"]
-            user.save(ignore_permissions=True)
+            user.save()  # Already running as Administrator from setUp
             
             # Test permission should be denied now
             member1_donor = self.test_donors[member1_email]
@@ -269,7 +269,7 @@ class TestDonorSecurityEnhanced(EnhancedTestCase):
             
             # Restore role
             user.append("roles", {"role": "Verenigingen Member"})
-            user.save(ignore_permissions=True)
+            user.save()  # Already running as Administrator from setUp
             
             # Permission should be restored
             result = has_donor_permission(member1_donor.name, member1_email)
@@ -543,7 +543,7 @@ class TestDonorSecurityEnhanced(EnhancedTestCase):
             # Disable user account
             user = frappe.get_doc("User", "member1@unittest.test")
             user.enabled = 0
-            user.save(ignore_permissions=True)
+            user.save()  # Already running as Administrator from setUp
             
             try:
                 member1_donor = self.test_donors["member1@unittest.test"]
@@ -556,7 +556,7 @@ class TestDonorSecurityEnhanced(EnhancedTestCase):
             finally:
                 # Re-enable user
                 user.enabled = 1
-                user.save(ignore_permissions=True)
+                user.save()  # Already running as Administrator from setUp
                 
         # Test 8c: Performance with large datasets
         with self.subTest("Performance with multiple donors"):
@@ -573,7 +573,7 @@ class TestDonorSecurityEnhanced(EnhancedTestCase):
                     "donor_email": f"perf{i}@unittest.test",
                     "member": member1.name
                 })
-                donor.insert(ignore_permissions=True)
+                donor.insert()  # Already running as Administrator from setUp
                 additional_donors.append(donor)
                 
             # Test performance of permission queries
@@ -684,7 +684,7 @@ class TestDonorSecurityRealWorldScenarios(EnhancedTestCase):
                 "donor_email": email,
                 "member": member.name
             })
-            donor.insert(ignore_permissions=True)
+            donor.insert()  # Already running as Administrator from setUp
             
             self.users_data[email] = {"member": member, "donor": donor}
             
@@ -701,7 +701,7 @@ class TestDonorSecurityRealWorldScenarios(EnhancedTestCase):
                 "send_welcome_email": 0,
                 "enabled": 1
             })
-            user.insert(ignore_permissions=True)
+            user.insert()  # Already running as Administrator from setUp
             
         # Add all specified roles
         for role_name in roles:

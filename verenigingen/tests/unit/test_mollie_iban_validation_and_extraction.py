@@ -15,17 +15,16 @@ This provides comprehensive validation of the business logic while maintaining
 test reliability and execution speed.
 """
 
-import unittest
 import time
 from typing import Dict, Any
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.verenigingen_payments.clients.bulk_transaction_importer import BulkTransactionImporter
 
 
-class TestMollieIBANValidationAndExtraction(FrappeTestCase):
+class TestMollieIBANValidationAndExtraction(EnhancedTestCase):
     """
     Focused test suite for IBAN validation and consumer data extraction
     

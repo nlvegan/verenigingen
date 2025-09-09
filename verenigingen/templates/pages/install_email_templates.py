@@ -29,7 +29,7 @@ def get_context(context):
 
     context.missing_templates = missing_templates
     context.existing_templates = existing_templates
-    context.all_installed = len(missing_templates) == 0
+    context.all_installed = not missing_templates
     context.page_title = "Install Email Templates"
 
     return context

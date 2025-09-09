@@ -540,8 +540,9 @@ def create_bank_account_record(account, bank_name, bank_info, company):
         if bank_info.get("iban"):
             bank_account.iban = bank_info["iban"]
 
-        # Set currency (default to EUR for Dutch banks)
-        bank_account.currency = "EUR"
+        # Set currency to match company's default currency
+        company_currency = frappe.db.get_value("Company", company, "default_currency") or "EUR"
+        bank_account.currency = company_currency
 
         # Account holder (use company name if not specified)
         if bank_info.get("account_holder"):

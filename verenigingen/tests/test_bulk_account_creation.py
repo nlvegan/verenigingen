@@ -659,16 +659,14 @@ class TestBulkAccountCreationSecurity(EnhancedTestCase):
             )
             members.append(member.name)
         
-        # Test with user without permissions
+        # Test with user without permissions using context manager
         test_user = self.create_test_user("security.test@example.com")
-        frappe.set_user(test_user.name)
         
-        # Should fail without User creation permission
-        with self.assertRaises(frappe.PermissionError):
-            queue_bulk_account_creation_for_members(member_names=members)
-        
-        # Reset to admin user
-        frappe.set_user("Administrator")
+        # Use Enhanced Test Factory's user context management
+        with self.user_context(test_user.name):
+            # Should fail without User creation permission
+            with self.assertRaises(frappe.PermissionError):
+                queue_bulk_account_creation_for_members(member_names=members)
         
         frappe.logger().info("Permission requirements test completed")
     

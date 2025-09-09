@@ -3,13 +3,12 @@ Fixed unit tests for Enhanced Membership Termination & Appeals System
 Addresses workflow transition and API issues
 """
 
-import unittest
-
 import frappe
 from frappe.utils import today
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestTerminationSystem(unittest.TestCase):
+class TestTerminationSystem(EnhancedTestCase):
     """Test suite for termination system workflows and functionality"""
 
     @classmethod
@@ -19,15 +18,8 @@ class TestTerminationSystem(unittest.TestCase):
 
         # Ensure workflows exist
         cls.setup_test_workflows()
-
-        # Create test roles if needed
-        cls.setup_test_roles()
-
-        # Create test users with proper roles
-        cls.setup_test_users()
-
-        # Create test member data
-        cls.setup_test_members()
+        
+        # Enhanced Test Factory will handle user and member creation automatically
 
     @classmethod
     def setup_test_workflows(cls):
@@ -42,109 +34,47 @@ class TestTerminationSystem(unittest.TestCase):
 
     @classmethod
     def setup_test_roles(cls):
-        """Create test roles if they don't exist"""
-        required_roles = ["Verenigingen Administrator", "Test User Role"]
-
-        for role_name in required_roles:
-            if not frappe.db.exists("Role", role_name):
-                try:
-                    role = frappe.get_doc(
-                        {"doctype": "Role", "role_name": role_name, "desk_access": 1, "is_custom": 1}
-                    )
-                    role.insert(ignore_permissions=True)
-                except Exception as e:
-                    print(f"⚠️ Could not create role {role_name}: {str(e)}")
-
-        frappe.db.commit()
+        """Enhanced Test Factory will handle role creation automatically"""
+        pass
 
     @classmethod
     def setup_test_users(cls):
-        """Create test users for different roles"""
-        cls.test_users = {}
-
-        # Verenigingen Administrator user
-        email = "test_assoc_manager@example.com"
-        if not frappe.db.exists("User", email):
-            try:
-                user = frappe.get_doc(
-                    {
-                        "doctype": "User",
-                        "email": email,
-                        "first_name": "Test",
-                        "last_name": "Manager",
-                        "send_welcome_email": 0,
-                        "roles": [
-                            {"role": "Verenigingen Administrator"},
-                            {"role": "System Manager"},  # For testing purposes
-                        ]}
-                )
-                user.insert(ignore_permissions=True)
-            except Exception as e:
-                print(f"⚠️ Could not create test user: {str(e)}")
-
-        cls.test_users["manager"] = email
-        frappe.db.commit()
+        """Enhanced Test Factory will handle user creation automatically"""
+        pass
 
     @classmethod
     def setup_test_members(cls):
-        """Create test member data"""
-        cls.test_members = {}
-
-        # Test member 1 - for standard termination
-        member_email = "john.test@example.com"
-
-        # Check if member exists, if not create
-        if not frappe.db.exists("Member", {"email": member_email}):
-            try:
-                member_data = {
-                    "doctype": "Member",
-                    "first_name": "John",
-                    "last_name": "TestMember",
-                    "full_name": "John TestMember",
-                    "email": member_email,
-                    "status": "Active"}
-
-                member = frappe.get_doc(member_data)
-                member.insert(ignore_permissions=True)
-                cls.test_members["john"] = member.name
-            except Exception as e:
-                print(f"⚠️ Could not create test member: {str(e)}")
-                # Use a fallback - just pick any existing member for testing
-                existing_members = frappe.get_all("Member", limit=1, fields=["name"])
-                if existing_members:
-                    cls.test_members["john"] = existing_members[0].name
-        else:
-            cls.test_members["john"] = frappe.db.get_value("Member", {"email": member_email}, "name")
-
-        frappe.db.commit()
+        """Enhanced Test Factory will handle member creation automatically"""
+        pass
 
     def setUp(self):
-        """Set up for each individual test"""
-        # Set test user context
-        if hasattr(self, "test_users") and self.test_users.get("manager"):
-            frappe.set_user(self.test_users["manager"])
-
-        # Start fresh transaction for each test
-        frappe.db.rollback()
-        frappe.db.begin()
+        """Set up for each individual test using Enhanced Test Factory"""
+        super().setUp()
+        
+        # Create test member for termination tests
+        self.test_member = self.create_test_member(
+            first_name="John",
+            last_name="TestMember",
+            status="Active"
+        )
 
     def tearDown(self):
-        """Clean up after each test"""
-        # Clean up any test documents created during the test
-        self.cleanup_test_documents()
+        """Clean up after each test - Enhanced Test Factory handles automatic cleanup"""
+        # Clean up termination-specific documents not handled by Enhanced Test Factory
+        self.cleanup_termination_documents()
+        
+        # Enhanced Test Factory handles automatic rollback
+        super().tearDown()
 
-        # Rollback any changes
-        frappe.db.rollback()
-
-    def cleanup_test_documents(self):
-        """Clean up test documents"""
+    def cleanup_termination_documents(self):
+        """Clean up termination-specific documents"""
         try:
-            # Delete test termination requests
-            if hasattr(self, "test_members") and self.test_members:
+            # Delete test termination requests for our test member
+            if hasattr(self, "test_member"):
                 test_requests = frappe.get_all(
                     "Membership Termination Request",
-                    filters={"member": ["in", list(self.test_members.values())]},
-                    fields=["name"],
+                    filters={"member": self.test_member.name},
+                    fields=["name"]
                 )
 
                 for request in test_requests:
@@ -156,8 +86,8 @@ class TestTerminationSystem(unittest.TestCase):
                 # Delete test appeals
                 test_appeals = frappe.get_all(
                     "Termination Appeals Process",
-                    filters={"member": ["in", list(self.test_members.values())]},
-                    fields=["name"],
+                    filters={"member": self.test_member.name},
+                    fields=["name"]
                 )
 
                 for appeal in test_appeals:

@@ -8,88 +8,58 @@ This test suite validates:
 4. Proper workflow for amendment lifecycle
 """
 
-import unittest
-
 import frappe
 from frappe.utils import add_days, now_datetime, today
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestContributionAmendmentConflicts(unittest.TestCase):
+class TestContributionAmendmentConflicts(EnhancedTestCase):
     """Test contribution amendment conflict resolution"""
 
     def setUp(self):
-        """Set up test data"""
-        self.test_member_email = f"test-amendment-{int(now_datetime().timestamp())}@example.com"
-        self.test_member_name = None
-        self.test_membership_name = None
+        """Set up test data using Enhanced Test Factory"""
+        super().setUp()
         self.test_amendments = []
-
-        # Create test member
-        self.test_member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Amendment",
-                "last_name": "TestUser",
-                "email": self.test_member_email,
-                "birth_date": "1990-01-01"}
+        
+        # Create test member with Enhanced Test Factory
+        self.test_member = self.create_test_member(
+            first_name="Amendment",
+            last_name="TestUser",
+            birth_date="1990-01-01"
         )
-        self.test_member.insert()
         self.test_member_name = self.test_member.name
-
-        # Create test membership
-        membership_types = frappe.get_all("Membership Type", limit=1)
-        if not membership_types:
-            self.skipTest("No membership types available for testing")
-
-        test_membership_type = membership_types[0]["name"]
-
-        self.test_membership = frappe.get_doc(
-            {
-                "doctype": "Membership",
-                "member": self.test_member_name,
-                "membership_type": test_membership_type,
-                "status": "Active",
-                "start_date": today()}
+        
+        # Create test membership  
+        self.test_membership = self.create_test_membership(
+            member=self.test_member.name,
+            status="Active",
+            start_date=today()
         )
-        self.test_membership.insert()
         self.test_membership_name = self.test_membership.name
         
         # Create initial dues schedule for testing
-        self.test_dues_schedule = frappe.get_doc({
-            "doctype": "Membership Dues Schedule",
-            "member": self.test_member_name,
-            "membership": self.test_membership_name,
-            "membership_type": test_membership_type,
-            "amount": 50.0,
-            "contribution_mode": "Custom",
-            "uses_custom_amount": 1,
-            "custom_amount_approved": 1,
-            "status": "Active"
-        })
-        self.test_dues_schedule.insert()
+        self.test_dues_schedule = self.create_test_membership_dues_schedule(
+            member=self.test_member_name,
+            membership=self.test_membership_name,
+            amount=50.0,
+            contribution_mode="Custom",
+            uses_custom_amount=1,
+            custom_amount_approved=1,
+            status="Active"
+        )
 
     def tearDown(self):
-        """Clean up test data"""
+        """Clean up test data - Enhanced Test Factory handles most cleanup"""
         try:
-            # Clean up test amendments
+            # Clean up test amendments (not handled by Enhanced Test Factory)
             for amendment_name in self.test_amendments:
                 if frappe.db.exists("Contribution Amendment Request", amendment_name):
                     frappe.delete_doc("Contribution Amendment Request", amendment_name, force=True)
-
-            # Clean up test dues schedule
-            if hasattr(self, 'test_dues_schedule') and frappe.db.exists("Membership Dues Schedule", self.test_dues_schedule.name):
-                frappe.delete_doc("Membership Dues Schedule", self.test_dues_schedule.name, force=True)
-
-            # Clean up test membership
-            if self.test_membership_name and frappe.db.exists("Membership", self.test_membership_name):
-                frappe.delete_doc("Membership", self.test_membership_name, force=True)
-
-            # Clean up test member
-            if self.test_member_name and frappe.db.exists("Member", self.test_member_name):
-                frappe.delete_doc("Member", self.test_member_name, force=True)
-
         except Exception as e:
-            print(f"Cleanup error (non-critical): {str(e)}")
+            print(f"Amendment cleanup error (non-critical): {str(e)}")
+        
+        # Enhanced Test Factory handles Member, Membership, and Dues Schedule cleanup
+        super().tearDown()
 
     def test_amendment_conflict_detection(self):
         """Test that the system detects conflicting amendments"""

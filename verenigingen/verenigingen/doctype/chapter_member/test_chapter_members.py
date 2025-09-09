@@ -2,11 +2,12 @@ import random
 import string
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import today
 
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-class TestChapterMemberIntegration(FrappeTestCase):
+
+class TestChapterMemberIntegration(EnhancedTestCase):
     def setUp(self):
         # Generate a unique identifier using only alphanumeric characters
         self.unique_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
@@ -312,7 +313,7 @@ class TestChapterMemberIntegration(FrappeTestCase):
                 "is_active": 1,
             }
         )
-        another_role.insert(ignore_permissions=True)
+        another_role.insert()  # EnhancedTestCase handles permissions
 
         # Add second role for the same volunteer
         self.chapter.append(

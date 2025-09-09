@@ -47,7 +47,7 @@ class TestSecurityCore(VereningingenTestCase):
 
     def test_admin_user_access(self):
         """Test that admin users have proper access to data"""
-        frappe.set_user("Administrator")
+        # VereningingenTestCase already runs with Administrator permissions
 
         # Admin should access member data
         try:
@@ -74,7 +74,7 @@ class TestSecurityCore(VereningingenTestCase):
 
     def test_document_level_permissions(self):
         """Test document-level permission enforcement"""
-        frappe.set_user("Administrator")
+        # VereningingenTestCase already runs with Administrator permissions
 
         # Admin can access member document
         member_doc = frappe.get_doc("Member", self.member1.name)

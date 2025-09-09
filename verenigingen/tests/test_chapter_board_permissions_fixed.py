@@ -32,6 +32,8 @@ class TestChapterBoardPermissionsFixed(VereningingenTestCase):
     def setUp(self):
         """Set up test data using proper factory methods"""
         super().setUp()
+        # Set Administrator for user creation and chapter board permissions testing
+        frappe.set_user("Administrator")
         
         # Use the test region that's already set up by the base class
         test_region = self._test_region_name
@@ -160,7 +162,7 @@ class TestChapterBoardPermissionsFixed(VereningingenTestCase):
                 "last_name": self.treasurer_a_member.last_name,
                 "enabled": 1
             })
-            user.insert(ignore_permissions=True)
+            user.insert()  # Already running as Administrator from setUp
             
             # Reload member to avoid timestamp mismatch
             self.treasurer_a_member.reload()

@@ -9,16 +9,47 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 import frappe
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.templates.pages.volunteer.expenses import is_policy_covered_expense, submit_expense
 
 
-class TestPolicyExpenseIntegration(unittest.TestCase):
+class TestPolicyExpenseIntegration(EnhancedTestCase):
     """Test policy-covered expense functionality"""
 
     def setUp(self):
-        """Set up for each test"""
+        """Set up for each test using Enhanced Test Factory"""
+        super().setUp()
         frappe.set_user("Administrator")
+        
+        # Create real expense categories for testing
+        try:
+            # Create policy-covered category
+            if not frappe.db.exists("Expense Category", "Travel"):
+                travel_category = frappe.get_doc({
+                    "doctype": "Expense Category",
+                    "category_name": "Travel",
+                    "policy_covered": 1,
+                    "description": "Travel expenses"
+                })
+                travel_category.insert()
+                self.track_doc("Expense Category", travel_category.name)
+            
+            # Create non-policy category
+            if not frappe.db.exists("Expense Category", "Equipment"):
+                equipment_category = frappe.get_doc({
+                    "doctype": "Expense Category",
+                    "category_name": "Equipment",
+                    "policy_covered": 0,
+                    "description": "Equipment purchases"
+                })
+                equipment_category.insert()
+                self.track_doc("Expense Category", equipment_category.name)
+                
+        except Exception:
+            # If Expense Category DocType doesn't exist, tests will use fallback logic
+            pass
+        
         self.policy_expense_data = {
             "description": "Policy-covered travel expense",
             "amount": 85.00,
@@ -40,57 +71,47 @@ class TestPolicyExpenseIntegration(unittest.TestCase):
         frappe.db.rollback()
 
     def test_is_policy_covered_expense_with_flag(self):
-        """Test policy coverage detection using category flag"""
-        # Mock expense category with policy_covered flag
-        mock_category = MagicMock()
-        mock_category.policy_covered = True
-
-        with patch("frappe.get_doc", return_value=mock_category):
-            result = is_policy_covered_expense("Travel")
-            self.assertTrue(result)
+        """Test policy coverage detection using real category flag"""
+        # Test with real expense category that has policy_covered flag
+        result = is_policy_covered_expense("Travel")
+        
+        # Should be True either because real category exists with flag=1
+        # or because "Travel" is in the fallback logic list
+        self.assertTrue(result)
 
     def test_is_policy_covered_expense_without_flag(self):
-        """Test policy coverage detection for categories without flag"""
-        # Mock expense category without policy_covered flag
-        mock_category = MagicMock()
-        mock_category.policy_covered = False
-        mock_category.category_name = "Travel"
-
-        with patch("frappe.get_doc", return_value=mock_category):
-            result = is_policy_covered_expense("Travel")
-            self.assertTrue(result)  # Should still be covered due to fallback logic
+        """Test policy coverage detection for categories using fallback logic"""
+        # Test with category name that should be covered by fallback logic
+        result = is_policy_covered_expense("Travel")
+        
+        # Travel should be covered either by real category flag or fallback logic
+        self.assertTrue(result, "Travel should be policy-covered via flag or fallback logic")
 
     def test_is_policy_covered_expense_fallback_logic(self):
-        """Test fallback logic for policy coverage"""
-        # Test with category names that should be policy-covered
+        """Test fallback logic for policy coverage with real categories"""
+        # Test with category names that should be policy-covered by fallback logic
         policy_covered_names = ["Travel", "Materials", "Office Supplies", "Events"]
 
         for category_name in policy_covered_names:
-            mock_category = MagicMock()
-            mock_category.policy_covered = False  # No explicit flag
-            mock_category.category_name = category_name
-
-            with patch("frappe.get_doc", return_value=mock_category):
-                result = is_policy_covered_expense(category_name)
-                self.assertTrue(result, f"{category_name} should be policy-covered")
+            result = is_policy_covered_expense(category_name)
+            self.assertTrue(result, f"{category_name} should be policy-covered")
 
     def test_is_policy_covered_expense_not_covered(self):
-        """Test non-policy-covered expenses"""
-        # Mock non-policy category
-        mock_category = MagicMock()
-        mock_category.policy_covered = False
-        mock_category.category_name = "Expensive Equipment"
-
-        with patch("frappe.get_doc", return_value=mock_category):
-            result = is_policy_covered_expense("Expensive Equipment")
-            self.assertFalse(result)
+        """Test non-policy-covered expenses with real category"""
+        # Test with category that should not be policy-covered
+        result = is_policy_covered_expense("Expensive Equipment")
+        
+        # Should be False since "Expensive Equipment" is not in fallback list
+        # and real category (if exists) should have policy_covered=0
+        self.assertFalse(result)
 
     def test_is_policy_covered_expense_error_handling(self):
-        """Test error handling in policy coverage check"""
-        # Mock exception during category lookup
-        with patch("frappe.get_doc", side_effect=Exception("Category not found")):
-            result = is_policy_covered_expense("NonExistent")
-            self.assertFalse(result)  # Should default to False on error
+        """Test error handling in policy coverage check with real nonexistent category"""
+        # Test with truly nonexistent category
+        result = is_policy_covered_expense("NONEXISTENT-CATEGORY-999")
+        
+        # Should default to False for nonexistent categories not in fallback list
+        self.assertFalse(result, "Nonexistent category should default to not policy-covered")
 
     def test_policy_expense_submission_allowed_for_any_volunteer(self):
         """Test that any volunteer can submit policy-covered national expenses"""
@@ -377,7 +398,7 @@ class TestPolicyExpenseIntegration(unittest.TestCase):
                 self.assertIn("national chapter not configured", result.get("message", "").lower())
 
 
-class TestPolicyExpenseReporting(unittest.TestCase):
+class TestPolicyExpenseReporting(EnhancedTestCase):
     """Test policy expense reporting and analytics"""
 
     def setUp(self):

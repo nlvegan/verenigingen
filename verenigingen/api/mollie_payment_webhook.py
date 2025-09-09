@@ -118,6 +118,7 @@ def handle_mollie_payment_webhook():
                 result = process_successful_payment_with_idempotency(donation, payment, idempotency_status)
                 return {"status": "success", "result": result}
             except Exception as e:
+                frappe.logger().error(f"Payment processing failed for {payment.id}: {str(e)}")
                 # Frappe automatically handles rollback in webhook context
                 raise
 
@@ -242,7 +243,7 @@ def find_donation_for_payment(payment_id, payment):
     if isinstance(payment_created, str):
         try:
             payment_created = datetime.fromisoformat(payment_created.replace("Z", "+00:00"))
-        except:
+        except (ValueError, TypeError):
             return None
 
     # Search for donations within 30-minute window
@@ -261,7 +262,7 @@ def find_donation_for_payment(payment_id, payment):
     )
 
     if donations:
-        frappe.logger().info(f"✅ Found donation via customer+timestamp fallback: {donations[0].name}")
+        frappe.logger().info("✅ Found donation via customer+timestamp fallback: %s", donations[0].name)
         return frappe.get_doc("Donation", donations[0].name)
 
     return None
@@ -297,7 +298,7 @@ def process_successful_payment_with_idempotency(donation, payment, idempotency_s
 
     # Extract Mollie metadata first
     mollie_data = extract_mollie_payment_data(payment)
-    frappe.logger().info(f"🔍 Full mollie_data: {mollie_data}")
+    frappe.logger().info("🔍 Full mollie_data: %s", mollie_data)
 
     # Determine if this is recurring - check both Mollie data AND original donation intent
     has_mollie_subscription = bool(mollie_data.get("subscription_id"))
@@ -306,7 +307,7 @@ def process_successful_payment_with_idempotency(donation, payment, idempotency_s
     # So we check the Mollie payment description for recurring metadata
     donation_metadata_recurring = False
     mollie_description = mollie_data.get("description")
-    frappe.logger().info(f"🔍 Mollie description raw: {repr(mollie_description)}")
+    frappe.logger().info("🔍 Mollie description raw: %s", repr(mollie_description))
 
     if mollie_description:
         try:
@@ -314,11 +315,11 @@ def process_successful_payment_with_idempotency(donation, payment, idempotency_s
 
             desc_data = json.loads(mollie_description)
             donation_metadata_recurring = desc_data.get("type") == "recurring"
-            frappe.logger().info(f"🔍 Parsed description JSON: {desc_data}")
-            frappe.logger().info(f"🔍 Type field: {desc_data.get('type')}")
-            frappe.logger().info(f"🔍 Is recurring from description: {donation_metadata_recurring}")
+            frappe.logger().info("🔍 Parsed description JSON: %s", desc_data)
+            frappe.logger().info("🔍 Type field: %s", desc_data.get("type"))
+            frappe.logger().info("🔍 Is recurring from description: %s", donation_metadata_recurring)
         except (json.JSONDecodeError, TypeError) as e:
-            frappe.logger().info(f"⚠️ Failed to parse Mollie description JSON: {e}")
+            frappe.logger().info("⚠️ Failed to parse Mollie description JSON: %s", e)
     else:
         frappe.logger().info("⚠️ No Mollie description found")
 
@@ -332,16 +333,16 @@ def process_successful_payment_with_idempotency(donation, payment, idempotency_s
 
     # STEP 1: Create Payment Entry FIRST (atomic transaction protection)
     if not idempotency_status["payment_entry_created"]:
-        frappe.logger().info(f"🔄 Creating Payment Entry for {donation.name}")
+        frappe.logger().info("🔄 Creating Payment Entry for %s", donation.name)
 
         payment_entry = create_payment_entry_for_donation(donation, mollie_data)
         if payment_entry:
             results["payment_entry"] = payment_entry.name
             results["components_processed"].append("payment_entry_created")
-            frappe.logger().info(f"✅ Payment Entry created: {payment_entry.name}")
+            frappe.logger().info("✅ Payment Entry created: %s", payment_entry.name)
         else:
-            frappe.logger().error(f"❌ Failed to create Payment Entry for {donation.name}")
-            raise Exception(f"Payment Entry creation failed for {donation.name}")
+            frappe.logger().error("❌ Failed to create Payment Entry for %s", donation.name)
+            raise ValueError(f"Payment Entry creation failed for {donation.name}")
     else:
         frappe.logger().info("⏭️ Payment Entry already exists")
         # Get the existing PE name for results
@@ -352,26 +353,26 @@ def process_successful_payment_with_idempotency(donation, payment, idempotency_s
 
     # STEP 2: Update Payment History SECOND
     if not idempotency_status["payment_history_exists"]:
-        frappe.logger().info(f"🔄 Updating payment history for {donation.name}")
+        frappe.logger().info("🔄 Updating payment history for %s", donation.name)
         history_result = update_donation_payment_history(donation, mollie_data, results.get("payment_entry"))
         if history_result:
             results["components_processed"].append("payment_history_updated")
             frappe.logger().info("✅ Payment history updated")
         else:
-            frappe.logger().error(f"❌ Failed to update payment history for {donation.name}")
+            frappe.logger().error("❌ Failed to update payment history for %s", donation.name)
             # Continue processing - history is important but not critical
     else:
-        frappe.logger().info(f"⏭️ Payment history already exists for transaction {payment.id}")
+        frappe.logger().info("⏭️ Payment history already exists for transaction %s", payment.id)
 
     # STEP 3: Update Status THIRD
     if not idempotency_status["donation_status_updated"]:
-        frappe.logger().info(f"🔄 Updating donation status for {donation.name}")
+        frappe.logger().info("🔄 Updating donation status for %s", donation.name)
 
         # Update status based on payment type using proper document operations
         if is_recurring:
             donation.status = "Recurring"
             frappe.logger().info(
-                f"✅ Set status to Recurring (subscription: {mollie_data.get('subscription_id')})"
+                "✅ Set status to Recurring (subscription: %s)", mollie_data.get("subscription_id")
             )
         else:
             donation.status = "One-time"
@@ -394,7 +395,7 @@ def process_successful_payment_with_idempotency(donation, payment, idempotency_s
     results["amount"] = donation.amount
     results["payment_method"] = mollie_data.get("method")
 
-    frappe.logger().info(f"✅ Processing completed: {results['components_processed']}")
+    frappe.logger().info("✅ Processing completed: %s", results["components_processed"])
     return results
 
 
@@ -435,11 +436,15 @@ def process_successful_payment(donation, payment):
     if is_recurring:
         donation.status = "Recurring"
         frappe.logger().info(
-            f"✅ Set donation {donation.name} status to Recurring (has_subscription={has_mollie_subscription}, already_recurring={already_recurring}, metadata_recurring={donation_metadata_recurring})"
+            "✅ Set donation %s status to Recurring (has_subscription=%s, already_recurring=%s, metadata_recurring=%s)",
+            donation.name,
+            has_mollie_subscription,
+            already_recurring,
+            donation_metadata_recurring,
         )
     else:
         donation.status = "One-time"
-        frappe.logger().info(f"✅ Set donation {donation.name} status to One-time")
+        frappe.logger().info("✅ Set donation %s status to One-time", donation.name)
 
     # Save all changes in one operation
     donation.save()
@@ -455,9 +460,9 @@ def process_successful_payment(donation, payment):
     history_updated = update_donation_payment_history(donation, mollie_data, payment_entry_name)
 
     if history_updated:
-        frappe.logger().info(f"✅ Payment history updated for donation {donation.name}")
+        frappe.logger().info("✅ Payment history updated for donation %s", donation.name)
     else:
-        frappe.logger().error(f"⚠️ Payment history update failed for donation {donation.name}")
+        frappe.logger().error("⚠️ Payment history update failed for donation %s", donation.name)
 
     return {
         "donation_id": donation.name,
@@ -493,6 +498,10 @@ def update_donation_with_mollie_data(donation, mollie_data):
 
     updates = {}
 
+    # Store the Mollie payment ID (transaction ID)
+    if mollie_data.get("payment_id"):
+        updates["payment_id"] = mollie_data["payment_id"]
+
     if mollie_data.get("customer_id"):
         updates["mollie_customer_id"] = mollie_data["customer_id"]
 
@@ -515,7 +524,7 @@ def update_donation_with_mollie_data(donation, mollie_data):
         donation.save()
 
         frappe.logger().info(
-            f"✅ Updated donation {donation.name} with Mollie metadata: {list(updates.keys())}"
+            "✅ Updated donation %s with Mollie metadata: %s", donation.name, list(updates.keys())
         )
 
 
@@ -531,7 +540,7 @@ def create_payment_entry_for_donation(donation, mollie_data):
         )
 
         if existing_pe:
-            frappe.logger().info(f"⚠️ Payment Entry already exists: {existing_pe}")
+            frappe.logger().info("⚠️ Payment Entry already exists: %s", existing_pe)
             return frappe.get_doc("Payment Entry", existing_pe)
 
         # Get company and accounts
@@ -551,11 +560,11 @@ def create_payment_entry_for_donation(donation, mollie_data):
 
         # Validate required accounts exist
         if not donation_account:
-            frappe.logger().error(f"❌ No income account found for company {company}")
+            frappe.logger().error("❌ No income account found for company %s", company)
             return None
 
         if not bank_account:
-            frappe.logger().error(f"❌ No bank account found for company {company}")
+            frappe.logger().error("❌ No bank account found for company %s", company)
             return None
 
         # Validate Mode of Payment exists
@@ -572,7 +581,10 @@ def create_payment_entry_for_donation(donation, mollie_data):
         custom_naming_series = f"PE-{donor_name_clean}-{donation_number}-"
 
         frappe.logger().info(
-            f"🏷️ Custom PE naming: {custom_naming_series} for donor '{donor_doc.donor_name}' donation {donation.name}"
+            "🏷️ Custom PE naming: %s for donor '%s' donation %s",
+            custom_naming_series,
+            donor_doc.donor_name,
+            donation.name,
         )
 
         # Create Payment Entry for donation (Receive type with party tracking)
@@ -598,13 +610,14 @@ def create_payment_entry_for_donation(donation, mollie_data):
         pe.insert()
         pe.submit()
 
-        frappe.logger().info(f"✅ Created Payment Entry: {pe.name}")
+        frappe.logger().info("✅ Created Payment Entry: %s", pe.name)
         return pe
 
     except Exception as e:
-        frappe.logger().error(f"❌ Failed to create Payment Entry: {str(e)}")
+        frappe.logger().error("❌ Failed to create Payment Entry: %s", str(e))
         frappe.log_error(
-            f"Payment Entry creation failed for donation {donation.name}: {str(e)}", "Payment Entry Creation"
+            f"Payment Entry creation failed for donation {donation.name}: {str(e)}",
+            "Payment Entry Creation",
         )
         return None
 
@@ -630,7 +643,7 @@ def update_donation_payment_history(donation, mollie_data, payment_entry_name):
                     break
 
         if existing_entry:
-            frappe.logger().info(f"⏭️ Payment history entry already exists for {mollie_data['payment_id']}")
+            frappe.logger().info("⏭️ Payment history entry already exists for %s", mollie_data["payment_id"])
             return True  # Already exists counts as success
 
         # Create new payment history entry
@@ -641,7 +654,7 @@ def update_donation_payment_history(donation, mollie_data, payment_entry_name):
                 from dateutil import parser
 
                 payment_date = parser.parse(payment_date).date()
-            except:
+            except (ValueError, TypeError, ImportError):
                 payment_date = frappe.utils.getdate()
 
         donation.append(
@@ -662,11 +675,11 @@ def update_donation_payment_history(donation, mollie_data, payment_entry_name):
 
         # Save donation with new payment history
         donation.save()
-        frappe.logger().info(f"✅ Added payment history entry for donation {donation.name}")
+        frappe.logger().info("✅ Added payment history entry for donation %s", donation.name)
         return True
 
     except Exception as e:
-        frappe.logger().error(f"❌ Failed to update donation payment history: {str(e)}")
+        frappe.logger().error("❌ Failed to update donation payment history: %s", str(e))
         # Don't fail the entire webhook for history update issues
         frappe.log_error(
             f"Donation payment history update failed for {donation.name}: {str(e)}",

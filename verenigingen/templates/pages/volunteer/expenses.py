@@ -1557,27 +1557,10 @@ def get_user_volunteer_record():
     if frappe.session.user == "Guest":
         frappe.throw(_("Please login to access volunteer information"), frappe.PermissionError)
 
-    try:
-        # Use the standardized utility function
-        volunteer_name = get_volunteer_for_current_user()
-        if not volunteer_name:
-            return None
+    # Use the existing optimized utility function
+    from verenigingen.utils.performance_utils import get_user_volunteer_record_optimized
 
-        # Get the volunteer document with required fields including member field
-        volunteer = frappe.get_doc("Volunteer", volunteer_name)
-
-        # Return the volunteer document as dict to ensure all fields are available
-        volunteer_dict = volunteer.as_dict()
-
-        # Ensure member field is available for tests
-        if hasattr(volunteer, "member") and volunteer.member:
-            volunteer_dict["member"] = volunteer.member
-
-        return volunteer_dict
-
-    except Exception as e:
-        frappe.log_error(f"Error getting user volunteer record: {str(e)}", "Volunteer Record Error")
-        return None
+    return get_user_volunteer_record_optimized(frappe.session.user)
 
 
 def map_erpnext_status_to_volunteer_status(status, approval_status=None):

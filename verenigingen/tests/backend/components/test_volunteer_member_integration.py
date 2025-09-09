@@ -6,13 +6,13 @@ Tests how member status affects volunteer eligibility, assignments, and workflow
 
 import frappe
 from frappe.utils import today, add_months, add_days, flt, getdate, add_to_date, now_datetime
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from unittest.mock import patch, MagicMock
 import json
 from datetime import datetime, timedelta
 
 
-class TestVolunteerMemberIntegration(VereningingenTestCase):
+class TestVolunteerMemberIntegration(EnhancedTestCase):
     """Test volunteer system integration with member status and lifecycle"""
 
     def setUp(self):

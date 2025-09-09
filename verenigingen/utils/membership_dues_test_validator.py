@@ -182,8 +182,10 @@ def run_quick_membership_dues_tests():
         # Test 2: Create payment plan
         results.append("\nTesting payment plan creation...")
 
-        # Need a test member
-        test_member = frappe.db.get_value("Member", {}, "name")
+        # Need a test member (prefer test data)
+        test_member = frappe.db.get_value("Member", [["name", "like", "%test%"]], "name", order_by="name")
+        if not test_member:
+            test_member = frappe.db.get_value("Member", {}, "name", order_by="name")
         if not test_member:
             results.append("  ⚠️  No test member found, skipping payment plan test")
         else:

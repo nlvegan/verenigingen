@@ -25,16 +25,19 @@ class TestContributionSystem(EnhancedTestCase):
     def test_contribution_system_creation(self):
         """Test creating a membership type with contribution system"""
         
+        # Generate unique name to avoid duplicates
+        import time
+        unique_suffix = str(int(time.time() * 1000))[-8:]
+        
         # Test creating a membership type with new fields
         self.membership_type = frappe.new_doc("Membership Type")
-        self.membership_type.membership_type_name = "Test Flexible System"
+        self.membership_type.membership_type_name = f"Test Flexible System {unique_suffix}"
         self.membership_type.description = "Test for flexible contribution system"
         self.membership_type.minimum_amount = 15.0
         self.membership_type.billing_frequency = "Monthly"
         self.membership_type.is_active = 1
 
         # Create membership type first (without template reference)
-        self.membership_type.flags.ignore_mandatory = True
         self.membership_type.save()
 
         # Create dues schedule template with all required fields
@@ -57,7 +60,6 @@ class TestContributionSystem(EnhancedTestCase):
 
         # Update membership type with template reference
         self.membership_type.dues_schedule_template = self.template.name
-        self.membership_type.flags.ignore_mandatory = False
         self.membership_type.save()
         
         # Verify creation

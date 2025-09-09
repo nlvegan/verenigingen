@@ -2,11 +2,12 @@ import random
 import string
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import today
 
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-class TestChapterHead(FrappeTestCase):
+
+class TestChapterHead(EnhancedTestCase):
     def setUp(self):
         # Generate a unique identifier using only alphanumeric characters
         self.unique_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
@@ -25,7 +26,7 @@ class TestChapterHead(FrappeTestCase):
                 "is_active": 1,
             }
         )
-        self.chair_role.insert(ignore_permissions=True)
+        self.chair_role.insert()  # EnhancedTestCase handles permissions
 
         # Create test regular role
         self.regular_role = frappe.get_doc(
@@ -38,7 +39,7 @@ class TestChapterHead(FrappeTestCase):
                 "is_active": 1,
             }
         )
-        self.regular_role.insert(ignore_permissions=True)
+        self.regular_role.insert()  # EnhancedTestCase handles permissions
 
         # Create test members
         self.chair_member = frappe.get_doc(
@@ -49,7 +50,7 @@ class TestChapterHead(FrappeTestCase):
                 "email": f"chair{self.unique_id}@example.com",
             }
         )
-        self.chair_member.insert(ignore_permissions=True)
+        self.chair_member.insert()  # EnhancedTestCase handles permissions
 
         self.regular_member = frappe.get_doc(
             {
@@ -59,7 +60,7 @@ class TestChapterHead(FrappeTestCase):
                 "email": f"regular{self.unique_id}@example.com",
             }
         )
-        self.regular_member.insert(ignore_permissions=True)
+        self.regular_member.insert()  # EnhancedTestCase handles permissions
 
         # Create volunteers for the members
         self.chair_volunteer = frappe.get_doc(
@@ -72,7 +73,7 @@ class TestChapterHead(FrappeTestCase):
                 "start_date": today(),
             }
         )
-        self.chair_volunteer.insert(ignore_permissions=True)
+        self.chair_volunteer.insert()  # EnhancedTestCase handles permissions
 
         self.regular_volunteer = frappe.get_doc(
             {
@@ -84,7 +85,7 @@ class TestChapterHead(FrappeTestCase):
                 "start_date": today(),
             }
         )
-        self.regular_volunteer.insert(ignore_permissions=True)
+        self.regular_volunteer.insert()  # EnhancedTestCase handles permissions
 
         # Create test chapter
         self.chapter = frappe.get_doc(
@@ -96,7 +97,7 @@ class TestChapterHead(FrappeTestCase):
                 "published": 1,
             }
         )
-        self.chapter.insert(ignore_permissions=True)
+        self.chapter.insert()  # EnhancedTestCase handles permissions
 
     def tearDown(self):
         self.cleanup_test_data()
@@ -280,7 +281,7 @@ class TestChapterHead(FrappeTestCase):
                 "is_active": 1,
             }
         )
-        chair_role2.insert(ignore_permissions=True)
+        chair_role2.insert()  # EnhancedTestCase handles permissions
 
         # Create another member for the second chair role
         chair_member2 = frappe.get_doc(
@@ -291,7 +292,7 @@ class TestChapterHead(FrappeTestCase):
                 "email": f"president{self.unique_id}@example.com",
             }
         )
-        chair_member2.insert(ignore_permissions=True)
+        chair_member2.insert()  # EnhancedTestCase handles permissions
 
         # Create volunteer for the second member
         chair_volunteer2 = frappe.get_doc(
@@ -304,7 +305,7 @@ class TestChapterHead(FrappeTestCase):
                 "start_date": today(),
             }
         )
-        chair_volunteer2.insert(ignore_permissions=True)
+        chair_volunteer2.insert()  # EnhancedTestCase handles permissions
 
         # Add first chair member
         self.chapter.append(
@@ -389,7 +390,7 @@ class TestChapterHead(FrappeTestCase):
                 "is_active": 1,
             }
         )
-        general_role.insert(ignore_permissions=True)
+        general_role.insert()  # EnhancedTestCase handles permissions
 
         # Add a board member with the non-unique role
         self.chapter.append(

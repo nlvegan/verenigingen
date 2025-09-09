@@ -6,13 +6,13 @@ Focused unit tests for core SEPA notification business logic.
 Complex notification workflows are tested in integration tests.
 """
 
-import unittest
 from unittest.mock import MagicMock
 
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.utils.sepa_notifications import SEPAMandateNotificationManager
 
 
-class TestSEPANotificationBusinessLogic(unittest.TestCase):
+class TestSEPANotificationBusinessLogic(EnhancedTestCase):
     """Test SEPA notification business logic - core functions only"""
 
     def setUp(self):

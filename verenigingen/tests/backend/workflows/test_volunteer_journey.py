@@ -116,7 +116,7 @@ class TestVolunteerJourney(VereningingenTestCase):
                 "status": "Active",
                 "primary_chapter": self.test_chapter.name}
         )
-        member.insert(ignore_permissions=True)
+        member.insert()  # VereningingenTestCase handles permissions
 
         # Add to chapter
         member.append(
@@ -127,7 +127,7 @@ class TestVolunteerJourney(VereningingenTestCase):
                 "enabled": 1,
                 "status": "Active"},
         )
-        member.save(ignore_permissions=True)
+        member.save()  # VereningingenTestCase handles permissions
 
         self.track_doc("Member", member.name)
 

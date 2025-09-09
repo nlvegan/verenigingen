@@ -2,10 +2,10 @@
 Unit tests for volunteer skills API functions
 """
 
-import unittest
 import json
 import frappe
 from frappe.utils import today, now_datetime
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen.doctype.volunteer.volunteer import (
     search_volunteers_by_skill,
     get_all_skills_list,
@@ -22,20 +22,19 @@ from verenigingen.api.volunteer_skills import (
 )
 
 
-class TestVolunteerSkillsAPI(unittest.TestCase):
+class TestVolunteerSkillsAPI(EnhancedTestCase):
     """Test volunteer skills API functions"""
 
     def setUp(self):
-        """Set up test data"""
-        self.cleanup_test_data()
+        """Set up test data using Enhanced Test Factory"""
+        super().setUp()
         
-        # Create test volunteers with skills
-        self.test_volunteers = []
+        # Create test volunteers with skills using Enhanced Test Factory
         self.create_test_volunteer_data()
 
     def tearDown(self):
-        """Clean up test data"""
-        self.cleanup_test_data()
+        """Clean up test data - Enhanced Test Factory handles automatic cleanup"""
+        super().tearDown()
 
     def cleanup_test_data(self):
         """Remove test data"""

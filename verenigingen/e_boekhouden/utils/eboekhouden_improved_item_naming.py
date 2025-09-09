@@ -125,8 +125,8 @@ def get_or_create_item_improved(
         )
         return bank_cost_item
 
-    # Step 2: Row-level pattern detection for WooCommerce sales
-    if _is_event_ticket_row(description, account_code, price):
+    # Step 2: Row-level pattern detection for WooCommerce sales (ONLY for sales transactions)
+    if transaction_type == "Sales" and _is_event_ticket_row(description, account_code, price):
         # For event ticket sales rows, use standardized item
         event_ticket_item = get_or_create_event_ticket_item(company)
         frappe.logger().info(
@@ -532,18 +532,26 @@ def _is_event_ticket_row(description, account_code, price):
     """
     Detect if a row represents the main product sale (event tickets) in WooCommerce
 
-    Simple logic: if it's not bank costs, and has substantial value, it's likely the main product
+    Only triggers for sales transactions that explicitly mention WooCommerce
     """
+    # Must have a description to analyze
+    if not description:
+        return False
+
     # If it's already detected as bank costs, it's not an event ticket
     if _is_bank_cost_transaction(description, account_code):
         return False
 
-    # If price is provided, use it as signal
-    # Event tickets typically have substantial amounts (> €1.00)
+    # Only trigger for WooCommerce-related transactions
+    description_lower = description.lower()
+    if "woocommerce" not in description_lower:
+        return False
+
+    # For WooCommerce transactions with substantial amounts, likely event tickets
     if price and float(price) > 1.0:
         return True
 
-    # For small amounts that aren't bank costs, still could be event tickets
+    # Even small WooCommerce amounts could be event tickets
     return True
 
 
@@ -655,8 +663,13 @@ def get_or_create_bank_cost_item(company):
         elif frappe.db.exists("Item Group", "Services"):
             item.item_group = "Services"
         else:
-            # Use any available non-group item group as fallback
-            item.item_group = frappe.db.get_value("Item Group", {"is_group": 0}, "name") or "Services"
+            # Try to find any available non-group item group
+            available_group = frappe.db.get_value("Item Group", {"is_group": 0}, "name")
+            if available_group:
+                item.item_group = available_group
+            else:
+                # "Services" is ERPNext's default, this is acceptable
+                item.item_group = "Services"
 
         item.stock_uom = "Unit"
         item.is_stock_item = 0  # Service item, not tracked inventory
@@ -707,8 +720,13 @@ def get_or_create_event_ticket_item(company):
         elif frappe.db.exists("Item Group", "Services"):
             item.item_group = "Services"
         else:
-            # Use any available non-group item group as fallback
-            item.item_group = frappe.db.get_value("Item Group", {"is_group": 0}, "name") or "Services"
+            # Try to find any available non-group item group
+            available_group = frappe.db.get_value("Item Group", {"is_group": 0}, "name")
+            if available_group:
+                item.item_group = available_group
+            else:
+                # "Services" is ERPNext's default, this is acceptable
+                item.item_group = "Services"
 
         item.stock_uom = "Unit"
         item.is_stock_item = 0  # Service item, not tracked inventory

@@ -12,7 +12,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock, Mock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.tests.test_mollie_api_data_factory import (
     MollieApiDataFactory,
@@ -23,7 +23,7 @@ from verenigingen.verenigingen_payments.dashboards.financial_dashboard import Fi
 from verenigingen.verenigingen_payments.core.security.mollie_security_manager import MollieSecurityManager
 
 
-class TestMollieEdgeCasesIntegration(FrappeTestCase):
+class TestMollieEdgeCasesIntegration(EnhancedTestCase):
     """
     Integration tests for edge cases across multiple Mollie components
     
@@ -441,7 +441,7 @@ class TestMollieEdgeCasesIntegration(FrappeTestCase):
         self.assertIn("revenue_analysis", summary)
 
 
-class TestMollieApiParameterValidation(FrappeTestCase):
+class TestMollieApiParameterValidation(EnhancedTestCase):
     """
     Test API parameter validation and error handling
     """

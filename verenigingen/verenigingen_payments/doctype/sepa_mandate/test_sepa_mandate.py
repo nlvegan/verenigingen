@@ -1,10 +1,10 @@
-import unittest
-
 import frappe
 from frappe.utils import add_days, today
 
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-class TestSEPAMandate(unittest.TestCase):
+
+class TestSEPAMandate(EnhancedTestCase):
     @classmethod
     def setUpClass(cls):
         # Set up any common test data
@@ -375,6 +375,6 @@ def create_test_member():
             "iban": "NL91ABNA0417164300",  # Test IBAN
         }
     )
-    member.insert(ignore_permissions=True)
+    member.insert()  # EnhancedTestCase handles permissions
 
     return member

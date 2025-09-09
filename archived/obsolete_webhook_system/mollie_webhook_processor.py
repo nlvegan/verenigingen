@@ -15,6 +15,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, now_datetime
 
+from verenigingen.archived.obsolete_webhook_system.donation_factory import DonationFactory
 from verenigingen.utils.payment_services.constants import (
     LOG_CATEGORY_SECURITY,
     LOG_CATEGORY_VALIDATION,
@@ -31,8 +32,6 @@ from verenigingen.utils.payment_services.logging_utils import (
     log_signature_validation_failed,
     log_webhook_received,
 )
-
-from .donation_factory import DonationFactory
 
 
 class MollieWebhookProcessor:
@@ -113,7 +112,7 @@ class MollieWebhookProcessor:
             if not webhook_id:
                 return "Missing webhook ID in payload"
 
-            if not isinstance(webhook_id, str) or len(webhook_id.strip()) == 0:
+            if not isinstance(webhook_id, str) or not webhook_id.strip():
                 return "Invalid webhook ID format"
 
             # Additional validation based on webhook type
@@ -757,9 +756,7 @@ class MollieWebhookProcessor:
     ) -> Dict[str, Any]:
         """Create reverse Payment Entry for refund."""
         try:
-            from vereiningen.utils.payment_services.donation_factory import DonationFactory
-
-            factory = DonationFactory()
+            # DonationFactory already imported at top of file
 
             # Get Mollie clearing account from settings
             mollie_settings = frappe.get_single("Mollie Settings")
@@ -811,9 +808,7 @@ class MollieWebhookProcessor:
     ) -> Dict[str, Any]:
         """Create reverse Payment Entry for chargeback."""
         try:
-            from .donation_factory import DonationFactory
-
-            factory = DonationFactory()
+            # DonationFactory already imported at top of file
 
             # Get Mollie clearing account from settings
             mollie_settings = frappe.get_single("Mollie Settings")
@@ -885,7 +880,7 @@ class MollieWebhookProcessor:
                     if refund_details.get("created_at")
                     else getdate(),
                     "payment_method": "Mollie Refund",
-                    "amount": -refund_amount,  # Negative amount for refund
+                    "amount": -(refund_amount or 0),  # Negative amount for refund
                     "payment_entry": payment_entry_id,
                     "mollie_payment_id": refund_details.get("id"),
                     "notes": f"Refund: {refund_details.get('description', 'N/A')}",
@@ -919,7 +914,7 @@ class MollieWebhookProcessor:
                     if chargeback_details.get("created_at")
                     else getdate(),
                     "payment_method": "Mollie Chargeback",
-                    "amount": -chargeback_amount,  # Negative amount for chargeback
+                    "amount": -(chargeback_amount or 0),  # Negative amount for chargeback
                     "payment_entry": payment_entry_id,
                     "mollie_payment_id": chargeback_details.get("id"),
                     "notes": f"Chargeback: {reason_text}",

@@ -48,7 +48,7 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
                 "new_password": "testpass123",
                 "roles": []
             })
-            user.insert(ignore_permissions=True)
+            user.insert()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
         
         # Clear existing roles
         user.roles = []
@@ -57,7 +57,7 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
         for role in roles:
             user.append("roles", {"role": role})
         
-        user.save(ignore_permissions=True)
+        user.save()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
         frappe.db.commit()
         
         return email
@@ -83,7 +83,7 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
                 "status": "Active",
                 "member_since": add_months(getdate(), -i)
             })
-            member.insert(ignore_permissions=True)
+            member.insert()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
     
     def create_test_analytics_data(self):
         """Create test analytics data"""
@@ -98,7 +98,7 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
             "end_date": frappe.utils.year_end(),
             "status": "Active"
         })
-        self.test_goal.insert(ignore_permissions=True)
+        self.test_goal.insert()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
         
         # Create a test alert rule
         self.test_alert_rule = frappe.get_doc({
@@ -113,7 +113,7 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
             "send_email": 0,
             "send_system_notification": 1
         })
-        self.test_alert_rule.insert(ignore_permissions=True)
+        self.test_alert_rule.insert()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
         
         # Create a test snapshot
         self.test_snapshot = frappe.get_doc({
@@ -126,7 +126,7 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
             "new_members": 10,
             "lost_members": 2
         })
-        self.test_snapshot.insert(ignore_permissions=True)
+        self.test_snapshot.insert()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
         
         frappe.db.commit()
     
@@ -439,7 +439,7 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
             "threshold_value": 100,
             "condition": "Greater Than"
         })
-        test_log.insert(ignore_permissions=True)
+        test_log.insert()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
         
         # Administrator - full access
         frappe.set_user(self.admin_user)
@@ -544,7 +544,7 @@ class TestMembershipAnalyticsDataSecurity(BaseTestCase):
                 "chapter_name": name,
                 "is_active": 1
             })
-            chapter.insert(ignore_permissions=True)
+            chapter.insert()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
             return chapter.name
         return name
     
@@ -560,12 +560,12 @@ class TestMembershipAnalyticsDataSecurity(BaseTestCase):
                 "enabled": 1,
                 "new_password": "testpass123"
             })
-            user.insert(ignore_permissions=True)
+            user.insert()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
         
         # Add Verenigingen Manager role
         user.roles = []
         user.append("roles", {"role": "Verenigingen Manager"})
-        user.save(ignore_permissions=True)
+        user.save()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
         
         # Link to chapter
         if not frappe.db.exists("Chapter Member", {"chapter": chapter, "member_email": email}):
@@ -576,7 +576,7 @@ class TestMembershipAnalyticsDataSecurity(BaseTestCase):
                 "role": "Manager",
                 "is_active": 1
             })
-            chapter_member.insert(ignore_permissions=True)
+            chapter_member.insert()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
         
         return email
     
@@ -592,7 +592,7 @@ class TestMembershipAnalyticsDataSecurity(BaseTestCase):
                 "current_chapter": chapter,
                 "member_since": frappe.utils.add_months(frappe.utils.getdate(), -i)
             })
-            member.insert(ignore_permissions=True)
+            member.insert()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
     
     def test_chapter_data_isolation(self):
         """Test that chapter managers can only see their chapter's data"""

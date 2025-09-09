@@ -6,10 +6,10 @@ Tests the unified services and performance improvements
 
 import frappe
 from frappe.utils import today, add_days
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestSEPAOptimizations(VereningingenTestCase):
+class TestSEPAOptimizations(EnhancedTestCase):
     """Test suite for SEPA optimization integrations"""
     
     def setUp(self):

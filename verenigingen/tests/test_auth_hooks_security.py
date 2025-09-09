@@ -25,6 +25,14 @@ class TestAuthHooksSecurity(EnhancedTestCase):
     def setUp(self):
         """Set up test data for authentication tests"""
         super().setUp()
+        self.original_user = frappe.session.user
+        # Set Administrator for authentication security testing
+        frappe.set_user("Administrator")
+    
+    def tearDown(self):
+        """Clean up after authentication tests"""
+        frappe.set_user(self.original_user)
+        super().tearDown()
         
         # Create test users with different roles
         self.test_member_user = self.create_test_user(
@@ -67,7 +75,7 @@ class TestAuthHooksSecurity(EnhancedTestCase):
             "new_password": "test123",
             "roles": [{"role": role} for role in (roles or [])]
         })
-        user.insert(ignore_permissions=True)
+        user.insert()  # Already running as Administrator from setUp
         return user
 
     # ===== SESSION CREATION SAFETY TESTS =====
@@ -315,7 +323,8 @@ class TestAuthHooksSecurity(EnhancedTestCase):
         except Exception as e:
             self.fail(f"API method failed: {e}")
         finally:
-            frappe.set_user("Administrator")
+            # Cleanup handled by tearDown method
+            pass
 
     def test_get_default_home_page_with_invalid_user(self):
         """Test get_default_home_page handles invalid users"""

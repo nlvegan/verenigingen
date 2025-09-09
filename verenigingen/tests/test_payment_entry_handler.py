@@ -152,7 +152,11 @@ class TestPaymentEntryHandler(FrappeTestCase):
         if not frappe.db.exists("Supplier", "TEST-SUPP-001"):
             supplier = frappe.new_doc("Supplier")
             supplier.supplier_name = "Test Supplier 001"
-            supplier.supplier_group = frappe.db.get_value("Supplier Group", {}, "name")
+            # Get supplier group (ordered for consistency)
+            supplier_group = frappe.db.get_value("Supplier Group", {"is_group": 0}, "name", order_by="name")
+            if not supplier_group:
+                frappe.throw("No supplier group found. Please create supplier groups for tests.")
+            supplier.supplier_group = supplier_group
             supplier.save()
         
         # Process payment

@@ -16,7 +16,18 @@ class EBoekhoudenPartyExtractor:
     """
 
     def __init__(self, company: str = None):
-        self.company = company or frappe.defaults.get_user_default("Company")
+        if not company:
+            # Get company from E-Boekhouden Settings, not user defaults
+            settings = frappe.get_single("E-Boekhouden Settings")
+            company = settings.default_company
+
+        if not company:
+            frappe.throw(
+                "No company specified for party extraction. Please configure E-Boekhouden Settings.",
+                title="Company Required",
+            )
+
+        self.company = company
 
         # Dutch banking description patterns (adapted from MT940 logic)
         self.party_patterns = [

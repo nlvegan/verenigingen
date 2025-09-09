@@ -7,10 +7,10 @@ and missing dependencies early.
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestAllImports(FrappeTestCase):
+class TestAllImports(EnhancedTestCase):
     """Test that all modules can be imported successfully"""
     
     def test_api_imports(self):

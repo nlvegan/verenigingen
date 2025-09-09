@@ -174,7 +174,9 @@ def submit_donation(**kwargs):
 
             except Exception as e:
                 frappe.log_error(
-                    f"Mollie payment processing error for donation {donation.name if 'donation' in locals() else 'unknown'}: {str(e)}",
+                    "Mollie payment processing error for donation %s: %s",
+                    donation.name if "donation" in locals() else "unknown",
+                    str(e),
                     "Mollie Payment Error",
                 )
                 return {
@@ -216,7 +218,7 @@ def submit_donation(**kwargs):
         }
 
     except Exception as e:
-        frappe.log_error(f"Donation submission error: {str(e)}", "Donation Form Error")
+        frappe.log_error("Donation submission error: %s", str(e), "Donation Form Error")
         import traceback
 
         traceback.print_exc()
@@ -248,7 +250,9 @@ def get_or_create_donor(form_data):
 
             if not result.success:
                 frappe.log_error(
-                    f"Failed to update donor information: {'; '.join(result.errors)}", "Donor Update Security"
+                    "Failed to update donor information: %s",
+                    "; ".join(result.errors),
+                    "Donor Update Security",
                 )
                 # Continue with donation processing even if phone update fails
         return donor_doc
@@ -290,7 +294,7 @@ def get_or_create_donor(form_data):
 
         if not result.success:
             frappe.log_error(
-                f"Failed to create donor record: {'; '.join(result.errors)}", "Donor Creation Security"
+                "Failed to create donor record: %s", "; ".join(result.errors), "Donor Creation Security"
             )
             frappe.throw(_("Unable to process donation: Failed to create donor record"))
 
@@ -349,7 +353,7 @@ def create_draft_donation_for_payment(donor, form_data):
 
     if not result.success:
         frappe.log_error(
-            f"Failed to create draft donation: {'; '.join(result.errors)}", "Draft Donation Creation"
+            "Failed to create draft donation: %s", "; ".join(result.errors), "Draft Donation Creation"
         )
         frappe.throw(_("Unable to process donation: Failed to create donation record"))
 
@@ -429,7 +433,7 @@ def create_donation_record(donor, form_data):
 
     if not result.success:
         frappe.log_error(
-            f"Failed to create donation record: {'; '.join(result.errors)}", "Donation Creation Security"
+            "Failed to create donation record: %s", "; ".join(result.errors), "Donation Creation Security"
         )
         frappe.throw(_("Unable to process donation: Failed to create donation record"))
 

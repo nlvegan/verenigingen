@@ -9,33 +9,33 @@ This test suite validates:
 5. Report visibility and permissions
 """
 
-import unittest
 from unittest.mock import patch
 
 import frappe
 from frappe.utils import now_datetime
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestChapterMembershipWorkflow(unittest.TestCase):
+class TestChapterMembershipWorkflow(EnhancedTestCase):
     """Test the chapter membership workflow functionality"""
 
     def setUp(self):
-        """Set up test data before each test"""
-        self.test_chapter = "TEST-CHAPTER-UNIT"
+        """Set up test data using Enhanced Test Factory and proper permissions"""
+        super().setUp()
+        
+        # Use Enhanced Test Factory for test data creation
+        try:
+            self.test_chapter = self.create_test_chapter(
+                title="Test Chapter for Unit Tests",
+                region="nederland",
+                published=1
+            )
+        except Exception:
+            # If chapter creation fails, skip chapter-specific tests
+            self.test_chapter = None
+            
         self.test_member_email = f"test-unit-{int(now_datetime().timestamp())}@example.com"
         self.test_member_name = None
-
-        # Create test chapter if it doesn't exist
-        if not frappe.db.exists("Chapter", self.test_chapter):
-            chapter = frappe.get_doc(
-                {
-                    "doctype": "Chapter",
-                    "name": self.test_chapter,
-                    "region": "nederland",
-                    "published": 1,
-                    "title": "Test Chapter for Unit Tests"}
-            )
-            chapter.insert(ignore_permissions=True)
 
         # Get test membership type
         membership_types = frappe.get_all("Membership Type", limit=1)
@@ -100,7 +100,7 @@ class TestChapterMembershipWorkflow(unittest.TestCase):
         # Test member creation
         application_id = f"TEST-{int(now_datetime().timestamp())}"
         member = create_member_from_application(application_data, application_id, None)
-        member.insert(ignore_permissions=True)
+        member.insert()  # EnhancedTestCase handles permissions
         self.test_member_name = member.name
 
         self.assertEqual(member.email, self.test_member_email, "Member email should match")
@@ -123,7 +123,7 @@ class TestChapterMembershipWorkflow(unittest.TestCase):
                 "status": "Pending",
                 "application_status": "Pending"}
         )
-        member.insert(ignore_permissions=True)
+        member.insert()  # EnhancedTestCase handles permissions
         self.test_member_name = member.name
 
         # Test pending chapter membership creation
@@ -159,7 +159,7 @@ class TestChapterMembershipWorkflow(unittest.TestCase):
                 "status": "Pending",
                 "application_status": "Pending"}
         )
-        member.insert(ignore_permissions=True)
+        member.insert()  # EnhancedTestCase handles permissions
         self.test_member_name = member.name
 
         # Create pending record
@@ -196,7 +196,7 @@ class TestChapterMembershipWorkflow(unittest.TestCase):
                 "selected_membership_type": self.test_membership_type,
                 "current_chapter_display": self.test_chapter}
         )
-        member.insert(ignore_permissions=True)
+        member.insert()  # EnhancedTestCase handles permissions
         self.test_member_name = member.name
 
         # Create pending chapter membership
@@ -241,7 +241,7 @@ class TestChapterMembershipWorkflow(unittest.TestCase):
                 "status": "Pending",
                 "application_status": "Pending"}
         )
-        member.insert(ignore_permissions=True)
+        member.insert()  # EnhancedTestCase handles permissions
         self.test_member_name = member.name
 
         from verenigingen.utils.application_helpers import create_pending_chapter_membership
@@ -276,7 +276,7 @@ class TestChapterMembershipWorkflow(unittest.TestCase):
                 "status": "Pending",
                 "application_status": "Pending"}
         )
-        member.insert(ignore_permissions=True)
+        member.insert()  # EnhancedTestCase handles permissions
         self.test_member_name = member.name
 
         from verenigingen.utils.application_helpers import create_pending_chapter_membership
@@ -314,7 +314,7 @@ class TestChapterMembershipWorkflow(unittest.TestCase):
                 "email": self.test_member_email,
                 "birth_date": "1990-01-01"}
         )
-        member.insert(ignore_permissions=True)
+        member.insert()  # EnhancedTestCase handles permissions
         self.test_member_name = member.name
 
         # Create first pending membership
@@ -342,7 +342,7 @@ class TestChapterMembershipWorkflow(unittest.TestCase):
                 "email": self.test_member_email,
                 "birth_date": "1990-01-01"}
         )
-        member.insert(ignore_permissions=True)
+        member.insert()  # EnhancedTestCase handles permissions
         self.test_member_name = member.name
 
         # Create pending membership

@@ -127,7 +127,7 @@ def run_baseline_tests():
     cancel_result = test_cancel_recurring_donation(donation_id)
     update_result = test_update_donation_amount()
 
-    print(f"\n=== BASELINE TEST SUMMARY ===")
+    print("\n=== BASELINE TEST SUMMARY ===")
     print(f"Cancel donation: {'PASS' if cancel_result else 'FAIL'}")
     print(f"Update donation amount: {'PASS' if update_result else 'FAIL'}")
     print(f"Overall: {'BASELINE ESTABLISHED' if (cancel_result and update_result) else 'ISSUES DETECTED'}")

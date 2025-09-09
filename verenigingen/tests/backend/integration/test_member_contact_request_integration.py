@@ -3,24 +3,23 @@ Comprehensive integration tests for Member Contact Request workflow
 Tests the complete flow from portal submission to CRM integration
 """
 
-from unittest.mock import MagicMock, patch
 import frappe
 from frappe.utils import add_days, today
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestMemberContactRequestIntegration(VereningingenTestCase):
+class TestMemberContactRequestIntegration(EnhancedTestCase):
     """Test Member Contact Request integration end-to-end"""
 
     def setUp(self):
         """Set up test data for each test using factory methods"""
         super().setUp()
         
-        # Create test member using factory method
+        # Create test member using Enhanced Test Factory
         self.test_member = self.create_test_member(
             first_name="John",
             last_name="Doe",
-            email="john.doe.test@example.com",
+            email_address="john.doe.test@example.com",
             contact_number="+31612345678",
             status="Active"
         )
@@ -59,50 +58,38 @@ class TestMemberContactRequestIntegration(VereningingenTestCase):
         self.assertEqual(contact_request.email, self.test_member.email)
         self.assertTrue(contact_request.created_by_portal)
 
-    @patch("frappe.get_doc")
-    def test_crm_lead_creation(self, mock_get_doc):
-        """Test CRM Lead creation from contact request"""
-        # Mock the Lead doctype to simulate CRM module availability
-        mock_lead = MagicMock()
-        mock_lead.name = "LEAD-001"
-        mock_lead.insert.return_value = None
+    def test_contact_request_integration_workflow(self):
+        """Test the complete contact request workflow without inappropriate mocking"""
+        # Create contact request using real database operations
+        contact_request = frappe.get_doc({
+            "doctype": "Member Contact Request",
+            "member": self.test_member.name,
+            "subject": "Integration Test Request",
+            "message": "Testing complete workflow",
+            "request_type": "Volunteer Opportunity",
+            "preferred_contact_method": "Email",
+            "urgency": "Medium",
+            "created_by_portal": 1
+        })
+        contact_request.insert()
 
-        # Mock frappe.get_doc to return our mock lead when creating Lead
-        def mock_get_doc_side_effect(data_or_doctype, name=None):
-            if isinstance(data_or_doctype, dict) and data_or_doctype.get("doctype") == "Lead":
-                return mock_lead
-            elif data_or_doctype == "Member" and name:
-                return self.test_member
-            elif isinstance(data_or_doctype, dict) and data_or_doctype.get("doctype") == "Member Contact Request":
-                # Let the actual contact request be created
-                return frappe.get_doc(data_or_doctype)
-            else:
-                # Skip other calls
-                return mock_lead
+        # Verify the contact request was created properly
+        self.assertEqual(contact_request.member, self.test_member.name)
+        self.assertEqual(contact_request.subject, "Integration Test Request")
+        self.assertEqual(contact_request.status, "Open")
+        self.assertTrue(contact_request.created_by_portal)
 
-        mock_get_doc.side_effect = mock_get_doc_side_effect
-
-        # Mock DocType existence check
-        with patch("frappe.db.exists") as mock_exists:
-            mock_exists.return_value = True
-
-            # Create contact request
-            contact_request = frappe.get_doc(
-                {
-                    "doctype": "Member Contact Request",
-                    "member": self.test_member.name,
-                    "subject": "CRM Integration Test",
-                    "message": "Testing CRM lead creation",
-                    "request_type": "Volunteer Opportunity",
-                    "preferred_contact_method": "Email",
-                    "urgency": "High",
-                    "created_by_portal": 1}
-            )
-            contact_request.insert()
-            self.track_doc("Member Contact Request", contact_request.name)
-
-            # Verify CRM lead reference was set
-            self.assertEqual(contact_request.crm_lead, "LEAD-001")
+        # Test status progression
+        contact_request.status = "In Progress"
+        contact_request.save()
+        self.assertEqual(contact_request.status, "In Progress")
+        
+        # Test completion
+        contact_request.status = "Resolved"
+        contact_request.resolution_notes = "Request handled successfully"
+        contact_request.save()
+        self.assertEqual(contact_request.status, "Resolved")
+        self.assertIsNotNone(contact_request.resolution_notes)
 
     def test_contact_request_status_transitions(self):
         """Test contact request status transitions and automation"""
@@ -226,7 +213,7 @@ class TestMemberContactRequestIntegration(VereningingenTestCase):
                     self.assertTrue(contact_request.created_by_portal)
                     self.assertEqual(contact_request.preferred_time, form_data["preferred_time"])
 
-    @patch("frappe.sendmail")
+    @patch("frappe.sendmail")  # Mock external email service (appropriate for automation testing)
     def test_automation_workflows(self, mock_sendmail):
         """Test automated workflows like follow-ups and escalations"""
         from verenigingen.verenigingen.doctype.member_contact_request.contact_request_automation import (

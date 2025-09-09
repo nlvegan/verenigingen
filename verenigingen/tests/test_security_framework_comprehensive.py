@@ -11,7 +11,7 @@ import time
 from unittest.mock import patch, MagicMock
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.utils.security.api_security_framework import (
     APISecurityFramework,
@@ -45,7 +45,7 @@ from verenigingen.utils.security.security_monitoring import (
 )
 
 
-class TestSecurityFrameworkCore(FrappeTestCase):
+class TestSecurityFrameworkCore(EnhancedTestCase):
     """Test core security framework functionality"""
 
     def setUp(self):
@@ -125,7 +125,7 @@ class TestSecurityFrameworkCore(FrappeTestCase):
         self.assertEqual(level, SecurityLevel.MEDIUM)
 
 
-class TestSecurityValidation(FrappeTestCase):
+class TestSecurityValidation(EnhancedTestCase):
     """Test security validation functionality"""
 
     def setUp(self):
@@ -213,7 +213,7 @@ class TestSecurityValidation(FrappeTestCase):
         self.assertGreater(len(result["errors"]), 0)
 
 
-class TestSecurityDecorators(FrappeTestCase):
+class TestSecurityDecorators(EnhancedTestCase):
     """Test security decorator functionality"""
 
     def test_critical_api_decorator(self):
@@ -268,7 +268,7 @@ class TestSecurityDecorators(FrappeTestCase):
         self.assertEqual(test_comprehensive_function._operation_type, OperationType.MEMBER_DATA)
 
 
-class TestAPIClassifier(FrappeTestCase):
+class TestAPIClassifier(EnhancedTestCase):
     """Test API classification functionality"""
 
     def setUp(self):
@@ -319,7 +319,7 @@ class TestAPIClassifier(FrappeTestCase):
         self.assertIn("ignore_permissions", bypass_patterns)
 
 
-class TestSecurityMonitoring(FrappeTestCase):
+class TestSecurityMonitoring(EnhancedTestCase):
     """Test security monitoring functionality"""
 
     def setUp(self):
@@ -403,7 +403,7 @@ class TestSecurityMonitoring(FrappeTestCase):
         self.assertLessEqual(results["overall_score"], 100)
 
 
-class TestSecurityIntegration(FrappeTestCase):
+class TestSecurityIntegration(EnhancedTestCase):
     """Test security framework integration"""
 
     def test_framework_components_loaded(self):
@@ -441,8 +441,7 @@ class TestSecurityIntegration(FrappeTestCase):
 
     def test_api_endpoints_accessible(self):
         """Test that API endpoints are accessible with proper permissions"""
-        # Test with system manager (has required permissions) 
-        frappe.set_user("Administrator")
+        # Test with admin permissions - EnhancedTestCase handles permissions
 
         # Test framework status endpoint
         try:
@@ -463,7 +462,7 @@ class TestSecurityIntegration(FrappeTestCase):
             self.fail(f"API analysis endpoint failed: {e}")
 
 
-class TestSecurityPerformance(FrappeTestCase):
+class TestSecurityPerformance(EnhancedTestCase):
     """Test security framework performance"""
 
     def test_decorator_performance_overhead(self):

@@ -6,26 +6,20 @@ import random
 import frappe
 from frappe.utils import add_days, getdate, today
 
-from verenigingen.tests.test_base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestVolunteer(VereningingenTestCase):
+class TestVolunteer(EnhancedTestCase):
     def setUp(self):
-        # Initialize cleanup list
-        self._docs_to_delete = []
+        super().setUp()  # EnhancedTestCase handles permissions and cleanup
 
-        # Create test data
+        # Create test data using Enhanced Test Factory
         self.create_test_interest_categories()
         self.test_member = self.create_test_member()
-        self._docs_to_delete.append(("Member", self.test_member.name))
 
     def tearDown(self):
-        # Clean up test data in reverse order (child records first)
-        for doctype, name in reversed(self._docs_to_delete):
-            try:
-                frappe.delete_doc(doctype, name, force=True)
-            except Exception as e:
-                print(f"Error deleting {doctype} {name}: {e}")
+        # EnhancedTestCase handles cleanup automatically via database rollback
+        super().tearDown()
 
     def create_test_interest_categories(self):
         """Create test interest categories"""
@@ -39,8 +33,7 @@ class TestVolunteer(VereningingenTestCase):
                         "description": f"Test category {category}",
                     }
                 )
-                cat_doc.insert(ignore_permissions=True)
-                self._docs_to_delete.append(("Volunteer Interest Category", category))
+                cat_doc.insert()  # EnhancedTestCase handles cleanup via rollback
 
     def create_test_volunteer(self, status="Active"):
         """Create a test volunteer record"""
@@ -71,8 +64,7 @@ class TestVolunteer(VereningingenTestCase):
             },
         )
 
-        volunteer.insert(ignore_permissions=True)
-        self._docs_to_delete.append(("Verenigingen Volunteer", volunteer.name))
+        volunteer.insert()  # Already running as Administrator from setUp
         return volunteer
 
     def create_test_activity(self, volunteer):
@@ -88,8 +80,7 @@ class TestVolunteer(VereningingenTestCase):
                 "start_date": today(),
             }
         )
-        activity.insert(ignore_permissions=True)
-        self._docs_to_delete.append(("Volunteer Activity", activity.name))
+        activity.insert()  # Already running as Administrator from setUp
         return activity
 
     def test_volunteer_creation(self):
@@ -226,7 +217,6 @@ class TestVolunteer(VereningingenTestCase):
         # Create a new volunteer with 'New' status
         # Use a different member for this test to avoid conflicts
         test_member = self.create_test_member()
-        self._docs_to_delete.append(("Member", test_member.name))
 
         volunteer = frappe.get_doc(
             {
@@ -238,8 +228,7 @@ class TestVolunteer(VereningingenTestCase):
                 "start_date": today(),
             }
         )
-        volunteer.insert(ignore_permissions=True)
-        self._docs_to_delete.append(("Verenigingen Volunteer", volunteer.name))
+        volunteer.insert()  # Already running as Administrator from setUp
 
         # Create an activity for this volunteer
         activity = frappe.get_doc(
@@ -252,8 +241,7 @@ class TestVolunteer(VereningingenTestCase):
                 "start_date": today(),
             }
         )
-        activity.insert(ignore_permissions=True)
-        self._docs_to_delete.append(("Volunteer Activity", activity.name))
+        activity.insert()  # Already running as Administrator from setUp
 
         # Manually update status since it doesn't happen automatically
         volunteer.status = "Active"
@@ -354,8 +342,7 @@ class TestVolunteer(VereningingenTestCase):
                 "volunteer_skills": "Event planning, Community outreach",
             }
         )
-        member.insert(ignore_permissions=True)
-        self._docs_to_delete.append(("Member", member.name))
+        member.insert()  # Already running as Administrator from setUp
 
         # Create volunteer based on member application
         volunteer = frappe.get_doc(
@@ -370,8 +357,7 @@ class TestVolunteer(VereningingenTestCase):
                 "experience_level": "Beginner",
             }
         )
-        volunteer.insert(ignore_permissions=True)
-        self._docs_to_delete.append(("Verenigingen Volunteer", volunteer.name))
+        volunteer.insert()  # Already running as Administrator from setUp
 
         # Verify volunteer was created with member data
         self.assertEqual(volunteer.member, member.name)
@@ -397,7 +383,7 @@ class TestVolunteer(VereningingenTestCase):
         # (This tests that volunteer_name is independent once set)
         original_volunteer_name = volunteer.volunteer_name
         linked_member.first_name = "Updated"
-        linked_member.save(ignore_permissions=True)
+        linked_member.save()  # Already running as Administrator from setUp
 
         # Reload volunteer - name should not change automatically
         volunteer.reload()
@@ -410,7 +396,7 @@ class TestVolunteer(VereningingenTestCase):
         # Update contact information
         volunteer.phone = "+31612345679"
         volunteer.address = "123 Test Street, Amsterdam"
-        volunteer.save(ignore_permissions=True)
+        volunteer.save()  # Already running as Administrator from setUp
 
         # Verify contact information
         volunteer.reload()
@@ -425,7 +411,7 @@ class TestVolunteer(VereningingenTestCase):
         commitment_levels = ["Occasional", "Regular (Monthly)", "Weekly", "Intensive"]
         for level in commitment_levels:
             volunteer.commitment_level = level
-            volunteer.save(ignore_permissions=True)
+            volunteer.save()  # Already running as Administrator from setUp
             volunteer.reload()
             self.assertEqual(volunteer.commitment_level, level)
 
@@ -433,7 +419,7 @@ class TestVolunteer(VereningingenTestCase):
         work_styles = ["Remote", "On-site", "Hybrid"]
         for style in work_styles:
             volunteer.preferred_work_style = style
-            volunteer.save(ignore_permissions=True)
+            volunteer.save()  # Already running as Administrator from setUp
             volunteer.reload()
             self.assertEqual(volunteer.preferred_work_style, style)
 
@@ -451,7 +437,7 @@ class TestVolunteer(VereningingenTestCase):
                     "status": "Active",
                 },
             )
-            volunteer.save(ignore_permissions=True)
+            volunteer.save()  # Already running as Administrator from setUp
 
             # Verify development goal was added
             volunteer.reload()
@@ -473,7 +459,7 @@ class TestVolunteer(VereningingenTestCase):
             if hasattr(volunteer, field):
                 setattr(volunteer, field, value)
 
-        volunteer.save(ignore_permissions=True)
+        volunteer.save()  # Already running as Administrator from setUp
         volunteer.reload()
 
         # Verify emergency contact information
@@ -495,12 +481,12 @@ class TestVolunteer(VereningingenTestCase):
 
         for from_status, to_status in status_transitions:
             volunteer.status = from_status
-            volunteer.save(ignore_permissions=True)
+            volunteer.save()  # Already running as Administrator from setUp
             volunteer.reload()
             self.assertEqual(volunteer.status, from_status)
 
             volunteer.status = to_status
-            volunteer.save(ignore_permissions=True)
+            volunteer.save()  # Already running as Administrator from setUp
             volunteer.reload()
             self.assertEqual(volunteer.status, to_status)
 
@@ -519,7 +505,7 @@ class TestVolunteer(VereningingenTestCase):
                     "expiry_date": add_days(today(), 365),
                 },
             )
-            volunteer.save(ignore_permissions=True)
+            volunteer.save()  # Already running as Administrator from setUp
 
             # Verify training record was added
             volunteer.reload()
@@ -540,7 +526,7 @@ class TestVolunteer(VereningingenTestCase):
                 else f"{volunteer.languages_spoken}, {lang}"
             )
 
-        volunteer.save(ignore_permissions=True)
+        volunteer.save()  # Already running as Administrator from setUp
         volunteer.reload()
 
         # Verify languages were added
@@ -564,7 +550,7 @@ class TestVolunteer(VereningingenTestCase):
                     "start_date": today(),
                 }
             )
-            duplicate_volunteer.insert(ignore_permissions=True)
+            duplicate_volunteer.insert()  # Already running as Administrator from setUp
 
     def test_volunteer_permission_system(self):
         """Test volunteer permission system for member access"""
@@ -629,8 +615,7 @@ class TestVolunteer(VereningingenTestCase):
                 "introduction": "Test chapter for volunteer board integration",
             }
         )
-        chapter.insert(ignore_permissions=True)
-        self._docs_to_delete.append(("Chapter", chapter.name))
+        chapter.insert()  # Already running as Administrator from setUp
 
         # Add volunteer to chapter board through assignment history
         volunteer.append(
@@ -644,7 +629,7 @@ class TestVolunteer(VereningingenTestCase):
                 "status": "Active",
             },
         )
-        volunteer.save(ignore_permissions=True)
+        volunteer.save()  # Already running as Administrator from setUp
         volunteer.reload()
 
         # Verify board assignment is recorded
@@ -676,7 +661,7 @@ class TestVolunteer(VereningingenTestCase):
                 "estimated_hours": 10,
             },
         )
-        volunteer.save(ignore_permissions=True)
+        volunteer.save()  # Already running as Administrator from setUp
         volunteer.reload()
 
         # Test aggregated assignments if method exists
@@ -704,7 +689,7 @@ class TestVolunteer(VereningingenTestCase):
         # Test status consistency across assignments
         for status in ["Active", "Inactive", "Retired"]:
             volunteer.status = status
-            volunteer.save(ignore_permissions=True)
+            volunteer.save()  # Already running as Administrator from setUp
             volunteer.reload()
             self.assertEqual(volunteer.status, status, f"Status should be {status}")
 
@@ -715,7 +700,6 @@ class TestVolunteer(VereningingenTestCase):
         # Create multiple volunteers for bulk testing
         for i in range(5):
             member = self.create_test_member()
-            self._docs_to_delete.append(("Member", member.name))
 
             volunteer = frappe.get_doc(
                 {
@@ -727,14 +711,13 @@ class TestVolunteer(VereningingenTestCase):
                     "start_date": today(),
                 }
             )
-            volunteer.insert(ignore_permissions=True)
+            volunteer.insert()  # Already running as Administrator from setUp
             volunteers.append(volunteer)
-            self._docs_to_delete.append(("Verenigingen Volunteer", volunteer.name))
 
         # Test bulk status update
         for volunteer in volunteers:
             volunteer.status = "Inactive"
-            volunteer.save(ignore_permissions=True)
+            volunteer.save()  # Already running as Administrator from setUp
 
         # Verify bulk update
         for volunteer in volunteers:
@@ -752,19 +735,19 @@ class TestVolunteer(VereningingenTestCase):
         # Update activity
         activity.description = "Updated activity description"
         activity.estimated_hours = 50
-        activity.save(ignore_permissions=True)
+        activity.save()  # Already running as Administrator from setUp
         activity.reload()
         self.assertEqual(activity.description, "Updated activity description")
 
         # Put activity on hold
         activity.status = "On Hold"
-        activity.save(ignore_permissions=True)
+        activity.save()  # Already running as Administrator from setUp
         activity.reload()
         self.assertEqual(activity.status, "On Hold")
 
         # Resume activity
         activity.status = "Active"
-        activity.save(ignore_permissions=True)
+        activity.save()  # Already running as Administrator from setUp
         activity.reload()
         self.assertEqual(activity.status, "Active")
 
@@ -772,7 +755,7 @@ class TestVolunteer(VereningingenTestCase):
         activity.status = "Completed"
         activity.end_date = today()
         activity.actual_hours = 45
-        activity.save(ignore_permissions=True)
+        activity.save()  # Already running as Administrator from setUp
         activity.reload()
         self.assertEqual(activity.status, "Completed")
         self.assertEqual(getdate(activity.end_date), getdate(today()))
@@ -792,7 +775,7 @@ class TestVolunteer(VereningingenTestCase):
         )
         volunteer.commitment_level = "Weekly"
         volunteer.experience_level = "Experienced"
-        volunteer.save(ignore_permissions=True)
+        volunteer.save()  # Already running as Administrator from setUp
 
         # Test basic search by name - use unique volunteer name portion
         volunteers = frappe.get_all("Volunteer", filters={"volunteer_name": ["like", "%Test Volunteer%"]})
@@ -828,7 +811,7 @@ class TestVolunteer(VereningingenTestCase):
                     "start_date": today(),
                 }
             )
-            invalid_volunteer.insert(ignore_permissions=True)
+            invalid_volunteer.insert()  # Already running as Administrator from setUp
             # If it succeeds, at least verify the name is empty
             self.assertEqual(invalid_volunteer.volunteer_name, "", "Name should be empty as set")
         except Exception:
@@ -847,13 +830,13 @@ class TestVolunteer(VereningingenTestCase):
                     "start_date": today(),
                 }
             )
-            invalid_email_volunteer.insert(ignore_permissions=True)
+            invalid_email_volunteer.insert()  # Already running as Administrator from setUp
 
         # Test valid status values
         valid_statuses = ["Active", "Inactive", "New", "Retired"]
         for status in valid_statuses:
             volunteer.status = status
-            volunteer.save(ignore_permissions=True)
+            volunteer.save()  # Already running as Administrator from setUp
             volunteer.reload()
             self.assertEqual(volunteer.status, status, f"Should accept status: {status}")
 
@@ -897,7 +880,7 @@ class TestVolunteer(VereningingenTestCase):
                 "estimated_hours": 40,
             },
         )
-        volunteer.save(ignore_permissions=True)
+        volunteer.save()  # Already running as Administrator from setUp
         volunteer.reload()
 
         # Verify assignment was added
@@ -915,7 +898,7 @@ class TestVolunteer(VereningingenTestCase):
         new_assignment.end_date = today()
         if hasattr(new_assignment, "actual_hours"):
             new_assignment.actual_hours = 35
-        volunteer.save(ignore_permissions=True)
+        volunteer.save()  # Already running as Administrator from setUp
         volunteer.reload()
 
         # Verify completion
@@ -954,7 +937,7 @@ class TestVolunteer(VereningingenTestCase):
         for skill in skills_to_add:
             volunteer.append("skills_and_qualifications", skill)
 
-        volunteer.save(ignore_permissions=True)
+        volunteer.save()  # Already running as Administrator from setUp
         volunteer.reload()
 
         # Verify all skills were added

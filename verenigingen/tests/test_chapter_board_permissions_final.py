@@ -22,11 +22,10 @@ Test Coverage:
 """
 
 import frappe
-import unittest
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestChapterBoardPermissionsProduction(VereningingenTestCase):
+class TestChapterBoardPermissionsProduction(EnhancedTestCase):
     """Production-ready tests for Chapter Board Member permission system"""
     
     def setUp(self):
@@ -303,28 +302,15 @@ class TestChapterBoardPermissionsProduction(VereningingenTestCase):
         chapter.save()
     
     def create_test_user_with_roles(self, email, first_name, last_name, roles=None):
-        """Create test user with specified roles"""
-        if frappe.db.exists("User", email):
-            user = frappe.get_doc("User", email)
-        else:
-            user = frappe.get_doc({
-                "doctype": "User",
-                "email": email,
-                "first_name": first_name,
-                "last_name": last_name,
-                "enabled": 1,
-                "new_password": "test123"
-            })
-            user.insert(ignore_permissions=True)
-            self.track_doc("User", user.name)
-        
-        if roles:
-            user.roles = []
-            for role in roles:
-                user.append("roles", {"role": role})
-            user.save(ignore_permissions=True)
-        
-        return user
+        """Create test user with specified roles using Enhanced Test Factory"""
+        # Use Enhanced Test Factory's proper user creation method
+        return self.create_test_user(
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            roles=roles or [],
+            new_password="test123"
+        )
     
     def create_test_volunteer_expense(self, volunteer_name, chapter_name, amount=100.0, **kwargs):
         """Create test volunteer expense for permission testing"""
@@ -384,10 +370,24 @@ class TestChapterBoardPermissionsProduction(VereningingenTestCase):
                 "report_type": "Profit and Loss",
                 "is_group": 1
             })
-            parent.insert(ignore_permissions=True)
+            # Use Enhanced Test Factory's proper context management
+            test_admin = self.ensure_test_admin_user()
+            current_user = frappe.session.user
+            try:
+                frappe.set_user(test_admin.email)
+                parent.insert()
+            finally:
+                frappe.set_user(current_user)
             self.track_doc("Account", parent.name)
         
-        account.insert(ignore_permissions=True)
+        # Use Enhanced Test Factory's proper context management
+        test_admin = self.ensure_test_admin_user()
+        current_user = frappe.session.user
+        try:
+            frappe.set_user(test_admin.email)
+            account.insert()
+        finally:
+            frappe.set_user(current_user)
         self.track_doc("Account", account.name)
         return account.name
     
@@ -403,7 +403,14 @@ class TestChapterBoardPermissionsProduction(VereningingenTestCase):
             "expense_account": expense_account,
             "is_active": 1
         })
-        category.insert(ignore_permissions=True)
+        # Use Enhanced Test Factory's proper context management
+        test_admin = self.ensure_test_admin_user()
+        current_user = frappe.session.user
+        try:
+            frappe.set_user(test_admin.email)
+            category.insert()
+        finally:
+            frappe.set_user(current_user)
         self.track_doc("Expense Category", category.name)
         return category_name
     
@@ -419,7 +426,14 @@ class TestChapterBoardPermissionsProduction(VereningingenTestCase):
             "default_currency": "EUR",
             "country": "Netherlands"
         })
-        company.insert(ignore_permissions=True)
+        # Use Enhanced Test Factory's proper context management
+        test_admin = self.ensure_test_admin_user()
+        current_user = frappe.session.user
+        try:
+            frappe.set_user(test_admin.email)
+            company.insert()
+        finally:
+            frappe.set_user(current_user)
         self.track_doc("Company", company.name)
         return company_name
     

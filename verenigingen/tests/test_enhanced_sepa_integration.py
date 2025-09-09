@@ -349,7 +349,7 @@ def test_create_mock_dues_schedule():
         # Coverage dates are calculated automatically
         dues_schedule.next_invoice_date = add_months(today(), 1)
 
-        dues_schedule.save(ignore_permissions=True)
+        dues_schedule.save()  # Test framework handles permissions
         return dues_schedule
 
     except Exception as e:

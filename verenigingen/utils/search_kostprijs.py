@@ -132,11 +132,16 @@ def test_minimal_sales_invoice():
     """Test creating the most minimal sales invoice possible"""
 
     try:
-        # Get basic requirements
-        company = "Ned Ver Vegan"
+        # Get basic requirements - use first available company
+        company = frappe.db.get_value("Company", {}, "name", order_by="name")
+        if not company:
+            return {"error": "No company found"}
 
-        # Get any existing customer
-        customer = frappe.db.get_value("Customer", {}, "name")
+        # Get any existing test customer (prefer test data)
+        customer = frappe.db.get_value("Customer", [["name", "like", "%test%"]], "name", order_by="name")
+        if not customer:
+            # Fallback to any customer, but ordered for consistency
+            customer = frappe.db.get_value("Customer", {}, "name", order_by="name")
         if not customer:
             return {"error": "No customers found"}
 

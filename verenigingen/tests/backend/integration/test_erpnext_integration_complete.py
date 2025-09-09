@@ -8,13 +8,13 @@ Tests for all ERPNext integration points including accounting, inventory, and pr
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from frappe.utils import today, add_days, add_months, flt, nowdate
 from decimal import Decimal
 import json
 
 
-class TestERPNextIntegrationComplete(FrappeTestCase):
+class TestERPNextIntegrationComplete(EnhancedTestCase):
     """Test complete ERPNext integration"""
     
     @classmethod

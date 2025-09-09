@@ -4,9 +4,12 @@ COMPREHENSIVE TEST SCENARIOS FOR REFUND/CHARGEBACK FUNCTIONALITY
 These tests are CRITICAL to implement before deploying refund functionality.
 """
 
+from unittest.mock import MagicMock, patch
+
 import frappe
 from frappe.test import UnitTestCase
-from vereinigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 class TestRefundFunctionality(EnhancedTestCase):
@@ -178,14 +181,12 @@ class TestRefundFunctionality(EnhancedTestCase):
         processor = MollieWebhookProcessor()
 
         # Test refund webhook
-        refund_result = processor.process_refund_webhook(
+        processor.process_refund_webhook(
             {"payment_id": "tr_test123", "refund_id": "re_test123", "status": "refunded"}
         )
 
         # Test chargeback webhook
-        chargeback_result = processor.process_chargeback_webhook(
-            {"payment_id": "tr_test123", "chargeback_id": "chb_test123"}
-        )
+        processor.process_chargeback_webhook({"payment_id": "tr_test123", "chargeback_id": "chb_test123"})
 
         # Should create different reversal types
         # Verify via payment entries created (once infrastructure exists)

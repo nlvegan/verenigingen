@@ -1,11 +1,12 @@
 import unittest
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, add_months, getdate, today
 
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-class TestMembership(FrappeTestCase):
+
+class TestMembership(EnhancedTestCase):
     def setUp(self):
         # Create test data
         self.setup_test_data()
@@ -20,7 +21,7 @@ class TestMembership(FrappeTestCase):
             item_group = frappe.new_doc("Item Group")
             item_group.item_group_name = "Membership"
             item_group.parent_item_group = "All Item Groups"
-            item_group.insert(ignore_permissions=True)
+            item_group.insert()  # EnhancedTestCase handles permissions
 
         # Create test member
         self.member_data = {
@@ -64,7 +65,7 @@ class TestMembership(FrappeTestCase):
             try:
                 membership = frappe.get_doc("Membership", m.name)
                 if membership.docstatus == 1:
-                    membership.flags.ignore_permissions = True
+                    # EnhancedTestCase handles permissions automatically
                     # Use cancel directly instead of our custom method
                     membership.cancel()
                 frappe.delete_doc("Membership", m.name, force=True)
@@ -260,7 +261,7 @@ class TestMembership(FrappeTestCase):
         # Direct approach to cancel membership
         try:
             # First try to cancel directly (simpler approach)
-            membership.flags.ignore_permissions = True
+            # EnhancedTestCase handles permissions automatically
             membership.flags.ignore_validate_update_after_submit = True
             membership.docstatus = 2  # Set to cancelled
             membership.cancellation_date = today()

@@ -4,10 +4,10 @@ Integration test for the new Customer-Member direct linking system
 """
 
 import frappe
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestCustomerMemberLinkIntegration(VereningingenTestCase):
+class TestCustomerMemberLinkIntegration(EnhancedTestCase):
     
     def test_customer_member_direct_link(self):
         """Test the new Customer.member field works correctly"""

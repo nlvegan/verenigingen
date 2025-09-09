@@ -798,7 +798,14 @@ class TestDutchBusinessLogicPermissionBoundaries(EnhancedTestCase):
             limited_user.user_type = "System User"
             # Give minimal roles only
             limited_user.append("roles", {"role": "Guest"})
-            limited_user.save(ignore_permissions=True)
+            # Use Enhanced Test Factory's proper context management
+            test_admin = self.ensure_test_admin_user()
+            current_user = frappe.session.user
+            try:
+                frappe.set_user(test_admin.email)
+                limited_user.save()
+            finally:
+                frappe.set_user(current_user)
             # Handle missing track_doc method gracefully
             if hasattr(self, 'track_doc'):
                 self.track_doc("User", limited_user.name)

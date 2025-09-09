@@ -13,7 +13,7 @@ def create_actual_failing_mappings():
 
     company = frappe.db.get_single_value("Global Defaults", "default_company")
     if not company:
-        company = frappe.db.get_value("Company", {}, "name")
+        company = frappe.db.get_value("Company", {}, "name", order_by="name")
 
     # Extract actual failing codes from the recent errors
     # These are the codes that caused "Could not find Item Group" errors
@@ -126,7 +126,7 @@ def test_mappings():
 
     company = frappe.db.get_single_value("Global Defaults", "default_company")
     if not company:
-        company = frappe.db.get_value("Company", {}, "name")
+        company = frappe.db.get_value("Company", {}, "name", order_by="name")
 
     test_codes = ["15916395", "13201956", "13201988", "13201912"]
 

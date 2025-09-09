@@ -382,7 +382,7 @@ class TestVolunteerExpensePermissions(unittest.TestCase):
         expense.cancel()
         expense.delete()
 
-    @patch("frappe.sendmail")
+    @patch("frappe.sendmail")  # Mock external email service (appropriate for notification testing)
     def test_expense_approval_notification_chapter(self, mock_sendmail):
         """Test approval notification for chapter expenses"""
         # Create test expense
@@ -403,7 +403,7 @@ class TestVolunteerExpensePermissions(unittest.TestCase):
         expense.cancel()
         expense.delete()
 
-    @patch("frappe.sendmail")
+    @patch("frappe.sendmail")  # Mock external email service (appropriate for notification testing)
     def test_expense_approval_notification_team(self, mock_sendmail):
         """Test approval notification for team expenses"""
         # Create test expense

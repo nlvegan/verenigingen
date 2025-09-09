@@ -58,11 +58,12 @@ def validate_payment_plan_system():
         else:
             results.append("✗ Payment plans portal page missing")
 
-        # Test 5: Test basic payment plan creation (if test data available)
-        test_member = frappe.db.get_value("Member", {}, "name")
+        # Test 5: Test basic payment plan creation (skip if no safe test data)
+        # Only test payment plan logic if we have test members (name contains "test")
+        test_member = frappe.db.get_value("Member", [["name", "like", "%test%"]], "name", order_by="creation")
         if test_member:
             try:
-                # Create a test plan
+                # Create a test plan (this will be rolled back)
                 test_plan = frappe.new_doc("Payment Plan")
                 test_plan.member = test_member
                 test_plan.plan_type = "Equal Installments"

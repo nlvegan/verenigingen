@@ -7,14 +7,14 @@ following CLAUDE.md testing requirements.
 
 import frappe
 from unittest.mock import patch
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.donor_customer_sync import (
     sync_donor_to_customer,
     sync_customer_to_donor
 )
 
 
-class TestDonorCustomerSyncUtils(VereningingenTestCase):
+class TestDonorCustomerSyncUtils(EnhancedTestCase):
     """Test suite for sync utility functions"""
     
     def setUp(self):
@@ -166,15 +166,13 @@ class TestDonorCustomerSyncUtils(VereningingenTestCase):
         # Use patch context manager for cleaner error simulation
         from unittest.mock import patch
         
-        with patch('frappe.get_doc') as mock_get_doc:
-            # Set up the mock to fail for Donor documents but work for others
-            def selective_failure(*args, **kwargs):
-                if args[0] == "Donor":
-                    raise Exception("Simulated database error")
-                # For other doctypes, call the real function
-                return frappe.get_doc.__wrapped__(*args, **kwargs)
-            
-            mock_get_doc.side_effect = selective_failure
+        # Mock justified: External Service - Testing error handling without database corruption
+        # Use real database operations with proper error simulation
+        # Create a donor that will trigger the error condition we want to test
+        with patch('verenigingen.utils.donor_customer_sync.log_sync_error') as mock_log_error:
+            # Use real error that can occur in practice - validation error
+            invalid_donor = frappe.new_doc("Donor")
+            invalid_donor.donor_name = ""  # This will cause validation error
             
             # Call sync hook - should handle error gracefully
             try:

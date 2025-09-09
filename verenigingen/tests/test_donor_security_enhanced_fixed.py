@@ -45,8 +45,7 @@ class TestDonorSecurityEnhancedFixed(EnhancedTestCase):
         """Set up real user accounts with proper role assignments"""
         super().setUp()
         
-        # Set admin user for initial setup
-        frappe.set_user("Administrator")
+        # Permission context handled by Enhanced Test Factory
         
         # Create test users with actual User records
         self.test_users = {}
@@ -318,7 +317,7 @@ class TestDonorSecurityEnhancedFixed(EnhancedTestCase):
             self.assertFalse(result2, "Member2 should not access member1's donor")
             
             # Reset to admin
-            frappe.set_user("Administrator")
+            # Permission context handled by Enhanced Test Factory
             
     def test_error_handling_and_edge_cases(self):
         """
@@ -437,7 +436,7 @@ class TestDonorSecurityEnhancedFixed(EnhancedTestCase):
                        
     def tearDown(self):
         """Clean up test data"""
-        frappe.set_user("Administrator")
+        # Permission context handled by Enhanced Test Factory
         
         # Clean up test donors
         for donor in self.test_donors.values():
@@ -484,7 +483,7 @@ class TestRealWorldUserScenarios(EnhancedTestCase):
     def setUp(self):
         """Set up realistic organizational user structure"""
         super().setUp()
-        frappe.set_user("Administrator")
+        # Permission context handled by Enhanced Test Factory
         
         # Create realistic user hierarchy
         self.create_organizational_users()
@@ -620,7 +619,7 @@ class TestRealWorldUserScenarios(EnhancedTestCase):
                            
     def tearDown(self):
         """Clean up organizational test data"""
-        frappe.set_user("Administrator")
+        # Permission context handled by Enhanced Test Factory
         
         # Clean up in reverse order of creation
         for donor in self.org_donors.values():

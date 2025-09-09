@@ -3,19 +3,18 @@ Integration tests for Mollie Chargebacks API Client
 """
 
 import json
-import unittest
 from datetime import datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, Mock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.verenigingen_payments.clients.chargebacks_client import ChargebacksClient
 from verenigingen.verenigingen_payments.core.models.chargeback import Chargeback, ChargebackReason
 
 
-class TestChargebacksClient(FrappeTestCase):
+class TestChargebacksClient(EnhancedTestCase):
     """Test suite for Chargebacks API Client"""
 
     def setUp(self):
@@ -27,11 +26,18 @@ class TestChargebacksClient(FrappeTestCase):
         self.mock_settings = MagicMock()
         self.mock_settings.get_api_key.return_value = "test_api_key_123"
         
-        # Create client instance
-        with patch('verenigingen.verenigingen_payments.core.mollie_base_client.frappe.get_doc'):
+        # Phase 4D: Use Enhanced Test Factory for real client setup where possible
+        try:
+            # Try real client initialization first
             self.client = ChargebacksClient("test_settings")
             self.client.audit_trail = self.mock_audit_trail
             self.client.settings = self.mock_settings
+        except Exception:
+            # If real initialization fails, use minimal infrastructure mock
+            with patch('verenigingen.verenigingen_payments.core.mollie_base_client.frappe.get_doc'):  # Infrastructure mock for client setup
+                self.client = ChargebacksClient("test_settings")
+                self.client.audit_trail = self.mock_audit_trail
+                self.client.settings = self.mock_settings
 
     def test_get_chargeback(self):
         """Test retrieving a specific chargeback"""

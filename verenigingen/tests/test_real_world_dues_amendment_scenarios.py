@@ -76,7 +76,7 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         # Get regular membership type
         regular_type = frappe.db.get_value("Membership Type", {"name": ["like", "%Regular%"]}, "name")
         if not regular_type:
-            regular_type = frappe.db.get_value("Membership Type", {}, "name")
+            regular_type = frappe.db.get_value("Membership Type", {}, "name", order_by="name")
         
         # Create memberships
         self.young_professional_membership = self.create_test_membership(

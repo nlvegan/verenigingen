@@ -185,23 +185,21 @@ class TestEmailNewsletterSystemSecurity(EnhancedTestCase):
             })
             test_user.insert()
         
-        # Test with limited user context
+        # Test with limited user context - EnhancedTestCase allows user switching for permission testing
         frappe.set_user(test_user.email)
         
-        try:
-            # This should respect permission system
-            result = self.email_manager.send_to_chapter_segment(
-                chapter_name=self.test_chapter.name,
-                segment="all",
-                test_mode=True
-            )
-            
-            # The operation should either succeed (if user has permission) or fail gracefully
-            self.assertIsInstance(result, dict)
-            self.assertIn("success", result)
-            
-        finally:
-            frappe.set_user("Administrator")
+        # This should respect permission system
+        result = self.email_manager.send_to_chapter_segment(
+            chapter_name=self.test_chapter.name,
+            segment="all",
+            test_mode=True
+        )
+        
+        # The operation should either succeed (if user has permission) or fail gracefully
+        self.assertIsInstance(result, dict)
+        self.assertIn("success", result)
+        
+        # EnhancedTestCase tearDown handles user restoration
 
     def test_input_sanitization_and_validation(self):
         """

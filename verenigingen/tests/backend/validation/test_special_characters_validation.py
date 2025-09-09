@@ -2,12 +2,11 @@
 Test cases for special character handling in membership applications
 """
 
-import unittest
-
 import frappe
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestSpecialCharactersValidation(unittest.TestCase):
+class TestSpecialCharactersValidation(EnhancedTestCase):
     """Test special character validation in membership applications"""
 
     def setUp(self):

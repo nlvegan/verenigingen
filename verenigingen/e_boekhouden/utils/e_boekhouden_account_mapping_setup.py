@@ -21,12 +21,13 @@ def setup_proper_account_mappings():
 
     print("=== E-Boekhouden Account Mapping Setup ===")
 
-    # Get the company
-    company = (
-        frappe.defaults.get_user_default("Company")
-        or frappe.db.get_single_value("Global Defaults", "default_company")
-        or frappe.db.get_value("Company", {}, "name")
-    )
+    # Get the company from E-Boekhouden Settings
+    settings = frappe.get_single("E-Boekhouden Settings")
+    company = settings.default_company
+
+    if not company:
+        # Fallback to any available company only if E-Boekhouden Settings is not configured
+        company = frappe.db.get_value("Company", {}, "name", order_by="name")
 
     if not company:
         print("❌ No company found")

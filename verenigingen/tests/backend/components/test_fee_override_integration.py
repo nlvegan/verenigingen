@@ -1,9 +1,9 @@
 import frappe
 from frappe.utils import random_string
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestFeeOverrideLogic(VereningingenTestCase):
+class TestFeeOverrideLogic(EnhancedTestCase):
     """Test fee override logic for new vs existing members"""
 
     def setUp(self):

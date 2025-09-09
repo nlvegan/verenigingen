@@ -303,23 +303,8 @@ class TestMollieSubscriptionIntegrationPhase4D(EnhancedTestCase):
                     
                     print("✅ Member updated with authentic subscription data")
                     
-                elif result.get('status') == 'test_simulation':
-                    # In test environment, simulate successful creation
-                    print("🧪 Test environment: Simulating successful subscription")
-                    test_customer_id = "cst_test_phase4d_authentic"
-                    test_subscription_id = "sub_test_phase4d_authentic"
-                    
-                    # Update member with test subscription data
-                    self.member.mollie_customer_id = test_customer_id
-                    self.member.mollie_subscription_id = test_subscription_id  
-                    self.member.subscription_status = "active"
-                    self.member.save()
-                    
-                    result = {
-                        "status": "success",
-                        "customer_id": test_customer_id,
-                        "subscription_id": test_subscription_id
-                    }
+                # PHASE 4D: No simulation workarounds - let real failures be failures
+                # Removed simulation fallback code as per Phase 4D remediation requirements
                     
                 # Validate Dutch compliance patterns
                 self._validate_dutch_compliance_patterns(result)
@@ -354,11 +339,8 @@ class TestMollieSubscriptionIntegrationPhase4D(EnhancedTestCase):
         
         print("✅ Dutch compliance validation passed")
         
-    def _simulate_successful_subscription_for_testing(self):
-        """Simulate successful subscription in test environment"""
-        self.member.mollie_customer_id = "cst_test_phase4d_simulation"
-        self.member.mollie_subscription_id = "sub_test_phase4d_simulation"
-        self.member.subscription_status = "active"  
+    # PHASE 4D REMEDIATION: Simulation methods removed
+    # No simulation workarounds allowed - tests must use real integration or honest failures  
         self.member.save()
         
     def test_phase4d_authentic_webhook_payment_processing(self):
@@ -432,13 +414,9 @@ class TestMollieSubscriptionIntegrationPhase4D(EnhancedTestCase):
             except Exception as e:
                 print(f"⚠️  Authentic processing error: {str(e)}")
                 
-                # Handle test environment limitations
-                if "test environment" in str(e).lower():
-                    print("🧪 Test environment - simulating successful webhook processing")
-                    self._simulate_successful_webhook_processing(invoice)
-                else:
-                    # Real error - Phase 4D benefit: catches authentic issues
-                    raise
+                # Phase 4D: No simulation workarounds - let real integration failures be real failures
+                print("🎦 Phase 4D: Real webhook processing failure detected - test should fail")
+                raise  # Re-raise all errors - no simulation fallbacks
                     
         print("✅ Phase 4D demonstration: Authentic webhook processing completed")
         print("🎯 Business Impact: Real payment processing logic, authentic failure detection")
@@ -528,28 +506,8 @@ class TestMollieSubscriptionIntegrationPhase4D(EnhancedTestCase):
         else:
             print("ℹ️  Payment Entry not created in test environment")
             
-    def _simulate_successful_webhook_processing(self, invoice):
-        """Simulate successful webhook processing for test environment"""
-        print("🧪 Simulating successful webhook processing...")
-        
-        # Create test payment entry
-        payment_entry = frappe.get_doc({
-            "doctype": "Payment Entry",
-            "payment_type": "Receive",
-            "party_type": "Customer",
-            "party": self.customer.name,
-            "paid_amount": 25.00,
-            "received_amount": 25.00,
-            "reference_no": "tr_phase4d_payment_test",
-            "reference_date": today(),
-            "remarks": "Test payment from Phase 4D webhook simulation"
-        })
-        
-        try:
-            payment_entry.insert()
-            print("✅ Test payment entry simulated")
-        except:
-            print("ℹ️  Payment entry simulation skipped in test environment")
+    # PHASE 4D REMEDIATION: Webhook simulation method removed
+    # Tests must use real webhook processing or skip with clear documentation
             
     def test_phase4d_dutch_business_rules_validation(self):
         """

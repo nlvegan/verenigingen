@@ -2,12 +2,16 @@ import random
 import string
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, today
 
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-class TestMember(FrappeTestCase):
+
+class TestMember(EnhancedTestCase):
     def setUp(self):
+        """Set up test environment using Enhanced Test Factory"""
+        super().setUp()
+
         # Generate a unique identifier using only alphanumeric characters
         self.unique_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
 
@@ -22,12 +26,7 @@ class TestMember(FrappeTestCase):
             "member_since": today(),
         }
 
-        # Delete existing test members
-        self.cleanup_test_data()
-
-    def tearDown(self):
-        # Clean up test data
-        self.cleanup_test_data()
+    # tearDown handled automatically by Enhanced Test Factory
 
     def cleanup_test_data(self):
         # Clear any members with our test email pattern
@@ -55,10 +54,16 @@ class TestMember(FrappeTestCase):
                 print(f"Error cleaning up user {u.name}: {str(e)}")
 
     def test_create_member(self):
-        """Test creating a new member"""
-        member = frappe.new_doc("Member")
-        member.update(self.member_data)
-        member.insert()
+        """Test creating a new member using Enhanced Test Factory"""
+        # Use Enhanced Test Factory for member creation with proper cleanup
+        member = self.create_test_member(
+            first_name=f"Test{self.unique_id}",
+            last_name="Member",
+            email=f"testmember{self.unique_id}@example.com",
+            contact_number="+31612345678",
+            payment_method="Bank Transfer",
+            status="Active",
+        )
 
         self.assertEqual(member.full_name, f"Test{self.unique_id} Member")
         self.assertEqual(member.email, f"testmember{self.unique_id}@example.com")

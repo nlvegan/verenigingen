@@ -27,6 +27,8 @@ class TestAdminToolsSecurity(FrappeTestCase):
         """Set up test environment"""
         super().setUp()
         self.original_user = frappe.session.user
+        # Set admin user for security testing
+        frappe.set_user("Administrator")
         
     def tearDown(self):
         """Clean up after tests"""
@@ -83,8 +85,7 @@ class TestAdminToolsSecurity(FrappeTestCase):
     
     def test_execute_admin_tool_method_not_allowed(self):
         """Test that non-whitelisted methods are blocked"""
-        # Test with system manager who has admin permissions
-        frappe.set_user("Administrator")
+        # Admin user already set in setUp
         
         # Try to execute a non-whitelisted method
         result = execute_admin_tool("os.system")
@@ -96,8 +97,7 @@ class TestAdminToolsSecurity(FrappeTestCase):
     @patch('frappe.log_error')
     def test_execute_admin_tool_logs_unauthorized_attempts(self, mock_log):
         """Test that unauthorized attempts are logged"""
-        # Test with system manager (has permission) but trying dangerous method
-        frappe.set_user("Administrator")
+        # Admin user already set in setUp
         
         # Attempt to execute dangerous method - should be blocked by whitelist
         with self.assertRaises(frappe.PermissionError):
@@ -111,8 +111,7 @@ class TestAdminToolsSecurity(FrappeTestCase):
     
     def test_execute_admin_tool_module_path_validation(self):
         """Test that module paths are validated"""
-        # Test with system manager (has admin permissions)
-        frappe.set_user("Administrator")
+        # Admin user already set in setUp
         
         # Try various invalid module paths
         invalid_paths = [
@@ -131,8 +130,7 @@ class TestAdminToolsSecurity(FrappeTestCase):
     @patch('importlib.import_module')
     def test_execute_admin_tool_whitelist_decorator_check(self, mock_import):
         """Test that functions must have whitelist decorator"""
-        # Test with system manager (has admin permissions)
-        frappe.set_user("Administrator")
+        # Admin user already set in setUp
         
         # Create a mock function without whitelist decorator
         mock_func = MagicMock()
@@ -158,8 +156,7 @@ class TestAdminToolsSecurity(FrappeTestCase):
     @patch('frappe.logger')
     def test_execute_admin_tool_audit_logging(self, mock_logger_func):
         """Test that admin actions are logged for audit"""
-        # Test with system manager (has admin permissions)
-        frappe.set_user("Administrator")
+        # Admin user already set in setUp
         mock_logger = MagicMock()
         mock_logger_func.return_value = mock_logger
         
@@ -186,8 +183,7 @@ class TestAdminToolsSecurity(FrappeTestCase):
     
     def test_execute_admin_tool_argument_validation(self):
         """Test that arguments are properly validated"""
-        # Test with system manager (has admin permissions)
-        frappe.set_user("Administrator")
+        # Admin user already set in setUp
         
         # Test with various invalid argument types
         test_method = list(ALLOWED_ADMIN_METHODS)[0] if ALLOWED_ADMIN_METHODS else None
@@ -213,8 +209,7 @@ class TestAdminToolsSecurity(FrappeTestCase):
     
     def test_execute_admin_tool_error_sanitization(self):
         """Test that errors are sanitized in production mode"""
-        # Test with system manager (has admin permissions)
-        frappe.set_user("Administrator")
+        # Admin user already set in setUp
         
         test_method = list(ALLOWED_ADMIN_METHODS)[0] if ALLOWED_ADMIN_METHODS else None
         if not test_method:
@@ -320,10 +315,21 @@ class TestAdminToolsContext(FrappeTestCase):
 class TestRCEPrevention(FrappeTestCase):
     """Specific tests for RCE (Remote Code Execution) prevention"""
     
+    def setUp(self):
+        """Set up test environment"""
+        super().setUp()
+        self.original_user = frappe.session.user
+        # Set admin user for security testing
+        frappe.set_user("Administrator")
+        
+    def tearDown(self):
+        """Clean up after tests"""
+        frappe.session.user = self.original_user
+        super().tearDown()
+    
     def test_prevent_code_injection_attempts(self):
         """Test various code injection attempts are blocked"""
-        # Test with system manager (has admin permissions)
-        frappe.set_user("Administrator")
+        # Admin user already set in setUp
         
         injection_attempts = [
             "__import__('os').system('rm -rf /')",
@@ -341,8 +347,7 @@ class TestRCEPrevention(FrappeTestCase):
     
     def test_prevent_path_traversal(self):
         """Test that path traversal attempts are blocked"""
-        # Test with system manager (has admin permissions)
-        frappe.set_user("Administrator")
+        # Admin user already set in setUp
         
         traversal_attempts = [
             "../../../etc/passwd",
@@ -357,8 +362,7 @@ class TestRCEPrevention(FrappeTestCase):
     
     def test_prevent_dynamic_import_manipulation(self):
         """Test that dynamic import manipulation is prevented"""
-        # Test with system manager (has admin permissions)
-        frappe.set_user("Administrator")
+        # Admin user already set in setUp
         
         # Even if someone adds a malicious method to ALLOWED_ADMIN_METHODS
         malicious_method = "os.system"
@@ -380,10 +384,21 @@ class TestRCEPrevention(FrappeTestCase):
 class TestAdminToolsIntegration(FrappeTestCase):
     """Integration tests for admin tools"""
     
+    def setUp(self):
+        """Set up test environment"""
+        super().setUp()
+        self.original_user = frappe.session.user
+        # Set admin user for security testing
+        frappe.set_user("Administrator")
+        
+    def tearDown(self):
+        """Clean up after tests"""
+        frappe.session.user = self.original_user
+        super().tearDown()
+    
     def test_successful_execution_flow(self):
         """Test successful execution of an allowed admin tool"""
-        # Test with system manager (has admin permissions)
-        frappe.set_user("Administrator")
+        # Admin user already set in setUp
         
         # Pick a real allowed method
         test_method = "verenigingen.setup.security_setup.check_current_security_status"

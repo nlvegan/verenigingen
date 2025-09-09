@@ -225,10 +225,19 @@ def send_overdue_payment_reminders(
     from verenigingen.verenigingen.report.overdue_member_payments.overdue_member_payments import get_data
 
     if isinstance(filters, str):
-        try:
-            filters = json.loads(filters)
-        except json.JSONDecodeError:
-            raise ValidationError("Invalid JSON format in filters")
+        # Handle empty string or whitespace-only strings as no filters
+        if not filters.strip():
+            filters = None
+        else:
+            try:
+                filters = json.loads(filters)
+            except json.JSONDecodeError as e:
+                # Log the actual problematic JSON for debugging
+                frappe.log_error(
+                    message=f"Invalid JSON in filters parameter: '{filters}' - Error: {str(e)}",
+                    title="Payment Processing - Invalid JSON Debug",
+                )
+                raise ValidationError(f"Invalid JSON format in filters: {str(e)}")
 
     overdue_data = get_data(filters)
 
@@ -283,10 +292,19 @@ def export_overdue_payments(filters=None, format="CSV"):
     from verenigingen.verenigingen.report.overdue_member_payments.overdue_member_payments import get_data
 
     if isinstance(filters, str):
-        try:
-            filters = json.loads(filters)
-        except json.JSONDecodeError:
-            raise ValidationError("Invalid JSON format in filters")
+        # Handle empty string or whitespace-only strings as no filters
+        if not filters.strip():
+            filters = None
+        else:
+            try:
+                filters = json.loads(filters)
+            except json.JSONDecodeError as e:
+                # Log the actual problematic JSON for debugging
+                frappe.log_error(
+                    message=f"Invalid JSON in filters parameter: '{filters}' - Error: {str(e)}",
+                    title="Payment Processing - Invalid JSON Debug",
+                )
+                raise ValidationError(f"Invalid JSON format in filters: {str(e)}")
 
     # Validate format parameter
     if format not in ["CSV", "XLSX"]:
@@ -380,12 +398,23 @@ def execute_bulk_payment_action(action, apply_to="All Visible Records", filters=
     from verenigingen.verenigingen.report.overdue_member_payments.overdue_member_payments import get_data
 
     if isinstance(filters, str):
-        try:
-            filters = json.loads(filters)
-        except json.JSONDecodeError:
-            raise ValidationError("Invalid JSON format in filters")
+        # Handle empty string or whitespace-only strings as no filters
+        if not filters.strip():
+            filters = None
+        else:
+            try:
+                filters = json.loads(filters)
+            except json.JSONDecodeError as e:
+                # Log the actual problematic JSON for debugging
+                frappe.log_error(
+                    message=f"Invalid JSON in filters parameter: '{filters}' - Error: {str(e)}",
+                    title="Payment Processing - Invalid JSON Debug",
+                )
+                raise ValidationError(f"Invalid JSON format in filters: {str(e)}")
 
     # Modify filters based on apply_to selection
+    if filters is None:
+        filters = {}
     if apply_to == "Critical Only (>60 days)":
         filters["critical_only"] = True
     elif apply_to == "Urgent Only (>30 days)":

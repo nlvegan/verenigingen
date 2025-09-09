@@ -8,14 +8,14 @@ Tests for SEPA batch processing, termination edge cases, and complex workflows
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from frappe.utils import today, add_days, getdate, nowdate
 from decimal import Decimal
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 
 
-class TestAdvancedWorkflows(FrappeTestCase):
+class TestAdvancedWorkflows(EnhancedTestCase):
     """Test advanced workflows and edge cases"""
     
     def setUp(self):
@@ -34,20 +34,30 @@ class TestAdvancedWorkflows(FrappeTestCase):
                 "email": f"sepa{i}.test@example.com",
                 "status": "Active"
             })
-            member.insert(ignore_permissions=True)
+            member.insert()  # Enhanced Test Factory handles permissions
             
-            # Create SEPA mandate
+            # Create SEPA mandate with proper mandatory fields and valid IBANs
+            from verenigingen.utils.validation.iban_validator import generate_test_iban
+            valid_test_ibans = [
+                generate_test_iban("TEST", f"012345678{i}"),
+                generate_test_iban("MOCK", f"012345678{i}"),
+                generate_test_iban("DEMO", f"012345678{i}"),
+                generate_test_iban("TEST", f"987654321{i}"),
+                generate_test_iban("MOCK", f"987654321{i}"),
+            ]
             mandate = frappe.get_doc({
                 "doctype": "SEPA Mandate",
                 "member": member.name,
                 "mandate_reference": f"TEST-MANDATE-{i:04d}",
-                "iban": f"NL91ABNA041716430{i}",
+                "iban": valid_test_ibans[i % len(valid_test_ibans)],
                 "bic": "ABNANL2A",
                 "status": "Active",
                 "mandate_date": add_days(today(), -30),
-                "debtor_name": member.full_name
+                "sign_date": add_days(today(), -30),  # Required field
+                "debtor_name": member.full_name,
+                "account_holder_name": member.full_name  # Required field
             })
-            mandate.insert(ignore_permissions=True)
+            mandate.insert()  # Enhanced Test Factory handles permissions
             
             member.mandate = mandate
             members.append(member)
@@ -56,19 +66,19 @@ class TestAdvancedWorkflows(FrappeTestCase):
         
     def test_sepa_batch_creation(self):
         """Test SEPA direct debit batch creation"""
-        # Create batch
+        # Create batch with invoices first
         batch = frappe.get_doc({
             "doctype": "Direct Debit Batch",
-            "batch_name": f"Test Batch {frappe.utils.random_string(6)}",
-            "execution_date": add_days(today(), 5),  # 5 days in future
+            "batch_date": add_days(today(), 5),  # 5 days in future
+            "batch_description": f"Test Batch {frappe.utils.random_string(6)}",
             "batch_type": "FRST",  # First collection
-            "status": "Draft"
+            "status": "Draft",
+            "invoices": []
         })
-        batch.insert()
         
-        # Add entries for test members
+        # Add invoices for test members
         for member in self.test_members:
-            batch.append("entries", {
+            batch.append("invoices", {
                 "member": member.name,
                 "member_name": member.full_name,
                 "mandate_reference": member.mandate.mandate_reference,
@@ -78,35 +88,41 @@ class TestAdvancedWorkflows(FrappeTestCase):
                 "status": "Pending"
             })
             
-        batch.save()
+        batch.insert()  # Insert with invoices present
         
         # Verify batch
-        self.assertEqual(len(batch.entries), 5)
+        self.assertEqual(len(batch.invoices), 5)
         self.assertEqual(batch.total_amount, 500.00)
         
         # Test validation
-        batch.validate_entries()
+        batch.validate_invoices()
         
-        # All entries should be valid
-        valid_entries = [e for e in batch.entries if e.status == "Valid"]
-        self.assertEqual(len(valid_entries), 5)
+        # All invoices should be valid  
+        valid_invoices = [e for e in batch.invoices if e.status == "Valid"]
+        self.assertEqual(len(valid_invoices), 5)
         
     def test_sepa_xml_generation(self):
         """Test SEPA XML file generation"""
-        # Create a simple batch
+        # Create a simple batch with invoices
         batch = frappe.get_doc({
             "doctype": "Direct Debit Batch",
-            "batch_name": "XML Test Batch",
-            "execution_date": add_days(today(), 5),
+            "batch_description": "XML Test Batch",
+            "batch_date": add_days(today(), 5),
             "batch_type": "RCUR",
-            "entries": [{
-                "member": self.test_members[0].name,
-                "mandate_reference": self.test_members[0].mandate.mandate_reference,
-                "iban": self.test_members[0].mandate.iban,
-                "amount": 50.00,
-                "description": "Test collection"
-            }]
+            "invoices": []
         })
+        
+        # Add invoice
+        batch.append("invoices", {
+            "member": self.test_members[0].name,
+            "member_name": self.test_members[0].full_name,
+            "mandate_reference": self.test_members[0].mandate.mandate_reference,
+            "iban": self.test_members[0].mandate.iban,
+            "amount": 50.00,
+            "description": "Test collection",
+            "status": "Pending"
+        })
+        
         batch.insert()
         
         # Generate XML (mocked)
@@ -133,7 +149,7 @@ class TestAdvancedWorkflows(FrappeTestCase):
         <GrpHdr>
             <MsgId>{batch.name}</MsgId>
             <CreDtTm>{datetime.now().isoformat()}</CreDtTm>
-            <NbOfTxs>{len(batch.entries)}</NbOfTxs>
+            <NbOfTxs>{len(batch.invoices)}</NbOfTxs>
             <CtrlSum>{batch.total_amount}</CtrlSum>
         </GrpHdr>
     </CstmrDrctDbtInitn>
@@ -148,9 +164,10 @@ class TestAdvancedWorkflows(FrappeTestCase):
             "doctype": "Volunteer",
             "volunteer_name": member_with_roles.full_name,
             "member": member_with_roles.name,
+            "email": member_with_roles.email,
             "status": "Active"
         })
-        volunteer.insert(ignore_permissions=True)
+        volunteer.insert()  # Enhanced Test Factory handles permissions
         
         # Create termination request
         termination = frappe.get_doc({
@@ -164,7 +181,7 @@ class TestAdvancedWorkflows(FrappeTestCase):
         termination.insert()
         
         # Should require additional approval
-        self.assertTrue(termination.requires_board_approval)
+        self.assertTrue(termination.requires_secondary_approval)
         
         # Edge case 2: Member with outstanding payments
         member_with_debt = self.test_members[1]
@@ -206,6 +223,7 @@ class TestAdvancedWorkflows(FrappeTestCase):
         for i, lang in enumerate(languages):
             if i < len(self.test_members):
                 member = self.test_members[i]
+                member.reload()  # Ensure we have the latest version
                 member.preferred_language = lang
                 member.save()
                 

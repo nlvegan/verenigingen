@@ -315,34 +315,40 @@ class PaymentEntryHandler:
         return default_account
 
     def _get_account_from_pattern(self, description: str, payment_type: str) -> Optional[str]:
-        """Match bank account based on description patterns."""
-        patterns = {
-            "triodos": "10440 - Triodos - 19.83.96.716 - Algemeen - NVV",
-            "paypal": "10470 - PayPal - info@veganisme.org - NVV",
-            "asn": "10620 - ASN - 97.88.80.455 - NVV",
-            "kas": "10000 - Kas - NVV",
-            "cash": "10000 - Kas - NVV",
+        """Match bank account based on description patterns using configurable mapping."""
+        from verenigingen.e_boekhouden.utils.configurable_account_mapper import get_account_mapper
+
+        mapper = get_account_mapper(self.company)
+
+        # Map description patterns to account purposes (no hardcoded numbers)
+        pattern_to_purpose = {
+            "triodos": "triodos",
+            "paypal": "paypal",
+            "asn": "asn",
+            "kas": "cash",
+            "cash": "cash",
         }
 
         description_lower = description.lower()
-        for pattern, account in patterns.items():
+        for pattern, purpose in pattern_to_purpose.items():
             if pattern in description_lower:
-                # Verify account exists
-                if frappe.db.exists("Account", {"name": account, "company": self.company}):
+                account = mapper.get_account_by_purpose(purpose)
+                if account:
                     return account
 
         return None
 
     def _get_default_bank_account(self, payment_type: str) -> str:
-        """Get intelligent default account based on payment type."""
+        """Get intelligent default account based on payment type using configurable mapping."""
+        from verenigingen.e_boekhouden.utils.configurable_account_mapper import get_account_mapper
+
+        mapper = get_account_mapper(self.company)
+
         if payment_type == "Receive":
             # Customer payments typically go to main bank account
-            # Try Triodos first as it's the main account
-            triodos = frappe.db.get_value(
-                "Account", {"account_number": "10440", "company": self.company, "disabled": 0}, "name"
-            )
-            if triodos:
-                return triodos
+            main_bank = mapper.get_account_by_purpose("main_bank")
+            if main_bank:
+                return main_bank
 
         # Fallback to any active bank account
         bank_account = frappe.db.get_value(
@@ -352,10 +358,16 @@ class PaymentEntryHandler:
         if bank_account:
             return bank_account
 
-        # Last resort - cash account
-        return (
-            frappe.db.get_value("Account", {"account_number": "10000", "company": self.company}, "name")
-            or "10000 - Kas - NVV"
+        # Last resort - cash account lookup or error
+        cash_account = mapper.get_account_by_purpose("cash")
+        if cash_account:
+            return cash_account
+
+        # If no cash account exists, this is a configuration error
+        frappe.throw(
+            f"No suitable payment account found for company {self.company}. "
+            "Please ensure bank accounts and cash account are properly configured.",
+            title="Payment Account Configuration Error",
         )
 
     def _get_or_create_party(self, relation_id: str, party_type: str, description: str) -> Optional[str]:

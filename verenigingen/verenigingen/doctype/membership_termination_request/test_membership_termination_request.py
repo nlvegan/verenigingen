@@ -4,39 +4,27 @@ Comprehensive Test Suite for Membership Termination Request
 Tests all aspects of the termination workflow including business logic, validation, and integration
 """
 
-import unittest
-from unittest.mock import MagicMock, patch
-
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, add_months, now_datetime, today
 
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-class TestMembershipTerminationRequest(FrappeTestCase):
+
+class TestMembershipTerminationRequest(EnhancedTestCase):
     """Comprehensive tests for Membership Termination Request doctype"""
 
     def setUp(self):
-        """Set up test environment"""
-        self.setup_test_data()
+        """Set up test environment using Enhanced Test Factory"""
+        super().setUp()
 
-    def tearDown(self):
-        """Clean up test data"""
-        self.cleanup_test_data()
-
-    def setup_test_data(self):
-        """Create test data for termination scenarios"""
-        # Create test member
-        self.test_member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Test",
-                "last_name": "Termination",
-                "email": "test.termination@example.com",
-                "status": "Active",
-                "member_since": add_months(today(), -12),
-            }
+        # Create test member using Enhanced Test Factory
+        self.test_member = self.create_test_member(
+            first_name="Test",
+            last_name="Termination",
+            email_address="test.termination@example.com",
+            status="Active",
+            member_since=add_months(today(), -12),
         )
-        self.test_member.insert(ignore_permissions=True)
 
         # Create test membership type
         if not frappe.db.exists("Membership Type", "Test Termination Type"):
@@ -49,7 +37,7 @@ class TestMembershipTerminationRequest(FrappeTestCase):
                     "billing_period": "Annual",
                 }
             )
-            self.test_membership_type.insert(ignore_permissions=True)
+            self.test_membership_type.insert()
 
         # Create test membership
         self.test_membership = frappe.get_doc(
@@ -61,7 +49,7 @@ class TestMembershipTerminationRequest(FrappeTestCase):
                 "status": "Active",
             }
         )
-        self.test_membership.insert(ignore_permissions=True)
+        self.test_membership.insert()
 
     def cleanup_test_data(self):
         """Clean up test data"""
@@ -99,7 +87,7 @@ class TestMembershipTerminationRequest(FrappeTestCase):
         )
 
         # Test document creation
-        termination_request.insert(ignore_permissions=True)
+        termination_request.insert()
 
         # Verify defaults were set
         self.assertEqual(termination_request.status, "Pending")
@@ -121,13 +109,13 @@ class TestMembershipTerminationRequest(FrappeTestCase):
                 "request_date": today(),
             }
         )
-        termination_request.insert(ignore_permissions=True)
+        termination_request.insert()
 
         # Test status transitions
         statuses = ["Pending", "Approved", "Executed"]
         for status in statuses:
             termination_request.status = status
-            termination_request.save(ignore_permissions=True)
+            termination_request.save()
             termination_request.reload()
             self.assertEqual(termination_request.status, status)
 
@@ -142,7 +130,7 @@ class TestMembershipTerminationRequest(FrappeTestCase):
                 "request_date": today(),
             }
         )
-        termination_request.insert(ignore_permissions=True)
+        termination_request.insert()
 
         # Test audit entry creation
         termination_request.add_audit_entry("Test Action", "Test details for audit")
@@ -162,7 +150,7 @@ class TestMembershipTerminationRequest(FrappeTestCase):
                 "request_date": today(),
             }
         )
-        termination_request.insert(ignore_permissions=True)
+        termination_request.insert()
 
         # Verify approval requirements are set
         self.assertTrue(hasattr(termination_request, "set_approval_requirements"))
@@ -181,7 +169,7 @@ class TestMembershipTerminationRequest(FrappeTestCase):
         )
 
         # Should be able to create with future date
-        termination_request.insert(ignore_permissions=True)
+        termination_request.insert()
         self.assertEqual(termination_request.request_date, add_days(today(), 30))
 
     def test_permission_validation(self):
@@ -197,7 +185,7 @@ class TestMembershipTerminationRequest(FrappeTestCase):
         )
 
         # Test document creation (permission validation happens in validate)
-        termination_request.insert(ignore_permissions=True)
+        termination_request.insert()
 
         # Verify permission validation method exists
         self.assertTrue(hasattr(termination_request, "validate_permissions"))
@@ -220,7 +208,7 @@ class TestMembershipTerminationRequest(FrappeTestCase):
                 "status": "Executed",
             }
         )
-        termination_request.insert(ignore_permissions=True)
+        termination_request.insert()
 
         # Test execution workflow
         try:
@@ -256,7 +244,7 @@ class TestMembershipTerminationRequest(FrappeTestCase):
             )
 
             # Should be able to create with different types
-            termination_request.insert(ignore_permissions=True)
+            termination_request.insert()
             self.assertEqual(termination_request.termination_type, term_type)
 
     def test_system_integration_methods(self):
@@ -285,7 +273,7 @@ class TestMembershipTerminationRequest(FrappeTestCase):
 
         # Should raise validation error
         with self.assertRaises(frappe.ValidationError):
-            termination_request.insert(ignore_permissions=True)
+            termination_request.insert()
 
     def test_document_status_changes(self):
         """Test document status changes and their effects"""
@@ -298,12 +286,12 @@ class TestMembershipTerminationRequest(FrappeTestCase):
                 "request_date": today(),
             }
         )
-        termination_request.insert(ignore_permissions=True)
+        termination_request.insert()
 
         # Test status change handling
         original_status = termination_request.status
         termination_request.status = "Approved"
-        termination_request.save(ignore_permissions=True)
+        termination_request.save()
 
         # Verify status change was handled
         self.assertEqual(termination_request.status, "Approved")
@@ -320,7 +308,7 @@ class TestMembershipTerminationRequest(FrappeTestCase):
                 "request_date": today(),
             }
         )
-        termination_request.insert(ignore_permissions=True)
+        termination_request.insert()
 
         # Test impact tracking fields
         impact_fields = [
@@ -345,7 +333,7 @@ class TestMembershipTerminationRequest(FrappeTestCase):
                 "request_date": today(),
             }
         )
-        termination_request1.insert(ignore_permissions=True)
+        termination_request1.insert()
 
         # Create second request for same member
         termination_request2 = frappe.get_doc(
@@ -359,7 +347,7 @@ class TestMembershipTerminationRequest(FrappeTestCase):
         )
 
         # Should be able to create multiple requests
-        termination_request2.insert(ignore_permissions=True)
+        termination_request2.insert()
 
         # Verify both requests exist
         self.assertNotEqual(termination_request1.name, termination_request2.name)
@@ -375,7 +363,7 @@ class TestMembershipTerminationRequest(FrappeTestCase):
                 "request_date": today(),
             }
         )
-        termination_request.insert(ignore_permissions=True)
+        termination_request.insert()
 
         # Test analytics module integration
         try:
@@ -401,7 +389,7 @@ class TestMembershipTerminationRequest(FrappeTestCase):
                 "request_date": today(),
             }
         )
-        termination_request.insert(ignore_permissions=True)
+        termination_request.insert()
 
         # Test required fields
         required_fields = ["member", "termination_type", "termination_reason", "request_date"]
@@ -420,17 +408,17 @@ class TestMembershipTerminationRequest(FrappeTestCase):
                 "request_date": today(),
             }
         )
-        termination_request.insert(ignore_permissions=True)
+        termination_request.insert()
 
         # Test workflow state transitions
         valid_transitions = [("Pending", "Approved"), ("Approved", "Executed"), ("Pending", "Rejected")]
 
         for from_status, to_status in valid_transitions:
             termination_request.status = from_status
-            termination_request.save(ignore_permissions=True)
+            termination_request.save()
 
             termination_request.status = to_status
-            termination_request.save(ignore_permissions=True)
+            termination_request.save()
 
             self.assertEqual(termination_request.status, to_status)
 

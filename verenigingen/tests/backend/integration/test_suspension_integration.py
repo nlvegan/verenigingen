@@ -5,7 +5,7 @@ Unit tests for suspension integration functions
 from unittest.mock import MagicMock, patch
 
 from frappe.utils import today
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.termination_integration import (
     get_member_suspension_status,
     suspend_member_safe,
@@ -13,7 +13,7 @@ from verenigingen.utils.termination_integration import (
 )
 
 
-class TestSuspensionIntegration(VereningingenTestCase):
+class TestSuspensionIntegration(EnhancedTestCase):
     """Test suspension integration functions"""
 
     def setUp(self):

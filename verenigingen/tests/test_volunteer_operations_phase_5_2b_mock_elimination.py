@@ -40,6 +40,8 @@ class TestVolunteerOperationsPhase5_2BMockElimination(EnhancedTestCase):
     def setUp(self):
         """Set up test data with real database operations"""
         super().setUp()
+        # Set Administrator for volunteer operations testing
+        frappe.set_user("Administrator")
         
         # Create test members using real Enhanced Test Factory
         self.member1 = self.create_test_member(
@@ -93,7 +95,8 @@ class TestVolunteerOperationsPhase5_2BMockElimination(EnhancedTestCase):
             self.fail(f"Real volunteer lookup failed - production issue discovered: {e}")
         
         finally:
-            frappe.set_user("Administrator")
+            # Already running as Administrator from setUp
+            pass
 
     def test_volunteer_employee_creation_real_business_logic(self):
         """Test volunteer employee creation with real business logic (NO MOCKS)"""
@@ -296,7 +299,8 @@ class TestVolunteerOperationsPhase5_2BMockElimination(EnhancedTestCase):
             self.fail(f"Real volunteer permission validation failed: {str(e)}")
             
         finally:
-            frappe.set_user("Administrator")
+            # Already running as Administrator from setUp
+            pass
 
     def test_volunteer_skill_management_real_database(self):
         """Test volunteer skill management with real database operations (NO MOCKS)"""

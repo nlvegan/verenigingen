@@ -295,8 +295,8 @@ def _get_validated_donation_type():
     if frappe.db.exists("Donation Type", "General"):
         return "General"
 
-    # Find first available donation type
-    first_type = frappe.db.get_value("Donation Type", {}, "name")
+    # Find any available donation type (ordered by name for consistency)
+    first_type = frappe.db.get_value("Donation Type", {}, "name", order_by="name")
     if first_type:
         return first_type
 

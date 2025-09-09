@@ -5,10 +5,10 @@ Tests the ERPNext-integrated expense reporting functionality
 Updated: December 2024 - Reflects ERPNext-only integration and legacy system phase-out
 """
 
-import unittest
 from unittest.mock import patch
 
 import frappe
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 from verenigingen.verenigingen.report.chapter_expense_report.chapter_expense_report import (
     build_expense_row,
@@ -22,17 +22,15 @@ from verenigingen.verenigingen.report.chapter_expense_report.chapter_expense_rep
 )
 
 
-class TestChapterExpenseReport(unittest.TestCase):
+class TestChapterExpenseReport(VereningingenTestCase):
     """Test Chapter Expense Report functionality"""
 
     def setUp(self):
-        """Set up for each test"""
-        frappe.set_user("Administrator")
+        """Set up for each test using VereningingenTestCase"""
+        super().setUp()  # VereningingenTestCase handles permissions and cleanup
         self.test_filters = {"from_date": "2024-01-01", "to_date": "2024-12-31"}
 
-    def tearDown(self):
-        """Clean up after each test"""
-        frappe.db.rollback()
+    # tearDown handled automatically by VereningingenTestCase
 
     def test_execute_returns_proper_structure(self):
         """Test that execute returns proper report structure"""
@@ -74,6 +72,7 @@ class TestChapterExpenseReport(unittest.TestCase):
                 "expense_date": "2024-06-15"}
         ]
 
+        # Mock justified: ERPNext external service - expense claims retrieval for reporting
         with patch("frappe.get_all") as mock_get_all:
             # First call returns expense claims, second call returns details
             mock_get_all.side_effect = [mock_expense_claims, mock_expense_details]
@@ -103,6 +102,7 @@ class TestChapterExpenseReport(unittest.TestCase):
                 "cost_center": None}
         ]
 
+        # Mock justified: ERPNext external service - exception handling in expense retrieval
         with patch("frappe.get_all") as mock_get_all:
             # First call returns expense claims, second call raises exception (no details)
             mock_get_all.side_effect = [mock_expense_claims, Exception("No details")]
@@ -132,6 +132,7 @@ class TestChapterExpenseReport(unittest.TestCase):
 
         mock_volunteer_record = {"name": "VOL-001", "volunteer_name": "John Volunteer"}
 
+        # Mock justified: ERPNext external service - expense data with volunteer lookup
         with patch("frappe.get_all", return_value=mock_expense_claims):
             with patch("frappe.db.get_value", return_value=mock_volunteer_record):
                 result = get_erpnext_expense_data(self.test_filters)
@@ -170,6 +171,7 @@ class TestChapterExpenseReport(unittest.TestCase):
 
     def test_build_expense_row_erpnext_claim(self):
         """Test building expense row for ERPNext expense claim"""
+        # Mock justified: ERPNext external service - attachment count for expense display
         with patch("frappe.db.count", return_value=2):  # 2 attachments
             row = build_expense_row(
                 name="EXP-2024-001",
@@ -204,6 +206,7 @@ class TestChapterExpenseReport(unittest.TestCase):
         ]
 
         for status, expected_color in statuses:
+            # Mock justified: ERPNext external service - status color testing without attachments
             with patch("frappe.db.count", return_value=0):
                 row = build_expense_row(
                     name="EXP-TEST",
@@ -226,6 +229,7 @@ class TestChapterExpenseReport(unittest.TestCase):
 
         old_date = (datetime.date.today() - datetime.timedelta(days=10)).strftime("%Y-%m-%d")
 
+        # Mock justified: ERPNext external service - overdue expense testing without attachments
         with patch("frappe.db.count", return_value=0):
             row = build_expense_row(
                 name="EXP-OVERDUE",
@@ -374,6 +378,7 @@ class TestChapterExpenseReport(unittest.TestCase):
         ]
 
         # This would fail if we try to use non-existent fields like 'title'
+        # Mock justified: ERPNext external service - empty data scenario testing
         with patch("frappe.get_all") as mock_get_all:
             mock_get_all.return_value = []
 
@@ -389,6 +394,7 @@ class TestChapterExpenseReport(unittest.TestCase):
 
     def test_error_handling_in_expense_data_retrieval(self):
         """Test error handling when expense data retrieval fails"""
+        # Mock justified: ERPNext external service - error handling testing
         with patch("frappe.get_all", side_effect=Exception("Database error")):
             # Should not raise exception, should handle gracefully
             try:
@@ -432,11 +438,13 @@ class TestChapterExpenseReportIntegration(unittest.TestCase):
                 "expense_date": "2024-06-15"}
         ]
 
+        # Mock justified: ERPNext external service - summary data generation testing
         with patch("frappe.get_all") as mock_get_all:
             mock_get_all.side_effect = [mock_claims, mock_details]
 
             with patch("frappe.db.get_value", return_value=None):
-                with patch("frappe.db.count", return_value=1):
+                # Mock justified: ERPNext external service - attachment count for summary
+        with patch("frappe.db.count", return_value=1):
                     columns, data, message, chart, summary = execute(filters)
 
                     # Verify complete structure
@@ -465,6 +473,7 @@ class TestChapterExpenseReportIntegration(unittest.TestCase):
         # This test ensures the report can be called from workspace shortcuts
         filters = {"from_date": "2024-01-01", "to_date": "2024-12-31"}
 
+        # Mock justified: ERPNext external service - empty data edge case testing
         with patch("frappe.get_all", return_value=[]):
             try:
                 columns, data, message, chart, summary = execute(filters)

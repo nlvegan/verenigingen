@@ -155,9 +155,24 @@ def test_stock_reconciliation():
     """Test function to verify stock reconciliation creation"""
     debug_info = []
 
-    # Test data
-    stock_accounts_data = [{"account": "30000 - Voorraden - NVV", "balance": 1057.06}]
+    # Get company from E-Boekhouden Settings
+    settings = frappe.get_single("E-Boekhouden Settings")
+    company = settings.default_company
 
-    result = create_stock_reconciliation_for_opening_balance(stock_accounts_data, "Ned Ver Vegan", debug_info)
+    if not company:
+        return {"error": "No company configured in E-Boekhouden Settings", "debug_info": debug_info}
+
+    # Find stock account for the configured company
+    stock_account = frappe.db.get_value(
+        "Account", {"account_number": "30000", "company": company, "account_type": "Stock"}, "name"
+    )
+
+    if not stock_account:
+        return {"error": f"No stock account (30000) found for company {company}", "debug_info": debug_info}
+
+    # Test data with dynamic account lookup
+    stock_accounts_data = [{"account": stock_account, "balance": 1057.06}]
+
+    result = create_stock_reconciliation_for_opening_balance(stock_accounts_data, company, debug_info)
 
     return {"result": result, "debug_info": debug_info}

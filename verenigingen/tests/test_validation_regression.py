@@ -23,10 +23,10 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestValidationRegression(FrappeTestCase):
+class TestValidationRegression(EnhancedTestCase):
     """Test suite to prevent regression of validation issues"""
 
     @classmethod
@@ -302,7 +302,7 @@ class TestValidationRegression(FrappeTestCase):
         return None
 
 
-class TestFieldReferenceRegression(FrappeTestCase):
+class TestFieldReferenceRegression(EnhancedTestCase):
     """Additional regression tests for specific field reference patterns"""
     
     def test_no_is_published_references_in_membership_type_queries(self):
@@ -371,7 +371,7 @@ class TestFieldReferenceRegression(FrappeTestCase):
                         self.fail(f"Unexpected error testing {doctype}.{field}: {e}")
 
 
-class TestRegressionPreventionFramework(FrappeTestCase):
+class TestRegressionPreventionFramework(EnhancedTestCase):
     """Framework for preventing specific types of regressions"""
     
     def test_critical_api_endpoints_syntax_valid(self):
@@ -423,7 +423,7 @@ class TestRegressionPreventionFramework(FrappeTestCase):
                          "Should use client-side number formatting")
 
 
-class TestSchemaComplianceFramework(FrappeTestCase):
+class TestSchemaComplianceFramework(EnhancedTestCase):
     """Framework for testing schema compliance across the application"""
     
     def test_sepa_mandate_field_references(self):

@@ -3,14 +3,13 @@
 Unit tests for recent code changes to ensure functionality works as expected
 """
 
-import unittest
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestRecentCodeChanges(FrappeTestCase):
+class TestRecentCodeChanges(EnhancedTestCase):
     """Test recent code changes and refactoring"""
 
     @classmethod

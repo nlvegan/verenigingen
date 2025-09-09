@@ -5,35 +5,22 @@ import random
 import string
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestRegion(FrappeTestCase):
+class TestRegion(EnhancedTestCase):
     """Comprehensive test suite for Region doctype functionality"""
 
-    @classmethod
-    def setUpClass(cls):
-        """Clean up any existing test data before starting tests"""
-        # Clean up any leftover test regions
-        test_regions = frappe.get_all("Region", filters={"region_name": ["like", "Test Region%"]})
-        for region in test_regions:
-            try:
-                frappe.delete_doc("Region", region.name, force=True)
-            except Exception:
-                pass
-
-        # Clean up any leftover test members
-        test_members = frappe.get_all("Member", filters={"email": ["like", "test%coordinator%"]})
-        for member in test_members:
-            try:
-                frappe.delete_doc("Member", member.name, force=True)
-            except Exception:
-                pass
+    # Enhanced Test Factory handles cleanup automatically
 
     def setUp(self):
         """Set up test data"""
-        # Generate unique suffix for each test method
-        self.test_suffix = "".join(random.choices(string.ascii_lowercase, k=6))
+        super().setUp()
+        # Generate unique suffix using timestamp for better uniqueness
+        import time
+
+        self.test_suffix = str(int(time.time() * 1000))[-8:]
 
         # Base test data - will be customized per test method
         self.base_region_data = {
@@ -55,21 +42,7 @@ class TestRegion(FrappeTestCase):
 
     def tearDown(self):
         """Clean up test data after each test"""
-        # Clean up test regions created in this test
-        test_regions = frappe.get_all("Region", filters={"region_name": ["like", f"%{self.test_suffix}%"]})
-        for region in test_regions:
-            try:
-                frappe.delete_doc("Region", region.name, force=True)
-            except Exception:
-                pass
-
-        # Clean up test members created in this test
-        test_members = frappe.get_all("Member", filters={"email": ["like", f"%{self.test_suffix}%"]})
-        for member in test_members:
-            try:
-                frappe.delete_doc("Member", member.name, force=True)
-            except Exception:
-                pass
+        super().tearDown()  # Enhanced Test Factory handles cleanup
 
     def create_test_region(self, custom_name=None, custom_code=None, **kwargs):
         """Helper to create test region with unique naming"""
@@ -94,7 +67,7 @@ class TestRegion(FrappeTestCase):
 
         member = frappe.new_doc("Member")
         member.update(member_data)
-        member.flags.ignore_validate = True  # Skip validation for test data
+        # Enhanced Test Factory handles validation and permissions properly
         return member
 
     def test_01_region_creation(self):
@@ -385,22 +358,17 @@ class TestRegion(FrappeTestCase):
         self.assertIsInstance(context["stats"], dict)
 
 
-class TestRegionUtilityFunctions(FrappeTestCase):
+class TestRegionUtilityFunctions(EnhancedTestCase):
     """Test utility functions for Region doctype"""
 
     def setUp(self):
         """Set up test data"""
-        self.test_suffix = "".join(random.choices(string.ascii_lowercase, k=6))
+        super().setUp()
+        import time
 
-        # Clean up any existing test regions
-        test_regions = frappe.get_all("Region", filters={"region_name": ["like", "Test Util%"]})
-        for region in test_regions:
-            try:
-                frappe.delete_doc("Region", region.name, force=True)
-            except Exception:
-                pass
+        self.test_suffix = str(int(time.time() * 1000))[-8:]
 
-        # Create test region
+        # Create test region using Enhanced Test Factory patterns
         self.test_region = frappe.new_doc("Region")
         self.test_region.region_name = f"Test Util Region {self.test_suffix}"
         self.test_region.region_code = f"TU{self.test_suffix[:2].upper()}"
@@ -410,11 +378,7 @@ class TestRegionUtilityFunctions(FrappeTestCase):
 
     def tearDown(self):
         """Clean up test data"""
-        if hasattr(self, "test_region") and self.test_region:
-            try:
-                frappe.delete_doc("Region", self.test_region.name, force=True)
-            except Exception:
-                pass
+        super().tearDown()  # Enhanced Test Factory handles cleanup
 
     def test_get_regions_for_dropdown(self):
         """Test regions dropdown data function"""

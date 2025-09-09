@@ -2,9 +2,8 @@
 Test Mock Banks for IBAN Validation
 """
 
-import unittest
-
 import frappe
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.utils.validation.iban_validator import (
     derive_bic_from_iban,
@@ -14,7 +13,7 @@ from verenigingen.utils.validation.iban_validator import (
 )
 
 
-class TestMockBanks(unittest.TestCase):
+class TestMockBanks(EnhancedTestCase):
     """Test mock bank functionality for testing purposes"""
 
     def test_generate_test_iban_valid(self):

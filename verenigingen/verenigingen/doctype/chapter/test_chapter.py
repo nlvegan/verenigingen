@@ -5,25 +5,26 @@ import random
 import string
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import getdate, today
 
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-class TestChapter(FrappeTestCase):
+
+class TestChapter(EnhancedTestCase):
     def setUp(self):
         """Set up test data"""
+        super().setUp()  # EnhancedTestCase handles permissions and cleanup
+
         # Generate unique identifier
         self.unique_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
 
-        # Clean up any existing test data
-        self.cleanup_test_data()
-
-        # Create test data
+        # Create test data using Enhanced Test Factory
         self.create_test_prerequisites()
 
     def tearDown(self):
         """Clean up test data"""
-        self.cleanup_test_data()
+        # EnhancedTestCase handles cleanup automatically via database rollback
+        super().tearDown()
 
     def cleanup_test_data(self):
         """Clean up test data"""
@@ -58,7 +59,7 @@ class TestChapter(FrappeTestCase):
                     "is_active": 1,
                 }
             )
-            region.insert(ignore_permissions=True)
+            region.insert()  # EnhancedTestCase handles permissions
             self.test_region = region.name
 
         # Create test member for chapter head
@@ -72,7 +73,7 @@ class TestChapter(FrappeTestCase):
                 "payment_method": "Bank Transfer",
             }
         )
-        self.test_member.insert(ignore_permissions=True)
+        self.test_member.insert()  # EnhancedTestCase handles permissions
 
     def test_chapter_creation(self):
         """Test creating a basic chapter"""
@@ -86,7 +87,7 @@ class TestChapter(FrappeTestCase):
                 "chapter_head": self.test_member.name,
             }
         )
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()  # EnhancedTestCase handles permissions
 
         # Verify chapter was created correctly
         self.assertEqual(chapter.name, f"Test Chapter {self.unique_id}")
@@ -112,7 +113,7 @@ class TestChapter(FrappeTestCase):
                     "introduction": "Test chapter",
                 }
             )
-            chapter.insert(ignore_permissions=True)
+            chapter.insert()  # EnhancedTestCase handles permissions
 
     def test_postal_code_validation(self):
         """Test postal code validation and formatting"""
@@ -125,7 +126,7 @@ class TestChapter(FrappeTestCase):
                 "postal_codes": "1000-1999, 2000, 3000-3099",
             }
         )
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()  # EnhancedTestCase handles permissions
 
         # Verify postal codes are stored correctly
         self.assertTrue("1000-1999" in chapter.postal_codes)
@@ -143,7 +144,7 @@ class TestChapter(FrappeTestCase):
                 "chapter_head": self.test_member.name,
             }
         )
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()  # EnhancedTestCase handles permissions
 
         # Verify chapter head is properly assigned (if field exists)
         if hasattr(chapter, "chapter_head") and chapter.chapter_head:
@@ -160,10 +161,10 @@ class TestChapter(FrappeTestCase):
                 "payment_method": "Bank Transfer",
             }
         )
-        new_member.insert(ignore_permissions=True)
+        new_member.insert()  # EnhancedTestCase handles permissions
 
         chapter.chapter_head = new_member.name
-        chapter.save(ignore_permissions=True)
+        chapter.save()  # EnhancedTestCase handles permissions
 
         # Verify chapter head change
         chapter.reload()
@@ -182,7 +183,7 @@ class TestChapter(FrappeTestCase):
                 "introduction": "Test chapter",
             }
         )
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()  # EnhancedTestCase handles permissions
 
         # Create additional test members
         members = []
@@ -198,7 +199,7 @@ class TestChapter(FrappeTestCase):
                     "primary_chapter": chapter.name,
                 }
             )
-            member.insert(ignore_permissions=True)
+            member.insert()  # EnhancedTestCase handles permissions
             members.append(member)
 
         # Test member count (should include chapter head + added members)
@@ -223,7 +224,7 @@ class TestChapter(FrappeTestCase):
                 "start_date": today(),
             }
         )
-        volunteer.insert(ignore_permissions=True)
+        volunteer.insert()  # EnhancedTestCase handles permissions
 
         role = frappe.get_doc(
             {
@@ -233,7 +234,7 @@ class TestChapter(FrappeTestCase):
                 "is_active": 1,
             }
         )
-        role.insert(ignore_permissions=True)
+        role.insert()  # EnhancedTestCase handles permissions
 
         # Create chapter
         chapter = frappe.get_doc(
@@ -244,7 +245,7 @@ class TestChapter(FrappeTestCase):
                 "introduction": "Test chapter for board member status",
             }
         )
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()  # EnhancedTestCase handles permissions
 
         # Add board member
         if hasattr(chapter, "add_board_member"):
@@ -275,7 +276,7 @@ class TestChapter(FrappeTestCase):
                 "introduction": "Test chapter",
             }
         )
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()  # EnhancedTestCase handles permissions
 
         # Test basic statistics methods exist
         if hasattr(chapter, "get_member_count"):
@@ -300,7 +301,7 @@ class TestChapter(FrappeTestCase):
                 "website": "https://example.org",
             }
         )
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()  # EnhancedTestCase handles permissions
 
         # Verify contact information
         self.assertEqual(chapter.email, f"chapter{self.unique_id}@example.org")
@@ -319,14 +320,14 @@ class TestChapter(FrappeTestCase):
                 "published": 0,
             }
         )
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()  # EnhancedTestCase handles permissions
 
         # Verify unpublished status
         self.assertEqual(chapter.published, 0)
 
         # Publish chapter
         chapter.published = 1
-        chapter.save(ignore_permissions=True)
+        chapter.save()  # EnhancedTestCase handles permissions
 
         # Verify published status
         chapter.reload()
@@ -345,7 +346,7 @@ class TestChapter(FrappeTestCase):
                 "country": "Netherlands",
             }
         )
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()  # EnhancedTestCase handles permissions
 
         # Verify location information
         self.assertEqual(chapter.city, "Amsterdam")
@@ -364,7 +365,7 @@ class TestChapter(FrappeTestCase):
                 "postal_codes": "1000-1999",
             }
         )
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()  # EnhancedTestCase handles permissions
 
         # Test postal code matching if method exists
         if hasattr(chapter, "matches_postal_code"):
@@ -373,7 +374,7 @@ class TestChapter(FrappeTestCase):
 
         # Test with individual postal code
         chapter.postal_codes = "1234"
-        chapter.save(ignore_permissions=True)
+        chapter.save()  # EnhancedTestCase handles permissions
 
         if hasattr(chapter, "matches_postal_code"):
             self.assertTrue(chapter.matches_postal_code("1234"))
@@ -389,12 +390,12 @@ class TestChapter(FrappeTestCase):
                 "introduction": "Test chapter",
             }
         )
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()  # EnhancedTestCase handles permissions
 
         # Test update
         original_modified = chapter.modified
         chapter.introduction = "Updated introduction"
-        chapter.save(ignore_permissions=True)
+        chapter.save()  # EnhancedTestCase handles permissions
 
         # Verify update
         chapter.reload()
@@ -411,7 +412,7 @@ class TestChapter(FrappeTestCase):
                 "introduction": "Test chapter",
             }
         )
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()  # EnhancedTestCase handles permissions
 
         # Create test members to add to roster
         members = []
@@ -426,14 +427,14 @@ class TestChapter(FrappeTestCase):
                     "payment_method": "Bank Transfer",
                 }
             )
-            member.insert(ignore_permissions=True)
+            member.insert()  # EnhancedTestCase handles permissions
             members.append(member)
 
         # Add members to chapter roster (new structure without member_name)
         for member in members:
             chapter.append("members", {"member": member.name, "chapter_join_date": today(), "enabled": 1})
 
-        chapter.save(ignore_permissions=True)
+        chapter.save()  # EnhancedTestCase handles permissions
         chapter.reload()
 
         # Verify roster size
@@ -445,7 +446,7 @@ class TestChapter(FrappeTestCase):
 
         # Test disabling a member
         chapter.members[0].enabled = 0
-        chapter.save(ignore_permissions=True)
+        chapter.save()  # EnhancedTestCase handles permissions
         chapter.reload()
 
         # Verify member status
@@ -465,7 +466,7 @@ class TestChapter(FrappeTestCase):
                 "introduction": "Test chapter",
             }
         )
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()  # EnhancedTestCase handles permissions
 
         # Create volunteer for board position
         volunteer = frappe.get_doc(
@@ -478,7 +479,7 @@ class TestChapter(FrappeTestCase):
                 "start_date": today(),
             }
         )
-        volunteer.insert(ignore_permissions=True)
+        volunteer.insert()  # EnhancedTestCase handles permissions
 
         # Create chapter role if it doesn't exist
         if not frappe.db.exists("Chapter Role", "Board Member"):
@@ -490,7 +491,7 @@ class TestChapter(FrappeTestCase):
                     "is_active": 1,
                 }
             )
-            role.insert(ignore_permissions=True)
+            role.insert()  # EnhancedTestCase handles permissions
 
         # Add volunteer to board with new structure
         chapter.append(
@@ -504,7 +505,7 @@ class TestChapter(FrappeTestCase):
                 "is_active": 1,
             },
         )
-        chapter.save(ignore_permissions=True)
+        chapter.save()  # EnhancedTestCase handles permissions
         chapter.reload()
 
         # Verify board member was added
@@ -524,7 +525,7 @@ class TestChapter(FrappeTestCase):
         if len(chapter.board_members) > 0:
             chapter.board_members[0].is_active = 0
             chapter.board_members[0].to_date = today()
-            chapter.save(ignore_permissions=True)
+            chapter.save()  # EnhancedTestCase handles permissions
             chapter.reload()
 
             # Verify board member status
@@ -545,7 +546,7 @@ class TestChapter(FrappeTestCase):
                 "introduction": "Test chapter for BoardManager",
             }
         )
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()  # EnhancedTestCase handles permissions
 
         # Create volunteer and role
         volunteer = frappe.get_doc(
@@ -558,7 +559,7 @@ class TestChapter(FrappeTestCase):
                 "start_date": today(),
             }
         )
-        volunteer.insert(ignore_permissions=True)
+        volunteer.insert()  # EnhancedTestCase handles permissions
 
         # Create test role
         role_name = f"Test Role {self.unique_id}"
@@ -571,7 +572,7 @@ class TestChapter(FrappeTestCase):
                     "is_active": 1,
                 }
             )
-            role.insert(ignore_permissions=True)
+            role.insert()  # EnhancedTestCase handles permissions
 
         # Test adding board member via BoardManager
         result = chapter.add_board_member(volunteer=volunteer.name, role=role_name, from_date=today())
@@ -621,7 +622,7 @@ class TestChapter(FrappeTestCase):
                 "postal_codes": "1000-1999",
             }
         )
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()  # EnhancedTestCase handles permissions
 
         # Test search by region
         chapters = frappe.get_all("Chapter", filters={"region": "North Region"})
@@ -649,7 +650,7 @@ class TestChapter(FrappeTestCase):
                     "introduction": "Test chapter",
                 }
             )
-            chapter.insert(ignore_permissions=True)
+            chapter.insert()  # EnhancedTestCase handles permissions
             self.fail("Should not allow empty region")
         except Exception as e:
             self.assertIn("region", str(e).lower(), "Error should mention region field")
@@ -664,7 +665,7 @@ class TestChapter(FrappeTestCase):
                 "introduction": long_text,
             }
         )
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()  # EnhancedTestCase handles permissions
         chapter.reload()
 
         # Should handle long text
@@ -683,7 +684,7 @@ class TestChapter(FrappeTestCase):
                 "introduction": "Test chapter for deletion",
             }
         )
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()  # EnhancedTestCase handles permissions
 
         # Create member linked to chapter
         linked_member = frappe.get_doc(
@@ -697,7 +698,7 @@ class TestChapter(FrappeTestCase):
                 "primary_chapter": chapter.name,
             }
         )
-        linked_member.insert(ignore_permissions=True)
+        linked_member.insert()  # EnhancedTestCase handles permissions
 
         # Try to delete chapter with linked member
         try:
@@ -710,7 +711,7 @@ class TestChapter(FrappeTestCase):
 
         # Clean up member first, then chapter
         linked_member.primary_chapter = None
-        linked_member.save(ignore_permissions=True)
+        linked_member.save()  # EnhancedTestCase handles permissions
         frappe.delete_doc("Member", linked_member.name, force=True)
 
         # Now chapter should be deletable
@@ -731,7 +732,7 @@ class TestChapter(FrappeTestCase):
                 "address": "123 Test Street\n1234 AB Test City\nNetherlands",
             }
         )
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()  # EnhancedTestCase handles permissions
 
         # Test postal code coverage
         test_codes = ["1500", "2500", "3050", "4000", "999"]

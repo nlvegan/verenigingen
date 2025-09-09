@@ -6,12 +6,12 @@ team management interface, and address change workflow functionality
 
 import frappe
 from frappe.utils import today, add_days, now_datetime, cint
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from unittest.mock import patch, MagicMock
 import json
 
 
-class TestPortalFunctionalityIntegration(VereningingenTestCase):
+class TestPortalFunctionalityIntegration(EnhancedTestCase):
     """Comprehensive portal functionality integration testing"""
 
     def setUp(self):

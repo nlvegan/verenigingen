@@ -68,7 +68,16 @@ class TestDDBatchAPIIntegration(EnhancedTestCase):
             "sign_date": frappe.utils.today(),
             "mandate_type": "RCUR"
         })
-        mandate.insert(ignore_permissions=True)
+        
+        # Use proper user context for mandate creation
+        test_admin = self.ensure_test_admin_user()
+        current_user = frappe.session.user
+        try:
+            frappe.set_user(test_admin.email)
+            mandate.insert()
+        finally:
+            frappe.set_user(current_user)
+            
         return mandate
         
     def _create_test_invoice(self):

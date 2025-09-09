@@ -131,8 +131,17 @@ class TestActualPaymentMutations(FrappeTestCase):
         if not frappe.db.exists("Customer", "CUST-001"):
             customer = frappe.new_doc("Customer")
             customer.customer_name = "Test Customer 001"
-            customer.customer_group = frappe.db.get_value("Customer Group", {}, "name")
-            customer.territory = frappe.db.get_value("Territory", {}, "name")
+            # Get customer group (ordered for consistency)
+            customer_group = frappe.db.get_value("Customer Group", {"is_group": 0}, "name", order_by="name")
+            if not customer_group:
+                customer_group = "All Customer Groups"  # ERPNext default
+            customer.customer_group = customer_group
+            
+            # Get territory (ordered for consistency)
+            territory = frappe.db.get_value("Territory", {"is_group": 0}, "name", order_by="name")
+            if not territory:
+                frappe.throw("No territory found. Please create territories for tests.")
+            customer.territory = territory
             customer.save()
         
         # Process payment
@@ -163,7 +172,11 @@ class TestActualPaymentMutations(FrappeTestCase):
         if not frappe.db.exists("Supplier", "6104885"):
             supplier = frappe.new_doc("Supplier")
             supplier.supplier_name = "Test Supplier 6104885"
-            supplier.supplier_group = frappe.db.get_value("Supplier Group", {}, "name")
+            # Get supplier group (ordered for consistency)
+            supplier_group = frappe.db.get_value("Supplier Group", {"is_group": 0}, "name", order_by="name")
+            if not supplier_group:
+                frappe.throw("No supplier group found. Please create supplier groups for tests.")
+            supplier.supplier_group = supplier_group
             supplier.save()
         
         # Process payment
@@ -197,8 +210,17 @@ class TestActualPaymentMutations(FrappeTestCase):
         if not frappe.db.exists("Customer", "CUST-123"):
             customer = frappe.new_doc("Customer")
             customer.customer_name = "Test Customer 123"
-            customer.customer_group = frappe.db.get_value("Customer Group", {}, "name")
-            customer.territory = frappe.db.get_value("Territory", {}, "name")
+            # Get customer group (ordered for consistency)
+            customer_group = frappe.db.get_value("Customer Group", {"is_group": 0}, "name", order_by="name")
+            if not customer_group:
+                customer_group = "All Customer Groups"  # ERPNext default
+            customer.customer_group = customer_group
+            
+            # Get territory (ordered for consistency)
+            territory = frappe.db.get_value("Territory", {"is_group": 0}, "name", order_by="name")
+            if not territory:
+                frappe.throw("No territory found. Please create territories for tests.")
+            customer.territory = territory
             customer.save()
         
         # Process payment
@@ -243,7 +265,11 @@ class TestActualPaymentMutations(FrappeTestCase):
         if not frappe.db.exists("Supplier", "TEST-SUPP-5473"):
             supplier = frappe.new_doc("Supplier")
             supplier.supplier_name = "Test Supplier for 5473"
-            supplier.supplier_group = frappe.db.get_value("Supplier Group", {}, "name")
+            # Get supplier group (ordered for consistency)
+            supplier_group = frappe.db.get_value("Supplier Group", {"is_group": 0}, "name", order_by="name")
+            if not supplier_group:
+                frappe.throw("No supplier group found. Please create supplier groups for tests.")
+            supplier.supplier_group = supplier_group
             supplier.save()
         
         # Create test purchase invoices matching mutation 5473

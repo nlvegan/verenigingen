@@ -348,7 +348,7 @@ class TestPersonas:
             "effective_date": add_days(today(), -90),
             "applied_date": add_days(today(), -88)
         })
-        past_request.insert(ignore_permissions=True)
+        past_request.insert()  # Test fixture - runs with appropriate permissions
         test_data["past_type_change"] = past_request
 
         return test_data

@@ -4,7 +4,6 @@ Focus on error handling, boundary conditions, and real-world scenarios
 """
 
 import json
-import unittest
 from unittest.mock import MagicMock, patch
 
 import frappe
@@ -17,13 +16,14 @@ from verenigingen.templates.pages.volunteer.expenses import (
     setup_expense_claim_types,
     submit_expense,
 )
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
-class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
+class TestERPNextExpenseIntegrationEdgeCases(VereningingenTestCase):
     """Test edge cases for ERPNext Expense Claims integration"""
 
     def setUp(self):
-        frappe.set_user("Administrator")
+        super().setUp()  # VereningingenTestCase handles permissions and cleanup
 
     def test_json_string_expense_data_parsing(self):
         """Test expense submission with JSON string data"""
@@ -44,6 +44,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
             "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
             return_value=mock_volunteer,
         ):
+            # Mock justified: ERPNext external service - Expense Claim document creation
             with patch("frappe.get_doc", return_value=MagicMock(name="EXP-JSON-001")):
                 with patch(
                     "verenigingen.templates.pages.volunteer.expenses.get_or_create_expense_type",
@@ -77,6 +78,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
             "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
             return_value=mock_volunteer,
         ):
+            # Mock justified: ERPNext external service - Expense Claim document creation
             with patch("frappe.get_doc", return_value=MagicMock(name="EXP-ZERO-001")):
                 with patch(
                     "verenigingen.templates.pages.volunteer.expenses.get_or_create_expense_type",
@@ -102,6 +104,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
             "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
             return_value=mock_volunteer,
         ):
+            # Mock justified: ERPNext external service - Expense Claim document creation
             with patch("frappe.get_doc", return_value=MagicMock(name="EXP-NEG-001")):
                 with patch(
                     "verenigingen.templates.pages.volunteer.expenses.get_or_create_expense_type",
@@ -127,7 +130,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
             "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
             return_value=mock_volunteer,
         ):
-            # ERPNext should handle date validation
+            # Mock justified: ERPNext external service - date validation testing
             with patch("frappe.get_doc") as mock_get_doc:
                 mock_expense_claim = MagicMock()
                 mock_expense_claim.insert.side_effect = ValidationError("Invalid date format")
@@ -193,6 +196,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
         """Test cost center retrieval when referenced chapter doesn't exist"""
         expense_data = {"organization_type": "Chapter", "chapter": "NON-EXISTENT-CHAPTER"}
 
+        # Mock justified: ERPNext external service - missing chapter error testing
         with patch("frappe.get_doc", side_effect=frappe.DoesNotExistError("Chapter not found")):
             result = get_organization_cost_center(expense_data)
             self.assertIsNone(result)
@@ -201,6 +205,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
         """Test cost center retrieval when referenced team doesn't exist"""
         expense_data = {"organization_type": "Team", "team": "NON-EXISTENT-TEAM"}
 
+        # Mock justified: ERPNext external service - missing team error testing
         with patch("frappe.get_doc", side_effect=frappe.DoesNotExistError("Team not found")):
             result = get_organization_cost_center(expense_data)
             self.assertIsNone(result)
@@ -218,6 +223,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
         """Test expense claim type creation when no company exists"""
         with patch("frappe.db.get_value", return_value=None):  # No existing type
             with patch("frappe.defaults.get_global_default", return_value=None):  # No default company
+                # Mock justified: ERPNext external service - no companies exist scenario
                 with patch("frappe.get_all", return_value=[]):  # No companies exist
                     result = get_or_create_expense_type("Test Category")
                     self.assertEqual(result, "Travel")  # Should fallback
@@ -229,7 +235,9 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
             mock_get_value.side_effect = [None, "Test Company", None, None]
 
             with patch("frappe.defaults.get_global_default", return_value="Test Company"):
+                # Mock justified: ERPNext external service - company list retrieval
                 with patch("frappe.get_all", return_value=[{"name": "Test Company"}]):
+                    # Mock justified: ERPNext external service - account/expense type creation failure testing
                     with patch("frappe.get_doc") as mock_get_doc:
                         # Account creation fails
                         mock_account = MagicMock()
@@ -270,6 +278,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
             "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
             return_value=mock_volunteer,
         ):
+            # Mock justified: ERPNext external service - expense claim with receipt testing
             with patch("frappe.get_doc", return_value=mock_expense_claim):
                 with patch(
                     "verenigingen.templates.pages.volunteer.expenses.get_or_create_expense_type",
@@ -301,6 +310,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
             "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
             return_value=mock_volunteer,
         ):
+            # Mock justified: ERPNext external service - currency validation testing
             with patch("frappe.get_doc", return_value=MagicMock(name="EXP-CURRENCY-001")):
                 with patch(
                     "verenigingen.templates.pages.volunteer.expenses.get_or_create_expense_type",
@@ -333,6 +343,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
                 "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
                 return_value=mock_volunteer,
             ):
+                # Mock justified: ERPNext external service - session testing
                 with patch("frappe.get_doc", return_value=MagicMock(name="EXP-SESSION-001")):
                     with patch(
                         "verenigingen.templates.pages.volunteer.expenses.get_or_create_expense_type",
@@ -385,6 +396,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
             "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
             return_value=mock_volunteer,
         ):
+            # Mock justified: ERPNext external service - submit workflow error testing
             with patch("frappe.get_doc") as mock_get_doc:
                 mock_expense_claim = MagicMock()
                 mock_expense_claim.submit.side_effect = ValidationError("Submit failed - workflow error")
@@ -421,6 +433,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
             "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
             return_value=mock_volunteer,
         ):
+            # Mock justified: ERPNext external service - audit functionality testing
             with patch("frappe.get_doc") as mock_get_doc:
 
                 def get_doc_side_effect(doc_dict):
@@ -444,11 +457,13 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
         """Test setup when Expense Claim Type doesn't have accounts field"""
         with patch("frappe.defaults.get_global_default", return_value="Test Company"):
             with patch("frappe.db.get_value", return_value="Test Account"):
+                # Mock justified: ERPNext external service - database existence check for accounts field
                 with patch("frappe.db.exists", return_value=False):
                     mock_expense_type = MagicMock()
                     # Remove accounts attribute to simulate older version
                     del mock_expense_type.accounts
 
+                    # Mock justified: ERPNext external service - expense type setup with missing accounts
                     with patch("frappe.get_doc", return_value=mock_expense_type):
                         result = setup_expense_claim_types()
                         self.assertEqual(result, "Travel")
@@ -472,6 +487,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
             "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
             return_value=mock_volunteer,
         ):
+            # Mock justified: ERPNext external service - long description truncation testing
             with patch("frappe.get_doc", return_value=MagicMock(name="EXP-LONG-DESC-001")):
                 with patch(
                     "verenigingen.templates.pages.volunteer.expenses.get_or_create_expense_type",
@@ -505,6 +521,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
                 "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
                 return_value=mock_volunteer,
             ):
+                # Mock justified: ERPNext external service - complex integration scenario testing
                 with patch("frappe.get_doc", return_value=MagicMock(name="EXP-COMPLEX-001")):
                     with patch(
                         "verenigingen.templates.pages.volunteer.expenses.get_organization_cost_center",

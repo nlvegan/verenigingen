@@ -38,13 +38,15 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
     def setUp(self):
         super().setUp()
         self.original_user = frappe.session.user
+        # Set Administrator for account creation security testing
+        frappe.set_user("Administrator")
         
     def tearDown(self):
         frappe.set_user(self.original_user)
         super().tearDown()
         
     def test_zero_ignore_permissions_usage(self):
-        """Test that no ignore_permissions=True is used except for status tracking"""
+        """Test that no ignore_permissions pattern is used except for status tracking"""
         member = self.create_test_member(
             first_name="Zero",
             last_name="Permissions",
@@ -62,7 +64,7 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
             mock_user_doc = MagicMock()
             mock_get_doc.return_value = mock_user_doc
             
-            frappe.set_user("Administrator")
+            # Already running as Administrator from setUp
             manager = AccountCreationManager(request.name)
             manager.load_request()
             
@@ -427,7 +429,7 @@ class TestAccountCreationAuditCompliance(EnhancedTestCase):
         self.assertEqual(request.status, "Requested")
         
         # Process the request
-        frappe.set_user("Administrator")
+        # Already running as Administrator from setUp
         manager = AccountCreationManager(request.name)
         manager.process_complete_pipeline()
         

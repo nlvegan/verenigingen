@@ -8,20 +8,23 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, add_months, now_datetime, today
 
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-class TestEBoekhoudenMigration(FrappeTestCase):
+
+class TestEBoekhoudenMigration(EnhancedTestCase):
     """Comprehensive tests for E-Boekhouden Migration doctype"""
 
     def setUp(self):
         """Set up test environment"""
+        super().setUp()
         self.setup_test_data()
 
     def tearDown(self):
         """Clean up test data"""
-        self.cleanup_test_data()
+        # Enhanced Test Factory handles cleanup
+        pass
 
     def setup_test_data(self):
         """Create test data for migration scenarios"""
@@ -36,7 +39,7 @@ class TestEBoekhoudenMigration(FrappeTestCase):
                     "country": "Netherlands",
                 }
             )
-            self.test_company.insert(ignore_permissions=True)
+            self.test_company.insert()  # Enhanced Test Factory handles permissions
         else:
             self.test_company = frappe.get_doc("Company", "Test Migration Company")
 
@@ -48,9 +51,9 @@ class TestEBoekhoudenMigration(FrappeTestCase):
             for migration in migrations:
                 try:
                     frappe.delete_doc("E-Boekhouden Migration", migration.name, force=True)
-                except:
+                except Exception:
                     pass
-        except:
+        except Exception:
             pass
 
     def test_required_methods_exist(self):
@@ -130,7 +133,7 @@ class TestEBoekhoudenMigration(FrappeTestCase):
         )
 
         # Test document creation
-        migration.insert(ignore_permissions=True)
+        migration.insert()  # Enhanced Test Factory handles permissions
 
         # Verify document was created
         self.assertEqual(migration.migration_name, "Test Migration")
@@ -152,7 +155,7 @@ class TestEBoekhoudenMigration(FrappeTestCase):
 
         # Should raise validation error
         with self.assertRaises(frappe.ValidationError):
-            migration.insert(ignore_permissions=True)
+            migration.insert()  # Enhanced Test Factory handles permissions
 
     def test_migration_status_workflow(self):
         """Test migration status workflow"""
@@ -166,7 +169,7 @@ class TestEBoekhoudenMigration(FrappeTestCase):
                 "migrate_accounts": 1,
             }
         )
-        migration.insert(ignore_permissions=True)
+        migration.insert()  # Enhanced Test Factory handles permissions
 
         # Test status transitions
         self.assertEqual(migration.migration_status, "Draft")
@@ -192,7 +195,7 @@ class TestEBoekhoudenMigration(FrappeTestCase):
 
         # Should raise validation error for missing date range
         with self.assertRaises(frappe.ValidationError):
-            migration.insert(ignore_permissions=True)
+            migration.insert()  # Enhanced Test Factory handles permissions
 
     def test_progress_tracking(self):
         """Test progress tracking functionality"""
@@ -206,7 +209,7 @@ class TestEBoekhoudenMigration(FrappeTestCase):
                 "migrate_accounts": 1,
             }
         )
-        migration.insert(ignore_permissions=True)
+        migration.insert()  # Enhanced Test Factory handles permissions
 
         # Test progress fields
         progress_fields = [
@@ -232,7 +235,7 @@ class TestEBoekhoudenMigration(FrappeTestCase):
                 "migrate_accounts": 1,
             }
         )
-        migration.insert(ignore_permissions=True)
+        migration.insert()  # Enhanced Test Factory handles permissions
 
         # Test error logging method
         self.assertTrue(hasattr(migration, "log_error"))
@@ -421,7 +424,7 @@ class TestEBoekhoudenMigration(FrappeTestCase):
                 "dry_run": 1,  # Use dry run to avoid actual migration
             }
         )
-        migration.insert(ignore_permissions=True)
+        migration.insert()  # Enhanced Test Factory handles permissions
 
         # Test that start_migration method exists and is callable
         self.assertTrue(hasattr(migration, "start_migration"))

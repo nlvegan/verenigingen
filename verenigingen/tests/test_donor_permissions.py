@@ -15,6 +15,8 @@ class TestDonorPermissions(FrappeTestCase):
 
     def setUp(self):
         """Set up test data for permission testing"""
+        # Set Administrator for test data creation
+        frappe.set_user("Administrator")
         # Use test-friendly approach - don't link to users that don't exist
         self.test_member_user = "test_member@example.com"
         self.test_admin_user = "Administrator"  # Use existing admin user
@@ -28,8 +30,8 @@ class TestDonorPermissions(FrappeTestCase):
             "email": self.test_member_user,
             "membership_status": "Active"
         })
-        # Use ignore_permissions for test setup
-        self.test_member.insert(ignore_permissions=True)
+        # Already running as Administrator from setUp
+        self.test_member.insert()
         
         # Create test donor linked to member
         self.test_donor = frappe.get_doc({
@@ -39,7 +41,7 @@ class TestDonorPermissions(FrappeTestCase):
             "donor_email": "donor@example.com",
             "member": self.test_member.name
         })
-        self.test_donor.insert(ignore_permissions=True)
+        self.test_donor.insert()  # Already running as Administrator from setUp
         
         # Create orphaned donor (no member link)
         self.orphaned_donor = frappe.get_doc({
@@ -48,7 +50,7 @@ class TestDonorPermissions(FrappeTestCase):
             "donor_type": "Individual", 
             "donor_email": "orphaned@example.com"
         })
-        self.orphaned_donor.insert(ignore_permissions=True)
+        self.orphaned_donor.insert()  # Already running as Administrator from setUp
 
     def tearDown(self):
         """Clean up test data"""
@@ -70,7 +72,7 @@ class TestDonorPermissions(FrappeTestCase):
             "email": "malicious@example.com",
             "membership_status": "Active"
         })
-        malicious_member.insert(ignore_permissions=True)
+        malicious_member.insert()  # Already running as Administrator from setUp
         
         try:
             # Test by directly calling the permission query with a user that would have this member
@@ -146,7 +148,7 @@ class TestDonorPermissions(FrappeTestCase):
             "user": "user_member@example.com",  # Link to a user
             "membership_status": "Active"
         })
-        member_with_user.insert(ignore_permissions=True)
+        member_with_user.insert()
         
         # Create donor linked to this member
         donor_for_user = frappe.get_doc({
@@ -156,7 +158,7 @@ class TestDonorPermissions(FrappeTestCase):
             "donor_email": "userdonor@example.com",
             "member": member_with_user.name
         })
-        donor_for_user.insert(ignore_permissions=True)
+        donor_for_user.insert()
         
         try:
             # Test permission - member should have access to their linked donor
@@ -302,7 +304,7 @@ class TestDonorPermissionIntegration(FrappeTestCase):
             "email": "integration@test.com",
             "membership_status": "Active"
         })
-        member.insert(ignore_permissions=True)
+        member.insert()  # Already running as Administrator from setUp
         
         donor = frappe.get_doc({
             "doctype": "Donor",
@@ -311,7 +313,7 @@ class TestDonorPermissionIntegration(FrappeTestCase):
             "donor_email": "intdonor@test.com", 
             "member": member.name
         })
-        donor.insert(ignore_permissions=True)
+        donor.insert()  # Already running as Administrator from setUp
         
         try:
             with frappe.set_user("integration@test.com"):
@@ -345,7 +347,7 @@ class TestDonorPermissionIntegration(FrappeTestCase):
             "email": "form@test.com",
             "membership_status": "Active"
         })
-        member.insert(ignore_permissions=True)
+        member.insert()  # Already running as Administrator from setUp
         
         donor = frappe.get_doc({
             "doctype": "Donor",
@@ -354,7 +356,7 @@ class TestDonorPermissionIntegration(FrappeTestCase):
             "donor_email": "formdonor@test.com",
             "member": member.name
         })
-        donor.insert(ignore_permissions=True)
+        donor.insert()  # Already running as Administrator from setUp
         
         try:
             # Test direct document access

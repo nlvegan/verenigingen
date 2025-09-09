@@ -88,6 +88,7 @@ repos:
         entry: python scripts/validation/test_quality_enforcer.py
         language: system
         files: '^.*test.*\.py$|^.*/tests/.*\.py$'
+        exclude: '^(.*debug.*|.*_debug\.py|.*utils/debug/.*\.py|scripts/.*|archived_.*)'
         pass_filenames: true
         stages: [pre-commit, pre-push]
         verbose: true

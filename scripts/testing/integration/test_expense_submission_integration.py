@@ -9,9 +9,10 @@ from unittest.mock import patch
 
 import frappe
 from frappe.utils import flt, today
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestExpenseSubmissionIntegration(unittest.TestCase):
+class TestExpenseSubmissionIntegration(EnhancedTestCase):
     """Integration tests for expense submission workflow"""
 
     @classmethod

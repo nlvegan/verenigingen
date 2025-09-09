@@ -53,7 +53,7 @@ class TestSuspensionAPI(EnhancedTestCase):
 
     def test_suspend_member_api_administrator_success(self):
         """Administrator MUST successfully suspend active members"""
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions appropriately
         
         # ASSERTION: Member must start as Active
         self.assertEqual(self.test_member_1.status, "Active")
@@ -112,11 +112,11 @@ class TestSuspensionAPI(EnhancedTestCase):
         self.test_member_1.reload()
         self.assertEqual(self.test_member_1.status, "Active")
         
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions appropriately
 
     def test_suspend_nonexistent_member_error(self):
         """Suspension API MUST fail gracefully for nonexistent members"""
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions appropriately
         
         nonexistent_member = "MEMBER-DOES-NOT-EXIST-12345"
         
@@ -134,7 +134,7 @@ class TestSuspensionAPI(EnhancedTestCase):
 
     def test_unsuspend_member_api_success_workflow(self):
         """Complete suspend/unsuspend workflow MUST work correctly"""
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions appropriately
         
         # STEP 1: Suspend member
         suspend_result = suspend_member(
@@ -163,7 +163,7 @@ class TestSuspensionAPI(EnhancedTestCase):
 
     def test_unsuspend_active_member_handled_gracefully(self):
         """Unsuspending active member MUST be handled appropriately"""
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions appropriately
         
         # ASSERTION: Member must be active
         self.assertEqual(self.test_member_1.status, "Active")
@@ -202,7 +202,7 @@ class TestSuspensionAPI(EnhancedTestCase):
 
     def test_get_suspension_status_api_suspended_member(self):
         """Status API MUST accurately report suspended member status"""
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions appropriately
         
         # First suspend a member
         suspend_result = suspend_member(self.test_member_1.name, "Test for status check")
@@ -218,7 +218,7 @@ class TestSuspensionAPI(EnhancedTestCase):
 
     def test_can_suspend_member_api_administrator_permissions(self):
         """Permission check API MUST correctly identify Administrator permissions"""
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions appropriately
         
         result = can_suspend_member(self.test_member_1.name)
         
@@ -253,11 +253,11 @@ class TestSuspensionAPI(EnhancedTestCase):
         # ASSERTION: Regular user must NOT have suspension permissions
         self.assertFalse(result, "Regular user must NOT have suspension permissions")
         
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions appropriately
 
     def test_get_suspension_preview_api_structure(self):
         """Preview API MUST return valid structure with suspension details"""
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions appropriately
         
         result = get_suspension_preview(self.test_member_1.name)
         
@@ -272,7 +272,7 @@ class TestSuspensionAPI(EnhancedTestCase):
 
     def test_bulk_suspend_members_api_success(self):
         """Bulk suspension API MUST process multiple members correctly"""
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions appropriately
         
         member_names = [self.test_member_1.name, self.test_member_2.name]
         
@@ -294,7 +294,7 @@ class TestSuspensionAPI(EnhancedTestCase):
 
     def test_bulk_suspend_empty_list_handled(self):
         """Bulk suspension MUST handle empty member list appropriately"""
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions appropriately
         
         result = bulk_suspend_members([], "Empty list test")
         
@@ -307,7 +307,7 @@ class TestSuspensionAPI(EnhancedTestCase):
 
     def test_suspension_reason_required(self):
         """Suspension API MUST require suspension reason"""
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions appropriately
         
         # ASSERTION: Empty reason must be rejected with ValueError
         with self.assertRaises(ValueError) as context:

@@ -8,7 +8,7 @@ Last Updated: 2025-08-26
 
 import unittest
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.utils.base_role_profile_manager import (
     validate_doctype_fields,
@@ -30,7 +30,7 @@ from verenigingen.utils.chapter_role_profile_manager import (
 )
 
 
-class TestRoleProfileSystemIntegration(FrappeTestCase):
+class TestRoleProfileSystemIntegration(EnhancedTestCase):
     """Integration tests for role profile management system"""
     
     def setUp(self):
@@ -44,19 +44,25 @@ class TestRoleProfileSystemIntegration(FrappeTestCase):
         super().tearDown()
         
     def cleanup_test_data(self):
-        """Remove test data from database"""
+        """Remove test data from database using proper user context"""
         test_items = [
             ("Role Profile", ["Test Integration Profile"]),
             ("User", ["test.integration@example.com"]),
         ]
         
-        for doctype, names in test_items:
-            for name in names:
-                if frappe.db.exists(doctype, name):
-                    try:
-                        frappe.delete_doc(doctype, name, ignore_permissions=True, force=True)
-                    except Exception:
-                        pass  # Ignore cleanup errors
+        test_admin = self.ensure_test_admin_user()
+        current_user = frappe.session.user
+        try:
+            frappe.set_user(test_admin.email)
+            for doctype, names in test_items:
+                for name in names:
+                    if frappe.db.exists(doctype, name):
+                        try:
+                            frappe.delete_doc(doctype, name, force=True)
+                        except Exception:
+                            pass  # Ignore cleanup errors
+        finally:
+            frappe.set_user(current_user)
     
     def test_doctype_field_validation_realistic(self):
         """Test DocType field validation with realistic fields"""
@@ -78,7 +84,15 @@ class TestRoleProfileSystemIntegration(FrappeTestCase):
             "role_profile": "Test Integration Profile",
             "roles": [{"role": "System Manager"}]
         })
-        role_profile.insert(ignore_permissions=True)
+        
+        # Use proper user context for role profile creation
+        test_admin = self.ensure_test_admin_user()
+        current_user = frappe.session.user
+        try:
+            frappe.set_user(test_admin.email)
+            role_profile.insert()
+        finally:
+            frappe.set_user(current_user)
         
         # Test validation of this role profile
         result = validate_role_profile_dependencies("Test Integration Profile", TEAM_CONFIG)
@@ -175,7 +189,7 @@ class TestRoleProfileSystemIntegration(FrappeTestCase):
         
     def test_concurrent_access_safety(self):
         """Test that role assignment handles concurrent access safely"""
-        # Create test user
+        # Create test user using proper user context
         if not frappe.db.exists("User", "test.integration@example.com"):
             test_user = frappe.get_doc({
                 "doctype": "User",
@@ -185,7 +199,14 @@ class TestRoleProfileSystemIntegration(FrappeTestCase):
                 "enabled": 1,
                 "user_type": "System User"
             })
-            test_user.insert(ignore_permissions=True)
+            
+            test_admin = self.ensure_test_admin_user()
+            current_user = frappe.session.user
+            try:
+                frappe.set_user(test_admin.email)
+                test_user.insert()
+            finally:
+                frappe.set_user(current_user)
         
         # Test assignment to non-existent entity (should fail gracefully)
         result = _team_manager.assign_role_profile(

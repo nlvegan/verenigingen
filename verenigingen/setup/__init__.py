@@ -310,7 +310,7 @@ def execute_after_install():
             setup_all_security()
         except Exception as e:
             print(f"⚠️ Security setup failed: {str(e)}")
-            frappe.logger().warning(f"Security setup failed: {str(e)}")
+            frappe.logger().warning("Security setup failed: %s", str(e))
 
         # Set up webhook user for secure payment processing
         try:
@@ -323,14 +323,14 @@ def execute_after_install():
                 print(f"⚠️ Webhook user setup failed: {webhook_result.get('message')}")
         except Exception as e:
             print(f"⚠️ Webhook user setup failed: {str(e)}")
-            frappe.logger().warning(f"Webhook user setup failed: {str(e)}")
+            frappe.logger().warning("Webhook user setup failed: %s", str(e))
 
         # Log the successful setup
         frappe.logger().info("Verenigingen setup completed successfully")
         print("Verenigingen app setup completed successfully")
 
     except Exception as e:
-        frappe.logger().error(f"Error during Verenigingen setup: {str(e)}")
+        frappe.logger().error("Error during Verenigingen setup: %s", str(e))
         print(f"Error during setup: {str(e)}")
 
 
@@ -348,8 +348,8 @@ def create_default_verenigingen_settings():
     """
     try:
         if not frappe.db.exists("Verenigingen Settings", "Verenigingen Settings"):
-            # Get default company if exists
-            default_company = frappe.db.get_value("Company", {}, "name") or "Your Company"
+            # Get default company if exists (ordered by name for consistency)
+            default_company = frappe.db.get_value("Company", {}, "name", order_by="name") or "Your Company"
 
             settings = frappe.get_doc(
                 {
@@ -439,7 +439,7 @@ def setup_tax_exemption_on_install():
             setup_dutch_tax_exemption()
             print("Tax exemption templates set up during installation")
     except Exception as e:
-        frappe.logger().error(f"Error setting up tax exemption during install: {str(e)}")
+        frappe.logger().error("Error setting up tax exemption during install: %s", str(e))
         print(f"Warning: Could not set up tax exemption during install: {str(e)}")
 
 
@@ -1185,8 +1185,6 @@ def load_application_fixtures():
     try:
         import os
 
-        from frappe.desk.page.setup_wizard.setup_wizard import install_fixtures
-
         # Get fixtures directory
         app_path = frappe.get_app_path("verenigingen")
         fixtures_path = os.path.join(app_path, "..", "fixtures")
@@ -1199,7 +1197,21 @@ def load_application_fixtures():
             fixture_path = os.path.join(fixtures_path, fixture_file)
             if os.path.exists(fixture_path):
                 try:
-                    install_fixtures(fixture_path)
+                    # Use frappe.get_doc approach instead of install_fixtures
+                    import json
+
+                    with open(fixture_path, "r") as f:
+                        fixture_data = json.load(f)
+
+                    if isinstance(fixture_data, list):
+                        for doc_data in fixture_data:
+                            if "doctype" in doc_data:
+                                doc = frappe.get_doc(doc_data)
+                                doc.insert(ignore_permissions=True, ignore_if_duplicate=True)
+                    else:
+                        if "doctype" in fixture_data:
+                            doc = frappe.get_doc(fixture_data)
+                            doc.insert(ignore_permissions=True, ignore_if_duplicate=True)
                     loaded_count += 1
                     print(f"   ✓ Loaded fixture: {fixture_file}")
                 except Exception as e:
@@ -1884,7 +1896,7 @@ def test_email_template_page():
             "page_context": {
                 "missing_templates_count": len(missing_templates),
                 "existing_templates_count": len(existing_templates),
-                "all_installed": len(missing_templates) == 0,
+                "all_installed": not missing_templates,
                 "page_title": "Install Email Templates",
                 "missing_templates": [t["title"] for t in missing_templates],
                 "existing_templates": [t["title"] for t in existing_templates],

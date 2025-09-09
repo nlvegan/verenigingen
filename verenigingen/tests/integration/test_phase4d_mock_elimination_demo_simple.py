@@ -161,10 +161,11 @@ class TestPhase4DSimpleMockElimination(EnhancedTestCase):
         
         # Test real business logic with properly classified mocks
         
-        # ❌ INAPPROPRIATE (would hide business logic): 
-        # @patch('frappe.enqueue') - internal job queueing
-        # @patch('AccountCreationManager.process_complete_pipeline') - core business logic
-        # @patch('frappe.get_doc') - database operations within our system
+        # ❌ INAPPROPRIATE (would hide business logic - ELIMINATED): 
+        # These mocks were removed to test real business logic:
+        # - frappe.enqueue: Internal job queueing
+        # - AccountCreationManager.process_complete_pipeline: Core business logic  
+        # - frappe.get_doc: Database operations within our system
         
         # ✅ APPROPRIATE (external services):
         with patch('requests.post') as mock_http:  # External HTTP calls

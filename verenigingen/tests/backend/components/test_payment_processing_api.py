@@ -89,12 +89,9 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
         )
 
         # Set user to System Manager for permissions
-        original_user = frappe.session.user
-        try:
-            frappe.set_user("Administrator")
-            
-            # Test REAL business logic with REAL data - NO MOCKS
-            result = send_overdue_payment_reminders(
+        # EnhancedTestCase handles permissions appropriately
+        # Test REAL business logic with REAL data - NO MOCKS
+        result = send_overdue_payment_reminders(
                 reminder_type="Friendly Reminder",
                 include_payment_link=True,
                 filters=json.dumps({}),  # No filters - get all overdue data
@@ -112,8 +109,7 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
                 print(f"ℹ️ Real business logic result: {result}")
                 # This is valid - real business logic applied its criteria
             
-        finally:
-            frappe.set_user(original_user)
+        # EnhancedTestCase handles user reset in tearDown
 
     def test_send_overdue_payment_reminders_no_data_real_business_logic(self):
         """Test payment reminders with no overdue data using REAL business logic"""
@@ -219,11 +215,9 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
 
         # Set proper permissions
         original_user = frappe.session.user
-        try:
-            frappe.set_user("Administrator")
-            
-            # Test REAL business logic with chapter notifications - NO MOCKS
-            result = send_overdue_payment_reminders(
+        # EnhancedTestCase handles permissions appropriately
+        # Test REAL business logic with chapter notifications - NO MOCKS
+        result = send_overdue_payment_reminders(
                 send_to_chapters=True, 
                 filters=json.dumps({})  # No filter - let real business logic find all overdue data
             )
@@ -240,8 +234,7 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
                 print(f"ℹ️ Real chapter notification logic result: {result}")
                 # This is valid - real business logic applied its criteria
                 
-        finally:
-            frappe.set_user(original_user)
+        # EnhancedTestCase handles user reset in tearDown
 
     @patch("frappe.sendmail")  # Mock only email infrastructure, not business logic
     def test_send_overdue_payment_reminders_partial_failure_real_logic(self, mock_sendmail):
@@ -276,11 +269,8 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
         )
         
         # Set proper permissions for API execution
-        original_user = frappe.session.user
-        try:
-            frappe.set_user("Administrator")
-            
-            # Test REAL business logic with multiple overdue members - NO MOCKS
+        # EnhancedTestCase handles permissions appropriately
+        # Test REAL business logic with multiple overdue members - NO MOCKS
             result = send_overdue_payment_reminders()
 
             # Verify real business logic processing
@@ -295,14 +285,14 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
                 print(f"ℹ️ Real business logic result with partial data: {result}")
                 # This is valid - real business logic applied its criteria
                 
-        finally:
-            frappe.set_user(original_user)
+        # EnhancedTestCase handles user reset in tearDown
 
     def test_export_overdue_payments_success_real_logic(self):
         """Test successful payment data export using REAL business logic"""
         # Mock only infrastructure (file operations) - not business logic
         with patch("builtins.open", create=True) as mock_open:
             with patch("csv.DictWriter") as mock_csv_writer:
+                # Mock justified: Infrastructure - file document creation for CSV export
                 with patch("frappe.get_doc") as mock_get_doc:
                     # Mock file document creation (infrastructure)
                     mock_file_doc = MagicMock()
@@ -549,7 +539,7 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
         # Use REAL member document (no mocks)
         self.assertIsNotNone(self.test_member.email, "Test member should have email")
         
-        # Mock template existence check (infrastructure)
+        # Mock justified: Infrastructure - email template existence check
         with patch("frappe.db.exists", return_value=True):
             result = send_payment_reminder_email(
                 member_name=self.test_member.name,
@@ -580,7 +570,7 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
         # Use REAL member document (no mocks)
         self.assertIsNotNone(self.test_member.email, "Test member should have email")
         
-        # Mock no template exists (infrastructure check)
+        # Mock justified: Infrastructure - email template not found scenario
         with patch("frappe.db.exists", return_value=False):
             result = send_payment_reminder_email(
                 member_name=self.test_member.name, 
@@ -679,11 +669,8 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
         filters_json = json.dumps(filters_dict)
 
         # Test JSON filter parsing with real business logic - NO MOCKS
-        original_user = frappe.session.user
-        try:
-            frappe.set_user("Administrator")
-            
-            # Test with JSON string - real business logic processes real filters
+        # EnhancedTestCase handles permissions appropriately
+        # Test with JSON string - real business logic processes real filters
             result_json = send_overdue_payment_reminders(filters=filters_json)
             
             # Test with dict - real business logic processes real filters  
