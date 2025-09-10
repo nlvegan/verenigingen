@@ -1,56 +1,25 @@
-import unittest
-
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, now_datetime, today
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestVolunteerEdgeCases(FrappeTestCase):
+class TestVolunteerEdgeCases(EnhancedTestCase):
     """Comprehensive edge case tests for Volunteer doctype"""
-
-    @classmethod
-    def setUpClass(cls):
-        """Set up test data once for all tests"""
-        super().setUpClass()
-        cls.test_counter = 0
 
     def setUp(self):
         """Set up for each test"""
-        TestVolunteerEdgeCases.test_counter += 1
-        self.test_id = f"VEDGE{TestVolunteerEdgeCases.test_counter:03d}"
-        self.docs_to_cleanup = []
-
-        # Create test prerequisites
-        self.create_test_prerequisites()
-
-    def tearDown(self):
-        """Clean up after each test"""
-        for doctype, name in reversed(self.docs_to_cleanup):
-            try:
-                if frappe.db.exists(doctype, name):
-                    frappe.delete_doc(doctype, name, force=True)
-            except Exception as e:
-                print(f"Error cleaning up {doctype} {name}: {e}")
-        frappe.db.commit()
-
-    def create_test_prerequisites(self):
-        """Create test prerequisites"""
+        super().setUp()
         # Create test member for volunteer
-        self.test_member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Verenigingen Volunteer",
-                "last_name": f"Member {self.test_id}",
-                "email": f"volmember{self.test_id.lower()}@example.com",
-                "contact_number": "+31612345678",
-                "payment_method": "Bank Transfer",
-                "pronouns": "They/them",
-                "interested_in_volunteering": 1,
-                "volunteer_availability": "Weekly",
-                "volunteer_skills": "Programming, Event Planning"}
+        self.test_member = self.create_test_member(
+            first_name="Verenigingen Volunteer",
+            last_name="Member",
+            contact_number="+31612345678",
+            payment_method="Bank Transfer",
+            pronouns="They/them",
+            interested_in_volunteering=1,
+            volunteer_availability="Weekly",
+            volunteer_skills="Programming, Event Planning"
         )
-        self.test_member.insert()
-        self.docs_to_cleanup.append(("Member", self.test_member.name))
 
         # Create test interest categories if needed
         self.create_test_interest_categories()
@@ -67,23 +36,14 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                         "description": f"Test category {category}"}
                 )
                 cat_doc.insert()
-                self.docs_to_cleanup.append(("Volunteer Interest Category", category))
+                self.track_test_record("Volunteer Interest Category", category)
 
     def create_test_volunteer(self, **kwargs):
         """Create a test volunteer with default values"""
-        defaults = {
-            "doctype": "Volunteer",
-            "volunteer_name": f"Test Volunteer {self.test_id}",
-            "email": f"volunteer{self.test_id.lower()}@organization.org",
-            "member": self.test_member.name,
-            "status": "Active",
-            "start_date": today()}
-        defaults.update(kwargs)
-
-        volunteer = frappe.get_doc(defaults)
-        volunteer.insert()
-        self.docs_to_cleanup.append(("Verenigingen Volunteer", volunteer.name))
-        return volunteer
+        return self.create_test_volunteer_for_member(
+            self.test_member.name,
+            **kwargs
+        )
 
     def test_volunteer_name_edge_cases(self):
         """Test volunteer names with edge cases"""

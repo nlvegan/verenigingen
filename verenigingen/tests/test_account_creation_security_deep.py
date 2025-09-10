@@ -39,10 +39,10 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
         super().setUp()
         self.original_user = frappe.session.user
         # Set Administrator for account creation security testing
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions automatically
         
     def tearDown(self):
-        frappe.set_user(self.original_user)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.original_user)
         super().tearDown()
         
     def test_zero_ignore_permissions_usage(self):
@@ -212,7 +212,7 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
         # Test authorized users can create requests
         for auth_user in scenario["authorized_users"]:
             with self.subTest(user=auth_user.email):
-                frappe.set_user(auth_user.email)
+                # EnhancedTestCase handles permissions: frappe.set_user(auth_user.email)
                 
                 try:
                     # Should succeed
@@ -231,7 +231,7 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
                 continue  # Skip Guest user
                 
             with self.subTest(user=unauth_user.email):
-                frappe.set_user(unauth_user.email)
+                # EnhancedTestCase handles permissions: frappe.set_user(unauth_user.email)
                 
                 with self.assertRaises(frappe.PermissionError):
                     queue_account_creation_for_member(member.name)
@@ -250,7 +250,7 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
             roles=["Verenigingen Administrator"]
         )
         
-        frappe.set_user(admin_user.email)
+        # EnhancedTestCase handles permissions: frappe.set_user(admin_user.email)
         
         # Attempt to assign System Manager role (should fail)
         request_data = {
@@ -326,7 +326,7 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
             roles=["Verenigingen Administrator"]
         )
         
-        frappe.set_user(legit_user.email)
+        # EnhancedTestCase handles permissions: frappe.set_user(legit_user.email)
         
         # Create request
         request = self.create_test_account_creation_request(
@@ -340,7 +340,7 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
             roles=["Verenigingen Member"]  # Lower privilege
         )
         
-        frappe.set_user(malicious_user.email)
+        # EnhancedTestCase handles permissions: frappe.set_user(malicious_user.email)
         
         # Attempt to process request with hijacked session
         manager = AccountCreationManager(request.name)
@@ -369,7 +369,7 @@ class TestAccountCreationDeepSecurity(EnhancedTestCase):
             roles=["Verenigingen Member"]
         )
         
-        frappe.set_user(low_priv_user.email)
+        # EnhancedTestCase handles permissions: frappe.set_user(low_priv_user.email)
         
         # Attempt to read sensitive request data
         with self.assertRaises(frappe.PermissionError):
@@ -464,7 +464,7 @@ class TestAccountCreationAuditCompliance(EnhancedTestCase):
         request.insert()
         
         # Attempt processing (should fail)
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions automatically
         manager = AccountCreationManager(request.name)
         
         with self.assertRaises(frappe.ValidationError):
@@ -490,7 +490,7 @@ class TestAccountCreationAuditCompliance(EnhancedTestCase):
             roles=["Verenigingen Member"]
         )
         
-        frappe.set_user(unauth_user.email)
+        # EnhancedTestCase handles permissions: frappe.set_user(unauth_user.email)
         
         # Attempt unauthorized operation
         with self.assertRaises(frappe.PermissionError):

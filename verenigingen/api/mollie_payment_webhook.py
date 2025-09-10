@@ -36,6 +36,14 @@ def handle_mollie_payment_webhook():
     6. Enrich donation/customer records with Mollie metadata
     """
 
+    # Log all webhook calls for debugging with full request details
+    frappe.logger().info(f"🔗 Mollie webhook called at {frappe.utils.now()}")
+    frappe.logger().info(
+        f"📋 Request headers: {dict(frappe.request.headers) if frappe.request else 'No request object'}"
+    )
+    frappe.logger().info(f"📋 Request method: {frappe.request.method if frappe.request else 'Unknown'}")
+    frappe.logger().info(f"📋 Form dict: {frappe.form_dict}")
+
     try:
         # Set webhook user context for proper security
         payment_settings = frappe.get_single("Verenigingen Payments Settings")
@@ -138,17 +146,22 @@ def handle_mollie_payment_webhook():
         import traceback
 
         error_details = traceback.format_exc()
-        payment_id_str = payment_id if "payment_id" in locals() else "unknown"
-        raw_payload_str = raw_payload if "raw_payload" in locals() else "unknown"
+        payment_id_str = locals().get("payment_id", "unknown")
+        raw_payload_str = locals().get("raw_payload", "unknown")
 
-        frappe.log_error(
-            f"Mollie donation webhook error: {str(e)}\n"
-            f"Payment ID: {payment_id_str}\n"
-            f"Raw payload: {raw_payload_str}\n"
-            f"Full traceback:\n{error_details}",
-            "Mollie Donation Webhook",
-        )
-        return {"status": "error", "message": str(e)}
+        try:
+            frappe.log_error(
+                f"Mollie donation webhook error: {str(e)}\n"
+                f"Payment ID: {payment_id_str}\n"
+                f"Raw payload: {raw_payload_str}\n"
+                f"Full traceback:\n{error_details}",
+                "Mollie Donation Webhook",
+            )
+        except Exception:
+            # If even logging fails, just continue
+            pass
+
+        return {"status": "error", "message": str(e), "traceback": error_details}
 
 
 def find_donation_for_payment_by_id(payment_id, with_lock=False):
@@ -480,8 +493,16 @@ def extract_mollie_payment_data(payment):
     return {
         "payment_id": payment.id,
         "status": payment.status,
-        "amount": getattr(payment.amount, "value", None) if hasattr(payment, "amount") else None,
-        "currency": getattr(payment.amount, "currency", None) if hasattr(payment, "amount") else None,
+        "amount": payment.amount.get("value")
+        if isinstance(payment.amount, dict)
+        else getattr(payment.amount, "value", None)
+        if hasattr(payment, "amount")
+        else None,
+        "currency": payment.amount.get("currency")
+        if isinstance(payment.amount, dict)
+        else getattr(payment.amount, "currency", None)
+        if hasattr(payment, "amount")
+        else None,
         "method": getattr(payment, "method", None),
         "customer_id": getattr(payment, "customer_id", None),
         "mandate_id": getattr(payment, "mandate_id", None),

@@ -24,7 +24,7 @@ Architecture:
 import time
 import frappe
 from frappe.utils import getdate, add_days, now_datetime
-from frappe.tests.utils import FrappeTestCase
+# FrappeTestCase import removed - all classes use EnhancedTestCase
 
 from verenigingen.permissions import (
     has_donor_permission, 

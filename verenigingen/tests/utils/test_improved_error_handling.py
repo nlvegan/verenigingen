@@ -5,9 +5,9 @@ Tests all the functions that were updated with structured error handling
 
 import frappe
 from frappe.utils import now_datetime
-import unittest
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-class TestImprovedErrorHandling(unittest.TestCase):
+class TestImprovedErrorHandling(EnhancedTestCase):
     """Test all the improved API functions"""
     
     def setUp(self):

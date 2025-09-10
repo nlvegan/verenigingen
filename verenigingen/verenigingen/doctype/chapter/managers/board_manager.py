@@ -7,6 +7,7 @@ from frappe import _
 from frappe.utils import add_days, getdate, today
 
 from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
+from verenigingen.utils.secure_operations import secure_document_operation
 
 from .base_manager import BaseManager
 
@@ -17,6 +18,34 @@ class BoardManager(BaseManager):
     def __init__(self, chapter_doc):
         super().__init__(chapter_doc)
         self.volunteer_cache = {}
+
+    def _save_chapter_with_board_changes(self, operation_description: str) -> bool:
+        """
+        Save chapter document with board member changes using robust operations.
+
+        Args:
+            operation_description: Description of the board operation for audit purposes
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        result = secure_document_operation(
+            operation="update_child_table",
+            doc=self.chapter_doc,
+            justification=f"Board member operation: {operation_description}",
+            required_permissions=["Chapter:write"],
+            allow_system_user=False,  # Require explicit user permissions
+            bypass_validations=["link_validation"],  # Allow bypass of problematic references
+        )
+
+        if not result.success:
+            frappe.log_error(
+                f"Failed board operation '{operation_description}' on chapter {self.chapter_doc.name}: {'; '.join(result.errors)}",
+                "Board Manager Operation Failed",
+            )
+            return False
+
+        return True
 
     def add_board_member(
         self, volunteer: str, role: str, from_date: str = None, to_date: str = None, notify: bool = True
@@ -72,25 +101,14 @@ class BoardManager(BaseManager):
             # Add to chapter members if not already a member
             self._add_to_chapter_members(member_doc.name)
 
-            # Save chapter with concurrency handling
-            try:
-                self.chapter_doc.save()
-            except frappe.TimestampMismatchError:
-                # Reload chapter and retry save once
-                self.chapter_doc.reload()
-                # Re-add the board member to the reloaded document
-                if not any(bm.volunteer == volunteer for bm in self.chapter_doc.board_members):
-                    self.chapter_doc.append(
-                        "board_members",
-                        {
-                            "volunteer": volunteer,
-                            "chapter_role": role,
-                            "from_date": from_date,
-                            "is_active": 1,
-                        },
-                    )
-                    self._add_to_chapter_members(member_doc.name)
-                    self.chapter_doc.save()
+            # Save chapter with robust child table operations
+            success = self._save_chapter_with_board_changes(f"Add board member {volunteer} with role {role}")
+
+            if not success:
+                return {
+                    "success": False,
+                    "message": "Failed to add board member - see error logs for details",
+                }
 
             # Add to volunteer assignment history
             self.add_volunteer_assignment_history(volunteer, role, from_date)
@@ -180,8 +198,15 @@ class BoardManager(BaseManager):
                 existing_notes = board_member.notes or ""
                 board_member.notes = f"{existing_notes}\nRemoved: {reason}".strip()
 
-            # Save chapter
-            self.chapter_doc.save()
+            # Save chapter with robust operations
+            success = self._save_chapter_with_board_changes(
+                f"Remove board member {board_member.volunteer} from role {board_member.chapter_role}"
+            )
+            if not success:
+                return {
+                    "success": False,
+                    "message": "Failed to remove board member - see error logs for details",
+                }
 
             # Update volunteer assignment history
             self.update_volunteer_assignment_history(
@@ -393,8 +418,10 @@ class BoardManager(BaseManager):
                         f"Error processing volunteer {member_data.get('volunteer', 'unknown')}: {str(e)}"
                     )
 
-            # Save the chapter document
-            self.chapter_doc.save()
+            # Save the chapter document with robust operations
+            success = self._save_chapter_with_board_changes("Bulk board member removal")
+            if not success:
+                errors.append("Failed to save chapter after bulk removal - see error logs for details")
 
             self.log_action(
                 "Bulk board member removal",
@@ -491,8 +518,10 @@ class BoardManager(BaseManager):
                         f"Error processing volunteer {member_data.get('volunteer', 'unknown')}: {str(e)}"
                     )
 
-            # Save the chapter document
-            self.chapter_doc.save()
+            # Save the chapter document with robust operations
+            success = self._save_chapter_with_board_changes("Bulk board member deactivation")
+            if not success:
+                errors.append("Failed to save chapter after bulk deactivation - see error logs for details")
 
             self.log_action(
                 "Bulk board member deactivation",

@@ -8,7 +8,7 @@ Tests for API performance monitoring and rate limiting enforcement
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.utils.base import VereningingenTestCase
 from unittest.mock import patch, Mock
 import time
 import threading
@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 
 
-class TestAPIPerformance(FrappeTestCase):
+class TestAPIPerformance(VereningingenTestCase):
     """Test API performance and rate limiting"""
     
     def setUp(self):
@@ -41,7 +41,7 @@ class TestAPIPerformance(FrappeTestCase):
                 "enabled": 1,
                 "new_password": frappe.utils.random_string(10)
             })
-            user.insert(ignore_permissions=True)
+            user.insert()  # VereningingenTestCase handles permissions
             return user
         return frappe.get_doc("User", email)
         
@@ -326,7 +326,7 @@ class TestAPIPerformance(FrappeTestCase):
                     "last_name": "Test",
                     "enabled": 1
                 })
-                user.insert(ignore_permissions=True)
+                user.insert()  # VereningingenTestCase handles permissions
                 users.append(user)
                 
         # Track API calls per user

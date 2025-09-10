@@ -6,10 +6,10 @@ Provides common test helpers including email mocking
 import frappe
 from unittest.mock import Mock, patch
 from contextlib import contextmanager
-from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class BaseTestCase(FrappeTestCase):
+class BaseTestCase(EnhancedTestCase):
     """Base test case for Verenigingen tests"""
     pass
 
@@ -90,19 +90,18 @@ def mock_email_sending():
 
 
 def setup_test_environment():
-    """Set up common test environment"""
-    frappe.set_user("Administrator")
+    """Set up common test environment (Enhanced Test Factory handles most of this)"""
+    # Enhanced Test Factory automatically handles:
+    # - User context management
+    # - Test mode flags
+    # - Email muting
+    # - Database rollback and cleanup
     
-    # Ensure we're in test mode
+    # Only keep essential setup that's not handled by Enhanced Test Factory
     if not frappe.flags.in_test:
         frappe.flags.in_test = True
     
-    # Disable email sending globally for tests
     frappe.flags.mute_emails = True
-    
-    # Clear any existing email queue
-    frappe.db.delete("Email Queue")
-    frappe.db.commit()
 
 
 def cleanup_test_data(*doctypes):

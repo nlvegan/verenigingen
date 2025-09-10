@@ -99,7 +99,7 @@ class TestVolunteerJourney(VereningingenTestCase):
                 "postal_codes": "2000-8999",
                 "introduction": "Test chapter for volunteer journey testing"}
         )
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()  # VereningingenTestCase handles permissions
         self.track_doc("Chapter", chapter.name)
         return chapter
 
@@ -157,7 +157,7 @@ class TestVolunteerJourney(VereningingenTestCase):
                     "start_date": today(),
                     "motivation": "I want to help the community and contribute to our organization's mission."}
             )
-            volunteer.insert(ignore_permissions=True)
+            volunteer.insert()  # VereningingenTestCase handles permissions
 
         # Record state
         self.state_manager.record_state("Verenigingen Volunteer", volunteer.name, "Created")
@@ -258,7 +258,7 @@ class TestVolunteerJourney(VereningingenTestCase):
                         "start_date": today(),
                         "description": f"Test team for {config['team_name']}"}
                 )
-                team.insert(ignore_permissions=True)
+                team.insert()  # VereningingenTestCase handles permissions
 
                 # Add volunteer to team
                 team.append(
@@ -272,7 +272,7 @@ class TestVolunteerJourney(VereningingenTestCase):
                         "is_active": 1,
                         "status": "Active"},
                 )
-                team.save(ignore_permissions=True)
+                team.save()  # VereningingenTestCase handles permissions
 
                 teams_created.append({"team_name": team.name, "role": config["volunteer_role"]})
 
@@ -338,7 +338,7 @@ class TestVolunteerJourney(VereningingenTestCase):
                         "expense_type": config.get("expense_type", "General"),
                         "status": "Draft"}
                 )
-                expense.insert(ignore_permissions=True)
+                expense.insert()  # VereningingenTestCase handles permissions
 
                 expenses_created.append({"expense_name": expense.name, "amount": config["amount"]})
 
@@ -378,14 +378,14 @@ class TestVolunteerJourney(VereningingenTestCase):
                 # Submit for approval
                 expense.status = "Submitted"
                 expense.submitted_on = today()
-                expense.save(ignore_permissions=True)
+                expense.save()  # VereningingenTestCase handles permissions
 
                 # Approve expense
                 expense.status = "Approved"
                 expense.approved_by = self.admin_user.name
                 expense.approved_on = today()
                 expense.approval_notes = "Approved for volunteer journey test"
-                expense.save(ignore_permissions=True)
+                expense.save()  # VereningingenTestCase handles permissions
 
                 approved_expenses.append(expense_info)
 
@@ -446,7 +446,7 @@ class TestVolunteerJourney(VereningingenTestCase):
                         "status": "Completed",
                         "description": f"Test activity: {config['activity_name']}"}
                 )
-                activity.insert(ignore_permissions=True)
+                activity.insert()  # VereningingenTestCase handles permissions
 
                 activities_logged.append({"activity_name": activity.name, "hours": config["hours"]})
 
@@ -553,7 +553,7 @@ class TestVolunteerJourney(VereningingenTestCase):
                         member.is_active = 0
                         member.status = "Completed"
                         member.to_date = today()
-                team.save(ignore_permissions=True)
+                team.save()  # VereningingenTestCase handles permissions
 
         # Record state
         self.state_manager.record_state("Verenigingen Volunteer", volunteer_name, "Deactivated")

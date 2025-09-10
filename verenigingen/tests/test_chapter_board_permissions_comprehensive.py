@@ -53,7 +53,13 @@ class ChapterBoardTestFactory:
                 "default_currency": "EUR",
                 "country": "Netherlands"
             })
-            company.insert(ignore_permissions=True)
+            # Use proper admin context for company creation
+            original_user = frappe.session.user
+            try:
+                frappe.set_user("Administrator")
+                company.insert()
+            finally:
+                frappe.session.user = original_user
             self.test_case.track_doc("Company", company.name)
         return company_name
     
@@ -329,7 +335,13 @@ class ChapterBoardTestFactory:
                 "enabled": 1,
                 "new_password": "test123"
             })
-            user.insert(ignore_permissions=True)
+            # Use proper admin context for user creation
+            original_user = frappe.session.user
+            try:
+                frappe.set_user("Administrator")
+                user.insert()
+            finally:
+                frappe.session.user = original_user
             self.test_case.track_doc("User", user.name)
         
         # Assign roles if provided
@@ -337,7 +349,13 @@ class ChapterBoardTestFactory:
             user.roles = []
             for role in roles:
                 user.append("roles", {"role": role})
-            user.save(ignore_permissions=True)
+            # Save user roles within admin context
+            original_user = frappe.session.user
+            try:
+                frappe.set_user("Administrator")
+                user.save()
+            finally:
+                frappe.session.user = original_user
         
         return user
     

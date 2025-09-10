@@ -2,6 +2,8 @@
 
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 class AssignmentHistoryManager:
     """
@@ -63,7 +65,22 @@ class AssignmentHistoryManager:
                 },
             )
 
-            volunteer.save(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="update_child_table",
+                doc=volunteer,
+                justification=f"Add assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
+                required_permissions=["Volunteer:write"],
+                allow_system_user=False,  # Require explicit user permissions for assignment tracking
+                bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to add assignment history for volunteer {volunteer_id}: {'; '.join(result.errors)}",
+                    "Assignment History Manager",
+                )
+                return False
 
             print(f"Added assignment history for volunteer {volunteer_id}: {assignment_type} - {role}")
             return True
@@ -168,7 +185,23 @@ class AssignmentHistoryManager:
                         "Assignment History Manager",
                     )
 
-            volunteer.save(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use secure operations with explicit permission validation
+            result = secure_document_operation(
+                operation="update_child_table",
+                doc=volunteer,
+                justification=f"Complete assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
+                required_permissions=["Volunteer:write"],
+                allow_system_user=False,  # Require explicit user permissions for assignment tracking
+                bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to complete assignment history for volunteer {volunteer_id}: {'; '.join(result.errors)}",
+                    "Assignment History Manager",
+                )
+                return False
+
             return True
 
         except Exception as e:
@@ -255,7 +288,23 @@ class AssignmentHistoryManager:
 
             if assignment_to_remove:
                 volunteer.assignment_history.remove(assignment_to_remove)
-                volunteer.save(ignore_permissions=True)
+
+                # CORRECTED SECURE VERSION: Use secure operations with explicit permission validation
+                result = secure_document_operation(
+                    operation="update_child_table",
+                    doc=volunteer,
+                    justification=f"Remove assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
+                    required_permissions=["Volunteer:write"],
+                    allow_system_user=False,  # Require explicit user permissions for assignment tracking
+                    bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
+                )
+
+                if not result.success:
+                    frappe.log_error(
+                        f"Failed to remove assignment history for volunteer {volunteer_id}: {'; '.join(result.errors)}",
+                        "Assignment History Manager",
+                    )
+                    return False
 
                 frappe.log_error(
                     "Removed assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",

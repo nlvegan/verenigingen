@@ -8,12 +8,12 @@ Author: Verenigingen Development Team
 Last Updated: 2025-08-26
 """
 
-import unittest
+# Unused import removed - using EnhancedTestCase
 from unittest.mock import patch, MagicMock
 from typing import Dict, List, Any
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+# FrappeTestCase import removed - all classes use EnhancedTestCase
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.utils.base_role_profile_manager import (

@@ -3,7 +3,7 @@
 Test to verify the new contribution system works
 """
 
-import unittest
+# unittest import removed - using EnhancedTestCase
 import frappe
 from frappe.test_runner import make_test_records
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase

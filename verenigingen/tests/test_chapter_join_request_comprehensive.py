@@ -6,7 +6,7 @@ This test suite validates the Chapter Join Request implementation and tests for
 regressions in the chapter system functionality.
 """
 
-import unittest
+# unittest import removed - using EnhancedTestCase
 
 import frappe
 from frappe.utils import today

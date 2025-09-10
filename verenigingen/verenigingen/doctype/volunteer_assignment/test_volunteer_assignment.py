@@ -6,10 +6,10 @@ import random
 import frappe
 from frappe.utils import add_days, getdate, today
 
-from verenigingen.tests.test_base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestVolunteerAssignment(VereningingenTestCase):
+class TestVolunteerAssignment(EnhancedTestCase):
     def setUp(self):
         # Initialize the cleanup list
         self._docs_to_delete = []

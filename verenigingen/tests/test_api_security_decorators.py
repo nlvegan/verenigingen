@@ -13,7 +13,7 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import now_datetime
 
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     SecurityLevel,
@@ -27,7 +27,7 @@ from verenigingen.utils.security.api_security_framework import (
 )
 
 
-class TestAPISecurityDecorators(VereningingenTestCase):
+class TestAPISecurityDecorators(EnhancedTestCase):
     """Test API security framework decorators with all usage patterns"""
 
     def setUp(self):

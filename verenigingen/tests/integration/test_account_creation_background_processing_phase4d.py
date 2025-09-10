@@ -364,24 +364,29 @@ class TestAccountCreationBackgroundProcessingPhase4D(EnhancedTestCase):
         
         # PHASE 4D: Test real recovery workflow
         # Fix the permission issue and retry
-        frappe.set_user("Administrator")  # Proper permission fix
-        
-        # Use the real retry method
-        request.reload()
-        request.status = "Failed"  # Ensure it's in failed state
-        request.save()
-        
-        retry_result = request.retry_processing()
-        self.assertTrue(retry_result.get("success", False))
-        
-        # PHASE 4D: Execute real recovery pipeline
-        recovery_manager = AccountCreationManager(request.name)
-        recovery_manager.process_complete_pipeline()
-        
-        # Verify real recovery success
-        request.reload()
-        self.assertEqual(request.status, "Completed")
-        self.assertIsNotNone(request.created_user)
+        original_user = frappe.session.user
+        try:
+            frappe.set_user("Administrator")  # Proper permission fix
+            
+            # Use the real retry method
+            request.reload()
+            request.status = "Failed"  # Ensure it's in failed state
+            request.save()
+            
+            retry_result = request.retry_processing()
+            self.assertTrue(retry_result.get("success", False))
+            
+            # PHASE 4D: Execute real recovery pipeline
+            recovery_manager = AccountCreationManager(request.name)
+            recovery_manager.process_complete_pipeline()
+            
+            # Verify real recovery success
+            request.reload()
+            self.assertEqual(request.status, "Completed")
+            self.assertIsNotNone(request.created_user)
+        finally:
+            # Restore original user context
+            frappe.set_user(original_user)
 
     def test_real_concurrent_processing_performance(self):
         """

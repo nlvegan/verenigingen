@@ -204,7 +204,7 @@ def send_application_notifications(member):
             <ul>
                 <li><strong>Name:</strong> {member.full_name}</li>
                 <li><strong>Email:</strong> {member.email}</li>
-                <li><strong>Suggested Chapter:</strong> {member.suggested_chapter or 'None'}</li>
+                <li><strong>Previous Chapter:</strong> {member.previous_chapter or 'None'}</li>
                 <li><strong>Application Date:</strong> {frappe.utils.format_datetime(member.application_date)}</li>
             </ul>
             <p><a href="{frappe.utils.get_url()}/app/member/{member.name}">Review Application</a></p>

@@ -38,7 +38,7 @@ def get_user_manageable_chapters(user=None):
         """
         SELECT DISTINCT cbm.parent as chapter_name, cbm.chapter_role
         FROM `tabChapter Board Member` cbm
-        WHERE cbm.member = %s
+        WHERE cbm.volunteer = %s
         AND cbm.enabled = 1
         AND cbm.is_active = 1
     """,

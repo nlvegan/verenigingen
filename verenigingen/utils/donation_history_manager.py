@@ -66,10 +66,12 @@ class DonationHistoryManager:
 
             # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
             result = secure_document_operation(
-                operation="save",
+                operation="update_child_table",
                 doc=donor,
                 justification=f"Sync donation history for donor {donor.donor_name} - donation tracking system",
                 required_permissions=["Donor:write"],
+                allow_system_user=False,  # Require explicit user permissions for financial data
+                bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
             )
 
             if not result.success:
@@ -135,10 +137,12 @@ class DonationHistoryManager:
 
             # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
             result = secure_document_operation(
-                operation="save",
+                operation="update_child_table",
                 doc=donor,
                 justification=f"Add/update donation entry for donor {donor.donor_name} - donation history management",
                 required_permissions=["Donor:write"],
+                allow_system_user=False,  # Require explicit user permissions for financial data
+                bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
             )
 
             if not result.success:
@@ -170,10 +174,12 @@ class DonationHistoryManager:
 
             # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
             result = secure_document_operation(
-                operation="save",
+                operation="update_child_table",
                 doc=donor,
                 justification=f"Remove donation entry {donation_name} from donor {donor.donor_name} - donation history cleanup",
                 required_permissions=["Donor:write"],
+                allow_system_user=False,  # Require explicit user permissions for financial data
+                bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
             )
 
             if not result.success:

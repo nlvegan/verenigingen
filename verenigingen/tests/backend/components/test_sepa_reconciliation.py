@@ -1,12 +1,11 @@
-import unittest
-
 import frappe
 from frappe.utils import today
 
 from verenigingen.verenigingen_payments.utils.sepa_reconciliation import PaymentReconciliationManager
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
-class TestSEPAReconciliation(unittest.TestCase):
+class TestSEPAReconciliation(VereningingenTestCase):
     """Test SEPA bank transaction reconciliation"""
 
     @classmethod

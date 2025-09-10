@@ -22,7 +22,7 @@ class TestSkillsIntegrationWorkflow(EnhancedTestCase):
 
     def setUp(self):
         """Set up test data"""
-        self.cleanup_test_data()
+        super().setUp()
         
         # Test application data with comprehensive skills
         self.application_data = {
@@ -56,51 +56,8 @@ class TestSkillsIntegrationWorkflow(EnhancedTestCase):
 
     def tearDown(self):
         """Clean up test data"""
-        self.cleanup_test_data()
-
-    def cleanup_test_data(self):
-        """Remove all test data"""
-        # Delete test members and related data
-        test_emails = ["integration_test@example.com", "workflow_test@example.com", "edge_case@example.com"]
-        
-        for email in test_emails:
-            members = frappe.get_all("Member", filters={"email": email})
-            for member in members:
-                try:
-                    # Delete volunteers first
-                    volunteers = frappe.get_all("Volunteer", filters={"member": member.name})
-                    for volunteer in volunteers:
-                        # EnhancedTestCase handles cleanup automatically
-                    
-                    # Delete memberships
-                    memberships = frappe.get_all("Membership", filters={"member": member.name})
-                    for membership in memberships:
-                        # EnhancedTestCase handles cleanup automatically
-                    
-                    # Delete comments
-                    comments = frappe.get_all("Comment", filters={
-                        "reference_doctype": "Member",
-                        "reference_name": member.name
-                    })
-                    for comment in comments:
-                        # EnhancedTestCase handles cleanup automatically
-                    
-                    # Delete member
-                    # EnhancedTestCase handles cleanup automatically
-                except Exception as e:
-                    # Ignore cleanup errors
-                    pass
-        
-        # Clean up any test volunteers not linked to members
-        try:
-            test_volunteers = frappe.get_all("Volunteer", 
-                filters={"volunteer_name": ["like", "%Integration%"]})
-            for volunteer in test_volunteers:
-                # EnhancedTestCase handles cleanup automatically
-        except Exception:
-            pass
-        
-        frappe.db.commit()
+        # Enhanced Test Factory handles automatic rollback - no manual cleanup needed
+        super().tearDown()
 
     def test_complete_workflow_application_to_skills_search(self):
         """Test complete workflow from application submission to skills search"""

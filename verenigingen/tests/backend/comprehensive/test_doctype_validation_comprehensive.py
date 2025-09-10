@@ -2,18 +2,17 @@
 Comprehensive unit tests for doctype validation issues to prevent field validation bugs
 """
 
-import unittest
-
 import frappe
 from frappe.utils import today
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestDoctypeValidationComprehensive(unittest.TestCase):
+class TestDoctypeValidationComprehensive(EnhancedTestCase):
     """Test doctype field validations to catch validation issues early"""
 
     def setUp(self):
         """Set up test environment"""
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions automatically
 
     def tearDown(self):
         """Clean up after tests"""

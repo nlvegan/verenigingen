@@ -23,8 +23,8 @@ class TestMembershipTypeChange(BaseTestCase):
         # Clean up any existing test membership types to avoid conflicts
         test_types = frappe.get_all("Membership Type", filters=[["name", "like", "TEST-%"]])
         for mt in test_types:
-            frappe.delete_doc("Membership Type", mt.name, force=True, ignore_permissions=True)
-        frappe.db.commit()
+            self.track_test_record("Membership Type", mt.name)
+            frappe.delete_doc("Membership Type", mt.name, force=True)
         
         # Create test membership types
         self.basic_type = self.create_membership_type(

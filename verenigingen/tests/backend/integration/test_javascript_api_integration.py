@@ -7,11 +7,11 @@ import os
 import re
 import json
 import frappe
-import unittest
 from pathlib import Path
 from unittest.mock import patch
+from verenigingen.tests.utils.base import VereningingenTestCase
 
-class JavaScriptAPIIntegrationTestCase(unittest.TestCase):
+class JavaScriptAPIIntegrationTestCase(VereningingenTestCase):
     """Test JavaScript API integration for common issues"""
     
     def setUp(self):

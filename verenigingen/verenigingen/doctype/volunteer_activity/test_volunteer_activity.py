@@ -5,10 +5,10 @@
 import frappe
 from frappe.utils import add_days, getdate, today
 
-from verenigingen.tests.test_base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestVolunteerActivity(VereningingenTestCase):
+class TestVolunteerActivity(EnhancedTestCase):
     def setUp(self):
         # Initialize the docs to delete list
         self._docs_to_delete = []
@@ -41,7 +41,7 @@ class TestVolunteerActivity(VereningingenTestCase):
                 "start_date": today(),
             }
         )
-        activity.insert(ignore_permissions=True)
+        activity.insert()
         self._docs_to_delete.append(("Volunteer Activity", activity.name))
         return activity
 

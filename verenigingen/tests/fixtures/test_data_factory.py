@@ -381,7 +381,13 @@ class StreamlinedTestDataFactory:
         defaults.update(kwargs)
         
         membership = frappe.get_doc({"doctype": "Membership", **defaults})
-        membership.insert(ignore_permissions=True)
+        # Use proper admin context for test data creation
+        original_user = frappe.session.user
+        try:
+            frappe.set_user("Administrator")
+            membership.insert()
+        finally:
+            frappe.session.user = original_user
         self.track_doc("Membership", membership.name)
         return membership
 

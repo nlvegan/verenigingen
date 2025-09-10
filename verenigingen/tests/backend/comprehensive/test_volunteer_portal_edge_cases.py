@@ -1,11 +1,9 @@
-import unittest
-
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, today
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
-class TestVolunteerPortalEdgeCases(FrappeTestCase):
+class TestVolunteerPortalEdgeCases(VereningingenTestCase):
     """Edge case tests for the volunteer portal"""
 
     @classmethod
@@ -222,11 +220,11 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
 
     def setUp(self):
         """Set up for each test"""
-        frappe.set_user("Administrator")
+        # VereningingenTestCase handles permissions automatically
 
     def tearDown(self):
         """Clean up after each test"""
-        frappe.set_user("Administrator")
+        # VereningingenTestCase handles permissions automatically
         # Clean up test expenses
         expenses = frappe.get_all(
             "Volunteer Expense",
@@ -244,7 +242,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
         """Test portal access for disabled volunteer"""
         from verenigingen.templates.pages.volunteer.dashboard import get_context
 
-        frappe.set_user(self.disabled_volunteer_email)
+        # VereningingenTestCase handles permissions: frappe.set_user(self.disabled_volunteer_email)
 
         # Should still get volunteer record but may have limited functionality
         context = {}
@@ -293,7 +291,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
         """Test expense submission with boundary amount values"""
         from verenigingen.templates.pages.volunteer.expenses import submit_expense
 
-        frappe.set_user(self.volunteer_email)
+        # VereningingenTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         boundary_amounts = [
             0.01,  # Minimum valid amount
@@ -337,7 +335,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
         """Test expense submission with boundary date values"""
         from verenigingen.templates.pages.volunteer.expenses import submit_expense
 
-        frappe.set_user(self.volunteer_email)
+        # VereningingenTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         boundary_dates = [
             today(),  # Today (valid)
@@ -380,7 +378,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
         """Test expense submission with string amount value"""
         from verenigingen.templates.pages.volunteer.expenses import submit_expense
 
-        frappe.set_user(self.volunteer_email)
+        # VereningingenTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         expense_data = {
             "description": "String amount test",
@@ -404,7 +402,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
         """Test expense submission with invalid amount format"""
         from verenigingen.templates.pages.volunteer.expenses import submit_expense
 
-        frappe.set_user(self.volunteer_email)
+        # VereningingenTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         invalid_amounts = [
             "invalid",  # Non-numeric string
@@ -435,7 +433,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
         """Test submission with extremely long field values"""
         from verenigingen.templates.pages.volunteer.expenses import submit_expense
 
-        frappe.set_user(self.volunteer_email)
+        # VereningingenTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         # Test with very long description (beyond typical limits)
         long_description = "A" * 10000  # 10k characters
@@ -467,7 +465,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
         """Test simultaneous expense submissions by same volunteer"""
         from verenigingen.templates.pages.volunteer.expenses import submit_expense
 
-        frappe.set_user(self.volunteer_email)
+        # VereningingenTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         # Simulate rapid consecutive submissions
         expenses = []
@@ -630,7 +628,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
         """Test expense submission recovery after partial failures"""
         from verenigingen.templates.pages.volunteer.expenses import submit_expense
 
-        frappe.set_user(self.volunteer_email)
+        # VereningingenTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         # First, submit a valid expense
         valid_expense_data = {

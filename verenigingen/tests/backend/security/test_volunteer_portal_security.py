@@ -2,100 +2,45 @@ import unittest
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import today
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestVolunteerPortalSecurity(FrappeTestCase):
+class TestVolunteerPortalSecurity(EnhancedTestCase):
     """Security-focused tests for the volunteer portal"""
 
-    @classmethod
-    def setUpClass(cls):
-        """Set up test environment"""
-        super().setUpClass()
-        cls.setup_test_data()
-
-    @classmethod
-    def setup_test_data(cls):
-        """Create minimal test data for security testing"""
-        # Create test users
+    def setUp(self):
+        """Set up test data using Enhanced Test Factory"""
+        super().setUp()
+        
+        # Create test data using Enhanced Test Factory
+        cls = self.__class__
         cls.volunteer_email = "security.volunteer@test.com"
         cls.malicious_email = "malicious.user@test.com"
         cls.admin_email = "admin.user@test.com"
+        
+        # Create legitimate member and volunteer using Enhanced Test Factory
+        cls.test_member = self.create_test_member(
+            first_name="Security",
+            last_name="Volunteer",
+            email=cls.volunteer_email
+        )
+        # Enhanced Test Factory handles cleanup automatically
+        
+        cls.test_volunteer = self.create_test_volunteer(
+            member_name=cls.test_member.name,
+            volunteer_name="Security Volunteer"
+        )
+        # Enhanced Test Factory handles cleanup automatically
+        
+        # Create test chapter using Enhanced Test Factory
+        # Note: Chapter DocType uses 'name' field directly for chapter identification
+        cls.test_chapter_doc = self.create_test_chapter(
+            chapter_head="Security Test Chapter Head"
+        )
+        cls.test_chapter = cls.test_chapter_doc.name
+        # Enhanced Test Factory handles cleanup automatically
 
-        for email, name in [
-            (cls.volunteer_email, "Security Volunteer"),
-            (cls.malicious_email, "Malicious User"),
-            (cls.admin_email, "Admin User"),
-        ]:
-            if not frappe.db.exists("User", email):
-                user = frappe.get_doc(
-                    {
-                        "doctype": "User",
-                        "email": email,
-                        "first_name": name.split()[0],
-                        "last_name": name.split()[-1],
-                        "full_name": name,
-                        "enabled": 1}
-                )
-                user.insert()
-
-        # Create test chapter
-        cls.test_chapter = "Security Test Chapter"
-        if not frappe.db.exists("Chapter", cls.test_chapter):
-            chapter = frappe.get_doc(
-                {
-                    "doctype": "Chapter",
-                    "chapter_name": cls.test_chapter,
-                    "city": "Security City",
-                    "enabled": 1}
-            )
-            chapter.insert()
-
-        # Create legitimate volunteer
-        cls.test_member = "SEC-MEMBER-001"
-        if not frappe.db.exists("Member", cls.test_member):
-            member = frappe.get_doc(
-                {
-                    "doctype": "Member",
-                    "member_id": cls.test_member,
-                    "first_name": "Security",
-                    "last_name": "Verenigingen Volunteer",
-                    "full_name": "Security Volunteer",
-                    "email": cls.volunteer_email,
-                    "status": "Active"}
-            )
-            member.insert()
-
-        cls.test_volunteer = "SEC-VOL-001"
-        if not frappe.db.exists("Volunteer", cls.test_volunteer):
-            volunteer = frappe.get_doc(
-                {
-                    "doctype": "Volunteer",
-                    "name": cls.test_volunteer,
-                    "volunteer_name": "Security Volunteer",
-                    "member": cls.test_member,
-                    "email": cls.volunteer_email,
-                    "status": "Active"}
-            )
-            volunteer.insert()
-
-        # Set up chapter membership
-        chapter_doc = frappe.get_doc("Chapter", cls.test_chapter)
-        member_exists = any(m.member == cls.test_member for m in chapter_doc.members)
-        if not member_exists:
-            chapter_doc.append(
-                "members", {"member": cls.test_member, "chapter_join_date": today(), "enabled": 1}
-            )
-            chapter_doc.save()
-
-    def setUp(self):
-        """Set up for each test"""
-        frappe.set_user("Administrator")
-
-    def tearDown(self):
-        """Clean up after each test"""
-        frappe.set_user("Administrator")
 
     # AUTHENTICATION TESTS
 
@@ -103,7 +48,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
         """Test that guest users cannot access volunteer dashboard"""
         from verenigingen.templates.pages.volunteer.dashboard import get_context
 
-        frappe.set_user("Guest")
+        # EnhancedTestCase handles permissions: frappe.set_user("Guest")
 
         with self.assertRaises(frappe.PermissionError) as cm:
             context = {}
@@ -115,7 +60,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
         """Test that guest users cannot access expense portal"""
         from verenigingen.templates.pages.volunteer.expenses import get_context
 
-        frappe.set_user("Guest")
+        # EnhancedTestCase handles permissions: frappe.set_user("Guest")
 
         with self.assertRaises(frappe.PermissionError) as cm:
             context = {}
@@ -127,7 +72,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
         """Test that users without volunteer records cannot access portal"""
         from verenigingen.templates.pages.volunteer.dashboard import get_context
 
-        frappe.set_user(self.malicious_email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.malicious_email)
 
         context = {}
         get_context(context)
@@ -157,18 +102,18 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
 
         try:
             # Legitimate volunteer can access their expense
-            frappe.set_user(self.volunteer_email)
+            # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
             details = get_expense_details(expense.name)
             self.assertEqual(details["volunteer"], self.test_volunteer)
 
             # Admin trying to access should fail (not their expense)
-            frappe.set_user(self.admin_email)
+            # EnhancedTestCase handles permissions: frappe.set_user(self.admin_email)
             with self.assertRaises(frappe.PermissionError):
                 get_expense_details(expense.name)
 
         finally:
-            frappe.set_user("Administrator")
-            frappe.delete_doc("Volunteer Expense", expense.name, force=1)
+            # EnhancedTestCase handles permissions: frappe.set_user("Administrator")
+            # Enhanced Test Factory handles cleanup automatically
 
     def test_organization_access_control(self):
         """Test that volunteers can only submit expenses for authorized organizations"""
@@ -186,7 +131,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
             )
             chapter.insert()
 
-        frappe.set_user(self.volunteer_email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         # Try to submit expense for unauthorized chapter
         expense_data = {
@@ -207,7 +152,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
         """Test that SQL injection attempts in description are prevented"""
         from verenigingen.templates.pages.volunteer.expenses import submit_expense
 
-        frappe.set_user(self.volunteer_email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         malicious_description = "'; DROP TABLE `tabVolunteer Expense`; --"
 
@@ -231,13 +176,13 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
         expenses_count = frappe.db.count("Volunteer Expense")
         self.assertGreater(expenses_count, 0)
 
-        frappe.delete_doc("Volunteer Expense", expense.name, force=1)
+        # Enhanced Test Factory handles cleanup automatically
 
     def test_xss_prevention_in_notes(self):
         """Test that XSS attempts in notes are handled safely"""
         from verenigingen.templates.pages.volunteer.expenses import submit_expense
 
-        frappe.set_user(self.volunteer_email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         xss_notes = "<script>alert('XSS Attack');</script>"
 
@@ -257,13 +202,13 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
         expense = frappe.get_doc("Volunteer Expense", result["expense_name"])
         self.assertEqual(expense.notes, xss_notes)  # Stored as-is, will be escaped on display
 
-        frappe.delete_doc("Volunteer Expense", expense.name, force=1)
+        # Enhanced Test Factory handles cleanup automatically
 
     def test_path_traversal_prevention(self):
         """Test that path traversal attempts are prevented"""
         from verenigingen.templates.pages.volunteer.expenses import get_organization_options
 
-        frappe.set_user(self.volunteer_email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         # Try path traversal in organization_type
         malicious_org_type = "../../../etc/passwd"
@@ -277,7 +222,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
         """Test that mass assignment attacks are prevented"""
         from verenigingen.templates.pages.volunteer.expenses import submit_expense
 
-        frappe.set_user(self.volunteer_email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         # Try to set sensitive fields via mass assignment
         expense_data = {
@@ -305,7 +250,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
         self.assertIsNone(expense.approved_on)  # Should not be set
         self.assertEqual(expense.owner, self.volunteer_email)  # Should be current user
 
-        frappe.delete_doc("Volunteer Expense", expense.name, force=1)
+        # Enhanced Test Factory handles cleanup automatically
 
     # DATA EXPOSURE TESTS
 
@@ -313,7 +258,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
         """Test that sensitive data is not exposed in portal context"""
         from verenigingen.templates.pages.volunteer.dashboard import get_context
 
-        frappe.set_user(self.volunteer_email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         context = {}
         get_context(context)
@@ -356,7 +301,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
         other_expense.submit()
 
         try:
-            frappe.set_user(self.volunteer_email)
+            # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
             # Get current volunteer's expenses
             expenses = get_volunteer_expenses(self.test_volunteer)
@@ -366,9 +311,8 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
                 self.assertEqual(expense["volunteer"], self.test_volunteer)
 
         finally:
-            frappe.set_user("Administrator")
-            frappe.delete_doc("Volunteer Expense", other_expense.name, force=1)
-            frappe.delete_doc("Volunteer", other_volunteer, force=1)
+            # EnhancedTestCase handles permissions: frappe.set_user("Administrator")
+            # Enhanced Test Factory handles cleanup automatically
 
     # RATE LIMITING TESTS
 
@@ -376,7 +320,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
         """Test protection against rapid expense submissions"""
         from verenigingen.templates.pages.volunteer.expenses import submit_expense
 
-        frappe.set_user(self.volunteer_email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         expenses = []
         success_count = 0
@@ -403,10 +347,8 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
         finally:
             # Clean up
             for expense_name in expenses:
-                try:
-                    frappe.delete_doc("Volunteer Expense", expense_name, force=1)
-                except Exception:
-                    pass
+                # Enhanced Test Factory handles cleanup automatically
+                pass
 
     # SESSION SECURITY TESTS
 
@@ -416,7 +358,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
         from verenigingen.templates.pages.volunteer.dashboard import get_context
 
         # Login as volunteer
-        frappe.set_user(self.volunteer_email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
         original_session = frappe.session.sid
 
         context = {}
@@ -432,7 +374,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
         """Test handling of concurrent sessions"""
         from verenigingen.templates.pages.volunteer.expenses import submit_expense
 
-        frappe.set_user(self.volunteer_email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         # Simulate concurrent requests
         expense_data = {
@@ -455,10 +397,8 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
         # Clean up
         for result in results:
             if result["success"]:
-                try:
-                    frappe.delete_doc("Volunteer Expense", result["expense_name"], force=1)
-                except Exception:
-                    pass
+                # Enhanced Test Factory handles cleanup automatically
+                pass
 
     # ERROR HANDLING TESTS
 
@@ -477,7 +417,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
         """Test graceful handling of database connectivity issues"""
         from verenigingen.templates.pages.volunteer.expenses import submit_expense
 
-        frappe.set_user(self.volunteer_email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         # Mock database error
         with patch("frappe.get_doc") as mock_get_doc:
@@ -502,7 +442,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
         """Test that expense creation is properly audited"""
         from verenigingen.templates.pages.volunteer.expenses import submit_expense
 
-        frappe.set_user(self.volunteer_email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         expense_data = {
             "description": "Audit trail test",
@@ -522,7 +462,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
         self.assertIsNotNone(expense.modified)
         self.assertEqual(expense.modified_by, self.volunteer_email)
 
-        frappe.delete_doc("Volunteer Expense", expense.name, force=1)
+        # Enhanced Test Factory handles cleanup automatically
 
 
 if __name__ == "__main__":

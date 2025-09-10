@@ -5,10 +5,10 @@ Tests that invoice due dates are calculated correctly and not set to past dates.
 
 import frappe
 from frappe.utils import today, add_days, getdate
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestRegressionInvoiceDueDateCalculation(VereningingenTestCase):
+class TestRegressionInvoiceDueDateCalculation(EnhancedTestCase):
     """
     Regression test for the due date calculation bug where invoices were
     showing as "Overdue" on the same day they were created.
@@ -42,7 +42,7 @@ class TestRegressionInvoiceDueDateCalculation(VereningingenTestCase):
         customer.save()
         member.customer = customer.name
         member.save()
-        self.track_doc("Customer", customer.name)
+        # Enhanced Test Factory handles cleanup automatically
         
         # Create dues schedule with next_invoice_date in the PAST
         # This simulates the original bug condition
@@ -58,12 +58,12 @@ class TestRegressionInvoiceDueDateCalculation(VereningingenTestCase):
         dues_schedule.dues_rate = 2.0
         dues_schedule.next_invoice_date = past_date  # This is the problematic scenario
         dues_schedule.save()
-        self.track_doc("Membership Dues Schedule", dues_schedule.name)
+        # Enhanced Test Factory handles cleanup automatically
         
         # Generate invoice using the dues schedule
         invoice_name = dues_schedule.create_sales_invoice()
         self.assertIsNotNone(invoice_name, "Invoice should be created successfully")
-        self.track_doc("Sales Invoice", invoice_name)
+        # Enhanced Test Factory handles cleanup automatically
         
         # Get the created invoice
         invoice = frappe.get_doc("Sales Invoice", invoice_name)
@@ -109,7 +109,7 @@ class TestRegressionInvoiceDueDateCalculation(VereningingenTestCase):
         customer.save()
         member.customer = customer.name
         member.save()
-        self.track_doc("Customer", customer.name)
+        # Enhanced Test Factory handles cleanup automatically
         
         # Create a payment terms template (if it doesn't exist)
         payment_terms_name = "Net 15 Days"
@@ -124,7 +124,7 @@ class TestRegressionInvoiceDueDateCalculation(VereningingenTestCase):
                 "credit_days": 15
             })
             payment_terms.save()
-            self.track_doc("Payment Terms Template", payment_terms_name)
+            # Enhanced Test Factory handles cleanup automatically
         
         # Create dues schedule with payment terms
         dues_schedule = frappe.new_doc("Membership Dues Schedule")
@@ -138,11 +138,11 @@ class TestRegressionInvoiceDueDateCalculation(VereningingenTestCase):
         dues_schedule.next_invoice_date = add_days(today(), -1)  # Past date
         dues_schedule.payment_terms_template = payment_terms_name
         dues_schedule.save()
-        self.track_doc("Membership Dues Schedule", dues_schedule.name)
+        # Enhanced Test Factory handles cleanup automatically
         
         # Generate invoice
         invoice_name = dues_schedule.create_sales_invoice()
-        self.track_doc("Sales Invoice", invoice_name)
+        # Enhanced Test Factory handles cleanup automatically
         
         invoice = frappe.get_doc("Sales Invoice", invoice_name)
         
@@ -203,7 +203,7 @@ class TestRegressionInvoiceDueDateCalculation(VereningingenTestCase):
                 customer.save()
                 member.customer = customer.name
                 member.save()
-                self.track_doc("Customer", customer.name)
+                # Enhanced Test Factory handles cleanup automatically
                 
                 # Create dues schedule
                 dues_schedule = frappe.new_doc("Membership Dues Schedule")
@@ -218,11 +218,11 @@ class TestRegressionInvoiceDueDateCalculation(VereningingenTestCase):
                 if scenario["payment_terms"]:
                     dues_schedule.payment_terms_template = scenario["payment_terms"]
                 dues_schedule.save()
-                self.track_doc("Membership Dues Schedule", dues_schedule.name)
+                # Enhanced Test Factory handles cleanup automatically
                 
                 # Generate invoice
                 invoice_name = dues_schedule.create_sales_invoice()
-                self.track_doc("Sales Invoice", invoice_name)
+                # Enhanced Test Factory handles cleanup automatically
                 
                 invoice = frappe.get_doc("Sales Invoice", invoice_name)
                 
@@ -269,7 +269,7 @@ class TestRegressionInvoiceDueDateCalculation(VereningingenTestCase):
         customer.save()
         member.customer = customer.name
         member.save()
-        self.track_doc("Customer", customer.name)
+        # Enhanced Test Factory handles cleanup automatically
         
         # Create membership
         membership = self.create_test_membership(
@@ -289,11 +289,11 @@ class TestRegressionInvoiceDueDateCalculation(VereningingenTestCase):
         # Set next_invoice_date to yesterday (this caused the original bug)
         dues_schedule.next_invoice_date = add_days(today(), -1)
         dues_schedule.save()
-        self.track_doc("Membership Dues Schedule", dues_schedule.name)
+        # Enhanced Test Factory handles cleanup automatically
         
         # Generate invoice (this is what happened at 06:22:52 on 2025-07-22)
         invoice_name = dues_schedule.create_sales_invoice()
-        self.track_doc("Sales Invoice", invoice_name)
+        # Enhanced Test Factory handles cleanup automatically
         
         invoice = frappe.get_doc("Sales Invoice", invoice_name)
         

@@ -25,7 +25,7 @@ import time
 import threading
 import frappe
 from frappe.utils import getdate, add_days, now_datetime
-from frappe.tests.utils import FrappeTestCase
+# FrappeTestCase import removed - all classes use EnhancedTestCase
 
 from verenigingen.permissions import (
     has_donor_permission, 
@@ -46,7 +46,7 @@ class TestDonorSecurityEnhanced(EnhancedTestCase):
         super().setUp()
         
         # Set admin user for initial setup
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions automatically
         
         # Create test users with actual User records
         self.test_users = {}
@@ -376,7 +376,7 @@ class TestDonorSecurityEnhanced(EnhancedTestCase):
                 "donor_email": "invalid@unittest.test",
                 "member": invalid_member.name
             })
-            invalid_donor.insert(ignore_permissions=True)
+            invalid_donor.insert()
             
             # Permission check should fail gracefully
             result = has_donor_permission(invalid_donor.name, "nonexistent@unittest.test")
@@ -393,9 +393,9 @@ class TestDonorSecurityEnhanced(EnhancedTestCase):
                 "send_welcome_email": 0,
                 "enabled": 1
             })
-            orphan_user.insert(ignore_permissions=True)
+            orphan_user.insert()
             orphan_user.append("roles", {"role": "Verenigingen Member"})
-            orphan_user.save(ignore_permissions=True)
+            orphan_user.save()
             
             # Should not have access to any donors
             member1_donor = self.test_donors["member1@unittest.test"]
@@ -420,7 +420,7 @@ class TestDonorSecurityEnhanced(EnhancedTestCase):
                 "donor_email": "member1@unittest.test",
                 "member": duplicate_member.name
             })
-            duplicate_donor.insert(ignore_permissions=True)
+            duplicate_donor.insert()
             
             # User should have access to both donors (both linked to their member records)
             result = has_donor_permission(duplicate_donor.name, "member1@unittest.test")
@@ -529,7 +529,7 @@ class TestDonorSecurityEnhanced(EnhancedTestCase):
                 "donor_email": "temp@unittest.test",
                 "member": temp_member.name
             })
-            temp_donor.insert(ignore_permissions=True)
+            temp_donor.insert()
             
             # Delete member
             frappe.delete_doc("Member", temp_member.name, force=True)
@@ -600,7 +600,7 @@ class TestDonorSecurityEnhanced(EnhancedTestCase):
                                   
     def tearDown(self):
         """Clean up test data"""
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions automatically
         
         # Clean up test donors
         for donor in self.test_donors.values():
@@ -647,7 +647,7 @@ class TestDonorSecurityRealWorldScenarios(EnhancedTestCase):
     def setUp(self):
         """Set up complex real-world scenario data"""
         super().setUp()
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions automatically
         
         # Create a more complex user hierarchy
         self.setup_organization_scenario()
@@ -707,7 +707,7 @@ class TestDonorSecurityRealWorldScenarios(EnhancedTestCase):
         for role_name in roles:
             if not any(role.role == role_name for role in user.roles):
                 user.append("roles", {"role": role_name})
-        user.save(ignore_permissions=True)
+        user.save()
         
     def test_organizational_hierarchy_permissions(self):
         """
@@ -782,7 +782,7 @@ class TestDonorSecurityRealWorldScenarios(EnhancedTestCase):
                                
     def tearDown(self):
         """Clean up complex test data"""
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions automatically
         
         # Clean up all created data
         for email, data in self.users_data.items():

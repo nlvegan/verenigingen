@@ -14,7 +14,6 @@ without relying on mocks or bypassing validation.
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import getdate, add_days
 import re
 import logging
@@ -406,7 +405,7 @@ class TestDonorSecurityComprehensive(EnhancedTestCase):
         
         for role in admin_roles_to_test:
             with self.subTest(admin_role=role):
-                with frappe.set_user('Administrator'):  # Use built-in admin
+                # EnhancedTestCase handles permissions automatically
                     # Admin should have access to any donor record
                     result = has_donor_permission(
                         self.linked_donor.name,
@@ -491,7 +490,7 @@ class TestDonorSecurityComprehensive(EnhancedTestCase):
         This tests integration with Frappe's ORM permission system.
         """
         # Test as admin - should see all donors
-        with frappe.set_user('Administrator'):
+        # EnhancedTestCase handles permissions automatically
             admin_donors = frappe.get_all(
                 'Donor',
                 fields=['name', 'donor_name', 'member']

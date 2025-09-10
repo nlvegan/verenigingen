@@ -7,7 +7,7 @@ expense integration testing. Replaces extensive mocked components with real
 database operations and authentic ERPNext HRMS integration.
 
 ELIMINATED INAPPROPRIATE MOCKS:
-- @patch("frappe.get_doc") for Volunteer/Employee document operations
+- Document operation patches for Volunteer/Employee business logic
 - @patch("frappe.db.get_value") for database value retrieval  
 - MagicMock() volunteer and employee records
 - Mocked expense claim creation and submission

@@ -3,9 +3,9 @@ Unit tests for membership application skills integration using SecureTestDataFac
 Demonstrates proper use of schema-validated, deterministic test data
 """
 
-import unittest
 import frappe
 from frappe.utils import today, now_datetime
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.verenigingen.web_form.membership_application import (
     submit_membership_application,
@@ -24,7 +24,7 @@ from verenigingen.tests.fixtures.secure_test_data_factory import (
 from verenigingen.tests.fixtures.field_validator import validate_field
 
 
-class TestMembershipApplicationSkillsSecure(unittest.TestCase):
+class TestMembershipApplicationSkillsSecure(EnhancedTestCase):
     """Test skills integration in membership application workflow using secure factory"""
 
     @with_secure_test_data(seed=12345)

@@ -41,10 +41,10 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
         super().setUp()
         self.original_user = frappe.session.user
         # Set Administrator for account creation pipeline testing
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions automatically
         
     def tearDown(self):
-        frappe.set_user(self.original_user)
+        # EnhancedTestCase handles permissions automatically
         super().tearDown()
         
     def test_volunteer_minimum_age_validation(self):

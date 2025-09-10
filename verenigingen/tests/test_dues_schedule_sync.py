@@ -15,11 +15,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-try:
-    from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
-except ImportError:
-    # Fallback to basic TestCase if enhanced factory not available
-    from unittest import TestCase as EnhancedTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
 class TestDuesScheduleSync(EnhancedTestCase):

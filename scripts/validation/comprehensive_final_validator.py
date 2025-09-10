@@ -428,8 +428,14 @@ class FinalFieldValidator:
             tree = ast.parse(content)
             source_lines = content.splitlines()
             
-            # Walk through AST nodes to find attribute access
+            # Walk through AST nodes to find both attribute access and dangerous patterns
             for node in ast.walk(tree):
+                # Check for dangerous empty dictionary patterns
+                if isinstance(node, ast.Call):
+                    empty_dict_issue = self._check_empty_dictionary_pattern(node, source_lines, file_path)
+                    if empty_dict_issue:
+                        violations.append(empty_dict_issue)
+                
                 if isinstance(node, ast.Attribute):
                     # Extract object and attribute names
                     if hasattr(node.value, 'id'):
@@ -663,6 +669,115 @@ class FinalFieldValidator:
                             return potential_doctype
         
         return None
+    
+    def _check_empty_dictionary_pattern(self, node: ast.Call, source_lines: List[str], file_path: Path) -> Optional[ValidationIssue]:
+        """
+        Check for dangerous empty dictionary patterns in frappe.db.get_value calls.
+        
+        Detects patterns like:
+        - frappe.db.get_value(DocType, {}, "field") 
+        - frappe.db.get_value("DocType", {}, "field")
+        - frappe.get_value(DocType, {}, "field")
+        
+        These patterns return random records and should use proper ordering.
+        """
+        try:
+            # Check if this is a frappe.db.get_value or frappe.get_value call
+            is_frappe_get_value = False
+            func_name = ""
+            
+            # Handle frappe.db.get_value
+            if (isinstance(node.func, ast.Attribute) and 
+                isinstance(node.func.value, ast.Attribute) and
+                isinstance(node.func.value.value, ast.Name) and
+                node.func.value.value.id == 'frappe' and
+                node.func.value.attr == 'db' and
+                node.func.attr == 'get_value'):
+                is_frappe_get_value = True
+                func_name = "frappe.db.get_value"
+            
+            # Handle frappe.get_value
+            elif (isinstance(node.func, ast.Attribute) and
+                  isinstance(node.func.value, ast.Name) and
+                  node.func.value.id == 'frappe' and
+                  node.func.attr == 'get_value'):
+                is_frappe_get_value = True
+                func_name = "frappe.get_value"
+            
+            if not is_frappe_get_value:
+                return None
+            
+            # Check if we have at least 2 arguments (doctype, filters) - fieldname is optional in some cases
+            if len(node.args) < 2:
+                return None
+            
+            # Check if the second argument (filters) is an empty dictionary
+            filters_arg = node.args[1]
+            is_empty_dict = False
+            
+            # Check for empty dictionary literal {}
+            if isinstance(filters_arg, ast.Dict) and len(filters_arg.keys) == 0:
+                is_empty_dict = True
+            
+            # Check for empty dict() call
+            elif (isinstance(filters_arg, ast.Call) and
+                  isinstance(filters_arg.func, ast.Name) and
+                  filters_arg.func.id == 'dict' and
+                  len(filters_arg.args) == 0 and
+                  len(filters_arg.keywords) == 0):
+                is_empty_dict = True
+            
+            if not is_empty_dict:
+                return None
+                
+            # Check if this is a potentially dangerous case - skip if order_by is used
+            # Look for order_by in keywords
+            has_order_by = any(kw.arg == 'order_by' for kw in node.keywords)
+            if has_order_by:
+                # This is considered safe because order_by provides deterministic ordering
+                return None
+            
+            # Get DocType name for context
+            doctype_arg = node.args[0]
+            doctype_name = "Unknown"
+            
+            if isinstance(doctype_arg, ast.Constant):
+                doctype_name = str(doctype_arg.value)
+            elif isinstance(doctype_arg, ast.Str):  # Python < 3.8 compatibility
+                doctype_name = doctype_arg.s
+            elif isinstance(doctype_arg, ast.Name):
+                doctype_name = doctype_arg.id
+            
+            # Get line context
+            line_num = node.lineno
+            context = ""
+            if line_num <= len(source_lines):
+                context = source_lines[line_num - 1].strip()
+            
+            # Create validation issue
+            # Handle file path safely
+            try:
+                file_str = str(file_path.relative_to(self.app_path))
+            except ValueError:
+                # If file_path is not under app_path, use the absolute path
+                file_str = str(file_path)
+                
+            return ValidationIssue(
+                file=file_str,
+                line=line_num,
+                field="filters",
+                doctype=doctype_name,
+                reference=f"{func_name}({doctype_name}, {{}}, ...)",
+                message=f"Dangerous empty dictionary pattern detected in {func_name}. This returns a random record and can cause data corruption.",
+                context=context,
+                confidence="high",
+                issue_type="dangerous_empty_dict_pattern",
+                suggested_fix=f"Add proper filters or use order_by parameter: {func_name}({doctype_name}, filters, field, order_by='name')"
+            )
+            
+        except Exception as e:
+            # If we can't parse the node structure, skip it
+            return None
         
     def _validate_with_regex_enhanced(self, content: str, file_path: Path) -> List[ValidationIssue]:
         """Enhanced regex validation with better filtering"""

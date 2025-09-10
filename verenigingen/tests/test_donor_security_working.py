@@ -17,7 +17,7 @@ Uses realistic data generation and proper Frappe testing patterns.
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from frappe.utils import getdate, add_days
 import time
 
@@ -27,7 +27,7 @@ from verenigingen.permissions import (
 )
 
 
-class TestDonorSecurityWorking(FrappeTestCase):
+class TestDonorSecurityWorking(EnhancedTestCase):
     """
     Working donor security test suite
     
@@ -39,38 +39,29 @@ class TestDonorSecurityWorking(FrappeTestCase):
         """Set up basic test data"""
         super().setUp()
         
-        # Set admin user for test data creation
-        frappe.set_user("Administrator")
-        
-        # Create test member (simple, no user linking)
-        self.test_member = frappe.get_doc({
-            'doctype': 'Member',
-            'first_name': 'Security',
-            'last_name': 'Test',
-            'email': 'security_test@example.com',
-            'birth_date': add_days(getdate(), -10000)  # About 27 years old
-        })
-        self.test_member.insert(ignore_permissions=True)
+        # Use Enhanced Test Factory for test data creation
+        self.test_member = self.create_test_member(
+            first_name='Security',
+            last_name='Test',
+            email='security_test@example.com',
+            birth_date=add_days(getdate(), -10000)  # About 27 years old
+        )
         
         # Create test donor linked to member
-        self.linked_donor = frappe.get_doc({
-            'doctype': 'Donor',
-            'donor_name': 'Security Test Donor',
-            'donor_type': 'Individual',
-            'donor_email': 'security_donor@example.com',
-            'member': self.test_member.name
-        })
-        self.linked_donor.insert(ignore_permissions=True)
+        self.linked_donor = self.create_test_donor(
+            donor_name='Security Test Donor',
+            donor_type='Individual',
+            donor_email='security_donor@example.com',
+            member=self.test_member.name
+        )
         
         # Create orphaned donor (no member link)
-        self.orphaned_donor = frappe.get_doc({
-            'doctype': 'Donor',
-            'donor_name': 'Orphaned Security Donor',
-            'donor_type': 'Organization',
-            'donor_email': 'orphaned@example.com'
-            # No member field set
-        })
-        self.orphaned_donor.insert(ignore_permissions=True)
+        self.orphaned_donor = self.create_test_donor(
+            donor_name='Orphaned Security Donor',
+            donor_type='Organization',
+            donor_email='orphaned@example.com'
+            # No member field set - None by default
+        )
         
     def test_sql_injection_prevention_basic(self):
         """
@@ -161,13 +152,11 @@ class TestDonorSecurityWorking(FrappeTestCase):
         the linked member still exists.
         """
         # Create donor and then set invalid member link
-        invalid_donor = frappe.get_doc({
-            'doctype': 'Donor',
-            'donor_name': 'Invalid Link Test Donor',
-            'donor_type': 'Individual',
-            'donor_email': 'invalid_link@example.com'
-        })
-        invalid_donor.insert(ignore_permissions=True)
+        invalid_donor = self.create_test_donor(
+            donor_name='Invalid Link Test Donor',
+            donor_type='Individual',
+            donor_email='invalid_link@example.com'
+        )
         
         # Manually set invalid member reference
         frappe.db.set_value('Donor', invalid_donor.name, 'member', 'FAKE-MEMBER-999')
@@ -180,8 +169,8 @@ class TestDonorSecurityWorking(FrappeTestCase):
             self.assertFalse(result, "Donor with invalid member link should return False")
             
         finally:
-            # Clean up
-            frappe.delete_doc('Donor', invalid_donor.name, force=True)
+            # Enhanced Test Factory handles cleanup automatically
+            pass
             
     def test_enhanced_error_handling_null_empty_values(self):
         """
@@ -310,7 +299,7 @@ class TestDonorSecurityWorking(FrappeTestCase):
         This tests that the permission system works with frappe.get_all().
         """
         # Test as admin - should see all donors
-        frappe.set_user('Administrator')
+        # Enhanced Test Factory handles user context properly
         
         admin_donors = frappe.get_all(
             'Donor',
@@ -383,26 +372,12 @@ class TestDonorSecurityWorking(FrappeTestCase):
                         f"Escaping failed for '{name}': {e}")
                         
     def tearDown(self):
-        """Clean up test data"""
-        # Clean up test donors
-        for donor_name in [self.linked_donor.name, self.orphaned_donor.name]:
-            try:
-                if frappe.db.exists('Donor', donor_name):
-                    frappe.delete_doc('Donor', donor_name, force=True)
-            except Exception:
-                pass  # Ignore cleanup errors
-                
-        # Clean up test member
-        try:
-            if frappe.db.exists('Member', self.test_member.name):
-                frappe.delete_doc('Member', self.test_member.name, force=True)
-        except Exception:
-            pass  # Ignore cleanup errors
-            
+        """Clean up handled by Enhanced Test Factory rollback."""
         super().tearDown()
+        # Enhanced Test Factory handles cleanup automatically
 
 
-class TestDonorSecurityEdgeCases(FrappeTestCase):
+class TestDonorSecurityEdgeCases(EnhancedTestCase):
     """
     Additional edge case tests for donor security
     
@@ -412,7 +387,7 @@ class TestDonorSecurityEdgeCases(FrappeTestCase):
     def setUp(self):
         """Set up edge case test data"""
         super().setUp()
-        frappe.set_user("Administrator")
+        # Enhanced Test Factory handles user permissions properly
         
     def test_sql_injection_comprehensive_vectors(self):
         """

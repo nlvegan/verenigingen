@@ -286,25 +286,31 @@
                         </div>
                     </div>
                     <div class="card-content">
+                        {% if dashboard_data and dashboard_data.financial_summary %}
                         <div class="financial-overview">
                             <div class="financial-period">
                                 <h4>This Month</h4>
                                 <ul class="financial-stats">
-                                    <li>Expenses Submitted: <strong>€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.expenses_submitted) }}</strong></li>
-                                    <li>Expenses Approved: <strong>€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.expenses_approved) }}</strong></li>
-                                    <li>Pending Approval: <strong>€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.pending_approval) }}</strong></li>
+                                    <li>Expenses Submitted: <strong>€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.expenses_submitted) if dashboard_data.financial_summary.this_month else "0.00" }}</strong></li>
+                                    <li>Expenses Approved: <strong>€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.expenses_approved) if dashboard_data.financial_summary.this_month else "0.00" }}</strong></li>
+                                    <li>Pending Approval: <strong>€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.pending_approval) if dashboard_data.financial_summary.this_month else "0.00" }}</strong></li>
                                 </ul>
                             </div>
 
                             <div class="financial-period">
                                 <h4>Year to Date</h4>
                                 <ul class="financial-stats">
-                                    <li>Total Expenses: <strong>€{{ "%.2f"|format(dashboard_data.financial_summary.ytd.total_expenses) }}</strong></li>
-                                    <li>Average per Claim: <strong>€{{ "%.2f"|format(dashboard_data.financial_summary.ytd.average_claim) }}</strong></li>
-                                    <li>Total Claims: <strong>{{ dashboard_data.financial_summary.ytd.total_claims }}</strong></li>
+                                    <li>Total Expenses: <strong>€{{ "%.2f"|format(dashboard_data.financial_summary.ytd.total_expenses) if dashboard_data.financial_summary.ytd else "0.00" }}</strong></li>
+                                    <li>Average per Claim: <strong>€{{ "%.2f"|format(dashboard_data.financial_summary.ytd.average_claim) if dashboard_data.financial_summary.ytd else "0.00" }}</strong></li>
+                                    <li>Total Claims: <strong>{{ dashboard_data.financial_summary.ytd.total_claims if dashboard_data.financial_summary.ytd else 0 }}</strong></li>
                                 </ul>
                             </div>
                         </div>
+                        {% else %}
+                        <div class="financial-overview">
+                            <p class="no-data">Financial data is not available at this time.</p>
+                        </div>
+                        {% endif %}
                     </div>
                 </div>
                 {% endif %}

@@ -61,8 +61,8 @@ class TestMembershipTypeMinimumPeriod(EnhancedTestCase):
     def test_renewal_with_enforcement(self):
         """Test renewal dates when enforcement is enabled"""
         # Create membership type with enforcement
-        mt = MembershipTestUtilities.create_membership_type_with_subscription(
-            name="Test Enforced Monthly", period="Monthly", amount=25.0, enforce_minimum_period=True
+        mt = MembershipTestUtilities.create_membership_type_with_dues_schedule(
+            name="Test Enforced Monthly", period="Monthly", amount=25.0, enforce_minimum_period=True, test_case=self
         )["membership_type"]
 
         # Create membership
@@ -82,8 +82,8 @@ class TestMembershipTypeMinimumPeriod(EnhancedTestCase):
     def test_renewal_without_enforcement(self):
         """Test renewal dates when enforcement is disabled"""
         # Create membership type without enforcement
-        mt = MembershipTestUtilities.create_membership_type_with_subscription(
-            name="Test Non-Enforced Monthly", period="Monthly", amount=25.0, enforce_minimum_period=False
+        mt = MembershipTestUtilities.create_membership_type_with_dues_schedule(
+            name="Test Non-Enforced Monthly", period="Monthly", amount=25.0, enforce_minimum_period=False, test_case=self
         )["membership_type"]
 
         # Create membership
@@ -102,8 +102,8 @@ class TestMembershipTypeMinimumPeriod(EnhancedTestCase):
 
     def test_daily_membership_with_enforcement(self):
         """Test daily membership with enforcement gets 1 year"""
-        mt = MembershipTestUtilities.create_membership_type_with_subscription(
-            name="Test Enforced Daily", period="Daily", amount=5.0, enforce_minimum_period=True
+        mt = MembershipTestUtilities.create_membership_type_with_dues_schedule(
+            name="Test Enforced Daily", period="Daily", amount=5.0, enforce_minimum_period=True, test_case=self
         )["membership_type"]
 
         membership = frappe.get_doc(
@@ -121,8 +121,8 @@ class TestMembershipTypeMinimumPeriod(EnhancedTestCase):
 
     def test_daily_membership_without_enforcement(self):
         """Test daily membership without enforcement gets 1 day"""
-        mt = MembershipTestUtilities.create_membership_type_with_subscription(
-            name="Test Non-Enforced Daily", period="Daily", amount=5.0, enforce_minimum_period=False
+        mt = MembershipTestUtilities.create_membership_type_with_dues_schedule(
+            name="Test Non-Enforced Daily", period="Daily", amount=5.0, enforce_minimum_period=False, test_case=self
         )["membership_type"]
 
         membership = frappe.get_doc(
@@ -143,8 +143,8 @@ class TestMembershipTypeMinimumPeriod(EnhancedTestCase):
     def test_annual_membership_unaffected(self):
         """Test that annual memberships are unaffected by the setting"""
         # Test with enforcement enabled
-        mt_enforced = MembershipTestUtilities.create_membership_type_with_subscription(
-            name="Test Enforced Annual", period="Annual", amount=100.0, enforce_minimum_period=True
+        mt_enforced = MembershipTestUtilities.create_membership_type_with_dues_schedule(
+            name="Test Enforced Annual", period="Annual", amount=100.0, enforce_minimum_period=True, test_case=self
         )["membership_type"]
 
         membership1 = frappe.get_doc(
@@ -158,8 +158,8 @@ class TestMembershipTypeMinimumPeriod(EnhancedTestCase):
 
         # Test with enforcement disabled
         member2 = self.factory.create_test_members([self.chapter], count=1)[0]
-        mt_not_enforced = MembershipTestUtilities.create_membership_type_with_subscription(
-            name="Test Non-Enforced Annual", period="Annual", amount=100.0, enforce_minimum_period=False
+        mt_not_enforced = MembershipTestUtilities.create_membership_type_with_dues_schedule(
+            name="Test Non-Enforced Annual", period="Annual", amount=100.0, enforce_minimum_period=False, test_case=self
         )["membership_type"]
 
         membership2 = frappe.get_doc(
@@ -179,8 +179,8 @@ class TestMembershipTypeMinimumPeriod(EnhancedTestCase):
     def test_lifetime_membership_behavior(self):
         """Test lifetime membership behavior with and without enforcement"""
         # With enforcement
-        mt_enforced = MembershipTestUtilities.create_membership_type_with_subscription(
-            name="Test Enforced Lifetime", period="Lifetime", amount=1000.0, enforce_minimum_period=True
+        mt_enforced = MembershipTestUtilities.create_membership_type_with_dues_schedule(
+            name="Test Enforced Lifetime", period="Lifetime", amount=1000.0, enforce_minimum_period=True, test_case=self
         )["membership_type"]
 
         membership1 = frappe.get_doc(
@@ -198,8 +198,8 @@ class TestMembershipTypeMinimumPeriod(EnhancedTestCase):
 
         # Without enforcement
         member2 = self.factory.create_test_members([self.chapter], count=1)[0]
-        mt_not_enforced = MembershipTestUtilities.create_membership_type_with_subscription(
-            name="Test Non-Enforced Lifetime", period="Lifetime", amount=1000.0, enforce_minimum_period=False
+        mt_not_enforced = MembershipTestUtilities.create_membership_type_with_dues_schedule(
+            name="Test Non-Enforced Lifetime", period="Lifetime", amount=1000.0, enforce_minimum_period=False, test_case=self
         )["membership_type"]
 
         membership2 = frappe.get_doc(
@@ -220,12 +220,12 @@ class TestMembershipTypeMinimumPeriod(EnhancedTestCase):
     def test_context_manager_with_type_names(self):
         """Test the context manager with specific type names"""
         # Create two membership types
-        mt1 = MembershipTestUtilities.create_membership_type_with_subscription(
-            name="Test Type 1", period="Monthly", amount=10.0, enforce_minimum_period=True
+        mt1 = MembershipTestUtilities.create_membership_type_with_dues_schedule(
+            name="Test Type 1", period="Monthly", amount=10.0, enforce_minimum_period=True, test_case=self
         )["membership_type"]
 
-        mt2 = MembershipTestUtilities.create_membership_type_with_subscription(
-            name="Test Type 2", period="Monthly", amount=20.0, enforce_minimum_period=True
+        mt2 = MembershipTestUtilities.create_membership_type_with_dues_schedule(
+            name="Test Type 2", period="Monthly", amount=20.0, enforce_minimum_period=True, test_case=self
         )["membership_type"]
 
         # Both should have enforcement enabled
@@ -251,8 +251,8 @@ class TestMembershipTypeMinimumPeriod(EnhancedTestCase):
     def test_cancellation_validation_with_enforcement(self):
         """Test that cancellation validation respects per-type enforcement"""
         # Create membership type with enforcement
-        mt = MembershipTestUtilities.create_membership_type_with_subscription(
-            name="Test Cancel Enforced", period="Monthly", amount=50.0, enforce_minimum_period=True
+        mt = MembershipTestUtilities.create_membership_type_with_dues_schedule(
+            name="Test Cancel Enforced", period="Monthly", amount=50.0, enforce_minimum_period=True, test_case=self
         )["membership_type"]
 
         # Create and submit membership
@@ -282,8 +282,8 @@ class TestMembershipTypeMinimumPeriod(EnhancedTestCase):
     def test_cancellation_allowed_without_enforcement(self):
         """Test that cancellation is allowed when enforcement is disabled"""
         # Create membership type without enforcement
-        mt = MembershipTestUtilities.create_membership_type_with_subscription(
-            name="Test Cancel Not Enforced", period="Monthly", amount=50.0, enforce_minimum_period=False
+        mt = MembershipTestUtilities.create_membership_type_with_dues_schedule(
+            name="Test Cancel Not Enforced", period="Monthly", amount=50.0, enforce_minimum_period=False, test_case=self
         )["membership_type"]
 
         # Create and submit membership

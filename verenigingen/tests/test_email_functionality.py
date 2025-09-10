@@ -7,33 +7,26 @@ Phase 2 Implementation - Testing
 import frappe
 import unittest
 from frappe.test_runner import make_test_records
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestEmailFunctionality(VereningingenTestCase):
+class TestEmailFunctionality(EnhancedTestCase):
     """Test email and newsletter functionality"""
     
-    @classmethod
-    def setUpClass(cls):
+    def setUp(self):
         """Set up test environment"""
-        super().setUpClass()
+        super().setUp()
         
-        # Create test chapter if needed
-        if not frappe.db.exists("Chapter", "Test Email Chapter"):
-            chapter = frappe.get_doc({
-                "doctype": "Chapter",
-                "name": "Test Email Chapter",
-                "chapter_name": "Test Email Chapter",
+        # Create test chapter using Enhanced Test Factory
+        self.test_chapter = self.factory.ensure_test_chapter(
+            "Test Email Chapter",
+            {
                 "short_name": "TEC",
-                "region": cls.test_region,
                 "postal_codes": "1000-1099",
                 "published": 1,
                 "country": "Netherlands"
-            })
-            chapter.insert()  # COMPLIANCE FIX: Remove permission bypass
-            cls.test_chapter = chapter
-        else:
-            cls.test_chapter = frappe.get_doc("Chapter", "Test Email Chapter")
+            }
+        )
     
     def test_simplified_email_manager_import(self):
         """Test that SimplifiedEmailManager can be imported"""

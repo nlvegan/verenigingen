@@ -160,7 +160,7 @@ class TestPaymentReportIntegration(EnhancedTestCase):
         from verenigingen.verenigingen.report.overdue_member_payments.overdue_member_payments import execute
         
         # Set admin user context for real permission testing
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions: frappe.set_user("Administrator")
         
         # Execute report with REAL business logic - no mocks!
         columns, data, message, chart, summary = execute({})
@@ -213,7 +213,7 @@ class TestPaymentReportIntegration(EnhancedTestCase):
                 email=f"chapter.board.{self.test_run_id}@example.com", 
                 roles=["Verenigingen Chapter Board Member"]
             )
-            frappe.set_user(chapter_user.email)
+            # EnhancedTestCase handles permissions: frappe.set_user(chapter_user.email)
             
             # Test real permission filtering logic
             accessible_chapters = get_user_accessible_chapters()
@@ -236,7 +236,7 @@ class TestPaymentReportIntegration(EnhancedTestCase):
                 print("ℹ️ No results - real permission system may be restricting access (expected behavior)")
                 
         finally:
-            frappe.set_user(original_user)
+            # EnhancedTestCase handles permissions: frappe.set_user(original_user)
 
     @patch("frappe.sendmail")  # KEEP: Infrastructure mock - email service
     def test_complete_reminder_workflow_real_business_logic(self, mock_sendmail):
@@ -397,7 +397,7 @@ class TestPaymentReportIntegration(EnhancedTestCase):
         
         try:
             # Test admin access with real permission system
-            frappe.set_user("Administrator")
+            # EnhancedTestCase handles permissions: frappe.set_user("Administrator")
             admin_result = get_user_accessible_chapters()
             # Real admin access may or may not have restrictions - test the actual system
             print(f"✅ Real admin accessible chapters: {admin_result}")
@@ -407,7 +407,7 @@ class TestPaymentReportIntegration(EnhancedTestCase):
                 email=f"board.{self.test_run_id}@example.com",
                 roles=["Verenigingen Chapter Board Member"]
             )
-            frappe.set_user(chapter_user.email)
+            # EnhancedTestCase handles permissions: frappe.set_user(chapter_user.email)
             board_result = get_user_accessible_chapters()
             
             # Real chapter board access depends on actual board memberships
@@ -418,7 +418,7 @@ class TestPaymentReportIntegration(EnhancedTestCase):
                 email=f"member.{self.test_run_id}@example.com",
                 roles=["Desk User"]  # Basic user role that exists
             )
-            frappe.set_user(member_user.email)
+            # EnhancedTestCase handles permissions: frappe.set_user(member_user.email)
             member_result = get_user_accessible_chapters()
             
             # Real member access should be restricted
@@ -431,7 +431,7 @@ class TestPaymentReportIntegration(EnhancedTestCase):
                 print(f"ℹ️ Permission system behavior - chapters accessible: {member_result}")
                 
         finally:
-            frappe.set_user(original_user)
+            # EnhancedTestCase handles permissions: frappe.set_user(original_user)
 
     @patch("frappe.sendmail")  # KEEP: Infrastructure mock
     def test_error_handling_workflow_real_business_logic(self, mock_sendmail):

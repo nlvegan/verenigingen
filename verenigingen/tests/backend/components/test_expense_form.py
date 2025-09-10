@@ -3,12 +3,12 @@ Test the expense claim form (Vue 3 + Tailwind implementation)
 This tests the PoC expense form functionality
 """
 
-import unittest
 import frappe
 from frappe.utils import now_datetime
 import json
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-class TestExpenseForm(unittest.TestCase):
+class TestExpenseForm(EnhancedTestCase):
     """Test the expense claim form functionality"""
 
     def test_expense_form_backend(self):

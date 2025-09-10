@@ -15,14 +15,14 @@ from datetime import datetime, timedelta
 import frappe
 from frappe.test_runner import make_test_records
 
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.security.csrf_protection import CSRFProtection, CSRFError
 from verenigingen.utils.security.rate_limiting import RateLimiter, RateLimitExceeded
 from verenigingen.utils.security.authorization import SEPAAuthorizationManager, SEPAOperation, SEPAPermissionLevel
 from verenigingen.utils.security.audit_logging import SEPAAuditLogger, AuditEventType, AuditSeverity
 
 
-class TestCSRFProtection(VereningingenTestCase):
+class TestCSRFProtection(EnhancedTestCase):
     """Test CSRF protection system"""
     
     def setUp(self):
@@ -100,7 +100,7 @@ class TestCSRFProtection(VereningingenTestCase):
             self.assertIn("header_name", token_result)
 
 
-class TestRateLimiting(VereningingenTestCase):
+class TestRateLimiting(EnhancedTestCase):
     """Test rate limiting system"""
     
     def setUp(self):
@@ -180,7 +180,7 @@ class TestRateLimiting(VereningingenTestCase):
             # This is a simplified test - full integration testing would be needed
 
 
-class TestAuthorization(VereningingenTestCase):
+class TestAuthorization(EnhancedTestCase):
     """Test authorization system"""
     
     def setUp(self):
@@ -267,7 +267,7 @@ class TestAuthorization(VereningingenTestCase):
         self.assertTrue(result)
 
 
-class TestAuditLogging(VereningingenTestCase):
+class TestAuditLogging(EnhancedTestCase):
     """Test audit logging system"""
     
     def setUp(self):
@@ -360,7 +360,7 @@ class TestAuditLogging(VereningingenTestCase):
             # (In a real test, we'd search for the audit log entry)
 
 
-class TestSecurityIntegration(VereningingenTestCase):
+class TestSecurityIntegration(EnhancedTestCase):
     """Test integration of all security measures"""
     
     def test_secure_api_endpoint_full_stack(self):
@@ -442,7 +442,7 @@ class TestSecurityIntegration(VereningingenTestCase):
             self.assertIn("severity_levels", stats_result)
 
 
-class TestSecurityConfiguration(VereningingenTestCase):
+class TestSecurityConfiguration(EnhancedTestCase):
     """Test security configuration and edge cases"""
     
     def test_invalid_operations(self):

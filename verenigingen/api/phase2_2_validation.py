@@ -66,7 +66,7 @@ def _test_background_job_manager() -> Dict[str, Any]:
         from verenigingen.utils.background_jobs import BackgroundJobManager
 
         # Test basic job queuing
-        test_member = frappe.get_value("Member", {}, "name")
+        test_member = frappe.get_value("Member", {}, "name", order_by="name")
         if not test_member:
             return {"status": "skipped", "reason": "No test member available"}
 
@@ -171,7 +171,7 @@ def _test_performance_measurement() -> Dict[str, Any]:
         # Test that background jobs can be queued
         from verenigingen.utils.background_jobs import BackgroundJobManager
 
-        test_member = frappe.get_value("Member", {}, "name")
+        test_member = frappe.get_value("Member", {}, "name", order_by="name")
 
         performance_results = {
             "basic_query_time": execution_time,
@@ -201,7 +201,7 @@ def test_payment_entry_optimization() -> Dict[str, Any]:
 
     try:
         # Find a test customer
-        test_customer = frappe.get_value("Customer", {}, "name")
+        test_customer = frappe.get_value("Customer", {}, "name", order_by="name")
         if not test_customer:
             return {"status": "skipped", "reason": "No test customer available"}
 

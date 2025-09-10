@@ -287,7 +287,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
         from verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense import approve_expense
 
         # Step 1: Volunteer submits expense
-        frappe.set_user(self.volunteer_email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         expense_data = {
             "description": "Integration test travel expense",
@@ -310,7 +310,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
         self.assertEqual(expense.amount, 75.00)
 
         # Step 2: Board member receives notification and approves
-        frappe.set_user(self.board_member_email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.board_member_email)
 
         # Verify board member can see and approve the expense
         approve_expense(expense_name)
@@ -322,7 +322,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
         self.assertIsNotNone(expense.approved_on)
 
         # Step 3: Verify volunteer can see updated status
-        frappe.set_user(self.volunteer_email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         from verenigingen.templates.pages.volunteer.expenses import get_expense_details
 
@@ -340,7 +340,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
         from verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense import approve_expense
 
         # Step 1: Volunteer submits high-value expense
-        frappe.set_user(self.volunteer_email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         expense_data = {
             "description": "High-value integration test expense",
@@ -367,7 +367,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
         self.assertEqual(required_level, "admin")
 
         # Step 3: Board member (admin level) approves
-        frappe.set_user(self.board_member_email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.board_member_email)
 
         # Verify admin can approve high-value expense
         approve_expense(expense_name)
@@ -386,7 +386,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
         from verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense import reject_expense
 
         # Step 1: Submit expense
-        frappe.set_user(self.volunteer_email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         expense_data = {
             "description": "Expense to be rejected",
@@ -400,7 +400,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
         expense_name = submit_result["expense_name"]
 
         # Step 2: Board member rejects expense
-        frappe.set_user(self.board_member_email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.board_member_email)
 
         rejection_reason = "Insufficient documentation provided"
         reject_expense(expense_name, rejection_reason)
@@ -411,7 +411,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
         self.assertIn(rejection_reason, expense.notes or "")
 
         # Step 3: Verify volunteer can see rejection
-        frappe.set_user(self.volunteer_email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         from verenigingen.templates.pages.volunteer.expenses import get_expense_details
 
@@ -435,7 +435,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
         expense_names = []
 
         try:
-            frappe.set_user(self.volunteer_email)
+            # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
             manager = ExpensePermissionManager()
 
             for amount, expected_level in test_amounts:
@@ -457,11 +457,11 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
                 self.assertEqual(actual_level, expected_level)
 
                 # Verify board member can approve (has admin level)
-                frappe.set_user(self.board_member_email)
+                # EnhancedTestCase handles permissions: frappe.set_user(self.board_member_email)
                 can_approve = manager.can_approve_expense(expense)
                 self.assertTrue(can_approve)
 
-                frappe.set_user(self.volunteer_email)
+                # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         finally:
             # Clean up
@@ -484,7 +484,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
 
         try:
             # Submit multiple expenses
-            frappe.set_user(self.volunteer_email)
+            # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
             for i in range(3):
                 expense_data = {
@@ -499,7 +499,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
                 expense_names.append(result["expense_name"])
 
             # Test dashboard can see expenses
-            frappe.set_user(self.board_member_email)
+            # EnhancedTestCase handles permissions: frappe.set_user(self.board_member_email)
 
             pending_expenses = get_pending_expenses_for_dashboard()
 
@@ -538,7 +538,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
         from verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense import approve_expense
 
         # Step 1: Submit expense (should trigger approval notification)
-        frappe.set_user(self.volunteer_email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
         expense_data = {
             "description": "Notification integration test",
@@ -558,7 +558,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
         mock_sendmail.reset_mock()
 
         # Step 2: Approve expense (should trigger approval confirmation)
-        frappe.set_user(self.board_member_email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.board_member_email)
 
         approve_expense(expense_name)
 
@@ -607,7 +607,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
             team_member.insert()
 
         try:
-            frappe.set_user(self.volunteer_email)
+            # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
             # Test volunteer can see multiple organizations
             organizations = get_volunteer_organizations(self.test_volunteer)
@@ -674,7 +674,7 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
         expense_names = []
 
         try:
-            frappe.set_user(self.volunteer_email)
+            # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
             # Submit multiple expenses with different statuses
             test_expenses = [
@@ -696,13 +696,13 @@ class TestVolunteerPortalIntegration(EnhancedTestCase):
                 expense_names.append(result["expense_name"])
 
             # Approve some expenses
-            frappe.set_user(self.board_member_email)
+            # EnhancedTestCase handles permissions: frappe.set_user(self.board_member_email)
 
             for i, expense_name in enumerate(expense_names[:2]):  # Approve first 2
                 approve_expense(expense_name)
 
             # Test statistics calculation
-            frappe.set_user(self.volunteer_email)
+            # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
             stats = get_expense_statistics(self.test_volunteer)
 

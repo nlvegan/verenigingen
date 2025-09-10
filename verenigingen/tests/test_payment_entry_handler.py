@@ -10,14 +10,14 @@ Tests cover:
 
 import unittest
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import nowdate, add_days
 from decimal import Decimal
 
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.e_boekhouden.utils.payment_processing import PaymentEntryHandler
 
 
-class TestPaymentEntryHandler(FrappeTestCase):
+class TestPaymentEntryHandler(EnhancedTestCase):
     """Test enhanced payment entry handler functionality."""
     
     @classmethod
@@ -31,18 +31,9 @@ class TestPaymentEntryHandler(FrappeTestCase):
         self.handler = PaymentEntryHandler(self.company)
         
     def tearDown(self):
-        """Clean up after each test."""
-        # Clean up test payments
-        test_payments = frappe.get_all(
-            "Payment Entry",
-            filters={"remarks": ["like", "%TEST-PAYMENT%"]},
-            pluck="name"
-        )
-        for payment in test_payments:
-            doc = frappe.get_doc("Payment Entry", payment)
-            if doc.docstatus == 1:
-                doc.cancel()
-            doc.delete()
+        """Clean up handled by Enhanced Test Factory rollback."""
+        super().tearDown()
+        # Enhanced Test Factory handles cleanup automatically
     
     def test_parse_invoice_numbers(self):
         """Test parsing of comma-separated invoice numbers."""
@@ -90,8 +81,7 @@ class TestPaymentEntryHandler(FrappeTestCase):
         self.assertIsNotNone(result)
         self.assertNotIn("Kas", result)  # Should not be cash account
         
-        # Clean up
-        frappe.db.delete("E-Boekhouden Ledger Mapping", {"ledger_id": 99999})
+        # Enhanced Test Factory handles cleanup automatically
     
     def test_bank_account_fallback(self):
         """Test bank account fallback when no ledger mapping exists."""
@@ -126,10 +116,7 @@ class TestPaymentEntryHandler(FrappeTestCase):
         self.assertEqual(pe.received_amount, 100.00)
         self.assertEqual(pe.eboekhouden_mutation_nr, "12345")
         
-        # Clean up
-        if pe.docstatus == 1:
-            pe.cancel()
-        pe.delete()
+        # Enhanced Test Factory handles cleanup automatically
     
     def test_multi_invoice_payment_with_rows(self):
         """Test payment with multiple invoices and row allocations."""
@@ -148,15 +135,13 @@ class TestPaymentEntryHandler(FrappeTestCase):
             ]
         }
         
-        # Create test supplier if needed
+        # Create test supplier (Enhanced Test Factory handles cleanup automatically)
         if not frappe.db.exists("Supplier", "TEST-SUPP-001"):
             supplier = frappe.new_doc("Supplier")
             supplier.supplier_name = "Test Supplier 001"
-            # Get supplier group (ordered for consistency)
             supplier_group = frappe.db.get_value("Supplier Group", {"is_group": 0}, "name", order_by="name")
-            if not supplier_group:
-                frappe.throw("No supplier group found. Please create supplier groups for tests.")
-            supplier.supplier_group = supplier_group
+            if supplier_group:
+                supplier.supplier_group = supplier_group
             supplier.save()
         
         # Process payment
@@ -175,10 +160,7 @@ class TestPaymentEntryHandler(FrappeTestCase):
         self.assertIn("Found 2 invoice(s)", " ".join(self.handler.debug_log))
         self.assertIn("row(s) to", " ".join(self.handler.debug_log))
         
-        # Clean up
-        if pe.docstatus == 1:
-            pe.cancel()
-        pe.delete()
+        # Enhanced Test Factory handles cleanup automatically
     
     def test_payment_without_party(self):
         """Test payment creation without party (relation ID)."""
@@ -201,10 +183,7 @@ class TestPaymentEntryHandler(FrappeTestCase):
         self.assertIsNone(pe.party)
         self.assertEqual(pe.reference_no, "EB-67890")
         
-        # Clean up
-        if pe.docstatus == 1:
-            pe.cancel()
-        pe.delete()
+        # Enhanced Test Factory handles cleanup automatically
     
     def test_error_handling_invalid_type(self):
         """Test error handling for invalid mutation type."""

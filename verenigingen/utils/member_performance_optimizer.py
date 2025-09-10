@@ -282,7 +282,8 @@ class MemberPerformanceOptimizer:
             LEFT JOIN `tabMembership Dues Schedule` mds ON m.current_dues_schedule = mds.name
             LEFT JOIN `tabMember Payment History` mph ON mph.parent = m.name
                 AND mph.payment_date >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
-            LEFT JOIN `tabVolunteer Expense` ve ON ve.member = m.name
+            LEFT JOIN `tabVolunteer` v ON v.member = m.name
+            LEFT JOIN `tabVolunteer Expense` ve ON ve.volunteer = v.name
                 AND ve.expense_date >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
             LEFT JOIN `tabChapter Member` cm ON cm.member = m.name AND cm.enabled = 1
             LEFT JOIN `tabChapter` ch ON cm.parent = ch.name

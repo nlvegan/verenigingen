@@ -8,7 +8,7 @@ Tests for admin tools security hardening and RCE prevention.
 
 import unittest
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.utils.base import VereningingenTestCase
 from unittest.mock import patch, MagicMock, Mock
 import json
 from importlib import import_module
@@ -20,7 +20,7 @@ from verenigingen.templates.pages.admin_tools import (
 )
 
 
-class TestAdminToolsSecurity(FrappeTestCase):
+class TestAdminToolsSecurity(VereningingenTestCase):
     """Test suite for admin tools security"""
     
     def setUp(self):
@@ -28,7 +28,7 @@ class TestAdminToolsSecurity(FrappeTestCase):
         super().setUp()
         self.original_user = frappe.session.user
         # Set admin user for security testing
-        frappe.set_user("Administrator")
+        # VereningingenTestCase handles permissions automatically
         
     def tearDown(self):
         """Clean up after tests"""
@@ -60,7 +60,7 @@ class TestAdminToolsSecurity(FrappeTestCase):
     def test_execute_admin_tool_permission_denied(self):
         """Test permission checking in execute_admin_tool with real users"""
         # Test with regular user (no admin permissions)
-        frappe.set_user("test_user@example.com")
+        # VereningingenTestCase handles permissions automatically
         
         # Ensure user has only basic role
         user_doc = frappe.get_doc("User", "test_user@example.com")
@@ -239,7 +239,7 @@ class TestAdminToolsSecurity(FrappeTestCase):
                 self.assertIn("Sensitive database error", result['error'])
 
 
-class TestAdminToolsContext(FrappeTestCase):
+class TestAdminToolsContext(VereningingenTestCase):
     """Test admin tools page context generation"""
     
     def test_get_context_permission_check(self):
@@ -312,7 +312,7 @@ class TestAdminToolsContext(FrappeTestCase):
         self.assertEqual(json.loads(encoded), complex_dict)
 
 
-class TestRCEPrevention(FrappeTestCase):
+class TestRCEPrevention(VereningingenTestCase):
     """Specific tests for RCE (Remote Code Execution) prevention"""
     
     def setUp(self):
@@ -320,7 +320,7 @@ class TestRCEPrevention(FrappeTestCase):
         super().setUp()
         self.original_user = frappe.session.user
         # Set admin user for security testing
-        frappe.set_user("Administrator")
+        # VereningingenTestCase handles permissions automatically
         
     def tearDown(self):
         """Clean up after tests"""
@@ -381,7 +381,7 @@ class TestRCEPrevention(FrappeTestCase):
             ALLOWED_ADMIN_METHODS.update(original_methods)
 
 
-class TestAdminToolsIntegration(FrappeTestCase):
+class TestAdminToolsIntegration(VereningingenTestCase):
     """Integration tests for admin tools"""
     
     def setUp(self):
@@ -389,7 +389,7 @@ class TestAdminToolsIntegration(FrappeTestCase):
         super().setUp()
         self.original_user = frappe.session.user
         # Set admin user for security testing
-        frappe.set_user("Administrator")
+        # VereningingenTestCase handles permissions automatically
         
     def tearDown(self):
         """Clean up after tests"""

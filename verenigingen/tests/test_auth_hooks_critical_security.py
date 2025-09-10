@@ -5,13 +5,13 @@ Tests specifically designed to catch the "User None is disabled" session validat
 and other critical security issues in authentication hooks without complex setup.
 """
 
-import unittest
 import frappe
 from unittest.mock import patch, MagicMock
 from verenigingen import auth_hooks
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
-class TestAuthHooksCriticalSecurity(unittest.TestCase):
+class TestAuthHooksCriticalSecurity(VereningingenTestCase):
     """Critical security tests for authentication hooks"""
 
     def setUp(self):

@@ -3,11 +3,11 @@ Test SEPA performance optimizations - N+1 query elimination
 """
 
 import frappe
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.api.sepa_batch_ui import load_unpaid_invoices, get_invoice_mandate_info, validate_invoice_mandate
 
 
-class TestSEPAPerformanceOptimization(VereningingenTestCase):
+class TestSEPAPerformanceOptimization(EnhancedTestCase):
     """Test performance improvements in SEPA operations"""
 
     def setUp(self):

@@ -29,7 +29,7 @@ import json
 from datetime import datetime, timedelta
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+# FrappeTestCase import removed - all classes use EnhancedTestCase
 from frappe.utils import now_datetime, add_days, flt
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase

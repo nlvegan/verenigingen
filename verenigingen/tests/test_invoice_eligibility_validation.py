@@ -5,10 +5,10 @@ Tests the separation of invoice generation from SEPA mandate validation
 
 import frappe
 from frappe.utils import today, add_days
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestInvoiceEligibilityValidation(VereningingenTestCase):
+class TestInvoiceEligibilityValidation(EnhancedTestCase):
     """
     Test invoice eligibility validation behavior after separating SEPA mandate 
     validation from invoice generation eligibility.

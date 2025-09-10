@@ -1,7 +1,7 @@
-import unittest
 import frappe
 from frappe.utils import add_days, now_datetime, today
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.api.member_management import add_member_to_chapter_roster
 from verenigingen.api.membership_application import (
@@ -300,7 +300,7 @@ class TestMembershipApplication(VereningingenTestCase):
         self.assertTrue(True)
 
 
-class TestMembershipApplicationLoad(unittest.TestCase):
+class TestMembershipApplicationLoad(EnhancedTestCase):
     """Load testing for membership applications"""
 
     def setUp(self):
@@ -1849,7 +1849,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
             pass
 
 
-class TestChapterSelection(unittest.TestCase):
+class TestChapterSelection(EnhancedTestCase):
     """Test chapter selection functionality in membership applications"""
 
     @classmethod
@@ -2391,7 +2391,7 @@ class TestChapterSelection(unittest.TestCase):
             pass
 
 
-class TestMembershipApplicationEdgeCases(unittest.TestCase):
+class TestMembershipApplicationEdgeCases(EnhancedTestCase):
     """Test edge cases and error conditions in membership application system"""
 
     def setUp(self):

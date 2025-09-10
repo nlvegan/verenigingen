@@ -2189,12 +2189,24 @@ class Member(
                 if len(self.fee_change_history) > 50:
                     self.fee_change_history = self.fee_change_history[:50]
 
-            # Save with minimal logging - fee history update
-            self.flags.ignore_version = True
-            self.flags.ignore_links = True
-            # Fee change history: only bypass after-submit validation for history updates
-            self.flags.ignore_validate_update_after_submit = True  # JUSTIFIED: History update
-            self.save()  # FIXED: Removed inappropriate permission bypass
+            # CORRECTED SECURE VERSION: Use secure operations with explicit permission validation
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            result = secure_document_operation(
+                operation="update_child_table",
+                doc=self,
+                justification=f"Add fee change to history for member {self.name}",
+                required_permissions=["Member:write"],
+                allow_system_user=False,  # Require explicit user permissions for financial data
+                bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to add fee change to history for member {self.name}: {'; '.join(result.errors)}",
+                    "Fee Change History Manager",
+                )
+                return
 
         except Exception as e:
             frappe.log_error(
@@ -2241,12 +2253,24 @@ class Member(
                 # Entry not in history, add it
                 self.add_fee_change_to_history(schedule_data)
             else:
-                # Save the updates with minimal logging - fee history update
-                self.flags.ignore_version = True
-                self.flags.ignore_links = True
-                # Fee change history: only bypass after-submit validation for history updates
-                self.flags.ignore_validate_update_after_submit = True  # JUSTIFIED: History update
-                self.save()  # FIXED: Removed inappropriate permission bypass
+                # CORRECTED SECURE VERSION: Use secure operations with explicit permission validation
+                from verenigingen.utils.secure_operations import secure_document_operation
+
+                result = secure_document_operation(
+                    operation="update_child_table",
+                    doc=self,
+                    justification=f"Update fee change in history for member {self.name}",
+                    required_permissions=["Member:write"],
+                    allow_system_user=False,  # Require explicit user permissions for financial data
+                    bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
+                )
+
+                if not result.success:
+                    frappe.log_error(
+                        f"Failed to update fee change in history for member {self.name}: {'; '.join(result.errors)}",
+                        "Fee Change History Manager",
+                    )
+                    return
 
         except Exception as e:
             frappe.log_error(
@@ -3967,10 +3991,12 @@ def refresh_fee_change_history(member_name):
         member_doc.flags.ignore_validate_update_after_submit = True  # JUSTIFIED: Fee history update
 
         fee_history_result = secure_document_operation(
-            operation="save",
+            operation="update_child_table",
             doc=member_doc,
             justification=f"Update fee change history for member {member_doc.name}",
             required_permissions=["Member:write"],
+            allow_system_user=False,  # Require explicit user permissions for financial data
+            bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
         )
 
         if not fee_history_result.success:

@@ -34,7 +34,7 @@ def check_customer_permissions():
         # Check if the current user can access Customer
         try:
             # Try to get a Customer record - will fail if no permission
-            frappe.db.get_value("Customer", {}, "name", limit=1)
+            frappe.db.get_value("Customer", {}, "name", limit=1, order_by="name")
             user_can_access = True
         except frappe.PermissionError:
             user_can_access = False

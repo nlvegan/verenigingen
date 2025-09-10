@@ -6,10 +6,10 @@ import random
 import frappe
 from frappe.utils import today
 
-from verenigingen.tests.test_base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestVolunteerAggregatedAssignments(VereningingenTestCase):
+class TestVolunteerAggregatedAssignments(EnhancedTestCase):
     def setUp(self):
         # Initialize the cleanup list
         self._docs_to_delete = []
@@ -44,7 +44,7 @@ class TestVolunteerAggregatedAssignments(VereningingenTestCase):
                 "start_date": today(),
             }
         )
-        self.test_volunteer.insert(ignore_permissions=True)
+        self.test_volunteer.insert()
         self._docs_to_delete.append(("Verenigingen Volunteer", self.test_volunteer.name))
 
         # Create Chapter Role if it doesn't exist

@@ -2,18 +2,17 @@
 Comprehensive tests for membership application submission edge cases and validation
 """
 
-import unittest
-
 import frappe
 from frappe.utils import today
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestApplicationSubmissionValidation(unittest.TestCase):
+class TestApplicationSubmissionValidation(EnhancedTestCase):
     """Test application submission validation and edge cases"""
 
     def setUp(self):
         """Set up test environment"""
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions automatically
         self.test_cleanup_records = []
 
     def tearDown(self):

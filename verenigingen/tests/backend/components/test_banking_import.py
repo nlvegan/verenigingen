@@ -8,14 +8,14 @@ Tests for MT940 and CAMT file processing
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.utils.base import VereningingenTestCase
 import os
 import tempfile
 from decimal import Decimal
 from datetime import date
 
 
-class TestBankingImport(FrappeTestCase):
+class TestBankingImport(VereningingenTestCase):
     """Test banking file import functionality"""
     
     def setUp(self):
@@ -29,7 +29,7 @@ class TestBankingImport(FrappeTestCase):
                 "iban": "NL13TEST0123456789",
                 "is_default": 1
             })
-            bank_account.insert(ignore_permissions=True)
+            bank_account.insert()  # VereningingenTestCase handles permissions
             
     def test_mt940_file_parsing(self):
         """Test MT940 file parsing"""

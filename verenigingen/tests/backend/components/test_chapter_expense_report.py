@@ -405,7 +405,7 @@ class TestChapterExpenseReport(VereningingenTestCase):
                 self.fail(f"get_erpnext_expense_data should handle database errors gracefully: {e}")
 
 
-class TestChapterExpenseReportIntegration(unittest.TestCase):
+class TestChapterExpenseReportIntegration(VereningingenTestCase):
     """Integration tests for Chapter Expense Report with ERPNext"""
 
     def setUp(self):

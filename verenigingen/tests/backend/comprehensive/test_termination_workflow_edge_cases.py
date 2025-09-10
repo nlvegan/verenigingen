@@ -3,14 +3,14 @@ Termination Workflow Edge Cases Test Suite
 Tests for membership termination complex scenarios, workflow states, and business logic
 """
 
-import unittest
 from unittest.mock import patch
 
 import frappe
 from frappe.utils import add_days, today
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestTerminationWorkflowEdgeCases(unittest.TestCase):
+class TestTerminationWorkflowEdgeCases(EnhancedTestCase):
     """Test termination workflow edge cases and complex scenarios"""
 
     @classmethod
@@ -82,7 +82,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
 
     def setUp(self):
         """Set up each test"""
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions automatically
 
     def tearDown(self):
         """Clean up after each test"""

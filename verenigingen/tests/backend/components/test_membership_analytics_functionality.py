@@ -2,7 +2,6 @@
 # See license.txt
 
 import frappe
-import unittest
 import json
 from datetime import datetime, timedelta
 from frappe.utils import getdate, add_months, now_datetime, add_days, flt
@@ -15,7 +14,7 @@ class TestMembershipAnalyticsFunctionality(BaseTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        frappe.set_user("Administrator")
+        # BaseTestCase handles permissions through custom framework
         
     def setUp(self):
         super().setUp()
@@ -480,7 +479,7 @@ class TestMembershipAnalyticsFunctionality(BaseTestCase):
     
     def tearDown(self):
         """Clean up test data"""
-        frappe.set_user("Administrator")
+        # BaseTestCase handles permissions through custom framework
         
         # Delete in order of dependencies
         frappe.db.sql("DELETE FROM `tabSales Invoice` WHERE customer LIKE 'Test Customer%'")
@@ -499,7 +498,7 @@ class TestPredictiveAnalytics(BaseTestCase):
     
     def setUp(self):
         super().setUp()
-        frappe.set_user("Administrator")
+        # BaseTestCase handles permissions through custom framework
         self.create_historical_data()
     
     def create_historical_data(self):
@@ -805,7 +804,7 @@ class TestPredictiveAnalytics(BaseTestCase):
     
     def tearDown(self):
         """Clean up test data"""
-        frappe.set_user("Administrator")
+        # BaseTestCase handles permissions through custom framework
         
         # Delete test data
         frappe.db.sql("DELETE FROM `tabSales Invoice` WHERE customer LIKE 'AtRisk Customer%'")
@@ -821,7 +820,7 @@ class TestAnalyticsAlertSystem(BaseTestCase):
     
     def setUp(self):
         super().setUp()
-        frappe.set_user("Administrator")
+        # BaseTestCase handles permissions through custom framework
         self.create_test_data()
     
     def create_test_data(self):
@@ -1057,7 +1056,7 @@ class TestAnalyticsAlertSystem(BaseTestCase):
     
     def tearDown(self):
         """Clean up test data"""
-        frappe.set_user("Administrator")
+        # BaseTestCase handles permissions through custom framework
         
         # Delete test data
         frappe.db.sql("DELETE FROM `tabAnalytics Alert Log`")

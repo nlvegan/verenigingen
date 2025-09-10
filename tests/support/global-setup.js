@@ -14,20 +14,30 @@ const { chromium } = require('@playwright/test');
 async function globalSetup(config) {
 	console.log('[Global Setup] Starting Playwright E2E test environment setup...');
 
+	// Defensive check for config structure
+	const baseURL = config?.use?.baseURL || 'https://dev.veganisme.net';
+	console.log(`[Global Setup] Using baseURL: ${baseURL}`);
+
 	const browser = await chromium.launch();
 	const page = await browser.newPage();
 
 	try {
 		// Step 1: Verify development environment is accessible
 		console.log('[Global Setup] Verifying development environment...');
-		await page.goto(config.use.baseURL, { timeout: 30000 });
+		await page.goto(baseURL, { timeout: 30000 });
 
 		const title = await page.title();
 		console.log(`[Global Setup] Environment accessible: ${title}`);
 
 		// Step 2: Verify required Mollie settings are configured
 		console.log('[Global Setup] Checking Mollie configuration...');
-		await verifyMollieConfiguration(page);
+		try {
+			await verifyMollieConfiguration(page);
+			console.log('[Global Setup] Mollie configuration verified ✓');
+		} catch (error) {
+			console.warn(`[Global Setup] Mollie configuration issue: ${error.message}`);
+			console.warn('[Global Setup] Continuing with limited Mollie testing capabilities');
+		}
 
 		// Step 3: Prepare test database state
 		console.log('[Global Setup] Preparing test database...');

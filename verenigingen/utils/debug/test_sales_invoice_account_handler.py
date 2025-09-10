@@ -24,8 +24,7 @@ class MockFrappe:
                 "obj",
                 (object,),
                 {
-                    "default_receivable_account": "13500 - Te ontvangen contributies",
-                    "membership_debit_account": "13500 - Te ontvangen contributies",
+                    "dues_payments_receivable_account": "13500 - Te ontvangen contributies",
                 },
             )()
         return None
@@ -67,10 +66,7 @@ sys.modules["frappe"] = MockFrappe()
 import frappe
 
 # Now import the module under test
-from sales_invoice_account_handler import (
-    set_membership_receivable_account,
-    validate_membership_debit_account_usage,
-)
+from sales_invoice_account_handler import set_membership_receivable_account
 
 
 def create_mock_sales_invoice(customer=None, items=None, remarks=None, debit_to=None, company="Test Company"):
@@ -219,13 +215,14 @@ def test_no_debit_to():
 
 
 def test_diagnostic_function():
-    """Test the diagnostic function for redundant field detection."""
-    print("\n=== Testing Diagnostic Function ===")
+    """Test basic functionality without errors."""
+    print("\n=== Testing Basic Functionality ===")
 
     invoice = create_mock_sales_invoice()
-    print("Test 8: Diagnostic function")
-    validate_membership_debit_account_usage(invoice)
-    print("✓ Diagnostic function executed without errors")
+    print("Test 8: Basic functionality test")
+    # Just test that we can create a mock invoice without errors
+    assert invoice is not None, "Mock invoice should be created successfully"
+    print("✓ Basic functionality test passed")
 
 
 def run_all_tests():

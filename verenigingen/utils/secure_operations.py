@@ -81,7 +81,9 @@ class SecureOperationResult:
         )
 
 
-def _execute_document_operation(doc, operation: str):
+def _execute_document_operation(
+    doc, operation: str, bypass_validations: List[str] = None, justification: str = ""
+):
     """
     Execute the correct document operation method
 
@@ -91,6 +93,8 @@ def _execute_document_operation(doc, operation: str):
     Args:
         doc: Document to operate on
         operation: Operation string ("create", "save", "submit", etc.)
+        bypass_validations: List of validations to bypass (e.g., ["link_validation"])
+        justification: Business justification for the operation
     """
     operation = operation.lower()
 
@@ -98,6 +102,44 @@ def _execute_document_operation(doc, operation: str):
         doc.insert()
     elif operation in ["save", "update"]:
         doc.save()
+    elif operation == "update_child_table":
+        # Specialized operation for child table updates that need to bypass
+        # specific problematic validations while maintaining security
+
+        # SECURITY: Only skip version control for data updates (not structural changes)
+        doc.flags.ignore_version = True
+
+        # SECURITY: Instead of blanket ignore_links, we'll catch and handle
+        # specific link validation errors for known problematic fields
+        try:
+            doc.save()
+        except frappe.LinkValidationError as e:
+            error_msg = str(e)
+            # Only bypass link validation for known problematic chapter references
+            if "Chapter:" in error_msg and "Could not find Row" in error_msg:
+                # Check if link validation bypass is explicitly allowed
+                if bypass_validations and "link_validation" in bypass_validations:
+                    # Temporarily bypass links for this specific case with monitoring
+                    try:
+                        doc.flags.ignore_links = True
+                        frappe.logger().warning(
+                            f"SECURITY: Bypassing link validation for chapter references: {error_msg}"
+                        )
+                        frappe.logger().info(
+                            f"SECURITY AUDIT: Link validation bypassed for {doc.doctype} {doc.name} "
+                            f"- User: {frappe.session.user} - Justification: {justification}"
+                        )
+                        doc.save()
+                    finally:
+                        # Always clear the flag, even if save fails
+                        doc.flags.ignore_links = False
+                else:
+                    # Re-raise if bypass not explicitly allowed
+                    frappe.logger().error("SECURITY: Link validation bypass denied - not in allowed bypasses")
+                    raise
+            else:
+                # Re-raise for other link validation errors
+                raise
     elif operation == "submit":
         doc.submit()
     elif operation == "cancel":
@@ -129,6 +171,7 @@ def validate_permissions(doc, operation: str, required_permissions: List[str] = 
             "insert": "create",
             "save": "write",
             "update": "write",
+            "update_child_table": "write",  # Child table updates require write permission
             "delete": "delete",
             "submit": "submit",
             "cancel": "cancel",
@@ -259,6 +302,7 @@ def secure_document_operation(
     required_permissions: List[str] = None,
     allow_system_user: bool = True,
     validate_business_rules: bool = True,
+    bypass_validations: List[str] = None,
 ) -> SecureOperationResult:
     """
     Perform a document operation with proper security validation
@@ -276,6 +320,7 @@ def secure_document_operation(
         required_permissions: Additional permissions to validate
         allow_system_user: Whether to fall back to system user if current user lacks permissions
         validate_business_rules: Whether to validate business rules before operation
+        bypass_validations: List of validations to bypass (e.g., ["link_validation"])
 
     Returns:
         SecureOperationResult with success status and audit information
@@ -303,7 +348,7 @@ def secure_document_operation(
             )
 
             # Perform operation with current user
-            _execute_document_operation(doc, operation)
+            _execute_document_operation(doc, operation, bypass_validations, justification)
 
             result.doc_name = doc.name
             result.document = doc  # Add document reference to result
@@ -332,7 +377,7 @@ def secure_document_operation(
                     )
 
                 # Perform operation as system user
-                _execute_document_operation(doc, operation)
+                _execute_document_operation(doc, operation, bypass_validations, justification)
 
                 result.doc_name = doc.name
                 result.document = doc  # Add document reference to result

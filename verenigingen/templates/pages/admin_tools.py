@@ -102,6 +102,23 @@ def get_context(context):
             "warning": "This will permanently delete orphaned dues schedules!",
             "args": {"dry_run": False, "max_cleanup": 20},
         },
+        {
+            "title": "Enhanced Membership Cleanup (Dry Run)",
+            "description": "Preview comprehensive cleanup of orphaned schedules, invalid memberships, and orphaned amendments",
+            "method": "verenigingen.utils.invoice_management.cleanup_orphaned_membership_data",
+            "icon": "fa fa-search-plus",
+            "color": "brand-accent",
+            "args": {"dry_run": True, "max_cleanup": 20},
+        },
+        {
+            "title": "Enhanced Membership Cleanup (Live)",
+            "description": "Comprehensive cleanup including orphaned schedules, invalid membership types (like 'Standard Monthly'), and orphaned amendments",
+            "method": "verenigingen.utils.invoice_management.cleanup_orphaned_membership_data",
+            "icon": "fa fa-magic",
+            "color": "brand-secondary",
+            "warning": "This will permanently delete orphaned membership data including invalid membership types!",
+            "args": {"dry_run": False, "max_cleanup": 20},
+        },
     ]
 
     # System administration tools
@@ -305,6 +322,14 @@ def get_context(context):
             "command": "bench --site dev.veganisme.net execute verenigingen.utils.invoice_management.cleanup_orphaned_schedules --kwargs='{\"dry_run\": true}'",
         },
         {
+            "description": "Enhanced membership cleanup (dry run)",
+            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.invoice_management.cleanup_orphaned_membership_data --kwargs=\'{"dry_run": True, "max_cleanup": 20}\'',
+        },
+        {
+            "description": "Enhanced membership cleanup (live) - handles Standard Monthly issues",
+            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.invoice_management.cleanup_orphaned_membership_data --kwargs=\'{"dry_run": False, "max_cleanup": 20}\'',
+        },
+        {
             "description": "Preview member cleanup (safe)",
             "command": "bench --site dev.veganisme.net execute verenigingen.utils.member_import_cleanup.preview_member_cleanup",
         },
@@ -344,6 +369,7 @@ ALLOWED_ADMIN_METHODS = {
     "verenigingen.utils.invoice_management.validate_invoice_generation_readiness",
     "verenigingen.utils.invoice_management.bulk_generate_dues_invoices",
     "verenigingen.utils.invoice_management.cleanup_orphaned_schedules",
+    "verenigingen.utils.invoice_management.cleanup_orphaned_membership_data",
     # System administration
     "verenigingen.utils.performance_dashboard.get_system_health",
     "verenigingen.utils.performance_dashboard.get_performance_dashboard",

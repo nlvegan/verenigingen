@@ -49,7 +49,7 @@ class VereningingenTestCase(unittest.TestCase):
                 "last_name": f"Member{unique_id[4:]}",
                 "email": email}
         )
-        member.insert(ignore_permissions=True)
+        member.insert()
         return member
 
     def create_test_volunteer(self, member=None):
@@ -66,5 +66,5 @@ class VereningingenTestCase(unittest.TestCase):
                 "status": "Active",
                 "start_date": today()}
         )
-        volunteer.insert(ignore_permissions=True)
+        volunteer.insert()
         return volunteer

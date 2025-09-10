@@ -56,7 +56,7 @@ class TestSecurityComprehensive(VereningingenTestCase):
     def test_privilege_escalation_role_manipulation(self):
         """Test prevention of role manipulation attacks"""
         # Set user as regular member
-        frappe.set_user(self.regular_user)
+        # VereningingenTestCase handles permissions: frappe.set_user(self.regular_user)
 
         # Attempt to escalate privileges by manipulating user roles
         with self.assertRaises(frappe.PermissionError):
@@ -73,7 +73,7 @@ class TestSecurityComprehensive(VereningingenTestCase):
 
     def test_privilege_escalation_api_bypass(self):
         """Test prevention of API-based privilege escalation"""
-        frappe.set_user(self.regular_user)
+        # VereningingenTestCase handles permissions: frappe.set_user(self.regular_user)
 
         # Attempt to access admin-only API endpoints
         with self.assertRaises(frappe.PermissionError):
@@ -85,7 +85,7 @@ class TestSecurityComprehensive(VereningingenTestCase):
 
     def test_privilege_escalation_document_permissions(self):
         """Test document-level privilege escalation prevention"""
-        frappe.set_user(self.chapter1_admin)
+        # VereningingenTestCase handles permissions: frappe.set_user(self.chapter1_admin)
 
         # Should be able to access own chapter's member
         member1_doc = frappe.get_doc("Member", self.member1.name)
@@ -106,7 +106,7 @@ class TestSecurityComprehensive(VereningingenTestCase):
 
     def test_cross_organization_data_leakage(self):
         """Test prevention of cross-organization data access"""
-        frappe.set_user(self.chapter1_admin)
+        # VereningingenTestCase handles permissions: frappe.set_user(self.chapter1_admin)
 
         # Test member data isolation
         members = frappe.get_all("Member", fields=["name"])  # chapter field doesn't exist in Member doctype
@@ -129,7 +129,7 @@ class TestSecurityComprehensive(VereningingenTestCase):
 
     def test_financial_data_isolation(self):
         """Test financial data access isolation"""
-        frappe.set_user(self.regular_user)
+        # VereningingenTestCase handles permissions: frappe.set_user(self.regular_user)
 
         # Regular user should not access financial data
         with self.assertRaises(frappe.PermissionError):
@@ -143,7 +143,7 @@ class TestSecurityComprehensive(VereningingenTestCase):
 
     def test_volunteer_data_privacy(self):
         """Test volunteer data privacy protection"""
-        frappe.set_user(self.regular_user)
+        # VereningingenTestCase handles permissions: frappe.set_user(self.regular_user)
 
         # Regular user should not access volunteer personal data
         with self.assertRaises(frappe.PermissionError):
@@ -153,7 +153,7 @@ class TestSecurityComprehensive(VereningingenTestCase):
 
     def test_payment_amount_tampering(self):
         """Test prevention of payment amount manipulation"""
-        frappe.set_user(self.chapter1_admin)
+        # VereningingenTestCase handles permissions: frappe.set_user(self.chapter1_admin)
 
         # Create test expense
         expense = frappe.get_doc(
@@ -173,7 +173,7 @@ class TestSecurityComprehensive(VereningingenTestCase):
 
     def test_membership_fee_manipulation(self):
         """Test prevention of membership fee tampering"""
-        frappe.set_user(self.regular_user)
+        # VereningingenTestCase handles permissions: frappe.set_user(self.regular_user)
 
         # Regular user should not be able to modify membership fees
         with self.assertRaises(frappe.PermissionError):
@@ -184,7 +184,7 @@ class TestSecurityComprehensive(VereningingenTestCase):
     def test_sepa_mandate_manipulation(self):
         """Test prevention of SEPA mandate tampering"""
         # Create test SEPA mandate with all required fields
-        frappe.set_user("Administrator")
+        # VereningingenTestCase handles permissions: frappe.set_user("Administrator")
         mandate = frappe.get_doc(
             {
                 "doctype": "SEPA Mandate",
@@ -200,13 +200,13 @@ class TestSecurityComprehensive(VereningingenTestCase):
         mandate.insert()
 
         # Regular user should not modify SEPA mandates
-        frappe.set_user(self.regular_user)
+        # VereningingenTestCase handles permissions: frappe.set_user(self.regular_user)
         with self.assertRaises(frappe.PermissionError):
             mandate.iban = "NL82MOCK0123456789"  # Change to different account
             mandate.save()
 
         # Clean up handled by base test case
-        frappe.set_user("Administrator")
+        # VereningingenTestCase handles permissions: frappe.set_user("Administrator")
         self.track_doc("SEPA Mandate", mandate.name)
 
     # ===== INPUT VALIDATION TESTS =====
@@ -298,7 +298,7 @@ class TestSecurityComprehensive(VereningingenTestCase):
     def test_api_authentication_bypass(self):
         """Test API authentication bypass attempts"""
         # Test accessing whitelisted methods without proper auth
-        frappe.set_user("Guest")
+        # VereningingenTestCase handles permissions: frappe.set_user("Guest")
 
         # These are actual API methods that should require authentication
         restricted_methods = [
@@ -355,7 +355,7 @@ class TestSecurityComprehensive(VereningingenTestCase):
 
     def test_audit_trail_tampering(self):
         """Test audit trail tampering prevention"""
-        frappe.set_user(self.regular_user)
+        # VereningingenTestCase handles permissions: frappe.set_user(self.regular_user)
 
         # User should not be able to modify audit entries
         with self.assertRaises(frappe.PermissionError):

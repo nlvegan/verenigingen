@@ -56,7 +56,7 @@ class TestCommunicationSystemIntegration(EnhancedTestCase):
             for role in roles:
                 user.append("roles", {"role": role})
 
-        user.save(ignore_permissions=True)
+        user.save()  # EnhancedTestCase handles permissions
         self.track_doc("User", user.name)
         return user
 

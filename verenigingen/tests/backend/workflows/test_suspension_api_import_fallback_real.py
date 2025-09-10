@@ -71,7 +71,7 @@ class TestSuspensionAPIFallbackReal(EnhancedTestCase):
         """Test suspension API with real board member permissions (no db mocks)"""
         
         # Set current user to board member (real user session)
-        frappe.set_user(self.board_member.email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.board_member.email)
         
         try:
             # Test suspension API with real database operations
@@ -86,7 +86,7 @@ class TestSuspensionAPIFallbackReal(EnhancedTestCase):
             # But we're testing that the API doesn't crash with real data
             
         finally:
-            frappe.set_user("Administrator")  # Reset to admin
+            # EnhancedTestCase handles permissions automatically
 
     def test_suspension_fallback_with_real_member_data(self):
         """Test fallback mechanism with real database operations (no mocks)"""
@@ -95,7 +95,7 @@ class TestSuspensionAPIFallbackReal(EnhancedTestCase):
         # This replaces multiple @patch("frappe.db.get_value") with real queries
         
         # Set current user to board member
-        frappe.set_user(self.board_member.email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.board_member.email)
         
         try:
             # Call fallback function directly with real database operations
@@ -109,13 +109,13 @@ class TestSuspensionAPIFallbackReal(EnhancedTestCase):
             self.assertEqual(target_member_doc.status, "Active")
             
         finally:
-            frappe.set_user("Administrator")
+            # EnhancedTestCase handles permissions automatically
 
     def test_regular_user_suspension_permissions_real(self):
         """Test regular user permissions with real database operations"""
         
         # Set current user to regular member (real user session)
-        frappe.set_user(self.regular_member.email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.regular_member.email)
         
         try:
             # Test with real database operations - no permission mocks
@@ -125,7 +125,7 @@ class TestSuspensionAPIFallbackReal(EnhancedTestCase):
             self.assertFalse(can_suspend)
             
         finally:
-            frappe.set_user("Administrator")
+            # EnhancedTestCase handles permissions automatically
 
     def test_fallback_error_handling_real_operations(self):
         """Test fallback error handling with real database operations"""
@@ -136,7 +136,7 @@ class TestSuspensionAPIFallbackReal(EnhancedTestCase):
         # Ensure this member doesn't exist in real database
         self.assertFalse(frappe.db.exists("Member", invalid_member))
         
-        frappe.set_user(self.board_member.email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.board_member.email)
         
         try:
             # Test fallback with real database error (not mocked exception)
@@ -148,7 +148,7 @@ class TestSuspensionAPIFallbackReal(EnhancedTestCase):
             self.assertFalse(fallback_result)
             
         finally:
-            frappe.set_user("Administrator")
+            # EnhancedTestCase handles permissions automatically
 
     def test_suspension_api_import_behavior_real(self):
         """Test API import behavior with real system state"""
@@ -156,7 +156,7 @@ class TestSuspensionAPIFallbackReal(EnhancedTestCase):
         # Test that API functions can be imported and work with real data
         from verenigingen.api.suspension_api import can_suspend_member
         
-        frappe.set_user(self.board_member.email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.board_member.email)
         
         try:
             # Call API function - should work without import errors
@@ -169,7 +169,7 @@ class TestSuspensionAPIFallbackReal(EnhancedTestCase):
             self.assertTrue(frappe.db.exists("Member", self.target_member.name))
             
         finally:
-            frappe.set_user("Administrator")
+            # EnhancedTestCase handles permissions automatically
 
     def test_board_member_chapter_access_real_database(self):
         """Test board member chapter access with real database relationships"""
@@ -183,7 +183,7 @@ class TestSuspensionAPIFallbackReal(EnhancedTestCase):
             chapter=test_chapter.name
         )
         
-        frappe.set_user(self.board_member.email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.board_member.email)
         
         try:
             # Test fallback mechanism with real chapter relationships
@@ -196,12 +196,12 @@ class TestSuspensionAPIFallbackReal(EnhancedTestCase):
             self.assertTrue(frappe.db.exists("Chapter Member", chapter_member.name))
             
         finally:
-            frappe.set_user("Administrator")
+            # EnhancedTestCase handles permissions automatically
 
     def test_permission_system_integration_real(self):
         """Test integration with real Frappe permission system"""
         
-        frappe.set_user(self.board_member.email)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.board_member.email)
         
         try:
             # Test that permission checks work with real Role assignments
@@ -217,4 +217,4 @@ class TestSuspensionAPIFallbackReal(EnhancedTestCase):
             self.assertIsInstance(result, bool)
             
         finally:
-            frappe.set_user("Administrator")
+            # EnhancedTestCase handles permissions automatically

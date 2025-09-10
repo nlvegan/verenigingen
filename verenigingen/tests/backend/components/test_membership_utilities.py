@@ -16,6 +16,7 @@ class MembershipTestUtilities:
         create_item=True,
         require_approval=False,
         enforce_minimum_period=True,
+        test_case=None,
     ):
         """
         Create a properly configured membership type for dues schedule system
@@ -53,13 +54,17 @@ class MembershipTestUtilities:
         if period == "Custom":
             membership_type.billing_frequency_in_months = random.choice([2, 4, 18, 24])
 
-        membership_type.insert(ignore_permissions=True)
+        if test_case:
+            membership_type.insert()
+            test_case.track_test_record("Membership Type", membership_type.name)
+        else:
+            membership_type.insert(ignore_permissions=True)
 
         result = {"membership_type": membership_type}
 
         # Create item if requested
         if create_item:
-            item = MembershipTestUtilities._create_membership_item(membership_type)
+            item = MembershipTestUtilities._create_membership_item(membership_type, test_case)
             result["item"] = item
 
         # Dues schedule system handles payment processing automatically
@@ -68,7 +73,7 @@ class MembershipTestUtilities:
         return result
 
     @staticmethod
-    def _create_membership_item(membership_type):
+    def _create_membership_item(membership_type, test_case=None):
         """Create an item for the membership type"""
         # Check if Membership item group exists
         if not frappe.db.exists("Item Group", "Membership"):
@@ -78,7 +83,11 @@ class MembershipTestUtilities:
                     "item_group_name": "Membership",
                     "parent_item_group": "All Item Groups"}
             )
-            item_group.insert(ignore_permissions=True)
+            if test_case:
+                item_group.insert()
+                test_case.track_test_record("Item Group", item_group.name)
+            else:
+                item_group.insert(ignore_permissions=True)
 
         item = frappe.get_doc(
             {
@@ -101,7 +110,11 @@ class MembershipTestUtilities:
         if company:
             item.append("item_defaults", {"company": company, "default_warehouse": None})
 
-        item.insert(ignore_permissions=True)
+        if test_case:
+            item.insert()
+            test_case.track_test_record("Item", item.name)
+        else:
+            item.insert(ignore_permissions=True)
         return item
 
     # Subscription plan creation removed - dues schedule system handles payment processing
@@ -150,7 +163,7 @@ class MembershipTestUtilities:
 
         created_types = []
         for config in standard_types:
-            result = MembershipTestUtilities.create_membership_type_with_subscription(
+            result = MembershipTestUtilities.create_membership_type_with_dues_schedule(
                 name=config["name"],
                 period=config["period"],
                 amount=config["amount"],
@@ -162,7 +175,7 @@ class MembershipTestUtilities:
 
     @staticmethod
     def create_membership_with_dues_schedule(
-        member, membership_type, start_date=None, submit=True, custom_amount=None
+        member, membership_type, start_date=None, submit=True, custom_amount=None, test_case=None
     ):
         """
         Create a membership following the actual system logic
@@ -204,7 +217,11 @@ class MembershipTestUtilities:
 
         # Create membership
         membership = frappe.get_doc(membership_data)
-        membership.insert(ignore_permissions=True)
+        if test_case:
+            membership.insert()
+            test_case.track_test_record("Membership", membership.name)
+        else:
+            membership.insert(ignore_permissions=True)
 
         result = {"membership": membership}
 
@@ -323,7 +340,7 @@ class MembershipTestUtilities:
             frappe.set_user(original_user)
 
     @staticmethod
-    def cleanup_test_membership_types(prefix="Test"):
+    def cleanup_test_membership_types(prefix="Test", use_permissions=False):
         """Clean up test membership types and related data"""
         # Find all test membership types
         test_types = frappe.get_all(
@@ -335,17 +352,24 @@ class MembershipTestUtilities:
         for mt in test_types:
             # Delete linked subscription plans
             if mt.subscription_plan:
-                frappe.delete_doc(
-                    "Subscription Plan", mt.subscription_plan, ignore_permissions=True, force=True
-                )
+                if use_permissions:
+                    frappe.delete_doc("Subscription Plan", mt.subscription_plan, force=True)
+                else:
+                    frappe.delete_doc("Subscription Plan", mt.subscription_plan, ignore_permissions=True, force=True)
 
             # Delete linked items
             items = frappe.get_all("Item", filters={"item_name": ["like", f"{mt.name}%"]}, fields=["name"])
             for item in items:
-                frappe.delete_doc("Item", item.name, ignore_permissions=True, force=True)
+                if use_permissions:
+                    frappe.delete_doc("Item", item.name, force=True)
+                else:
+                    frappe.delete_doc("Item", item.name, ignore_permissions=True, force=True)
 
             # Delete membership type
-            frappe.delete_doc("Membership Type", mt.name, ignore_permissions=True, force=True)
+            if use_permissions:
+                frappe.delete_doc("Membership Type", mt.name, force=True)
+            else:
+                frappe.delete_doc("Membership Type", mt.name, ignore_permissions=True, force=True)
 
         frappe.db.commit()
         return len(test_types)

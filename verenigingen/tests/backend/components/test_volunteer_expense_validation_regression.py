@@ -3,20 +3,21 @@
 Regression tests for volunteer expense validation to prevent chapter membership validation bugs
 """
 
-import unittest
 from unittest.mock import patch
 
 import frappe
 from frappe.utils import add_days, today
 
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
-class TestVolunteerExpenseValidationRegression(unittest.TestCase):
+
+class TestVolunteerExpenseValidationRegression(EnhancedTestCase):
     """Regression tests specifically for the chapter membership validation bug"""
 
     @classmethod
     def setUpClass(cls):
         """Set up test data"""
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles user permissions automatically
 
         # Create test member
         if not frappe.db.exists("Member", "TEST-MEMBER-REGRESSION"):
@@ -29,7 +30,7 @@ class TestVolunteerExpenseValidationRegression(unittest.TestCase):
                     "email": "test.member.regression@example.com",
                     "join_date": today()}
             )
-            cls.test_member.insert(ignore_permissions=True)
+            cls.test_member.insert(  # EnhancedTestCase handles permissions)
         else:
             cls.test_member = frappe.get_doc("Member", "TEST-MEMBER-REGRESSION")
 
@@ -45,7 +46,7 @@ class TestVolunteerExpenseValidationRegression(unittest.TestCase):
                     "status": "Active",
                     "start_date": today()}
             )
-            cls.test_volunteer.insert(ignore_permissions=True)
+            cls.test_volunteer.insert(  # EnhancedTestCase handles permissions)
         else:
             cls.test_volunteer = frappe.get_doc("Volunteer", "TEST-VOLUNTEER-REGRESSION")
 
@@ -57,7 +58,7 @@ class TestVolunteerExpenseValidationRegression(unittest.TestCase):
                     "name": "TEST-CHAPTER-REGRESSION",
                     "chapter_name": "Test Chapter Regression"}
             )
-            cls.test_chapter.insert(ignore_permissions=True)
+            cls.test_chapter.insert(  # EnhancedTestCase handles permissions)
         else:
             cls.test_chapter = frappe.get_doc("Chapter", "TEST-CHAPTER-REGRESSION")
 
@@ -73,7 +74,7 @@ class TestVolunteerExpenseValidationRegression(unittest.TestCase):
                     "member_name": cls.test_volunteer.volunteer_name,
                     "enabled": 1},
             )
-            cls.test_chapter.save(ignore_permissions=True)
+            cls.test_chapter.save(  # EnhancedTestCase handles permissions)
 
         # Create expense category
         if not frappe.db.exists("Expense Category", "TEST-CATEGORY-REGRESSION"):
@@ -84,7 +85,7 @@ class TestVolunteerExpenseValidationRegression(unittest.TestCase):
                     "category_name": "Test Category Regression",
                     "is_active": 1}
             )
-            cls.test_category.insert(ignore_permissions=True)
+            cls.test_category.insert(  # EnhancedTestCase handles permissions)
 
     def test_get_user_volunteer_record_includes_member_field(self):
         """Test that get_user_volunteer_record returns the member field - REGRESSION TEST"""
@@ -279,7 +280,7 @@ class TestVolunteerExpenseValidationRegression(unittest.TestCase):
                     "name": "TEST-CHAPTER-2-REGRESSION",
                     "chapter_name": "Test Chapter 2 Regression"}
             )
-            test_chapter_2.insert(ignore_permissions=True)
+            test_chapter_2.insert(  # EnhancedTestCase handles permissions)
 
             # Add member to second chapter
             test_chapter_2.append(
@@ -289,7 +290,7 @@ class TestVolunteerExpenseValidationRegression(unittest.TestCase):
                     "member_name": self.test_volunteer.volunteer_name,
                     "enabled": 1},
             )
-            test_chapter_2.save(ignore_permissions=True)
+            test_chapter_2.save(  # EnhancedTestCase handles permissions)
 
         # Test expense submission to second chapter
         expense_data = {
@@ -321,16 +322,16 @@ class TestVolunteerExpenseValidationRegression(unittest.TestCase):
 
             for chapter_name in ["TEST-CHAPTER-REGRESSION", "TEST-CHAPTER-2-REGRESSION"]:
                 if frappe.db.exists("Chapter", chapter_name):
-                    frappe.delete_doc("Chapter", chapter_name, ignore_permissions=True)
+                    frappe.delete_doc("Chapter", chapter_name,   # EnhancedTestCase handles permissions)
 
             if frappe.db.exists("Expense Category", "TEST-CATEGORY-REGRESSION"):
-                frappe.delete_doc("Expense Category", "TEST-CATEGORY-REGRESSION", ignore_permissions=True)
+                frappe.delete_doc("Expense Category", "TEST-CATEGORY-REGRESSION",   # EnhancedTestCase handles permissions)
 
             if frappe.db.exists("Volunteer", "TEST-VOLUNTEER-REGRESSION"):
-                frappe.delete_doc("Volunteer", "TEST-VOLUNTEER-REGRESSION", ignore_permissions=True)
+                frappe.delete_doc("Volunteer", "TEST-VOLUNTEER-REGRESSION",   # EnhancedTestCase handles permissions)
 
             if frappe.db.exists("Member", "TEST-MEMBER-REGRESSION"):
-                frappe.delete_doc("Member", "TEST-MEMBER-REGRESSION", ignore_permissions=True)
+                frappe.delete_doc("Member", "TEST-MEMBER-REGRESSION",   # EnhancedTestCase handles permissions)
 
             frappe.db.commit()
         except Exception as e:

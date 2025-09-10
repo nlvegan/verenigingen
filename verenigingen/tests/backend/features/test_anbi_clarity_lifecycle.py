@@ -4,17 +4,17 @@ Tests the complete lifecycle of ANBI agreements vs pledges with clear distinctio
 """
 
 import frappe
-import unittest
 from frappe.utils import today, add_years, add_months
 from verenigingen.tests.fixtures.anbi_test_personas import ANBITestPersonas
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestANBIClarityLifecycle(unittest.TestCase):
+class TestANBIClarityLifecycle(EnhancedTestCase):
     """Test the ANBI clarity features through complete lifecycles"""
     
     def setUp(self):
         """Set up test environment"""
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions automatically
         self.test_company = frappe.db.get_single_value("Verenigingen Settings", "donation_company") or "Test Company"
     
     def tearDown(self):

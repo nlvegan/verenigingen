@@ -1,12 +1,11 @@
-import unittest
-
 import frappe
 from frappe.utils import today
 
 from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestTeamAssignmentHistory(unittest.TestCase):
+class TestTeamAssignmentHistory(EnhancedTestCase):
     """Test team assignment history functionality"""
 
     def setUp(self):

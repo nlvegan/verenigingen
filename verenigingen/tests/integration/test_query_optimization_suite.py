@@ -15,7 +15,6 @@ These tests ensure our optimizations work correctly and don't regress.
 """
 
 import time
-import unittest
 from unittest import mock
 from typing import Dict, List, Any
 import contextlib
@@ -83,7 +82,7 @@ class TestQueryOptimizationSuite(EnhancedTestCase):
     def setUp(self):
         """Set up test with current user context"""
         super().setUp()  # This initializes self.factory
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions automatically
         self.start_time = None
         
     def start_timing(self):
@@ -518,7 +517,7 @@ class TestPerformanceRegression(EnhancedTestCase):
     def setUp(self):
         """Set up performance test environment"""
         super().setUp()  # This initializes self.factory
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions automatically
         
     def test_no_n_plus_1_in_batch_operations(self):
         """Ensure batch operations don't regress to N+1 patterns"""

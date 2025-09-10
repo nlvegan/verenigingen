@@ -386,14 +386,20 @@
                         {{ _("Profile") }}
                     </h3>
                     <div class="profile-info">
+                        {% if volunteer_profile %}
                         <div class="profile-field">
                             <label>{{ _("Email") }}</label>
                             <span>{{ volunteer_profile.email or _("Not set") }}</span>
                         </div>
                         <div class="profile-field">
                             <label>{{ _("Status") }}</label>
-                            <span>{{ _(volunteer_profile.status) }}</span>
+                            <span>{{ _(volunteer_profile.status) if volunteer_profile.status else _("Unknown") }}</span>
                         </div>
+                        {% else %}
+                        <div class="profile-field">
+                            <span>{{ _("Profile information not available") }}</span>
+                        </div>
+                        {% endif %}
                         {% if volunteer_profile.member_info and volunteer_profile.member_info.member_id %}
                             <div class="profile-field">
                                 <label>{{ _("Member ID") }}</label>

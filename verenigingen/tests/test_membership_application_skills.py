@@ -2,9 +2,10 @@
 Unit tests for membership application skills integration
 """
 
-import unittest
 import frappe
 from frappe.utils import today, now_datetime
+
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen.web_form.membership_application import (
     submit_membership_application,
     create_volunteer_application_data,
@@ -16,7 +17,7 @@ from verenigingen.verenigingen.web_form.membership_application import (
 )
 
 
-class TestMembershipApplicationSkills(unittest.TestCase):
+class TestMembershipApplicationSkills(EnhancedTestCase):
     """Test skills integration in membership application workflow"""
 
     def setUp(self):

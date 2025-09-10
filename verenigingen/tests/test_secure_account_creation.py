@@ -31,8 +31,7 @@ class TestSecureAccountCreation(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        # Set Administrator for account creation testing
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions automatically
         # Clean up any existing test data
         self.cleanup_test_data()
         
@@ -95,8 +94,7 @@ class TestSecureAccountCreation(EnhancedTestCase):
 
     def test_secure_account_creation_request_creation(self):
         """Test that account creation requests are created with proper security"""
-        # Set user with proper permissions
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions automatically
         
         # Queue account creation for volunteer
         result = queue_account_creation_for_volunteer(
@@ -209,7 +207,7 @@ class TestSecureAccountCreation(EnhancedTestCase):
 
     def test_account_creation_failure_handling(self):
         """Test that failures are handled gracefully with proper error reporting"""
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions automatically
         
         # Create request with invalid email to force failure
         invalid_volunteer = self.create_test_volunteer(
@@ -264,7 +262,7 @@ class TestSecureAccountCreation(EnhancedTestCase):
 
     def test_role_assignment_security(self):
         """Test that role assignments are validated properly"""
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions automatically
         
         # Queue account creation with specific roles
         result = queue_account_creation_for_volunteer(
@@ -346,7 +344,7 @@ class TestSecureAccountCreation(EnhancedTestCase):
         self.assertIsNotNone(request_doc.last_retry_at)
 
 
-class TestSecurityValidation(unittest.TestCase):
+class TestSecurityValidation(EnhancedTestCase):
     """Additional security validation tests"""
     
     def test_no_global_permission_bypasses(self):
@@ -401,7 +399,7 @@ class TestSecurityValidation(unittest.TestCase):
                 from verenigingen.utils.account_creation_manager import get_failed_requests
                 get_failed_requests()
         
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions automatically
 
 
 if __name__ == "__main__":

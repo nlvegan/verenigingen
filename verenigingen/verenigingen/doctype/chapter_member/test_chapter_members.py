@@ -26,7 +26,7 @@ class TestChapterMemberIntegration(EnhancedTestCase):
                 "is_active": 1,
             }
         )
-        self.role.insert(ignore_permissions=True)
+        self.role.insert()  # EnhancedTestCase handles permissions
 
         # Create test members
         self.test_member1 = frappe.get_doc(
@@ -37,7 +37,7 @@ class TestChapterMemberIntegration(EnhancedTestCase):
                 "email": f"test1{self.unique_id}@example.com",
             }
         )
-        self.test_member1.insert(ignore_permissions=True)
+        self.test_member1.insert()  # EnhancedTestCase handles permissions
 
         self.test_member2 = frappe.get_doc(
             {
@@ -47,7 +47,7 @@ class TestChapterMemberIntegration(EnhancedTestCase):
                 "email": f"test2{self.unique_id}@example.com",
             }
         )
-        self.test_member2.insert(ignore_permissions=True)
+        self.test_member2.insert()  # EnhancedTestCase handles permissions
 
         # Create volunteers for members
         self.test_volunteer1 = frappe.get_doc(
@@ -60,7 +60,7 @@ class TestChapterMemberIntegration(EnhancedTestCase):
                 "start_date": today(),
             }
         )
-        self.test_volunteer1.insert(ignore_permissions=True)
+        self.test_volunteer1.insert()  # EnhancedTestCase handles permissions
 
         self.test_volunteer2 = frappe.get_doc(
             {
@@ -72,7 +72,7 @@ class TestChapterMemberIntegration(EnhancedTestCase):
                 "start_date": today(),
             }
         )
-        self.test_volunteer2.insert(ignore_permissions=True)
+        self.test_volunteer2.insert()  # EnhancedTestCase handles permissions
 
         # Create test chapter
         self.chapter = frappe.get_doc(
@@ -85,7 +85,7 @@ class TestChapterMemberIntegration(EnhancedTestCase):
                 "members": [],  # Ensure this starts empty
             }
         )
-        self.chapter.insert(ignore_permissions=True)
+        self.chapter.insert()  # EnhancedTestCase handles permissions
 
     def tearDown(self):
         self.cleanup_test_data()

@@ -21,7 +21,7 @@ import inspect
 import re
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+# Unused import removed - using EnhancedTestCase
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 

@@ -9,14 +9,14 @@ This test suite uses the specific mutations mentioned by the user:
 
 import unittest
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import nowdate
 import json
 
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.e_boekhouden.utils.payment_processing import PaymentEntryHandler
 
 
-class TestActualPaymentMutations(FrappeTestCase):
+class TestActualPaymentMutations(EnhancedTestCase):
     """Test payment processing with actual E-Boekhouden mutations."""
     
     @classmethod
@@ -108,41 +108,24 @@ class TestActualPaymentMutations(FrappeTestCase):
         self.handler = PaymentEntryHandler(self.company)
         
     def tearDown(self):
-        """Clean up test payments."""
-        # Clean up any test payments created
-        test_mutations = ["7833", "5473", "6217"]
-        for mutation_id in test_mutations:
-            payments = frappe.get_all(
-                "Payment Entry",
-                filters={"eboekhouden_mutation_nr": mutation_id},
-                pluck="name"
-            )
-            for payment in payments:
-                doc = frappe.get_doc("Payment Entry", payment)
-                if doc.docstatus == 1:
-                    doc.cancel()
-                doc.delete()
+        """Clean up handled by Enhanced Test Factory rollback."""
+        super().tearDown()
+        # Enhanced Test Factory handles cleanup automatically
     
     def test_mutation_7833_single_customer_payment(self):
         """Test mutation 7833 - Single customer payment."""
         mutation = self.mutations[7833]
         
-        # Create test customer
+        # Create test customer (Enhanced Test Factory handles cleanup automatically)
         if not frappe.db.exists("Customer", "CUST-001"):
             customer = frappe.new_doc("Customer")
             customer.customer_name = "Test Customer 001"
-            # Get customer group (ordered for consistency)
-            customer_group = frappe.db.get_value("Customer Group", {"is_group": 0}, "name", order_by="name")
-            if not customer_group:
-                customer_group = "All Customer Groups"  # ERPNext default
-            customer.customer_group = customer_group
-            
-            # Get territory (ordered for consistency)
+            customer.customer_group = frappe.db.get_value("Customer Group", {"is_group": 0}, "name", order_by="name") or "All Customer Groups"
             territory = frappe.db.get_value("Territory", {"is_group": 0}, "name", order_by="name")
-            if not territory:
-                frappe.throw("No territory found. Please create territories for tests.")
-            customer.territory = territory
+            if territory:
+                customer.territory = territory
             customer.save()
+            customer.rename("CUST-001")
         
         # Process payment
         payment_name = self.handler.process_payment_mutation(mutation)
@@ -168,16 +151,15 @@ class TestActualPaymentMutations(FrappeTestCase):
         """Test mutation 5473 - Supplier payment with multiple invoices."""
         mutation = self.mutations[5473]
         
-        # Create test supplier
+        # Create test supplier (Enhanced Test Factory handles cleanup automatically)
         if not frappe.db.exists("Supplier", "6104885"):
             supplier = frappe.new_doc("Supplier")
             supplier.supplier_name = "Test Supplier 6104885"
-            # Get supplier group (ordered for consistency)
             supplier_group = frappe.db.get_value("Supplier Group", {"is_group": 0}, "name", order_by="name")
-            if not supplier_group:
-                frappe.throw("No supplier group found. Please create supplier groups for tests.")
-            supplier.supplier_group = supplier_group
+            if supplier_group:
+                supplier.supplier_group = supplier_group
             supplier.save()
+            supplier.rename("6104885")
         
         # Process payment
         payment_name = self.handler.process_payment_mutation(mutation)
@@ -206,22 +188,16 @@ class TestActualPaymentMutations(FrappeTestCase):
         """Test mutation 6217 - Customer payment without row details."""
         mutation = self.mutations[6217]
         
-        # Create test customer
+        # Create test customer (Enhanced Test Factory handles cleanup automatically)
         if not frappe.db.exists("Customer", "CUST-123"):
             customer = frappe.new_doc("Customer")
             customer.customer_name = "Test Customer 123"
-            # Get customer group (ordered for consistency)
-            customer_group = frappe.db.get_value("Customer Group", {"is_group": 0}, "name", order_by="name")
-            if not customer_group:
-                customer_group = "All Customer Groups"  # ERPNext default
-            customer.customer_group = customer_group
-            
-            # Get territory (ordered for consistency)
+            customer.customer_group = frappe.db.get_value("Customer Group", {"is_group": 0}, "name", order_by="name") or "All Customer Groups"
             territory = frappe.db.get_value("Territory", {"is_group": 0}, "name", order_by="name")
-            if not territory:
-                frappe.throw("No territory found. Please create territories for tests.")
-            customer.territory = territory
+            if territory:
+                customer.territory = territory
             customer.save()
+            customer.rename("CUST-123")
         
         # Process payment
         payment_name = self.handler.process_payment_mutation(mutation)
@@ -261,20 +237,17 @@ class TestActualPaymentMutations(FrappeTestCase):
     
     def test_complete_payment_flow_with_invoices(self):
         """Test complete payment flow with actual invoice creation and reconciliation."""
-        # Create test supplier
-        if not frappe.db.exists("Supplier", "TEST-SUPP-5473"):
-            supplier = frappe.new_doc("Supplier")
-            supplier.supplier_name = "Test Supplier for 5473"
-            # Get supplier group (ordered for consistency)
-            supplier_group = frappe.db.get_value("Supplier Group", {"is_group": 0}, "name", order_by="name")
-            if not supplier_group:
-                frappe.throw("No supplier group found. Please create supplier groups for tests.")
+        # Create test supplier (Enhanced Test Factory handles cleanup automatically)
+        supplier = frappe.new_doc("Supplier")
+        supplier.supplier_name = "Test Supplier for 5473"
+        supplier_group = frappe.db.get_value("Supplier Group", {"is_group": 0}, "name", order_by="name")
+        if supplier_group:
             supplier.supplier_group = supplier_group
-            supplier.save()
+        supplier.save()
         
-        # Create test purchase invoices matching mutation 5473
+        # Create test purchase invoices matching mutation 5473 (Enhanced Test Factory handles cleanup automatically)
         pi1 = frappe.new_doc("Purchase Invoice")
-        pi1.supplier = "TEST-SUPP-5473"
+        pi1.supplier = supplier.name
         pi1.company = self.company
         pi1.posting_date = "2024-12-01"
         pi1.append("items", {
@@ -286,7 +259,7 @@ class TestActualPaymentMutations(FrappeTestCase):
         pi1.submit()
         
         pi2 = frappe.new_doc("Purchase Invoice")
-        pi2.supplier = "TEST-SUPP-5473"
+        pi2.supplier = supplier.name
         pi2.company = self.company
         pi2.posting_date = "2024-12-05"
         pi2.append("items", {
@@ -299,7 +272,7 @@ class TestActualPaymentMutations(FrappeTestCase):
         
         # Create mutation with actual invoice names
         mutation = self.mutations[5473].copy()
-        mutation['relationId'] = "TEST-SUPP-5473"
+        mutation['relationId'] = supplier.name  # Use the actual supplier name
         mutation['invoiceNumber'] = f"{pi1.name},{pi2.name}"
         
         # Process payment
@@ -315,13 +288,7 @@ class TestActualPaymentMutations(FrappeTestCase):
         self.assertEqual(pe.references[0].allocated_amount, 60.50)
         self.assertEqual(pe.references[1].allocated_amount, 61.29)
         
-        # Clean up
-        pe.cancel()
-        pe.delete()
-        pi1.cancel()
-        pi1.delete()
-        pi2.cancel()
-        pi2.delete()
+        # Enhanced Test Factory handles cleanup automatically
     
     def test_ledger_cache_performance(self):
         """Test that ledger lookups are cached for performance."""

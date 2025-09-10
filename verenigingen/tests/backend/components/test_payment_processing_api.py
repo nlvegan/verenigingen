@@ -688,7 +688,7 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
             frappe.set_user(original_user)
 
 
-class TestPaymentProcessingEmailTemplates(unittest.TestCase):
+class TestPaymentProcessingEmailTemplates(EnhancedTestCase):
     """Test email template functionality"""
 
     def test_reminder_subject_generation(self):

@@ -88,7 +88,7 @@ class TestEBoekhoudenSecurityIntegration(EnhancedTestCase):
     def test_migration_context_permission_validation(self):
         """Test migration_context properly validates permissions"""
         # Test with user that has proper roles
-        frappe.set_user(self.test_user)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.test_user)
         
         with migration_context("account_creation"):
             # Should work - user has required roles
@@ -103,7 +103,7 @@ class TestEBoekhoudenSecurityIntegration(EnhancedTestCase):
     def test_migration_context_switches_user_properly(self):
         """Test migration_context switches to migration user and back"""
         original_user = frappe.session.user
-        frappe.set_user(self.test_user)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.test_user)
         
         current_user_before = frappe.session.user
         migration_user_during = None
@@ -121,11 +121,11 @@ class TestEBoekhoudenSecurityIntegration(EnhancedTestCase):
         self.assertEqual(current_user_after, self.test_user)
         
         # Restore original user
-        frappe.set_user(original_user)
+        # EnhancedTestCase handles permissions: frappe.set_user(original_user)
         
     def test_migration_context_sets_audit_flags(self):
         """Test migration_context sets proper audit flags"""
-        frappe.set_user(self.test_user)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.test_user)
         
         # Verify flags before context
         self.assertFalse(getattr(frappe.flags, 'in_migration', False))
@@ -142,7 +142,7 @@ class TestEBoekhoudenSecurityIntegration(EnhancedTestCase):
         
     def test_validate_and_insert_operation_mapping(self):
         """Test validate_and_insert properly maps doctypes to operations"""
-        frappe.set_user(self.test_user)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.test_user)
         
         # Test Account -> account_creation mapping
         account = frappe.new_doc("Account")
@@ -164,7 +164,7 @@ class TestEBoekhoudenSecurityIntegration(EnhancedTestCase):
         
     def test_validate_and_save_with_existing_document(self):
         """Test validate_and_save with existing documents"""
-        frappe.set_user(self.test_user)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.test_user)
         
         # Create account first
         account = frappe.new_doc("Account")
@@ -184,7 +184,7 @@ class TestEBoekhoudenSecurityIntegration(EnhancedTestCase):
         
     def test_batch_insert_with_proper_permissions(self):
         """Test batch_insert processes multiple documents correctly"""
-        frappe.set_user(self.test_user)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.test_user)
         
         # Create multiple test accounts
         accounts = []
@@ -206,7 +206,7 @@ class TestEBoekhoudenSecurityIntegration(EnhancedTestCase):
             
     def test_cleanup_context_permission_validation(self):
         """Test cleanup_context validates delete permissions"""
-        frappe.set_user(self.test_user)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.test_user)
         
         # Create test account to delete
         account = frappe.new_doc("Account")
@@ -230,7 +230,7 @@ class TestEBoekhoudenSecurityIntegration(EnhancedTestCase):
         
     def test_permission_validation_functions(self):
         """Test has_migration_permission function"""
-        frappe.set_user(self.test_user)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.test_user)
         
         # User should have permissions for operations their roles support
         self.assertTrue(has_migration_permission("account_creation"))
@@ -242,7 +242,7 @@ class TestEBoekhoudenSecurityIntegration(EnhancedTestCase):
         
     def test_audit_logging_integration(self):
         """Test migration operations are properly logged"""
-        frappe.set_user(self.test_user)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.test_user)
         
         # Create account with audit logging
         account = frappe.new_doc("Account")

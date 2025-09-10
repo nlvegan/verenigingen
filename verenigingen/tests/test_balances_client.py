@@ -9,13 +9,12 @@ from decimal import Decimal
 from unittest.mock import MagicMock, Mock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
-
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.clients.balances_client import BalancesClient
 from verenigingen.verenigingen_payments.core.models.balance import Balance, BalanceReport, BalanceTransaction
 
 
-class TestBalancesClient(FrappeTestCase):
+class TestBalancesClient(EnhancedTestCase):
     """Test suite for Balances API Client"""
 
     def setUp(self):

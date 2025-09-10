@@ -11,8 +11,9 @@ import unittest
 import time
 import json
 from unittest.mock import patch, MagicMock, Mock, call
-from frappe.tests.utils import FrappeTestCase
 import frappe
+
+from verenigingen.tests.utils.base import VereningingenTestCase
 from frappe.utils import now_datetime
 
 from verenigingen.setup.security_setup import (
@@ -30,7 +31,7 @@ from verenigingen.setup.security_setup import (
 )
 
 
-class TestSecurityRateLimit(FrappeTestCase):
+class TestSecurityRateLimit(VereningingenTestCase):
     """Test custom rate limiting decorator"""
     
     def setUp(self):
@@ -124,7 +125,7 @@ class TestSecurityRateLimit(FrappeTestCase):
         self.assertEqual(result, "success")
 
 
-class TestCSRFValidation(FrappeTestCase):
+class TestCSRFValidation(VereningingenTestCase):
     """Test CSRF token validation"""
     
     def setUp(self):
@@ -206,7 +207,7 @@ class TestCSRFValidation(FrappeTestCase):
             frappe.local.form_dict = original_form_dict
 
 
-class TestSecurityConfiguration(FrappeTestCase):
+class TestSecurityConfiguration(VereningingenTestCase):
     """Test security configuration functions"""
     
     def setUp(self):
@@ -306,7 +307,7 @@ class TestSecurityConfiguration(FrappeTestCase):
         mock_system_settings.save.assert_not_called()
 
 
-class TestSecurityStatus(FrappeTestCase):
+class TestSecurityStatus(VereningingenTestCase):
     """Test security status checking"""
     
     @patch('frappe.get_site_config')
@@ -362,7 +363,7 @@ class TestSecurityStatus(FrappeTestCase):
         self.assertIn("Disable developer mode", " ".join(recommendations))
 
 
-class TestSecurityAudit(FrappeTestCase):
+class TestSecurityAudit(VereningingenTestCase):
     """Test security audit logging"""
     
     def setUp(self):
@@ -400,7 +401,7 @@ class TestSecurityAudit(FrappeTestCase):
         self.assertTrue(success, "Audit logging should handle failures gracefully")
 
 
-class TestSecurityAPIEndpoints(FrappeTestCase):
+class TestSecurityAPIEndpoints(VereningingenTestCase):
     """Test security API endpoints"""
     
     def setUp(self):
@@ -488,7 +489,7 @@ class TestSecurityAPIEndpoints(FrappeTestCase):
         self.assertIn("csrf", change_text.lower())
 
 
-class TestSecurityIntegration(FrappeTestCase):
+class TestSecurityIntegration(VereningingenTestCase):
     """Integration tests for security setup"""
     
     @patch('frappe.get_site_config')
@@ -528,7 +529,7 @@ class TestSecurityIntegration(FrappeTestCase):
         self.assertIn("Security Setup Completed", audit_actions)
 
 
-class TestSecurityEdgeCases(FrappeTestCase):
+class TestSecurityEdgeCases(VereningingenTestCase):
     """Test edge cases and error conditions"""
     
     def test_rate_limit_decorator_with_zero_limit(self):

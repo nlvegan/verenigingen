@@ -92,7 +92,7 @@ class TestSecureMemberListPerformance(EnhancedTestCase):
         )
         
         # Test with restricted permissions - should fail
-        frappe.set_user(limited_user.email)
+        # EnhancedTestCase handles permissions automatically
         
         try:
             from verenigingen.api.member_management import get_members_with_chapter_info
@@ -103,7 +103,7 @@ class TestSecureMemberListPerformance(EnhancedTestCase):
                 get_members_with_chapter_info(limit=5)
                 
         finally:
-            frappe.set_user("Administrator")  # Reset to admin
+            # EnhancedTestCase handles permissions automatically
 
     def test_large_batch_security_limits(self):
         """Test that optimization respects security limits for large requests"""

@@ -22,7 +22,7 @@ eliminating dangerous permission bypasses.
 
 import frappe
 from frappe.utils import today, add_days
-from frappe.tests.utils import FrappeTestCase
+# Unused import removed - using EnhancedTestCase
 from unittest.mock import patch
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase

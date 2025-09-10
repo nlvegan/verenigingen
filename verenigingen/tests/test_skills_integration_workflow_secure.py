@@ -3,9 +3,10 @@ Integration tests for complete skills workflow using SecureTestDataFactory
 Demonstrates comprehensive testing with deterministic, schema-validated data
 """
 
-import unittest
 import frappe
 from frappe.utils import today, now_datetime
+
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.verenigingen.web_form.membership_application import (
     submit_membership_application,
@@ -24,7 +25,7 @@ from verenigingen.tests.fixtures.secure_test_data_factory import (
 from verenigingen.tests.fixtures.field_validator import validate_field
 
 
-class TestSkillsIntegrationWorkflowSecure(unittest.TestCase):
+class TestSkillsIntegrationWorkflowSecure(EnhancedTestCase):
     """Test complete integration workflow for skills system using secure factory"""
 
     @with_secure_test_data(seed=54321)

@@ -563,7 +563,7 @@ class OptimizedVolunteerQueries:
                 cbm.parent as source_name,
                 c.chapter_name as source_name_display,
                 cbm.position as role,
-                cbm.start_date,
+                cbm.from_date as start_date,
                 cbm.end_date,
                 CASE WHEN cbm.end_date IS NULL OR cbm.end_date >= CURDATE() THEN 1 ELSE 0 END as is_active,
                 0 as editable
@@ -582,13 +582,13 @@ class OptimizedVolunteerQueries:
                 tm.team as source_name,
                 t.team_name as source_name_display,
                 tm.role,
-                tm.start_date,
+                tm.from_date as start_date,
                 tm.end_date,
                 CASE WHEN tm.end_date IS NULL OR tm.end_date >= CURDATE() THEN 1 ELSE 0 END as is_active,
                 0 as editable
             FROM `tabVolunteer` v
             LEFT JOIN `tabMember` m ON v.member = m.name
-            LEFT JOIN `tabTeam Member` tm ON m.name = tm.member
+            LEFT JOIN `tabTeam Member` tm ON v.name = tm.volunteer
             LEFT JOIN `tabTeam` t ON tm.team = t.name
             WHERE v.name IN ({placeholders_2}) AND tm.name IS NOT NULL
 

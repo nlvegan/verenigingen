@@ -259,6 +259,7 @@ class MemberFinancialHistoryManager:
     def _save_with_retry(self, max_retries: int = 3) -> bool:
         """
         Save member document with retry logic and proper flags.
+        Uses targeted child table updates to avoid unnecessary validation.
 
         Args:
             max_retries: Maximum retry attempts
@@ -268,15 +269,16 @@ class MemberFinancialHistoryManager:
         """
         for retry in range(max_retries):
             try:
-                # FIXED: Minimal flags only for performance, no security bypasses
-                self.member.flags.ignore_version = True  # Version control not needed for child table updates
-
                 # Save using secure operations with proper permission checking
+                # Use update_child_table operation to avoid irrelevant validation failures
+                # (This operation handles ignore_links and ignore_version internally)
                 result = secure_document_operation(
-                    operation="save",
+                    operation="update_child_table",
                     doc=self.member,
                     justification=f"Update {self.history_field} for member {self.member.name}",
                     required_permissions=["Member:write"],
+                    allow_system_user=False,  # Require explicit user permissions for financial data
+                    bypass_validations=["link_validation"],  # Explicitly allow chapter link bypass
                 )
 
                 if result.success:
@@ -296,7 +298,7 @@ class MemberFinancialHistoryManager:
                 error_str = str(e)
                 if "Could not find Row" in error_str and "Chapter:" in error_str:
                     # This is a chapter reference validation error
-                    # Log it specifically and try to clean up invalid chapter references
+                    # Log it specifically and delegate cleanup to dedicated manager
                     frappe.log_error(
                         f"Chapter reference validation error for {self.member.name}: {error_str}. "
                         f"This suggests invalid chapter references in chapter_membership_history.",
@@ -305,7 +307,17 @@ class MemberFinancialHistoryManager:
 
                     # Try to clean up invalid chapter references if this is not the last retry
                     if retry < max_retries - 1:
-                        self._cleanup_invalid_chapter_references()
+                        # Use dedicated chapter reference manager
+                        from verenigingen.utils.chapter_reference_manager import ChapterReferenceManager
+
+                        chapter_manager = ChapterReferenceManager(self.member)
+                        removed_count = chapter_manager.cleanup_invalid_chapter_references()
+
+                        if removed_count > 0:
+                            frappe.logger().info(
+                                f"Chapter cleanup removed {removed_count} invalid references for {self.member.name}"
+                            )
+
                         time.sleep(0.1 * (retry + 1))
                         # ✅ FIX: Let Frappe handle transaction rollback automatically on exceptions
                         continue
@@ -324,55 +336,6 @@ class MemberFinancialHistoryManager:
                     return False
 
         return False
-
-    def _cleanup_invalid_chapter_references(self):
-        """
-        Clean up invalid chapter references in chapter_membership_history child table.
-        This is called when chapter validation errors occur during save.
-        """
-        try:
-            chapter_history = getattr(self.member, "chapter_membership_history", []) or []
-            if not chapter_history:
-                return
-
-            # Get list of valid chapters from database
-            valid_chapters = set()
-            try:
-                valid_chapter_records = frappe.get_all("Chapter", fields=["name"])
-                valid_chapters = {ch.name for ch in valid_chapter_records}
-            except Exception:
-                # If we can't get valid chapters, we can't clean up
-                return
-
-            # Filter out invalid chapter references
-            cleaned_history = []
-            removed_count = 0
-
-            for entry in chapter_history:
-                chapter_name = getattr(entry, "chapter_name", None)
-                if chapter_name and chapter_name in valid_chapters:
-                    cleaned_history.append(entry)
-                else:
-                    removed_count += 1
-                    frappe.logger("financial_history").warning(
-                        f"Removing invalid chapter reference '{chapter_name}' from {self.member.name}"
-                    )
-
-            if removed_count > 0:
-                # Clear the child table and rebuild with valid entries only
-                self.member.set("chapter_membership_history", [])
-                for entry in cleaned_history:
-                    self.member.append("chapter_membership_history", entry)
-
-                frappe.logger("financial_history").info(
-                    f"Cleaned up {removed_count} invalid chapter references from {self.member.name}"
-                )
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error cleaning up chapter references for {self.member.name}: {str(e)}",
-                "Chapter Cleanup Error",
-            )
 
 
 def get_payment_history_manager(member_doc) -> MemberFinancialHistoryManager:

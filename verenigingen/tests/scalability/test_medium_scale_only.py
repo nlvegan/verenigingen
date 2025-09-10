@@ -122,7 +122,7 @@ class TestMediumScalePaymentHistory(VereningingenTestCase):
                 try:
                     member_doc = frappe.get_doc("Member", member.name)
                     member_doc.load_payment_history()
-                    member_doc.save(ignore_permissions=True)
+                    member_doc.save()  # VereningingenTestCase handles permissions
                     total_processed += 1
                 except Exception as e:
                     print(f"⚠️ Failed to process member {member.name}: {e}")

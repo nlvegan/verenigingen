@@ -1,12 +1,11 @@
-import unittest
-
 import frappe
 from frappe.utils import today
 
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.test_data_factory import TestDataFactory
 
 
-class TestMemberIBANHistory(unittest.TestCase):
+class TestMemberIBANHistory(EnhancedTestCase):
     """Test Member IBAN history tracking functionality"""
 
     @classmethod
@@ -16,7 +15,8 @@ class TestMemberIBANHistory(unittest.TestCase):
 
     def setUp(self):
         """Set up test case"""
-        frappe.set_user("Administrator")
+        super().setUp()
+        # EnhancedTestCase handles permissions automatically
 
     def tearDown(self):
         """Clean up after test"""
@@ -66,7 +66,7 @@ class TestMemberIBANHistory(unittest.TestCase):
                     "is_active": 1,
                     "changed_by": frappe.session.user,
                     "change_reason": "Other"}
-            ).insert(ignore_permissions=True)
+            ).insert()  # EnhancedTestCase handles permissions
 
         # Check IBAN history via direct database query
         history_records = frappe.get_all("Member IBAN History", filters={"parent": member.name}, fields=["*"])
@@ -109,7 +109,7 @@ class TestMemberIBANHistory(unittest.TestCase):
                 "is_active": 1,
                 "changed_by": frappe.session.user,
                 "change_reason": "Other"}
-        ).insert(ignore_permissions=True)
+        ).insert()  # EnhancedTestCase handles permissions
 
         # Change IBAN
         member.iban = "NL69INGB0123456789"
@@ -223,7 +223,7 @@ class TestMemberIBANHistory(unittest.TestCase):
                 "is_active": 1,
                 "changed_by": frappe.session.user,
                 "change_reason": "Other"}
-        ).insert(ignore_permissions=True)
+        ).insert()  # EnhancedTestCase handles permissions
 
         # Get the history record
         history_records = frappe.get_all("Member IBAN History", filters={"parent": member.name}, fields=["*"])

@@ -6,10 +6,10 @@ Ensures compatibility with existing systems and edge cases
 
 import frappe
 from frappe.utils import today, add_days
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestSEPAMandateRegression(VereningingenTestCase):
+class TestSEPAMandateRegression(EnhancedTestCase):
     """Regression tests for SEPA mandate naming configuration"""
 
     @classmethod

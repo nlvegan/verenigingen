@@ -24,12 +24,12 @@ class TestDDBatchAPIIntegration(EnhancedTestCase):
     def setUpClass(cls):
         """Set up test environment."""
         super().setUpClass()
-        frappe.db.begin()
+        # Enhanced Test Factory handles transaction management
         
     def setUp(self):
         """Set up test data for each test."""
         super().setUp()
-        frappe.set_user("Administrator")
+        # Enhanced Test Factory handles user context
         
         # Create test member using enhanced factory
         self.test_member = self._create_test_member()
@@ -42,7 +42,7 @@ class TestDDBatchAPIIntegration(EnhancedTestCase):
         
     def tearDown(self):
         """Clean up test data."""
-        frappe.db.rollback()
+        # Enhanced Test Factory handles rollback automatically
         super().tearDown()
         
     def _create_test_member(self):
@@ -69,14 +69,8 @@ class TestDDBatchAPIIntegration(EnhancedTestCase):
             "mandate_type": "RCUR"
         })
         
-        # Use proper user context for mandate creation
-        test_admin = self.ensure_test_admin_user()
-        current_user = frappe.session.user
-        try:
-            frappe.set_user(test_admin.email)
-            mandate.insert()
-        finally:
-            frappe.set_user(current_user)
+        # Enhanced Test Factory handles user permissions
+        mandate.insert()
             
         return mandate
         

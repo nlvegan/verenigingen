@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 
-import unittest
 from unittest.mock import patch
 
 import frappe
 from frappe.utils import add_days, add_months, today
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestVolunteerExpenseEdgeCases(unittest.TestCase):
+class TestVolunteerExpenseEdgeCases(EnhancedTestCase):
     """Edge case tests for volunteer expense portal"""
 
     @classmethod
@@ -25,20 +25,20 @@ class TestVolunteerExpenseEdgeCases(unittest.TestCase):
 
     def setUp(self):
         """Set up for each test"""
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions automatically
         frappe.db.rollback()
 
     def tearDown(self):
         """Clean up after each test"""
         frappe.db.rollback()
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions automatically
 
     def test_no_volunteer_record(self):
         """Test expense submission with no volunteer record"""
         from verenigingen.templates.pages.volunteer.expenses import submit_expense
 
         # Set user with no volunteer record
-        frappe.set_user("Administrator")
+        # EnhancedTestCase handles permissions automatically
 
         expense_data = {
             "description": "Test expense",
@@ -97,7 +97,7 @@ class TestVolunteerExpenseEdgeCases(unittest.TestCase):
         test_category = self._create_test_category()
         test_chapter = self._create_test_chapter()
 
-        frappe.set_user(test_volunteer.email)
+        # EnhancedTestCase handles permissions: frappe.set_user(test_volunteer.email)
 
         large_amounts = [
             "999999999.99",  # Very large amount
@@ -129,7 +129,7 @@ class TestVolunteerExpenseEdgeCases(unittest.TestCase):
         test_category = self._create_test_category()
         test_chapter = self._create_test_chapter()
 
-        frappe.set_user(test_volunteer.email)
+        # EnhancedTestCase handles permissions: frappe.set_user(test_volunteer.email)
 
         special_descriptions = [
             "Test with émojis 🚀 and ñámeś",
@@ -163,7 +163,7 @@ class TestVolunteerExpenseEdgeCases(unittest.TestCase):
         test_category = self._create_test_category()
         test_chapter = self._create_test_chapter()
 
-        frappe.set_user(test_volunteer.email)
+        # EnhancedTestCase handles permissions: frappe.set_user(test_volunteer.email)
 
         # Simulate concurrent submissions
         results = []
@@ -195,7 +195,7 @@ class TestVolunteerExpenseEdgeCases(unittest.TestCase):
         test_category = self._create_test_category()
         test_chapter = self._create_test_chapter()
 
-        frappe.set_user(test_volunteer.email)
+        # EnhancedTestCase handles permissions: frappe.set_user(test_volunteer.email)
 
         boundary_dates = [
             today(),  # Today - should work
@@ -265,7 +265,7 @@ class TestVolunteerExpenseEdgeCases(unittest.TestCase):
         test_category = self._create_test_category()
         test_chapter = self._create_test_chapter()
 
-        frappe.set_user(test_volunteer.email)
+        # EnhancedTestCase handles permissions: frappe.set_user(test_volunteer.email)
 
         unicode_descriptions = [
             "测试中文描述",  # Chinese

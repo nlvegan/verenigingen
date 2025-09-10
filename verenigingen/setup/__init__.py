@@ -357,9 +357,10 @@ def create_default_verenigingen_settings():
                     # Company settings
                     "company": default_company,
                     "company_name": default_company,
-                    "organization_email_domain": "example.com",
-                    "member_contact_email": "members@example.com",
-                    "support_email": "support@example.com",
+                    # Email settings - must be configured by administrator
+                    "organization_email_domain": "",
+                    "member_contact_email": "",
+                    "support_email": "",
                     "creation_user": frappe.session.user or "Administrator",
                     # Campaign/Donation settings (REQUIRED for campaign donations)
                     "donation_company": default_company,
@@ -952,7 +953,7 @@ def create_application_email_templates():
                 <p>You can retry the payment at any time using this link:</p>
                 <p><a href="{{ retry_url }}" class="btn btn-primary">Retry Payment</a></p>
 
-                <p>If you continue to experience issues, please contact our support team at {{ support_email|default("support@example.com") }}</p>
+                <p>If you continue to experience issues, please contact our support team.</p>
 
                 <p>Common reasons for payment failure:</p>
                 <ul>

@@ -5,11 +5,11 @@ Test suite for SEPA Mandate Configurable Naming System
 
 import frappe
 from frappe.utils import today, add_days
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.validation.iban_validator import generate_test_iban
 
 
-class TestSEPAMandateNaming(VereningingenTestCase):
+class TestSEPAMandateNaming(EnhancedTestCase):
     """Test SEPA mandate configurable naming and starting counter functionality"""
 
     @classmethod
@@ -69,8 +69,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
         self.assertTrue(mandate.mandate_id.startswith("MANDATE-"), 
                        f"mandate_id '{mandate.mandate_id}' should start with 'MANDATE-'")
         
-        # Track for cleanup
-        self.track_doc("SEPA Mandate", mandate.name)
+        # Enhanced Test Factory handles cleanup automatically
 
     def test_custom_naming_pattern(self):
         """Test custom naming patterns work correctly"""
@@ -98,8 +97,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
             self.assertIn("0100", mandate.mandate_id, 
                          f"mandate_id '{mandate.mandate_id}' should contain starting counter '0100'")
             
-            # Track for cleanup
-            self.track_doc("SEPA Mandate", mandate.name)
+            # Enhanced Test Factory handles cleanup automatically
             
         finally:
             # Restore original pattern
@@ -136,7 +134,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
             self.assertIn("2500", mandate1.mandate_id, 
                          f"First mandate '{mandate1.mandate_id}' should contain starting counter '2500'")
             
-            self.track_doc("SEPA Mandate", mandate1.name)
+            # Enhanced Test Factory handles cleanup automatically
             
             # Create second mandate - should increment
             test_member2 = self.create_test_member(
@@ -157,7 +155,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
             self.assertIn("2501", mandate2.mandate_id, 
                          f"Second mandate '{mandate2.mandate_id}' should contain incremented counter '2501'")
             
-            self.track_doc("SEPA Mandate", mandate2.name)
+            # Enhanced Test Factory handles cleanup automatically
             
         finally:
             # Restore original settings
@@ -184,7 +182,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
         self.assertEqual(mandate.mandate_id, manual_id, 
                         f"Manual mandate_id should be preserved, got '{mandate.mandate_id}'")
         
-        self.track_doc("SEPA Mandate", mandate.name)
+        # Enhanced Test Factory handles cleanup automatically
 
     def test_pattern_date_replacement(self):
         """Test that date tokens in patterns are replaced correctly"""
@@ -220,7 +218,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
             self.assertIn(expected_day, mandate.mandate_id, 
                          f"mandate_id should contain day '{expected_day}'")
             
-            self.track_doc("SEPA Mandate", mandate.name)
+            # Enhanced Test Factory handles cleanup automatically
             
         finally:
             settings.reload()
@@ -247,7 +245,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
             mandate1.member = self.test_member.name
             mandate1.save()
             
-            self.track_doc("SEPA Mandate", mandate1.name)
+            # Enhanced Test Factory handles cleanup automatically
             
             # Create second mandate - should get incremented counter
             test_member2 = self.create_test_member(
@@ -267,7 +265,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
             self.assertNotEqual(mandate1.mandate_id, mandate2.mandate_id,
                               "Different mandates should have different mandate_ids")
             
-            self.track_doc("SEPA Mandate", mandate2.name)
+            # Enhanced Test Factory handles cleanup automatically
             
         finally:
             settings.reload()
@@ -296,7 +294,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
             # Should still get a mandate_id (from fallback)
             self.assertTrue(mandate.mandate_id, "Should get mandate_id from fallback mechanism")
             
-            self.track_doc("SEPA Mandate", mandate.name)
+            # Enhanced Test Factory handles cleanup automatically
             
         finally:
             settings.reload()

@@ -193,8 +193,8 @@ run_full_test_suite() {
         "--project=mollie-donation-${BROWSER}"
     )
 
-    if [[ "${HEADLESS}" == "true" ]]; then
-        playwright_args+=("--headed=false")
+    if [[ "${HEADLESS}" == "false" ]]; then
+        playwright_args+=("--headed")
     fi
 
     if [[ "${DEBUG}" == "true" ]]; then
@@ -216,8 +216,8 @@ run_quick_test_suite() {
         "--grep=Happy Path|Single donation"  # Run only essential tests
     )
 
-    if [[ "${HEADLESS}" == "true" ]]; then
-        playwright_args+=("--headed=false")
+    if [[ "${HEADLESS}" == "false" ]]; then
+        playwright_args+=("--headed")
     fi
 
     npx playwright "${playwright_args[@]}"
@@ -234,8 +234,8 @@ run_smoke_tests() {
         "--grep=Happy Path"  # Run only the basic happy path test
     )
 
-    if [[ "${HEADLESS}" == "true" ]]; then
-        playwright_args+=("--headed=false")
+    if [[ "${HEADLESS}" == "false" ]]; then
+        playwright_args+=("--headed")
     fi
 
     npx playwright "${playwright_args[@]}"
@@ -252,8 +252,8 @@ run_performance_tests() {
         "--grep=Performance|concurrent"
     )
 
-    if [[ "${HEADLESS}" == "true" ]]; then
-        playwright_args+=("--headed=false")
+    if [[ "${HEADLESS}" == "false" ]]; then
+        playwright_args+=("--headed")
     fi
 
     npx playwright "${playwright_args[@]}"
@@ -270,8 +270,8 @@ run_webhook_tests() {
         "--grep=webhook|Webhook"
     )
 
-    if [[ "${HEADLESS}" == "true" ]]; then
-        playwright_args+=("--headed=false")
+    if [[ "${HEADLESS}" == "false" ]]; then
+        playwright_args+=("--headed")
     fi
 
     npx playwright "${playwright_args[@]}"

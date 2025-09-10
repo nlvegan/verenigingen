@@ -9,8 +9,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock, Mock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
-
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
 from verenigingen.verenigingen_payments.core.models.settlement import (
     Settlement,
@@ -20,7 +19,7 @@ from verenigingen.verenigingen_payments.core.models.settlement import (
 )
 
 
-class TestSettlementsClient(FrappeTestCase):
+class TestSettlementsClient(EnhancedTestCase):
     """Test suite for Settlements API Client"""
 
     def setUp(self):

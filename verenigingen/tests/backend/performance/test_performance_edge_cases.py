@@ -6,16 +6,16 @@ Tests for performance under stress, large datasets, concurrent operations, and r
 import random
 import threading
 import time
-import unittest
 from datetime import datetime
 
 import frappe
 import psutil
 
 from verenigingen.tests.test_data_factory import TestDataContext, TestDataFactory
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
-class TestPerformanceEdgeCases(unittest.TestCase):
+class TestPerformanceEdgeCases(VereningingenTestCase):
     """Test performance edge cases and system limits"""
 
     @classmethod

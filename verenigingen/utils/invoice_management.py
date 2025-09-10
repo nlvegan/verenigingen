@@ -562,3 +562,265 @@ def validate_invoice_generation_readiness():
     except Exception as e:
         frappe.log_error(f"Invoice generation validation failed: {str(e)}", "Invoice Validation")
         return {"success": False, "error": str(e), "system_ready": False}
+
+
+@frappe.whitelist()
+def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20):
+    """
+    Enhanced cleanup for orphaned membership-related data including:
+    - Orphaned dues schedules (existing functionality)
+    - Memberships with invalid membership types
+    - Amendment requests with non-existent members
+    - Other orphaned membership data
+
+    Args:
+        dry_run (bool): If True, only reports what would be cleaned up
+        max_cleanup (int): Maximum number of items to clean up in one run
+
+    Returns:
+        dict: Results of comprehensive cleanup operation
+    """
+
+    if not (
+        frappe.session.user == "Administrator"
+        or "System Manager" in frappe.get_roles()
+        or "Verenigingen Administrator" in frappe.get_roles()
+    ):
+        frappe.throw(_("Insufficient permissions for membership data cleanup"))
+
+    try:
+        # Start transaction for non-dry-run operations
+        if not dry_run:
+            frappe.db.begin()
+
+        results = {
+            "success": True,
+            "dry_run": dry_run,
+            "timestamp": frappe.utils.now(),
+            "orphaned_schedules": {"found": 0, "cleaned": 0},
+            "invalid_memberships": {"found": 0, "cleaned": 0},
+            "orphaned_amendments": {"found": 0, "cleaned": 0},
+            "errors": [],
+            "processed_items": [],
+        }
+
+        # Get list of valid membership types for comparison
+        valid_membership_types = set(frappe.db.get_list("Membership Type", pluck="name"))
+
+        # 1. Clean up orphaned dues schedules (existing functionality)
+        from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
+            MembershipDuesSchedule,
+        )
+
+        orphaned_schedules = MembershipDuesSchedule.find_orphaned_schedules(limit=max_cleanup)
+        results["orphaned_schedules"]["found"] = len(orphaned_schedules)
+
+        processed_schedules = 0
+        for schedule_data in orphaned_schedules:
+            if processed_schedules >= max_cleanup:
+                break
+
+            schedule_info = {
+                "type": "orphaned_schedule",
+                "name": schedule_data["name"],
+                "member": schedule_data["member"],
+                "status": schedule_data["status"],
+            }
+
+            if not dry_run:
+                try:
+                    frappe.delete_doc("Membership Dues Schedule", schedule_data["name"])
+                    schedule_info["action"] = "deleted"
+                    results["orphaned_schedules"]["cleaned"] += 1
+                except Exception as e:
+                    schedule_info["action"] = "delete_failed"
+                    schedule_info["error"] = str(e)
+                    results["errors"].append(f"Failed to delete schedule {schedule_data['name']}: {str(e)}")
+            else:
+                schedule_info["action"] = "would_delete"
+
+            results["processed_items"].append(schedule_info)
+            processed_schedules += 1
+
+        # 2. Find and clean up memberships with invalid membership types
+        invalid_memberships = frappe.db.sql(
+            """
+            SELECT name, member, membership_type, start_date, status
+            FROM `tabMembership`
+            WHERE membership_type NOT IN ({})
+            AND membership_type IS NOT NULL
+            AND membership_type != ''
+            LIMIT %s
+        """.format(
+                ",".join(["%s"] * len(valid_membership_types))
+            ),
+            list(valid_membership_types) + [max_cleanup],
+            as_dict=True,
+        )
+
+        results["invalid_memberships"]["found"] = len(invalid_memberships)
+
+        processed_memberships = 0
+        for membership_data in invalid_memberships:
+            if processed_memberships >= max_cleanup:
+                break
+
+            membership_info = {
+                "type": "invalid_membership",
+                "name": membership_data["name"],
+                "member": membership_data["member"],
+                "invalid_type": membership_data["membership_type"],
+                "status": membership_data["status"],
+            }
+
+            if not dry_run:
+                try:
+                    # Check if member still exists before deletion
+                    if frappe.db.exists("Member", membership_data["member"]):
+                        membership_info["action"] = "member_exists_skipped"
+                        membership_info[
+                            "note"
+                        ] = f"Member {membership_data['member']} exists - manual review needed"
+                    else:
+                        # Check for dependent records before deletion
+                        dependent_records = frappe.db.sql(
+                            """
+                            SELECT 'Dues Schedule' as type, COUNT(*) as count
+                            FROM `tabMembership Dues Schedule`
+                            WHERE membership = %s
+                            UNION ALL
+                            SELECT 'Sales Invoice' as type, COUNT(*) as count
+                            FROM `tabSales Invoice`
+                            WHERE membership = %s
+                        """,
+                            (membership_data["name"], membership_data["name"]),
+                            as_dict=True,
+                        )
+
+                        has_dependencies = any(
+                            record.count > 0 for record in dependent_records if record.count
+                        )
+
+                        if has_dependencies:
+                            membership_info["action"] = "skipped_has_dependencies"
+                            membership_info[
+                                "note"
+                            ] = f"Membership has dependent records: {', '.join(f'{r.type}({r.count})' for r in dependent_records if r.count > 0)}"
+                        else:
+                            # Safe to delete if member doesn't exist and no dependencies
+                            frappe.delete_doc("Membership", membership_data["name"], ignore_permissions=True)
+                            membership_info["action"] = "deleted"
+                            results["invalid_memberships"]["cleaned"] += 1
+                except Exception as e:
+                    membership_info["action"] = "delete_failed"
+                    membership_info["error"] = str(e)
+                    results["errors"].append(
+                        f"Failed to delete membership {membership_data['name']}: {str(e)}"
+                    )
+            else:
+                membership_info["action"] = "would_delete"
+
+            results["processed_items"].append(membership_info)
+            processed_memberships += 1
+
+        # 3. Find and clean up orphaned amendment requests
+        orphaned_amendments = frappe.db.sql(
+            """
+            SELECT ar.name, ar.member, ar.status, ar.amendment_type, ar.requested_membership_type
+            FROM `tabContribution Amendment Request` ar
+            LEFT JOIN `tabMember` m ON ar.member = m.name
+            WHERE m.name IS NULL
+            AND ar.member IS NOT NULL
+            AND ar.status = 'Approved'
+            LIMIT %s
+        """,
+            (max_cleanup,),
+            as_dict=True,
+        )
+
+        results["orphaned_amendments"]["found"] = len(orphaned_amendments)
+
+        processed_amendments = 0
+        for amendment_data in orphaned_amendments:
+            if processed_amendments >= max_cleanup:
+                break
+
+            amendment_info = {
+                "type": "orphaned_amendment",
+                "name": amendment_data["name"],
+                "member": amendment_data["member"],
+                "status": amendment_data["status"],
+                "amendment_type": amendment_data["amendment_type"],
+                "requested_type": amendment_data["requested_membership_type"],
+            }
+
+            if not dry_run:
+                try:
+                    # Use proper Frappe document deletion instead of raw SQL
+                    frappe.delete_doc(
+                        "Contribution Amendment Request", amendment_data["name"], ignore_permissions=True
+                    )
+                    amendment_info["action"] = "deleted"
+                    results["orphaned_amendments"]["cleaned"] += 1
+                except Exception as e:
+                    amendment_info["action"] = "delete_failed"
+                    amendment_info["error"] = str(e)
+                    results["errors"].append(f"Failed to delete amendment {amendment_data['name']}: {str(e)}")
+            else:
+                amendment_info["action"] = "would_delete"
+
+            results["processed_items"].append(amendment_info)
+            processed_amendments += 1
+
+        # Transaction management - commit or rollback based on success
+        if not dry_run:
+            total_cleaned = (
+                results["orphaned_schedules"]["cleaned"]
+                + results["invalid_memberships"]["cleaned"]
+                + results["orphaned_amendments"]["cleaned"]
+            )
+            if total_cleaned > 0 and len(results["errors"]) == 0:
+                # Only commit if we cleaned something AND had no errors
+                frappe.db.commit()
+            elif len(results["errors"]) > 0:
+                # Rollback if there were any errors to maintain consistency
+                frappe.db.rollback()
+                results[
+                    "message"
+                ] = f"Cleanup rolled back due to {len(results['errors'])} errors. No changes were made."
+                results["success"] = False
+
+        # Generate summary message
+        total_found = (
+            results["orphaned_schedules"]["found"]
+            + results["invalid_memberships"]["found"]
+            + results["orphaned_amendments"]["found"]
+        )
+        total_cleaned = (
+            results["orphaned_schedules"]["cleaned"]
+            + results["invalid_memberships"]["cleaned"]
+            + results["orphaned_amendments"]["cleaned"]
+        )
+
+        if dry_run:
+            results["message"] = (
+                f"Found {total_found} orphaned items: "
+                f"{results['orphaned_schedules']['found']} schedules, "
+                f"{results['invalid_memberships']['found']} invalid memberships, "
+                f"{results['orphaned_amendments']['found']} orphaned amendments"
+            )
+        else:
+            results["message"] = (
+                f"Cleaned up {total_cleaned} of {total_found} orphaned items. "
+                f"{len(results['errors'])} errors occurred."
+            )
+
+        return results
+
+    except Exception as e:
+        # Rollback transaction on any unexpected error
+        if not dry_run:
+            frappe.db.rollback()
+
+        frappe.log_error(f"Enhanced membership data cleanup failed: {str(e)}", "Membership Cleanup")
+        return {"success": False, "error": str(e), "message": f"Cleanup failed: {str(e)}"}

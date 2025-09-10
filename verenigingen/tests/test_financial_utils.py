@@ -9,7 +9,7 @@ Ensures the new utilities work correctly and handle edge cases.
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+# Unused import removed - using EnhancedTestCase
 from frappe.utils import add_months, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase

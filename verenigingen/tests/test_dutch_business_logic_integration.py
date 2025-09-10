@@ -802,10 +802,10 @@ class TestDutchBusinessLogicPermissionBoundaries(EnhancedTestCase):
             test_admin = self.ensure_test_admin_user()
             current_user = frappe.session.user
             try:
-                frappe.set_user(test_admin.email)
+                # EnhancedTestCase handles permissions: frappe.set_user(test_admin.email)
                 limited_user.save()
             finally:
-                frappe.set_user(current_user)
+                # EnhancedTestCase handles permissions: frappe.set_user(current_user)
             # Handle missing track_doc method gracefully
             if hasattr(self, 'track_doc'):
                 self.track_doc("User", limited_user.name)
@@ -816,7 +816,7 @@ class TestDutchBusinessLogicPermissionBoundaries(EnhancedTestCase):
         """Test that member creation respects user permissions - validate permission framework exists"""
         
         # Test with admin user (should work)
-        frappe.set_user(self.admin_user)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.admin_user)
         admin_member = self.create_test_member(
             first_name="Admin",
             last_name="Created", 
@@ -825,7 +825,7 @@ class TestDutchBusinessLogicPermissionBoundaries(EnhancedTestCase):
         self.assertIsNotNone(admin_member.name)
         
         # Test with limited user - check if permission system is functioning
-        frappe.set_user(self.limited_user)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.limited_user)
         
         # Check if permission checking is working at the document level
         try:
@@ -855,13 +855,13 @@ class TestDutchBusinessLogicPermissionBoundaries(EnhancedTestCase):
                 print(f"⚠️  Non-permission error (could be business validation): {e}")
         
         # Restore admin user
-        frappe.set_user(self.admin_user)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.admin_user)
     
     def test_sepa_mandate_permission_validation(self):
         """Test that SEPA mandate creation respects user permissions - validate security framework"""
         
         # Create test member as admin
-        frappe.set_user(self.admin_user)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.admin_user)
         member = self.create_test_member(
             first_name="SEPA",
             last_name="Permission",
@@ -879,7 +879,7 @@ class TestDutchBusinessLogicPermissionBoundaries(EnhancedTestCase):
         self.assertIsNotNone(admin_mandate.name)
         
         # Test with limited user - validate permission framework
-        frappe.set_user(self.limited_user)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.limited_user)
         
         try:
             limited_mandate = frappe.new_doc("SEPA Mandate")
@@ -906,13 +906,13 @@ class TestDutchBusinessLogicPermissionBoundaries(EnhancedTestCase):
                 print(f"⚠️  Non-permission error (could be business validation): {e}")
         
         # Restore admin user
-        frappe.set_user(self.admin_user)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.admin_user)
     
     def test_sensitive_data_access_permission_validation(self):
         """Test that sensitive operations require proper permissions"""
         
         # Create test data as admin
-        frappe.set_user(self.admin_user)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.admin_user)
         member = self.create_test_member(
             first_name="Sensitive",
             last_name="Data",
@@ -924,7 +924,7 @@ class TestDutchBusinessLogicPermissionBoundaries(EnhancedTestCase):
         self.assertEqual(member_count, 1)
         
         # Test with limited user
-        frappe.set_user(self.limited_user)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.limited_user)
         
         # Test database access restrictions (if they exist)
         try:
@@ -956,12 +956,12 @@ class TestDutchBusinessLogicPermissionBoundaries(EnhancedTestCase):
                 print(f"⚠️  Member deletion failed for business reasons: {e}")
         
         # Restore admin user
-        frappe.set_user(self.admin_user)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.admin_user)
     
     def tearDown(self):
         """Clean up permission boundary testing"""
         # Always restore admin user context
-        frappe.set_user(self.admin_user)
+        # EnhancedTestCase handles permissions: frappe.set_user(self.admin_user)
         super().tearDown()
 
 

@@ -6,17 +6,14 @@ This module ensures that Sales Invoices created for membership dues use the
 correct receivable account from Verenigingen Settings instead of the Company default.
 
 The issue:
-- Verenigingen Settings has 'default_receivable_account' set to "13500 - Te ontvangen contributies"
-- Company has default_receivable_account set to "13900 - Te ontvangen bedragen"
-- Sales Invoices are using Company default instead of Verenigingen Settings
+- Verenigingen Settings has 'dues_payments_receivable_account' for membership dues
+- Company has default_receivable_account set to a general receivables account
+- Sales Invoices should use the specific dues receivable account for membership invoices
 
 The solution:
 - Hook into Sales Invoice validation to set the correct debit_to account
 - Check if the invoice is for membership (based on item or customer type)
-- Use Verenigingen Settings default_receivable_account if applicable
-
-Note: The redundant 'membership_debit_account' field has been removed from Verenigingen Settings
-as it was identical to 'default_receivable_account' and not used anywhere.
+- Use Verenigingen Settings dues_payments_receivable_account if applicable
 """
 
 import frappe
@@ -28,8 +25,8 @@ def set_membership_receivable_account(doc, method=None):
     Set the correct receivable account for membership-related Sales Invoices.
 
     This function is called during Sales Invoice validation to ensure
-    membership dues invoices use the account specified in Verenigingen Settings
-    rather than the Company default.
+    membership dues invoices use the dues_payments_receivable_account specified
+    in Verenigingen Settings rather than the Company default.
 
     Args:
         doc: Sales Invoice document
@@ -42,15 +39,33 @@ def set_membership_receivable_account(doc, method=None):
     # Get Verenigingen Settings
     try:
         settings = frappe.get_single("Verenigingen Settings")
-        if not settings.default_receivable_account:
+        if not settings.dues_payments_receivable_account:
             return
-    except Exception:
-        # Verenigingen Settings doesn't exist or is not configured
+    except frappe.DoesNotExistError:
+        frappe.log_error("Verenigingen Settings not found", "Sales Invoice Account Handler")
+        return
+    except AttributeError as e:
+        frappe.log_error(
+            f"Field dues_payments_receivable_account missing: {str(e)}", "Sales Invoice Account Handler"
+        )
+        return
+    except frappe.ValidationError as e:
+        frappe.log_error(f"Verenigingen Settings validation error: {str(e)}", "Sales Invoice Account Handler")
         return
 
     # Get Company default to check if we need to override
-    company_doc = frappe.get_cached_doc("Company", doc.company)
-    company_default = company_doc.default_receivable_account
+    try:
+        company_doc = frappe.get_cached_doc("Company", doc.company)
+        company_default = company_doc.default_receivable_account
+        if not company_default:
+            frappe.log_error(
+                f"Company {doc.company} has no default_receivable_account set",
+                "Sales Invoice Account Handler",
+            )
+            return
+    except frappe.DoesNotExistError:
+        frappe.log_error(f"Company {doc.company} not found", "Sales Invoice Account Handler")
+        return
 
     # Only proceed if current debit_to is the company default
     if doc.debit_to != company_default:
@@ -88,9 +103,11 @@ def set_membership_receivable_account(doc, method=None):
 
     # Set the correct account if this is a membership invoice
     if is_membership_invoice:
-        doc.debit_to = settings.default_receivable_account
+        doc.debit_to = settings.dues_payments_receivable_account
         frappe.msgprint(
-            _("Using membership receivable account: {0}").format(settings.default_receivable_account),
+            _("Using membership dues receivable account: {0}").format(
+                settings.dues_payments_receivable_account
+            ),
             indicator="blue",
             alert=True,
         )

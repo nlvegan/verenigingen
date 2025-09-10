@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import frappe
 from frappe.utils import add_days, now_datetime, today
 
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.payment_history_validator import validate_and_repair_payment_history
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -28,7 +28,7 @@ from verenigingen.utils.security.api_security_framework import (
 )
 
 
-class TestIntegratedSecurityPaymentSystem(VereningingenTestCase):
+class TestIntegratedSecurityPaymentSystem(EnhancedTestCase):
     """Integration tests for the complete security-payment system"""
 
     def setUp(self):

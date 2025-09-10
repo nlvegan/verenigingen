@@ -83,7 +83,7 @@ class TestVolunteerExpensePortal(VereningingenTestCase):
                     "enabled": 1,
                     "new_password": "test123"}
             )
-            user.insert(ignore_permissions=True)
+            user.insert()
 
     @classmethod
     def create_test_chapter(cls):
@@ -751,7 +751,7 @@ class TestVolunteerExpensePortal(VereningingenTestCase):
                     "full_name": "Isolated Volunteer",
                     "enabled": 1}
             )
-            user.insert(ignore_permissions=True)
+            user.insert()
 
         # Create volunteer without member link
         if not frappe.db.exists("Volunteer", isolated_volunteer):

@@ -33,12 +33,21 @@ def setup_test_company():
         company.chart_of_accounts = "Standard"
         company.domain = "Manufacturing"  # Adding domain to ensure all necessary features are enabled
         try:
-            company.insert(ignore_permissions=True)
+            # Set administrative user for infrastructure setup
+            original_user = frappe.session.user
+            frappe.set_user("Administrator")
+            
+            company.insert()
             frappe.db.commit()
             print("_Test Company created")
+            
         except Exception as e:
             frappe.db.rollback()
             raise TestSetupError(f"Failed to create test company: {e}")
+        finally:
+            # Restore original user
+            if 'original_user' in locals():
+                frappe.set_user(original_user)
     else:
         # Ensure company has proper abbreviation
         abbr = frappe.db.get_value("Company", "_Test Company", "abbr")

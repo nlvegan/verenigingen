@@ -4,55 +4,21 @@
 Basic Team Role Smoke Tests
 
 Simple tests to validate Team Role functionality is working correctly
-without complex factory dependencies.
+using Enhanced Test Factory for proper cleanup and business rule validation.
 """
 
 import unittest
 import frappe
 from frappe.utils import today
-from frappe.tests.utils import FrappeTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 
-class TestTeamRoleBasic(FrappeTestCase):
+class TestTeamRoleBasic(EnhancedTestCase):
     """Basic smoke tests for Team Role functionality"""
     
     def setUp(self):
         super().setUp()
-        # Clean up any existing test data
-        self.cleanup_test_data()
-        self.created_docs = []
-    
-    def tearDown(self):
-        # Clean up created documents
-        self.cleanup_test_data()
-        super().tearDown()
-    
-    def cleanup_test_data(self):
-        """Clean up test documents"""
-        # Clean up teams with test names
-        test_teams = frappe.get_all("Team", 
-                                  filters={"team_name": ["like", "%Test Team Role%"]})
-        for team in test_teams:
-            try:
-                team_doc = frappe.get_doc("Team", team.name)
-                team_doc.team_members = []  # Clear members first
-                team_doc.save()
-                frappe.delete_doc("Team", team.name)
-            except:
-                pass
-        
-        # Clean up test team roles
-        test_roles = frappe.get_all("Team Role",
-                                  filters={"role_name": ["like", "%Test%"]})
-        for role in test_roles:
-            try:
-                frappe.delete_doc("Team Role", role.name)
-            except:
-                pass
-    
-    def track_doc(self, doctype, name):
-        """Track document for cleanup"""
-        self.created_docs.append({"doctype": doctype, "name": name})
+        # Enhanced Test Factory handles cleanup automatically
     
     def test_team_role_fixtures_exist(self):
         """Test that required Team Role fixtures exist"""
@@ -121,16 +87,14 @@ class TestTeamRoleBasic(FrappeTestCase):
         """Test creating a team with team members using new role system"""
         print("Testing basic team creation with roles...")
         
-        # Create a simple team
-        team = frappe.get_doc({
-            "doctype": "Team",
-            "team_name": "Test Team Role Basic",
-            "status": "Active",
-            "team_type": "Project Team",
-            "start_date": today()
-        })
-        team.insert()
-        self.track_doc("Team", team.name)
+        # Create a simple team using Enhanced Test Factory
+        team = self.create_test_team(
+            team_name="Test Team Role Basic",
+            status="Active",
+            team_type="Project Team",
+            start_date=today()
+        )
+        # Enhanced Test Factory handles cleanup automatically
         
         # Get an existing volunteer to use
         volunteers = frappe.get_all("Volunteer", limit=1)
@@ -169,16 +133,14 @@ class TestTeamRoleBasic(FrappeTestCase):
         if len(volunteers) < 2:
             self.skipTest("Need at least 2 volunteers for testing")
         
-        # Create team
-        team = frappe.get_doc({
-            "doctype": "Team",
-            "team_name": "Test Team Role Unique",
-            "status": "Active",
-            "team_type": "Project Team", 
-            "start_date": today()
-        })
-        team.insert()
-        self.track_doc("Team", team.name)
+        # Create team using Enhanced Test Factory
+        team = self.create_test_team(
+            team_name="Test Team Role Unique",
+            status="Active",
+            team_type="Project Team",
+            start_date=today()
+        )
+        # Enhanced Test Factory handles cleanup automatically
         
         # Add first team leader - should succeed
         team.append("team_members", {
@@ -214,16 +176,14 @@ class TestTeamRoleBasic(FrappeTestCase):
         if len(volunteers) < 3:
             self.skipTest("Need at least 3 volunteers for testing")
         
-        # Create team
-        team = frappe.get_doc({
-            "doctype": "Team",
-            "team_name": "Test Team Role Multiple",
-            "status": "Active",
-            "team_type": "Project Team",
-            "start_date": today()
-        })
-        team.insert()
-        self.track_doc("Team", team.name)
+        # Create team using Enhanced Test Factory
+        team = self.create_test_team(
+            team_name="Test Team Role Multiple",
+            status="Active",
+            team_type="Project Team",
+            start_date=today()
+        )
+        # Enhanced Test Factory handles cleanup automatically
         
         # Add multiple team members with same non-unique role
         for i, volunteer in enumerate(volunteers):

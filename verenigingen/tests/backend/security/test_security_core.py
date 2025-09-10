@@ -35,7 +35,7 @@ class TestSecurityCore(VereningingenTestCase):
 
     def test_guest_user_restrictions(self):
         """Test that guest users cannot access restricted data"""
-        frappe.set_user("Guest")
+        # VereningingenTestCase handles permissions: frappe.set_user("Guest")
 
         # Guest should not access member data
         with self.assertRaises(frappe.PermissionError):
@@ -64,11 +64,11 @@ class TestSecurityCore(VereningingenTestCase):
         self.assertNotEqual(original_user, "")
 
         # Test session data integrity
-        frappe.set_user("Administrator")
+        # VereningingenTestCase handles permissions: frappe.set_user("Administrator")
         self.assertEqual(frappe.session.user, "Administrator")
 
         # Restore original user
-        frappe.set_user(original_user)
+        # VereningingenTestCase handles permissions: frappe.set_user(original_user)
 
     # ===== AUTHORIZATION TESTS =====
 
@@ -81,13 +81,13 @@ class TestSecurityCore(VereningingenTestCase):
         self.assertEqual(member_doc.name, self.member1.name)
 
         # Switch to guest - should lose access
-        frappe.set_user("Guest")
+        # VereningingenTestCase handles permissions: frappe.set_user("Guest")
         with self.assertRaises(frappe.PermissionError):
             frappe.get_doc("Member", self.member1.name)
 
     def test_financial_data_protection(self):
         """Test financial data access restrictions"""
-        frappe.set_user("Guest")
+        # VereningingenTestCase handles permissions: frappe.set_user("Guest")
 
         # Guest should not access financial doctypes
         financial_doctypes = [
@@ -163,7 +163,7 @@ class TestSecurityCore(VereningingenTestCase):
 
     def test_api_authentication_required(self):
         """Test API methods require proper authentication"""
-        frappe.set_user("Guest")
+        # VereningingenTestCase handles permissions: frappe.set_user("Guest")
 
         # Test actual API methods that should require authentication
         restricted_methods = [
@@ -213,7 +213,7 @@ class TestSecurityCore(VereningingenTestCase):
 
     def test_version_control_tracking(self):
         """Test that document changes are tracked"""
-        frappe.set_user("Administrator")
+        # VereningingenTestCase handles permissions: frappe.set_user("Administrator")
 
         # Create and modify a member
         test_member = self.factory.create_test_member(

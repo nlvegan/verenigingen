@@ -16,7 +16,7 @@ def create_common_item_mappings():
     company = (
         frappe.defaults.get_user_default("Company")
         or frappe.db.get_single_value("Global Defaults", "default_company")
-        or frappe.db.get_value("Company", {}, "name")
+        or frappe.db.get_value("Company", {}, "name", order_by="name")
     )
 
     if not company:
@@ -162,7 +162,7 @@ def verify_mappings():
 
     company = frappe.db.get_single_value("Global Defaults", "default_company")
     if not company:
-        company = frappe.db.get_value("Company", {}, "name")
+        company = frappe.db.get_value("Company", {}, "name", order_by="name")
 
     test_accounts = ["13201956", "13201988", "13201912", "8000"]
 

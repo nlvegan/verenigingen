@@ -56,7 +56,7 @@ class TestMemberController(VereningingenUnitTestCase):
                     "amount": 100,
                     "currency": "EUR"}
             )
-            mt.insert(ignore_permissions=True)
+            mt.insert()  # VereningingenUnitTestCase handles permissions
             self.track_doc("Membership Type", mt.name)
             return mt.name
 
@@ -253,7 +253,7 @@ class TestMemberController(VereningingenUnitTestCase):
                 "end_date": add_days(today(), -35),
                 "status": "Expired"}
         )
-        expired.insert(ignore_permissions=True)
+        expired.insert()  # VereningingenUnitTestCase handles permissions
         self.track_doc("Membership", expired.name)
 
         # Create active membership
@@ -269,7 +269,7 @@ class TestMemberController(VereningingenUnitTestCase):
                     "amount": 100,
                     "currency": "EUR"}
             )
-            mt.insert(ignore_permissions=True)
+            mt.insert()  # VereningingenUnitTestCase handles permissions
             self.track_doc("Membership Type", mt.name)
             membership_type_name = mt.name
 
@@ -282,7 +282,7 @@ class TestMemberController(VereningingenUnitTestCase):
                 "renewal_date": add_days(today(), 365),
                 "status": "Active"}
         )
-        active.insert(ignore_permissions=True)
+        active.insert()  # VereningingenUnitTestCase handles permissions
         self.track_doc("Membership", active.name)
         active.submit()
 
@@ -478,7 +478,7 @@ class TestMemberController(VereningingenUnitTestCase):
                 "renewal_date": add_days(today(), -365),  # 1 year ago
                 "status": "Expired"}
         )
-        past_membership.insert(ignore_permissions=True)
+        past_membership.insert()  # VereningingenUnitTestCase handles permissions
         self.track_doc("Membership", past_membership.name)
 
         # Create current membership
@@ -491,7 +491,7 @@ class TestMemberController(VereningingenUnitTestCase):
                 "renewal_date": add_days(today(), 185),  # 6 months future
                 "status": "Active"}
         )
-        current_membership.insert(ignore_permissions=True)
+        current_membership.insert()  # VereningingenUnitTestCase handles permissions
         self.track_doc("Membership", current_membership.name)
         # Submit to make it active
         current_membership.submit()

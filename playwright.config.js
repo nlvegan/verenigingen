@@ -57,7 +57,7 @@ module.exports = defineConfig({
     baseURL: 'https://dev.veganisme.net',
 
     // Browser configuration
-    headless: process.env.CI ? true : false,
+    headless: true, // Always headless by default
     viewport: { width: 1400, height: 960 },
 
     // Network and timeout settings

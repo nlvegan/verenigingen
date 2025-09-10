@@ -4,11 +4,11 @@ Test to verify email mocking is working correctly
 
 import unittest
 import frappe
-from verenigingen.tests.test_base import VerenigingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.test_utils import TestDataFactory
 
 
-class TestEmailMocking(VerenigingenTestCase):
+class TestEmailMocking(EnhancedTestCase):
     """Test that email mocking prevents real emails from being sent"""
     
     def test_membership_application_no_real_emails(self):

@@ -37,6 +37,7 @@
   "sepa_mandate_starting_counter",
   "column_break_financial",
   "membership_payment_account",
+  "dues_payments_receivable_account",
   "donation_receivable_account",
   "default_cash_account",
   "automate_membership_payment_entries",
@@ -311,6 +312,13 @@
    "fieldtype": "Link",
    "label": "Membership Payment To",
    "mandatory_depends_on": "eval:doc.automate_membership_payment_entries",
+   "options": "Account"
+  },
+  {
+   "description": "Default receivable account for membership dues invoices. If not set, will use Company default receivable account.",
+   "fieldname": "dues_payments_receivable_account",
+   "fieldtype": "Link",
+   "label": "Dues Payments Receivable Account",
    "options": "Account"
   },
   {

@@ -10,7 +10,7 @@ from typing import Dict, List
 from unittest.mock import MagicMock, patch
 
 import frappe
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.verenigingen_payments.clients.balances_client import BalancesClient
 from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
@@ -22,7 +22,7 @@ from verenigingen.verenigingen_payments.workflows.financial_dashboard import Fin
 from verenigingen.verenigingen_payments.core.security.webhook_validator import WebhookValidator
 
 
-class TestE2EWorkflowValidation(VereningingenTestCase):
+class TestE2EWorkflowValidation(EnhancedTestCase):
     """
     End-to-end workflow validation tests
     
@@ -51,7 +51,7 @@ class TestE2EWorkflowValidation(VereningingenTestCase):
             settings.webhook_secret = "e2e_webhook_secret"
             settings.auto_reconcile = True
             settings.reconciliation_hour = 2
-            settings.insert(ignore_permissions=True)
+            settings.insert()  # VereningingenTestCase handles permissions
             frappe.db.commit()
     
     def setUp(self):
@@ -660,9 +660,10 @@ class TestE2EWorkflowValidation(VereningingenTestCase):
     
     def tearDown(self):
         """Clean up test data"""
-        # Clean up test records
+        # Clean up test records (EnhancedTestCase handles this automatically)
         if 'member' in self.test_data:
-            frappe.delete_doc("Member", self.test_data['member'].name, ignore_permissions=True)
+            self.track_test_record("Member", self.test_data['member'].name)
+            frappe.delete_doc("Member", self.test_data['member'].name, force=True)
         
         frappe.db.delete("Mollie Audit Log", {"reference_id": ["like", "%e2e%"]})
         frappe.db.delete("Dispute Case", {"case_id": ["like", "%test%"]})

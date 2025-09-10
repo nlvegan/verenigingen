@@ -1,6 +1,5 @@
-import unittest
-
 import frappe
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 from verenigingen.api.member_management import add_member_to_chapter_roster, assign_member_to_chapter
 
@@ -20,7 +19,7 @@ def get_member_primary_chapter(member_name):
         return None
 
 
-class TestChapterAssignmentEdgeCases(unittest.TestCase):
+class TestChapterAssignmentEdgeCases(EnhancedTestCase):
     """Test edge cases for chapter assignment functionality"""
 
     @classmethod
@@ -548,7 +547,7 @@ class TestChapterAssignmentEdgeCases(unittest.TestCase):
         print("✅ Database transaction rollback works correctly")
 
 
-class ObsoleteSubscriptionPlanTests(unittest.TestCase):
+class ObsoleteSubscriptionPlanTests(EnhancedTestCase):
     """OBSOLETE: Tests removed due to subscription system elimination"""
     
     def test_obsolete_notice(self):

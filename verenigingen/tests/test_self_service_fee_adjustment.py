@@ -21,10 +21,15 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
         super().setUp()
         
         # Clean up any existing Monthly Standard membership types
-        existing_types = frappe.get_all("Membership Type", filters={"membership_type_name": "Monthly Standard"})
-        for mt in existing_types:
-            frappe.delete_doc("Membership Type", mt.name, force=True, ignore_permissions=True)
-        frappe.db.commit()
+        original_user = frappe.session.user
+        try:
+            frappe.set_user("Administrator")
+            existing_types = frappe.get_all("Membership Type", filters={"membership_type_name": "Monthly Standard"})
+            for mt in existing_types:
+                frappe.delete_doc("Membership Type", mt.name, force=True)
+            frappe.db.commit()
+        finally:
+            frappe.session.user = original_user
         
         # Create test settings
         self.update_verenigingen_settings({
@@ -82,7 +87,13 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
                 "enabled": 1,
                 "user_type": "Website User"
             })
-            user.insert(ignore_permissions=True)
+            # Use proper admin context for test user creation
+            original_user = frappe.session.user
+            try:
+                frappe.set_user("Administrator")
+                user.insert()
+            finally:
+                frappe.session.user = original_user
         frappe.session.user = self.member.email
         
         try:
@@ -97,7 +108,8 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
                 "requested_by_member": 1,
                 "effective_date": today()
             })
-            request.insert(ignore_permissions=True)
+            # Test request creation within proper user context
+            request.insert()  # This should work with current session user
             
             # Should be auto-approved
             self.assertEqual(request.status, "Approved")

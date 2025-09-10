@@ -119,7 +119,7 @@ class TestChapterRole(EnhancedTestCase):
                 "email": f"test{self.unique_id}@example.com",
             }
         )
-        member.insert(ignore_permissions=True)
+        member.insert()  # EnhancedTestCase handles permissions
 
         # Create test chapter
         chapter = frappe.get_doc(
@@ -131,7 +131,7 @@ class TestChapterRole(EnhancedTestCase):
                 "published": 1,
             }
         )
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()  # EnhancedTestCase handles permissions
         chapter.reload()
 
         # Add our test member as board member with the test role

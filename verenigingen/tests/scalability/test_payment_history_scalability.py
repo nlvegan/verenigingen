@@ -38,14 +38,14 @@ from typing import Dict, List, Any, Optional
 import statistics
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+# Unused import removed - using VereningingenTestCase
 
-from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.tests.scalability.payment_history_test_factory import PaymentHistoryTestFactory
 from verenigingen.utils.background_jobs import BackgroundJobManager
 
 
-class PaymentHistoryScalabilityTestCase(VereningingenTestCase):
+class PaymentHistoryScalabilityTestCase(EnhancedTestCase):
     """Base test case for payment history scalability testing"""
     
     @classmethod
@@ -197,7 +197,13 @@ class TestPaymentHistorySmallScale(PaymentHistoryScalabilityTestCase):
                 
                 member_doc = frappe.get_doc("Member", member.name)
                 member_doc.load_payment_history()
-                member_doc.save(ignore_permissions=True)
+                # Ensure admin context for performance measurement accuracy
+                original_user = frappe.session.user
+                try:
+                    # VereningingenTestCase handles permissions automatically
+                    member_doc.save()
+                finally:
+                    frappe.session.user = original_user
                 
                 update_times.append(time.time() - start_time)
             
@@ -387,7 +393,13 @@ class TestPaymentHistoryLargeScale(PaymentHistoryScalabilityTestCase):
                     try:
                         member_doc = frappe.get_doc("Member", member.name)
                         member_doc.load_payment_history()
-                        member_doc.save(ignore_permissions=True)
+                        # Ensure admin context for performance measurement accuracy
+                original_user = frappe.session.user
+                try:
+                    # VereningingenTestCase handles permissions automatically
+                    member_doc.save()
+                finally:
+                    frappe.session.user = original_user
                         processed_count += 1
                     except Exception as e:
                         frappe.log_error(f"Failed to process member {member.name}: {str(e)}")
