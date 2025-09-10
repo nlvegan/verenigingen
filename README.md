@@ -9,11 +9,10 @@ Verenigingen is a powerful Frappe application designed specifically for Dutch as
 ### Core Capabilities
 
 - **Member Management**: Complete lifecycle from application to termination with automated workflows
-- **Financial Integration**: Full ERPNext integration with SEPA direct debit and invoice processing
+- **Financial Integration**: Full ERPNext integration with SEPA direct debit, Mollie and invoice processing
 - **Chapter Organization**: Geographic chapters with postal code matching and board management
 - **Volunteer Coordination**: Assignment tracking, expense management, and team organization
 - **eBoekhouden Integration**: Comprehensive accounting system integration with REST API support
-- **Dutch Compliance**: ANBI qualification, GDPR compliance, and Belastingdienst reporting
 - **Portal Systems**: Member and volunteer self-service portals with responsive design
 - **Analytics & Reporting**: Real-time business intelligence with predictive analytics
 
@@ -34,10 +33,10 @@ Verenigingen is a powerful Frappe application designed specifically for Dutch as
 
 ### 💰 **Financial Operations**
 - **SEPA Direct Debit**: EU-compliant automated payment collection with mandate management
-- **eBoekhouden Integration**: Complete accounting system synchronization via REST API
+- **eBoekhouden Integration**: Complete import tool via REST API
 - **Invoice Processing**: Automated invoice generation and payment tracking
 - **Banking Integration**: MT940 import and bank reconciliation with Dutch banking standards
-- **Donation Management**: ANBI-compliant donation tracking with tax receipt generation
+- **Donation Management**: ANBI-donation agreement tracking with tax receipt generation
 
 ### 🤝 **Volunteer Management**
 - **Volunteer Profiles**: Skills tracking, availability, and assignment history
@@ -49,11 +48,11 @@ Verenigingen is a powerful Frappe application designed specifically for Dutch as
 ### 🌐 **Portal Systems**
 - **Member Portal**: Self-service member management with payment history and profile updates
 - **Volunteer Portal**: Assignment tracking, expense submission, and team collaboration
-- **Brand Management**: Customizable theming system with real-time color preview
+- **Brand Management**: Customizable theming system with real-time color preview and logo
 - **Mobile Responsive**: Full functionality across all device types
 
 ### 📊 **Analytics & Intelligence**
-- **Membership Analytics**: Real-time KPI tracking with predictive modeling
+- **Membership Analytics**: Real-time KPI tracking and membrship growth modeling
 - **Financial Reporting**: Comprehensive revenue and payment analysis
 - **Volunteer Impact**: Contribution tracking and resource optimization
 - **Cohort Analysis**: Member retention and lifecycle insights
@@ -68,14 +67,11 @@ Verenigingen is a powerful Frappe application designed specifically for Dutch as
 - **Queue System**: Redis for background job processing and caching
 - **API**: RESTful APIs with comprehensive endpoint coverage
 - **Testing**: Enhanced testing framework with automatic cleanup and factory methods
-- **Integration**: Production-ready eBoekhouden REST API integration
 
 ### Required Dependencies
 - **ERPNext v15+**: Core ERP functionality and financial modules
 - **Payments App**: Payment gateway integrations and SEPA processing
 - **HRMS App**: Human resources and employee management
-- **CRM App**: Customer relationship management and lead tracking
-- **Banking App** (Alyf-de): Dutch bank reconciliation and MT940 import
 
 ### Development Dependencies
 - **Redis**: Background job processing and session management
@@ -90,7 +86,7 @@ Verenigingen is a powerful Frappe application designed specifically for Dutch as
 - **External APIs**: Extensible API framework for third-party integrations
 - **ERPNext Integration**: Deep financial module integration with customer/invoice automation
 - **Brand Management**: Dynamic theming system with real-time color preview
-
+- **Mollie payments and backend API support**: support for both the payments and backend APIs
 ## 🚀 **Quick Start**
 
 ### Installation
@@ -154,23 +150,20 @@ bench --version  # Should be v15.0.0+
 ### Organization Sizes
 - **Small** (< 100 members): Quick setup with essential features
 - **Medium** (100-1000 members): Full automation and process optimization
-- **Large** (1000+ members): Enterprise features with advanced analytics
-- **Multi-Chapter**: Complex organizational structures with regional management
+- **Large** (1000+ members): Should work just fine, though may require some more testing
+- **Multi-Chapter support**: Complex organizational structures with regional management
+- **Volunteer support**: volunteer history and expense tracking and claim support
 
 ## 🔒 **Security & Compliance**
 
 ### Privacy & Data Protection
-- **GDPR Compliant**: Built-in privacy features and data protection
-- **ANBI Qualification**: Dutch tax-exempt organization compliance
 - **Audit Trails**: Complete activity logging and change tracking
 - **Access Controls**: Role-based permissions with fine-grained control
 - **Data Encryption**: Secure storage of sensitive member and financial data
 
 ### Dutch Regulatory Compliance
-- **Belastingdienst Reporting**: Automated tax authority reporting
 - **SEPA Compliance**: EU payment processing standards
 - **Banking Standards**: Dutch banking integration and reconciliation
-- **Accounting Integration**: eBoekhouden and other Dutch accounting systems
 
 ## 🤝 **Community & Support**
 
