@@ -1,0 +1,294 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Contribution Amendment Request Integration Tests
+
+Proper integration tests converted from debug functions that were previously
+mixed into the production controller. These tests validate the entire
+amendment workflow end-to-end.
+
+Author: Verenigingen Development Team  
+Created: 2025-09-11 (converted from debug functions)
+"""
+
+import frappe
+from frappe.utils import today, add_days
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+
+class TestContributionAmendmentIntegration(EnhancedTestCase):
+    """Integration tests for Contribution Amendment Request workflows"""
+
+    def setUp(self):
+        super().setUp()
+
+    def test_amendment_controller_methods_exist(self):
+        """Test that all required controller methods exist and are callable"""
+        
+        # Create a test amendment document
+        test_amendment = frappe.new_doc("Contribution Amendment Request")
+        
+        # Check that all essential methods exist
+        required_methods = [
+            "validate",
+            "create_dues_schedule_for_amendment", 
+            "set_current_details",
+            "apply_fee_change",
+            "approve_amendment",
+            "apply_amendment",
+            "get_impact_preview"
+        ]
+
+        for method in required_methods:
+            self.assertTrue(
+                hasattr(test_amendment, method),
+                f"Method '{method}' should exist on ContributionAmendmentRequest"
+            )
+
+        print("✅ All required controller methods exist")
+
+    def test_amendment_document_creation_and_validation(self):
+        """Test creating and validating amendment documents"""
+        
+        # Create test member with active membership
+        member = self.create_test_member(
+            first_name="Amendment",
+            last_name="Test"
+        )
+        
+        membership = self.create_test_membership(
+            member=member.name,
+            status="Active"
+        )
+
+        # Create amendment request
+        amendment = frappe.get_doc({
+            "doctype": "Contribution Amendment Request",
+            "member": member.name,
+            "membership": membership.name,
+            "amendment_type": "Fee Change",
+            "requested_amount": 50.0,
+            "reason": "Integration test amendment",
+            "effective_date": add_days(today(), 30)
+        })
+
+        # Should validate and insert successfully
+        amendment.insert()
+        
+        # Verify amendment was created with proper defaults
+        self.assertEqual(amendment.status, "Draft")
+        self.assertEqual(amendment.requested_by, frappe.session.user)
+        self.assertIsNotNone(amendment.effective_date)
+        
+        print(f"✅ Amendment {amendment.name} created and validated successfully")
+
+    def test_amendment_approval_workflow(self):
+        """Test the complete approval workflow"""
+        
+        # Create test data
+        member = self.create_test_member(
+            first_name="Approval",
+            last_name="Workflow"
+        )
+        
+        membership = self.create_test_membership(
+            member=member.name,
+            status="Active"
+        )
+
+        # Create amendment that requires approval (large amount)
+        amendment = frappe.get_doc({
+            "doctype": "Contribution Amendment Request",
+            "member": member.name,
+            "membership": membership.name,
+            "amendment_type": "Fee Change",
+            "requested_amount": 200.0,  # Large amount to force approval
+            "reason": "Large fee increase test",
+            "effective_date": add_days(today(), 30)
+        })
+        
+        amendment.insert()
+        
+        # Should be pending approval for large amounts
+        self.assertEqual(amendment.status, "Pending Approval")
+        
+        # Test approval process
+        amendment.approve_amendment("Approved for integration test")
+        
+        self.assertEqual(amendment.status, "Approved")
+        self.assertEqual(amendment.approved_by, frappe.session.user)
+        self.assertIsNotNone(amendment.approved_date)
+        
+        print(f"✅ Amendment approval workflow completed for {amendment.name}")
+
+    def test_dues_schedule_integration(self):
+        """Test integration with Membership Dues Schedule"""
+        
+        # Create test member with dues schedule
+        member = self.create_test_member(
+            first_name="Dues",
+            last_name="Integration"
+        )
+        
+        membership = self.create_test_membership(
+            member=member.name,
+            status="Active"
+        )
+
+        # Create initial dues schedule
+        dues_schedule = self.create_test_dues_schedule(
+            member=member.name,
+            membership=membership.name,
+            dues_rate=25.0,
+            status="Active"
+        )
+
+        # Create and approve amendment
+        amendment = frappe.get_doc({
+            "doctype": "Contribution Amendment Request",
+            "member": member.name,
+            "membership": membership.name,
+            "amendment_type": "Fee Change", 
+            "requested_amount": 35.0,
+            "reason": "Dues schedule integration test",
+            "effective_date": today()
+        })
+        
+        amendment.insert()
+        amendment.approve_amendment("Approved for dues integration test")
+        
+        # Force apply the amendment
+        amendment._force_apply = True
+        result = amendment.apply_amendment()
+        
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(amendment.status, "Applied")
+        
+        # Verify dues schedule was updated
+        dues_schedule.reload()
+        self.assertEqual(float(dues_schedule.dues_rate), 35.0)
+        
+        print(f"✅ Dues schedule integration successful for {amendment.name}")
+
+    def test_amendment_field_configuration(self):
+        """Test that amendment DocType has required fields properly configured"""
+        
+        doctype = frappe.get_doc("DocType", "Contribution Amendment Request")
+        
+        # Check for critical fields
+        required_fields = [
+            "member",
+            "membership", 
+            "amendment_type",
+            "requested_amount",
+            "reason",
+            "status",
+            "effective_date",
+            "new_dues_schedule",
+            "current_dues_schedule",
+            "processing_notes"
+        ]
+
+        existing_fields = [field.fieldname for field in doctype.fields]
+
+        for field in required_fields:
+            self.assertIn(
+                field, existing_fields,
+                f"Required field '{field}' should exist in Contribution Amendment Request DocType"
+            )
+
+        # Check specific field configurations
+        for field in doctype.fields:
+            if field.fieldname == "new_dues_schedule":
+                self.assertEqual(field.fieldtype, "Link")
+                self.assertEqual(field.options, "Membership Dues Schedule")
+            elif field.fieldname == "current_dues_schedule":
+                self.assertEqual(field.fieldtype, "Link") 
+                self.assertEqual(field.options, "Membership Dues Schedule")
+
+        print("✅ Amendment DocType field configuration is correct")
+
+    def test_auto_approval_logic(self):
+        """Test automatic approval logic for small increases"""
+        
+        # Create member with existing dues
+        member = self.create_test_member(
+            first_name="Auto",
+            last_name="Approval"
+        )
+        
+        membership = self.create_test_membership(
+            member=member.name,
+            status="Active"
+        )
+
+        # Create dues schedule with base amount
+        dues_schedule = self.create_test_dues_schedule(
+            member=member.name,
+            membership=membership.name,
+            dues_rate=20.0,
+            status="Active"
+        )
+
+        # Create small fee increase (should auto-approve)
+        amendment = frappe.get_doc({
+            "doctype": "Contribution Amendment Request",
+            "member": member.name,
+            "membership": membership.name,
+            "amendment_type": "Fee Change",
+            "requested_amount": 21.0,  # Small 5% increase
+            "reason": "Small auto-approval test",
+            "effective_date": add_days(today(), 30)
+        })
+        
+        amendment.insert()
+        
+        # Should auto-approve small increases
+        self.assertEqual(amendment.status, "Approved")
+        self.assertIn("Auto-approved", amendment.internal_notes or "")
+        
+        print(f"✅ Auto-approval logic working for {amendment.name}")
+
+    def test_impact_preview_generation(self):
+        """Test that impact preview is generated correctly"""
+        
+        member = self.create_test_member(
+            first_name="Impact",
+            last_name="Preview"
+        )
+        
+        membership = self.create_test_membership(
+            member=member.name,
+            status="Active"
+        )
+
+        # Create amendment
+        amendment = frappe.get_doc({
+            "doctype": "Contribution Amendment Request",
+            "member": member.name,
+            "membership": membership.name,
+            "amendment_type": "Fee Change",
+            "requested_amount": 30.0,
+            "reason": "Impact preview test",
+        })
+        
+        amendment.insert()
+        
+        # Test impact preview generation
+        preview = amendment.get_impact_preview()
+        
+        self.assertIsInstance(preview, dict)
+        self.assertIn("html", preview)
+        self.assertIn("Amendment Impact Preview", preview["html"])
+        
+        print(f"✅ Impact preview generated successfully for {amendment.name}")
+
+
+if __name__ == "__main__":
+    import unittest
+    # Enable test mode
+    frappe.init(site="dev.veganisme.net")
+    frappe.connect()
+    
+    # Run the tests
+    unittest.main()

@@ -120,19 +120,31 @@ class AssignmentHistoryManager:
         try:
             volunteer = frappe.get_doc("Volunteer", volunteer_id)
 
-            # Look for the specific assignment that matches all criteria
-            # This ensures we update the correct stint for volunteers with multiple terms
+            # Look for the specific assignment that matches key criteria
+            # For role changes, we prioritize team/start_date over exact role match
             target_assignment = None
             for assignment in volunteer.assignment_history or []:
                 if (
                     assignment.reference_doctype == reference_doctype
                     and assignment.reference_name == reference_name
-                    and assignment.role == role
                     and str(assignment.start_date) == str(start_date)
                     and assignment.status == "Active"
                 ):
+                    # Found matching assignment by team and start date
                     target_assignment = assignment
                     break
+
+            # If no match by start_date, try matching by role (backward compatibility)
+            if not target_assignment:
+                for assignment in volunteer.assignment_history or []:
+                    if (
+                        assignment.reference_doctype == reference_doctype
+                        and assignment.reference_name == reference_name
+                        and assignment.role == role
+                        and assignment.status == "Active"
+                    ):
+                        target_assignment = assignment
+                        break
 
             if target_assignment:
                 # Update the specific assignment to completed
@@ -140,7 +152,7 @@ class AssignmentHistoryManager:
                 target_assignment.status = "Completed"
 
                 frappe.log_error(
-                    "Updated specific assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
+                    f"Updated specific assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
                     "Assignment History Manager",
                 )
             else:
@@ -162,7 +174,7 @@ class AssignmentHistoryManager:
                     fallback_assignment.status = "Completed"
 
                     frappe.log_error(
-                        "Updated fallback assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
+                        f"Updated fallback assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
                         "Assignment History Manager",
                     )
                 else:
@@ -181,7 +193,7 @@ class AssignmentHistoryManager:
                     )
 
                     frappe.log_error(
-                        "Created new completed assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
+                        f"Created new completed assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
                         "Assignment History Manager",
                     )
 
@@ -307,13 +319,13 @@ class AssignmentHistoryManager:
                     return False
 
                 frappe.log_error(
-                    "Removed assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
+                    f"Removed assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
                     "Assignment History Manager",
                 )
                 return True
             else:
                 frappe.log_error(
-                    "Assignment to remove not found for volunteer {volunteer_id}: {assignment_type} - {role}",
+                    f"Assignment to remove not found for volunteer {volunteer_id}: {assignment_type} - {role}",
                     "Assignment History Manager",
                 )
                 return False

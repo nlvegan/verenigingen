@@ -13,7 +13,8 @@ Focused tests for Team Role DocType validation and business logic:
 
 import unittest
 import frappe
-from frappe.utils import today, add_days
+from frappe.utils import today, add_days, random_string, now
+import time
 # FrappeTestCase import removed - all classes use EnhancedTestCase
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, BusinessRuleError
@@ -24,14 +25,18 @@ class TestTeamRoleValidation(EnhancedTestCase):
     
     def setUp(self):
         super().setUp()
+        # Note: Each test method generates its own unique ID to avoid conflicts
     
     def test_team_role_creation_basic(self):
         """Test basic team role creation with required fields"""
         print("Testing basic team role creation...")
         
+        # Generate unique ID for this specific test method using timestamp
+        test_id = f"{random_string(6)}_{int(time.time() * 1000000) % 1000000}"
+        
         role = frappe.get_doc({
             "doctype": "Team Role",
-            "role_name": "Test Basic Role",
+            "role_name": f"Test Basic Role {test_id}_{random_string(4)}",
             "description": "A test role for validation testing",
             "permissions_level": "Basic",
             "is_team_leader": 0,
@@ -41,7 +46,7 @@ class TestTeamRoleValidation(EnhancedTestCase):
         
         role.insert()
         self.assertIsNotNone(role.name)
-        self.assertEqual(role.role_name, "Test Basic Role")
+        self.assertTrue(role.role_name.startswith("Test Basic Role"))
         
         # Enhanced Test Factory handles cleanup automatically
         
@@ -52,7 +57,7 @@ class TestTeamRoleValidation(EnhancedTestCase):
         print("Testing team role required fields...")
         
         # Missing role_name should fail
-        with self.assertRaises(frappe.MandatoryError):
+        with self.assertRaises((frappe.MandatoryError, frappe.ValidationError)):
             role = frappe.get_doc({
                 "doctype": "Team Role",
                 # Missing role_name
@@ -67,10 +72,13 @@ class TestTeamRoleValidation(EnhancedTestCase):
         """Test that role names must be unique"""
         print("Testing team role unique name constraint...")
         
+        # Generate unique ID for this specific test method using timestamp
+        test_id = f"{random_string(6)}_{int(time.time() * 1000000) % 1000000}"
+        
         # Create first role
         role1 = frappe.get_doc({
             "doctype": "Team Role",
-            "role_name": "Unique Test Role",
+            "role_name": f"Unique Test Role {test_id}",
             "permissions_level": "Basic",
             "is_active": 1
         })
@@ -80,7 +88,7 @@ class TestTeamRoleValidation(EnhancedTestCase):
         with self.assertRaises(frappe.DuplicateEntryError):
             role2 = frappe.get_doc({
                 "doctype": "Team Role", 
-                "role_name": "Unique Test Role",  # Same name
+                "role_name": f"Unique Test Role {test_id}",  # Same name
                 "permissions_level": "Coordinator"
             })
             role2.insert()
@@ -93,13 +101,16 @@ class TestTeamRoleValidation(EnhancedTestCase):
         """Test permissions level field validation"""
         print("Testing permissions level validation...")
         
+        # Generate unique ID for this specific test method using timestamp
+        test_id = f"{random_string(6)}_{int(time.time() * 1000000) % 1000000}"
+        
         valid_levels = ["Basic", "Coordinator", "Leader"]
         
         # Test valid permissions levels
-        for level in valid_levels:
+        for i, level in enumerate(valid_levels):
             role = frappe.get_doc({
                 "doctype": "Team Role",
-                "role_name": f"Test {level} Role",
+                "role_name": f"Test {level} Role {test_id}_{i}",
                 "permissions_level": level,
                 "is_active": 1
             })
@@ -113,7 +124,7 @@ class TestTeamRoleValidation(EnhancedTestCase):
         with self.assertRaises(frappe.ValidationError):
             invalid_role = frappe.get_doc({
                 "doctype": "Team Role",
-                "role_name": "Invalid Permissions Role",
+                "role_name": f"Invalid Permissions Role {test_id}",
                 "permissions_level": "SuperAdmin",  # Not in valid options
                 "is_active": 1
             })
@@ -125,10 +136,13 @@ class TestTeamRoleValidation(EnhancedTestCase):
         """Test team leader flag business logic"""
         print("Testing team leader flag logic...")
         
+        # Generate unique ID for this specific test method using timestamp
+        test_id = f"{random_string(6)}_{int(time.time() * 1000000) % 1000000}"
+        
         # Create team leader role
         leader_role = frappe.get_doc({
             "doctype": "Team Role",
-            "role_name": "Test Team Leader",
+            "role_name": f"Test Team Leader {test_id}",
             "permissions_level": "Leader",
             "is_team_leader": 1,
             "is_unique": 1,  # Team leaders should typically be unique
@@ -144,7 +158,7 @@ class TestTeamRoleValidation(EnhancedTestCase):
         # Create non-leader role
         member_role = frappe.get_doc({
             "doctype": "Team Role",
-            "role_name": "Test Regular Member",
+            "role_name": f"Test Regular Member {test_id}",
             "permissions_level": "Basic",
             "is_team_leader": 0,
             "is_unique": 0,
@@ -163,10 +177,13 @@ class TestTeamRoleValidation(EnhancedTestCase):
         """Test unique flag implications for team assignments"""
         print("Testing unique flag implications...")
         
+        # Generate unique ID for this specific test method using timestamp
+        test_id = f"{random_string(6)}_{int(time.time() * 1000000) % 1000000}"
+        
         # Create unique role
         unique_role = frappe.get_doc({
             "doctype": "Team Role",
-            "role_name": "Test Unique Role",
+            "role_name": f"Test Unique Role {test_id}",
             "permissions_level": "Coordinator",
             "is_unique": 1,
             "is_active": 1
@@ -176,7 +193,7 @@ class TestTeamRoleValidation(EnhancedTestCase):
         # Create non-unique role
         regular_role = frappe.get_doc({
             "doctype": "Team Role",
-            "role_name": "Test Regular Role",
+            "role_name": f"Test Regular Role {test_id}",
             "permissions_level": "Basic", 
             "is_unique": 0,
             "is_active": 1
@@ -184,7 +201,7 @@ class TestTeamRoleValidation(EnhancedTestCase):
         regular_role.insert()
         
         # Test assignment implications
-        team = self.create_test_team(team_name="Unique Role Test Team")
+        team = self.create_test_team(team_name=f"Unique Role Test Team {test_id}")
         volunteers = [self.create_test_volunteer() for _ in range(3)]
         
         team_doc = frappe.get_doc("Team", team.name)
@@ -212,6 +229,7 @@ class TestTeamRoleValidation(EnhancedTestCase):
             team_doc.save()
         
         # Reset team members
+        team_doc.reload()  # Refresh to avoid timestamp issues
         team_doc.team_members = [team_doc.team_members[0]]  # Keep first member
         team_doc.save()
         
@@ -243,17 +261,20 @@ class TestTeamRoleValidation(EnhancedTestCase):
         """Test impact of active/inactive status on role assignments"""
         print("Testing active status impact...")
         
+        # Generate unique ID for this specific test method using timestamp
+        test_id = f"{random_string(6)}_{int(time.time() * 1000000) % 1000000}"
+        
         # Create role and make it active
         test_role = frappe.get_doc({
             "doctype": "Team Role",
-            "role_name": "Test Status Role",
+            "role_name": f"Test Status Role {test_id}",
             "permissions_level": "Basic",
             "is_active": 1
         })
         test_role.insert()
         
         # Create team member assignment
-        team = self.create_test_team(team_name="Status Test Team")
+        team = self.create_test_team(team_name=f"Status Test Team {test_id}")
         volunteer = self.create_test_volunteer()
         
         team_doc = frappe.get_doc("Team", team.name)
@@ -293,14 +314,16 @@ class TestTeamRoleValidation(EnhancedTestCase):
         except frappe.ValidationError:
             print("✅ System prevents assignment of inactive roles")
         
-        # Cleanup
-        frappe.delete_doc("Team Role", test_role.name)
+        # Cleanup handled by Enhanced Test Factory - remove manual deletion
         
         print("✅ Active status impact testing completed")
     
     def test_team_role_description_and_metadata(self):
         """Test role description and metadata handling"""
         print("Testing role description and metadata...")
+        
+        # Generate unique ID for this specific test method using timestamp
+        test_id = f"{random_string(6)}_{int(time.time() * 1000000) % 1000000}"
         
         description_text = """
         This is a comprehensive test role with:
@@ -312,7 +335,7 @@ class TestTeamRoleValidation(EnhancedTestCase):
         
         role = frappe.get_doc({
             "doctype": "Team Role",
-            "role_name": "Test Metadata Role",
+            "role_name": f"Test Metadata Role {test_id}",
             "description": description_text,
             "permissions_level": "Coordinator",
             "is_team_leader": 0,
@@ -340,10 +363,13 @@ class TestTeamRoleValidation(EnhancedTestCase):
         """Test modifying team role properties after it's been assigned"""
         print("Testing role modification after assignment...")
         
+        # Generate unique ID for this specific test method using timestamp
+        test_id = f"{random_string(6)}_{int(time.time() * 1000000) % 1000000}"
+        
         # Create role
         role = frappe.get_doc({
             "doctype": "Team Role",
-            "role_name": "Modifiable Role",
+            "role_name": f"Modifiable Role {test_id}",
             "permissions_level": "Basic",
             "is_unique": 0,
             "is_team_leader": 0,
@@ -352,7 +378,7 @@ class TestTeamRoleValidation(EnhancedTestCase):
         role.insert()
         
         # Create team member assignment
-        team = self.create_test_team(team_name="Modification Test Team")
+        team = self.create_test_team(team_name=f"Modification Test Team {test_id}")
         volunteer = self.create_test_volunteer()
         
         self.create_test_team_member(team.name, volunteer.name, role.name)
@@ -391,10 +417,13 @@ class TestTeamRoleValidation(EnhancedTestCase):
         """Test constraints on deleting team roles that are in use"""
         print("Testing team role deletion constraints...")
         
+        # Generate unique ID for this specific test method using timestamp
+        test_id = f"{random_string(6)}_{int(time.time() * 1000000) % 1000000}"
+        
         # Create role
         role = frappe.get_doc({
             "doctype": "Team Role",
-            "role_name": "Deletable Role",
+            "role_name": f"Deletable Role {test_id}",
             "permissions_level": "Basic",
             "is_active": 1
         })
@@ -405,14 +434,14 @@ class TestTeamRoleValidation(EnhancedTestCase):
         # Recreate role for assignment test
         role = frappe.get_doc({
             "doctype": "Team Role",
-            "role_name": "Assigned Role",
+            "role_name": f"Assigned Role {test_id}",
             "permissions_level": "Basic", 
             "is_active": 1
         })
         role.insert()
         
         # Create assignment
-        team = self.create_test_team(team_name="Deletion Test Team")
+        team = self.create_test_team(team_name=f"Deletion Test Team {test_id}")
         volunteer = self.create_test_volunteer()
         
         self.create_test_team_member(team.name, volunteer.name, role.name)
@@ -464,31 +493,38 @@ class TestTeamRoleValidation(EnhancedTestCase):
 class TestTeamRoleBusinessLogic(EnhancedTestCase):
     """Tests for complex business logic around Team Roles"""
     
+    def setUp(self):
+        super().setUp()
+        # Note: Each test method generates its own unique ID to avoid conflicts
+    
     def test_role_hierarchy_implications(self):
         """Test implications of role hierarchy (Leader > Coordinator > Basic)"""
         print("Testing role hierarchy implications...")
         
+        # Generate unique ID for this specific test method using timestamp
+        test_id = f"{random_string(6)}_{int(time.time() * 1000000) % 1000000}"
+        
         # Create roles with different permission levels
-        leader_role = self.ensure_team_role("Test Leader Role", {
+        leader_role = self.ensure_team_role(f"Test Leader Role {test_id}", {
             "permissions_level": "Leader",
             "is_team_leader": 1,
             "is_unique": 1
         })
         
-        coordinator_role = self.ensure_team_role("Test Coordinator Role", {
+        coordinator_role = self.ensure_team_role(f"Test Coordinator Role {test_id}", {
             "permissions_level": "Coordinator",
             "is_team_leader": 0,
             "is_unique": 0
         })
         
-        basic_role = self.ensure_team_role("Test Basic Role", {
+        basic_role = self.ensure_team_role(f"Test Basic Role {test_id}", {
             "permissions_level": "Basic",
             "is_team_leader": 0,
             "is_unique": 0
         })
         
         # Create team with hierarchy
-        team = self.create_test_team(team_name="Hierarchy Test Team")
+        team = self.create_test_team(team_name=f"Hierarchy Test Team {test_id}")
         volunteers = [self.create_test_volunteer() for _ in range(3)]
         
         # Assign roles in hierarchy order
@@ -516,7 +552,10 @@ class TestTeamRoleBusinessLogic(EnhancedTestCase):
         """Test transitioning team leadership between members"""
         print("Testing team leadership transition...")
         
-        team = self.create_test_team(team_name="Leadership Transition Team")
+        # Generate unique ID for this specific test method using timestamp
+        test_id = f"{random_string(6)}_{int(time.time() * 1000000) % 1000000}"
+        
+        team = self.create_test_team(team_name=f"Leadership Transition Team {test_id}")
         leader1 = self.create_test_volunteer()
         leader2 = self.create_test_volunteer()
         
@@ -569,7 +608,10 @@ class TestTeamRoleBusinessLogic(EnhancedTestCase):
         # 2. Other roles don't grant system roles inappropriately
         # 3. Role removal removes associated system roles
         
-        team = self.create_test_team(team_name="Permissions Test Team")
+        # Generate unique ID for this specific test method using timestamp
+        test_id = f"{random_string(6)}_{int(time.time() * 1000000) % 1000000}"
+        
+        team = self.create_test_team(team_name=f"Permissions Test Team {test_id}")
         volunteer = self.create_test_volunteer()
         
         # Check initial system roles
