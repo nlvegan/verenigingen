@@ -348,8 +348,11 @@ def create_default_verenigingen_settings():
     """
     try:
         if not frappe.db.exists("Verenigingen Settings", "Verenigingen Settings"):
-            # Get default company if exists (ordered by name for consistency)
-            default_company = frappe.db.get_value("Company", {}, "name", order_by="name") or "Your Company"
+            # Get default company if exists using standardized query approach
+            from verenigingen.utils.validation_utilities import get_all_active_records
+
+            companies = get_all_active_records("Company", fields=["name"], limit=1, order_by="name")
+            default_company = companies[0].name if companies else "Your Company"
 
             settings = frappe.get_doc(
                 {

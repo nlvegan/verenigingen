@@ -24,10 +24,15 @@ def get_context(context):
     context.show_sidebar = True
     context.title = _("Adjust Membership Fee")
 
-    # Get member record using standardized utility
+    # Get member record using standardized utility with validation
+    from verenigingen.utils.validation_utilities import validate_document_exists
+
     member = get_current_user_member_name()
     if not member:
         frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
+
+    # Validate member exists
+    validate_document_exists("Member", member)
 
     context.member = frappe.get_doc("Member", member)
 

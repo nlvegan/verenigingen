@@ -89,12 +89,12 @@ class ConfigManager:
         "email_batch_size": 50,
         "email_retry_attempts": 3,
         "email_retry_delay_minutes": 5,
-        # Membership settings
+        # Membership settings (legacy - now configurable via Verenigingen Settings)
         "min_membership_age": 16,
         "max_membership_types": 20,
         "default_membership_type": "Individual",
-        # Volunteer settings
-        "min_volunteer_age": 12,
+        # Volunteer settings (legacy - now configurable via Verenigingen Settings)
+        "min_volunteer_age": 16,
         "max_team_assignments": 5,
         "volunteer_inactive_months": 12,
         "expense_approval_threshold": 100.00,

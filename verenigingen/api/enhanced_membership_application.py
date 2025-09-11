@@ -1134,13 +1134,13 @@ def validate_dutch_business_rules(data):
 
 
 def validate_age_requirements(birth_date, membership_type_name):
-    """Validate age requirements for membership types.
+    """Validate age requirements for membership types using configurable age validation.
 
-    Enforces age-based membership rules:
-    - Student memberships: Must be 18-30 years old
-    - Senior memberships: Must be 65+ years old
-    - Youth memberships: Must be 16-18 years old
-    - Regular memberships: Must be 18+ years old
+    Enforces age-based membership rules through the AgeValidator utility:
+    - Student memberships: Configurable age range (default 18-30)
+    - Senior memberships: Configurable minimum age (default 65+)
+    - Youth memberships: Configurable age range (default 16-17)
+    - Regular memberships: Configurable minimum age (default 18+)
 
     Args:
         birth_date (str): Birth date in YYYY-MM-DD format
@@ -1154,32 +1154,28 @@ def validate_age_requirements(birth_date, membership_type_name):
         return {"valid": True}
 
     try:
-        birth_date = getdate(birth_date)
-        today_date = getdate(today())
-        age = (
-            today_date.year
-            - birth_date.year
-            - ((today_date.month, today_date.day) < (birth_date.month, birth_date.day))
-        )
+        from verenigingen.utils.validation_utilities import AgeValidator
 
-        # Age-based membership validation
+        # Map membership type to validation context
         membership_lower = membership_type_name.lower()
 
         if "student" in membership_lower:
-            if age < 18 or age > 30:
-                return {"valid": False, "error": "Student memberships are available for ages 18-30"}
+            context = "student_membership"
         elif "youth" in membership_lower or "junior" in membership_lower:
-            if age < 16 or age >= 18:
-                return {"valid": False, "error": "Youth memberships are available for ages 16-17"}
+            context = "youth_membership"
         elif "senior" in membership_lower:
-            if age < 65:
-                return {"valid": False, "error": "Senior memberships are available for ages 65+"}
+            context = "senior_membership"
         else:
-            # Regular membership - must be 18+
-            if age < 18:
-                return {"valid": False, "error": "Regular membership requires minimum age of 18"}
+            # Regular membership - use voting age as proxy (18+)
+            context = "voting"
 
-        return {"valid": True}
+        # Validate using configurable age validator
+        result = AgeValidator.validate_age(birth_date, context=context, throw_on_error=False)
+
+        if result.is_valid:
+            return {"valid": True}
+        else:
+            return {"valid": False, "error": result.message}
 
     except Exception as e:
         frappe.log_error(f"Error validating age requirements: {str(e)}")

@@ -101,7 +101,9 @@ def update_agreement_tracking():
     Should be called weekly to ensure tracking fields are accurate.
     """
     try:
-        active_agreements = frappe.get_all("Donation Agreement", filters={"status": "Active", "docstatus": 1})
+        from verenigingen.utils.validation_utilities import get_all_active_records
+
+        active_agreements = get_all_active_records("Donation Agreement")
 
         updated_count = 0
         for agreement in active_agreements:

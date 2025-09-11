@@ -50,7 +50,7 @@ class PaymentsClient(MollieBaseClient):
             params["status"] = status
 
         try:
-            response = self.get("payments", params=params, paginated=True)
+            response = self.get("/payments", params=params, paginated=True)
             frappe.logger().info(f"Retrieved {len(response)} payments from API")
 
             # Apply date filtering in memory if requested

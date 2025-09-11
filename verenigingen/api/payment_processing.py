@@ -458,8 +458,12 @@ def send_payment_reminder_email(
     }
 
     try:
-        # Check if template exists, otherwise use fallback
-        if frappe.db.exists("Email Template", template_name):
+        # Check if template exists using DocumentExistenceValidator
+        from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
+        if DocumentExistenceValidator.validate_document_exists(
+            "Email Template", template_name, throw_on_error=False
+        ):
             email_template_doc = frappe.get_doc("Email Template", template_name)
             frappe.sendmail(
                 recipients=[member.email],

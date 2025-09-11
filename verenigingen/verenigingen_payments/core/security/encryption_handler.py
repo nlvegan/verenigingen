@@ -398,7 +398,7 @@ class EncryptionHandler:
             frappe.conf["mollie_encryption_key"] = base64.urlsafe_b64encode(new_key).decode("utf-8")
 
             # Log rotation
-            frappe.log_error("Encryption key rotated successfully", "Encryption Handler")
+            frappe.logger().info("Encryption key rotated successfully")
 
             return True
 

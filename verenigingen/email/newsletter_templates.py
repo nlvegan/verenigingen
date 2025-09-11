@@ -581,8 +581,10 @@ def send_templated_email(
             # CIRCULAR IMPORT FIX: Import at function level to avoid circular import
             from verenigingen.email.simplified_email_manager import SimplifiedEmailManager
 
-            # Use SimplifiedEmailManager directly instead of the API wrapper
-            chapters = frappe.get_all("Chapter", limit=1)
+            # Use SimplifiedEmailManager directly with standardized active record query
+            from verenigingen.utils.validation_utilities import get_all_active_records
+
+            chapters = get_all_active_records("Chapter", limit=1)
             if not chapters:
                 return {"success": False, "error": "No chapters found"}
 

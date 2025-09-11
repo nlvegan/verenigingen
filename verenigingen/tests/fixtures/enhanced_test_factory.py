@@ -209,6 +209,9 @@ class EnhancedTestDataFactory:
         now = datetime.now()
         self.test_run_id = f"TEST-{random_string(8)}-{int(now.timestamp())}-{now.microsecond:06d}"
         
+        # ISOLATION ENHANCEMENT: Track created documents for cleanup
+        self.created_documents = []
+        
     def get_next_sequence(self, prefix: str) -> int:
         """Get next sequence number for deterministic data"""
         self.sequence_counters[prefix] = self.sequence_counters.get(prefix, 0) + 1
@@ -238,6 +241,79 @@ class EnhancedTestDataFactory:
         else:
             seq = self.get_next_sequence('name')
             return f"TEST {type_name} {seq:04d}"
+    
+    def force_unique_name(self, base_name: str, doctype: str = None, max_length: int = 50) -> str:
+        """
+        Force a unique name by adding timestamp and test run ID to any provided name.
+        This prevents test isolation conflicts when tests provide explicit names.
+        
+        QCE FIX: Respects database field length limits to prevent truncation errors.
+        
+        Args:
+            base_name: The base name provided by the test
+            doctype: Optional doctype for collision detection
+            max_length: Maximum allowed name length (default 50 chars)
+            
+        Returns:
+            Unique name guaranteed not to conflict and within length limits
+        """
+        # Remove any existing test markers and truncate base to reasonable length
+        clean_base = base_name.replace("TEST ", "").replace("Test ", "")
+        # Reserve space for uniqueness components: "TEST " (5) + seq (4) + "_" (1) + timestamp (6) = 16 chars
+        max_base_length = max_length - 20  # Leave buffer for uniqueness components
+        clean_base = clean_base[:max_base_length] if len(clean_base) > max_base_length else clean_base
+        
+        # Generate compact uniqueness components
+        seq = self.get_next_sequence(f'forced_{clean_base}')
+        # Use last 6 digits of timestamp for compactness (still unique enough for tests)
+        short_timestamp = int(datetime.now().timestamp()) % 1000000
+        
+        # Create shorter, length-aware unique name
+        unique_name = f"TEST {clean_base} {seq:03d}_{short_timestamp}"
+        
+        # Ensure we don't exceed max_length
+        if len(unique_name) > max_length:
+            # Further truncate base name if needed
+            excess = len(unique_name) - max_length
+            clean_base = clean_base[:-excess] if len(clean_base) > excess else clean_base[:5]
+            unique_name = f"TEST {clean_base} {seq:03d}_{short_timestamp}"
+        
+        # Final collision check if doctype provided
+        if doctype and frappe.db.exists(doctype, unique_name):
+            collision_seq = self.get_next_sequence(f'collision_{clean_base}')
+            # Use even shorter format for collision resolution
+            unique_name = f"TEST {clean_base[:10]} {seq:02d}_{collision_seq:02d}_{short_timestamp}"
+            
+        return unique_name[:max_length]  # Final safety truncation
+    
+    def track_document(self, doctype: str, name: str, priority: int = 0):
+        """
+        Track a created document for cleanup.
+        
+        Args:
+            doctype: The document type
+            name: The document name
+            priority: Cleanup priority (higher numbers cleaned up first)
+        """
+        self.created_documents.append({
+            "doctype": doctype,
+            "name": name,
+            "priority": priority,
+            "test_run_id": self.test_run_id
+        })
+    
+    def get_cleanup_summary(self) -> dict:
+        """Get summary of documents created for cleanup reporting"""
+        by_doctype = {}
+        for doc in self.created_documents:
+            doctype = doc["doctype"]
+            by_doctype[doctype] = by_doctype.get(doctype, 0) + 1
+        
+        return {
+            "total_documents": len(self.created_documents),
+            "by_doctype": by_doctype,
+            "test_run_id": self.test_run_id
+        }
             
     def generate_test_phone(self) -> str:
         """Generate test phone number using reserved ranges"""
@@ -255,16 +331,14 @@ class EnhancedTestDataFactory:
     def validate_member_business_rules(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Validate member data against business rules"""
         if "birth_date" in data:
-            birth_date = getdate(data["birth_date"])
-            today = getdate()
-            age = (today - birth_date).days / 365.25
+            from verenigingen.utils.validation_utilities import AgeValidator
             
-            if age < 16:
-                raise BusinessRuleError(f"Members must be 16+ years old (age: {age:.1f})")
-            if age > 120:
-                raise BusinessRuleError(f"Invalid birth date - age {age:.1f} years")
-            if birth_date > today:
-                raise BusinessRuleError("Birth date cannot be in the future")
+            try:
+                result = AgeValidator.validate_age(data["birth_date"], context="membership", throw_on_error=True)
+                # Store calculated age for potential use
+                data["_calculated_age"] = result.age_years
+            except Exception as e:
+                raise BusinessRuleError(str(e))
                 
         if "email" in data:
             email = data["email"]
@@ -280,9 +354,12 @@ class EnhancedTestDataFactory:
             member = frappe.get_doc("Member", data["member"])
             
             if member.birth_date:
-                member_age_at_start = (start_date - getdate(member.birth_date)).days / 365.25
-                if member_age_at_start < 16:
-                    raise BusinessRuleError("Volunteers must be 16+ years old at start date")
+                # Use AgeValidator for consistent business rule enforcement
+                from verenigingen.utils.validation_utilities import AgeValidator
+                try:
+                    AgeValidator.validate_age(member.birth_date, context="volunteer", throw_on_error=True)
+                except Exception as e:
+                    raise BusinessRuleError(f"Volunteer age validation failed: {str(e)}")
                     
             # Volunteers must be 16+ at start date, so check age at start date
             # (This is the actual business rule, not join date)
@@ -318,7 +395,7 @@ class EnhancedTestDataFactory:
             "first_name": self.generate_test_name("Member").split()[1],  # Just the first name part
             "last_name": self.generate_test_name("Member").split()[2],   # Just the last name part
             "email": self.generate_test_email("member"),
-            "birth_date": add_days(getdate(), -random.randint(6570, 25550)),  # 18-70 years old
+            "birth_date": add_days(getdate(), -random.randint(6570, 25550)),  # 18-70 years old (validated via AgeValidator)
             "status": "Active",
             "contact_number": self.generate_test_phone()
         }
@@ -871,9 +948,12 @@ class EnhancedTestDataFactory:
         return role
     
     def ensure_team_role(self, role_name: str, attributes: dict = None) -> frappe._dict:
-        """Ensure a team role exists, create if not"""
-        if frappe.db.exists("Team Role", role_name):
-            return frappe.get_doc("Team Role", role_name)
+        """Ensure a team role exists, create if not with improved isolation"""
+        # ISOLATION FIX: Force unique names to prevent conflicts in parallel tests
+        unique_role_name = self.force_unique_name(role_name, "Team Role")
+        
+        if frappe.db.exists("Team Role", unique_role_name):
+            return frappe.get_doc("Team Role", unique_role_name)
         
         # Default team role configurations
         role_configs = {
@@ -884,12 +964,13 @@ class EnhancedTestDataFactory:
             "Treasurer": {"permissions_level": "Coordinator", "is_team_leader": 0, "is_unique": 1}
         }
         
+        # Use original role_name for config lookup but unique name for creation
         config = role_configs.get(role_name, {"permissions_level": "Basic", "is_team_leader": 0, "is_unique": 0})
         
         role_data = {
             "doctype": "Team Role",
-            "role_name": role_name,
-            "description": f"{role_name} role for team management",
+            "role_name": unique_role_name,
+            "description": f"{role_name} role for team management (Test Run: {self.test_run_id[:8]})",
             "is_active": 1,
             **config
         }
@@ -899,6 +980,10 @@ class EnhancedTestDataFactory:
         
         role = frappe.get_doc(role_data)
         role.insert()
+        
+        # ISOLATION ENHANCEMENT: Auto-track created document for cleanup
+        self.track_document("Team Role", role.name, priority=2)  # Roles before teams
+        
         return role
     
     def ensure_test_admin_user(self) -> frappe._dict:
@@ -931,7 +1016,7 @@ class EnhancedTestDataFactory:
         return admin_user
     
     def create_team(self, **kwargs):
-        """Create team with validation"""
+        """Create team with validation and improved isolation"""
         for field in kwargs.keys():
             self.validate_field_exists("Team", field)
             
@@ -944,6 +1029,10 @@ class EnhancedTestDataFactory:
         }
         
         data = {**defaults, **kwargs}
+        
+        # ISOLATION FIX: Force unique names for explicit team_name to prevent conflicts
+        if "team_name" in kwargs:
+            data["team_name"] = self.force_unique_name(kwargs["team_name"], "Team")
         
         # Validate required fields using meta
         try:
@@ -964,6 +1053,10 @@ class EnhancedTestDataFactory:
             })
             
             team.insert()
+            
+            # ISOLATION ENHANCEMENT: Auto-track created document for cleanup
+            self.track_document("Team", team.name, priority=1)  # Teams before team members
+            
             return team
         except Exception as e:
             raise Exception(f"Failed to create team: {e}")
@@ -1215,10 +1308,36 @@ class EnhancedTestCase(FrappeTestCase):
         # Track created records for cleanup
         self.created_records = []
         
+        # EMAIL MOCKING INFRASTRUCTURE: Set up email capture for tests
+        self._setup_email_mocking()
+        
     def tearDown(self):
-        """Clean up test data to prevent duplicate entry errors"""
+        """Clean up test data with enhanced isolation tracking"""
         try:
-            # Clean up created records in reverse order (dependencies)
+            # ISOLATION ENHANCEMENT: Use factory's document tracking if available
+            factory_docs = []
+            if hasattr(self, 'factory') and hasattr(self.factory, 'created_documents'):
+                factory_docs = sorted(self.factory.created_documents, key=lambda x: x['priority'], reverse=True)
+            
+            # Clean up factory-tracked documents first (by priority)
+            for doc_info in factory_docs:
+                try:
+                    if frappe.db.exists(doc_info['doctype'], doc_info['name']):
+                        # Special handling for Team Role - they can't be deleted if actively assigned
+                        if doc_info['doctype'] == 'Team Role':
+                            try:
+                                # Try to deactivate first instead of deleting
+                                role_doc = frappe.get_doc('Team Role', doc_info['name'])
+                                role_doc.is_active = 0
+                                role_doc.save()
+                            except Exception:
+                                pass  # Role might already be inactive or deleted
+                        else:
+                            frappe.delete_doc(doc_info['doctype'], doc_info['name'], force=True)
+                except Exception:
+                    pass  # Continue with other cleanups
+            
+            # Clean up legacy tracked records in reverse order (dependencies)
             # Use proper permission validation even in tests
             for record in reversed(self.created_records):
                 try:
@@ -1261,11 +1380,262 @@ class EnhancedTestCase(FrappeTestCase):
         except Exception as e:
             frappe.logger().error(f"Test tearDown failed: {str(e)}")
         
+        # EMAIL MOCKING CLEANUP: Stop all email patches
+        try:
+            # Stop comprehensive email patches  
+            if hasattr(self, 'email_patches'):
+                for patch_obj in self.email_patches:
+                    try:
+                        patch_obj.stop()
+                    except Exception:
+                        pass  # Patch might already be stopped
+                        
+            # Legacy cleanup for backward compatibility
+            if hasattr(self, 'sendmail_patch'):
+                self.sendmail_patch.stop()
+        except Exception:
+            pass  # Continue cleanup even if email patch cleanup fails
+        
         super().tearDown()
+        
+    def _setup_email_mocking(self):
+        """
+        Set up comprehensive email mocking infrastructure for tests.
+        
+        QCE FIX: Implements queue-level email interception to capture all email paths:
+        - Direct frappe.sendmail() calls
+        - Email queue processing
+        - Background email jobs
+        - Template-based emails
+        - System notification emails
+        """
+        from unittest.mock import patch, MagicMock
+        
+        # Storage for captured emails with enhanced metadata
+        self.captured_emails = []
+        
+        # Comprehensive email capture function
+        def capture_email_data(method_name, *args, **kwargs):
+            """Capture email data from any sending method"""
+            # Extract common email fields regardless of method signature
+            email_data = {
+                'method': method_name,
+                'timestamp': datetime.now().isoformat(),
+                'args': args,
+                'kwargs': kwargs,
+                'recipients': self._extract_recipients(args, kwargs),
+                'subject': self._extract_subject(args, kwargs),
+                'message': self._extract_message(args, kwargs),
+                'attachments': self._extract_attachments(args, kwargs),
+                'template': kwargs.get('template'),
+                'is_html': self._detect_html_content(args, kwargs),
+                'to': self._extract_recipients(args, kwargs)  # Backward compatibility
+            }
+            self.captured_emails.append(email_data)
+            return True
+        
+        # Patch multiple email sending pathways
+        self.email_patches = []
+        
+        # 1. Core sendmail function
+        mock_sendmail = lambda *args, **kwargs: capture_email_data('frappe.sendmail', *args, **kwargs)
+        self.email_patches.append(patch('frappe.sendmail', side_effect=mock_sendmail))
+        
+        # 2. Email queue sending (catches background jobs)
+        mock_queue_send = lambda *args, **kwargs: capture_email_data('email_queue.send_one', *args, **kwargs)
+        self.email_patches.append(patch('frappe.email.doctype.email_queue.email_queue.send_one', side_effect=mock_queue_send))
+        
+        # 3. System manager notifications
+        mock_system_email = lambda *args, **kwargs: capture_email_data('sendmail_to_system_managers', *args, **kwargs)  
+        self.email_patches.append(patch('frappe.utils.email_lib.sendmail_to_system_managers', side_effect=mock_system_email))
+        
+        # 4. Template-based email generation
+        mock_template_email = lambda *args, **kwargs: capture_email_data('send_template_email', *args, **kwargs)
+        try:
+            self.email_patches.append(patch('frappe.core.doctype.communication.email.make', side_effect=mock_template_email))
+        except ImportError:
+            pass  # Template email methods may not exist in all Frappe versions
+        
+        # 5. Direct SMTP sending (fallback)
+        mock_smtp_send = lambda *args, **kwargs: capture_email_data('smtp_send', *args, **kwargs)
+        self.email_patches.append(patch('frappe.utils.email_lib.send', side_effect=mock_smtp_send))
+        
+        # Start all patches
+        for patch_obj in self.email_patches:
+            try:
+                patch_obj.start()
+            except Exception as e:
+                # Log patch failures but continue (some methods may not exist)
+                frappe.logger().warning(f"Email patch failed: {str(e)}")
+                
+    def _extract_recipients(self, args, kwargs):
+        """Extract recipient list from various email method signatures"""
+        # Try kwargs first
+        recipients = kwargs.get('recipients') or kwargs.get('to') or kwargs.get('send_to')
+        if recipients:
+            return recipients if isinstance(recipients, list) else [recipients]
+            
+        # Try positional args
+        if args and len(args) > 0:
+            first_arg = args[0]
+            if isinstance(first_arg, (list, tuple)):
+                return list(first_arg)
+            elif isinstance(first_arg, str) and '@' in first_arg:
+                return [first_arg]
+                
+        return []
+    
+    def _extract_subject(self, args, kwargs):
+        """Extract subject from various email method signatures"""
+        subject = kwargs.get('subject') or kwargs.get('title')
+        if subject:
+            return subject
+            
+        # Try positional args (usually second argument)
+        if args and len(args) > 1:
+            return str(args[1]) if args[1] else ''
+            
+        return ''
+    
+    def _extract_message(self, args, kwargs):
+        """Extract message content from various email method signatures"""
+        message = kwargs.get('message') or kwargs.get('content') or kwargs.get('body')
+        if message:
+            return message
+            
+        # Try positional args (usually third argument)  
+        if args and len(args) > 2:
+            return str(args[2]) if args[2] else ''
+            
+        return ''
+    
+    def _extract_attachments(self, args, kwargs):
+        """Extract attachment information"""
+        attachments = kwargs.get('attachments') or kwargs.get('files')
+        if attachments:
+            return attachments if isinstance(attachments, list) else [attachments]
+        return []
+    
+    def _detect_html_content(self, args, kwargs):
+        """Detect if email content is HTML"""
+        message = self._extract_message(args, kwargs)
+        is_html = kwargs.get('is_html', False)
+        
+        # Auto-detect HTML content
+        if not is_html and message:
+            html_indicators = ['<html', '<body', '<div', '<p>', '<br', '<table']
+            is_html = any(indicator in str(message).lower() for indicator in html_indicators)
+            
+        return is_html
+        
+    def get_sent_emails(self, to=None, subject_contains=None, message_contains=None, method=None, has_attachments=None):
+        """
+        Get captured emails with comprehensive filtering options.
+        
+        QCE FIX: Enhanced filtering supports multiple email pathways and metadata.
+        
+        Args:
+            to: Filter by recipient email address
+            subject_contains: Filter by text in subject
+            message_contains: Filter by text in message
+            method: Filter by sending method (e.g., 'frappe.sendmail', 'email_queue.send_one')
+            has_attachments: Filter by attachment presence (True/False)
+        """
+        filtered_emails = self.captured_emails
+        
+        if to:
+            filtered_emails = [
+                email for email in filtered_emails 
+                if (to in str(email.get('to', '')) or 
+                    to in str(email.get('recipients', '')) or
+                    any(to in str(recipient) for recipient in email.get('recipients', [])))
+            ]
+            
+        if subject_contains:
+            filtered_emails = [
+                email for email in filtered_emails
+                if subject_contains.lower() in str(email.get('subject', '')).lower()
+            ]
+            
+        if message_contains:
+            filtered_emails = [
+                email for email in filtered_emails
+                if message_contains.lower() in str(email.get('message', '')).lower()
+            ]
+            
+        if method:
+            filtered_emails = [
+                email for email in filtered_emails
+                if email.get('method') == method
+            ]
+            
+        if has_attachments is not None:
+            filtered_emails = [
+                email for email in filtered_emails
+                if bool(email.get('attachments')) == has_attachments
+            ]
+            
+        return filtered_emails
+    
+    def assert_no_emails_sent(self):
+        """Assert that no emails were captured during the test"""
+        self.assertEqual(
+            len(self.captured_emails), 0,
+            f"Expected no emails, but {len(self.captured_emails)} were captured"
+        )
+    
+    def assert_email_sent(self, to=None, subject_contains=None, count=1, method=None):
+        """
+        Assert that specific emails were sent with enhanced criteria.
+        
+        QCE FIX: Supports comprehensive email pathway validation.
+        """
+        emails = self.get_sent_emails(to=to, subject_contains=subject_contains, method=method)
+        self.assertEqual(
+            len(emails), count,
+            f"Expected {count} emails matching criteria, but found {len(emails)}. "
+            f"Available emails: {[e.get('subject', 'No Subject') for e in self.captured_emails]}"
+        )
+        return emails
+    
+    def assert_template_email_sent(self, template_name, to=None, count=1):
+        """Assert that template-based email was sent"""
+        emails = [
+            email for email in self.captured_emails
+            if email.get('template') == template_name and 
+            (not to or to in str(email.get('recipients', [])))
+        ]
+        self.assertEqual(
+            len(emails), count,
+            f"Expected {count} template emails for '{template_name}', but found {len(emails)}"
+        )
+        return emails
+    
+    def assert_html_email_sent(self, to=None, count=1):
+        """Assert that HTML email was sent"""
+        html_emails = [
+            email for email in self.captured_emails
+            if email.get('is_html', False) and
+            (not to or to in str(email.get('recipients', [])))
+        ]
+        self.assertEqual(
+            len(html_emails), count,
+            f"Expected {count} HTML emails, but found {len(html_emails)}"
+        )
+        return html_emails
+    
+    def get_email_methods_used(self):
+        """Get list of email sending methods that were intercepted"""
+        methods = set(email.get('method', 'unknown') for email in self.captured_emails)
+        return list(methods)
         
     def _track_record(self, doctype, name):
         """Track a created record for cleanup"""
         self.created_records.append({"doctype": doctype, "name": name})
+    
+    def track_test_record(self, doctype, name):
+        """Public method to track test records for cleanup"""
+        self._track_record(doctype, name)
         
     def _ensure_production_ready_setup(self):
         """
@@ -1281,6 +1651,9 @@ class EnhancedTestCase(FrappeTestCase):
             # Ensure settings exist (same as production installation)
             create_default_verenigingen_settings()
             
+            # ENHANCED FIXTURE LOADING: Load all essential fixtures
+            self._load_essential_fixtures()
+            
             # Ensure master data exists
             self._ensure_master_data()
             
@@ -1289,6 +1662,274 @@ class EnhancedTestCase(FrappeTestCase):
             # Continue without failing tests
             pass
         
+    def _load_essential_fixtures(self):
+        """
+        ENHANCED FIXTURE LOADING: Load essential fixtures for comprehensive test support
+        
+        Loads master data fixtures that tests commonly depend on:
+        - Team Roles (Team Leader, Team Member, etc.)  
+        - Membership Types (Monthly, Quarterly, Annual)
+        - Email Templates for notifications
+        - Custom fields for ERPNext integration
+        - Roles and permissions
+        """
+        import os
+        import json
+        
+        # Define essential fixtures in loading order (dependencies first)
+        essential_fixtures = [
+            'role.json',                    # Roles first (referenced by permissions)
+            'team_role.json',               # Team roles for volunteer management
+            'membership_type.json',         # Membership types for member testing
+            'donation_type.json',           # Donation types for ANBI functionality
+            'email_template.json',          # Email templates for notifications
+            'custom_field.json',            # Custom fields for ERPNext integration
+            'item_group.json',              # Item groups for billing
+            'item.json',                    # Items for dues and donations
+            'workflow_state.json',          # Workflow states
+            'workflow.json',                # Workflows for approval processes
+        ]
+        
+        fixtures_path = os.path.join(
+            frappe.get_app_path("verenigingen"), 
+            "fixtures"
+        )
+        
+        for fixture_file in essential_fixtures:
+            fixture_path = os.path.join(fixtures_path, fixture_file)
+            if os.path.exists(fixture_path):
+                try:
+                    self._load_fixture_file(fixture_path, fixture_file)
+                except Exception as e:
+                    # Log but don't fail tests - fixture might have dependency issues
+                    frappe.logger().warning(f"Could not load fixture {fixture_file}: {str(e)}")
+                    continue
+    
+    def _load_fixture_file(self, file_path, fixture_name):
+        """Load a single fixture file with error handling and duplicate detection"""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                fixture_data = json.load(f)
+            
+            if not isinstance(fixture_data, list):
+                return
+            
+            loaded_count = 0
+            skipped_count = 0
+            
+            for record in fixture_data:
+                if not isinstance(record, dict) or 'doctype' not in record:
+                    continue
+                    
+                doctype = record['doctype']
+                name = record.get('name')
+                
+                if name and frappe.db.exists(doctype, name):
+                    skipped_count += 1
+                    continue
+                
+                try:
+                    # QCE FIX: Proper fixture validation before loading
+                    validation_result = self._validate_fixture_before_load(record, doctype)
+                    if not validation_result['valid']:
+                        frappe.logger().warning(f"Fixture validation failed for {doctype} {name}: {validation_result['error']}")
+                        continue
+                    
+                    # Create document with selective permission bypassing
+                    doc = frappe.get_doc(record)
+                    doc.flags.ignore_permissions = True  # Safe for fixture loading
+                    doc.flags.ignore_links = False  # QCE FIX: Validate links exist initially
+                    
+                    # Pre-insertion validation
+                    try:
+                        doc.validate()  # Run business rule validation explicitly
+                    except Exception as validation_error:
+                        # Allow certain validation errors that are acceptable for fixtures
+                        if self._is_acceptable_fixture_validation_error(validation_error, doctype):
+                            doc.flags.ignore_links = True  # Allow missing links for this record only
+                        else:
+                            raise validation_error
+                    
+                    doc.insert()
+                    loaded_count += 1
+                    
+                except Exception as e:
+                    # Enhanced error handling with specific error categorization
+                    error_msg = str(e)
+                    if "Link" in error_msg and "does not exist" in error_msg:
+                        frappe.logger().info(f"Dependency missing for {doctype} {name}: {error_msg}")
+                    elif "Duplicate" in error_msg or "already exists" in error_msg:
+                        skipped_count += 1  # Count as skipped, not failed
+                        frappe.logger().debug(f"Fixture {doctype} {name} already exists, skipping")
+                        continue
+                    else:
+                        frappe.logger().warning(f"Failed to load {doctype} {name} from {fixture_name}: {error_msg}")
+                    continue
+            
+            if loaded_count > 0:
+                frappe.logger().info(f"Loaded {loaded_count} records from {fixture_name} (skipped {skipped_count} existing)")
+                
+        except Exception as e:
+            frappe.logger().warning(f"Failed to process fixture file {fixture_name}: {str(e)}")
+    
+    def _validate_fixture_before_load(self, record: dict, doctype: str) -> dict:
+        """
+        QCE FIX: Validate fixture meets business requirements before loading.
+        
+        Args:
+            record: The fixture record to validate
+            doctype: The doctype being loaded
+            
+        Returns:
+            dict: {'valid': bool, 'error': str, 'warnings': list}
+        """
+        validation_result = {
+            'valid': True,
+            'error': '',
+            'warnings': []
+        }
+        
+        try:
+            # 1. Required fields validation
+            if not record.get('doctype'):
+                validation_result['valid'] = False
+                validation_result['error'] = "Missing doctype field"
+                return validation_result
+            
+            # 2. DocType-specific business rule validation
+            if doctype == "Team Role":
+                return self._validate_team_role_fixture(record, validation_result)
+            elif doctype == "Membership Type":
+                return self._validate_membership_type_fixture(record, validation_result)
+            elif doctype == "Workflow":
+                return self._validate_workflow_fixture(record, validation_result)
+            elif doctype in ["Item", "Item Group"]:
+                return self._validate_item_fixture(record, validation_result)
+            
+            # 3. Generic validation for other doctypes
+            return self._validate_generic_fixture(record, validation_result)
+            
+        except Exception as e:
+            validation_result['valid'] = False
+            validation_result['error'] = f"Validation exception: {str(e)}"
+            return validation_result
+    
+    def _validate_team_role_fixture(self, record: dict, result: dict) -> dict:
+        """Validate Team Role fixture business rules"""
+        # Check required fields
+        if not record.get('role_name'):
+            result['valid'] = False
+            result['error'] = "Team Role missing role_name"
+            return result
+            
+        # Check permissions_level is valid
+        valid_levels = ["Basic", "Coordinator", "Leader"]
+        if record.get('permissions_level') not in valid_levels:
+            result['warnings'].append(f"Invalid permissions_level: {record.get('permissions_level')}")
+        
+        # Validate unique role logic
+        if record.get('is_unique') and not isinstance(record.get('is_unique'), (int, bool)):
+            result['warnings'].append("is_unique should be boolean/integer")
+            
+        return result
+    
+    def _validate_membership_type_fixture(self, record: dict, result: dict) -> dict:
+        """Validate Membership Type fixture business rules"""
+        # Check required fields
+        if not record.get('membership_type_name'):
+            result['valid'] = False
+            result['error'] = "Membership Type missing membership_type_name"
+            return result
+        
+        # Validate minimum_amount is positive
+        min_amount = record.get('minimum_amount', 0)
+        if not isinstance(min_amount, (int, float)) or min_amount < 0:
+            result['valid'] = False
+            result['error'] = f"Invalid minimum_amount: {min_amount}"
+            return result
+            
+        # Validate billing_period
+        valid_periods = ["Monthly", "Quarterly", "Annual", "One-time"]
+        if record.get('billing_period') not in valid_periods:
+            result['warnings'].append(f"Unusual billing_period: {record.get('billing_period')}")
+            
+        return result
+    
+    def _validate_workflow_fixture(self, record: dict, result: dict) -> dict:
+        """Validate Workflow fixture dependencies"""
+        # Check workflow has states
+        if not record.get('states'):
+            result['valid'] = False
+            result['error'] = "Workflow missing states"
+            return result
+            
+        # Validate document_type exists (will be checked during link validation)
+        if not record.get('document_type'):
+            result['valid'] = False
+            result['error'] = "Workflow missing document_type"
+            return result
+            
+        return result
+    
+    def _validate_item_fixture(self, record: dict, result: dict) -> dict:
+        """Validate Item/Item Group fixture business rules"""
+        # Check required fields
+        if not record.get('item_name' if record['doctype'] == 'Item' else 'item_group_name'):
+            result['valid'] = False
+            result['error'] = f"{record['doctype']} missing name field"
+            return result
+            
+        return result
+    
+    def _validate_generic_fixture(self, record: dict, result: dict) -> dict:
+        """Generic validation for other fixture types"""
+        # Check for common name field
+        name_fields = ['name', 'title', 'label', 'subject', 'email_template_name']
+        has_name = any(record.get(field) for field in name_fields)
+        
+        if not has_name:
+            result['warnings'].append(f"No name field found for {record['doctype']}")
+            
+        return result
+    
+    def _is_acceptable_fixture_validation_error(self, error: Exception, doctype: str) -> bool:
+        """
+        Determine if a validation error is acceptable for fixture loading.
+        
+        Args:
+            error: The validation exception
+            doctype: The doctype being loaded
+            
+        Returns:
+            bool: True if error can be ignored for fixtures
+        """
+        error_msg = str(error).lower()
+        
+        # Acceptable errors for fixture loading
+        acceptable_errors = [
+            "does not exist",  # Missing linked documents
+            "no matching document found",  # Missing references
+            "link validation",  # Link validation errors
+        ]
+        
+        # DocType-specific acceptable errors
+        doctype_specific = {
+            "Workflow": ["document_type", "workflow state"],  # Workflow dependencies
+            "Email Template": ["email account", "email template"],  # Email dependencies
+            "Custom Field": ["fieldtype", "fieldname"],  # Field validation
+        }
+        
+        # Check general acceptable errors
+        if any(acceptable in error_msg for acceptable in acceptable_errors):
+            return True
+            
+        # Check doctype-specific acceptable errors
+        if doctype in doctype_specific:
+            if any(specific in error_msg for specific in doctype_specific[doctype]):
+                return True
+                
+        return False
+    
     # Removed _ensure_system_settings - now using proper installation hook
     
     def _ensure_master_data(self):
@@ -1425,7 +2066,12 @@ class EnhancedTestCase(FrappeTestCase):
         return self.factory.create_application_data(with_volunteer_skills=with_skills)
         
     def create_test_team(self, **kwargs):
-        """Convenience method for creating test teams"""
+        """
+        Convenience method for creating test teams with isolation improvements.
+        
+        If team_name is provided explicitly, it will be made unique automatically
+        to prevent test isolation conflicts in parallel test execution.
+        """
         return self.factory.create_team(**kwargs)
         
     def create_test_team_member(self, team_name, volunteer_name, team_role_name="Team Member", **kwargs):
@@ -1433,7 +2079,12 @@ class EnhancedTestCase(FrappeTestCase):
         return self.factory.create_team_member(team_name, volunteer_name, team_role_name, **kwargs)
         
     def ensure_team_role(self, role_name, attributes=None):
-        """Convenience method for ensuring team roles exist"""
+        """
+        Convenience method for ensuring team roles exist with isolation improvements.
+        
+        Role names will be made unique automatically to prevent conflicts
+        in parallel test execution while preserving logical role configurations.
+        """
         return self.factory.ensure_team_role(role_name, attributes)
         
     def ensure_dues_schedule_template(self, template_name, attributes=None):
@@ -1781,12 +2432,15 @@ class EnhancedTestCase(FrappeTestCase):
         
         # Apply same validations as regular create_test_member
         if 'birth_date' in kwargs:
-            from frappe.utils import get_datetime, now_datetime
-            birth_date = get_datetime(kwargs['birth_date'])
-            age = (now_datetime().date() - birth_date.date()).days // 365
-            if age < 16 and kwargs.get('create_volunteer', False):
-                from verenigingen.tests.fixtures.enhanced_test_factory import BusinessRuleError
-                raise BusinessRuleError("Volunteers must be 16 or older")
+            from frappe.utils import get_datetime
+            if kwargs.get('create_volunteer', False):
+                # Use AgeValidator for consistent business rule enforcement 
+                from verenigingen.utils.validation_utilities import AgeValidator
+                try:
+                    AgeValidator.validate_age(kwargs['birth_date'], context="volunteer", throw_on_error=True)
+                except Exception as e:
+                    from verenigingen.tests.fixtures.enhanced_test_factory import BusinessRuleError
+                    raise BusinessRuleError(f"Volunteer age validation failed: {str(e)}")
         
         # Use enhanced default data from factory
         member_data = self.factory._get_enhanced_member_defaults()

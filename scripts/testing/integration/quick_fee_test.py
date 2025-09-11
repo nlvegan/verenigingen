@@ -7,8 +7,9 @@ import frappe
 # Test fee override permissions
 print("Testing Fee Override Permission System...")
 
-# Find existing member to test with
-members = frappe.get_all("Member", filters={"status": "Active"}, limit=1)
+# Find existing member to test with using QueryBuilder utility
+from verenigingen.utils.validation_utilities import get_all_active_records
+members = get_all_active_records("Member", fields=["name"], limit=1)
 if not members:
     print("No active members found for testing")
 else:

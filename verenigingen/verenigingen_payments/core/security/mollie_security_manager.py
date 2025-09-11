@@ -299,7 +299,7 @@ class MollieSecurityManager:
             # Check if Mollie Audit Log DocType exists
             if not frappe.db.exists("DocType", "Mollie Audit Log"):
                 # Skip audit logging if DocType doesn't exist yet
-                frappe.log_error(f"Audit log skipped - DocType not created yet: {action}", "Mollie Security")
+                frappe.logger().warning(f"Audit log skipped - DocType not created yet: {action}")
                 return
 
             audit_log = frappe.new_doc("Mollie Audit Log")

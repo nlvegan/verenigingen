@@ -47,7 +47,7 @@ def execute():
 
         frappe.db.commit()
 
-        frappe.log_error("Performance indexes migration completed successfully", "Database Migration")
+        frappe.logger().info("Performance indexes migration completed successfully")
         print("✓ Performance indexes migration completed successfully")
 
     except Exception as e:

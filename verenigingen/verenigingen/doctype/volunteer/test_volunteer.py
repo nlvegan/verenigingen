@@ -781,8 +781,10 @@ class TestVolunteer(EnhancedTestCase):
         volunteers = frappe.get_all("Volunteer", filters={"volunteer_name": ["like", "%Test Volunteer%"]})
         self.assertGreater(len(volunteers), 0, "Should find volunteers by name pattern")
 
-        # Test search by status
-        active_volunteers = frappe.get_all("Volunteer", filters={"status": "Active"})
+        # Test search by status using standardized query builder
+        from verenigingen.utils.validation_utilities import get_all_active_records
+
+        active_volunteers = get_all_active_records("Volunteer")
         self.assertGreater(len(active_volunteers), 0, "Should find active volunteers")
 
         # Test search by commitment level

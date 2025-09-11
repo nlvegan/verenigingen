@@ -104,9 +104,11 @@ class PerformanceTester:
                 }
             )
 
-            # Test 2: Active member status filtering
+            # Test 2: Active member status filtering using standardized query builder
+            from verenigingen.utils.validation_utilities import get_all_active_records
+
             with self._query_timer("active_member_status_filtering") as timer:
-                frappe.get_all("Member", filters={"status": "Active"}, fields=["name", "customer"])
+                get_all_active_records("Member", fields=["name", "customer"])
 
             index_tests.append(
                 {

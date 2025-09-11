@@ -39,18 +39,27 @@ def validate_filters(filters):
         if from_date > to_date:
             raise ValueError("From date cannot be after to date")
 
-        # Prevent overly large date ranges that could cause performance issues
-        if date_diff(to_date, from_date) > 365 * 5:  # 5 years max
-            raise ValueError("Date range too large (maximum 5 years)")
+        # Prevent overly large date ranges using standardized validation
+        from verenigingen.utils.validation_utilities import DateRangeValidator, validate_document_exists
 
-    # Validate member exists if specified
+        date_result = DateRangeValidator.validate_date_range(
+            from_date, to_date, max_duration_days=365 * 5, throw_on_error=False
+        )
+        if not date_result.get("valid"):
+            raise ValueError(date_result.get("message", "Date range too large (maximum 5 years)"))
+
+    # Validate member exists if specified using standardized validator
     if filters.get("member"):
-        if not frappe.db.exists("Member", filters["member"]):
+        try:
+            validate_document_exists("Member", filters["member"])
+        except Exception:
             raise ValueError(f"Member {filters['member']} does not exist")
 
-    # Validate chapter exists if specified
+    # Validate chapter exists if specified using standardized validator
     if filters.get("chapter"):
-        if not frappe.db.exists("Chapter", filters["chapter"]):
+        try:
+            validate_document_exists("Chapter", filters["chapter"])
+        except Exception:
             raise ValueError(f"Chapter {filters['chapter']} does not exist")
 
     # Validate billing frequency

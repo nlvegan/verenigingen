@@ -624,14 +624,14 @@ class Member(
         return "Household Member"
 
     def _get_age_group(self, birth_date):
-        """Get age group for privacy-friendly display"""
+        """Get age group for privacy-friendly display using standardized age calculation"""
         if not birth_date:
             return None
 
         try:
-            today_date = getdate(today())
-            birth_date = getdate(birth_date)
-            age = (today_date - birth_date).days // 365
+            from verenigingen.utils.validation_utilities import AgeValidator
+
+            age = AgeValidator.calculate_age(birth_date)
 
             if age < 18:
                 return "Minor"
@@ -972,54 +972,46 @@ class Member(
             frappe.log_error(f"Error calculating age: {str(e)}", "Member Error")
 
     def validate_age_requirements(self):
-        """Validate age requirements for membership and volunteering"""
+        """Validate age requirements for membership and volunteering using configurable age validation"""
         if not self.birth_date:
             return  # Skip validation if no birth date provided
 
         try:
-            from verenigingen.utils.config_manager import ConfigManager
+            from verenigingen.utils.validation_utilities import AgeValidator
 
-            # Get minimum age from configuration (default: 16)
-            min_membership_age = ConfigManager.get("min_membership_age", 16)
+            # Validate membership age requirements
+            allow_parental_consent = (
+                self.is_application_member()
+                if hasattr(self, "is_application_member") and callable(self.is_application_member)
+                else False
+            )
 
-            if hasattr(self, "age") and self.age is not None:
-                # Check minimum membership age
-                if self.age < min_membership_age:
-                    # Allow with guardian consent for applications
-                    if self.is_application_member():
-                        frappe.msgprint(
-                            _(
-                                "Member is under {0} years old. Guardian consent is required for membership."
-                            ).format(min_membership_age)
-                        )
-                    else:
-                        # For direct member creation, enforce minimum age
-                        frappe.throw(
-                            _("Members must be at least {0} years old. Current age: {1}").format(
-                                min_membership_age, self.age
-                            ),
-                            frappe.ValidationError,
-                        )
+            membership_result = AgeValidator.validate_age(
+                self.birth_date,
+                context="membership",
+                allow_parental_consent=allow_parental_consent,
+                throw_on_error=False,
+            )
 
-                # Additional validation for volunteering
-                if hasattr(self, "interested_in_volunteering") and self.interested_in_volunteering:
-                    min_volunteer_age = ConfigManager.get("min_volunteer_age", 12)
-                    if self.age < min_volunteer_age:
-                        frappe.throw(
-                            _("Volunteers must be at least {0} years old. Current age: {1}").format(
-                                min_volunteer_age, self.age
-                            ),
-                            frappe.ValidationError,
-                        )
+            if not membership_result.is_valid:
+                if allow_parental_consent and membership_result.warning:
+                    # Show warning for applications requiring parental consent
+                    frappe.msgprint(membership_result.warning)
+                else:
+                    # Throw error for direct member creation or hard validation failures
+                    frappe.throw(membership_result.message, frappe.ValidationError)
+            elif membership_result.warning:
+                # Show any warnings (e.g., parental consent required)
+                frappe.msgprint(membership_result.warning)
 
-                # Reasonable maximum age check (for data quality)
-                if self.age > 120:
-                    frappe.throw(
-                        _(
-                            "Invalid birth date - calculated age is {0} years. Please verify birth date."
-                        ).format(self.age),
-                        frappe.ValidationError,
-                    )
+            # Additional validation for volunteering
+            if hasattr(self, "interested_in_volunteering") and self.interested_in_volunteering:
+                volunteer_result = AgeValidator.validate_age(
+                    self.birth_date, context="volunteer", throw_on_error=False
+                )
+
+                if not volunteer_result.is_valid:
+                    frappe.throw(volunteer_result.message, frappe.ValidationError)
 
         except Exception as e:
             frappe.log_error(
@@ -1793,7 +1785,7 @@ class Member(
             if not item_result.success:
                 frappe.logger().error(f"Failed to create membership item: {'; '.join(item_result.errors)}")
                 return None
-            frappe.log_error(f"Created membership item {item.name}")
+            frappe.logger().info(f"Created membership item {item.name}")
             return item
 
         except Exception as e:
@@ -2029,13 +2021,18 @@ class Member(
                         # Calculate age in years
                         age_text = ""
                         if member.get("birth_date"):
-                            # using date_diff, today from top-level import
+                            # Using standardized age calculation utility
+                            from verenigingen.utils.validation_utilities import AgeValidator
 
-                            age_years = int(date_diff(today(), member["birth_date"]) / 365.25)
+                            age_years = int(AgeValidator.calculate_age(member["birth_date"]))
                             age_text = f"{age_years} years old"
 
-                        # Validate member name format and existence
-                        if not frappe.db.exists("Member", member_name):
+                        # Validate member name format and existence using standardized validator
+                        from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
+                        if not DocumentExistenceValidator.validate_document_exists(
+                            "Member", member_name, throw_on_error=False
+                        ):
                             frappe.log_error(
                                 f"Invalid member reference in same address display: {member_name}",
                                 "Member DocType",

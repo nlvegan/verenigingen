@@ -18,10 +18,15 @@ def get_context(context):
     if frappe.session.user == "Guest":
         frappe.throw(_("You need to be logged in to view this page"), frappe.PermissionError)
 
-    # Get current user's member record
+    # Get current user's member record with validation
+    from verenigingen.utils.validation_utilities import validate_document_exists
+
     member = frappe.db.get_value("Member", {"user": frappe.session.user}, "name")
     if not member:
         frappe.throw(_("Member record not found"), frappe.DoesNotExistError)
+
+    # Additional validation for member existence
+    validate_document_exists("Member", member)
 
     # Get current dues schedule
     current_schedule = get_current_dues_schedule(member)

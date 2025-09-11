@@ -57,11 +57,10 @@ def assign_role_profile_to_user(user: str, role_profile: str) -> None:
         user: User email/name
         role_profile: Name of the role profile
     """
-    if not frappe.db.exists("User", user):
-        frappe.throw(_("User {0} does not exist").format(user))
+    from verenigingen.utils.validation_utilities import validate_document_exists
 
-    if not frappe.db.exists("Role Profile", role_profile):
-        frappe.throw(_("Role Profile {0} does not exist").format(role_profile))
+    validate_document_exists("User", user)
+    validate_document_exists("Role Profile", role_profile)
 
     user_doc = frappe.get_doc("User", user)
 

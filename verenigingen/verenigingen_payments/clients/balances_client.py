@@ -86,7 +86,7 @@ class BalancesClient(MollieBaseClient):
             AuditEventType.BALANCE_CHECKED, AuditSeverity.INFO, "Retrieving primary balance"
         )
 
-        response = self.get("balances/primary")
+        response = self.get("/balances/primary")
         return Balance(response)
 
     def list_balance_transactions(
@@ -214,7 +214,7 @@ class BalancesClient(MollieBaseClient):
             details=params,
         )
 
-        response = self.get(f"balances/{balance_id}/report", params=params)
+        response = self.get(f"/balances/{balance_id}/report", params=params)
         return BalanceReport(response)
 
     def get_all_balances_summary(self) -> Dict:

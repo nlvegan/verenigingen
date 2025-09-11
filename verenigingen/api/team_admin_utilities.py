@@ -84,12 +84,11 @@ def fix_missing_assignment_history(team_name=None, volunteer_name=None):
     if not team_name or not volunteer_name:
         frappe.throw(_("Both team_name and volunteer_name are required"))
 
-    # Validate inputs exist
-    if not frappe.db.exists("Team", team_name):
-        frappe.throw(_("Team {0} does not exist").format(team_name))
+    # Validate inputs exist using DocumentExistenceValidator
+    from verenigingen.utils.validation_utilities import validate_document_exists
 
-    if not frappe.db.exists("Volunteer", volunteer_name):
-        frappe.throw(_("Volunteer {0} does not exist").format(volunteer_name))
+    validate_document_exists("Team", team_name)
+    validate_document_exists("Volunteer", volunteer_name)
 
     team = frappe.get_doc("Team", team_name)
 
@@ -217,8 +216,12 @@ def validate_team_data_integrity():
         for member in team.team_members:
             stats["members_checked"] += 1
 
-            # Check if volunteer exists
-            if member.volunteer and not frappe.db.exists("Volunteer", member.volunteer):
+            # Check if volunteer exists using DocumentExistenceValidator
+            from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
+            if member.volunteer and not DocumentExistenceValidator.validate_document_exists(
+                "Volunteer", member.volunteer, throw_on_error=False
+            ):
                 issues.append(
                     {
                         "type": "orphaned_member",
@@ -230,8 +233,10 @@ def validate_team_data_integrity():
                 stats["orphaned_members"] += 1
                 continue
 
-            # Check if team role exists
-            if member.team_role and not frappe.db.exists("Team Role", member.team_role):
+            # Check if team role exists using DocumentExistenceValidator
+            if member.team_role and not DocumentExistenceValidator.validate_document_exists(
+                "Team Role", member.team_role, throw_on_error=False
+            ):
                 issues.append(
                     {
                         "type": "invalid_role",

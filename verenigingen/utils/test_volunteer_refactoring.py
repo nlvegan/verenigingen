@@ -12,8 +12,10 @@ def test_volunteer_refactoring():
     print("=== Testing Volunteer Assignment Aggregation Refactoring ===")
 
     try:
-        # Find an existing volunteer to test with
-        volunteers = frappe.get_all("Volunteer", filters={"status": "Active"}, fields=["name"], limit=1)
+        # Find an existing volunteer to test with using standardized query builder
+        from verenigingen.utils.validation_utilities import get_all_active_records
+
+        volunteers = get_all_active_records("Volunteer", fields=["name"], limit=1)
 
         if not volunteers:
             print("No active volunteers found, creating a test volunteer...")
@@ -27,7 +29,7 @@ def test_volunteer_refactoring():
                     "payment_method": "Bank Transfer",
                 }
             )
-            member.insert(ignore_permissions=True)
+            member.insert()
 
             volunteer = frappe.get_doc(
                 {
@@ -39,7 +41,7 @@ def test_volunteer_refactoring():
                     "start_date": today(),
                 }
             )
-            volunteer.insert(ignore_permissions=True)
+            volunteer.insert()
             print(f"Created test volunteer: {volunteer.name}")
         else:
             volunteer = frappe.get_doc("Volunteer", volunteers[0].name)

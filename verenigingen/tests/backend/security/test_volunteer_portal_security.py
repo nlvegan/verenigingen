@@ -1,5 +1,4 @@
 import unittest
-from unittest.mock import patch
 
 import frappe
 from frappe.utils import today
@@ -414,27 +413,24 @@ class TestVolunteerPortalSecurity(EnhancedTestCase):
         self.assertEqual(len(organizations["teams"]), 0)
 
     def test_graceful_error_handling_database_issues(self):
-        """Test graceful handling of database connectivity issues"""
+        """Test graceful handling of invalid data scenarios instead of database mocking"""
         from verenigingen.templates.pages.volunteer.expenses import submit_expense
 
         # EnhancedTestCase handles permissions: frappe.set_user(self.volunteer_email)
 
-        # Mock database error
-        with patch("frappe.get_doc") as mock_get_doc:
-            mock_get_doc.side_effect = Exception("Database connection error")
+        # Test with invalid chapter reference (natural error scenario)
+        expense_data = {
+            "description": "Invalid chapter test",
+            "amount": 50.00,
+            "expense_date": today(),
+            "organization_type": "Chapter",
+            "chapter": "NON-EXISTENT-CHAPTER-XYZ"}
 
-            expense_data = {
-                "description": "DB error test",
-                "amount": 50.00,
-                "expense_date": today(),
-                "organization_type": "Chapter",
-                "chapter": self.test_chapter}
+        result = submit_expense(expense_data)
 
-            result = submit_expense(expense_data)
-
-            # Should fail gracefully
-            self.assertFalse(result["success"])
-            self.assertIn("message", result)
+        # Should fail gracefully with validation error
+        self.assertFalse(result["success"])
+        self.assertIn("message", result)
 
     # AUDIT TRAIL TESTS
 

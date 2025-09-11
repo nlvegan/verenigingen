@@ -160,8 +160,12 @@ def assign_webhook_roles(webhook_email):
 def configure_webhook_user_in_settings(webhook_email):
     """Configure the webhook user in Verenigingen Payments Settings"""
     try:
+        from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
         # Get or create the payments settings
-        if not frappe.db.exists("Verenigingen Payments Settings", "Verenigingen Payments Settings"):
+        if not DocumentExistenceValidator.validate_document_exists(
+            "Verenigingen Payments Settings", "Verenigingen Payments Settings", throw_on_error=False
+        ):
             settings_doc = frappe.get_doc({"doctype": "Verenigingen Payments Settings"})
             settings_doc.insert(ignore_permissions=True)
         else:
@@ -290,7 +294,11 @@ def get_webhook_credentials_for_display():
         if not webhook_user:
             return {"success": False, "message": "No webhook user configured"}
 
-        if not frappe.db.exists("User", webhook_user):
+        from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
+        if not DocumentExistenceValidator.validate_document_exists(
+            "User", webhook_user, throw_on_error=False
+        ):
             return {"success": False, "message": "Configured webhook user does not exist"}
 
         return {

@@ -42,7 +42,7 @@ class SettlementsClient(MollieBaseClient):
         #     AuditEventType.SETTLEMENT_PROCESSED, AuditSeverity.INFO, f"Retrieving settlement: {settlement_id}"
         # )
 
-        response = self.get(f"settlements/{settlement_id}")
+        response = self.get(f"/settlements/{settlement_id}")
         return Settlement(response)
 
     def list_settlements(

@@ -416,8 +416,10 @@ class SEPAZabbixIntegration:
         - Handles edge cases (strings, invalid data) gracefully
         """
         try:
-            # Get batch data using Frappe ORM
-            batches = frappe.get_all("Direct Debit Batch", filters={"docstatus": 1}, fields=["total_amount"])
+            # Get batch data using standardized query builder
+            from verenigingen.utils.validation_utilities import get_all_active_records
+
+            batches = get_all_active_records("Direct Debit Batch", fields=["total_amount"])
 
             if not batches:
                 return 0.0

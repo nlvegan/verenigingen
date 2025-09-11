@@ -5,6 +5,8 @@ import frappe
 
 
 def execute(filters=None):
+    from verenigingen.utils.validation_utilities import QueryBuilder
+
     columns = [
         {"fieldname": "age_group", "label": "Age Group", "fieldtype": "Data", "width": 120},
         {"fieldname": "count", "label": "Count", "fieldtype": "Int", "width": 100},
@@ -12,7 +14,12 @@ def execute(filters=None):
 
     data = []
 
-    query = """
+    # Get standardized status filtering for active members
+    status_config = QueryBuilder.DOCTYPE_STATUS_CONFIG.get("Member", {})
+    active_values = status_config.get("active_values", ["Active"])
+
+    query = (
+        """
     SELECT
       CASE
         WHEN age IS NULL THEN 'Unknown'
@@ -31,7 +38,10 @@ def execute(filters=None):
       END as age_group,
       COUNT(*) as count
     FROM `tabMember`
-    WHERE status IN ('Active', 'Pending')
+    WHERE status IN ({})""".format(
+            ",".join([f"'{val}'" for val in active_values])
+        )
+        + """
     GROUP BY age_group
     ORDER BY
       CASE age_group
@@ -50,6 +60,7 @@ def execute(filters=None):
         ELSE 13
       END
     """
+    )
 
     data = frappe.db.sql(query, as_dict=True)
 

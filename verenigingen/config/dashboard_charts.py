@@ -46,7 +46,9 @@ def get_member_age_distribution(chart_name=None, filters=None):
             continue
 
         try:
-            age = int(date_diff(today(), member.birth_date) / 365.25)
+            from verenigingen.utils.validation_utilities import AgeValidator
+
+            age = int(AgeValidator.calculate_age(member.birth_date))
 
             if age < 18:
                 age_groups["Under 18"] += 1

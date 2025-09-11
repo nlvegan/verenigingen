@@ -227,15 +227,22 @@ class SEPAPerformanceValidator:
             try:
                 member_data = member_info["member_data"]
 
-                # DUTCH COMPLIANCE: Age requirement for SEPA mandates
+                # DUTCH COMPLIANCE: Age requirement for SEPA mandates using configurable validation
+                from verenigingen.utils.validation_utilities import AgeValidator
+
                 birth_date = member_data.get("birth_date")
                 if birth_date:
-                    age = frappe.utils.date_diff(frappe.utils.today(), birth_date) / 365.25
-                    if age < 18:
+                    age = AgeValidator.calculate_age(birth_date)
+                    # Use voting age context (18+) for SEPA mandate eligibility
+                    validation_result = AgeValidator.validate_age(
+                        birth_date, context="voting", throw_on_error=False
+                    )
+
+                    if not validation_result.is_valid:
                         compliance_results[member_id] = {
                             "compliant": False,
                             "violation": "age_requirement",
-                            "error": "SEPA mandate requires minimum age of 18 years",
+                            "error": validation_result.message,
                             "member_age": int(age),
                         }
                         continue
@@ -258,9 +265,7 @@ class SEPAPerformanceValidator:
                 compliance_results[member_id] = {
                     "compliant": True,
                     "compliance_checks": ["age_requirement", "name_format", "identification"],
-                    "member_age": int(frappe.utils.date_diff(frappe.utils.today(), birth_date) / 365.25)
-                    if birth_date
-                    else None,
+                    "member_age": int(AgeValidator.calculate_age(birth_date)) if birth_date else None,
                 }
 
             except Exception as e:

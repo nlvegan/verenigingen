@@ -26,9 +26,12 @@ class TestInvoicesClient(FrappeTestCase):
         self.mock_audit_trail = MagicMock()
         self.mock_settings = MagicMock()
         self.mock_settings.get_api_key.return_value = "test_api_key_123"
+        # Mock encryption key as valid base64 string (Fernet key)
+        self.mock_settings.get_password.return_value = "ZS1wc0QxOC00SnkxUXZwbEF6VTF6NGRwMEd5RWdQbnJLaktERVZHOHRhZz0="
         
         # Create client instance
-        with patch('verenigingen.verenigingen_payments.core.mollie_base_client.frappe.get_doc'):
+        with patch('verenigingen.verenigingen_payments.core.mollie_base_client.frappe.get_doc'), \
+             patch('verenigingen.verenigingen_payments.core.mollie_base_client.frappe.get_single', return_value=self.mock_settings):
             self.client = InvoicesClient("test_settings")
             self.client.audit_trail = self.mock_audit_trail
             self.client.settings = self.mock_settings

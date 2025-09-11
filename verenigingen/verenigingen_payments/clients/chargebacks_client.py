@@ -43,7 +43,7 @@ class ChargebacksClient(MollieBaseClient):
             f"Retrieving chargeback: {chargeback_id} for payment: {payment_id}",
         )
 
-        response = self.get(f"payments/{payment_id}/chargebacks/{chargeback_id}")
+        response = self.get(f"/payments/{payment_id}/chargebacks/{chargeback_id}")
         return Chargeback(response)
 
     def list_payment_chargebacks(self, payment_id: str) -> List[Chargeback]:
@@ -62,7 +62,7 @@ class ChargebacksClient(MollieBaseClient):
             f"Listing chargebacks for payment: {payment_id}",
         )
 
-        response = self.get(f"payments/{payment_id}/chargebacks", paginated=True)
+        response = self.get(f"/payments/{payment_id}/chargebacks", paginated=True)
         return [Chargeback(item) for item in response]
 
     def list_all_chargebacks(
@@ -94,7 +94,7 @@ class ChargebacksClient(MollieBaseClient):
             AuditEventType.CHARGEBACK_RECEIVED, AuditSeverity.INFO, "Listing all chargebacks", details=params
         )
 
-        response = self.get("chargebacks", params=params, paginated=True)
+        response = self.get("/chargebacks", params=params, paginated=True)
         chargebacks = [Chargeback(item) for item in response]
 
         # Apply date filtering in memory if requested

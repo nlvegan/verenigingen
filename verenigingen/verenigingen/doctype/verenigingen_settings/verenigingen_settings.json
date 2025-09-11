@@ -79,6 +79,14 @@
   "column_break_hzjj",
   "enable_email_group_sync",
   "enable_email_analytics",
+  "age_validation_section",
+  "minimum_membership_age",
+  "minimum_volunteer_age",
+  "minimum_voting_age",
+  "column_break_age_validation",
+  "minimum_student_age",
+  "minimum_youth_age",
+  "minimum_senior_age",
   "invoicing_section",
   "send_email",
   "send_invoice",
@@ -661,6 +669,57 @@
   {
    "fieldname": "column_break_ybid",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "age_validation_section",
+   "fieldtype": "Section Break",
+   "label": "Age Validation Settings"
+  },
+  {
+   "default": "16",
+   "description": "Minimum age required for membership eligibility",
+   "fieldname": "minimum_membership_age",
+   "fieldtype": "Int",
+   "label": "Minimum Membership Age"
+  },
+  {
+   "default": "16",
+   "description": "Minimum age required for volunteer activities",
+   "fieldname": "minimum_volunteer_age",
+   "fieldtype": "Int",
+   "label": "Minimum Volunteer Age"
+  },
+  {
+   "default": "18",
+   "description": "Minimum age required for voting in organizational matters",
+   "fieldname": "minimum_voting_age",
+   "fieldtype": "Int",
+   "label": "Minimum Voting Age"
+  },
+  {
+   "fieldname": "column_break_age_validation",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "14",
+   "description": "Minimum age for student membership types",
+   "fieldname": "minimum_student_age",
+   "fieldtype": "Int",
+   "label": "Minimum Student Age"
+  },
+  {
+   "default": "12",
+   "description": "Minimum age for youth membership categories",
+   "fieldname": "minimum_youth_age",
+   "fieldtype": "Int",
+   "label": "Minimum Youth Age"
+  },
+  {
+   "default": "65",
+   "description": "Minimum age for senior membership benefits",
+   "fieldname": "minimum_senior_age",
+   "fieldtype": "Int",
+   "label": "Minimum Senior Age"
   }
  ],
  "index_web_pages_for_search": 1,

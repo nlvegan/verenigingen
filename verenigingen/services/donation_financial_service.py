@@ -101,8 +101,10 @@ class DonationFinancialService:
 
     def create_payment_entry_for_sales_invoice(self, date: Optional[str] = None) -> Any:
         """Create payment entry for the donation's sales invoice"""
-        # Find the sales invoice for this donation
-        sales_invoices = frappe.get_all("Sales Invoice", filters={"docstatus": 1}, fields=["name"])
+        # Find the sales invoice for this donation using standardized query builder
+        from verenigingen.utils.validation_utilities import get_all_active_records
+
+        sales_invoices = get_all_active_records("Sales Invoice", fields=["name"])
 
         # Filter by donation reference (this would need to be added as a custom field)
         sales_invoice = None

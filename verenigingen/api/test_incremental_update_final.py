@@ -190,7 +190,7 @@ def test_incremental_update_comprehensive():
             "pass_rate": f"{(passed_tests/total_tests*100):.1f}%" if total_tests > 0 else "0%",
         }
 
-        frappe.log_error(f"Test completed with status: {test_results['overall_status']}", "Test Completion")
+        frappe.logger().info(f"Test completed with status: {test_results['overall_status']}")
 
         return test_results
 

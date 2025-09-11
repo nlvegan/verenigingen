@@ -151,9 +151,8 @@ class AssignmentHistoryManager:
                 target_assignment.end_date = end_date
                 target_assignment.status = "Completed"
 
-                frappe.log_error(
-                    f"Updated specific assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
-                    "Assignment History Manager",
+                frappe.logger().info(
+                    f"Updated specific assignment history for volunteer {volunteer_id}: {assignment_type} - {role}"
                 )
             else:
                 # If we can't find the exact assignment, look for any active one

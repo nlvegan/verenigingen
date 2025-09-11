@@ -638,12 +638,12 @@ def get_address_members_html_api(member_id):
                 )
                 continue
 
-            # Calculate age in years
+            # Calculate age in years using standardized validator
             age_text = ""
             if other.get("birth_date"):
-                from frappe.utils import date_diff, today
+                from verenigingen.utils.validation_utilities import AgeValidator
 
-                age_years = int(date_diff(today(), other["birth_date"]) / 365.25)
+                age_years = int(AgeValidator.calculate_age(other["birth_date"]))
                 age_text = f"{age_years} years old"
 
             status_badges = {"Active": "success", "Pending": "warning", "Suspended": "danger"}
@@ -710,14 +710,14 @@ def guess_relationship_simple(member1, member2_data):
 
 
 def get_age_group_simple(birth_date):
-    """Simple age group calculation"""
+    """Simple age group calculation using standardized age validator"""
     if not birth_date:
         return "Unknown"
 
     try:
-        from frappe.utils import date_diff, today
+        from verenigingen.utils.validation_utilities import AgeValidator
 
-        age = date_diff(today(), birth_date) / 365.25
+        age = AgeValidator.calculate_age(birth_date)
 
         if age < 18:
             return "Minor"

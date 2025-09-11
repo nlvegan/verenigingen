@@ -185,7 +185,7 @@ class Team(Document):
 
         if not team_member:
             frappe.logger().warning(f"Could not find team member for volunteer {volunteer_id}")
-            return
+            return False
 
         # Create role description using Team Role system
         role_description = self.get_role_description_for_history(team_member)
@@ -207,6 +207,8 @@ class Team(Document):
             frappe.logger().error(
                 f"Error adding team assignment history for volunteer {volunteer_id}: {role_description}"
             )
+
+        return success
 
     def complete_team_assignment_history(
         self, volunteer_id: str, team_role: str, start_date: str, end_date: str

@@ -114,8 +114,10 @@ def validate_migration_data_integrity():
 def test_role_descriptions(results):
     """Test role description generation for existing teams"""
 
-    # Get a few teams to test role description generation
-    teams = frappe.get_all("Team", filters={"status": "Active"}, limit=3)
+    # Get a few teams to test role description generation using standardized query builder
+    from verenigingen.utils.validation_utilities import get_all_active_records
+
+    teams = get_all_active_records("Team", limit=3)
 
     for team_data in teams:
         try:
@@ -274,8 +276,8 @@ def test_unique_role_validation_debug():
     results = ["=== Testing Unique Role Validation Debug ==="]
 
     try:
-        # Get volunteers
-        volunteers = frappe.get_all("Volunteer", limit=2)
+        # Get volunteers using standardized active record query
+        volunteers = get_all_active_records("Volunteer", limit=2)
         if len(volunteers) < 2:
             return "Need at least 2 volunteers for testing"
 

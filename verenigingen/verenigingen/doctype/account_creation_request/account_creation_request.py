@@ -67,8 +67,12 @@ class AccountCreationRequest(Document):
     def validate_email_uniqueness(self):
         """Validate that email doesn't already have a user account"""
         if frappe.db.exists("User", self.email):
-            # Check if this is a retry of existing request
-            if not self.name or not frappe.db.get_value("Account Creation Request", self.name, "name"):
+            # Check if this is a retry of existing request using standardized existence validation
+            from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
+            if not self.name or not DocumentExistenceValidator.validate_document_exists(
+                "Account Creation Request", self.name, throw_on_error=False
+            ):
                 # Instead of throwing error, mark request as completed with existing user
                 existing_user = frappe.get_doc("User", self.email)
                 self.status = "Completed"

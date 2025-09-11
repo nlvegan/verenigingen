@@ -102,14 +102,19 @@ def get_user_volunteer_record():
     """Get volunteer record for current user with caching"""
     user_email = frappe.session.user
 
-    # First try to find by linked member
-    member = frappe.db.get_value("Member", {"email": user_email}, "name")
+    # First try to find by linked member using utility function
+    from verenigingen.utils.member_utils import get_member_name_for_user, get_volunteer_for_member
+
+    member = get_member_name_for_user(user_email)
     if member:
-        volunteer = frappe.db.get_value(
-            "Volunteer", {"member": member}, ["name", "volunteer_name", "member"], as_dict=True
-        )
-        if volunteer:
-            return volunteer
+        volunteer_name = get_volunteer_for_member(member)
+        if volunteer_name:
+            volunteer = frappe.get_doc("Volunteer", volunteer_name)
+            return {
+                "name": volunteer.name,
+                "volunteer_name": volunteer.volunteer_name,
+                "member": volunteer.member,
+            }
 
     # Try to find volunteer directly by email
     volunteer = frappe.db.get_value(

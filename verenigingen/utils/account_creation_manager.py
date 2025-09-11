@@ -247,7 +247,9 @@ class AccountCreationManager:
             # Get default company
             default_company = frappe.defaults.get_global_default("company")
             if not default_company:
-                companies = frappe.get_all("Company", limit=1, fields=["name"])
+                from verenigingen.utils.validation_utilities import get_all_active_records
+
+                companies = get_all_active_records("Company", fields=["name"], limit=1)
                 default_company = companies[0].name if companies else None
 
             if not default_company:

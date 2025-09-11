@@ -546,9 +546,11 @@ def submit_expense(expense_data):
             return {"success": False, "message": _("No volunteer record found")}
         volunteer = frappe.get_doc("Volunteer", volunteer_name)
         if not volunteer:
-            # Provide more helpful error message with debugging info
+            # Provide more helpful error message using member_utils
+            from verenigingen.utils.member_utils import get_member_name_for_user
+
             user_email = frappe.session.user
-            member = frappe.db.get_value("Member", {"email": user_email}, "name")
+            member = get_member_name_for_user(user_email)
 
             if member:
                 error_msg = _(
@@ -1240,8 +1242,11 @@ def submit_multiple_expenses(expenses):
             return {"success": False, "message": _("No volunteer record found")}
         volunteer = frappe.get_doc("Volunteer", volunteer_name)
         if not volunteer:
+            # Use member_utils for consistent member lookup
+            from verenigingen.utils.member_utils import get_member_name_for_user
+
             user_email = frappe.session.user
-            member = frappe.db.get_value("Member", {"email": user_email}, "name")
+            member = get_member_name_for_user(user_email)
             if member:
                 error_msg = _(
                     "No volunteer record found for your account. You have a member record ({0}) but no linked volunteer record. Please contact your chapter administrator to create a volunteer profile."

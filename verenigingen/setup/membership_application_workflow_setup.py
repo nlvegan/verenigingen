@@ -273,7 +273,11 @@ def create_membership_workflow_action_masters():
     created_count = 0
 
     for action in custom_actions:
-        if not frappe.db.exists("Workflow Action Master", action):
+        from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
+        if not DocumentExistenceValidator.validate_document_exists(
+            "Workflow Action Master", action, throw_on_error=False
+        ):
             try:
                 action_doc = frappe.get_doc(
                     {"doctype": "Workflow Action Master", "workflow_action_name": action}
@@ -312,7 +316,9 @@ def create_membership_workflow_state_masters():
     created_count = 0
 
     for state in custom_states:
-        if not frappe.db.exists("Workflow State", state):
+        if not DocumentExistenceValidator.validate_document_exists(
+            "Workflow State", state, throw_on_error=False
+        ):
             try:
                 state_doc = frappe.get_doc({"doctype": "Workflow State", "workflow_state_name": state})
                 # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation

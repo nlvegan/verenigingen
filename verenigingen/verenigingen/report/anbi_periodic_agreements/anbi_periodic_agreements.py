@@ -114,7 +114,13 @@ def get_data(filters):
         # Calculate expected total based on duration
         expected_total = 0
         if row.start_date and row.end_date and row.annual_amount:
-            years = date_diff(row.end_date, row.start_date) / 365.25
+            from verenigingen.utils.validation_utilities import DateRangeValidator
+
+            # Calculate duration using standardized date range validator
+            date_result = DateRangeValidator.validate_date_range(
+                row.start_date, row.end_date, throw_on_error=False
+            )
+            years = date_result.get("duration_days", 0) / 365.25 if date_result.get("valid") else 0
             expected_total = flt(row.annual_amount * years, 2)
 
         # Calculate completion percentage

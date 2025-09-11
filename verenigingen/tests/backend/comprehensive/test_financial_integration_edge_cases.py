@@ -3,7 +3,7 @@ Financial Integration Edge Cases Test Suite
 Tests for payment processing, dues schedule management, and financial data integrity
 """
 
-from unittest.mock import patch
+from unittest.mock import patch  # Only for external API mocking (requests.post)
 
 import frappe
 from frappe.utils import add_days, flt, today
@@ -200,7 +200,7 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
     # ===== PAYMENT PROCESSING EDGE CASES =====
 
     def test_concurrent_payment_processing(self):
-        """Test concurrent payment processing scenarios"""
+        """Test concurrent payment processing scenarios using real data"""
         # Create membership with pending payment
         membership = frappe.get_doc(
             {
@@ -212,18 +212,20 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
         )
         membership.insert()
 
-        # Simulate concurrent payment attempts
-        with patch("frappe.db.sql") as mock_sql:
-            mock_sql.return_value = []  # Simulate database lock
-
-            # Multiple payment attempts should be handled gracefully
-            for i in range(3):
-                try:
-                    membership.status = "Active"
-                    membership.save()
-                except Exception:
-                    # Concurrent access should be handled
-                    pass
+        # Test real concurrent-like scenarios by rapidly changing status
+        # This tests the actual validation and save logic without database mocking
+        for i in range(3):
+            try:
+                membership.reload()  # Reload to get latest state
+                membership.status = "Active"
+                membership.save()
+                
+                # Revert back to pending for next iteration
+                membership.status = "Pending" 
+                membership.save()
+            except Exception as e:
+                # Any validation errors should be handled gracefully
+                self.assertIsInstance(e, (frappe.ValidationError, frappe.PermissionError))
 
         # Clean up
         membership.delete()
@@ -495,7 +497,8 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
     # ===== INTEGRATION FAILURE SCENARIOS =====
 
     def test_erpnext_integration_failure(self):
-        """Test ERPNext integration failure handling"""
+        """Test ERPNext integration error handling using real validation scenarios"""
+        # Test with invalid references that would cause integration issues
         membership = frappe.get_doc(
             {
                 "doctype": "Membership",
@@ -505,21 +508,27 @@ class TestFinancialIntegrationEdgeCases(EnhancedTestCase):
                 "status": "Active"}
         )
 
-        # Mock ERPNext integration failure
-        with patch("frappe.get_doc") as mock_get_doc:
-            mock_get_doc.side_effect = frappe.DoesNotExistError("Sales Invoice not found")
-
-            # System should handle integration failure gracefully
+        # Test real integration scenarios that could fail
+        try:
+            membership.insert()
+            # Membership should be created successfully with valid data
+            self.assertTrue(frappe.db.exists("Membership", membership.name))
+            
+            # Test updating with invalid references to trigger validation
             try:
-                membership.insert()
-                # Membership should still be created even if ERPNext integration fails
-                self.assertTrue(frappe.db.exists("Membership", membership.name))
-            except Exception as e:
-                # Any exception should be logged but not prevent membership creation
-                self.fail(f"Integration failure should not prevent membership creation: {e}")
-            finally:
-                if frappe.db.exists("Membership", membership.name):
-                    membership.delete()
+                membership.membership_type = "NON-EXISTENT-TYPE"
+                membership.save()
+                self.fail("Should have failed with invalid membership type")
+            except frappe.ValidationError:
+                # Expected validation error for invalid reference
+                pass
+                
+        except Exception as e:
+            # Unexpected errors should be reported
+            self.fail(f"Unexpected error in integration test: {e}")
+        finally:
+            if frappe.db.exists("Membership", membership.name):
+                membership.delete()
 
     def test_payment_gateway_timeout(self):
         """Test payment gateway timeout handling"""

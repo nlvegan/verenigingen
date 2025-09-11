@@ -149,12 +149,16 @@ class SimplifiedEmailManager(CommunicationManager):
         Returns:
             Dict with success status and details
         """
-        # Default to active members with emails
+        # Default to active members with emails using standardized query builder
         if not filters:
-            filters = {"status": "Active", "email": ["!=", ""]}
+            from verenigingen.utils.validation_utilities import get_active_records_filters
 
-        # Add opt-out check to filters
-        filters["opt_out_optional_emails"] = ["!=", 1]
+            filters = get_active_records_filters(
+                "Member", {"email": ["!=", ""], "opt_out_optional_emails": ["!=", 1]}
+            )
+        else:
+            # Add opt-out check to custom filters
+            filters["opt_out_optional_emails"] = ["!=", 1]
 
         # Get eligible members
         members = frappe.db.get_all("Member", filters=filters, fields=["email"], limit=10000)  # Safety limit
@@ -335,8 +339,8 @@ def send_organization_newsletter(subject: str, content: str, filters: Dict = Non
     if not ("System Manager" in frappe.get_roles() or "Verenigingen Manager" in frappe.get_roles()):
         frappe.throw(_("You don't have permission to send organization-wide emails"))
 
-    # Use a dummy chapter doc for initialization (manager doesn't really need it for org-wide)
-    chapters = frappe.get_all("Chapter", limit=1)
+    # Use a dummy chapter doc for initialization using standardized query
+    chapters = get_all_active_records("Chapter", limit=1)
     if not chapters:
         frappe.throw(_("No chapters found"))
 

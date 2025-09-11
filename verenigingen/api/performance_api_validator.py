@@ -243,8 +243,10 @@ def check_api_security_decorator(module_path: str, function_name: str) -> bool:
 def get_test_member() -> str:
     """Get a test member for API validation"""
     try:
-        # Find any active member
-        members = frappe.get_all("Member", filters={"status": "Active"}, fields=["name"], limit=1)
+        # Find any active member using standardized query builder
+        from verenigingen.utils.validation_utilities import get_all_active_records
+
+        members = get_all_active_records("Member", fields=["name"], limit=1)
 
         if members:
             return members[0].name

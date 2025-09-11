@@ -25,11 +25,14 @@ class TestChargebacksClient(EnhancedTestCase):
         self.mock_audit_trail = MagicMock()
         self.mock_settings = MagicMock()
         self.mock_settings.get_api_key.return_value = "test_api_key_123"
+        # Mock encryption key as valid base64 string (Fernet key)
+        self.mock_settings.get_password.return_value = "ZS1wc0QxOC00SnkxUXZwbEF6VTF6NGRwMEd5RWdQbnJLaktERVZHOHRhZz0="
         
         # Phase 4D: Use Enhanced Test Factory for real client setup where possible
         try:
             # Try real client initialization first
-            self.client = ChargebacksClient("test_settings")
+            with patch('verenigingen.verenigingen_payments.core.mollie_base_client.frappe.get_single', return_value=self.mock_settings):
+                self.client = ChargebacksClient("test_settings")
             self.client.audit_trail = self.mock_audit_trail
             self.client.settings = self.mock_settings
         except Exception:
