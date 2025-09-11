@@ -19,10 +19,9 @@ def get_dashboard_data(year=None, period="year", compare_previous=False, filters
     # Ensure year is an integer
     year = int(year)
 
-    if filters and isinstance(filters, str):
-        filters = json.loads(filters)
-    else:
-        filters = filters or {}
+    from verenigingen.utils.validation.api_validators import parse_json_filters
+
+    filters = parse_json_filters(filters) or {}
 
     data = {
         "summary": get_summary_metrics(year, period, filters),

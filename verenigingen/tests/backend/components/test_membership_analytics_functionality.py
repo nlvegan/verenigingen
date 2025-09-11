@@ -55,7 +55,7 @@ class TestMembershipAnalyticsFunctionality(BaseTestCase):
                     "amount": type_data["amount"],
                     "is_active": 1
                 })
-                doc.insert(# VereningingenTestCase (BaseTestCase) handles permissions)
+                doc.insert()  # VereningingenTestCase (BaseTestCase) handles permissions
     
     def create_test_members(self):
         """Create test members with various characteristics"""

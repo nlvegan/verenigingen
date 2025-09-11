@@ -83,14 +83,16 @@ class ConfigurableAccountMapper:
         # Look for account with "primary" or "main" in name first
         main_account = frappe.db.get_value(
             "Account",
-            {
-                "company": self.company,
-                "account_type": "Bank",
-                "is_group": 0,
-                "disabled": 0,
-            },
-            "name",
-            filters=[["name", "like", "%main%"], ["or"], ["name", "like", "%primary%"]],
+            filters=[
+                ["company", "=", self.company],
+                ["account_type", "=", "Bank"],
+                ["is_group", "=", 0],
+                ["disabled", "=", 0],
+                ["name", "like", "%main%"],
+                ["or"],
+                ["name", "like", "%primary%"],
+            ],
+            fieldname="name",
             order_by="name",
         )
 

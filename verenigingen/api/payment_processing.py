@@ -60,6 +60,7 @@ Author: Verenigingen Development Team
 License: MIT
 """
 
+import html
 import json
 import os
 import tempfile
@@ -88,6 +89,7 @@ from verenigingen.utils.security.api_security_framework import (
 from verenigingen.utils.security.enhanced_validation import validate_with_schema
 from verenigingen.utils.validation.api_validators import (
     APIValidator,
+    parse_json_filters,
     rate_limit,
     require_roles,
     validate_api_input,
@@ -224,20 +226,7 @@ def send_overdue_payment_reminders(
     # Get overdue payments based on filters
     from verenigingen.verenigingen.report.overdue_member_payments.overdue_member_payments import get_data
 
-    if isinstance(filters, str):
-        # Handle empty string or whitespace-only strings as no filters
-        if not filters.strip():
-            filters = None
-        else:
-            try:
-                filters = json.loads(filters)
-            except json.JSONDecodeError as e:
-                # Log the actual problematic JSON for debugging
-                frappe.log_error(
-                    message=f"Invalid JSON in filters parameter: '{filters}' - Error: {str(e)}",
-                    title="Payment Processing - Invalid JSON Debug",
-                )
-                raise ValidationError(f"Invalid JSON format in filters: {str(e)}")
+    filters = parse_json_filters(filters)
 
     overdue_data = get_data(filters)
 
@@ -291,20 +280,7 @@ def export_overdue_payments(filters=None, format="CSV"):
 
     from verenigingen.verenigingen.report.overdue_member_payments.overdue_member_payments import get_data
 
-    if isinstance(filters, str):
-        # Handle empty string or whitespace-only strings as no filters
-        if not filters.strip():
-            filters = None
-        else:
-            try:
-                filters = json.loads(filters)
-            except json.JSONDecodeError as e:
-                # Log the actual problematic JSON for debugging
-                frappe.log_error(
-                    message=f"Invalid JSON in filters parameter: '{filters}' - Error: {str(e)}",
-                    title="Payment Processing - Invalid JSON Debug",
-                )
-                raise ValidationError(f"Invalid JSON format in filters: {str(e)}")
+    filters = parse_json_filters(filters)
 
     # Validate format parameter
     if format not in ["CSV", "XLSX"]:
@@ -397,20 +373,7 @@ def execute_bulk_payment_action(action, apply_to="All Visible Records", filters=
 
     from verenigingen.verenigingen.report.overdue_member_payments.overdue_member_payments import get_data
 
-    if isinstance(filters, str):
-        # Handle empty string or whitespace-only strings as no filters
-        if not filters.strip():
-            filters = None
-        else:
-            try:
-                filters = json.loads(filters)
-            except json.JSONDecodeError as e:
-                # Log the actual problematic JSON for debugging
-                frappe.log_error(
-                    message=f"Invalid JSON in filters parameter: '{filters}' - Error: {str(e)}",
-                    title="Payment Processing - Invalid JSON Debug",
-                )
-                raise ValidationError(f"Invalid JSON format in filters: {str(e)}")
+    filters = parse_json_filters(filters)
 
     # Modify filters based on apply_to selection
     if filters is None:

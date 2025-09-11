@@ -237,6 +237,7 @@ class TestPaymentReportIntegration(EnhancedTestCase):
                 
         finally:
             # EnhancedTestCase handles permissions: frappe.set_user(original_user)
+            pass
 
     @patch("frappe.sendmail")  # KEEP: Infrastructure mock - email service
     def test_complete_reminder_workflow_real_business_logic(self, mock_sendmail):

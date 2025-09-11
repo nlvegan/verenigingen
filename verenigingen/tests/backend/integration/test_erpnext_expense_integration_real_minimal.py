@@ -24,8 +24,8 @@ from frappe.utils import today, add_days
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.volunteer_expense_setup import (
     get_or_create_expense_type,
-    get_organization_cost_center,
 )
+from verenigingen.templates.pages.volunteer.expenses import get_organization_cost_center
 
 
 class TestERPNextExpenseIntegrationReal(EnhancedTestCase):

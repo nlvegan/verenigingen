@@ -92,22 +92,22 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
         # EnhancedTestCase handles permissions appropriately
         # Test REAL business logic with REAL data - NO MOCKS
         result = send_overdue_payment_reminders(
-                reminder_type="Friendly Reminder",
-                include_payment_link=True,
-                filters=json.dumps({}),  # No filters - get all overdue data
-            )
+            reminder_type="Friendly Reminder",
+            include_payment_link=True,
+            filters=json.dumps({}),  # No filters - get all overdue data
+        )
 
-            # Verify real business logic processing
-            if result.get("success"):
-                # Real business logic found and processed overdue data
-                print(f"✅ Real business logic processed {result.get('count', 0)} overdue payments")
-                self.assertGreater(result.get("count", 0), 0, "Should find our test overdue invoice")
-                # Verify email infrastructure was called with real data
-                self.assertTrue(mock_sendmail.called, "Should send emails for real overdue data")
-            else:
-                # Real business logic found no qualifying overdue data or encountered issues
-                print(f"ℹ️ Real business logic result: {result}")
-                # This is valid - real business logic applied its criteria
+        # Verify real business logic processing
+        if result.get("success"):
+            # Real business logic found and processed overdue data
+            print(f"✅ Real business logic processed {result.get('count', 0)} overdue payments")
+            self.assertGreater(result.get("count", 0), 0, "Should find our test overdue invoice")
+            # Verify email infrastructure was called with real data
+            self.assertTrue(mock_sendmail.called, "Should send emails for real overdue data")
+        else:
+            # Real business logic found no qualifying overdue data or encountered issues
+            print(f"ℹ️ Real business logic result: {result}")
+            # This is valid - real business logic applied its criteria
             
         # EnhancedTestCase handles user reset in tearDown
 
@@ -218,22 +218,22 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
         # EnhancedTestCase handles permissions appropriately
         # Test REAL business logic with chapter notifications - NO MOCKS
         result = send_overdue_payment_reminders(
-                send_to_chapters=True, 
-                filters=json.dumps({})  # No filter - let real business logic find all overdue data
-            )
+            send_to_chapters=True, 
+            filters=json.dumps({})  # No filter - let real business logic find all overdue data
+        )
 
-            # Verify real business logic processing
-            if result.get("success"):
-                # Real business logic found and processed overdue data with chapter notifications
-                print(f"✅ Real business logic with chapter notifications processed {result.get('count', 0)} payments")
-                self.assertGreater(result.get("count", 0), 0, "Should find our test overdue invoice")
-                # Verify email infrastructure was called with real data
-                self.assertTrue(mock_sendmail.called, "Should send emails for real chapter notification logic")
-            else:
-                # Real business logic result - may have different behavior than mocked version
-                print(f"ℹ️ Real chapter notification logic result: {result}")
-                # This is valid - real business logic applied its criteria
-                
+        # Verify real business logic processing
+        if result.get("success"):
+            # Real business logic found and processed overdue data with chapter notifications
+            print(f"✅ Real business logic with chapter notifications processed {result.get('count', 0)} payments")
+            self.assertGreater(result.get("count", 0), 0, "Should find our test overdue invoice")
+            # Verify email infrastructure was called with real data
+            self.assertTrue(mock_sendmail.called, "Should send emails for real chapter notification logic")
+        else:
+            # Real business logic result - may have different behavior than mocked version
+            print(f"ℹ️ Real chapter notification logic result: {result}")
+            # This is valid - real business logic applied its criteria
+        
         # EnhancedTestCase handles user reset in tearDown
 
     @patch("frappe.sendmail")  # Mock only email infrastructure, not business logic
@@ -271,58 +271,62 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
         # Set proper permissions for API execution
         # EnhancedTestCase handles permissions appropriately
         # Test REAL business logic with multiple overdue members - NO MOCKS
-            result = send_overdue_payment_reminders()
+        result = send_overdue_payment_reminders()
 
-            # Verify real business logic processing
-            if result.get("success"):
-                # Real business logic found and processed our overdue invoices
-                print(f"✅ Real business logic processed {result.get('count', 0)} overdue payments including our test data")
-                self.assertGreaterEqual(result.get("count", 0), 1, "Should process our test overdue invoices")
-                # Verify email infrastructure was called with real data
-                self.assertTrue(mock_sendmail.called, "Should send emails for real overdue data")
-            else:
-                # Real business logic result - may behave differently than mocked version
-                print(f"ℹ️ Real business logic result with partial data: {result}")
-                # This is valid - real business logic applied its criteria
-                
+        # Verify real business logic processing
+        if result.get("success"):
+            # Real business logic found and processed our overdue invoices
+            print(f"✅ Real business logic processed {result.get('count', 0)} overdue payments including our test data")
+            self.assertGreaterEqual(result.get("count", 0), 1, "Should process our test overdue invoices")
+            # Verify email infrastructure was called with real data
+            self.assertTrue(mock_sendmail.called, "Should send emails for real overdue data")
+        else:
+            # Real business logic result - may behave differently than mocked version
+            print(f"ℹ️ Real business logic result with partial data: {result}")
+            # This is valid - real business logic applied its criteria
+        
         # EnhancedTestCase handles user reset in tearDown
+
+    def create_test_email_template(self, name, subject, response):
+        """Helper to create real email template for testing"""
+        template = frappe.new_doc("Email Template")
+        template.name = name
+        template.subject = subject
+        template.response = response
+        template.insert(ignore_permissions=True)
+        return template
 
     def test_export_overdue_payments_success_real_logic(self):
         """Test successful payment data export using REAL business logic"""
-        # Mock only infrastructure (file operations) - not business logic
+        # Mock only infrastructure (physical file operations) - not business logic
         with patch("builtins.open", create=True) as mock_open:
             with patch("csv.DictWriter") as mock_csv_writer:
-                # Mock justified: Infrastructure - file document creation for CSV export
-                with patch("frappe.get_doc") as mock_get_doc:
-                    # Mock file document creation (infrastructure)
-                    mock_file_doc = MagicMock()
-                    mock_file_doc.file_url = "/files/test.csv"
-                    mock_get_doc.return_value = mock_file_doc
+                # Use REAL overdue payment data from our test setup
+                # Let the export function handle file creation naturally
+                result = export_overdue_payments(
+                    filters=json.dumps({"chapter": "Amsterdam"})
+                )
 
-                    # Use REAL overdue payment data from our test setup
-                    result = export_overdue_payments(
-                        filters=json.dumps({"chapter": "Amsterdam"})
+                # Verify successful export with real data
+                if result.get("success"):
+                    self.assertGreaterEqual(result["count"], 1)  # Should find our test member
+                    self.assertIn("Export completed", result["message"])
+                    self.assertIn("file_url", result)
+                    # Verify infrastructure mocks were called (CSV writing)
+                    mock_open.assert_called()
+                    mock_csv_writer.assert_called()
+                else:
+                    # Real business logic may return different messages for no data
+                    message = result.get("message", result.get("error", {}).get("message", ""))
+                    # Accept various real business logic responses for no data
+                    is_valid_no_data = (
+                        "no data" in message.lower() or
+                        "export" in message.lower() or
+                        "invalid" in message.lower() or
+                        message == ""
                     )
-
-                    # Verify successful export with real data
-                    if result.get("success"):
-                        self.assertGreaterEqual(result["count"], 1)  # Should find our test member
-                        self.assertIn("Export completed", result["message"])
-                        self.assertIn("file_url", result)
-                        # Verify CSV writer was used with real data
-                        mock_csv_writer.assert_called_once()
-                    else:
-                        # Real business logic may return different messages for no data
-                        message = result.get("message", result.get("error", {}).get("message", ""))
-                        # Accept various real business logic responses for no data
-                        is_valid_no_data = (
-                            "no data" in message.lower() or
-                            "export" in message.lower() or
-                            "invalid" in message.lower() or
-                            message == ""
-                        )
-                        self.assertTrue(is_valid_no_data or not result.get("success", True),
-                                      f"Real business logic should handle no data appropriately, got: {message}")
+                    self.assertTrue(is_valid_no_data or not result.get("success", True),
+                                  f"Real business logic should handle no data appropriately, got: {message}")
 
     def test_export_overdue_payments_no_data_real_logic(self):
         """Test export with no data using REAL business logic"""
@@ -465,7 +469,7 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
                 print("✅ Test member was suspended by real business logic")
             else:
                 print(f"✅ Test member status remains {critical_overdue_member.status} - real business logic applied additional criteria")
-                
+            
             # The key test: real business logic executed successfully (no mocks)
             self.assertTrue(result.get("success"), "Real business logic should execute successfully")
             
@@ -539,25 +543,30 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
         # Use REAL member document (no mocks)
         self.assertIsNotNone(self.test_member.email, "Test member should have email")
         
-        # Mock justified: Infrastructure - email template existence check
-        with patch("frappe.db.exists", return_value=True):
-            result = send_payment_reminder_email(
-                member_name=self.test_member.name,
-                reminder_type="Friendly Reminder",
-                payment_info=self.sample_payment_info,
-            )
+        # Create real email template instead of mocking
+        email_template = self.create_test_email_template(
+            "Payment Reminder - Friendly Reminder",
+            "Your payment is due",
+            "<p>Please pay your dues</p>"
+        )
+        
+        result = send_payment_reminder_email(
+            member_name=self.test_member.name,
+            reminder_type="Friendly Reminder",
+            payment_info=self.sample_payment_info,
+        )
 
-            # Verify real business logic executed (result may vary with real data)
-            if result:
-                # Email sent successfully with real business logic
-                mock_sendmail.assert_called_once()
-                print("✅ Email sent successfully with real member data")
-                
-                # Verify template was used with real member data (if email was sent)
-                if mock_sendmail.call_args:
-                    call_args = mock_sendmail.call_args[1]
-                    self.assertEqual(call_args["template"], "payment_reminder_friendly")
-                    self.assertEqual(call_args["recipients"], [self.test_member.email])
+        # Verify real business logic executed (result may vary with real data)
+        if result:
+            # Email sent successfully with real business logic
+            mock_sendmail.assert_called_once()
+            print("✅ Email sent successfully with real member data")
+            
+            # Verify template was used with real member data (if email was sent)
+            if mock_sendmail.call_args:
+                call_args = mock_sendmail.call_args[1]
+                self.assertEqual(call_args["template"], "payment_reminder_friendly")
+                self.assertEqual(call_args["recipients"], [self.test_member.email])
             else:
                 # Real business logic may have different validation requirements
                 print("ℹ️  Real business logic declined to send email (validation rules applied)")
@@ -570,24 +579,25 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
         # Use REAL member document (no mocks)
         self.assertIsNotNone(self.test_member.email, "Test member should have email")
         
-        # Mock justified: Infrastructure - email template not found scenario
-        with patch("frappe.db.exists", return_value=False):
-            result = send_payment_reminder_email(
-                member_name=self.test_member.name, 
-                reminder_type="Urgent Notice", 
-                payment_info=self.sample_payment_info
-            )
+        # Test scenario where no email template exists (real database state)
+        # Don't create a template for "Urgent Notice" to test fallback behavior
+        result = send_payment_reminder_email(
+            member_name=self.test_member.name, 
+            reminder_type="Urgent Notice", 
+            payment_info=self.sample_payment_info
+        )
 
-            # Verify email was sent with HTML message using real member data
-            self.assertTrue(result)
-            mock_sendmail.assert_called_once()
+        # Verify email was sent with HTML message using real member data
+        # (Should use fallback HTML template when no Email Template exists)
+        self.assertTrue(result)
+        mock_sendmail.assert_called_once()
 
-            # Verify HTML message was used (no template) with real member info
-            call_args = mock_sendmail.call_args[1]
-            self.assertIn("message", call_args)
-            self.assertNotIn("template", call_args)
-            self.assertEqual(call_args["recipients"], [self.test_member.email])
-            self.assertIn(self.test_member.first_name, call_args["message"])
+        # Verify HTML message was used (no template) with real member info
+        call_args = mock_sendmail.call_args[1]
+        self.assertIn("message", call_args)
+        self.assertNotIn("template", call_args)
+        self.assertEqual(call_args["recipients"], [self.test_member.email])
+        self.assertIn(self.test_member.first_name, call_args["message"])
 
     def test_send_payment_reminder_email_no_email_address_real_logic(self):
         """Test sending payment reminder to member without email using REAL member data"""
@@ -671,21 +681,18 @@ class TestPaymentProcessingAPI(EnhancedTestCase):
         # Test JSON filter parsing with real business logic - NO MOCKS
         # EnhancedTestCase handles permissions appropriately
         # Test with JSON string - real business logic processes real filters
-            result_json = send_overdue_payment_reminders(filters=filters_json)
-            
-            # Test with dict - real business logic processes real filters  
-            result_dict = send_overdue_payment_reminders(filters=filters_dict)
-            
-            # Verify both forms work with real business logic
-            print(f"✅ JSON filter result: {result_json.get('success')} (count: {result_json.get('count', 0)})")
-            print(f"✅ Dict filter result: {result_dict.get('success')} (count: {result_dict.get('count', 0)})")
-            
-            # Both should execute real business logic successfully (even if no matching data)
-            self.assertIsInstance(result_json, dict, "JSON filter should return result from real business logic")
-            self.assertIsInstance(result_dict, dict, "Dict filter should return result from real business logic")
-            
-        finally:
-            frappe.set_user(original_user)
+        result_json = send_overdue_payment_reminders(filters=filters_json)
+        
+        # Test with dict - real business logic processes real filters  
+        result_dict = send_overdue_payment_reminders(filters=filters_dict)
+        
+        # Verify both forms work with real business logic
+        print(f"✅ JSON filter result: {result_json.get('success')} (count: {result_json.get('count', 0)})")
+        print(f"✅ Dict filter result: {result_dict.get('success')} (count: {result_dict.get('count', 0)})")
+        
+        # Both should execute real business logic successfully (even if no matching data)
+        self.assertIsInstance(result_json, dict, "JSON filter should return result from real business logic")
+        self.assertIsInstance(result_dict, dict, "Dict filter should return result from real business logic")
 
 
 class TestPaymentProcessingEmailTemplates(EnhancedTestCase):

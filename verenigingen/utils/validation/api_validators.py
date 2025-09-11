@@ -5,6 +5,8 @@ This module provides consistent input validation, sanitization, and security
 checks for API endpoints to prevent common security vulnerabilities.
 """
 
+import html
+import json
 import re
 from functools import wraps
 from typing import Any, Dict, List, Optional, Union
@@ -522,3 +524,55 @@ def sanitize_filter_params(filters: Dict[str, Any]) -> Dict[str, Any]:
                 sanitized[key] = sanitized_list
 
     return sanitized
+
+
+def parse_json_filters(filters):
+    """
+    Parse JSON filters with HTML entity decoding support.
+
+    This function safely parses filter parameters that may come from HTML forms
+    or JavaScript where quotes might be HTML-encoded as &quot;. It handles:
+    - String filters that need JSON parsing
+    - HTML entity decoding for form submissions
+    - Empty/whitespace filters
+    - Already parsed dict filters
+    - Comprehensive error logging for debugging
+
+    Args:
+        filters: String, dict, or None - filters to parse
+
+    Returns:
+        dict or None: Parsed filters
+
+    Raises:
+        ValidationError: If JSON parsing fails after HTML decoding
+
+    Example:
+        # HTML-encoded from form: '{&quot;chapter&quot;: &quot;Amsterdam&quot;}'
+        # JavaScript object: '{"chapter": "Amsterdam"}'
+        # Both will be parsed correctly to: {"chapter": "Amsterdam"}
+    """
+    if filters is None:
+        return None
+
+    if isinstance(filters, dict):
+        return filters
+
+    if isinstance(filters, str):
+        # Handle empty string or whitespace-only strings as no filters
+        if not filters.strip():
+            return None
+
+        try:
+            # First decode HTML entities if present (e.g., &quot; -> ")
+            decoded_filters = html.unescape(filters)
+            return json.loads(decoded_filters)
+        except json.JSONDecodeError as e:
+            # Log the actual problematic JSON for debugging
+            frappe.log_error(
+                message=f"Invalid JSON in filters parameter: '{filters}' - Error: {str(e)}",
+                title="API Validation - Invalid JSON Debug",
+            )
+            raise ValidationError(f"Invalid JSON format in filters: {str(e)}")
+
+    return filters

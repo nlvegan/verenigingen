@@ -256,7 +256,7 @@ function show_payment_reminder_dialog(report) {
 					include_payment_link: values.include_payment_link,
 					custom_message: values.custom_message,
 					send_to_chapters: values.send_to_chapters,
-					filters: report.get_filter_values()
+					filters: JSON.stringify(report.get_filter_values() || {})
 				},
 				callback(r) {
 					if (r.message) {
@@ -330,7 +330,7 @@ function export_for_collection(report) {
 	frappe.call({
 		method: 'verenigingen.api.payment_processing.export_overdue_payments',
 		args: {
-			filters: report.get_filter_values(),
+			filters: JSON.stringify(report.get_filter_values() || {}),
 			format: 'CSV'
 		},
 		callback(r) {
@@ -397,7 +397,7 @@ function show_bulk_payment_actions_dialog(report) {
 						args: {
 							action: values.action,
 							apply_to: values.apply_to,
-							filters: report.get_filter_values()
+							filters: JSON.stringify(report.get_filter_values() || {})
 						},
 						callback(r) {
 							if (r.message) {

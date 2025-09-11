@@ -165,7 +165,7 @@ class TestRefundFunctionality(EnhancedTestCase):
         """Test prevention of refunding more than original payment."""
         donation = self.create_test_donation("Test Donor", amount=25.0)
 
-        from vereinigingen.utils.payment_services.refund_utility import initiate_donation_refund
+        from verenigingen.utils.payment_services.refund_utility import initiate_donation_refund
 
         # Try to refund more than original amount
         result = initiate_donation_refund(donation.name, amount=50.0)

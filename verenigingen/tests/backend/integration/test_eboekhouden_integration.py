@@ -98,7 +98,7 @@ class TestEBoekhoudenIntegration(EnhancedTestCase):
         # Cleanup
         payment_mapping.delete()
         
-    @patch('verenigingen.e_boekhouden.utils_rest_client.EBoekhoudenRESTClient')
+    @patch('verenigingen.e_boekhouden.utils.eboekhouden_rest_client.EBoekhoudenRESTClient')
     def test_transaction_import(self, mock_client_class):
         """Test importing transactions from e-boekhouden"""
         # Mock the REST client
@@ -124,7 +124,7 @@ class TestEBoekhoudenIntegration(EnhancedTestCase):
         mock_client.get_mutations.return_value = mock_transactions
         
         # Import transactions
-        from verenigingen.e_boekhouden.utils_integration import import_transactions
+        from verenigingen.e_boekhouden.utils.import_manager import import_transactions
         
         # Create real settings document for testing
         try:
@@ -198,7 +198,7 @@ class TestEBoekhoudenIntegration(EnhancedTestCase):
     def test_error_recovery(self, mock_throw):
         """Test error recovery mechanisms"""
         # Simulate API error
-        from verenigingen.e_boekhouden.utils_rest_client import EBoekhoudenRESTClient
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_client import EBoekhoudenRESTClient
         
         with patch.object(EBoekhoudenRESTClient, 'authenticate') as mock_auth:
             mock_auth.side_effect = Exception("Authentication failed")

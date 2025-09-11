@@ -40,20 +40,21 @@ class BalancesClient(MollieBaseClient):
         #     AuditEventType.BALANCE_CHECKED, AuditSeverity.INFO, f"Retrieving balance: {balance_id}"
         # )
 
-        response = self.get(f"balances/{balance_id}")
+        response = self.get(f"/balances/{balance_id}")
         return Balance(response)
 
-    def list_balances(self, currency: Optional[str] = None) -> List[Balance]:
+    def list_balances(self, currency: Optional[str] = None, limit: int = 10) -> List[Balance]:
         """
         List all balances
 
         Args:
             currency: Filter by currency code
+            limit: Maximum number of balances to return (default: 10)
 
         Returns:
             List of Balance objects
         """
-        params = {}
+        params = {"limit": limit}
         if currency:
             params["currency"] = currency
 
@@ -65,7 +66,7 @@ class BalancesClient(MollieBaseClient):
         #     details={"currency_filter": currency},
         # )
 
-        response = self.get("balances", params=params, paginated=True)
+        response = self.get("/balances", params=params, paginated=True)
 
         balances = []
         for item in response:
@@ -124,7 +125,7 @@ class BalancesClient(MollieBaseClient):
         )
 
         try:
-            response = self.get(f"balances/{balance_id}/transactions", params=params, paginated=True)
+            response = self.get(f"/balances/{balance_id}/transactions", params=params, paginated=True)
             transactions = [BalanceTransaction(item) for item in response]
 
             # If API date filtering was used successfully, return directly
@@ -140,7 +141,7 @@ class BalancesClient(MollieBaseClient):
                 api_date_filtering = False
                 # Retry without date parameters
                 params = {"limit": limit}
-                response = self.get(f"balances/{balance_id}/transactions", params=params, paginated=True)
+                response = self.get(f"/balances/{balance_id}/transactions", params=params, paginated=True)
                 transactions = [BalanceTransaction(item) for item in response]
             else:
                 raise

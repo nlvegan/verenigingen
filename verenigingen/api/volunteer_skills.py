@@ -110,10 +110,9 @@ def search_volunteers_advanced(filters=None):
     import json
 
     try:
-        if isinstance(filters, str):
-            filters = json.loads(filters)
-        if not filters:
-            filters = {}
+        from verenigingen.utils.validation.api_validators import parse_json_filters
+
+        filters = parse_json_filters(filters) or {}
 
         skills = filters.get("skills", [])
         categories = filters.get("categories", [])

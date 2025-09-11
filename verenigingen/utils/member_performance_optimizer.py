@@ -456,6 +456,7 @@ def get_member_dashboard(member_name: str):
 @frappe.whitelist()
 def search_members_optimized(filters=None, limit=50):
     """Whitelisted method for optimized member search"""
-    if isinstance(filters, str):
-        filters = json.loads(filters)
+    from verenigingen.utils.validation.api_validators import parse_json_filters
+
+    filters = parse_json_filters(filters)
     return member_optimizer.bulk_load_members_optimized(filters or {}, int(limit))

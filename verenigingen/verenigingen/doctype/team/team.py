@@ -251,7 +251,7 @@ class Team(Document):
                 break
 
         if not team_member:
-            print(f"Could not find team member for volunteer {volunteer_id}")
+            frappe.logger().warning(f"Could not find team member for volunteer {volunteer_id}")
             return
 
         # Create role description using Team Role system
@@ -267,9 +267,13 @@ class Team(Document):
         )
 
         if success:
-            print(f"Added team assignment history for volunteer {volunteer_id}: {role_description}")
+            frappe.logger().info(
+                f"Added team assignment history for volunteer {volunteer_id}: {role_description}"
+            )
         else:
-            print(f"Error adding team assignment history for volunteer {volunteer_id}: {role_description}")
+            frappe.logger().error(
+                f"Error adding team assignment history for volunteer {volunteer_id}: {role_description}"
+            )
 
     def complete_team_assignment_history(
         self, volunteer_id: str, team_role: str, start_date: str, end_date: str
@@ -310,9 +314,11 @@ class Team(Document):
         )
 
         if success:
-            print(f"Completed team assignment history for volunteer {volunteer_id}: {role_description}")
+            frappe.logger().info(
+                f"Completed team assignment history for volunteer {volunteer_id}: {role_description}"
+            )
         else:
-            print(
+            frappe.logger().error(
                 f"Error completing team assignment history for volunteer {volunteer_id}: {role_description}"
             )
 
@@ -531,10 +537,10 @@ def sync_team_with_volunteers(team_name=None):
             # Trigger volunteer assignment history updates by calling the handler
             team_doc.handle_team_member_changes()
             updated_count += 1
-            print(f"Successfully synced team {team.name} with volunteers")
+            frappe.logger().info(f"Successfully synced team {team.name} with volunteers")
         except Exception as e:
             frappe.log_error(f"Failed to sync team {team.name}: {str(e)}")
-            print(f"Error syncing team {team.name}: {str(e)}")
+            frappe.logger().error(f"Error syncing team {team.name}: {str(e)}")
 
     return {"updated_count": updated_count}
 
@@ -575,9 +581,11 @@ def fix_all_missing_assignment_history():
 
                         if success:
                             volunteers_fixed += 1
-                            print(f"✅ Fixed assignment history for {member.volunteer_name} in {team.name}")
+                            frappe.logger().info(
+                                f"✅ Fixed assignment history for {member.volunteer_name} in {team.name}"
+                            )
                         else:
-                            print(
+                            frappe.logger().error(
                                 f"❌ Failed to fix assignment history for {member.volunteer_name} in {team.name}"
                             )
 
@@ -611,7 +619,7 @@ def fix_missing_assignment_history(team_name=None, volunteer_name=None):
 
             for member in team.team_members:
                 if member.volunteer == volunteer_name and member.is_active:
-                    print(f"Found active assignment: {member.volunteer} -> {member.role}")
+                    frappe.logger().info(f"Found active assignment: {member.volunteer} -> {member.role}")
 
                     # Check if assignment history already exists
                     volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
@@ -625,7 +633,7 @@ def fix_missing_assignment_history(team_name=None, volunteer_name=None):
                             and assignment.status == "Active"
                         ):
                             has_assignment = True
-                            print("Assignment already exists in history")
+                            frappe.logger().info("Assignment already exists in history")
                             break
 
                     if not has_assignment:
@@ -639,10 +647,12 @@ def fix_missing_assignment_history(team_name=None, volunteer_name=None):
                         )
 
                         if success:
-                            print(f"✅ Successfully added assignment history for {volunteer_name}")
+                            frappe.logger().info(
+                                f"✅ Successfully added assignment history for {volunteer_name}"
+                            )
                             return {"success": True, "message": "Assignment history added successfully"}
                         else:
-                            print(f"❌ Failed to add assignment history for {volunteer_name}")
+                            frappe.logger().error(f"❌ Failed to add assignment history for {volunteer_name}")
                             return {"success": False, "error": "Failed to add assignment history"}
                     else:
                         return {"success": True, "message": "Assignment history already exists"}
@@ -650,7 +660,7 @@ def fix_missing_assignment_history(team_name=None, volunteer_name=None):
         return {"success": False, "error": "No matching assignment found"}
 
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        frappe.logger().error(f"❌ Error: {str(e)}")
         import traceback
 
         traceback.print_exc()

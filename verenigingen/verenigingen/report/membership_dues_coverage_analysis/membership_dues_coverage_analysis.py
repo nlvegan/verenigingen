@@ -1087,8 +1087,9 @@ def export_gap_analysis(filters):
     if not frappe.has_permission("Member", "read"):
         frappe.throw(_("Insufficient permissions to export member data"))
 
-    if isinstance(filters, str):
-        filters = json.loads(filters)
+    from verenigingen.utils.validation.api_validators import parse_json_filters
+
+    filters = parse_json_filters(filters)
 
     # Get report data
     columns, data = execute(filters)

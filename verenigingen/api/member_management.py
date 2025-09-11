@@ -283,16 +283,12 @@ def get_members_with_chapter_info(filters=None, limit=50):
     if filters:
         # Validate and sanitize filters - handle both dict and string inputs
         if not isinstance(filters, dict):
-            if isinstance(filters, str):
-                try:
-                    import json
+            try:
+                from verenigingen.utils.validation.api_validators import parse_json_filters
 
-                    filters = json.loads(filters)
-                except (json.JSONDecodeError, ValueError):
-                    frappe.log_error(f"Invalid filters JSON: {filters}", "Member List API")
-                    filters = {}
-            else:
-                frappe.log_error(f"Invalid filters type: {type(filters)}", "Member List API")
+                filters = parse_json_filters(filters) or {}
+            except Exception as e:
+                frappe.log_error(f"Invalid filters JSON: {filters} - Error: {str(e)}", "Member List API")
                 filters = {}
 
         if isinstance(filters, dict):

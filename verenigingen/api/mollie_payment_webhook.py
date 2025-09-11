@@ -46,14 +46,8 @@ def handle_mollie_payment_webhook():
 
     try:
         # Set webhook user context for proper security
-        payment_settings = frappe.get_single("Verenigingen Payments Settings")
-
-        if not payment_settings or not payment_settings.webhook_user:
-            frappe.throw(
-                "Webhook user not configured in Verenigingen Payments Settings. Please configure a dedicated webhook user with 'Verenigingen Webhook User' role."
-            )
-
-        webhook_user = payment_settings.webhook_user
+        # Use the dedicated webhook user account
+        webhook_user = "webhook.user@veganisme.org"
         frappe.set_user(webhook_user)
 
         # Get payment ID from webhook data - handle both JSON and form-encoded

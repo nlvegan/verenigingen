@@ -320,9 +320,9 @@ def export_audit_report(filters=None):
 @frappe.whitelist()
 def get_compliance_statistics(filters=None):
     """Get compliance statistics for dashboard"""
+    from verenigingen.utils.validation.api_validators import parse_json_filters
 
-    if isinstance(filters, str):
-        filters = json.loads(filters)
+    filters = parse_json_filters(filters)
 
     _, data, _, _, _ = execute(filters)
 
