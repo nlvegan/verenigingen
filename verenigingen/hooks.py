@@ -709,6 +709,7 @@ after_install = [
 # FIXED: Move performance optimization to after_migrate to ensure DocTypes exist
 after_migrate = [
     "verenigingen.verenigingen.doctype.performance_optimization_setup.performance_optimization_setup.run_performance_optimization",
+    "verenigingen.utils.post_migration_hooks.run_post_migration_workspace_health",
 ]
 
 # Permissions
@@ -1017,6 +1018,8 @@ on_logout = "verenigingen.auth_hooks.on_logout"
 # Register custom commands with Frappe CLI
 commands = [
     "verenigingen.commands.workspace.workspace",
+    "verenigingen.commands.workspace_health.workspace_health",
+    "verenigingen.commands.workspace_maintenance.workspace_maintenance",
 ]
 
 # Whitelisted API Methods

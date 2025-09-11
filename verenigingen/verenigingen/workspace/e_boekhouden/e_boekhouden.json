@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[]",
+ "content": "[{\"id\": \"card_0\", \"type\": \"card\", \"data\": {\"card_name\": \"Migration & Settings\", \"col\": 6}}]",
  "creation": "2025-09-08 20:18:22.759928",
  "custom_blocks": [],
  "docstatus": 0,
@@ -55,15 +55,6 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Mapping & Configuration",
-   "link_count": 5,
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
    "label": "Ledger Mapping",
    "link_count": 0,
    "link_to": "E-Boekhouden Ledger Mapping",
@@ -94,15 +85,6 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Monitoring & Logs",
-   "link_count": 1,
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
    "label": "Import Log",
    "link_count": 0,
    "link_to": "E-Boekhouden Import Log",
@@ -111,7 +93,7 @@
    "type": "Link"
   }
  ],
- "modified": "2025-09-08 23:16:26.321375",
+ "modified": "2025-09-11 15:33:29.967993",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "E-Boekhouden",

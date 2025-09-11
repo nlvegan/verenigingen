@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\":\"PaymentGatewaysHeader\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Payment Gateways</b></span>\",\"col\":12}},{\"id\":\"PaymentGatewaysCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Payment Gateways\",\"col\":4}},{\"id\":\"SEPAProcessingCard\",\"type\":\"card\",\"data\":{\"card_name\":\"SEPA Processing\",\"col\":4}},{\"id\":\"PaymentPlansCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Payment Plans\",\"col\":4}},{\"id\":\"Spacer1\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"ProcessingHeader\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Payment Processing</b></span>\",\"col\":12}},{\"id\":\"PaymentProcessingCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Payment Processing\",\"col\":4}},{\"id\":\"AuditingCard\",\"type\":\"card\",\"data\":{\"card_name\":\"SEPA Auditing & Retry\",\"col\":4}},{\"id\":\"Spacer2\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"ReportsHeader\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Reports &amp; Analytics</b></span>\",\"col\":12}},{\"id\":\"ReportsAnalyticsCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Reports & Analytics\",\"col\":8}},{\"id\":\"PnnoSSvVaN\",\"type\":\"card\",\"data\":{\"card_name\":\"Mollie Backend\",\"col\":4}},{\"id\":\"YBRoY1mFry\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Mollie Dashboard\",\"col\":3}}]",
+ "content": "[{\"id\": \"card_0\", \"type\": \"card\", \"data\": {\"card_name\": \"Payment Gateways\", \"col\": 6}}]",
  "creation": "2025-08-13 18:34:22.315066",
  "custom_blocks": [],
  "docstatus": 0,
@@ -34,15 +34,6 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "SEPA Processing",
-   "link_count": 2,
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
    "label": "SEPA Mandate",
    "link_count": 0,
    "link_to": "SEPA Mandate",
@@ -63,15 +54,6 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Payment Plans",
-   "link_count": 1,
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
    "label": "Payment Plan",
    "link_count": 0,
    "link_to": "Payment Plan",
@@ -82,30 +64,12 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Payment Processing",
-   "link_count": 1,
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
    "label": "SEPA Audit Log",
    "link_count": 0,
    "link_to": "SEPA Audit Log",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "SEPA Auditing & Retry",
-   "link_count": 2,
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Card Break"
   },
   {
    "hidden": 0,
@@ -126,15 +90,6 @@
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Reports & Analytics",
-   "link_count": 4,
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Card Break"
   },
   {
    "hidden": 0,
@@ -171,26 +126,6 @@
   },
   {
    "hidden": 0,
-   "icon": "credit-card",
-   "is_query_report": 0,
-   "label": "Mollie Backend",
-   "link_count": 0,
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Mollie Settings",
-   "link_count": 0,
-   "link_to": "Mollie Settings",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
    "is_query_report": 0,
    "label": "Mollie Audit Log",
    "link_count": 0,
@@ -211,7 +146,7 @@
    "type": "Link"
   }
  ],
- "modified": "2025-09-08 23:16:26.279283",
+ "modified": "2025-09-11 15:33:41.583573",
  "modified_by": "Administrator",
  "module": "Verenigingen Payments",
  "name": "Verenigingen Payments",

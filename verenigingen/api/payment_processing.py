@@ -558,7 +558,7 @@ def generate_payment_reminder_html(member, payment_info, reminder_type, custom_m
     #     "Bulk Reminder": "info",
     # }.get(reminder_type, "info")  # Unused
 
-    html = f"""
+    email_html = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #333;">Payment Reminder</h2>
 
@@ -586,7 +586,7 @@ def generate_payment_reminder_html(member, payment_info, reminder_type, custom_m
     </div>
     """
 
-    return html
+    return email_html
 
 
 def create_payment_reminder_log(member_name, reminder_type, payment_info):
