@@ -3,6 +3,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, getdate, today
 
+from verenigingen.utils.validation_utilities import DateRangeValidator
+
 
 class VolunteerExpense(Document):
     def validate(self):
@@ -16,7 +18,7 @@ class VolunteerExpense(Document):
 
     def validate_expense_date(self):
         """Ensure expense date is not in the future"""
-        if self.expense_date and getdate(self.expense_date) > getdate(today()):
+        if self.expense_date and DateRangeValidator.is_date_in_future(self.expense_date):
             frappe.throw(_("Expense date cannot be in the future"))
 
     def validate_amount(self):

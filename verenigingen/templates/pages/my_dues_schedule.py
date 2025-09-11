@@ -8,6 +8,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, format_date, getdate, today
 
+from verenigingen.utils.validation_utilities import DateRangeValidator
+
 
 def get_context(context):
     """Get context for the dues schedule page"""
@@ -115,7 +117,7 @@ def get_payment_data(member):
     for invoice in invoices:
         status = "paid"
         if invoice.outstanding_amount > 0:
-            if getdate(invoice.due_date) < getdate(today()):
+            if DateRangeValidator.is_date_in_past(invoice.due_date):
                 status = "overdue"
             else:
                 status = "due"

@@ -4,6 +4,7 @@ from frappe.utils import add_days, getdate, today
 
 from verenigingen.utils.chapter_utils import get_user_accessible_chapters
 from verenigingen.utils.member_utils import get_member_chapters
+from verenigingen.utils.validation_utilities import QueryBuilder
 
 
 def execute(filters=None):
@@ -108,7 +109,7 @@ def get_data(filters):
                 member_filters["modified"] = ["<=", filters.get("to_date")]
 
     # Get members with recent chapter changes
-    recent_changes = frappe.get_all(
+    recent_changes = QueryBuilder.get_all_active_records(
         "Member",
         filters=member_filters,
         fields=[

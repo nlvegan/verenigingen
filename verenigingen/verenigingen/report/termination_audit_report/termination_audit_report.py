@@ -4,6 +4,8 @@ import frappe
 from frappe import _
 from frappe.utils import today
 
+from verenigingen.utils.validation_utilities import QueryBuilder
+
 
 def execute(filters=None):
     columns = get_columns()
@@ -279,7 +281,7 @@ def get_chart_data(data):
 def get_audit_trail_details(request_id):
     """Get detailed audit trail for a specific termination request"""
 
-    audit_entries = frappe.get_all(
+    audit_entries = QueryBuilder.get_all_active_records(
         "Termination Audit Entry",
         filters={"parent": request_id, "parenttype": "Membership Termination Request"},
         fields=["timestamp", "action", "user", "details", "system_action"],

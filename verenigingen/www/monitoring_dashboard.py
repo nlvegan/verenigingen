@@ -22,6 +22,7 @@ from frappe.utils import add_to_date, now
 
 from verenigingen.api.security_monitoring_dashboard import get_security_dashboard_data
 from verenigingen.utils.security.security_monitoring import get_security_monitor
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
 def get_context(context):
@@ -173,7 +174,7 @@ def get_audit_summary():
 def get_active_alerts():
     """Get active system alerts"""
     try:
-        if not frappe.db.exists("DocType", "System Alert"):
+        if not DocumentExistenceValidator.check_document_exists("DocType", "System Alert"):
             return []
 
         return frappe.get_all(
@@ -472,7 +473,7 @@ def get_unified_security_summary():
                         "creation": (">=", add_to_date(now(), hours=-24)),
                     },
                 )
-                if frappe.db.exists("DocType", "SEPA Audit Log")
+                if DocumentExistenceValidator.check_document_exists("DocType", "SEPA Audit Log")
                 else 0
             ),
             "payment_security_events": (
@@ -484,7 +485,7 @@ def get_unified_security_summary():
                         "creation": (">=", add_to_date(now(), hours=-24)),
                     },
                 )
-                if frappe.db.exists("DocType", "SEPA Audit Log")
+                if DocumentExistenceValidator.check_document_exists("DocType", "SEPA Audit Log")
                 else 0
             ),
         }
@@ -693,7 +694,7 @@ def get_executive_summary():
 def get_sepa_compliance_rate():
     """Calculate SEPA compliance rate"""
     try:
-        if not frappe.db.exists("DocType", "SEPA Audit Log"):
+        if not DocumentExistenceValidator.check_document_exists("DocType", "SEPA Audit Log"):
             return 0
 
         # Total SEPA mandates vs audited mandates
@@ -719,7 +720,7 @@ def calculate_audit_completeness():
         }
 
         # Count audit entries (simplified)
-        if frappe.db.exists("DocType", "SEPA Audit Log"):
+        if DocumentExistenceValidator.check_document_exists("DocType", "SEPA Audit Log"):
             audit_entries = frappe.db.count("SEPA Audit Log")
         else:
             audit_entries = 0
@@ -741,7 +742,7 @@ def get_regulatory_violations():
         violations = []
 
         # Check for SEPA compliance violations
-        if frappe.db.exists("DocType", "SEPA Audit Log"):
+        if DocumentExistenceValidator.check_document_exists("DocType", "SEPA Audit Log"):
             failed_sepa = frappe.db.count(
                 "SEPA Audit Log",
                 {"compliance_status": "Failed", "timestamp": (">=", add_to_date(now(), days=-30))},
@@ -921,7 +922,7 @@ def test_phase1_components():
     # Test SEPA Audit Log
     try:
         # Check if DocType exists
-        if not frappe.db.exists("DocType", "SEPA Audit Log"):
+        if not DocumentExistenceValidator.check_document_exists("DocType", "SEPA Audit Log"):
             results["sepa_audit"]["doctype"] = "FAIL"
             print("  ✗ SEPA Audit Log: DocType not found")
         else:
@@ -973,7 +974,7 @@ def test_phase2_components():
 
     # Test System Alert DocType
     try:
-        if not frappe.db.exists("DocType", "System Alert"):
+        if not DocumentExistenceValidator.check_document_exists("DocType", "System Alert"):
             results["system_alert"]["doctype"] = "FAIL"
             print("  ✗ System Alert: DocType not found")
         else:
@@ -1277,7 +1278,9 @@ def test_dashboard_functionality():
 
     try:
         # Test dashboard page existence
-        dashboard_exists = frappe.db.exists("Web Page", {"route": "monitoring_dashboard"})
+        dashboard_exists = DocumentExistenceValidator.check_document_exists(
+            "Web Page", {"route": "monitoring_dashboard"}
+        )
         results["page_access"]["exists"] = "PASS" if dashboard_exists else "FAIL"
         print(f"  {'✓' if dashboard_exists else '✗'} Dashboard: Page exists")
 

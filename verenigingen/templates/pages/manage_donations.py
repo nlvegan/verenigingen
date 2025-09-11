@@ -18,6 +18,7 @@ from verenigingen.utils.member_utils import (
 
 # Import security framework for proper API protection
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.validation_utilities import DateRangeValidator
 
 
 def get_context(context):
@@ -185,7 +186,7 @@ def is_recurring_donation_active(donation_name):
         # For non-Mollie recurring donations, check if there are recent payments
         # and no explicit cancellation date
         if hasattr(donation, "recurring_cancelled_date") and donation.recurring_cancelled_date:
-            return getdate(donation.recurring_cancelled_date) > getdate(today())
+            return DateRangeValidator.is_date_in_future(donation.recurring_cancelled_date)
 
         # Default to active if it's a recurring donation without cancellation info
         return donation.status == "Recurring"

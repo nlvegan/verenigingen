@@ -6,6 +6,7 @@ Automatically mocks email sending to prevent real emails during tests
 import unittest
 import frappe
 from verenigingen.tests.test_utils import mock_email_sending, setup_test_environment, cleanup_test_data
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
 class VerenigingenTestCase(unittest.TestCase):
@@ -38,7 +39,7 @@ class VerenigingenTestCase(unittest.TestCase):
         # Clean up any test records created
         for doctype, name in self.test_records:
             try:
-                if frappe.db.exists(doctype, name):
+                if DocumentExistenceValidator.check_document_exists(doctype, name):
                     frappe.delete_doc(doctype, name, force=True, )
             except Exception:
                 pass

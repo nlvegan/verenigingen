@@ -31,6 +31,7 @@ from frappe import _
 from frappe.utils import flt, getdate
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.validation_utilities import QueryBuilder
 
 
 def get_context(context):
@@ -60,7 +61,9 @@ def get_context(context):
     # Get chapters for earmarking
     chapters = []
     if settings.enable_chapter_management:
-        chapters = frappe.get_all("Chapter", filters={"published": 1}, fields=["name"], order_by="name")
+        chapters = QueryBuilder.get_all_active_records(
+            "Chapter", filters={"published": 1}, fields=["name"], order_by="name"
+        )
     context.chapters = chapters
 
     # Get available donation campaigns

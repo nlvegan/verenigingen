@@ -11,13 +11,14 @@ from frappe.utils import flt, getdate, now_datetime
 
 from verenigingen.utils.api_response import api_response_handler
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.validation_utilities import DateRangeValidator, QueryBuilder
 
 
 class MembershipGoal(Document):
     def validate(self):
         """Validate goal settings"""
         # Ensure end date is after start date
-        if getdate(self.end_date) < getdate(self.start_date):
+        if DateRangeValidator.is_date_before(self.end_date, self.start_date):
             frappe.throw("End date must be after start date")
 
         # Set year based on start date if not set
@@ -251,7 +252,9 @@ class MembershipGoal(Document):
 @api_response_handler
 def update_all_goals() -> str:
     """Update achievement for all active goals"""
-    goals = frappe.get_all("Membership Goal", filters={"status": ["in", ["Active", "In Progress"]]})
+    goals = QueryBuilder.get_all_active_records(
+        "Membership Goal", filters={"status": ["in", ["Active", "In Progress"]]}
+    )
 
     for goal in goals:
         doc = frappe.get_doc("Membership Goal", goal.name)

@@ -16,6 +16,7 @@ import frappe
 from frappe.test_runner import make_test_records
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.utils.security.csrf_protection import CSRFProtection, CSRFError
 from verenigingen.utils.security.rate_limiting import RateLimiter, RateLimitExceeded
 from verenigingen.utils.security.authorization import SEPAAuthorizationManager, SEPAOperation, SEPAPermissionLevel
@@ -502,7 +503,7 @@ class TestSecurityConfiguration(EnhancedTestCase):
 # Helper methods for test data creation
 def create_test_user_with_roles(email, roles):
     """Create a test user with specific roles"""
-    if frappe.db.exists("User", email):
+    if DocumentExistenceValidator.check_document_exists("User", email):
         user = frappe.get_doc("User", email)
     else:
         user = frappe.new_doc("User")

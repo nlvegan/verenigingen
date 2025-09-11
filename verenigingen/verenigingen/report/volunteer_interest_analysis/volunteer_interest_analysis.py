@@ -4,6 +4,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.member_utils import get_member_chapters
+from verenigingen.utils.validation_utilities import QueryBuilder
 
 
 def execute(filters=None):
@@ -119,7 +120,7 @@ def get_data(filters):
             if filters.get("chapter") not in member_chapters:
                 continue  # Skip this row
         # Get interest areas
-        interests = frappe.get_all(
+        interests = QueryBuilder.get_all_active_records(
             "Member Volunteer Interest",
             filters={"parent": row.name},
             fields=["interest_area", "experience_level"],

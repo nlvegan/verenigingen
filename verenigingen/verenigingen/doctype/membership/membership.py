@@ -3,6 +3,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import add_months, add_to_date, flt, getdate, nowdate, today
 
+from verenigingen.utils.validation_utilities import DateRangeValidator
+
 
 class Membership(Document):
     def validate(self):
@@ -357,7 +359,7 @@ class Membership(Document):
     def validate_dates(self):
         # Validate renewal date is not before start date
         if self.renewal_date and self.start_date:
-            if getdate(self.renewal_date) < getdate(self.start_date):
+            if DateRangeValidator.is_date_before(self.renewal_date, self.start_date):
                 frappe.throw(_("Renewal date cannot be before start date"))
 
         # Check if minimum period enforcement is enabled for this membership type
@@ -370,7 +372,7 @@ class Membership(Document):
         # but allow exceptions for admins and unsubmitted memberships
         if self.cancellation_date and self.start_date and self.docstatus == 1 and enforce_minimum:
             min_membership_period = add_months(getdate(self.start_date), 12)
-            if getdate(self.cancellation_date) < min_membership_period:
+            if DateRangeValidator.is_date_before(self.cancellation_date, min_membership_period):
                 # Check if user is an admin
                 is_admin = "System Manager" in frappe.get_roles(frappe.session.user)
 
@@ -484,14 +486,14 @@ class Membership(Document):
             self.status = "Draft"
         elif self.docstatus == 2:
             self.status = "Cancelled"
-        elif self.cancellation_date and getdate(self.cancellation_date) <= getdate(today()):
+        elif self.cancellation_date and DateRangeValidator.is_date_today_or_past(self.cancellation_date):
             # Membership is cancelled
             self.status = "Cancelled"
         elif hasattr(self, "unpaid_amount") and self.unpaid_amount and flt(self.unpaid_amount) > 0:
             # Has unpaid invoices - membership inactive
             # Note: This field may not exist in all installations
             self.status = "Inactive"
-        elif self.renewal_date and getdate(self.renewal_date) < getdate(today()):
+        elif self.renewal_date and DateRangeValidator.is_date_in_past(self.renewal_date):
             # Past renewal date - membership expired
             self.status = "Expired"
         else:
@@ -834,7 +836,7 @@ def cancel_membership(
     # Check 1-year minimum period for submitted memberships if enforcement is enabled
     if membership.docstatus == 1 and enforce_minimum:
         min_membership_period = add_months(getdate(membership.start_date), 12)
-        if getdate(cancellation_date) < min_membership_period:
+        if DateRangeValidator.is_date_before(cancellation_date, min_membership_period):
             # Check if user is an admin
             is_admin = "System Manager" in frappe.get_roles(frappe.session.user)
 
@@ -940,7 +942,9 @@ def process_membership_statuses():
 
             # Check expiry - if past renewal date
             # Note: Auto-renewal is handled by the billing system, not individual memberships
-            if membership.renewal_date and getdate(membership.renewal_date) < today_date:
+            if membership.renewal_date and DateRangeValidator.is_date_before(
+                membership.renewal_date, today_date
+            ):
                 # Mark as expired - renewal is handled by the billing/dues schedule system
                 membership.status = "Expired"
                 membership.flags.ignore_validate_update_after_submit = True
@@ -962,7 +966,7 @@ def process_membership_statuses():
 
             # Check cancellations with end-of-period dates that have now been reached
             elif membership.cancellation_date and membership.cancellation_type == "End of Period":
-                if getdate(membership.renewal_date) <= today_date:
+                if DateRangeValidator.is_date_today_or_before(membership.renewal_date, today_date):
                     membership.status = "Cancelled"
                     membership.flags.ignore_validate_update_after_submit = True
                     membership.save()

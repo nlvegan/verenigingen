@@ -12,6 +12,7 @@ from verenigingen.utils.security.api_security_framework import (
     standard_api,
 )
 from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
 @frappe.whitelist()
@@ -188,7 +189,7 @@ def fix_specific_member_sepa_mandate(member_name):
             frappe.throw(_("You don't have permission to create SEPA mandates"))
 
         # Validate member exists
-        if not frappe.db.exists("Member", member_name):
+        if not DocumentExistenceValidator.check_document_exists("Member", member_name):
             frappe.throw(_("Member {0} does not exist").format(member_name))
 
         member = frappe.get_doc("Member", member_name)

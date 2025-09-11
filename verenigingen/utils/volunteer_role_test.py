@@ -5,6 +5,8 @@ Test utilities for volunteer role assignment
 import frappe
 from frappe import _
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator, QueryBuilder
+
 
 @frappe.whitelist()
 def test_volunteer_role_assignment():
@@ -25,7 +27,7 @@ def test_volunteer_role_assignment():
         for mem in existing_members:
             frappe.delete_doc("Member", mem, force=True)
 
-        if frappe.db.exists("User", test_email):
+        if DocumentExistenceValidator.check_document_exists("User", test_email):
             frappe.delete_doc("User", test_email, force=True)
 
         frappe.db.commit()
@@ -124,7 +126,7 @@ def test_project_team_access():
 
     try:
         # Get some existing teams and volunteers to test with
-        teams = frappe.get_all("Team", filters={"status": "Active"}, fields=["name", "team_name"], limit=2)
+        teams = QueryBuilder.get_all_active_records("Team", fields=["name", "team_name"], limit=2)
 
         print(f"Found {len(teams)} active teams for testing")
 

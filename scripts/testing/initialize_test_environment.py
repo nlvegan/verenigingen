@@ -28,6 +28,8 @@ import frappe
 from frappe import _
 from datetime import datetime
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 
 class TestEnvironmentInitializer:
     """
@@ -92,7 +94,7 @@ class TestEnvironmentInitializer:
             print("   ✅ Email settings configured for testing")
             
             # Set system manager for test operations
-            if not frappe.db.exists("User", "test@example.com"):
+            if not DocumentExistenceValidator.check_document_exists("User", "test@example.com"):
                 test_admin = frappe.get_doc({
                     "doctype": "User",
                     "email": "test@example.com", 

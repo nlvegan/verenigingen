@@ -67,6 +67,7 @@ from frappe.utils import getdate, today
 from verenigingen.utils.dutch_name_utils import format_dutch_full_name, is_dutch_installation
 from verenigingen.utils.error_handling import cache_with_ttl
 from verenigingen.utils.member_utils import get_volunteer_for_member
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
 def safe_log_error(message, title=None):
@@ -114,7 +115,9 @@ class Volunteer(Document):
 
     def validate_member_link(self):
         """Validate that member link is valid"""
-        if self.member and not frappe.db.exists("Member", self.member):
+        if self.member and not DocumentExistenceValidator.validate_document_exists(
+            "Member", self.member, throw_on_error=False
+        ):
             frappe.throw(_("Member {0} does not exist").format(self.member), frappe.DoesNotExistError)
 
     def validate_volunteer_age(self):

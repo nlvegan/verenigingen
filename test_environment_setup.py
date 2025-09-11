@@ -8,6 +8,8 @@ and test environment has essential master data.
 
 import frappe
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 
 def validate_test_environment():
     """Validate test environment setup"""
@@ -27,7 +29,7 @@ def validate_test_environment():
     for check_name, doctype, specific_name in checks:
         try:
             if specific_name:
-                exists = frappe.db.exists(doctype, specific_name)
+                exists = DocumentExistenceValidator.check_document_exists(doctype, specific_name)
                 status = "✅" if exists else "❌"
                 result = f"exists" if exists else "missing"
             else:

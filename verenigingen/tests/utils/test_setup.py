@@ -2,6 +2,8 @@
 
 import frappe
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 
 class TestSetupError(Exception):
     pass
@@ -23,7 +25,7 @@ def setup_test_environment():
 
 def setup_test_company():
     """Create _Test Company if it doesn't exist"""
-    if not frappe.db.exists("Company", "_Test Company"):
+    if not DocumentExistenceValidator.check_document_exists("Company", "_Test Company"):
         print("Creating _Test Company...")
         company = frappe.new_doc("Company")
         company.company_name = "_Test Company"
@@ -51,7 +53,7 @@ def setup_test_company():
 def setup_test_accounts():
     """Set up test accounts including USD payable account"""
     # Create USD Currency if needed
-    if not frappe.db.exists("Currency", "USD"):
+    if not DocumentExistenceValidator.check_document_exists("Currency", "USD"):
         print("Creating USD currency...")
         currency = frappe.new_doc("Currency")
         currency.currency_name = "USD"
@@ -79,7 +81,7 @@ def setup_test_accounts():
         )
 
     # Create the missing USD payable account
-    if payables_account and not frappe.db.exists("Account", "_Test Payable USD - _TC"):
+    if payables_account and not DocumentExistenceValidator.check_document_exists("Account", "_Test Payable USD - _TC"):
         print(f"Creating USD Payable account under {payables_account}")
         account = frappe.new_doc("Account")
         account.account_name = "_Test Payable USD"
@@ -101,7 +103,7 @@ def setup_test_warehouses():
     # First ensure company exists and has abbr
     setup_test_company()
 
-    if not frappe.db.exists("Warehouse", "_Test Warehouse - _TC"):
+    if not DocumentExistenceValidator.check_document_exists("Warehouse", "_Test Warehouse - _TC"):
         print("Creating _Test Warehouse...")
         warehouse = frappe.new_doc("Warehouse")
         warehouse.warehouse_name = "_Test Warehouse"

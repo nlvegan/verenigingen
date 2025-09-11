@@ -13,6 +13,7 @@ import psutil
 
 from verenigingen.tests.test_data_factory import TestDataContext, TestDataFactory
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.utils.validation_utilities import QueryBuilder
 
 
 class TestPerformanceEdgeCases(VereningingenTestCase):
@@ -82,7 +83,7 @@ class TestPerformanceEdgeCases(VereningingenTestCase):
 
             # Test various query patterns
             query_tests = [
-                ("Simple filter", lambda: frappe.get_all("Member", filters={"status": "Active"})),
+                ("Simple filter", lambda: QueryBuilder.get_all_active_records("Member")),
                 (
                     "Complex filter",
                     lambda: frappe.get_all(

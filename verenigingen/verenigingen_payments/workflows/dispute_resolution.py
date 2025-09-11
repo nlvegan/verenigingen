@@ -14,6 +14,7 @@ from frappe import _
 from frappe.utils import add_days, get_datetime, now_datetime
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 from ..clients.chargebacks_client import ChargebacksClient
 from ..clients.settlements_client import SettlementsClient
@@ -553,7 +554,7 @@ class DisputeResolutionWorkflow:
                 metrics["total_lost"] += financial_impact["net_loss"]
 
             # Save metrics
-            if frappe.db.exists("Dispute Metrics", {"month": month_key}):
+            if DocumentExistenceValidator.check_document_exists("Dispute Metrics", {"month": month_key}):
                 frappe.db.set_value("Dispute Metrics", {"month": month_key}, metrics)
             else:
                 doc = frappe.new_doc("Dispute Metrics")

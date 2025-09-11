@@ -14,6 +14,7 @@ import frappe
 from frappe.utils import now
 
 from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.validation_utilities import QueryBuilder
 
 
 @frappe.whitelist()
@@ -163,8 +164,8 @@ def _test_performance_measurement() -> Dict[str, Any]:
         start_time = time.time()
 
         # Perform some database operations
-        frappe.get_all("User", limit=5)
-        frappe.get_all("Member", limit=5)
+        QueryBuilder.get_all_active_records("User", limit=5)
+        QueryBuilder.get_all_active_records("Member", limit=5)
 
         execution_time = time.time() - start_time
 

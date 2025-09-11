@@ -8,6 +8,8 @@ workspace corruption from DocType/Report deletions.
 import frappe
 from frappe import _
 
+from verenigingen.utils.validation_utilities import QueryBuilder
+
 
 def run_post_migration_workspace_health():
     """
@@ -62,9 +64,9 @@ def get_potentially_affected_workspaces():
     """Get workspaces that could be affected by DocType/Report changes"""
 
     # Focus on application-specific workspaces with Card Break structures
-    workspaces = frappe.get_all(
+    workspaces = QueryBuilder.get_all_active_records(
         "Workspace",
-        filters={
+        additional_filters={
             "public": 1,
             "is_hidden": 0,
             "module": [

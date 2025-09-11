@@ -7,6 +7,7 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from frappe.utils import today, add_to_date, flt
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
 class TestDonationAgreement(EnhancedTestCase):
@@ -24,7 +25,7 @@ class TestDonationAgreement(EnhancedTestCase):
         campaign_name = f"Test Campaign {int(time.time()*1000)}"  # Use timestamp for uniqueness
         
         # Clean up any existing campaign with this name
-        if frappe.db.exists("Donation Campaign", campaign_name):
+        if DocumentExistenceValidator.check_document_exists("Donation Campaign", campaign_name):
             frappe.delete_doc("Donation Campaign", campaign_name, force=True)
             
         self.campaign = frappe.new_doc("Donation Campaign")
@@ -229,7 +230,7 @@ class TestDonationAgreement(EnhancedTestCase):
 
     def create_test_donor(self, donor_name, donor_email):
         """Create test donor with required fields"""
-        if frappe.db.exists("Donor", {"donor_name": donor_name}):
+        if DocumentExistenceValidator.check_document_exists("Donor", {"donor_name": donor_name}):
             return frappe.get_doc("Donor", {"donor_name": donor_name})
 
         donor = frappe.new_doc("Donor")

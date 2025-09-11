@@ -11,6 +11,7 @@ This module tests the self-service fee adjustment features including:
 import frappe
 from frappe.utils import today, add_days, flt
 from verenigingen.tests.base_test_case import BaseTestCase
+from verenigingen.utils.validation_utilities import QueryBuilder
 
 
 class TestSelfServiceFeeAdjustment(BaseTestCase):
@@ -24,7 +25,7 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
         original_user = frappe.session.user
         try:
             frappe.set_user("Administrator")
-            existing_types = frappe.get_all("Membership Type", filters={"membership_type_name": "Monthly Standard"})
+            existing_types = QueryBuilder.get_all_active_records("Membership Type", additional_filters={"membership_type_name": "Monthly Standard"})
             for mt in existing_types:
                 frappe.delete_doc("Membership Type", mt.name, force=True)
             frappe.db.commit()

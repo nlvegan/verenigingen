@@ -31,33 +31,25 @@ class TestSecureAccountCreation(EnhancedTestCase):
 
     def setUp(self):
         super().setUp()
-        # EnhancedTestCase handles permissions automatically
-        # Clean up any existing test data
-        self.cleanup_test_data()
+        # EnhancedTestCase handles all cleanup automatically
         
-        # Create test volunteer for account creation
-        self.test_volunteer = self.create_test_volunteer(
-            volunteer_name="Test Volunteer Account Creation",
-            email="test.volunteer.security@example.com",
-            status="New"
-        )
-        
-    def tearDown(self):
-        super().tearDown()
-        self.cleanup_test_data()
-        
-    def cleanup_test_data(self):
-        """Clean up test data to prevent interference between tests"""
-        # Delete test account creation requests
-        for request in frappe.get_all("Account Creation Request", 
-                                     filters={"email": ["like", "%test.volunteer.security%"]}):
-            frappe.delete_doc("Account Creation Request", request.name, force=True)
-            
-        # Delete test users
-        test_emails = ["test.volunteer.security@example.com"]
-        for email in test_emails:
-            if frappe.db.exists("User", email):
-                frappe.delete_doc("User", email, force=True)
+        # CLEANUP FIX: Aggressively clean up all Account Creation Requests to prevent conflicts
+        all_requests = frappe.get_all("Account Creation Request")
+        for req in all_requests:
+            try:
+                frappe.delete_doc("Account Creation Request", req.name, force=True)
+            except:
+                pass  # Ignore deletion errors - some might be in use
+    
+    def get_fresh_test_volunteer(self):
+        """Create a fresh test volunteer for each test method to ensure uniqueness"""
+        return self.create_test_volunteer(status="New")
+    
+    def queue_and_track_account_creation(self, volunteer_name: str, **kwargs):
+        """Queue account creation and track for cleanup"""
+        result = queue_account_creation_for_volunteer(volunteer_name=volunteer_name, **kwargs)
+        self.track_account_creation_request(volunteer_name)
+        return result
 
     @classmethod
     def create_test_roles(cls):
@@ -96,9 +88,12 @@ class TestSecureAccountCreation(EnhancedTestCase):
         """Test that account creation requests are created with proper security"""
         # EnhancedTestCase handles permissions automatically
         
+        # Use fresh volunteer for each test to prevent conflicts
+        test_volunteer = self.get_fresh_test_volunteer()
+        
         # Queue account creation for volunteer
-        result = queue_account_creation_for_volunteer(
-            volunteer_name=self.test_volunteer.name,
+        result = self.queue_and_track_account_creation(
+            volunteer_name=test_volunteer.name,
             priority="Normal"
         )
         
@@ -109,8 +104,8 @@ class TestSecureAccountCreation(EnhancedTestCase):
         # Validate request document
         request_doc = frappe.get_doc("Account Creation Request", request_name)
         self.assertEqual(request_doc.request_type, "Volunteer")
-        self.assertEqual(request_doc.source_record, self.test_volunteer.name)
-        self.assertEqual(request_doc.email, self.test_volunteer.email)
+        self.assertEqual(request_doc.source_record, test_volunteer.name)
+        self.assertEqual(request_doc.email, test_volunteer.email)
         self.assertEqual(request_doc.status, "Queued")
         self.assertEqual(request_doc.requested_by, "Administrator")
         
@@ -140,7 +135,7 @@ class TestSecureAccountCreation(EnhancedTestCase):
         # Attempt to queue account creation - should fail
         with self.assertRaises(frappe.PermissionError):
             queue_account_creation_for_volunteer(
-                volunteer_name=self.test_volunteer.name,
+                volunteer_name=self.get_fresh_test_volunteer().name,
                 priority="Normal"
             )
         
@@ -152,9 +147,12 @@ class TestSecureAccountCreation(EnhancedTestCase):
         """Test that no ignore_permissions=True is used in account creation"""
         # Already running as Administrator from setUp
         
+        # Use fresh volunteer for each test
+        test_volunteer = self.get_fresh_test_volunteer()
+        
         # Queue account creation
-        result = queue_account_creation_for_volunteer(
-            volunteer_name=self.test_volunteer.name
+        result = self.queue_and_track_account_creation(
+            volunteer_name=test_volunteer.name
         )
         request_name = result["request_name"]
         
@@ -193,9 +191,12 @@ class TestSecureAccountCreation(EnhancedTestCase):
         """Test that complete audit trail is maintained"""
         # Already running as Administrator from setUp
         
+        # Use fresh volunteer
+        test_volunteer = self.get_fresh_test_volunteer()
+        
         # Queue account creation
-        result = queue_account_creation_for_volunteer(
-            volunteer_name=self.test_volunteer.name
+        result = self.queue_and_track_account_creation(
+            volunteer_name=test_volunteer.name
         )
         request_name = result["request_name"]
         
@@ -211,13 +212,12 @@ class TestSecureAccountCreation(EnhancedTestCase):
         
         # Create request with invalid email to force failure
         invalid_volunteer = self.create_test_volunteer(
-            volunteer_name="Invalid Email Volunteer",
-            email="invalid-email-format",  # Invalid email
+            email="invalid-email-format",  # Invalid email - let factory handle name uniqueness
             status="New"
         )
         
         # Queue account creation
-        result = queue_account_creation_for_volunteer(
+        result = self.queue_and_track_account_creation(
             volunteer_name=invalid_volunteer.name
         )
         request_name = result["request_name"]
@@ -239,8 +239,8 @@ class TestSecureAccountCreation(EnhancedTestCase):
         # Already running as Administrator from setUp
         
         # Queue account creation
-        result = queue_account_creation_for_volunteer(
-            volunteer_name=self.test_volunteer.name
+        result = self.queue_and_track_account_creation(
+            volunteer_name=self.get_fresh_test_volunteer().name
         )
         request_name = result["request_name"]
         
@@ -265,8 +265,8 @@ class TestSecureAccountCreation(EnhancedTestCase):
         # EnhancedTestCase handles permissions automatically
         
         # Queue account creation with specific roles
-        result = queue_account_creation_for_volunteer(
-            volunteer_name=self.test_volunteer.name
+        result = self.queue_and_track_account_creation(
+            volunteer_name=self.get_fresh_test_volunteer().name
         )
         request_name = result["request_name"]
         
@@ -306,8 +306,8 @@ class TestSecureAccountCreation(EnhancedTestCase):
         # Already running as Administrator from setUp
         
         # Create account creation request
-        result = queue_account_creation_for_volunteer(
-            volunteer_name=self.test_volunteer.name
+        result = self.queue_and_track_account_creation(
+            volunteer_name=self.get_fresh_test_volunteer().name
         )
         request_name = result["request_name"]
         
@@ -326,8 +326,8 @@ class TestSecureAccountCreation(EnhancedTestCase):
         # Already running as Administrator from setUp
         
         # Create and fail a request
-        result = queue_account_creation_for_volunteer(
-            volunteer_name=self.test_volunteer.name
+        result = self.queue_and_track_account_creation(
+            volunteer_name=self.get_fresh_test_volunteer().name
         )
         request_name = result["request_name"]
         

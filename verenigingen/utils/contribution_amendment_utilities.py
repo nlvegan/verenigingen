@@ -14,6 +14,8 @@ Extracted: 2025-09-11
 import frappe
 from frappe import _
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 
 @frappe.whitelist()
 def validate_production_schema():
@@ -75,7 +77,7 @@ def validate_production_schema():
         # 2. Validate Membership Dues Schedule DocType
         frappe.logger().info("Validating Membership Dues Schedule DocType")
 
-        if frappe.db.exists("DocType", "Membership Dues Schedule"):
+        if DocumentExistenceValidator.check_document_exists("DocType", "Membership Dues Schedule"):
             results.append("✓ Membership Dues Schedule DocType exists")
         else:
             errors.append("❌ Membership Dues Schedule DocType does not exist")

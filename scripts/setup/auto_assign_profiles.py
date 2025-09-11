@@ -8,6 +8,8 @@ based on their current roles and associations.
 
 import frappe
 
+from verenigingen.utils.validation_utilities import QueryBuilder
+
 
 def auto_assign_enhanced_profiles():
     """Auto-assign role profiles with enhanced logic"""
@@ -18,7 +20,7 @@ def auto_assign_enhanced_profiles():
     stats = {"analyzed": 0, "assigned": 0, "skipped": 0, "errors": 0, "assignments": {}}
 
     # Get all active users with member records
-    users = frappe.get_all(
+    users = QueryBuilder.get_all_active_records(
         "User",
         filters={"enabled": 1, "name": ["not in", ["Administrator", "Guest"]]},
         fields=["name", "full_name", "role_profile_name"],
@@ -190,7 +192,7 @@ def show_profile_analysis():
     print("\n📊 Current Role Profile Analysis:")
 
     # Get all Verenigingen role profiles
-    profiles = frappe.get_all("Role Profile", filters={"name": ["like", "Verenigingen%"]}, fields=["name"])
+    profiles = QueryBuilder.get_all_active_records("Role Profile", additional_filters={"name": ["like", "Verenigingen%"]}, fields=["name"])
 
     print(f"\nAvailable Verenigingen Role Profiles: {len(profiles)}")
 

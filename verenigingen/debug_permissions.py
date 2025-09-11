@@ -2,6 +2,8 @@
 
 import frappe
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 
 def debug_permission_validation():
     """Debug permission validation logic"""
@@ -16,7 +18,7 @@ def debug_permission_validation():
     print(f"Invalid permission check (NonExistentDocType:create): {invalid_result}")
 
     # Test 3: Check if DocType exists
-    doctype_exists = frappe.db.exists("DocType", "NonExistentDocType")
+    doctype_exists = DocumentExistenceValidator.check_document_exists("DocType", "NonExistentDocType")
     print(f"NonExistentDocType exists in system: {doctype_exists}")
 
     # Test 4: Check current user's roles

@@ -8,6 +8,7 @@ from frappe.model.document import Document
 from frappe.utils import add_days, add_months, add_years, flt, getdate, today
 
 from verenigingen.utils.member_utils import get_active_membership_for_member, get_member_chapters
+from verenigingen.utils.validation_utilities import DateRangeValidator, DocumentExistenceValidator
 
 
 class MembershipDuesSchedule(Document):
@@ -129,7 +130,7 @@ class MembershipDuesSchedule(Document):
             if not self.member:
                 frappe.throw("Individual schedules must specify a member")
             # Validate uniqueness - one active schedule per member
-            existing = frappe.db.exists(
+            existing = DocumentExistenceValidator.check_document_exists(
                 "Membership Dues Schedule",
                 {
                     "member": self.member,
@@ -154,7 +155,7 @@ class MembershipDuesSchedule(Document):
                 return
 
             # Check if member has any active membership
-            active_membership = frappe.db.exists(
+            active_membership = DocumentExistenceValidator.check_document_exists(
                 "Membership", {"member": self.member, "status": "Active", "docstatus": 1}
             )
             if not active_membership:
@@ -184,7 +185,7 @@ class MembershipDuesSchedule(Document):
                 self.last_invoice_date = today_date
 
         if self.last_invoice_date and self.next_invoice_date:
-            if getdate(self.last_invoice_date) >= getdate(self.next_invoice_date):
+            if DateRangeValidator.is_date_today_or_after(self.last_invoice_date, self.next_invoice_date):
                 frappe.throw("Next Invoice Date must be after Last Invoice Date")
 
         # Validate next_invoice_date is not unreasonably far in the future
@@ -630,7 +631,7 @@ class MembershipDuesSchedule(Document):
         days_before = self.invoice_days_before if self.invoice_days_before is not None else 30
         generate_on_date = add_days(self.next_invoice_date, -days_before)
 
-        if getdate(today()) < getdate(generate_on_date):
+        if DateRangeValidator.is_date_before(today(), generate_on_date):
             return False, f"Too early - will generate on {generate_on_date}"
 
         # ✅ ENHANCED: Comprehensive duplicate prevention
@@ -814,7 +815,7 @@ class MembershipDuesSchedule(Document):
                 return False
 
             # Check if member has active membership
-            active_membership = frappe.db.exists(
+            active_membership = DocumentExistenceValidator.check_document_exists(
                 "Membership", {"member": self.member, "status": "Active", "docstatus": 1}
             )
             if not active_membership:
@@ -856,7 +857,7 @@ class MembershipDuesSchedule(Document):
         """
         if not self.member:
             return False  # Templates and schedules without members are not orphaned
-        return not frappe.db.exists("Member", self.member)
+        return not DocumentExistenceValidator.check_document_exists("Member", self.member)
 
     @staticmethod
     def find_orphaned_schedules(limit=50):
@@ -1187,7 +1188,7 @@ class MembershipDuesSchedule(Document):
         """Ensure the membership dues item exists - called before transaction starts"""
         item_name = self.get_membership_dues_item()
 
-        if not frappe.db.exists("Item", item_name):
+        if not DocumentExistenceValidator.check_document_exists("Item", item_name):
             # Create item outside of the main transaction to avoid implicit commits
             item = frappe.new_doc("Item")
             item.item_code = item_name
@@ -1445,7 +1446,9 @@ class MembershipDuesSchedule(Document):
                 )
 
         # Check if member already has a schedule
-        existing = frappe.db.exists("Membership Dues Schedule", {"member": member_name, "is_template": 0})
+        existing = DocumentExistenceValidator.check_document_exists(
+            "Membership Dues Schedule", {"member": member_name, "is_template": 0}
+        )
         if existing:
             frappe.throw(f"Member {member_name} already has a dues schedule: {existing}")
 
@@ -1933,7 +1936,7 @@ def _bulk_update_payment_history(member_names, successful_invoices):
     for member_name in member_names:
         try:
             # Get member document with error handling
-            if not frappe.db.exists("Member", member_name):
+            if not DocumentExistenceValidator.check_document_exists("Member", member_name):
                 frappe.log_error(
                     f"Member {member_name} not found during bulk payment history update",
                     "Bulk Payment History Update",

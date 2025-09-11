@@ -12,6 +12,7 @@ from verenigingen.utils.security.authorization import (
     SEPAPermissionLevel,
     require_sepa_permission,
 )
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.verenigingen_payments.clients.settlements_client import SettlementsClient
 
 
@@ -46,7 +47,9 @@ class PaymentReconciliationManager:
             return
 
         # Validate accounts exist
-        if not frappe.db.exists("Account", self.mollie_settings.mollie_bank_account):
+        if not DocumentExistenceValidator.check_document_exists(
+            "Account", self.mollie_settings.mollie_bank_account
+        ):
             frappe.log_error(
                 f"Mollie Bank Account {self.mollie_settings.mollie_bank_account} does not exist",
                 "Mollie Account Configuration",

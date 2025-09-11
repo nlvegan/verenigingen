@@ -8,6 +8,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import add_days, add_months, flt, getdate, today
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 
 class PaymentPlan(Document):
     def validate(self):
@@ -40,11 +42,13 @@ class PaymentPlan(Document):
 
     def validate_member_and_schedule(self):
         """Validate member and associated dues schedule"""
-        if not frappe.db.exists("Member", self.member):
+        if not DocumentExistenceValidator.check_document_exists("Member", self.member):
             frappe.throw(_("Invalid member selected"))
 
         if self.membership_dues_schedule:
-            if not frappe.db.exists("Membership Dues Schedule", self.membership_dues_schedule):
+            if not DocumentExistenceValidator.check_document_exists(
+                "Membership Dues Schedule", self.membership_dues_schedule
+            ):
                 frappe.throw(_("Invalid membership dues schedule"))
 
             # Check that the schedule belongs to the member

@@ -31,6 +31,8 @@ import frappe
 from frappe import _
 from frappe.utils import cint, cstr, flt, get_datetime, getdate, now, nowdate
 
+from verenigingen.utils.validation_utilities import QueryBuilder
+
 
 # Security and Input Validation Functions
 def validate_member_names(member_names: List[str]) -> None:
@@ -313,7 +315,7 @@ class OptimizedMemberQueries:
 
         try:
             # First, verify that all members exist
-            existing_members = frappe.get_all(
+            existing_members = QueryBuilder.get_all_active_records(
                 "Member", filters={"name": ["in", member_names]}, fields=["name"]
             )
             existing_member_names = [m.name for m in existing_members]

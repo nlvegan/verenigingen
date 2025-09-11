@@ -302,6 +302,22 @@ class EnhancedTestDataFactory:
             "test_run_id": self.test_run_id
         })
     
+    def track_account_creation_request(self, volunteer_name: str):
+        """
+        Track Account Creation Request documents created by API calls for cleanup.
+        
+        This is needed because Enhanced Test Factory only tracks documents created
+        directly via factory methods, not those created by whitelisted API functions
+        like queue_account_creation_for_volunteer().
+        """
+        # Find any Account Creation Requests for this volunteer
+        requests = frappe.get_all("Account Creation Request", 
+                                filters={"source_record": volunteer_name},
+                                fields=["name"])
+        
+        for request in requests:
+            self.track_document("Account Creation Request", request.name)
+    
     def get_cleanup_summary(self) -> dict:
         """Get summary of documents created for cleanup reporting"""
         by_doctype = {}
@@ -490,9 +506,10 @@ class EnhancedTestDataFactory:
         for field in kwargs.keys():
             self.validate_field_exists("Volunteer", field)
             
-        # Set intelligent defaults
+        # Set intelligent defaults with forced uniqueness
+        base_volunteer_name = self.generate_test_name("Verenigingen Volunteer")
         defaults = {
-            "volunteer_name": self.generate_test_name("Verenigingen Volunteer"),
+            "volunteer_name": self.force_unique_name(base_volunteer_name, "Volunteer"),
             "email": self.generate_test_email("volunteer"),
             "member": member_name,
             "status": "Active",
@@ -500,6 +517,21 @@ class EnhancedTestDataFactory:
         }
         
         data = {**defaults, **kwargs}
+        
+        # QCE FIX: Apply unique naming to volunteer_name if provided to prevent test conflicts
+        if "volunteer_name" in kwargs:
+            data["volunteer_name"] = self.force_unique_name(kwargs["volunteer_name"], "Volunteer")
+            
+        # QCE FIX: Apply unique email generation if email provided to prevent test conflicts
+        if "email" in kwargs:
+            # Extract purpose from provided email and make it unique
+            purpose = "volunteer"
+            if "@" in kwargs["email"]:
+                local_part = kwargs["email"].split("@")[0]
+                purpose = local_part.replace(".", "_").replace("-", "_")
+            seq = self.get_next_sequence(f'email_{purpose}')
+            timestamp = int(datetime.now().timestamp()) % 1000000
+            data["email"] = f"{purpose}_{seq}_{timestamp}@example.com"
         
         # Validate business rules
         data = self.validate_volunteer_business_rules(data)
@@ -522,9 +554,20 @@ class EnhancedTestDataFactory:
                 **data
             })
             
-            volunteer.insert()
+            volunteer.insert(ignore_permissions=True)
+            self.track_document("Volunteer", volunteer.name)
             return volunteer
         except Exception as e:
+            # Enhanced debugging for volunteer creation failures
+            error_details = []
+            error_details.append(f"Volunteer creation failed: {str(e)}")
+            error_details.append(f"Data provided: {data}")
+            if hasattr(e, '__traceback__'):
+                import traceback
+                error_details.append(f"Full traceback: {traceback.format_exc()}")
+            
+            full_error = "\n".join(error_details)
+            print(f"DEBUG: {full_error}")  # Debug output
             raise Exception(f"Failed to create volunteer: {e}")
             
     def create_chapter(self, **kwargs):

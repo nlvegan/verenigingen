@@ -11,6 +11,7 @@ This module tests the membership type change request workflow including:
 import frappe
 from frappe.utils import today, add_days
 from verenigingen.tests.base_test_case import BaseTestCase
+from verenigingen.utils.validation_utilities import QueryBuilder
 
 
 class TestMembershipTypeChange(BaseTestCase):
@@ -21,7 +22,7 @@ class TestMembershipTypeChange(BaseTestCase):
         super().setUp()
         
         # Clean up any existing test membership types to avoid conflicts
-        test_types = frappe.get_all("Membership Type", filters=[["name", "like", "TEST-%"]])
+        test_types = QueryBuilder.get_all_active_records("Membership Type", additional_filters=[["name", "like", "TEST-%"]])
         for mt in test_types:
             self.track_test_record("Membership Type", mt.name)
             frappe.delete_doc("Membership Type", mt.name, force=True)

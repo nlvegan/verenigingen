@@ -4,6 +4,7 @@ from frappe.model.document import Document
 from frappe.utils import add_days, getdate, now_datetime, today
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.validation_utilities import DateRangeValidator, DocumentExistenceValidator
 
 # Configuration Constants
 MINIMUM_FEE_PERCENTAGE = 0.3  # 30% of base amount
@@ -53,6 +54,11 @@ class ContributionAmendmentRequest(Document):
         if not self.membership:
             frappe.throw(_("Membership is required"))
 
+        # Use validation utilities for existence and status checking
+        DocumentExistenceValidator.validate_document_exists(
+            self.membership, "Membership", "Membership is required for amendment request"
+        )
+
         membership = frappe.get_doc("Membership", self.membership)
         if membership.status not in ["Active", "Inactive"]:
             frappe.throw(_("Can only create amendments for Active or Inactive memberships"))
@@ -60,17 +66,11 @@ class ContributionAmendmentRequest(Document):
     def validate_effective_date(self):
         """Validate effective date is today or in the future"""
         if self.effective_date:
-            effective_date_parsed = getdate(self.effective_date)
-            today_date = getdate(today())
-            frappe.logger().info(
-                f"Effective date validation - effective_date: {effective_date_parsed}, today: {today_date}, is_past: {effective_date_parsed < today_date}"
-            )
-
-            # Allow today's date - only reject dates that are actually in the past
-            if effective_date_parsed < today_date:
+            # Use DateRangeValidator for standardized date validation
+            if not DateRangeValidator.is_date_today_or_future(self.effective_date):
                 frappe.throw(
                     _("Effective date cannot be in the past. Date provided: {0}, Today: {1}").format(
-                        effective_date_parsed, today_date
+                        getdate(self.effective_date), getdate(today())
                     )
                 )
 
@@ -391,7 +391,7 @@ class ContributionAmendmentRequest(Document):
 
         # For auto-approved amendments or those with effective date today/past, apply immediately
         # For future-dated amendments, only apply if explicitly requested or past effective date
-        if getdate(self.effective_date) > getdate(today()):
+        if DateRangeValidator.is_date_in_future(self.effective_date):
             # Check if this is being called automatically (e.g., by submit_fee_adjustment_request)
             # or manually by a user
             if not getattr(self, "_force_apply", False):
@@ -1165,7 +1165,7 @@ def get_member_pending_contribution_amendments(member_name):
             filtered_amendments.append(amendment)
         # For Approved amendments, only show if effective date hasn't passed
         elif amendment.status == "Approved" and amendment.effective_date:
-            if getdate(amendment.effective_date) >= getdate(today()):
+            if DateRangeValidator.is_date_today_or_future(amendment.effective_date):
                 filtered_amendments.append(amendment)
         # For Approved amendments without effective date, show them (edge case)
         elif amendment.status == "Approved" and not amendment.effective_date:

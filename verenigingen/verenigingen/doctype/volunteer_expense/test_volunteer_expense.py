@@ -4,6 +4,8 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import add_days, flt, today
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 
 class TestVolunteerExpense(unittest.TestCase):
     @classmethod
@@ -16,7 +18,7 @@ class TestVolunteerExpense(unittest.TestCase):
     def setup_test_data(cls):
         """Create comprehensive test data"""
         # Create test company
-        if not frappe.db.exists("Company", cls.company):
+        if not DocumentExistenceValidator.check_document_exists("Company", cls.company):
             company = frappe.get_doc(
                 {"doctype": "Company", "company_name": cls.company, "abbr": "TC", "default_currency": "EUR"}
             )
@@ -26,7 +28,7 @@ class TestVolunteerExpense(unittest.TestCase):
         cls.setup_test_accounts()
 
         # Create test chapter
-        if not frappe.db.exists("Chapter", "Test Chapter"):
+        if not DocumentExistenceValidator.check_document_exists("Chapter", "Test Chapter"):
             cls.test_chapter = frappe.get_doc(
                 {"doctype": "Chapter", "chapter_name": "Test Chapter", "chapter_code": "TC001"}
             )
@@ -64,7 +66,7 @@ class TestVolunteerExpense(unittest.TestCase):
             cls.company = existing_companies[0].name
         else:
             # Create test company
-            if not frappe.db.exists("Company", cls.company):
+            if not DocumentExistenceValidator.check_document_exists("Company", cls.company):
                 company_doc = frappe.get_doc(
                     {
                         "doctype": "Company",

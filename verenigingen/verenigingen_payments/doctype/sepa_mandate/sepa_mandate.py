@@ -7,6 +7,7 @@ from frappe.model.document import Document
 from frappe.utils import getdate, today
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.validation_utilities import DateRangeValidator, DocumentExistenceValidator
 
 
 class SEPAMandate(Document):
@@ -105,7 +106,10 @@ class SEPAMandate(Document):
             # Ensure uniqueness
             attempts = 0
             original_counter = next_counter
-            while frappe.db.exists("SEPA Mandate", {"mandate_id": result}) and attempts < 100:
+            while (
+                DocumentExistenceValidator.check_document_exists("SEPA Mandate", {"mandate_id": result})
+                and attempts < 100
+            ):
                 next_counter = original_counter + attempts + 1
                 counter_str = f"{next_counter:0{counter_digits}d}"
                 result = re.sub(r"\d+$", counter_str, result)
@@ -125,7 +129,11 @@ class SEPAMandate(Document):
         """Set expiry status based on dates"""
         # Check expiry date - this takes precedence over other statuses
         # except Cancelled which is manually set
-        if self.expiry_date and getdate(self.expiry_date) < getdate(today()) and self.status != "Cancelled":
+        if (
+            self.expiry_date
+            and DateRangeValidator.is_date_in_past(self.expiry_date)
+            and self.status != "Cancelled"
+        ):
             self.status = "Expired"
             self.is_active = 0
 
@@ -164,12 +172,12 @@ class SEPAMandate(Document):
 
     def validate_dates(self):
         # Ensure sign date is not in the future
-        if self.sign_date and getdate(self.sign_date) > getdate(today()):
+        if self.sign_date and DateRangeValidator.is_date_in_future(self.sign_date):
             frappe.throw(_("Mandate sign date cannot be in the future"))
 
         # Ensure expiry date is after sign date
         if self.expiry_date and self.sign_date:
-            if getdate(self.expiry_date) < getdate(self.sign_date):
+            if DateRangeValidator.is_date_before(self.expiry_date, self.sign_date):
                 frappe.throw(_("Expiry date cannot be before sign date"))
 
     def validate_iban(self):

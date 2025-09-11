@@ -16,6 +16,7 @@ from verenigingen.api.refund_processor import (
     process_payment_chargeback,
     process_payment_refund,
 )
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
 class PaymentProcessingService:
@@ -142,7 +143,9 @@ class PaymentProcessingService:
 
             # Ensure customer exists for the donor
             customer_name = donation.donor
-            if customer_name and not frappe.db.exists("Customer", customer_name):
+            if customer_name and not DocumentExistenceValidator.check_document_exists(
+                "Customer", customer_name
+            ):
                 # Create customer record
                 customer = frappe.new_doc("Customer")
                 customer.customer_name = customer_name
@@ -240,7 +243,7 @@ class PaymentProcessingService:
         # Ensure uniqueness by adding counter if needed
         counter = 1
         original_new_name = new_name
-        while frappe.db.exists("Payment Entry", new_name):
+        while DocumentExistenceValidator.check_document_exists("Payment Entry", new_name):
             new_name = f"{original_new_name} ({counter})"
             counter += 1
 

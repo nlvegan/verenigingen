@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from frappe.utils import today, add_days
 
+from verenigingen.utils.validation_utilities import QueryBuilder
+
 from verenigingen.api.payment_processing import (
     create_application_invoice,
     execute_bulk_payment_action,

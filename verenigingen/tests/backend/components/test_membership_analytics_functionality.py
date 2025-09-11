@@ -6,6 +6,7 @@ import json
 from datetime import datetime, timedelta
 from frappe.utils import getdate, add_months, now_datetime, add_days, flt
 from verenigingen.tests.test_utils import BaseTestCase
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
 class TestMembershipAnalyticsFunctionality(BaseTestCase):
@@ -48,7 +49,7 @@ class TestMembershipAnalyticsFunctionality(BaseTestCase):
         ]
         
         for type_data in types:
-            if not frappe.db.exists("Membership Type", type_data["name"]):
+            if not DocumentExistenceValidator.check_document_exists("Membership Type", type_data["name"]):
                 doc = frappe.get_doc({
                     "doctype": "Membership Type",
                     "membership_type": type_data["name"],

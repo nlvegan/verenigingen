@@ -34,6 +34,7 @@ from typing import Dict, List, Optional, Any
 import math
 
 import frappe
+from verenigingen.utils.validation_utilities import QueryBuilder
 from frappe.utils import add_days, add_months, random_string, today, flt, get_datetime
 
 from verenigingen.tests.fixtures.test_data_factory import StreamlinedTestDataFactory
@@ -176,7 +177,7 @@ class PaymentHistoryTestFactory(StreamlinedTestDataFactory):
 
     def _get_or_create_test_companies(self) -> List[str]:
         """Get or create test companies for payment processing"""
-        companies = frappe.get_all("Company", filters={"company_name": ["like", "Test%"]}, pluck="name")
+        companies = QueryBuilder.get_all_active_records("Company", filters={"company_name": ["like", "Test%"]}, pluck="name")
         
         if not companies:
             # Create a test company

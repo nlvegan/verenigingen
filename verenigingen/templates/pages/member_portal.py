@@ -13,6 +13,7 @@ from verenigingen.utils.member_utils import (
     get_member_customer,
     get_volunteer_for_member,
 )
+from verenigingen.utils.validation_utilities import DateRangeValidator
 
 
 def get_context(context):
@@ -453,7 +454,9 @@ def get_payment_status(member, membership):
                         "outstanding": invoice.outstanding_amount,
                         "status": invoice.status,
                         "is_overdue": (
-                            getdate(invoice.due_date) < getdate(today()) if invoice.due_date else False
+                            DateRangeValidator.is_date_in_past(invoice.due_date)
+                            if invoice.due_date
+                            else False
                         ),
                     }
                 )

@@ -5,6 +5,7 @@ import frappe
 from frappe.utils import add_days, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.validation_utilities import QueryBuilder
 
 
 class TestMember(EnhancedTestCase):
@@ -30,7 +31,9 @@ class TestMember(EnhancedTestCase):
 
     def cleanup_test_data(self):
         # Clear any members with our test email pattern
-        for m in frappe.get_all("Member", filters={"email": ["like", "testmember%@example.com"]}):
+        for m in QueryBuilder.get_all_active_records(
+            "Member", filters={"email": ["like", "testmember%@example.com"]}
+        ):
             try:
                 frappe.delete_doc("Member", m.name, force=True)
             except Exception as e:

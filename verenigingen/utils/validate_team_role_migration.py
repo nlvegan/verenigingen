@@ -5,6 +5,8 @@ Validate Team Role migration data integrity
 
 import frappe
 
+from verenigingen.utils.validation_utilities import QueryBuilder
+
 
 @frappe.whitelist()
 def validate_migration_data_integrity():
@@ -23,7 +25,7 @@ def validate_migration_data_integrity():
     }
 
     # Check available Team Roles
-    team_roles = frappe.get_all(
+    team_roles = QueryBuilder.get_all_active_records(
         "Team Role", fields=["name", "role_name", "is_team_leader", "is_unique", "is_active"]
     )
     results["team_roles_available"] = len(team_roles)
@@ -40,10 +42,9 @@ def validate_migration_data_integrity():
         print(f"  - {role.role_name}: {', '.join(flags) if flags else 'Basic'}")
 
     # Check all Team Member records
-    team_members = frappe.get_all(
+    team_members = QueryBuilder.get_all_active_records(
         "Team Member",
         fields=["name", "parent", "volunteer_name", "team_role", "role_type", "role", "is_active"],
-        filters={"is_active": 1},
     )
 
     results["total_team_members"] = len(team_members)

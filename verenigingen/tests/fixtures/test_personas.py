@@ -13,6 +13,7 @@ from frappe.utils import add_days, today
 
 from verenigingen.tests.utils.factories import TestDataBuilder
 from verenigingen.utils.validation.iban_validator import generate_test_iban
+from verenigingen.utils.validation_utilities import QueryBuilder
 
 
 class TestPersonas:
@@ -526,7 +527,7 @@ class TestPersonas:
 
         for email in persona_emails:
             # Find and delete associated records
-            members = frappe.get_all("Member", filters={"email": email})
+            members = QueryBuilder.get_all_active_records("Member", additional_filters={"email": email})
             for member in members:
                 # Delete in dependency order
                 for doctype in ["Volunteer_Expense", "Volunteer", "Membership", "Member"]:

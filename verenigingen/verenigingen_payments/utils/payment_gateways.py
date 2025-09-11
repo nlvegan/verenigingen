@@ -12,6 +12,7 @@ from frappe.utils import getdate
 from verenigingen.utils.member_utils import validate_member_ownership
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
 class PaymentGateway(ABC):
@@ -1344,7 +1345,9 @@ def mollie_subscription_webhook():
 
         # IDEMPOTENCY: Check if webhook already processed
         payment_id = data.get("payment", {}).get("id") if data.get("payment") else None
-        if payment_id and frappe.db.exists("Payment Entry", {"reference_no": payment_id}):
+        if payment_id and DocumentExistenceValidator.check_document_exists(
+            "Payment Entry", {"reference_no": payment_id}
+        ):
             frappe.logger().info(f"Payment {payment_id} already processed, skipping webhook")
             return {"status": "already_processed", "payment_id": payment_id}
 

@@ -10,6 +10,8 @@ from typing import Any, Dict, Optional, Tuple
 import frappe
 from frappe.utils import nowdate
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 
 class DonationManagementService:
     """Service class for handling donation management operations"""
@@ -64,7 +66,7 @@ class DonationManagementService:
             if flow_type == "donation_first":
                 # Donation-first flow: Find existing donation by reference
                 donation_name = flow_details["donation_name"]
-                if frappe.db.exists("Donation", donation_name):
+                if DocumentExistenceValidator.check_document_exists("Donation", donation_name):
                     donation = frappe.get_doc("Donation", donation_name)
                     self.logger.info(
                         f"🔍 [{self.debug_context}] Found existing donation {donation.name} for donation-first payment"
@@ -191,7 +193,9 @@ class DonationManagementService:
     def _set_donation_company(self, donation, metadata: Dict[str, Any]) -> None:
         """Set company for donation based on metadata or defaults"""
         company_from_metadata = metadata.get("company")
-        if company_from_metadata and frappe.db.exists("Company", company_from_metadata):
+        if company_from_metadata and DocumentExistenceValidator.check_document_exists(
+            "Company", company_from_metadata
+        ):
             donation.company = company_from_metadata
         else:
             # Use default company from settings

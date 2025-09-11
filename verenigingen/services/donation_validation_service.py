@@ -11,6 +11,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate
 
+from verenigingen.utils.validation_utilities import DateRangeValidator, DocumentExistenceValidator
+
 
 class DonationValidationService:
     """Service for handling donation validation logic"""
@@ -69,7 +71,9 @@ class DonationValidationService:
 
     def validate_donor_existence(self) -> None:
         """Validate that donor exists or can be created"""
-        if not self.donation.donor or not frappe.db.exists("Donor", self.donation.donor):
+        if not self.donation.donor or not DocumentExistenceValidator.check_document_exists(
+            "Donor", self.donation.donor
+        ):
             # Check if this is a website user (can auto-create donor)
             user_type = frappe.db.get_value("User", frappe.session.user, "user_type")
             if user_type == "Website User":
@@ -85,7 +89,9 @@ class DonationValidationService:
             return  # Payment method is optional in some flows
 
         # Validate that payment method exists
-        if not frappe.db.exists("Mode of Payment", self.donation.mode_of_payment):
+        if not DocumentExistenceValidator.check_document_exists(
+            "Mode of Payment", self.donation.mode_of_payment
+        ):
             frappe.throw(_("Invalid payment method: {0}").format(self.donation.mode_of_payment))
 
         # Validate payment method specific requirements
@@ -153,7 +159,9 @@ class DonationValidationService:
             frappe.throw(_("Periodic Donation Agreement is required for recurring donations"))
 
         # Validate the agreement exists and is active
-        if not frappe.db.exists("Periodic Donation Agreement", self.donation.periodic_donation_agreement):
+        if not DocumentExistenceValidator.check_document_exists(
+            "Periodic Donation Agreement", self.donation.periodic_donation_agreement
+        ):
             frappe.throw(_("Invalid Periodic Donation Agreement"))
 
         agreement = frappe.get_doc("Periodic Donation Agreement", self.donation.periodic_donation_agreement)
@@ -224,7 +232,7 @@ class DonationValidationService:
     def validate_business_rules(self) -> None:
         """Validate business-specific rules and constraints"""
         # Validate donation date is not in future
-        if self.donation.donation_date and getdate(self.donation.donation_date) > getdate():
+        if self.donation.donation_date and DateRangeValidator.is_date_in_future(self.donation.donation_date):
             frappe.throw(_("Donation date cannot be in the future"))
 
         # Validate amount is positive
@@ -233,7 +241,7 @@ class DonationValidationService:
 
         # Validate currency if specified
         if hasattr(self.donation, "currency") and self.donation.currency:
-            if not frappe.db.exists("Currency", self.donation.currency):
+            if not DocumentExistenceValidator.check_document_exists("Currency", self.donation.currency):
                 frappe.throw(_("Invalid currency specified"))
 
     def _generate_anbi_agreement_number(self) -> str:

@@ -11,6 +11,8 @@ import frappe
 from frappe import _
 from frappe.utils import validate_email_address
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 
 class DonationDonorService:
     """Service for handling donor-related operations for donations"""
@@ -26,7 +28,9 @@ class DonationDonorService:
         Returns:
             Donor name/ID
         """
-        if self.donation.donor and frappe.db.exists("Donor", self.donation.donor):
+        if self.donation.donor and DocumentExistenceValidator.check_document_exists(
+            "Donor", self.donation.donor
+        ):
             return self.donation.donor
 
         # Check if this is a website user who needs donor auto-creation
@@ -144,7 +148,7 @@ class DonationDonorService:
         Returns:
             List of validation warnings/errors
         """
-        if not donor_name or not frappe.db.exists("Donor", donor_name):
+        if not donor_name or not DocumentExistenceValidator.check_document_exists("Donor", donor_name):
             return ["Donor does not exist"]
 
         donor = frappe.get_doc("Donor", donor_name)
@@ -183,7 +187,7 @@ class DonationDonorService:
         Returns:
             Donation summary data
         """
-        if not donor_name or not frappe.db.exists("Donor", donor_name):
+        if not donor_name or not DocumentExistenceValidator.check_document_exists("Donor", donor_name):
             return {}
 
         # Get donation statistics
@@ -316,7 +320,7 @@ class DonationDonorService:
 
     def get_donor_preferences(self, donor_name: str) -> Dict[str, Any]:
         """Get donor preferences for communication and donations"""
-        if not donor_name or not frappe.db.exists("Donor", donor_name):
+        if not donor_name or not DocumentExistenceValidator.check_document_exists("Donor", donor_name):
             return {}
 
         donor = frappe.get_doc("Donor", donor_name)

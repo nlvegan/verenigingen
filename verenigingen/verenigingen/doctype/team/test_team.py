@@ -8,6 +8,7 @@ import frappe
 from frappe.utils import add_days, getdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator, QueryBuilder
 
 
 class TestTeam(EnhancedTestCase):
@@ -81,7 +82,7 @@ class TestTeam(EnhancedTestCase):
             email = f"test{unique_id}{i}@example.com"
 
             # Check if this email already exists
-            if frappe.db.exists("Member", {"email": email}):
+            if DocumentExistenceValidator.check_document_exists("Member", {"email": email}):
                 print(f"Member with email {email} already exists, skipping")
                 continue
 
@@ -101,7 +102,7 @@ class TestTeam(EnhancedTestCase):
             vol_email = f"teamtest{unique_id}@example.org"
 
             # Check if volunteer already exists
-            if frappe.db.exists("Volunteer", {"email": vol_email}):
+            if DocumentExistenceValidator.check_document_exists("Volunteer", {"email": vol_email}):
                 print(f"Volunteer with email {vol_email} already exists, skipping")
                 continue
 
@@ -121,7 +122,7 @@ class TestTeam(EnhancedTestCase):
     def create_test_team(self):
         """Create a test team"""
         team_name = f"Test Team {self.test_id}"
-        if frappe.db.exists("Team", team_name):
+        if DocumentExistenceValidator.check_document_exists("Team", team_name):
             frappe.delete_doc("Team", team_name, force=True)
 
         self.test_team = frappe.get_doc(
@@ -350,7 +351,7 @@ class TestTeam(EnhancedTestCase):
             self.skipTest("No test members could be created")
 
         team_name = f"Test Linkage Team {self.test_id}"
-        if frappe.db.exists("Team", team_name):
+        if DocumentExistenceValidator.check_document_exists("Team", team_name):
             frappe.delete_doc("Team", team_name, force=True)
 
         team = frappe.get_doc(
@@ -477,7 +478,7 @@ class TestTeam(EnhancedTestCase):
         self.assertIn(team.name, team_names, "Should find team by type")
 
         # Test search by status
-        active_teams = frappe.get_all("Team", filters={"status": "Active"})
+        active_teams = QueryBuilder.get_all_active_records("Team")
         team_names = [t.name for t in active_teams]
         self.assertIn(team.name, team_names, "Should find team by status")
 

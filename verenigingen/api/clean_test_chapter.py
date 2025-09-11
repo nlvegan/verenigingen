@@ -1,6 +1,7 @@
 import frappe
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
 @frappe.whitelist()
@@ -10,7 +11,7 @@ def clean_billing_test_chapter():
 
     chapter_name = "Billing Test Chapter"
 
-    if not frappe.db.exists("Chapter", chapter_name):
+    if not DocumentExistenceValidator.check_document_exists("Chapter", chapter_name):
         return {"message": "Billing Test Chapter does not exist"}
 
     # Get the chapter
@@ -25,7 +26,7 @@ def clean_billing_test_chapter():
 
     if chapter.members:
         for member_row in chapter.members:
-            if frappe.db.exists("Member", member_row.member):
+            if DocumentExistenceValidator.check_document_exists("Member", member_row.member):
                 valid_members.append(member_row)
             else:
                 removed_members.append(member_row.member)

@@ -2,6 +2,8 @@
 
 import frappe
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 
 def check_and_fix_donation_types():
     """Check existing donation types and create missing ones"""
@@ -21,7 +23,7 @@ def check_and_fix_donation_types():
     required_types = ["General", "Emergency", "Campaign", "Special"]
 
     for dt_name in required_types:
-        if not frappe.db.exists("Donation Type", dt_name):
+        if not DocumentExistenceValidator.check_document_exists("Donation Type", dt_name):
             print(f"\nCreating missing donation type: {dt_name}")
             dt_doc = frappe.new_doc("Donation Type")
             dt_doc.update(

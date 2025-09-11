@@ -8,6 +8,7 @@ import frappe
 from frappe.utils import add_months, flt, fmt_money, getdate, now_datetime
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
 @frappe.whitelist()
@@ -119,7 +120,7 @@ def calculate_projected_revenue(year):
     for membership in active_memberships:
         try:
             # Check if member exists before trying to get it
-            if not frappe.db.exists("Member", membership.member):
+            if not DocumentExistenceValidator.check_document_exists("Member", membership.member):
                 continue
 
             # Check for fee override

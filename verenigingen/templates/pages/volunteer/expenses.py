@@ -4,6 +4,7 @@ from frappe.utils import flt, formatdate, today
 
 from verenigingen.utils.member_utils import get_current_user_member_name, get_volunteer_for_current_user
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.utils.volunteer_expense_setup import (
     create_default_cost_center,
     get_fallback_cost_center,
@@ -115,7 +116,7 @@ def get_volunteer_organizations(volunteer_name):
     organizations = {"chapters": [], "teams": []}
 
     # Check if volunteer exists
-    if not frappe.db.exists("Volunteer", volunteer_name):
+    if not DocumentExistenceValidator.check_document_exists("Volunteer", volunteer_name):
         return organizations
 
     # Get chapters through member relationship

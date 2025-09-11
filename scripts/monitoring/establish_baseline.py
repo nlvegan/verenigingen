@@ -20,6 +20,7 @@ from statistics import mean, median, stdev
 
 import frappe
 from frappe.utils import now
+from verenigingen.utils.validation_utilities import QueryBuilder
 
 class PerformanceBaselineEstablisher:
     """Establishes comprehensive performance baseline for the monitoring system"""
@@ -131,7 +132,7 @@ class PerformanceBaselineEstablisher:
         """Measure database query efficiency for typical operations"""
         
         # Get sample members for testing
-        sample_members = frappe.get_all(
+        sample_members = QueryBuilder.get_all_active_records(
             "Member",
             filters={"customer": ("!=", "")},
             fields=["name", "full_name", "customer"],

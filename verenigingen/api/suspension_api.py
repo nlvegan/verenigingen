@@ -15,6 +15,7 @@ from verenigingen.utils.security.api_security_framework import (
     standard_api,
     utility_api,
 )
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
 @frappe.whitelist()
@@ -31,7 +32,7 @@ def suspend_member(member_name, suspension_reason, suspend_user=True, suspend_te
         raise ValueError("Suspension reason is required")
 
     # Validate member exists
-    if not frappe.db.exists("Member", member_name):
+    if not DocumentExistenceValidator.check_document_exists("Member", member_name):
         raise frappe.DoesNotExistError(f"Member {member_name} does not exist")
 
     # Check permissions first
@@ -80,7 +81,7 @@ def unsuspend_member(member_name, unsuspension_reason):
         raise ValueError("Unsuspension reason is required")
 
     # Validate member exists
-    if not frappe.db.exists("Member", member_name):
+    if not DocumentExistenceValidator.check_document_exists("Member", member_name):
         raise frappe.DoesNotExistError(f"Member {member_name} does not exist")
 
     # Check permissions first

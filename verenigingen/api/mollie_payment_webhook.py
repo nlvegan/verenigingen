@@ -21,6 +21,8 @@ from datetime import datetime, timedelta
 import frappe
 from frappe import _
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 def handle_mollie_payment_webhook():
@@ -583,7 +585,7 @@ def create_payment_entry_for_donation(donation, mollie_data):
             return None
 
         # Validate Mode of Payment exists
-        if not frappe.db.exists("Mode of Payment", "Mollie"):
+        if not DocumentExistenceValidator.check_document_exists("Mode of Payment", "Mollie"):
             frappe.logger().error("❌ Mollie Mode of Payment not configured")
             return None
 

@@ -9,6 +9,7 @@ from verenigingen.utils.member_utils import (
     get_member_for_customer,
 )
 from verenigingen.utils.payment_utils import get_last_payment_date
+from verenigingen.utils.validation_utilities import QueryBuilder
 
 
 def validate_doctype_fields(doctype, required_fields):
@@ -169,7 +170,7 @@ def get_data(filters):
             invoice_filters["due_date"] = ["<", urgent_date]
 
     # Get overdue sales invoices
-    overdue_invoices = frappe.get_all(
+    overdue_invoices = QueryBuilder.get_all_active_records(
         "Sales Invoice",
         filters=invoice_filters,
         fields=["name", "customer", "outstanding_amount", "posting_date", "due_date"],

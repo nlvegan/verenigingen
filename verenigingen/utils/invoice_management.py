@@ -11,6 +11,7 @@ from frappe import _
 from frappe.utils import add_days, flt, getdate, today
 
 from verenigingen.utils.security.api_security_framework import critical_api, high_security_api
+from verenigingen.utils.validation_utilities import DateRangeValidator
 
 
 @frappe.whitelist()
@@ -88,13 +89,12 @@ def bulk_generate_dues_invoices(filter_criteria=None, dry_run=True, max_invoices
         results["total_active_schedules"] = len(schedules)  # Frontend expects this field
 
         # Count schedules due now (today or past due)
-        today_date = today()
         due_now_count = 0
         upcoming_sample = []
 
         for schedule_data in schedules:
-            if schedule_data.next_invoice_date and getdate(schedule_data.next_invoice_date) <= getdate(
-                today_date
+            if schedule_data.next_invoice_date and DateRangeValidator.is_date_today_or_past(
+                schedule_data.next_invoice_date
             ):
                 due_now_count += 1
 
