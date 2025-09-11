@@ -9,6 +9,8 @@ This test suite uses the specific mutations mentioned by the user:
 
 import unittest
 import frappe
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from frappe.utils import nowdate
 import json
 
@@ -95,7 +97,7 @@ class TestActualPaymentMutations(EnhancedTestCase):
             triodos = triodos.name
         
         # Create ledger mapping for Triodos (13201869)
-        if not frappe.db.exists("E-Boekhouden Ledger Mapping", {"ledger_id": 13201869}):
+        if not DocumentExistenceValidator.check_document_exists("E-Boekhouden Ledger Mapping", {"ledger_id": 13201869}):
             mapping = frappe.new_doc("E-Boekhouden Ledger Mapping")
             mapping.ledger_id = 13201869
             mapping.ledger_code = "10440"
@@ -117,7 +119,7 @@ class TestActualPaymentMutations(EnhancedTestCase):
         mutation = self.mutations[7833]
         
         # Create test customer (Enhanced Test Factory handles cleanup automatically)
-        if not frappe.db.exists("Customer", "CUST-001"):
+        if not DocumentExistenceValidator.check_document_exists("Customer", "CUST-001"):
             customer = frappe.new_doc("Customer")
             customer.customer_name = "Test Customer 001"
             customer.customer_group = frappe.db.get_value("Customer Group", {"is_group": 0}, "name", order_by="name") or "All Customer Groups"
@@ -152,7 +154,7 @@ class TestActualPaymentMutations(EnhancedTestCase):
         mutation = self.mutations[5473]
         
         # Create test supplier (Enhanced Test Factory handles cleanup automatically)
-        if not frappe.db.exists("Supplier", "6104885"):
+        if not DocumentExistenceValidator.check_document_exists("Supplier", "6104885"):
             supplier = frappe.new_doc("Supplier")
             supplier.supplier_name = "Test Supplier 6104885"
             supplier_group = frappe.db.get_value("Supplier Group", {"is_group": 0}, "name", order_by="name")
@@ -189,7 +191,7 @@ class TestActualPaymentMutations(EnhancedTestCase):
         mutation = self.mutations[6217]
         
         # Create test customer (Enhanced Test Factory handles cleanup automatically)
-        if not frappe.db.exists("Customer", "CUST-123"):
+        if not DocumentExistenceValidator.check_document_exists("Customer", "CUST-123"):
             customer = frappe.new_doc("Customer")
             customer.customer_name = "Test Customer 123"
             customer.customer_group = frappe.db.get_value("Customer Group", {"is_group": 0}, "name", order_by="name") or "All Customer Groups"

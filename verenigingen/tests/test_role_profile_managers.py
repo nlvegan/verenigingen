@@ -15,6 +15,7 @@ from typing import Dict, List, Any
 import frappe
 # FrappeTestCase import removed - all classes use EnhancedTestCase
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 from verenigingen.utils.base_role_profile_manager import (
     BaseRoleProfileManager,
@@ -57,13 +58,13 @@ class TestValidationFunctions(EnhancedTestCase):
         # Delete test role profiles
         test_profiles = ["Test Role Profile", "Test Empty Profile", "Test Invalid Profile"]
         for profile in test_profiles:
-            if frappe.db.exists("Role Profile", profile):
+            if DocumentExistenceValidator.check_document_exists("Role Profile", profile):
                 # EnhancedTestCase handles cleanup automatically
         
         # Delete test teams
         test_teams = ["Test Team", "Test Team No Config", "Test Team Invalid"]
         for team in test_teams:
-            if frappe.db.exists("Team", team):
+            if DocumentExistenceValidator.check_document_exists("Team", team):
                 # EnhancedTestCase handles cleanup automatically
     
     def test_validate_doctype_fields_success(self):
@@ -160,7 +161,7 @@ class TestTeamRoleProfileManager(EnhancedTestCase):
         
         for doctype, names in test_items:
             for name in names:
-                if frappe.db.exists(doctype, name):
+                if DocumentExistenceValidator.check_document_exists(doctype, name):
                     # EnhancedTestCase handles cleanup automatically
     
     def create_test_data(self):
@@ -375,7 +376,7 @@ class TestChapterRoleProfileManager(EnhancedTestCase):
         
         for doctype, names in test_items:
             for name in names:
-                if frappe.db.exists(doctype, name):
+                if DocumentExistenceValidator.check_document_exists(doctype, name):
                     # EnhancedTestCase handles cleanup automatically
     
     def create_test_data(self):

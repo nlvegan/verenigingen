@@ -8,6 +8,8 @@ from unittest.mock import Mock, patch
 from contextlib import contextmanager
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 
 class BaseTestCase(EnhancedTestCase):
     """Base test case for Verenigingen tests"""
@@ -136,7 +138,7 @@ class TestDataFactory:
         if not email:
             email = f"test-{frappe.generate_hash(length=8)}@example.com"
         
-        if frappe.db.exists("User", email):
+        if DocumentExistenceValidator.check_document_exists("User", email):
             return frappe.get_doc("User", email)
         
         user = frappe.get_doc({

@@ -18,6 +18,8 @@ import frappe
 from frappe.utils import today, add_days, now_datetime
 # FrappeTestCase import removed - all classes use EnhancedTestCase
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase, BusinessRuleError
 
 
@@ -40,7 +42,7 @@ class TestTeamRoleIntegration(EnhancedTestCase):
         ]
         
         for role_name, attributes in required_roles:
-            if not frappe.db.exists("Team Role", role_name):
+            if not DocumentExistenceValidator.check_document_exists("Team Role", role_name):
                 self.ensure_team_role(role_name, attributes)
     
     def test_unique_role_validation_per_team(self):
@@ -274,7 +276,7 @@ class TestTeamRoleIntegration(EnhancedTestCase):
                                   f"Active team member should have team_role: {member}")
                     
                     # team_role should exist
-                    self.assertTrue(frappe.db.exists("Team Role", member.team_role),
+                    self.assertTrue(DocumentExistenceValidator.check_document_exists("Team Role", member.team_role),
                                   f"Team role should exist: {member.team_role}")
                     
                     # role_type should be fetched correctly
@@ -470,7 +472,7 @@ class TestTeamRoleEdgeCases(EnhancedTestCase):
         # Ensure team role fixtures
         required_roles = ["Team Leader", "Team Member", "Secretary", "Treasurer", "Coordinator"]
         for role in required_roles:
-            if not frappe.db.exists("Team Role", role):
+            if not DocumentExistenceValidator.check_document_exists("Team Role", role):
                 self.ensure_team_role(role)
     
     def test_team_role_deactivation_impact(self):

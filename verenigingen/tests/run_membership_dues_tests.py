@@ -10,6 +10,8 @@ import os
 import frappe
 from frappe.test_runner import main
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 
 def run_membership_dues_tests(suite=None, verbose=False):
     """
@@ -153,7 +155,7 @@ def validate_test_environment():
     
     missing_doctypes = []
     for doctype in required_doctypes:
-        if not frappe.db.exists("DocType", doctype):
+        if not DocumentExistenceValidator.check_document_exists("DocType", doctype):
             missing_doctypes.append(doctype)
     
     if missing_doctypes:

@@ -60,6 +60,7 @@ from functools import lru_cache
 
 import frappe
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.utils.member_utils import (
     get_current_user_member_name,
     get_member_name_for_user,
@@ -214,7 +215,7 @@ def test_team_member_access(team_name=None):
 
     if team_name:
         # Check if user can access specific team
-        can_access = frappe.db.exists(
+        can_access = DocumentExistenceValidator.check_document_exists(
             "Team Member", {"parent": team_name, "volunteer": volunteer, "is_active": 1}
         )
         result["can_access_team"] = bool(can_access)
@@ -492,7 +493,7 @@ def has_donor_permission(doc, user=None, permission_type=None):
             # Check if this donor record is linked to the user's member record
             if isinstance(doc, str):
                 # doc is just the name, need to get the member field
-                if not frappe.db.exists("Donor", doc):
+                if not DocumentExistenceValidator.check_document_exists("Donor", doc):
                     frappe.logger().debug(f"Donor record {doc} does not exist")
                     return False
                 donor_member = frappe.db.get_value("Donor", doc, "member")
@@ -505,7 +506,7 @@ def has_donor_permission(doc, user=None, permission_type=None):
                 return False
 
             # Verify the linked member still exists and is active
-            if not frappe.db.exists("Member", donor_member):
+            if not DocumentExistenceValidator.check_document_exists("Member", donor_member):
                 frappe.logger().debug(f"Linked member {donor_member} no longer exists")
                 return False
 
@@ -562,7 +563,7 @@ def has_address_permission(doc, user=None, permission_type=None):
 
     if member_name:
         # Check if address is linked to this member via Dynamic Link
-        link_exists = frappe.db.exists(
+        link_exists = DocumentExistenceValidator.check_document_exists(
             "Dynamic Link",
             {"parent": doc.name, "parenttype": "Address", "link_doctype": "Member", "link_name": member_name},
         )
@@ -1376,7 +1377,7 @@ def assign_chapter_board_role(user_email):
 
         if board_positions:
             # User has board positions, ensure they have the Chapter Board Member role
-            if not frappe.db.exists("Has Role", {"parent": user_email, "role": "Chapter Board Member"}):
+            if not DocumentExistenceValidator.check_document_exists("Has Role", {"parent": user_email, "role": "Chapter Board Member"}):
                 # Add the role using secure operations
                 user_doc = frappe.get_doc("User", user_email)
                 user_doc.append("roles", {"role": "Chapter Board Member"})
@@ -1399,7 +1400,7 @@ def assign_chapter_board_role(user_email):
                 return True
         else:
             # User has no board positions, remove the role if they have it
-            if frappe.db.exists("Has Role", {"parent": user_email, "role": "Chapter Board Member"}):
+            if DocumentExistenceValidator.check_document_exists("Has Role", {"parent": user_email, "role": "Chapter Board Member"}):
                 frappe.db.delete("Has Role", {"parent": user_email, "role": "Chapter Board Member"})
                 frappe.logger().info(f"Removed Chapter Board Member role from {user_email}")
                 return True

@@ -140,7 +140,7 @@ Implementation Patterns and Best Practices
 All setup methods check for existing data before creation:
 
 Example:
-    if not frappe.db.exists("Chapter", "Test Amsterdam Chapter"):
+    if not DocumentExistenceValidator.check_document_exists("Chapter", "Test Amsterdam Chapter"):
         # Create new chapter
     else:
         # Return existing chapter
@@ -311,6 +311,8 @@ to focus on business logic testing rather than test infrastructure concerns.
 """
 
 import frappe
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from frappe.utils import today
 
 
@@ -340,7 +342,7 @@ class TestEnvironmentSetup:
             test_region = region.name
 
         # Amsterdam Chapter
-        if not frappe.db.exists("Chapter", "Test Amsterdam Chapter"):
+        if not DocumentExistenceValidator.check_document_exists("Chapter", "Test Amsterdam Chapter"):
             amsterdam = frappe.get_doc(
                 {
                     "doctype": "Chapter",
@@ -360,7 +362,7 @@ class TestEnvironmentSetup:
             chapters.append(frappe.get_doc("Chapter", "Test Amsterdam Chapter"))
 
         # Rotterdam Chapter
-        if not frappe.db.exists("Chapter", "Test Rotterdam Chapter"):
+        if not DocumentExistenceValidator.check_document_exists("Chapter", "Test Rotterdam Chapter"):
             rotterdam = frappe.get_doc(
                 {
                     "doctype": "Chapter",
@@ -387,7 +389,7 @@ class TestEnvironmentSetup:
         teams = []
 
         # Events Team
-        if not frappe.db.exists("Team", "Test Events Team"):
+        if not DocumentExistenceValidator.check_document_exists("Team", "Test Events Team"):
             events_team = frappe.get_doc(
                 {
                     "doctype": "Team",
@@ -404,7 +406,7 @@ class TestEnvironmentSetup:
             teams.append(events_team)
 
         # Communications Team
-        if not frappe.db.exists("Team", "Test Communications Team"):
+        if not DocumentExistenceValidator.check_document_exists("Team", "Test Communications Team"):
             comm_team = frappe.get_doc(
                 {
                     "doctype": "Team",
@@ -471,7 +473,7 @@ class TestEnvironmentSetup:
         ]
 
         for config in configs:
-            if not frappe.db.exists("Membership Type", config["name"]):
+            if not DocumentExistenceValidator.check_document_exists("Membership Type", config["name"]):
                 membership_type = frappe.get_doc(
                     {
                         "doctype": "Membership Type",
@@ -503,7 +505,7 @@ class TestEnvironmentSetup:
         for area_name in area_names:
             # Since Volunteer Interest Area is a child table, we need to create
             # Volunteer Interest Category instead
-            if not frappe.db.exists("Volunteer Interest Category", area_name):
+            if not DocumentExistenceValidator.check_document_exists("Volunteer Interest Category", area_name):
                 category = frappe.get_doc(
                     {"doctype": "Volunteer Interest Category", "category_name": area_name}
                 )

@@ -9,6 +9,8 @@ might not be covered by standard unit tests.
 """
 
 import frappe
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.tests.utils.base import VereningingenTestCase
 
 
@@ -38,8 +40,8 @@ class TestProductionScenarios(VereningingenTestCase):
                           "Volunteers with same names should have unique document names")
         
         # Verify both volunteers exist and are valid
-        self.assertTrue(frappe.db.exists("Volunteer", vol1.name))
-        self.assertTrue(frappe.db.exists("Volunteer", vol2.name))
+        self.assertTrue(DocumentExistenceValidator.check_document_exists("Volunteer", vol1.name))
+        self.assertTrue(DocumentExistenceValidator.check_document_exists("Volunteer", vol2.name))
         
         # Test the new autoname format
         self.assertTrue(vol1.name.startswith("VOL-"), 
@@ -127,7 +129,7 @@ class TestProductionScenarios(VereningingenTestCase):
                 volunteer = self.create_test_volunteer(member=member.name)
                 
                 # Verify volunteer was created
-                self.assertTrue(frappe.db.exists("Volunteer", volunteer.name))
+                self.assertTrue(DocumentExistenceValidator.check_document_exists("Volunteer", volunteer.name))
                 self.assertTrue(volunteer.name.startswith("VOL-"))
 
     def test_template_field_completeness(self):

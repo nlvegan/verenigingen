@@ -3,6 +3,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 from verenigingen.utils.secure_operations import secure_document_operation
 
 
@@ -63,7 +65,7 @@ class MembershipType(Document):
         """Get or create an Item for membership"""
         # Check for explicitly configured membership item first
         if hasattr(self, "membership_item") and self.membership_item:
-            if frappe.db.exists("Item", self.membership_item):
+            if DocumentExistenceValidator.check_document_exists("Item", self.membership_item):
                 return self.membership_item
             else:
                 frappe.log_error(
@@ -73,7 +75,7 @@ class MembershipType(Document):
 
         # Check if a membership item already exists using exact naming convention
         expected_item_code = f"MEM-{self.membership_type_name}".upper().replace(" ", "-")
-        if frappe.db.exists("Item", expected_item_code):
+        if DocumentExistenceValidator.check_document_exists("Item", expected_item_code):
             return expected_item_code
 
         # Check for item with exact membership item name
@@ -226,7 +228,7 @@ class MembershipType(Document):
         """
         # First, check if fixture template exists (preferred pattern)
         fixture_template_name = f"{self.membership_type_name} Template"
-        if frappe.db.exists("Membership Dues Schedule", fixture_template_name):
+        if DocumentExistenceValidator.check_document_exists("Membership Dues Schedule", fixture_template_name):
             # Update membership type to use fixture template
             if self.dues_schedule_template != fixture_template_name:
                 frappe.db.set_value(

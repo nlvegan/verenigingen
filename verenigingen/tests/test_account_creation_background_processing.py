@@ -21,6 +21,8 @@ import unittest
 from unittest.mock import patch, MagicMock, call, AsyncMock
 import frappe
 from frappe.utils import now, add_to_date, get_datetime
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 import time
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -507,7 +509,7 @@ class TestAccountCreationQueueResilience(EnhancedTestCase):
         
         # User might have been created even though process failed
         if request.created_user:
-            self.assertTrue(frappe.db.exists("User", request.created_user))
+            self.assertTrue(DocumentExistenceValidator.check_document_exists("User", request.created_user))
             
     def test_deadlock_detection_and_recovery(self):
         """Test deadlock detection and recovery mechanisms"""

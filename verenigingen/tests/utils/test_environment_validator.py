@@ -10,6 +10,8 @@ from pathlib import Path
 import frappe
 import psutil
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 
 class TestEnvironmentValidator:
     """Validates test environment configuration and readiness"""
@@ -147,7 +149,7 @@ class TestEnvironmentValidator:
 
         try:
             for doctype in required_doctypes:
-                if not frappe.db.exists("DocType", doctype):
+                if not DocumentExistenceValidator.check_document_exists("DocType", doctype):
                     missing_doctypes.append(doctype)
                 else:
                     # Check if doctype has required fields

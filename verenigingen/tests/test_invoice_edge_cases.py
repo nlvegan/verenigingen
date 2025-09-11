@@ -12,6 +12,8 @@ import frappe
 from frappe.utils import today, add_days, add_months, flt
 from verenigingen.tests.utils.base import VereningingenTestCase
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 
 class TestInvoiceEdgeCases(VereningingenTestCase):
     """Edge case tests for invoice generation and processing"""
@@ -446,11 +448,11 @@ class TestInvoiceDataIntegrityEdgeCases(VereningingenTestCase):
         self.assertEqual(invoice.membership, self.test_membership.name)
         
         # Verify customer exists
-        customer_exists = frappe.db.exists("Customer", self.test_member.customer)
+        customer_exists = DocumentExistenceValidator.check_document_exists("Customer", self.test_member.customer)
         self.assertTrue(customer_exists)
         
         # Verify membership exists
-        membership_exists = frappe.db.exists("Membership", self.test_membership.name)
+        membership_exists = DocumentExistenceValidator.check_document_exists("Membership", self.test_membership.name)
         self.assertTrue(membership_exists)
     
     def test_invoice_financial_account_integrity(self):
@@ -465,7 +467,7 @@ class TestInvoiceDataIntegrityEdgeCases(VereningingenTestCase):
             self.assertIsNotNone(item.income_account)
             
             # Verify account exists
-            account_exists = frappe.db.exists("Account", item.income_account)
+            account_exists = DocumentExistenceValidator.check_document_exists("Account", item.income_account)
             self.assertTrue(account_exists)
     
     def test_invoice_item_integrity(self):
@@ -482,7 +484,7 @@ class TestInvoiceDataIntegrityEdgeCases(VereningingenTestCase):
             self.assertGreaterEqual(item.rate, 0)
             
             # Verify item exists
-            item_exists = frappe.db.exists("Item", item.item_code)
+            item_exists = DocumentExistenceValidator.check_document_exists("Item", item.item_code)
             self.assertTrue(item_exists)
     
     def test_invoice_modification_integrity(self):

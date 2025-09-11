@@ -21,6 +21,8 @@ Author: Verenigingen Business Logic Team
 
 import frappe
 from frappe.utils import getdate, add_days, add_years
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from datetime import datetime, timedelta
 
 from verenigingen.utils.account_creation_manager import (
@@ -268,7 +270,7 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
         """Test proper Dutch company assignment for employee records"""
         # Ensure a Dutch company exists for testing
         test_company_name = "Test Nederlandse Vereniging"
-        if not frappe.db.exists("Company", test_company_name):
+        if not DocumentExistenceValidator.check_document_exists("Company", test_company_name):
             company = frappe.get_doc({
                 "doctype": "Company",
                 "company_name": test_company_name,
@@ -304,7 +306,7 @@ class TestDutchAssociationBusinessLogic(EnhancedTestCase):
         
         # Should have a valid company assigned
         self.assertIsNotNone(employee.company)
-        self.assertTrue(frappe.db.exists("Company", employee.company))
+        self.assertTrue(DocumentExistenceValidator.check_document_exists("Company", employee.company))
         
     def test_volunteer_chapter_integration(self):
         """Test volunteer account creation with chapter integration"""

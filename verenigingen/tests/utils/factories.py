@@ -13,6 +13,8 @@ from datetime import datetime
 import frappe
 from frappe.utils import random_string, today
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 
 class TestUserFactory:
     """Factory for creating test users with specific roles and permissions"""
@@ -169,7 +171,7 @@ class TestCleanupManager:
 
         for item in reversed(sorted_stack):
             try:
-                if frappe.db.exists(item["doctype"], item["name"]):
+                if DocumentExistenceValidator.check_document_exists(item["doctype"], item["name"]):
                     # Check if document is submitted and needs to be cancelled first
                     doc = frappe.get_doc(item["doctype"], item["name"])
                     if hasattr(doc, "docstatus") and doc.docstatus == 1:
@@ -253,7 +255,7 @@ class TestDataBuilder:
             postal_codes = f"{random.randint(1000, 9999)}"
 
         # Check if chapter already exists
-        if frappe.db.exists("Chapter", name):
+        if DocumentExistenceValidator.check_document_exists("Chapter", name):
             chapter = frappe.get_doc("Chapter", name)
         else:
             chapter = frappe.get_doc(
@@ -379,7 +381,7 @@ class TestDataBuilder:
         if not team_name:
             team_name = f"Test Team {random_string(8)}"
 
-        if not frappe.db.exists("Team", team_name):
+        if not DocumentExistenceValidator.check_document_exists("Team", team_name):
             team = frappe.get_doc(
                 {
                     "doctype": "Team",
@@ -501,7 +503,7 @@ class TestDataBuilder:
         """Create a default membership type for testing"""
         name = f"Test Membership {random_string(8)}"
 
-        if not frappe.db.exists("Membership Type", name):
+        if not DocumentExistenceValidator.check_document_exists("Membership Type", name):
             membership_type = frappe.get_doc(
                 {
                     "doctype": "Membership Type",

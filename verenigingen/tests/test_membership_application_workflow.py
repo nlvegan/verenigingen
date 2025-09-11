@@ -2,6 +2,8 @@
 Test Membership Application Workflow
 """
 import frappe
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 import unittest
 from verenigingen.tests.utils.base import VereningingenTestCase
 
@@ -12,7 +14,7 @@ class TestMembershipApplicationWorkflow(VereningingenTestCase):
     def setUp(self):
         super().setUp()
         # Ensure workflow is active
-        if not frappe.db.exists("Workflow", "Membership Application Workflow"):
+        if not DocumentExistenceValidator.check_document_exists("Workflow", "Membership Application Workflow"):
             # Create workflow if it doesn't exist
             from verenigingen.setup.membership_application_workflow_setup import setup_membership_application_workflow
             setup_membership_application_workflow()

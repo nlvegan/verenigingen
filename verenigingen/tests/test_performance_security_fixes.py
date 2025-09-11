@@ -28,6 +28,8 @@ import unittest
 import json
 from datetime import datetime, timedelta
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 import frappe
 # FrappeTestCase import removed - all classes use EnhancedTestCase
 from frappe.utils import now_datetime, add_days, flt
@@ -59,11 +61,11 @@ class TestPerformanceSecurityFixes(EnhancedTestCase):
         try:
             # Clean up test members and volunteers
             for member_name in self.test_member_names:
-                if frappe.db.exists("Member", member_name):
+                if DocumentExistenceValidator.check_document_exists("Member", member_name):
                     frappe.delete_doc("Member", member_name, force=True)
                     
             for volunteer_name in self.test_volunteer_names:
-                if frappe.db.exists("Volunteer", volunteer_name):
+                if DocumentExistenceValidator.check_document_exists("Volunteer", volunteer_name):
                     frappe.delete_doc("Volunteer", volunteer_name, force=True)
         except Exception as e:
             # Don't fail tests due to cleanup issues

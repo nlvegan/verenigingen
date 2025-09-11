@@ -6,6 +6,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, getdate
 
+from verenigingen.utils.validation_utilities import DateRangeValidator
+
 
 class DonationCampaign(Document):
     def validate(self):
@@ -17,7 +19,7 @@ class DonationCampaign(Document):
     def validate_dates(self):
         """Validate campaign dates"""
         if self.end_date and self.start_date:
-            if getdate(self.end_date) < getdate(self.start_date):
+            if DateRangeValidator.is_date_before(self.end_date, self.start_date):
                 frappe.throw(_("End date cannot be before start date"))
 
     def validate_goals(self):

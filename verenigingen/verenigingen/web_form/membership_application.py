@@ -2,6 +2,8 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime, today
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 from verenigingen.utils.application_notifications import send_payment_confirmation_email, send_rejection_email
 from verenigingen.utils.secure_operations import secure_document_operation
 
@@ -49,7 +51,7 @@ def submit_membership_application(data):
             frappe.throw(_("Please fill all required fields"))
 
     # Check if member with this email already exists
-    existing = frappe.db.exists("Member", {"email": data.get("email")})
+    existing = DocumentExistenceValidator.check_document_exists("Member", {"email": data.get("email")})
     if existing:
         frappe.throw(_("A member with this email already exists. Please login or contact support."))
 

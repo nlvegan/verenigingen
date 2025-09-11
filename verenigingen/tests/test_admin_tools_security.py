@@ -9,6 +9,8 @@ Tests for admin tools security hardening and RCE prevention.
 import unittest
 import frappe
 from verenigingen.tests.utils.base import VereningingenTestCase
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from unittest.mock import patch, MagicMock, Mock
 import json
 from importlib import import_module
@@ -64,7 +66,7 @@ class TestAdminToolsSecurity(VereningingenTestCase):
         
         # Ensure user has only basic role
         user_doc = frappe.get_doc("User", "test_user@example.com")
-        if not frappe.db.exists("User", "test_user@example.com"):
+        if not DocumentExistenceValidator.check_document_exists("User", "test_user@example.com"):
             user_doc = frappe.get_doc({
                 "doctype": "User",
                 "email": "test_user@example.com",

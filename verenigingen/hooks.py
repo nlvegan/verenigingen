@@ -709,7 +709,8 @@ after_install = [
 # FIXED: Move performance optimization to after_migrate to ensure DocTypes exist
 after_migrate = [
     "verenigingen.verenigingen.doctype.performance_optimization_setup.performance_optimization_setup.run_performance_optimization",
-    "verenigingen.utils.post_migration_hooks.run_post_migration_workspace_health",
+    # DISABLED: Aggressive workspace health check was destroying workspace layouts
+    # "verenigingen.utils.post_migration_hooks.run_post_migration_workspace_health",
 ]
 
 # Permissions

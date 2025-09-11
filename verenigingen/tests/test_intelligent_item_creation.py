@@ -5,6 +5,8 @@ Test script to validate the intelligent item creation integration in E-Boekhoude
 
 import frappe
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 
 def test_intelligent_item_creation():
     """Test the intelligent item creation function"""
@@ -46,7 +48,7 @@ def test_intelligent_item_creation():
             )
 
             # Check if item exists
-            item_exists = frappe.db.exists("Item", item_code)
+            item_exists = DocumentExistenceValidator.check_document_exists("Item", item_code)
 
             results.append(
                 {"test_case": test_case, "item_code": item_code, "item_exists": item_exists, "success": True}

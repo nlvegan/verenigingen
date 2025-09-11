@@ -8,6 +8,8 @@ Uses BaseTestCase patterns and validates against actual DocType schemas
 """
 
 import frappe
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 import unittest
 from frappe.utils import add_days, today, getdate, flt
 
@@ -49,7 +51,7 @@ class TestBillingTransitionProper(BaseTestCase):
         ]
         
         for type_data in membership_types_data:
-            if not frappe.db.exists("Membership Type", type_data["membership_type_name"]):
+            if not DocumentExistenceValidator.check_document_exists("Membership Type", type_data["membership_type_name"]):
                 # Create membership type first
                 membership_type = frappe.get_doc({
                     "doctype": "Membership Type",

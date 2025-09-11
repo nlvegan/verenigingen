@@ -9,6 +9,8 @@ Ensures the new utilities work correctly and handle edge cases.
 """
 
 import frappe
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 # Unused import removed - using EnhancedTestCase
 from frappe.utils import add_months, today
 
@@ -195,7 +197,7 @@ class TestFinancialUtils(EnhancedTestCase):
         
         # Verify customer field exists and is valid Customer DocType reference
         self.assertTrue(
-            frappe.db.exists("Customer", self.customer_name),
+            DocumentExistenceValidator.check_document_exists("Customer", self.customer_name),
             "Member.customer field should reference valid Customer document"
         )
 

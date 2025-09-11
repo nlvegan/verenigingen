@@ -27,6 +27,8 @@ import frappe
 from frappe.utils import getdate, add_days, now_datetime
 # FrappeTestCase import removed - all classes use EnhancedTestCase
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 from verenigingen.permissions import (
     has_donor_permission, 
     get_donor_permission_query
@@ -69,7 +71,7 @@ class TestDonorSecurityEnhanced(EnhancedTestCase):
     def create_real_test_user(self, email: str, role_name: str):
         """Create actual User record with proper role assignment"""
         # Check if user already exists
-        if frappe.db.exists("User", email):
+        if DocumentExistenceValidator.check_document_exists("User", email):
             user = frappe.get_doc("User", email)
         else:
             # Create new user
@@ -605,14 +607,14 @@ class TestDonorSecurityEnhanced(EnhancedTestCase):
         # Clean up test donors
         for donor in self.test_donors.values():
             try:
-                if frappe.db.exists("Donor", donor.name):
+                if DocumentExistenceValidator.check_document_exists("Donor", donor.name):
                     frappe.delete_doc("Donor", donor.name, force=True)
             except Exception:
                 pass
                 
         # Clean up orphaned donor
         try:
-            if hasattr(self, 'orphaned_donor') and frappe.db.exists("Donor", self.orphaned_donor.name):
+            if hasattr(self, 'orphaned_donor') and DocumentExistenceValidator.check_document_exists("Donor", self.orphaned_donor.name):
                 frappe.delete_doc("Donor", self.orphaned_donor.name, force=True)
         except Exception:
             pass
@@ -620,7 +622,7 @@ class TestDonorSecurityEnhanced(EnhancedTestCase):
         # Clean up test members  
         for member in self.test_members.values():
             try:
-                if frappe.db.exists("Member", member.name):
+                if DocumentExistenceValidator.check_document_exists("Member", member.name):
                     frappe.delete_doc("Member", member.name, force=True)
             except Exception:
                 pass
@@ -629,7 +631,7 @@ class TestDonorSecurityEnhanced(EnhancedTestCase):
         for email, user in self.test_users.items():
             if email not in ["Administrator", "Guest"]:
                 try:
-                    if frappe.db.exists("User", email):
+                    if DocumentExistenceValidator.check_document_exists("User", email):
                         frappe.delete_doc("User", email, force=True)
                 except Exception:
                     pass
@@ -690,7 +692,7 @@ class TestDonorSecurityRealWorldScenarios(EnhancedTestCase):
             
     def create_user_with_roles(self, email: str, roles: list):
         """Create user with multiple roles"""
-        if frappe.db.exists("User", email):
+        if DocumentExistenceValidator.check_document_exists("User", email):
             user = frappe.get_doc("User", email)
         else:
             user = frappe.get_doc({
@@ -787,11 +789,11 @@ class TestDonorSecurityRealWorldScenarios(EnhancedTestCase):
         # Clean up all created data
         for email, data in self.users_data.items():
             try:
-                if frappe.db.exists("Donor", data["donor"].name):
+                if DocumentExistenceValidator.check_document_exists("Donor", data["donor"].name):
                     frappe.delete_doc("Donor", data["donor"].name, force=True)
-                if frappe.db.exists("Member", data["member"].name):
+                if DocumentExistenceValidator.check_document_exists("Member", data["member"].name):
                     frappe.delete_doc("Member", data["member"].name, force=True)
-                if frappe.db.exists("User", email):
+                if DocumentExistenceValidator.check_document_exists("User", email):
                     frappe.delete_doc("User", email, force=True)
             except Exception:
                 pass
