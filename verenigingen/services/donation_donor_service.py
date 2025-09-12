@@ -11,6 +11,7 @@ import frappe
 from frappe import _
 from frappe.utils import validate_email_address
 
+from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
@@ -77,7 +78,16 @@ class DonationDonorService:
         donor.anbi_consent = 1
         donor.privacy_consent = 1  # Required for website donations
 
-        donor.insert(ignore_permissions=True)  # Website users may not have donor creation permissions
+        # Use secure document operation instead of permission bypass
+        result = secure_document_operation(
+            operation="insert",
+            doc=donor,
+            justification="Website user donor creation for donation processing",
+            required_permissions=["Donor:create"],
+        )
+
+        if not result.success:
+            frappe.throw(_("Failed to create donor: {0}").format("; ".join(result.errors)))
 
         self.logger.info(f"Created donor {donor.name} for website user {user_email}")
         return donor.name

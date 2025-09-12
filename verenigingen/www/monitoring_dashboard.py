@@ -21,6 +21,7 @@ import frappe
 from frappe.utils import add_to_date, now
 
 from verenigingen.api.security_monitoring_dashboard import get_security_dashboard_data
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 from verenigingen.utils.security.security_monitoring import get_security_monitor
 from verenigingen.utils.security_decorators import development_only
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
@@ -79,6 +80,7 @@ def get_context(context):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_system_metrics():
     """Get real-time system metrics"""
     try:
@@ -119,6 +121,7 @@ def get_system_metrics():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_recent_errors():
     """Get recent error summary"""
     try:
@@ -144,6 +147,7 @@ def get_recent_errors():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_audit_summary():
     """Get audit trail summary"""
     try:
@@ -172,6 +176,7 @@ def get_audit_summary():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_active_alerts():
     """Get active system alerts"""
     try:
@@ -191,6 +196,7 @@ def get_active_alerts():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_performance_metrics():
     """Get performance metrics"""
     try:
@@ -340,6 +346,7 @@ def get_member_growth_rate():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def refresh_dashboard_data():
     """Refresh all dashboard data"""
     try:
@@ -359,6 +366,7 @@ def refresh_dashboard_data():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def test_monitoring_system():
     """Test the monitoring system functionality"""
     try:
@@ -386,6 +394,7 @@ def test_monitoring_system():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_security_metrics_for_dashboard():
     """Get security metrics optimized for main dashboard display"""
     try:
@@ -430,6 +439,7 @@ def get_security_metrics_for_dashboard():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_security_framework_health():
     """Get security framework health status"""
     try:
@@ -456,6 +466,7 @@ def get_security_framework_health():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_unified_security_summary():
     """Get unified security summary combining security monitoring with SEPA security"""
     try:
@@ -530,6 +541,7 @@ def get_unified_security_summary():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_analytics_summary():
     """Get analytics summary for dashboard"""
     try:
@@ -570,6 +582,7 @@ def get_analytics_summary():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_trend_forecasts():
     """Get trend forecasts for dashboard"""
     try:
@@ -605,6 +618,7 @@ def get_trend_forecasts():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_compliance_metrics():
     """Get comprehensive compliance metrics for dashboard"""
     try:
@@ -628,6 +642,7 @@ def get_compliance_metrics():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_optimization_insights():
     """Get performance optimization insights for dashboard"""
     try:
@@ -655,6 +670,7 @@ def get_optimization_insights():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_executive_summary():
     """Get executive summary for dashboard"""
     try:
@@ -788,6 +804,7 @@ def check_data_retention_compliance():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_detailed_analytics_report():
     """Get detailed analytics report (full report)"""
     try:
@@ -801,6 +818,7 @@ def get_detailed_analytics_report():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_performance_optimization_report():
     """Get detailed performance optimization report"""
     try:
@@ -814,6 +832,7 @@ def get_performance_optimization_report():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_compliance_audit_report():
     """Get detailed compliance audit report"""
     try:
@@ -827,6 +846,7 @@ def get_compliance_audit_report():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def refresh_advanced_dashboard_data():
     """Refresh all advanced dashboard data including analytics"""
     try:
@@ -858,6 +878,7 @@ def refresh_advanced_dashboard_data():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def run_comprehensive_monitoring_tests():
     """Run comprehensive end-to-end monitoring system tests"""
     frappe.set_user("Administrator")

@@ -6,6 +6,14 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.query_builder import DocType
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+from verenigingen.utils.security_decorators import development_only
+
 
 class Team(Document):
     """
@@ -365,6 +373,7 @@ class Team(Document):
 
 # Backward compatibility API wrappers
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_team_members(team):
     """Get team members with volunteer info - backward compatibility wrapper"""
     from verenigingen.api.team_management import get_team_members as _get_team_members
@@ -373,6 +382,7 @@ def get_team_members(team):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def sync_team_with_volunteers(team_name=None):
     """Sync team members with volunteer system - backward compatibility wrapper"""
     from verenigingen.api.team_management import sync_team_with_volunteers as _sync_team_with_volunteers
@@ -381,6 +391,7 @@ def sync_team_with_volunteers(team_name=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_role_profile_preview(team_name):
     """Get preview of role profiles - backward compatibility wrapper"""
     from verenigingen.api.team_management import get_role_profile_preview as _get_role_profile_preview
@@ -389,6 +400,7 @@ def get_role_profile_preview(team_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def bulk_apply_team_role_profiles(team_name):
     """Apply role profiles to team members - backward compatibility wrapper"""
     from verenigingen.api.team_management import (
@@ -399,6 +411,7 @@ def bulk_apply_team_role_profiles(team_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_all_missing_assignment_history():
     """Fix missing assignment history - backward compatibility wrapper"""
     from verenigingen.api.team_admin_utilities import (
@@ -409,6 +422,7 @@ def fix_all_missing_assignment_history():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_missing_assignment_history(team_name=None, volunteer_name=None):
     """Fix missing assignment history for specific team/volunteer - backward compatibility wrapper"""
     from verenigingen.api.team_admin_utilities import (
@@ -419,6 +433,7 @@ def fix_missing_assignment_history(team_name=None, volunteer_name=None):
 
 
 @frappe.whitelist()
+@development_only()
 def debug_team_assignments():
     """Debug team assignments - backward compatibility wrapper"""
     from verenigingen.api.team_admin_utilities import debug_team_assignments as _debug_team_assignments

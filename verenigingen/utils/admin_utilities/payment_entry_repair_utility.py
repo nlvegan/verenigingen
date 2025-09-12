@@ -10,8 +10,11 @@ Usage: Call functions via bench console or admin interface
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_missing_payment_entry(payment_id):
     """
     Administrative function to create missing Payment Entry for a donation

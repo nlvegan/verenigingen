@@ -38,7 +38,8 @@ def execute():
                 "donation_type": "Herhalend",  # All agreements are recurring
                 "is_recurring": 1,
                 "recurring_frequency": "1 month",
-                "company": frappe.defaults.get_global_default("company") or "Test Company",
+                "company": frappe.get_single("Verenigingen Settings").donation_company
+                or frappe.get_single("Verenigingen Settings").company,
                 "donation_notes": f"Migrated from Donation Agreement {agreement.name} on {today()}",
                 "payment_status": "Active" if agreement.status == "Active" else "Pending",
                 "mollie_customer_id": getattr(agreement, "mollie_customer_id", None),

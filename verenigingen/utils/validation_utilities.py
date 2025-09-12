@@ -320,6 +320,114 @@ class DateRangeValidator:
 
         return {"valid": True, "duration_days": duration_days}
 
+    @staticmethod
+    def is_date_today_or_future(date_value: Union[str, date]) -> bool:
+        """
+        Check if a date is today or in the future
+
+        Args:
+            date_value: Date to check as string or date object
+
+        Returns:
+            True if date is today or in the future, False otherwise
+        """
+        date_obj = getdate(date_value) if isinstance(date_value, str) else date_value
+        today_obj = getdate(today())
+        return date_obj >= today_obj
+
+    @staticmethod
+    def is_date_before(date1: Union[str, date], date2: Union[str, date]) -> bool:
+        """
+        Check if date1 is before date2
+
+        Args:
+            date1: First date to compare as string or date object
+            date2: Second date to compare as string or date object
+
+        Returns:
+            True if date1 is before date2, False otherwise
+        """
+        date1_obj = getdate(date1) if isinstance(date1, str) else date1
+        date2_obj = getdate(date2) if isinstance(date2, str) else date2
+        return date1_obj < date2_obj
+
+    @staticmethod
+    def is_date_in_past(date_value: Union[str, date]) -> bool:
+        """
+        Check if a date is in the past (before today)
+
+        Args:
+            date_value: Date to check as string or date object
+
+        Returns:
+            True if date is in the past, False otherwise
+        """
+        date_obj = getdate(date_value) if isinstance(date_value, str) else date_value
+        today_obj = getdate(today())
+        return date_obj < today_obj
+
+    @staticmethod
+    def is_date_today_or_past(date_value: Union[str, date]) -> bool:
+        """
+        Check if a date is today or in the past
+
+        Args:
+            date_value: Date to check as string or date object
+
+        Returns:
+            True if date is today or in the past, False otherwise
+        """
+        date_obj = getdate(date_value) if isinstance(date_value, str) else date_value
+        today_obj = getdate(today())
+        return date_obj <= today_obj
+
+    @staticmethod
+    def is_date_today_or_before(date1: Union[str, date], date2: Union[str, date]) -> bool:
+        """
+        Check if date1 is today or before date2
+
+        Args:
+            date1: First date to compare as string or date object
+            date2: Second date to compare as string or date object
+
+        Returns:
+            True if date1 is today or before date2, False otherwise
+        """
+        date1_obj = getdate(date1) if isinstance(date1, str) else date1
+        date2_obj = getdate(date2) if isinstance(date2, str) else date2
+        return date1_obj <= date2_obj
+
+    @staticmethod
+    def is_date_in_future(date_value: Union[str, date]) -> bool:
+        """
+        Check if a date is in the future (after today)
+
+        Args:
+            date_value: Date to check as string or date object
+
+        Returns:
+            True if date is in the future, False otherwise
+        """
+        date_obj = getdate(date_value) if isinstance(date_value, str) else date_value
+        today_obj = getdate(today())
+        return date_obj > today_obj
+
+    @staticmethod
+    def is_date_today_or_after(date1: Union[str, date], date2: Union[str, date]) -> bool:
+        """
+        Check if date1 is today or after date2
+
+        Args:
+            date1: First date to compare as string or date object
+            date2: Second date to compare as string or date object
+
+        Returns:
+            True if date1 is today or after date2, False otherwise
+        """
+        date1_obj = getdate(date1) if isinstance(date1, str) else date1
+        date2_obj = getdate(date2) if isinstance(date2, str) else date2
+        return date1_obj >= date2_obj
+
 
 # Convenience functions for backward compatibility and ease of use
 

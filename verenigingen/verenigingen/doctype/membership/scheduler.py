@@ -3,6 +3,8 @@ from frappe import _
 from frappe.utils import add_days, today
 from frappe.utils.background_jobs import enqueue
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 def setup_membership_scheduler_events():
     """Set up the scheduler events for membership automation"""
@@ -235,6 +237,7 @@ def generate_direct_debit_batch():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def enqueue_process_expired_memberships():
     """Enqueue processing of expired memberships as a background job"""
     return enqueue(
@@ -243,12 +246,14 @@ def enqueue_process_expired_memberships():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def enqueue_send_renewal_reminders():
     """Enqueue sending of renewal reminders as a background job"""
     return enqueue(send_renewal_reminders, queue="long", timeout=30000, job_name="send_renewal_reminders")
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def enqueue_process_auto_renewals():
     """DEPRECATED: Auto-renewal is now handled by the billing/dues schedule system"""
     frappe.logger().info("Auto-renewal is now handled by the billing/dues schedule system")

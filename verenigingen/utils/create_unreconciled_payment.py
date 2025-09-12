@@ -5,6 +5,8 @@ Create unreconciled Payment Entries for E-Boekhouden payments without matching i
 import frappe
 from pymysql.err import IntegrityError
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 def create_unreconciled_payment_entry(mutation, company, cost_center, payment_type="Customer"):
     """
@@ -117,7 +119,15 @@ def create_unreconciled_payment_entry(mutation, company, cost_center, payment_ty
                         if len(description) > 50:
                             customer.customer_details = f"SEPA Payment Description:\n{description}"
 
-                        customer.insert(ignore_permissions=True)
+                        # Use secure document operation for customer creation
+                        result = secure_document_operation(
+                            operation="insert",
+                            doc=customer,
+                            justification="SEPA payment unreconciled customer creation",
+                            required_permissions=["Customer:create"],
+                        )
+                        if not result.success:
+                            frappe.throw(f"Failed to create customer: {'; '.join(result.errors)}")
                         pe.party = customer.name
                 else:
                     pe.party = get_or_create_customer(
@@ -186,7 +196,15 @@ def create_unreconciled_payment_entry(mutation, company, cost_center, payment_ty
                         if len(description) > 50:
                             supplier.supplier_details = f"SEPA Payment Description:\n{description}"
 
-                        supplier.insert(ignore_permissions=True)
+                        # Use secure document operation for supplier creation
+                        result = secure_document_operation(
+                            operation="insert",
+                            doc=supplier,
+                            justification="SEPA payment unreconciled supplier creation",
+                            required_permissions=["Supplier:create"],
+                        )
+                        if not result.success:
+                            frappe.throw(f"Failed to create supplier: {'; '.join(result.errors)}")
                         pe.party = supplier.name
                 else:
                     pe.party = get_or_create_supplier(
@@ -277,7 +295,17 @@ def create_unreconciled_payment_entry(mutation, company, cost_center, payment_ty
 
         # Insert and submit
         try:
-            pe.insert(ignore_permissions=True)
+            # Use secure document operation for payment entry creation
+            result = secure_document_operation(
+                operation="insert",
+                doc=pe,
+                justification="SEPA unreconciled payment entry creation",
+                required_permissions=["Payment Entry:create"],
+            )
+            if not result.success:
+                frappe.throw(f"Failed to create payment entry: {'; '.join(result.errors)}")
+
+            pe = result.doc  # Get the inserted document
             pe.submit()
             return {"success": True, "payment_entry": pe.name}
         except IntegrityError as ie:

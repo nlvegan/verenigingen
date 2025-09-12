@@ -1306,8 +1306,19 @@ def _create_webhook_processing_log(
         )
 
         print(f"🗃️ Creating webhook processing log: {webhook_id} - {status}")
-        log_entry.insert(ignore_permissions=True)
-        print(f"✅ Webhook processing log created: {log_entry.name}")
+
+        # Use secure document operation instead of permission bypass
+        result = secure_document_operation(
+            operation="insert",
+            doc=log_entry,
+            justification="System webhook processing log creation for audit trail",
+            required_permissions=["Webhook Processing Log:create"],
+        )
+
+        if result.success:
+            print(f"✅ Webhook processing log created: {log_entry.name}")
+        else:
+            print(f"❌ Failed to create webhook log: {'; '.join(result.errors)}")
 
     except Exception as e:
         print(f"❌ Failed to create webhook processing log: {str(e)}")

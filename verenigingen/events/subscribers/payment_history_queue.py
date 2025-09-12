@@ -12,6 +12,7 @@ from frappe import _
 from frappe.utils import cint
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
 def process_payment_history_update_queue():
@@ -378,6 +379,7 @@ def _alert_payment_history_critical_error(error_msg):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_payment_history_queue_status():
     """Get current status of payment history queue for monitoring dashboard"""
     try:

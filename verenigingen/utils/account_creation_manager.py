@@ -244,13 +244,11 @@ class AccountCreationManager:
         frappe.logger().info(f"Creating employee record for user: {self.created_user}")
 
         try:
-            # Get default company
-            default_company = frappe.defaults.get_global_default("company")
-            if not default_company:
-                from verenigingen.utils.validation_utilities import get_all_active_records
-
-                companies = get_all_active_records("Company", fields=["name"], limit=1)
-                default_company = companies[0].name if companies else None
+            # Get company from Verenigingen Settings
+            settings = frappe.get_single("Verenigingen Settings")
+            if not settings.company:
+                frappe.throw(_("Company not configured in Verenigingen Settings"))
+            default_company = settings.company
 
             if not default_company:
                 raise frappe.ValidationError("No company configured for employee creation")
@@ -839,16 +837,23 @@ def process_bulk_account_creation_batch(request_names, batch_id, batch_number, t
     # Thread-safe locks for updating results
     results_lock = threading.Lock()
 
-    def process_single_request_safe(request_name):
+    def process_single_request_safe(request_name, site_name):
         """Process a single request with error handling, transaction safety, and new database connection."""
         try:
-            # Each thread needs its own database connection
-            frappe.connect()
+            # Each thread needs its own database connection with site context
+            frappe.connect(site=site_name)
 
             # Start transaction for this request
             frappe.db.begin()
 
             try:
+                # Ensure request is in processable status (handle retry scenario)
+                request = frappe.get_doc("Account Creation Request", request_name)
+                if request.status == "Requested":
+                    request.status = "Queued"
+                    request.processing_started_at = now()
+                    request.save()
+
                 # Process individual request using existing AccountCreationManager
                 manager = AccountCreationManager(request_name)
                 manager.process_complete_pipeline()
@@ -878,13 +883,16 @@ def process_bulk_account_creation_batch(request_names, batch_id, batch_number, t
             except:
                 pass  # Ignore cleanup errors
 
+    # Capture current site name for worker threads
+    current_site = frappe.local.site
+
     # Process requests in parallel with controlled concurrency
     max_workers = min(5, len(request_names))  # Up to 5 parallel workers, but not more than requests
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all requests to the thread pool
+        # Submit all requests to the thread pool with site context
         future_to_request = {
-            executor.submit(process_single_request_safe, request_name): request_name
+            executor.submit(process_single_request_safe, request_name, current_site): request_name
             for request_name in request_names
         }
 

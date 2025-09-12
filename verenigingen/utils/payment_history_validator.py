@@ -16,8 +16,11 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, add_to_date, now_datetime, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def validate_and_repair_payment_history():
     """
     Scheduled validation and repair of payment history entries.
@@ -172,6 +175,7 @@ Please review the Payment History Validator logs for details.
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_payment_history_validation_stats():
     """
     Get statistics about payment history validation over the past week.

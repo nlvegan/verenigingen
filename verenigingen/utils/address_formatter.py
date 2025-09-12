@@ -9,6 +9,8 @@ import frappe
 from verenigingen.utils.api_response import APIResponse, api_response_handler
 from verenigingen.utils.error_handling import cache_with_ttl
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.security_decorators import development_only
 
 
 def format_address_for_country(address_doc):
@@ -154,6 +156,7 @@ def format_address_single_line(address_doc):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 @api_response_handler
 @cache_with_ttl(ttl=1800)  # Cache for 30 minutes - addresses don't change frequently
 def format_member_address(member_name):
@@ -191,6 +194,7 @@ def format_member_address(member_name):
 
 
 @frappe.whitelist()
+@development_only()
 def test_address_formatting():
     """Test the address formatting with sample data"""
     try:

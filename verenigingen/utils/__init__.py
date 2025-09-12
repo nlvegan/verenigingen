@@ -150,7 +150,9 @@ class DutchTaxExemptionHandler:
 
     def __init__(self):
         self.settings = frappe.get_single("Verenigingen Settings")
-        self.company = self.settings.company or frappe.defaults.get_global_default("company")
+        if not self.settings.company:
+            frappe.throw(_("Company not configured in Verenigingen Settings"))
+        self.company = self.settings.company
 
     def setup_tax_exemption(self):
         """
@@ -503,7 +505,7 @@ def generate_btw_report(start_date, end_date):
         filters={
             "posting_date": ["between", [start_date, end_date]],
             "docstatus": 1,
-            "company": frappe.defaults.get_global_default("company"),
+            "company": frappe.get_single("Verenigingen Settings").company,
         },
         fields=fields,
     )

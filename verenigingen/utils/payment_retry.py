@@ -5,6 +5,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, now_datetime, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
 
 
@@ -229,6 +230,7 @@ class PaymentRetryManager:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def execute_payment_retry(retry_record=None):
     """Execute a scheduled payment retry"""
     if not retry_record:
@@ -300,6 +302,7 @@ def execute_payment_retry(retry_record=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def check_payment_retry_status(invoice):
     """Check if an invoice has retry scheduled"""
     retry = frappe.db.exists("SEPA Payment Retry", {"invoice": invoice})

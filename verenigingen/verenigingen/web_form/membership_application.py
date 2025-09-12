@@ -2,10 +2,10 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime, today
 
-from verenigingen.utils.validation_utilities import DocumentExistenceValidator
-
 from verenigingen.utils.application_notifications import send_payment_confirmation_email, send_rejection_email
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
 def get_context(context):
@@ -233,6 +233,7 @@ def send_application_confirmation(member):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def approve_membership_application(member_name, create_invoice=True, membership_type=None):
     """Approve a membership application"""
     member = frappe.get_doc("Member", member_name)
@@ -279,6 +280,7 @@ def approve_membership_application(member_name, create_invoice=True, membership_
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def reject_membership_application(member_name, reason):
     """Reject a membership application"""
     member = frappe.get_doc("Member", member_name)

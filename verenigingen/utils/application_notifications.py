@@ -401,7 +401,10 @@ def check_overdue_applications():
                         "overdue_applications": overdue_with_days,
                         "overdue_count": len(overdue),
                         "reviewer_name": "Membership Team",
-                        "company": frappe.defaults.get_global_default("company"),
+                        "company": frappe.get_single("Verenigingen Settings").company_name
+                        or frappe.get_value(
+                            "Company", frappe.get_single("Verenigingen Settings").company, "company_name"
+                        ),
                         "base_url": frappe.utils.get_url(),
                     }
 

@@ -635,12 +635,11 @@ def submit_expense(expense_data):
             else:
                 frappe.throw(_("National chapter not configured in settings"))
 
-        # Get default company
-        default_company = frappe.defaults.get_global_default("company")
+        # Get company from Verenigingen Settings
+        settings = frappe.get_single("Verenigingen Settings")
+        default_company = settings.company
         if not default_company:
-            # Fallback to first company if no default is set
-            companies = frappe.get_all("Company", limit=1, fields=["name"])
-            default_company = companies[0].name if companies else None
+            frappe.throw(_("Company not configured in Verenigingen Settings"))
 
         if not default_company:
             frappe.throw(_("No company configured in the system. Please contact the administrator."))
@@ -1092,11 +1091,11 @@ def get_organization_cost_center(expense_data):
                 f"No cost center found for organization type: {expense_data.get('organization_type')}"
             )
 
-            # Try to get default company cost center
-            default_company = frappe.defaults.get_global_default("company")
+            # Try to get company cost center from settings
+            settings = frappe.get_single("Verenigingen Settings")
+            default_company = settings.company
             if not default_company:
-                companies = frappe.get_all("Company", limit=1, fields=["name"])
-                default_company = companies[0].name if companies else None
+                frappe.throw(_("Company not configured in Verenigingen Settings"))
 
             if default_company:
                 # Get main cost center for the company

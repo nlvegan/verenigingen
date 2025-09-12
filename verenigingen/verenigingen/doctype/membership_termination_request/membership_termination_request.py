@@ -5,6 +5,13 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import add_days, getdate, now, today
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 class MembershipTerminationRequest(Document):
     def validate(self):
@@ -383,6 +390,7 @@ class MembershipTerminationRequest(Document):
             self.approval_date = now()
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.ADMIN)
     def submit_for_approval(self):
         """Submit the termination request for approval"""
         if self.status != "Draft":
@@ -444,6 +452,7 @@ class MembershipTerminationRequest(Document):
             frappe.logger().error(f"Failed to send approval notification: {str(e)}")
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.ADMIN)
     def approve_request(self, decision, notes=""):
         """Approve or reject the termination request"""
         if self.status not in ["Pending", "Draft"]:
@@ -485,6 +494,7 @@ class MembershipTerminationRequest(Document):
         return {"status": self.status, "message": f"Request {decision} successfully"}
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.ADMIN)
     def execute_termination(self):
         """Execute the termination request"""
         if self.status != "Approved":
@@ -576,6 +586,7 @@ class MembershipTerminationRequest(Document):
                 frappe.throw(_("Grace period end cannot be before termination date"))
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.MEMBER_DATA)
     def get_termination_preview(self):
         """Get preview of what will be affected by this termination"""
         from verenigingen.utils.termination_utils import validate_termination_readiness
@@ -583,6 +594,7 @@ class MembershipTerminationRequest(Document):
         return validate_termination_readiness(self.member)
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.MEMBER_DATA)
     def simulate_execution(self):
         """Simulate what would happen if this termination were executed"""
         from verenigingen.utils.termination_utils import get_termination_impact_summary
@@ -609,6 +621,7 @@ def handle_status_change(doc, method=None):
 
 # Public API methods that can be called from outside
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_termination_impact_preview(member):
     """Public API to get termination impact preview"""
     from verenigingen.utils.termination_utils import validate_termination_readiness
@@ -641,6 +654,7 @@ def get_termination_impact_preview(member):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def execute_safe_member_termination(member, termination_type, termination_date=None):
     """Public API to execute termination using safe methods"""
     from verenigingen.api.termination_api import execute_safe_termination
@@ -649,6 +663,7 @@ def execute_safe_member_termination(member, termination_type, termination_date=N
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_member_termination_status(member):
     """Get termination status for a member - redirect to member_utils"""
     from verenigingen.verenigingen.doctype.member.member_utils import get_member_termination_status
@@ -657,6 +672,7 @@ def get_member_termination_status(member):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_member_termination_history(member):
     """Get termination history for a member"""
     try:
@@ -701,6 +717,7 @@ def get_member_termination_history(member):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_termination_statistics():
     """Get termination statistics for dashboard display"""
     try:
@@ -761,6 +778,7 @@ def get_termination_statistics():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_eligible_approvers():
     """Get list of users eligible to approve termination requests"""
     try:
@@ -799,6 +817,7 @@ def get_eligible_approvers():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.REPORTING)
 def generate_expulsion_report(filters=None):
     """Generate expulsion report based on filters"""
     try:
@@ -873,6 +892,7 @@ def generate_expulsion_report(filters=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def initiate_disciplinary_termination(member, reason, evidence=None, reporter=None):
     """Initiate disciplinary termination procedure for a member"""
     try:

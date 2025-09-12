@@ -9,6 +9,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, cstr, flt, getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 from verenigingen.verenigingen_payments.utils.batch_performance_optimizer import (
     get_batch_performance_optimizer,
 )
@@ -432,14 +433,28 @@ class SEPAProcessor:
                 schedule.consecutive_failures = (schedule.consecutive_failures or 0) + 1
 
                 # Update schedule status based on failure count
+                # Get grace period settings from Verenigingen Settings
+                settings = frappe.get_single("Verenigingen Settings")
+                grace_period_days = settings.default_grace_period_days or 30
+                auto_apply_grace_period = settings.grace_period_auto_apply
+
                 if schedule.consecutive_failures >= 3:
-                    schedule.status = "Suspended"
-                    schedule.add_comment(
-                        text=f"Suspended due to {schedule.consecutive_failures} consecutive payment failures"
-                    )
+                    # Only auto-suspend if grace period auto-apply is enabled
+                    if auto_apply_grace_period:
+                        schedule.status = "Suspended"
+                        schedule.add_comment(
+                            text=f"Suspended due to {schedule.consecutive_failures} consecutive payment failures"
+                        )
+                    else:
+                        # Keep in grace period indefinitely if auto-suspend is disabled
+                        schedule.status = "Grace Period"
+                        schedule.grace_period_until = add_days(today(), grace_period_days)
+                        schedule.add_comment(
+                            text=f"Payment failure #{schedule.consecutive_failures} - Grace period extended (auto-suspension disabled)"
+                        )
                 else:
                     schedule.status = "Grace Period"
-                    schedule.grace_period_until = add_days(today(), 14)  # 14 day grace period
+                    schedule.grace_period_until = add_days(today(), grace_period_days)
 
                 schedule.save()
 
@@ -979,6 +994,7 @@ Organization
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_monthly_dues_collection_batch():
     """
     Scheduled job to create monthly SEPA collection batch
@@ -1048,6 +1064,7 @@ def create_monthly_dues_collection_batch():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def process_sepa_returns(batch_name, return_file):
     """Process SEPA return file for a batch"""
     processor = SEPAProcessor()
@@ -1059,6 +1076,7 @@ def process_sepa_returns(batch_name, return_file):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def verify_invoice_coverage_status(collection_date=None):
     """API to check invoice coverage for a specific date"""
     processor = SEPAProcessor()
@@ -1070,6 +1088,7 @@ def verify_invoice_coverage_status(collection_date=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def get_sepa_batch_preview(collection_date=None):
     """Preview what SEPA batch would be created without actually creating it"""
     processor = SEPAProcessor()
@@ -1089,6 +1108,7 @@ def get_sepa_batch_preview(collection_date=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def get_upcoming_dues_collections(days_ahead=30):
     """Get upcoming dues collections for review"""
     # Get schedules that will be collected in the next X days
@@ -1138,6 +1158,7 @@ def get_upcoming_dues_collections(days_ahead=30):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def validate_sepa_configuration():
     """Validate SEPA configuration is complete"""
     settings = frappe.get_single("Verenigingen Settings")

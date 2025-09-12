@@ -8,8 +8,11 @@ from datetime import datetime
 import frappe
 from frappe.utils import add_days, add_months, date_diff, getdate, now, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_termination_trends(period="12_months"):
     """Get comprehensive termination trends and patterns"""
 
@@ -466,6 +469,7 @@ def calculate_prediction_confidence(recent_counts):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.REPORTING)
 def get_early_warning_system():
     """Get early warning indicators for potential issues"""
 
@@ -602,6 +606,7 @@ def check_system_health():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.REPORTING)
 def generate_executive_summary():
     """Generate executive summary for leadership"""
 

@@ -110,7 +110,7 @@ def get_unified_monitoring_overview():
         }
 
 
-@high_security_api(operation_type=OperationType.SECURITY)
+@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def get_integrated_security_metrics(hours_back: int = 24):
     """Get security metrics integrated across all monitoring systems"""

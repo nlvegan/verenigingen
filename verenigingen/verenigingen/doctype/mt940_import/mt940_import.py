@@ -7,6 +7,8 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import formatdate, getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 
 class MT940Import(Document):
     def validate(self):
@@ -291,6 +293,7 @@ class MT940Import(Document):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def debug_import(bank_account, file_url):
     """Debug method for testing MT940 import"""
     try:
@@ -317,6 +320,7 @@ def debug_import(bank_account, file_url):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def debug_duplicates(bank_account, file_url):
     """Debug method for analyzing duplicate detection logic"""
     try:
@@ -343,6 +347,7 @@ def debug_duplicates(bank_account, file_url):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def debug_enhanced_import(bank_account, file_url):
     """Debug method for testing enhanced MT940 import with SEPA features"""
     try:
@@ -386,6 +391,7 @@ def debug_enhanced_import(bank_account, file_url):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def estimate_mollie_bulk_import(from_date, to_date, strategy="hybrid"):
     """API endpoint to estimate Mollie bulk import size"""
     try:
@@ -399,6 +405,7 @@ def estimate_mollie_bulk_import(from_date, to_date, strategy="hybrid"):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_mollie_bulk_import(from_date, to_date, strategy="hybrid", company=None, bank_account=None):
     """API endpoint to create a new Mollie bulk import document"""
     try:
@@ -495,6 +502,7 @@ def create_mollie_bulk_import(from_date, to_date, strategy="hybrid", company=Non
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def submit_import(import_name):
     """Submit an MT940 Import document"""
     try:
@@ -516,6 +524,7 @@ def submit_import(import_name):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_mollie_bulk_import_history(days=30):
     """Get history of Mollie bulk imports"""
     try:

@@ -7,6 +7,13 @@ from frappe import _
 from frappe.model.document import Document
 from payments.utils import get_payment_gateway_controller
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 class VerenigingenSettings(Document):
     def validate(self):
@@ -43,6 +50,7 @@ class VerenigingenSettings(Document):
             )
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.ADMIN)
     def generate_webhook_secret(self, field="membership_webhook_secret"):
         key = frappe.generate_hash(length=20)
         self.set(field, key)
@@ -60,6 +68,7 @@ class VerenigingenSettings(Document):
         )
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.ADMIN)
     def revoke_key(self, key):
         self.set(key, None)
         self.save()
@@ -70,6 +79,7 @@ class VerenigingenSettings(Document):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_plans_for_membership(*args, **kwargs):
     controller = get_payment_gateway_controller("Razorpay")
     plans = controller.get_plans()
@@ -80,6 +90,7 @@ def get_plans_for_membership(*args, **kwargs):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_income_account_query(doctype, txt, searchfield, start, page_len, filters):
     """Filter for income accounts only"""
     company = filters.get("company") or frappe.defaults.get_global_default("company")
@@ -100,6 +111,7 @@ def get_income_account_query(doctype, txt, searchfield, start, page_len, filters
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_organization_email_domain():
     """Get organization email domain setting for user creation"""
     settings = frappe.get_single("Verenigingen Settings")
@@ -107,6 +119,7 @@ def get_organization_email_domain():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def validate_donation_configuration():
     """Validate donation system configuration"""
     settings = frappe.get_single("Verenigingen Settings")

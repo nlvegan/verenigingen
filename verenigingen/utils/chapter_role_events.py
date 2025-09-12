@@ -20,6 +20,8 @@ Security Features:
 import frappe
 
 from verenigingen.permissions import assign_chapter_board_role, get_user_chapter_board_positions
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.utils.security_decorators import development_only
 
 
 def on_chapter_board_member_after_insert(doc, method):
@@ -163,6 +165,7 @@ def on_member_on_update(doc, method):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def validate_volunteer_expense_approval(expense_name, action):
     """
     Validate volunteer expense approval actions
@@ -245,6 +248,7 @@ def on_chapter_role_on_update(doc, method):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def sync_all_chapter_board_roles():
     """
     Maintenance function to sync all Chapter Board Member system roles
@@ -267,6 +271,7 @@ def sync_all_chapter_board_roles():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_user_board_summary(user_email=None):
     """
     Get summary of user's board positions and permissions

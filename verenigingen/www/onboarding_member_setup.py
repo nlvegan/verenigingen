@@ -34,6 +34,7 @@ Target Users:
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 from verenigingen.utils.security_decorators import development_only
 
 no_cache = 1
@@ -97,6 +98,7 @@ def get_context(context):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def generate_test_members_from_onboarding():
     """
     Generate standardized test members for system validation and development.

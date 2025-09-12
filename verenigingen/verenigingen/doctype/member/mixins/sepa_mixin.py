@@ -4,6 +4,7 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 class SEPAMandateMixin:
@@ -115,6 +116,7 @@ class SEPAMandateMixin:
             return {"success": False, "error": str(e)}
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.FINANCIAL)
     def create_sepa_mandate(self):
         """
         Create a new SEPA mandate for this member with enhanced prefilling
@@ -196,6 +198,7 @@ class SEPAMandateMixin:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def check_sepa_mandate_discrepancies():
     """
     Scheduled task to check for SEPA mandate discrepancies and automatically fix them.

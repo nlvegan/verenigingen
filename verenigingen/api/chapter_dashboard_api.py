@@ -56,6 +56,7 @@ from verenigingen.utils.performance_utils import QueryOptimizer, cached, perform
 
 # Import security decorators
 from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
+from verenigingen.utils.security_decorators import development_only
 from verenigingen.utils.validation.api_validators import (
     APIValidator,
     rate_limit,
@@ -304,6 +305,7 @@ def quick_approve_member(member_name, chapter_name=None):
 
 
 @frappe.whitelist()
+@development_only()
 def test_mt940_naming_logic():
     """Test the enhanced MT940 Import descriptive naming functionality"""
     try:
@@ -440,6 +442,7 @@ def test_mt940_naming_logic():
 
 
 @frappe.whitelist()
+@development_only()
 def debug_mt940_import(import_name):
     """Debug an MT940 Import record to understand issues"""
     try:
@@ -543,6 +546,7 @@ def debug_mt940_import(import_name):
 
 
 @frappe.whitelist()
+@development_only()
 def debug_mt940_transaction_creation(import_name):
     """Debug why MT940 transactions aren't being created"""
     try:
@@ -750,6 +754,7 @@ def reprocess_mt940_import(import_name):
 
 
 @frappe.whitelist()
+@development_only()
 def test_eboekhouden_framework():
     """Test the e-Boekhouden migration framework"""
     try:
@@ -812,6 +817,7 @@ def test_eboekhouden_framework():
 
 
 @frappe.whitelist()
+@development_only()
 def test_eboekhouden_api_mock():
     """Test e-Boekhouden API utilities with mock data"""
     try:
@@ -918,6 +924,7 @@ def test_eboekhouden_api_mock():
 
 
 @frappe.whitelist()
+@development_only()
 def test_eboekhouden_complete():
     """Complete end-to-end test of e-Boekhouden framework"""
     try:
@@ -1400,6 +1407,7 @@ def send_chapter_announcement(chapter_name, subject, message, send_to="all"):
 
 
 @frappe.whitelist()
+@development_only()
 def debug_dashboard_access():
     """Debug dashboard access issues"""
 
@@ -1448,6 +1456,7 @@ def debug_dashboard_access():
 
 
 @frappe.whitelist()
+@development_only()
 def test_url_access():
     """Test URL routing for pages"""
 
@@ -1595,6 +1604,7 @@ def get_new_members_count(chapter=None):
 
 
 @frappe.whitelist()
+@development_only()
 def create_chapter_dashboard():
     """Create proper Frappe dashboard for chapter management"""
 
@@ -1814,6 +1824,7 @@ def create_chapter_dashboard_doc():
 
 
 @frappe.whitelist()
+@development_only()
 def create_simple_dashboard():
     """Create a simple test dashboard"""
 
@@ -2544,6 +2555,7 @@ def create_minimal_working_charts():
 
 
 @frappe.whitelist()
+@development_only()
 def debug_number_cards():
     """Debug the number card methods"""
 
@@ -2662,6 +2674,7 @@ def fix_dashboard_with_working_chart():
 
 
 @frappe.whitelist()
+@development_only()
 def test_number_card_format():
     """Test if Number Cards expect a specific return format"""
 
@@ -2753,6 +2766,7 @@ def create_chapter_member_charts():
 
 
 @frappe.whitelist()
+@development_only()
 def test_dashboard_access():
     """Test dashboard access for current user"""
 
@@ -3095,6 +3109,7 @@ def get_volunteer_expenses_count(chapter=None):
 
 
 @frappe.whitelist()
+@development_only()
 def test_enhanced_mt940_features():
     """
     Test the enhanced MT940 import features inspired by Banking app analysis.

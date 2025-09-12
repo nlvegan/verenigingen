@@ -8,6 +8,13 @@ from frappe.model.document import Document
 from frappe.utils import add_days, add_months, add_years, flt, getdate, today
 
 from verenigingen.utils.member_utils import get_active_membership_for_member, get_member_chapters
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+from verenigingen.utils.security_decorators import development_only
 from verenigingen.utils.validation_utilities import DateRangeValidator, DocumentExistenceValidator
 
 
@@ -1809,6 +1816,7 @@ class MembershipDuesSchedule(Document):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def generate_dues_invoices(test_mode=False):
     """
     Scheduled job to generate membership dues invoices with hybrid payment history updates.
@@ -1985,12 +1993,14 @@ def _bulk_update_payment_history(member_names, successful_invoices):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def create_schedule_from_template(member_name, template_name=None):
     """API endpoint to create schedule from template"""
     return MembershipDuesSchedule.create_from_template(member_name, template_name)
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def create_template_for_membership_type(membership_type, template_name=None):
     """Create a new template for a membership type"""
     if not template_name:
@@ -2034,6 +2044,7 @@ def create_template_for_membership_type(membership_type, template_name=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_member_dues_schedule(member=None):
     """Get dues schedule for a member (with permission checks)"""
     user = frappe.session.user
@@ -2070,6 +2081,7 @@ def get_member_dues_schedule(member=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def update_member_contribution(schedule_name, updates):
     """Update member's contribution settings with permission checks"""
     if isinstance(updates, str):
@@ -2103,6 +2115,7 @@ def update_member_contribution(schedule_name, updates):
 
 
 @frappe.whitelist()
+@development_only()
 def test_billing_day_field():
     """Test billing_day field implementation"""
     try:
@@ -2170,6 +2183,7 @@ def test_billing_day_field():
 
 
 @frappe.whitelist()
+@development_only()
 def create_test_schedule(member_name, membership_name=None):
     """Create a test dues schedule for development"""
     try:
@@ -2202,6 +2216,7 @@ def create_test_schedule(member_name, membership_name=None):
 
 
 @frappe.whitelist()
+@development_only()
 def debug_template_daglid_issue():
     """Debug Template-Daglid billing frequency override issue"""
     result = {
@@ -2289,6 +2304,7 @@ def debug_template_daglid_issue():
 
 
 @frappe.whitelist()
+@development_only()
 def test_template_daglid_fix():
     """Test that Template-Daglid billing frequency is preserved during template recreation"""
 
@@ -2422,6 +2438,7 @@ def get_permission_query_conditions(user=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def validate_and_fix_schedule_dates():
     """
     Validate and fix all dues schedule dates to prevent issues like Assoc-Member-2025-07-0030

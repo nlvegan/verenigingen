@@ -5,8 +5,11 @@ import traceback
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def import_mt940_file_auto(file_content, company=None):
     """
     Import MT940 bank statement file with automatic bank account matching.
@@ -207,6 +210,7 @@ def find_bank_account_by_iban(iban, company=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_bank_accounts_for_mt940():
     """
     Get list of available Bank Accounts that can be used for MT940 import.
@@ -228,6 +232,7 @@ def get_bank_accounts_for_mt940():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def preview_mt940_import(file_content):
     """
     Preview MT940 import without actually importing.
@@ -262,6 +267,7 @@ def preview_mt940_import(file_content):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def setup_bank_account_for_mt940(bank_name, account_name, iban, company):
     """
     Helper function to create/setup a Bank Account for MT940 imports.

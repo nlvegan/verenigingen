@@ -3,12 +3,19 @@ from frappe import _
 from frappe.utils import date_diff, today
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
 
 
 class PaymentMixin:
     """Mixin for payment-related functionality"""
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.FINANCIAL)
     def load_payment_history(self):
         """
         Load payment history for this member with focus on invoices.
@@ -69,6 +76,7 @@ class PaymentMixin:
             self._load_payment_history_without_save()
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.FINANCIAL)
     def refresh_payment_entry(self, payment_entry_name):
         """
         Update payment history for a specific payment entry instead of full rebuild
@@ -921,6 +929,7 @@ class PaymentMixin:
         return batch.name
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.FINANCIAL)
     def mark_as_paid(self, payment_date=None, amount=None):
         """Mark membership as paid"""
         if not payment_date:
@@ -1006,6 +1015,7 @@ class PaymentMixin:
             return True
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def refresh_financial_history(self):
         """
         Atomic financial history refresh - adds missing entries without clearing existing data.
@@ -1100,6 +1110,7 @@ class PaymentMixin:
             return 0
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.FINANCIAL)
     def force_full_payment_history_rebuild(self):
         """
         Legacy method for full payment history rebuild - ONLY use when atomic updates fail

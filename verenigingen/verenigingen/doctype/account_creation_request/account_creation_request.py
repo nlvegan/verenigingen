@@ -26,6 +26,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import add_to_date, now
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 
 def safe_log_error(message, title=None):
     """Helper to log errors with length protection"""
@@ -117,6 +119,7 @@ class AccountCreationRequest(Document):
         return False
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.ADMIN)
     def queue_processing(self):
         """Queue this request for background processing"""
         if self.status not in ["Requested", "Failed"]:
@@ -140,6 +143,7 @@ class AccountCreationRequest(Document):
         return {"success": True, "message": _("Account creation request queued for processing")}
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.ADMIN)
     def retry_processing(self):
         """Retry a failed account creation request"""
         if self.status != "Failed":
@@ -246,6 +250,7 @@ class AccountCreationRequest(Document):
         frappe.logger().error(f"Account creation request failed: {self.name} - {error_message}")
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.ADMIN)
     def cancel_request(self, reason=None):
         """Cancel an account creation request"""
         if self.status in ["Completed"]:
@@ -260,6 +265,7 @@ class AccountCreationRequest(Document):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_pending_requests():
     """Get pending account creation requests for admin dashboard"""
     if not frappe.has_permission("Account Creation Request", "read"):
@@ -284,6 +290,7 @@ def get_pending_requests():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def bulk_queue_requests(request_names):
     """Queue multiple account creation requests for processing"""
     if not frappe.has_permission("Account Creation Request", "write"):
@@ -302,6 +309,7 @@ def bulk_queue_requests(request_names):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_request_statistics():
     """Get statistics for account creation requests dashboard"""
     if not frappe.has_permission("Account Creation Request", "read"):

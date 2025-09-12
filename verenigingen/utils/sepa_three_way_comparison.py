@@ -16,6 +16,7 @@ from typing import Any, Dict
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 from verenigingen.verenigingen_payments.utils.frappe_native_sepa_operations_optimized import (
     FrappeNativeSEPAManagerOptimized,
     FrappeNativeSEPAOperation,
@@ -223,6 +224,7 @@ def run_three_way_comparison(operation_count: int = 5) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def run_sepa_three_way_comparison():
     """
     Run comprehensive three-way SEPA implementation comparison

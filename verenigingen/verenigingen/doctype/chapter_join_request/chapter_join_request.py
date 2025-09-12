@@ -6,6 +6,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 
 class ChapterJoinRequest(Document):
     def validate(self):
@@ -266,6 +268,7 @@ class ChapterJoinRequest(Document):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def has_chapter_approval_permission(chapter_name=None, user=None):
     """Check if user has permission to approve/reject requests for a specific chapter"""
     if not chapter_name:
@@ -291,6 +294,7 @@ def has_chapter_approval_permission(chapter_name=None, user=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def approve_join_request(request_name, notes=None):
     """API method to approve a chapter join request with proper permission validation"""
     try:
@@ -311,6 +315,7 @@ def approve_join_request(request_name, notes=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def reject_join_request(request_name, reason=None):
     """API method to reject a chapter join request with proper permission validation"""
     try:
@@ -329,6 +334,7 @@ def reject_join_request(request_name, reason=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_member_chapter_join_requests(member_name):
     """Get all chapter join requests for a specific member"""
     try:
@@ -357,6 +363,7 @@ def get_member_chapter_join_requests(member_name):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_chapter_join_requests(chapter_name):
     """Get all chapter join requests for a specific chapter"""
     try:
@@ -395,6 +402,7 @@ def get_chapter_join_requests(chapter_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def bulk_approve_requests(request_names):
     """Bulk approve multiple chapter join requests"""
     try:

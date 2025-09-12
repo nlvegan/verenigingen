@@ -97,10 +97,18 @@ class MembershipType(Document):
         item.is_service_item = 1
         # Removed: item.is_legacy_item = 1  # Not needed with dues schedule system
 
+        # Get company from Verenigingen Settings instead of global defaults
+        settings = frappe.get_single("Verenigingen Settings")
+        company = (
+            settings.company
+            if settings and settings.company
+            else frappe.defaults.get_global_default("company")
+        )
+
         # Set item defaults
         item.append(
             "item_defaults",
-            {"company": frappe.defaults.get_global_default("company"), "default_warehouse": None},
+            {"company": company, "default_warehouse": None},
         )
 
         item.flags.ignore_mandatory = True

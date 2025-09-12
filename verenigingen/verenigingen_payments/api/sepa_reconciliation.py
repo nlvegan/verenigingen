@@ -66,6 +66,13 @@ import json
 import frappe
 from frappe.utils import add_days, flt, getdate
 
+from verenigingen.api.sepa_duplicate_prevention import (
+    acquire_processing_lock,
+    check_batch_processing_status,
+    create_payment_entry_with_duplicate_check,
+    release_processing_lock,
+    validate_batch_mandates,
+)
 from verenigingen.utils.error_handling import handle_api_error, validate_required_fields
 from verenigingen.utils.migration.migration_performance import BatchProcessor
 from verenigingen.utils.performance_utils import performance_monitor
@@ -74,13 +81,6 @@ from verenigingen.utils.security.authorization import (
     SEPAOperation,
     SEPAPermissionLevel,
     require_sepa_permission,
-)
-from verenigingen.verenigingen_payments.api.sepa_duplicate_prevention import (
-    acquire_processing_lock,
-    check_batch_processing_status,
-    create_payment_entry_with_duplicate_check,
-    release_processing_lock,
-    validate_batch_mandates,
 )
 
 # ========================

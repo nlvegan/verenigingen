@@ -10,6 +10,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import cint, flt, now, now_datetime
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class BulkOperationTracker(Document):
     """DocType for tracking the progress of large bulk operations like account creation."""
@@ -347,6 +349,7 @@ class BulkOperationTracker(Document):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_active_operations():
     """Get list of currently active bulk operations."""
     if not frappe.has_permission("Bulk Operation Tracker", "read"):
@@ -372,6 +375,7 @@ def get_active_operations():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_operation_progress(tracker_name: str) -> Dict:
     """Get detailed progress information for a bulk operation."""
     if not frappe.has_permission("Bulk Operation Tracker", "read"):

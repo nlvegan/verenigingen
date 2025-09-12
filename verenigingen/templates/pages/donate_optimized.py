@@ -407,7 +407,7 @@ def process_mollie_onetime(donation, mollie_gateway):
         # Prepare form data with customer ID for the gateway
         form_data_with_customer = {
             "customer_id": customer_id,
-            "description_override": f"Donation to {frappe.get_value('Company', frappe.defaults.get_global_default('company'), 'company_name')}",
+            "description_override": f"Donation to {frappe.get_single('Verenigingen Settings').company_name or frappe.get_value('Company', frappe.get_single('Verenigingen Settings').company, 'company_name')}",
         }
 
         # Use the gateway's process_payment method instead of create_payment
@@ -462,7 +462,7 @@ def process_mollie_subscription(donation, form_data, mollie_gateway):
         form_data_with_customer = {
             "customer_id": customer_id,
             "subscription_setup": True,  # Tells gateway to set sequenceType: "first"
-            "description_override": f"First payment - recurring donation to {frappe.get_value('Company', frappe.defaults.get_global_default('company'), 'company_name')}",
+            "description_override": f"First payment - recurring donation to {frappe.get_single('Verenigingen Settings').company_name or frappe.get_value('Company', frappe.get_single('Verenigingen Settings').company, 'company_name')}",
             "subscription_interval": form_data.get("recurring_frequency", "1 month"),
             "create_donation_on_success": "true",  # For webhook processing
         }

@@ -63,6 +63,13 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, getdate
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 class Donation(Document):
     def validate(self):
@@ -268,6 +275,7 @@ class Donation(Document):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_donation_from_bank_transfer(donor, amount, date, bank_reference, donation_type=None):
     """Create donation from bank transfer details (payment-first architecture)"""
     if not donation_type:
@@ -304,6 +312,7 @@ def get_donor_by_email(email):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def create_donor_from_donation(donor_name, email, phone=None, donor_type=None):
     """Create a new donor from donation information"""
     if not donor_type:
@@ -328,6 +337,7 @@ def get_company_for_donations():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_sepa_donation(donor, amount, date, sepa_mandate, donation_type=None, recurring_frequency=None):
     """Create donation for SEPA direct debit"""
     if not donation_type:
@@ -364,6 +374,7 @@ def create_mode_of_payment(method):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_anbi_donations_for_reporting(from_date, to_date):
     """Get all ANBI donations requiring Belastingdienst reporting"""
     donations = frappe.get_all(
@@ -385,6 +396,7 @@ def get_anbi_donations_for_reporting(from_date, to_date):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def generate_anbi_agreement_number():
     """Generate next ANBI agreement number"""
     # Get the latest ANBI agreement number
@@ -419,6 +431,7 @@ def generate_anbi_agreement_number():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_donations_by_chapter(chapter, from_date=None, to_date=None):
     """Get all donations earmarked for a specific chapter"""
     filters = {"chapter_reference": chapter, "donation_purpose_type": "Chapter", "docstatus": 1}
@@ -446,6 +459,7 @@ def get_donations_by_chapter(chapter, from_date=None, to_date=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_donations_by_campaign(campaign, from_date=None, to_date=None):
     """Get all donations for a specific campaign"""
     filters = {"campaign": campaign, "donation_purpose_type": "Campaign", "docstatus": 1}
@@ -473,6 +487,7 @@ def get_donations_by_campaign(campaign, from_date=None, to_date=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_donation_summary_by_purpose(from_date=None, to_date=None):
     """Get donation summary grouped by purpose type"""
     filters = {"docstatus": 1}
@@ -532,6 +547,7 @@ def get_donation_summary_by_purpose(from_date=None, to_date=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_chapter_donation(donor, amount, chapter, date=None, donation_type=None, notes=None):
     """Create a donation earmarked for a specific chapter"""
     if not frappe.db.exists("Chapter", chapter):
@@ -559,6 +575,7 @@ def create_chapter_donation(donor, amount, chapter, date=None, donation_type=Non
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_donation_accounting_summary(from_date=None, to_date=None):
     """Get donation accounting summary with GL account details"""
     filters = {"docstatus": 1, "paid": 1}
@@ -606,6 +623,7 @@ def get_donation_accounting_summary(from_date=None, to_date=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def reconcile_donation_accounts():
     """Reconcile donation amounts with GL entries"""
     # Get all paid donations
@@ -658,6 +676,7 @@ def reconcile_donation_accounts():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def create_donation_allocation_report(chapter=None, from_date=None, to_date=None):
     """Create detailed allocation report for chapter or overall donations"""
     filters = {"docstatus": 1}

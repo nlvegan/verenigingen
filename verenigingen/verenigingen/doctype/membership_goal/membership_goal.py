@@ -11,6 +11,7 @@ from frappe.utils import flt, getdate, now_datetime
 
 from verenigingen.utils.api_response import api_response_handler
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.validation_utilities import DateRangeValidator, QueryBuilder
 
 
@@ -249,6 +250,7 @@ class MembershipGoal(Document):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 @api_response_handler
 def update_all_goals() -> str:
     """Update achievement for all active goals"""

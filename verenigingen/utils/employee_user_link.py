@@ -151,7 +151,7 @@ def create_employee_for_approved_volunteer(volunteer_doc):
                 "first_name": first_name,
                 "last_name": last_name,
                 "personal_email": volunteer_doc.email,
-                "company": frappe.defaults.get_defaults().get("company") or "Vereniging Veganisme",
+                "company": frappe.get_single("Verenigingen Settings").company,
                 "employee_name": f"{first_name} {last_name}",
                 "status": "Active",
                 "employment_type": "Volunteer",

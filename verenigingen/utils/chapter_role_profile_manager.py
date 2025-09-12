@@ -26,6 +26,7 @@ from verenigingen.utils.base_role_profile_manager import (
     _is_system_operation_authorized,
     safe_hook_execution,
 )
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 # Chapter-specific configuration
 CHAPTER_CONFIG = EntityConfig(
@@ -135,6 +136,7 @@ def determine_role_profile_for_board_member(chapter_name, board_role=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def assign_chapter_board_role_profile(user, chapter_name, board_role=None):
     """
     Assign role profile when user joins a chapter board
@@ -151,6 +153,7 @@ def assign_chapter_board_role_profile(user, chapter_name, board_role=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def remove_chapter_board_role_profile(user, chapter_name, board_role=None):
     """
     Remove role profile when user leaves a chapter board
@@ -167,6 +170,7 @@ def remove_chapter_board_role_profile(user, chapter_name, board_role=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def bulk_assign_chapter_board_role_profiles(chapter_name):
     """
     Bulk assign role profiles to all existing board members of a chapter
@@ -176,6 +180,7 @@ def bulk_assign_chapter_board_role_profiles(chapter_name):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_chapter_board_role_profile_mapping():
     """Get the current chapter board to role profile mapping for admin reference"""
     mapping = {}

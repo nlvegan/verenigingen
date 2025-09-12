@@ -11,8 +11,11 @@ def get_context(context):
 
     context.title = _("Import MT940 Bank Statement")
 
-    # Get available bank accounts for selection
-    company = frappe.defaults.get_user_default("Company") or frappe.get_all("Company", limit=1)[0].name
+    # Get company from Verenigingen Settings
+    settings = frappe.get_single("Verenigingen Settings")
+    if not settings.company:
+        frappe.throw(_("Company not configured in Verenigingen Settings"))
+    company = settings.company
 
     bank_accounts = frappe.get_all(
         "Bank Account",

@@ -9,6 +9,12 @@ import frappe
 from frappe.utils import add_days, add_months, add_years, getdate, today
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
 
 
 def _calculate_next_invoice_date(billing_frequency):
@@ -537,6 +543,7 @@ def send_summary_email(created_count, error_count, total_found):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def preview_missing_dues_schedules():
     """Preview members who would get dues schedules created (for testing)"""
     members_without_schedules = frappe.db.sql(
@@ -569,6 +576,7 @@ def preview_missing_dues_schedules():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def run_auto_creation_manually():
     """Allow administrators to run the auto-creation manually"""
     if not frappe.has_permission("Membership Dues Schedule", "create"):
@@ -578,12 +586,14 @@ def run_auto_creation_manually():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def auto_create_missing_dues_schedules(preview_mode=False, send_emails=True):
     """Web interface version that matches the expected signature"""
     return auto_create_missing_dues_schedules_enhanced(preview_mode=preview_mode, send_emails=send_emails)
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=True):
     """Enhanced version that supports preview mode and returns detailed results"""
     if not frappe.has_permission("Membership Dues Schedule", "create"):
@@ -815,6 +825,7 @@ def _send_summary_email(result):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_members_without_dues_schedules():
     """Get list of members without active dues schedules"""
     if not frappe.has_permission("Membership Dues Schedule", "create"):
@@ -847,6 +858,7 @@ def get_members_without_dues_schedules():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_dues_schedule_retry_queue_status():
     """Get status of the dues schedule retry queue for administrators"""
     if not frappe.has_permission("Membership Dues Schedule", "create"):
@@ -888,6 +900,7 @@ def get_dues_schedule_retry_queue_status():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def clear_dues_schedule_retry_queue(member_name=None):
     """Clear retry queue items (all or specific member) - admin only"""
     if not frappe.has_permission("System Manager"):
@@ -911,6 +924,7 @@ def clear_dues_schedule_retry_queue(member_name=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def manually_process_retry_queue():
     """Manually trigger retry queue processing - admin only"""
     if not frappe.has_permission("Membership Dues Schedule", "create"):
@@ -933,6 +947,7 @@ def manually_process_retry_queue():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_dues_schedules_for_members(members, send_emails=False):
     """Create dues schedules for specific members"""
     if not frappe.has_permission("Membership Dues Schedule", "create"):

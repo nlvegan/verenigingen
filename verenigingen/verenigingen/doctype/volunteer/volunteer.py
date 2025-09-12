@@ -67,6 +67,8 @@ from frappe.utils import getdate, today
 from verenigingen.utils.dutch_name_utils import format_dutch_full_name, is_dutch_installation
 from verenigingen.utils.error_handling import cache_with_ttl
 from verenigingen.utils.member_utils import get_volunteer_for_member
+from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
@@ -236,6 +238,7 @@ class Volunteer(Document):
         return self.name
 
     @frappe.whitelist()
+    @standard_api(operation_type=OperationType.UTILITY)
     def get_aggregated_assignments(self):
         """Get aggregated assignments from all sources with optimized single query"""
         try:
@@ -530,6 +533,7 @@ class Volunteer(Document):
         return activity_assignments
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.MEMBER_DATA)
     def add_activity(
         self,
         activity_type,
@@ -588,6 +592,7 @@ class Volunteer(Document):
             frappe.throw(_("An error occurred while creating the activity"))
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.MEMBER_DATA)
     def end_activity(self, activity_name, end_date=None, notes=None):
         """End a volunteer activity"""
         try:
@@ -624,6 +629,7 @@ class Volunteer(Document):
             frappe.throw(_("An error occurred while ending the activity"))
 
     @frappe.whitelist()
+    @standard_api(operation_type=OperationType.REPORTING)
     def get_volunteer_history(self):
         """Get volunteer history in chronological order with optimized single query"""
         try:
@@ -861,6 +867,7 @@ class Volunteer(Document):
         return bool(result)
 
     @frappe.whitelist()
+    @standard_api(operation_type=OperationType.UTILITY)
     def get_skills_by_category(self):
         """Get volunteer skills grouped by category"""
         skills_by_category = {}
@@ -881,6 +888,7 @@ class Volunteer(Document):
         return skills_by_category
 
     @frappe.whitelist()
+    @standard_api(operation_type=OperationType.REPORTING)
     def calculate_total_hours(self):
         """Calculate total volunteer hours from all activities and assignments"""
         total_hours = 0
@@ -1008,7 +1016,19 @@ class Volunteer(Document):
 
         if "Expense Approver" not in [r.role for r in user.roles]:
             user.append("roles", {"role": "Expense Approver"})
-            user.save(ignore_permissions=True)
+
+            # Use secure document operation instead of permission bypass
+            result = secure_document_operation(
+                operation="save",
+                doc=user,
+                justification="Adding Expense Approver role for volunteer expense management",
+                required_permissions=["User:write", "Role:assign"],
+            )
+
+            if not result.success:
+                frappe.throw(
+                    _("Failed to assign Expense Approver role: {0}").format("; ".join(result.errors))
+                )
 
     # Removed assign_employee_role method - now handled by secure AccountCreationManager
 
@@ -1085,6 +1105,7 @@ class Volunteer(Document):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def create_from_member(member):
     """Wrapper function for JavaScript compatibility
 
@@ -1098,6 +1119,7 @@ def create_from_member(member):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def create_volunteer_from_member(member_name, volunteer_name=None, status="New", interested_skills=None):
     """Create a volunteer record from an existing member
 
@@ -1239,6 +1261,7 @@ def create_volunteer_from_member(member_name, volunteer_name=None, status="New",
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def search_volunteers_by_skill(skill_name, category=None, min_level=None):
     """Search volunteers by specific skill
 
@@ -1289,6 +1312,7 @@ def search_volunteers_by_skill(skill_name, category=None, min_level=None):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.PUBLIC)
 def get_all_skills_list():
     """Get unique list of all skills for autocomplete and overview - cached for performance
 
@@ -1360,6 +1384,7 @@ def _get_all_skills_list_cached():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.PUBLIC)
 def get_skill_suggestions(partial_skill):
     """Get skill suggestions for autocomplete
 
@@ -1391,6 +1416,7 @@ def get_skill_suggestions(partial_skill):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_volunteers_with_filters(category=None, skill=None, min_level=None, max_results=50):
     """Get volunteers with skill-based filters
 
@@ -1452,6 +1478,7 @@ def get_volunteers_with_filters(category=None, skill=None, min_level=None, max_r
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_skill_insights():
     """Get skill insights for dashboard
 

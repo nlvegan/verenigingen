@@ -49,7 +49,12 @@ from verenigingen.utils.dutch_name_utils import (
 )
 from verenigingen.utils.member_utils import get_volunteer_for_member
 from verenigingen.utils.safe_member_optimizer import safe_member_optimizer
-from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
 from verenigingen.utils.security_decorators import development_only
 from verenigingen.verenigingen.doctype.member.member_id_manager import validate_member_id_change
 from verenigingen.verenigingen.doctype.member.mixins.chapter_mixin import ChapterMixin
@@ -1079,6 +1084,7 @@ class Member(
             return 0
 
     @frappe.whitelist()
+    @standard_api(operation_type=OperationType.UTILITY)
     def update_membership_duration(self):
         """Update the total membership days and human-readable duration"""
         try:
@@ -1579,6 +1585,7 @@ class Member(
             return {"error": str(e)}
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.MEMBER_DATA)
     def get_other_members_at_address(self):
         """Get other members living at the same address using optimized O(log N) matching"""
         try:
@@ -1664,6 +1671,7 @@ class Member(
             return 0
 
     @frappe.whitelist()
+    @standard_api(operation_type=OperationType.ADMIN)
     def force_update_membership_duration(self):
         """Force update membership duration - can be called manually to update the field"""
         try:
@@ -1689,6 +1697,7 @@ class Member(
                 delattr(self, "_force_duration_update")
 
     @frappe.whitelist()
+    @standard_api(operation_type=OperationType.FINANCIAL)
     def get_current_membership_fee(self):
         """Get current effective membership fee for this member"""
         if self.dues_rate:
@@ -1720,6 +1729,7 @@ class Member(
         return {"amount": 0, "source": "none"}
 
     @frappe.whitelist()
+    @standard_api(operation_type=OperationType.FINANCIAL)
     def get_display_membership_fee(self):
         """Get membership fee for display with amendment status"""
         current_fee = self.get_current_membership_fee()
@@ -1803,6 +1813,7 @@ class Member(
             return None
 
     @frappe.whitelist()
+    @standard_api(operation_type=OperationType.ADMIN)
     def force_update_chapter_display(self):
         """Force update chapter display - useful for fixing display issues"""
         self._chapter_assignment_in_progress = True
@@ -1815,6 +1826,7 @@ class Member(
         }
 
     @frappe.whitelist()
+    @development_only()
     def debug_chapter_assignment(self):
         """Debug chapter assignment for this member"""
         # Check chapter memberships in Chapter Member table
@@ -2368,6 +2380,7 @@ class Member(
         return removed_count + updated_count + added_count
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def incremental_update_history_tables(self):
         """
         Incremental update of both donation and volunteer expense history tables.
@@ -2522,6 +2535,7 @@ class Member(
 
 
 @frappe.whitelist()
+@development_only()
 def test_incremental_update_method():
     """Test function to validate incremental_update_history_tables method exists"""
     try:
@@ -2543,6 +2557,7 @@ def test_incremental_update_method():
 
 
 @frappe.whitelist()
+@development_only()
 def test_payment_status_detection():
     """Test function to verify payment status detection in lightweight expense entry builder"""
     try:
@@ -2607,6 +2622,7 @@ def test_payment_status_detection():
 
 
 @frappe.whitelist()
+@development_only()
 def test_incremental_update_result():
     """Test function to check incremental update results"""
     try:
@@ -2638,6 +2654,7 @@ def test_incremental_update_result():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.PUBLIC)
 def is_chapter_management_enabled():
     """Check if chapter management is enabled in settings"""
     from verenigingen.verenigingen.doctype.member.member_utils import (
@@ -2648,6 +2665,7 @@ def is_chapter_management_enabled():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_board_memberships(member_name):
     """Get board memberships for a member"""
     from verenigingen.verenigingen.doctype.member.member_utils import get_board_memberships
@@ -2759,6 +2777,7 @@ def handle_fee_override_after_save(doc, method=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_linked_donations(member):
     """
     Find linked donor record for a member to view donations
@@ -2788,6 +2807,7 @@ def get_linked_donations(member):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def assign_member_id(member_name):
     """
     Manually assign a member ID to a member who doesn't have one yet.
@@ -2841,6 +2861,7 @@ def assign_member_id(member_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def validate_mandate_creation(member, iban, mandate_id):
     """Validate mandate creation parameters and check for existing mandates"""
     try:
@@ -2881,6 +2902,7 @@ def validate_mandate_creation(member, iban, mandate_id):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def derive_bic_from_iban(iban):
     """Derive BIC code from IBAN"""
     try:
@@ -2896,6 +2918,7 @@ def derive_bic_from_iban(iban):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def deactivate_old_sepa_mandates(member, new_iban):
     """Deactivate old SEPA mandates when IBAN changes"""
     try:
@@ -2941,6 +2964,7 @@ def deactivate_old_sepa_mandates(member, new_iban):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def refresh_sepa_mandates(member):
     """Refresh the SEPA mandates child table by syncing with actual SEPA Mandate records"""
     try:
@@ -2954,6 +2978,7 @@ def refresh_sepa_mandates(member):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_active_sepa_mandate(member, iban=None):
     """Get active SEPA mandate for a member"""
     try:
@@ -2978,6 +3003,7 @@ def get_active_sepa_mandate(member, iban=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def assign_missing_member_ids():
     """Assign member IDs to all members who should have them but don't"""
     members_without_ids = frappe.get_all(
@@ -3005,6 +3031,7 @@ def assign_missing_member_ids():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_and_link_mandate_enhanced(
     member,
     mandate_id,
@@ -3140,6 +3167,7 @@ def create_and_link_mandate_enhanced(
 
 
 @frappe.whitelist()
+@development_only()
 def debug_member_id_assignment(member_name):
     """Debug why member ID assignment is failing"""
     try:
@@ -3164,6 +3192,7 @@ def debug_member_id_assignment(member_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def create_member_user_account(member_name, send_welcome_email=True):
     """Create a user account for a member to access portal pages"""
     try:
@@ -3440,6 +3469,7 @@ def set_member_user_modules(user_name):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def check_donor_exists(member_name):
     """Check if a donor record exists for this member"""
     try:
@@ -3462,6 +3492,7 @@ def check_donor_exists(member_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_donor_from_member(member_name):
     """Create a donor record from member information"""
     try:
@@ -3666,6 +3697,7 @@ def create_donor_from_member(member_name):
             )
 
     @frappe.whitelist()
+    @development_only()
     def debug_address_members(self):
         """Debug method to test address members functionality"""
         try:
@@ -3711,6 +3743,7 @@ def create_donor_from_member(member_name):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_member_current_chapters(member_name):
     """Get current chapters for a member - safe for client calls"""
     if not member_name:
@@ -3730,6 +3763,7 @@ def get_member_current_chapters(member_name):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_member_chapter_names(member_name):
     """Get simple list of chapter names for a member"""
     if not member_name:
@@ -3744,6 +3778,7 @@ def get_member_chapter_names(member_name):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_member_chapter_display_html(member_name):
     """Get HTML display of member's chapters"""
     if not member_name:
@@ -3776,6 +3811,7 @@ def get_member_chapter_display_html(member_name):
 
 
 @frappe.whitelist()
+@development_only()
 def test_dues_schedule_query(member_name):
     """Test the exact query used in JavaScript"""
     try:
@@ -3792,6 +3828,7 @@ def test_dues_schedule_query(member_name):
 
 
 @frappe.whitelist()
+@development_only()
 def debug_button_conditions(member_name):
     """Debug what buttons should appear for a member"""
     try:
@@ -3840,6 +3877,7 @@ def debug_button_conditions(member_name):
 
 
 @frappe.whitelist()
+@development_only()
 def debug_member_status(member_name):
     """Debug member status for button investigation"""
     try:
@@ -3858,6 +3896,7 @@ def debug_member_status(member_name):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def sync_member_dues_rate(member_name):
     """Sync member's dues_rate field with their active dues schedule"""
     try:
@@ -3887,6 +3926,7 @@ def sync_member_dues_rate(member_name):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_current_dues_schedule_details(member):
     """Get current dues schedule details for a member"""
     try:
@@ -3929,6 +3969,7 @@ def get_current_dues_schedule_details(member):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def refresh_fee_change_history(member_name):
     """Refresh fee change history from dues schedules using smart detection (atomic approach)"""
     try:
@@ -4033,6 +4074,7 @@ def refresh_fee_change_history(member_name):
 
 
 @frappe.whitelist()
+@development_only()
 def test_amendment_filtering():
     """Test the new amendment filtering logic"""
 
@@ -4085,6 +4127,7 @@ def test_amendment_filtering():
 
 
 @frappe.whitelist()
+@development_only()
 def test_automatic_fee_history_update(member_name="Assoc-Member-2025-07-0017"):
     """Test that fee change history updates automatically when dues schedules are modified"""
 
@@ -4157,6 +4200,7 @@ def test_automatic_fee_history_update(member_name="Assoc-Member-2025-07-0017"):
 
 
 @frappe.whitelist()
+@development_only()
 def test_fee_history_functionality(member_name="Assoc-Member-2025-07-0030"):
     """Test function to validate fee change history functionality"""
     try:
@@ -4200,6 +4244,7 @@ def test_fee_history_functionality(member_name="Assoc-Member-2025-07-0030"):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_existing_member_workflow_status():
     """Fix application_status for existing active members who shouldn't be in workflow states"""
     try:

@@ -3,6 +3,7 @@ from frappe import _
 from frappe.utils import today
 
 from verenigingen.utils.constants import PaymentStatus
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
 def sync_membership_with_dues_schedule(membership_doc):
@@ -243,6 +244,7 @@ def get_member_bank_details(member_name):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_unpaid_membership_invoices():
     """
     Get all unpaid invoices related to memberships
@@ -336,6 +338,7 @@ def get_unpaid_membership_invoices():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def add_to_direct_debit_batch(membership_name):
     """
     Add a membership to a direct debit batch

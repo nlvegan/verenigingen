@@ -61,6 +61,12 @@ from frappe.utils import getdate, now, today
 from frappe.website.website_generator import WebsiteGenerator
 
 from verenigingen.utils.error_handling import handle_api_error, log_error
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
 
 # Import managers and validators
 from .managers import BoardManager, CommunicationManager, MemberManager, VolunteerIntegrationManager
@@ -201,36 +207,43 @@ class Chapter(WebsiteGenerator):
     # ========================================================================
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.ADMIN)
     def add_board_member(self, volunteer, role, from_date=None, to_date=None):
         """Add a new board member - delegates to BoardManager"""
         return self.board_manager.add_board_member(volunteer, role, from_date, to_date)
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.ADMIN)
     def remove_board_member(self, volunteer, end_date=None):
         """Remove a board member - delegates to BoardManager"""
         return self.board_manager.remove_board_member(volunteer, end_date)
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.ADMIN)
     def transition_board_role(self, volunteer, new_role, transition_date=None):
         """Transition a board member's role - delegates to BoardManager"""
         return self.board_manager.transition_board_role(volunteer, new_role, transition_date)
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.ADMIN)
     def bulk_remove_board_members(self, board_members):
         """Bulk remove board members - delegates to BoardManager"""
         return self.board_manager.bulk_remove_board_members(board_members)
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.ADMIN)
     def bulk_deactivate_board_members(self, board_members):
         """Bulk deactivate board members - delegates to BoardManager"""
         return self.board_manager.bulk_deactivate_board_members(board_members)
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def sync_board_members(self):
         """Sync board members with volunteer system - delegates to VolunteerIntegrationManager"""
         return self.volunteer_integration_manager.sync_board_members_with_volunteer_system()
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def update_volunteer_assignment_history(self, volunteer_id, role, start_date, end_date):
         """Update volunteer assignment history - delegates to BoardManager"""
         return self.board_manager.update_volunteer_assignment_history(
@@ -315,6 +328,7 @@ class Chapter(WebsiteGenerator):
         return self.member_manager.get_members(include_disabled, with_details=True)
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.ADMIN)
     def bulk_add_members(self, member_data_list):
         """Bulk add members - delegates to MemberManager"""
         return self.member_manager.bulk_add_members(member_data_list)
@@ -332,6 +346,7 @@ class Chapter(WebsiteGenerator):
         self.communication_manager.notify_board_member_removed(volunteer)
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.ADMIN)
     def send_chapter_newsletter(self, subject, content, recipient_filter="all"):
         """Send newsletter - delegates to CommunicationManager"""
         return self.communication_manager.send_chapter_newsletter(subject, content, recipient_filter)
@@ -345,6 +360,7 @@ class Chapter(WebsiteGenerator):
     # ========================================================================
 
     @frappe.whitelist()
+    @standard_api(operation_type=OperationType.UTILITY)
     def validate_postal_codes(self):
         """Validate postal codes"""
         try:
@@ -762,6 +778,7 @@ def get_user_accessible_chapters_optimized(user):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def leave(title, member_id, leave_reason):
     """Leave a chapter"""
     try:
@@ -779,6 +796,7 @@ def leave(title, member_id, leave_reason):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_board_memberships(member_name):
     """Get board memberships for a member"""
     try:
@@ -853,6 +871,7 @@ def get_board_memberships(member_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def remove_from_board(chapter_name, member_name, end_date=None):
     """Remove a member from the board"""
     try:
@@ -870,6 +889,7 @@ def remove_from_board(chapter_name, member_name, end_date=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_chapter_board_history(chapter_name):
     """Get complete board history for a chapter"""
     try:
@@ -911,6 +931,7 @@ def get_chapter_board_history(chapter_name):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_chapter_stats(chapter_name):
     """Get statistics for a chapter"""
     try:
@@ -928,6 +949,7 @@ def get_chapter_stats(chapter_name):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.PUBLIC)
 def get_chapters_by_postal_code(postal_code):
     """Get chapters that match a postal code"""
     if not postal_code:
@@ -951,6 +973,7 @@ def get_chapters_by_postal_code(postal_code):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def suggest_chapters_for_member(member, postal_code=None, state=None, city=None):
     """Suggest appropriate chapters for a member based on location data"""
     if not is_chapter_management_enabled():
@@ -1026,6 +1049,7 @@ def suggest_chapters_for_member(member, postal_code=None, state=None, city=None)
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def suggest_chapter_for_member(member_name, postal_code=None, state=None, city=None):
     """Legacy function - calls the new suggest_chapters_for_member"""
     return suggest_chapters_for_member(member_name, postal_code, state, city)
@@ -1040,6 +1064,7 @@ def is_chapter_management_enabled():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def assign_member_to_chapter(member, chapter, note=None):
     """Assign a member to a chapter"""
     if not member or not chapter:
@@ -1112,6 +1137,7 @@ def assign_member_to_chapter(member, chapter, note=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def join_chapter(member_name, chapter_name, introduction=None, website_url=None):
     """Web method for a member to join a chapter via portal"""
     # Use centralized chapter membership manager for consistency
@@ -1129,6 +1155,7 @@ def join_chapter(member_name, chapter_name, introduction=None, website_url=None)
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def leave_chapter(member_name, chapter_name, leave_reason=None):
     """Web method for a member to leave a chapter via portal"""
     # Use centralized chapter membership manager for consistency
@@ -1148,6 +1175,7 @@ def leave_chapter(member_name, chapter_name, leave_reason=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def assign_member_to_chapter_with_cleanup(member, chapter, note=None):
     """Assign a member to a chapter with automatic cleanup of existing memberships"""
     if not member or not chapter:
@@ -1261,6 +1289,7 @@ def assign_member_to_chapter_with_cleanup(member, chapter, note=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_board_role_profile_preview(chapter_name):
     """Get preview of which role profiles would be assigned to chapter board members"""
     if not chapter_name or not frappe.db.exists("Chapter", chapter_name):
@@ -1315,6 +1344,7 @@ def get_board_role_profile_preview(chapter_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def bulk_apply_chapter_board_role_profiles(chapter_name):
     """Apply role profiles to all current chapter board members based on chapter configuration"""
     from verenigingen.utils.chapter_role_profile_manager import bulk_assign_chapter_board_role_profiles

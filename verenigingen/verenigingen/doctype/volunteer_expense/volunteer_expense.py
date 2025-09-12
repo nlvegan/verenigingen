@@ -108,7 +108,10 @@ class VolunteerExpense(Document):
     def set_company_default(self):
         """Set default company if not specified"""
         if not self.company:
-            self.company = frappe.defaults.get_global_default("company")
+            settings = frappe.get_single("Verenigingen Settings")
+            if not settings.company:
+                frappe.throw(_("Company not configured in Verenigingen Settings"))
+            self.company = settings.company
 
     def on_submit(self):
         """Actions on submit"""

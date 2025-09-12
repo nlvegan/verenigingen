@@ -10,6 +10,14 @@ import json
 import frappe
 from frappe.utils import add_to_date, now
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+from verenigingen.utils.security_decorators import development_only
+
 
 class AlertManager:
     """Central alert management system"""
@@ -277,6 +285,7 @@ class AlertManager:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def check_critical_errors():
     """Send immediate alerts for critical errors"""
     try:
@@ -296,6 +305,7 @@ def check_critical_errors():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def run_hourly_checks():
     """Run hourly alert checks"""
     try:
@@ -311,6 +321,7 @@ def run_hourly_checks():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def run_daily_checks():
     """Run daily alert checks and reports"""
     try:
@@ -324,6 +335,7 @@ def run_daily_checks():
 
 
 @frappe.whitelist()
+@development_only()
 def test_alert_system():
     """Test the alert system with a sample alert"""
     try:
@@ -341,6 +353,7 @@ def test_alert_system():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_alert_statistics():
     """Get alert statistics for dashboard"""
     try:

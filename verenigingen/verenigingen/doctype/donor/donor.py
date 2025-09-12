@@ -10,6 +10,8 @@ from frappe.model.document import Document
 from frappe.utils import cstr, validate_email_address
 from frappe.utils.password import decrypt, encrypt
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class Donor(Document):
     def onload(self):
@@ -906,6 +908,7 @@ class Donor(Document):
             return {}
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def refresh_customer_sync(self):
         """Manual refresh of customer synchronization"""
         self.flags.ignore_customer_sync = False

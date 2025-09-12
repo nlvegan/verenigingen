@@ -17,6 +17,7 @@ Key Features:
 import frappe
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 def update_membership_permissions():
@@ -342,6 +343,7 @@ def validate_permission_security():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def setup_chapter_board_permissions():
     """
     Main function to set up all Chapter Board Member permissions
@@ -387,6 +389,7 @@ def setup_chapter_board_permissions():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def reset_chapter_board_permissions():
     """
     Reset Chapter Board Member permissions to default state

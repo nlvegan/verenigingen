@@ -6,6 +6,8 @@ Provides fine-grained permission control for chapter operations
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 def get_user_manageable_chapters(user=None):
     """
@@ -134,6 +136,7 @@ def filter_applications_by_permission(applications, user=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_user_chapter_permissions():
     """
     API endpoint to get current user's chapter management permissions

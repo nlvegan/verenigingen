@@ -6,10 +6,10 @@ class DepartmentHierarchyManager:
     """Manages department hierarchy for expense approval alignment with ERPNext"""
 
     def __init__(self):
-        self.company = frappe.defaults.get_global_default("company")
-        if not self.company:
-            companies = frappe.get_all("Company", limit=1)
-            self.company = companies[0].name if companies else None
+        settings = frappe.get_single("Verenigingen Settings")
+        if not settings.company:
+            frappe.throw(_("Company not configured in Verenigingen Settings"))
+        self.company = settings.company
 
     def setup_association_departments(self):
         """Create complete department structure mirroring association hierarchy"""

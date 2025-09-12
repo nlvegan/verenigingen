@@ -517,10 +517,10 @@
   },
   {
    "default": "0",
-   "description": "Automatically place members in grace period when payments are overdue",
+   "description": "Automatically suspend members after consecutive payment failures (after grace period expires). When disabled, members remain in extended grace period indefinitely.",
    "fieldname": "grace_period_auto_apply",
    "fieldtype": "Check",
-   "label": "Automatically Apply Grace Period"
+   "label": "Enable Automatic Member Suspension"
   },
   {
    "default": "7",
