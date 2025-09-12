@@ -8,6 +8,7 @@ to identify specific optimization opportunities without compromising business lo
 import frappe
 from frappe.utils import now_datetime
 import time
+from verenigingen.utils.security_decorators import development_only
 
 
 class MemberPerformanceAnalyzer:
@@ -216,6 +217,7 @@ class MemberPerformanceAnalyzer:
 
 # Utility function for easy execution
 @frappe.whitelist()
+@development_only()
 def analyze_member_performance():
     """API endpoint for Member performance analysis."""
     analyzer = MemberPerformanceAnalyzer()

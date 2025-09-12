@@ -11,7 +11,12 @@ from verenigingen.utils.migration.migration_performance import BatchProcessor
 from verenigingen.utils.performance_utils import performance_monitor
 
 # Import security decorators
-from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
 
 
 def validate_member_exists(member_id: str | None) -> str:
@@ -147,6 +152,7 @@ def get_payment_method(member=None):
 
 @handle_api_error
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_payment_history(member=None, year=None, status=None, **kwargs):
     """Get payment history for member"""
     # Get actual member ID
@@ -284,6 +290,7 @@ def get_payment_history(member=None, year=None, status=None, **kwargs):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_mandate_history(member=None):
     """Get SEPA mandate history"""
     # Get actual member ID
@@ -322,6 +329,7 @@ def get_mandate_history(member=None):
 
 @handle_api_error
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_payment_schedule(member=None):
     """Get upcoming payment schedule"""
     # Get actual member ID
@@ -382,6 +390,7 @@ def get_payment_schedule(member=None):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_next_payment(member=None):
     """Get next scheduled payment"""
     # Get actual member ID
@@ -403,6 +412,7 @@ def get_next_payment(member=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def retry_failed_payment(invoice_id):
     """Manually trigger payment retry"""
     invoice = frappe.get_doc("Sales Invoice", invoice_id)
@@ -440,6 +450,7 @@ def retry_failed_payment(invoice_id):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def download_payment_receipt(payment_id):
     """Generate payment receipt PDF"""
     payment = frappe.get_doc("Payment Entry", payment_id)
@@ -460,6 +471,7 @@ def download_payment_receipt(payment_id):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def export_payment_history_csv(year=None):
     """Export payment history as CSV"""
     member = get_member_from_user()

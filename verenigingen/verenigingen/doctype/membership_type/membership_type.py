@@ -3,9 +3,9 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt
 
-from verenigingen.utils.validation_utilities import DocumentExistenceValidator
-
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
 class MembershipType(Document):
@@ -228,7 +228,9 @@ class MembershipType(Document):
         """
         # First, check if fixture template exists (preferred pattern)
         fixture_template_name = f"{self.membership_type_name} Template"
-        if DocumentExistenceValidator.check_document_exists("Membership Dues Schedule", fixture_template_name):
+        if DocumentExistenceValidator.check_document_exists(
+            "Membership Dues Schedule", fixture_template_name
+        ):
             # Update membership type to use fixture template
             if self.dues_schedule_template != fixture_template_name:
                 frappe.db.set_value(
@@ -283,6 +285,7 @@ class MembershipType(Document):
         return template.name
 
     @frappe.whitelist()
+    @standard_api(operation_type=OperationType.MEMBER_DATA)
     def get_dues_schedule_template(self):
         """Get the dues schedule template for this membership type"""
         if self.dues_schedule_template:
@@ -306,6 +309,7 @@ class MembershipType(Document):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_membership_contribution_options(membership_type_name):
     """Get contribution options for a specific membership type"""
     membership_type = frappe.get_doc("Membership Type", membership_type_name)
@@ -313,6 +317,7 @@ def get_membership_contribution_options(membership_type_name):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_template_query():
     """Query function for dues schedule template filter"""
     return {"filters": [["Membership Dues Schedule", "is_template", "=", 1]]}

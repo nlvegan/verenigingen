@@ -72,8 +72,8 @@ from verenigingen.utils.security.authorization import require_role
 from verenigingen.utils.security.rate_limiting import rate_limit
 
 
-@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def validate_workspace_comprehensive(workspace_name: str = "Verenigingen") -> Dict:
     """
     Comprehensive workspace validation for pre-commit hooks
@@ -343,8 +343,8 @@ class WorkspaceValidator:
         }
 
 
-@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def validate_specific_workspace(workspace_name: str) -> Dict:
     """Validate a specific workspace by name"""
     # Log this sensitive operation
@@ -361,8 +361,8 @@ def validate_specific_workspace(workspace_name: str) -> Dict:
     return validator.validate_all()
 
 
-@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def run_workspace_pre_commit_check():
     """
     Pre-commit specific workspace validation

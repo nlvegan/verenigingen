@@ -34,8 +34,6 @@ Target Users:
 import frappe
 from frappe import _
 
-from verenigingen.utils.security_decorators import development_only
-
 no_cache = 1
 
 
@@ -144,7 +142,6 @@ def generate_test_members_from_onboarding():
 
 
 @frappe.whitelist()
-@development_only()
 def cleanup_test_data():
     """
     Remove test members and associated data for clean development environments.

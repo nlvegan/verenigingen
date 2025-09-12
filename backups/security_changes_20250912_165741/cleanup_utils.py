@@ -10,7 +10,6 @@ import json
 import frappe
 
 from verenigingen.e_boekhouden.utils.security_helper import migration_context
-from verenigingen.utils.security_decorators import development_only
 
 
 @frappe.whitelist()
@@ -91,7 +90,6 @@ def cleanup_chart_of_accounts(company, delete_all_accounts=0):
 
 
 @frappe.whitelist()
-@development_only()
 def test_cleanup_small_batch():
     """Test cleanup on a small batch of documents to verify fix"""
     try:

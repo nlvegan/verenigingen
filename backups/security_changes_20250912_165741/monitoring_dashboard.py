@@ -22,7 +22,6 @@ from frappe.utils import add_to_date, now
 
 from verenigingen.api.security_monitoring_dashboard import get_security_dashboard_data
 from verenigingen.utils.security.security_monitoring import get_security_monitor
-from verenigingen.utils.security_decorators import development_only
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
@@ -1407,7 +1406,6 @@ def generate_comprehensive_summary(results):
 
 
 @frappe.whitelist()
-@development_only()
 def cleanup_test_data():
     """Clean up test data created during comprehensive tests"""
     frappe.set_user("Administrator")

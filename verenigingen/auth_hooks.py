@@ -72,6 +72,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.member_utils import get_member_name_for_user, get_volunteer_name_for_user
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 from verenigingen.utils.security_wrappers import safe_get_roles
 
 # REMOVED: validate_session_before_request function (August 21, 2025)
@@ -247,6 +248,7 @@ def get_default_home_page(user=None):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_member_home_page():
     """
     API method to get the home page for the current user

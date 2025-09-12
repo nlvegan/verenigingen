@@ -3,6 +3,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.validation_utilities import DateRangeValidator
 
 
@@ -180,6 +181,7 @@ class VolunteerExpense(Document):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def approve_expense(expense_name):
     """Approve a volunteer expense using enhanced permission system"""
     from verenigingen.utils.expense_permissions import ExpensePermissionManager
@@ -205,6 +207,7 @@ def approve_expense(expense_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def reject_expense(expense_name, reason=""):
     """Reject a volunteer expense"""
     expense = frappe.get_doc("Volunteer Expense", expense_name)
@@ -228,6 +231,7 @@ def reject_expense(expense_name, reason=""):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def can_approve_expense(expense):
     """Check if current user can approve the expense using enhanced permission system"""
     from verenigingen.utils.expense_permissions import ExpensePermissionManager

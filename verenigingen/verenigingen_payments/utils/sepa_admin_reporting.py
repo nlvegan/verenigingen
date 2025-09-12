@@ -22,6 +22,7 @@ from frappe.utils import cint, flt, format_datetime, formatdate, get_datetime, n
 from frappe.utils.pdf import get_pdf
 
 from verenigingen.utils.error_handling import log_error
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.verenigingen_payments.utils.sepa_memory_optimizer import SEPAMemoryMonitor
 from verenigingen.verenigingen_payments.utils.sepa_monitoring_dashboard import get_dashboard_instance
 
@@ -1133,6 +1134,7 @@ _report_generator = SEPAAdminReportGenerator()
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def generate_executive_summary(days: int = 30) -> Dict[str, Any]:
     """
     Generate executive summary report
@@ -1150,6 +1152,7 @@ def generate_executive_summary(days: int = 30) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def generate_operational_report(days: int = 7) -> Dict[str, Any]:
     """
     Generate operational report
@@ -1167,6 +1170,7 @@ def generate_operational_report(days: int = 7) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def generate_financial_analysis(days: int = 30) -> Dict[str, Any]:
     """
     Generate financial analysis report
@@ -1184,6 +1188,7 @@ def generate_financial_analysis(days: int = 30) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def generate_mandate_lifecycle_report() -> Dict[str, Any]:
     """
     Generate mandate lifecycle report
@@ -1198,6 +1203,7 @@ def generate_mandate_lifecycle_report() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def generate_performance_benchmark_report(days: int = 30) -> Dict[str, Any]:
     """
     Generate performance benchmark report
@@ -1215,6 +1221,7 @@ def generate_performance_benchmark_report(days: int = 30) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def export_report_csv(report_type: str, days: int = 30) -> str:
     """
     Export report to CSV format
@@ -1251,6 +1258,7 @@ def export_report_csv(report_type: str, days: int = 30) -> str:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def schedule_report(
     report_type: str, frequency: str, recipients: str, parameters: str = None
 ) -> Dict[str, Any]:

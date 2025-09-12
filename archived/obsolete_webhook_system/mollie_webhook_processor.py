@@ -15,7 +15,6 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, now_datetime
 
-from verenigingen.archived.obsolete_webhook_system.donation_factory import DonationFactory
 from verenigingen.utils.payment_services.constants import (
     LOG_CATEGORY_SECURITY,
     LOG_CATEGORY_VALIDATION,
@@ -32,6 +31,8 @@ from verenigingen.utils.payment_services.logging_utils import (
     log_signature_validation_failed,
     log_webhook_received,
 )
+
+from .donation_factory import DonationFactory
 
 
 class MollieWebhookProcessor:

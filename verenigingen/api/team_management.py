@@ -44,7 +44,7 @@ def get_team_members(team):
                 member_data.update(
                     {
                         "email": volunteer_doc.email,
-                        "phone": volunteer_doc.phone,
+                        "phone": None,  # Phone field not available in Volunteer DocType
                         "skills": [skill.skill for skill in volunteer_doc.skills]
                         if hasattr(volunteer_doc, "skills")
                         else [],
@@ -112,8 +112,8 @@ def get_role_profile_preview(team_name):
             role_profile = None
 
             # Get role profile from team role configuration
-            if member.team_role and team_doc.role_profile_mapping:
-                for mapping in team_doc.role_profile_mapping:
+            if member.team_role and team_doc.role_specific_profiles:
+                for mapping in team_doc.role_specific_profiles:
                     if mapping.team_role == member.team_role:
                         role_profile = mapping.role_profile
                         break

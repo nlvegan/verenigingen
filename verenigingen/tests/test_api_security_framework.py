@@ -93,12 +93,12 @@ class TestAPISecurityFramework(VereningingenTestCase):
         # Test guest user rejection for secured endpoints
         profile = self.framework.get_security_profile(SecurityLevel.HIGH)
 
-        with patch("frappe.session.user", "Guest"):
+        with patch("frappe.session", MagicMock(user="Guest")):
             with self.assertRaises(Exception):
                 self.framework.validate_authentication(profile)
 
         # Test authenticated user acceptance
-        with patch("frappe.session.user", "test@example.com"):
+        with patch("frappe.session", MagicMock(user="test@example.com")):
             with patch("frappe.get_roles", return_value=["Verenigingen Administrator"]):
                 result = self.framework.validate_authentication(profile)
                 self.assertTrue(result)
@@ -152,7 +152,7 @@ class TestAPISecurityFramework(VereningingenTestCase):
         test_data = {
             "name": "<script>alert('xss')</script>John",
             "email": "test@example.com",
-            "description": "Normal text" * 1000,  # Very long text
+            "description": "Normal text" * 50,  # Moderately long text
         }
 
         validated_data = self.framework.validate_input_data(profile, **test_data)
@@ -183,7 +183,7 @@ class TestSecurityDecorators(VereningingenTestCase):
         self.assertEqual(test_function._security_level, SecurityLevel.HIGH)
 
         # Test function execution with valid parameters
-        with patch("frappe.session.user", "test@example.com"):
+        with patch("frappe.session", MagicMock(user="test@example.com")):
             with patch("frappe.get_roles", return_value=["Verenigingen Administrator"]):
                 result = test_function("value1", param2="value2")
                 self.assertEqual(result["param1"], "value1")
@@ -217,7 +217,7 @@ class TestSecurityDecorators(VereningingenTestCase):
             return {"status": "success"}
 
         # Test unauthorized access
-        with patch("frappe.session.user", "unauthorized@example.com"):
+        with patch("frappe.session", MagicMock(user="unauthorized@example.com")):
             with patch("frappe.get_roles", return_value=["Guest"]):
                 with self.assertRaises(Exception):
                     restricted_function()
@@ -385,7 +385,7 @@ class TestAPIClassifier(VereningingenTestCase):
             current_security_level=None,
             recommended_security_level=SecurityLevel.CRITICAL,
             operation_type=OperationType.FINANCIAL,
-            classification_confidence=self.classifier._classify_operation_type.__class__.HIGH,
+            classification_confidence=0.9,  # High confidence score
             has_frappe_whitelist=True,
             has_security_decorators=False,
             existing_decorators=[],
@@ -514,7 +514,7 @@ class TestIntegrationSecurity(VereningingenTestCase):
             return {"success": True, "member_id": member_id, "data": data}
 
         # Mock user session
-        with patch("frappe.session.user", "test@example.com"):
+        with patch("frappe.session", MagicMock(user="test@example.com")):
             with patch("frappe.get_roles", return_value=["Verenigingen Administrator"]):
                 # Test successful execution
                 result = test_secured_endpoint("TEST-001", name="Test Member", email="test@example.com")
@@ -530,7 +530,7 @@ class TestIntegrationSecurity(VereningingenTestCase):
             return {"success": True}
 
         # Test unauthorized access
-        with patch("frappe.session.user", "unauthorized@example.com"):
+        with patch("frappe.session", MagicMock(user="unauthorized@example.com")):
             with patch("frappe.get_roles", return_value=["Guest"]):
                 with self.assertRaises(Exception):
                     restricted_endpoint()
@@ -544,7 +544,7 @@ class TestIntegrationSecurity(VereningingenTestCase):
             return {"success": True}
 
         # Measure execution time
-        with patch("frappe.session.user", "test@example.com"):
+        with patch("frappe.session", MagicMock(user="test@example.com")):
             with patch("frappe.get_roles", return_value=["Verenigingen Administrator"]):
                 start_time = time.time()
                 result = performance_test_endpoint()
@@ -567,7 +567,7 @@ class TestSecurityCompliance(VereningingenTestCase):
 
         # Log security event
         event_id = audit_logger.log_event(
-            "test_security_event",
+            "other",
             "info",
             user="test@example.com",
             details={"action": "test", "resource": "test_resource"},

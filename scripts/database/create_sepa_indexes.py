@@ -7,6 +7,8 @@ to support the performance improvements implemented in Week 1.
 """
 
 import frappe
+from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, OperationType
+from verenigingen.utils.security_decorators import development_only
 
 
 def create_sepa_indexes():
@@ -282,6 +284,7 @@ def analyze_sepa_query_performance():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def create_sepa_indexes_api():
     """API endpoint to create SEPA indexes"""
     try:
@@ -301,6 +304,7 @@ def create_sepa_indexes_api():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def analyze_sepa_performance_api():
     """API endpoint to analyze SEPA query performance"""
     try:

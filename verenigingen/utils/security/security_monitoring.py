@@ -160,9 +160,18 @@ class SecurityMonitor:
             self.sliding_windows["validation_errors"].append(event_data)
             self._check_validation_threats(user, endpoint)
 
-        # Log security event
+        # Log security event - map to valid event type
+        event_type_map = {
+            "auth_failures": "failed_login_attempt",
+            "authz_failures": "unauthorized_access_attempt",
+            "rate_limit_violations": "rate_limit_exceeded",
+            "validation_errors": "data_modification",
+            "suspicious_activity": "suspicious_activity",
+        }
+        valid_event_type = event_type_map.get(event_type.value, "suspicious_activity")
+
         self.audit_logger.log_event(
-            f"security_event_{event_type.value}",
+            valid_event_type,
             AuditSeverity.WARNING,
             details={
                 "event_type": event_type.value,
@@ -358,10 +367,10 @@ class SecurityMonitor:
         self.incidents.append(incident)
         self.active_threats[incident_id] = incident
 
-        # Log critical incidents immediately
+        # Log critical incidents immediately - map to valid event type
         if threat_level in [ThreatLevel.HIGH, ThreatLevel.CRITICAL]:
             self.audit_logger.log_event(
-                f"security_incident_{threat_level.value}",
+                "suspicious_activity",  # Map security incidents to valid event type
                 AuditSeverity.CRITICAL if threat_level == ThreatLevel.CRITICAL else AuditSeverity.ERROR,
                 details={
                     "incident_id": incident_id,
@@ -509,7 +518,7 @@ class SecurityMonitor:
             del self.active_threats[incident_id]
 
             self.audit_logger.log_event(
-                "security_incident_resolved",
+                "other",  # Map to valid event type
                 AuditSeverity.INFO,
                 details={
                     "incident_id": incident_id,

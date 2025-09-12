@@ -117,9 +117,27 @@ def development_only():
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            # Check if in development mode
-            if not frappe.conf.get("developer_mode", False):
-                frappe.throw(_("This function is only available in development mode"), SecurityViolationError)
+            # Use the same environment detection as the enhanced security framework
+            try:
+                from verenigingen.utils.security.api_security_framework import (
+                    EnvironmentLevel,
+                    get_security_framework,
+                )
+
+                framework = get_security_framework()
+                current_env = framework.get_current_environment()
+
+                if current_env != EnvironmentLevel.DEVELOPMENT:
+                    frappe.throw(
+                        _("This function is only available in development environment"),
+                        SecurityViolationError,
+                    )
+            except ImportError:
+                # Fallback to legacy detection if framework not available
+                if not frappe.conf.get("developer_mode", False):
+                    frappe.throw(
+                        _("This function is only available in development mode"), SecurityViolationError
+                    )
 
             return func(*args, **kwargs)
 
@@ -261,9 +279,6 @@ def rate_limited(max_calls: int = 10, window_minutes: int = 60):
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            # Simple in-memory rate limiting (production would use Redis)
-            cache_key = f"rate_limit:{frappe.session.user}:{func.__name__}"
-
             # This is a basic implementation - production should use proper rate limiting
             # with Redis or similar persistent storage
 
@@ -348,37 +363,35 @@ def validate_api_security():
 
 
 # Example usage documentation
-"""
-USAGE EXAMPLES:
-
-1. Secure Administrative Function:
-@frappe.whitelist()
-@require_roles(["System Manager", "Verenigingen Administrator"])
-@audit_operation("member_bulk_update", "Member")
-def bulk_update_members():
-    # Administrative logic here
-    pass
-
-2. Development-Only Test Utility:
-@frappe.whitelist()
-@development_only()
-@audit_operation("test_data_creation")
-def create_test_member_data():
-    # Test utility logic here
-    pass
-
-3. DocType Operation with Permissions:
-@frappe.whitelist()
-@require_permissions("Member", "write")
-@rate_limited(max_calls=50, window_minutes=60)
-def update_member_status():
-    # Member update logic here
-    pass
-
-4. System Operation with Controlled Bypass:
-@system_operation_required()
-def system_maintenance_task():
-    # Can safely use ignore_permissions=True here
-    frappe.db.set_value("System Settings", "System Settings", "status", "maintenance",
-                       ignore_permissions=True)
-"""
+# USAGE EXAMPLES:
+#
+# 1. Secure Administrative Function:
+# @frappe.whitelist()
+# @require_roles(["System Manager", "Verenigingen Administrator"])
+# @audit_operation("member_bulk_update", "Member")
+# def bulk_update_members():
+#     # Administrative logic here
+#     pass
+#
+# 2. Development-Only Test Utility:
+# @frappe.whitelist()
+# @development_only()
+# @audit_operation("test_data_creation")
+# def create_test_member_data():
+#     # Test utility logic here
+#     pass
+#
+# 3. DocType Operation with Permissions:
+# @frappe.whitelist()
+# @require_permissions("Member", "write")
+# @rate_limited(max_calls=50, window_minutes=60)
+# def update_member_status():
+#     # Member update logic here
+#     pass
+#
+# 4. System Operation with Controlled Bypass:
+# @system_operation_required()
+# def system_maintenance_task():
+#     # Can safely use ignore_permissions=True here
+#     frappe.db.set_value("System Settings", "System Settings", "status", "maintenance",
+#                        ignore_permissions=True)

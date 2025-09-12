@@ -2,8 +2,12 @@ import json
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.security_decorators import development_only
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def audit_verenigingen_permissions():
     """Audit permissions specifically for Verenigingen app DocTypes and Reports"""
 

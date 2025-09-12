@@ -49,6 +49,8 @@ from verenigingen.utils.dutch_name_utils import (
 )
 from verenigingen.utils.member_utils import get_volunteer_for_member
 from verenigingen.utils.safe_member_optimizer import safe_member_optimizer
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.utils.security_decorators import development_only
 from verenigingen.verenigingen.doctype.member.member_id_manager import validate_member_id_change
 from verenigingen.verenigingen.doctype.member.mixins.chapter_mixin import ChapterMixin
 from verenigingen.verenigingen.doctype.member.mixins.expense_mixin import ExpenseMixin
@@ -294,6 +296,7 @@ class Member(
         # Member ID generation is now handled in before_save based on application status
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.MEMBER_DATA)
     def get_address_members_html(self):
         """Get HTML content for address members field - called from JavaScript"""
         try:
@@ -343,6 +346,7 @@ class Member(
         return status_colors.get(status, "secondary")
 
     @frappe.whitelist()
+    @development_only()
     def test_member_form_functionality(self):
         """Test Member form loading and functionality"""
         results = {"status": "success", "member_name": self.name, "tests": [], "errors": []}
@@ -548,6 +552,7 @@ class Member(
             return str(int(time.time() * 1000))[-8:]
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def ensure_member_id(self):
         """Ensure this member has a member ID if they should have one"""
         if not self.member_id and self.should_have_member_id():
@@ -557,6 +562,7 @@ class Member(
         return {"success": False, "message": _("Member already has an ID or doesn't qualify for one")}
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.ADMIN)
     def force_assign_member_id(self):
         """Force assign a member ID regardless of normal rules (admin only)"""
         # Check if user has permission
@@ -805,6 +811,7 @@ class Member(
             frappe.throw(_("Error creating membership: {0}").format(str(e)))
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.ADMIN)
     def reject_application(self, reason):
         """Reject this application and clean up pending records"""
         if not self.is_application_member():
@@ -1187,6 +1194,7 @@ class Member(
             self.full_name = full_name
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.FINANCIAL)
     def create_customer(self):
         """Create a customer for this member in ERPNext"""
         self.customer = None
@@ -1301,6 +1309,7 @@ class Member(
         return customer.name
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.ADMIN)
     def create_user(self):
         """Create a user account for this member"""
         self.user = None
@@ -1534,6 +1543,7 @@ class Member(
         return self.membership_status
 
     @frappe.whitelist()
+    @development_only()
     def debug_address_detection(self):
         """Debug the address detection functionality for troubleshooting"""
         try:

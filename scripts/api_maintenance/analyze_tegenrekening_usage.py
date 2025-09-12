@@ -2,9 +2,12 @@ import json
 from collections import defaultdict
 
 import frappe
+from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, OperationType
+from verenigingen.utils.security_decorators import development_only
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def analyze_tegenrekening_patterns():
     """Analyze E-Boekhouden transaction data to discover tegenrekening usage patterns"""
     try:
@@ -154,6 +157,7 @@ def analyze_tegenrekening_patterns():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_chart_of_accounts_mapping():
     """Get mapping between ledger IDs and account codes from E-Boekhouden Chart of Accounts"""
     try:
@@ -224,6 +228,7 @@ def get_chart_of_accounts_mapping():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def generate_item_mapping_suggestions():
     """Generate intelligent item mapping suggestions based on account usage and descriptions"""
     try:

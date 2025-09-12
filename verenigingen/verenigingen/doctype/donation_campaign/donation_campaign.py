@@ -6,6 +6,13 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, getdate
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+from verenigingen.utils.security_decorators import development_only
 from verenigingen.utils.validation_utilities import DateRangeValidator
 
 
@@ -112,6 +119,7 @@ class DonationCampaign(Document):
         pass
 
     @frappe.whitelist()
+    @standard_api(operation_type=OperationType.MEMBER_DATA)
     def get_recent_donations(self, limit=10):
         """Get recent donations for this campaign"""
         donations = frappe.get_all(
@@ -127,6 +135,7 @@ class DonationCampaign(Document):
         return donations
 
     @frappe.whitelist()
+    @standard_api(operation_type=OperationType.MEMBER_DATA)
     def get_top_donors(self, limit=10):
         """Get top donors for this campaign"""
         if not self.show_donor_list:
@@ -162,6 +171,7 @@ class DonationCampaign(Document):
         return None
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def create_project(self, project_name=None):
         """Create a project for this campaign"""
         if self.project:
@@ -209,6 +219,7 @@ class DonationCampaign(Document):
             )
 
     @frappe.whitelist()
+    @standard_api(operation_type=OperationType.REPORTING)
     def get_project_summary(self):
         """Get project summary if campaign has a linked project"""
         if not self.project:
@@ -305,10 +316,9 @@ class DonationCampaign(Document):
 
     @staticmethod
     @frappe.whitelist()
+    @development_only()
     def test_enhancements():
         """Test donation campaign enhancements"""
-        from frappe.utils import getdate
-
         results = []
 
         # Test 1: Create campaign with auto-dimension generation

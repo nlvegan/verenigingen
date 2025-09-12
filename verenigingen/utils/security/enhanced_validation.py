@@ -567,7 +567,7 @@ class EnhancedValidator:
         # Log validation events
         if result["errors"]:
             self.audit_logger.log_event(
-                "validation_failed",
+                "data_modification",  # Map to valid event type
                 AuditSeverity.WARNING,
                 details={
                     "schema": schema_name,

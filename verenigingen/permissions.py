@@ -60,13 +60,15 @@ from functools import lru_cache
 
 import frappe
 
-from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.utils.member_utils import (
     get_current_user_member_name,
     get_member_name_for_user,
     get_volunteer_for_member,
 )
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.security_decorators import development_only
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 # Permission Caching System
 # =========================
@@ -163,18 +165,21 @@ def get_cache_key():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def can_terminate_member_api(member_name):
     """Whitelisted API wrapper for can_terminate_member"""
     return can_terminate_member(member_name)
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def can_access_termination_functions_api():
     """Whitelisted API wrapper for can_access_termination_functions"""
     return can_access_termination_functions()
 
 
 @frappe.whitelist()
+@development_only()
 def test_team_member_access(team_name=None):
     """Test function to verify team member access permissions"""
     user = frappe.session.user
@@ -1377,7 +1382,9 @@ def assign_chapter_board_role(user_email):
 
         if board_positions:
             # User has board positions, ensure they have the Chapter Board Member role
-            if not DocumentExistenceValidator.check_document_exists("Has Role", {"parent": user_email, "role": "Chapter Board Member"}):
+            if not DocumentExistenceValidator.check_document_exists(
+                "Has Role", {"parent": user_email, "role": "Chapter Board Member"}
+            ):
                 # Add the role using secure operations
                 user_doc = frappe.get_doc("User", user_email)
                 user_doc.append("roles", {"role": "Chapter Board Member"})
@@ -1400,7 +1407,9 @@ def assign_chapter_board_role(user_email):
                 return True
         else:
             # User has no board positions, remove the role if they have it
-            if DocumentExistenceValidator.check_document_exists("Has Role", {"parent": user_email, "role": "Chapter Board Member"}):
+            if DocumentExistenceValidator.check_document_exists(
+                "Has Role", {"parent": user_email, "role": "Chapter Board Member"}
+            ):
                 frappe.db.delete("Has Role", {"parent": user_email, "role": "Chapter Board Member"})
                 frappe.logger().info(f"Removed Chapter Board Member role from {user_email}")
                 return True

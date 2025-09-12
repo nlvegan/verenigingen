@@ -5,9 +5,12 @@ Can be run via: bench --site dev.veganisme.net execute verenigingen.validate_enh
 """
 
 import frappe
+from verenigingen.utils.security.api_security_framework import high_security_api, OperationType
+from verenigingen.utils.security_decorators import development_only
 
 
 @frappe.whitelist()
+@development_only()
 def validate_integration():
     """Validate the enhanced SEPA integration"""
 

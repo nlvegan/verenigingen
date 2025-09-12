@@ -44,6 +44,14 @@ class SecurityLevel(Enum):
     PUBLIC = "public"  # No authentication required
 
 
+class EnvironmentLevel(Enum):
+    """Deployment environment levels for environment-aware security"""
+
+    PRODUCTION = "production"
+    STAGING = "staging"
+    DEVELOPMENT = "development"
+
+
 class OperationType(Enum):
     """Types of operations for context-aware security"""
 
@@ -71,6 +79,7 @@ class SecurityProfile:
         business_hours_only: bool = False,
         max_request_size: int = 1024 * 1024,  # 1MB default
         allowed_methods: List[str] = None,
+        allowed_environments: List[EnvironmentLevel] = None,
     ):
         self.level = level
         self.required_roles = required_roles or []
@@ -83,6 +92,11 @@ class SecurityProfile:
         self.business_hours_only = business_hours_only
         self.max_request_size = max_request_size
         self.allowed_methods = allowed_methods or ["GET", "POST"]
+        self.allowed_environments = allowed_environments or [
+            EnvironmentLevel.PRODUCTION,
+            EnvironmentLevel.STAGING,
+            EnvironmentLevel.DEVELOPMENT,
+        ]
 
 
 class APISecurityFramework:
@@ -247,6 +261,66 @@ class APISecurityFramework:
 
         # Default to medium security
         return SecurityLevel.MEDIUM
+
+    def get_current_environment(self) -> EnvironmentLevel:
+        """
+        Detect the current deployment environment.
+
+        Returns:
+            EnvironmentLevel: Current environment (DEVELOPMENT, STAGING, or PRODUCTION)
+        """
+        # Check Frappe developer mode first
+        if frappe.conf.get("developer_mode", False):
+            return EnvironmentLevel.DEVELOPMENT
+
+        # Check custom environment configuration
+        env = frappe.conf.get("deployment_environment")
+        if env:
+            try:
+                return EnvironmentLevel(env.lower())
+            except ValueError:
+                pass  # Invalid environment, fall through to default
+
+        # Check site-specific environment indicator
+        site_env = frappe.conf.get("environment")
+        if site_env:
+            try:
+                return EnvironmentLevel(site_env.lower())
+            except ValueError:
+                pass  # Invalid environment, fall through to default
+
+        # Default to production for safety - restricts access by default
+        return EnvironmentLevel.PRODUCTION
+
+    def validate_environment_access(
+        self, profile: SecurityProfile, current_env: EnvironmentLevel = None
+    ) -> bool:
+        """
+        Validate that the current environment is allowed for this security profile.
+
+        Args:
+            profile: Security profile containing environment restrictions
+            current_env: Current environment (detected if not provided)
+
+        Returns:
+            bool: True if access is allowed in current environment
+
+        Raises:
+            VPermissionError: If current environment is not allowed
+        """
+        if current_env is None:
+            current_env = self.get_current_environment()
+
+        if current_env not in profile.allowed_environments:
+            allowed_envs = [env.value for env in profile.allowed_environments]
+            raise VPermissionError(
+                _(
+                    f"Function not available in {current_env.value} environment. "
+                    f"Allowed environments: {', '.join(allowed_envs)}"
+                )
+            )
+
+        return True
 
     def validate_authentication(self, profile: SecurityProfile, user: str = None) -> bool:
         """Validate user authentication and authorization"""
@@ -574,6 +648,7 @@ def api_security_framework(
     validation_schema: Dict[str, Any] = None,
     audit_level: str = "standard",
     custom_validators: List[Callable] = None,
+    allowed_environments: List[EnvironmentLevel] = None,
 ):
     """
     Comprehensive API Security Decorator
@@ -619,8 +694,13 @@ def api_security_framework(
                 profile.required_roles.extend(roles)
             if rate_limit:
                 profile.rate_limit_config.update(rate_limit)
+            if allowed_environments:
+                profile.allowed_environments = allowed_environments
 
             try:
+                # Environment validation (first check - blocks early if environment not allowed)
+                framework.validate_environment_access(profile)
+
                 # Security validations
                 framework.validate_authentication(profile)
                 framework.validate_request_method(profile)
@@ -937,6 +1017,46 @@ def analyze_api_security_status():
         return {"success": False, "error": str(e)}
 
 
+# Environment-Aware Decorator Shortcuts
+def development_only_api(
+    operation_type: OperationType = OperationType.UTILITY,
+    security_level: SecurityLevel = SecurityLevel.LOW,
+):
+    """Decorator for development-only APIs (test utilities, debug functions)"""
+    return api_security_framework(
+        security_level=security_level,
+        operation_type=operation_type,
+        audit_level="minimal",
+        allowed_environments=[EnvironmentLevel.DEVELOPMENT],
+    )
+
+
+def staging_and_dev_api(
+    operation_type: OperationType = OperationType.UTILITY,
+    security_level: SecurityLevel = SecurityLevel.MEDIUM,
+):
+    """Decorator for staging and development APIs (testing, validation)"""
+    return api_security_framework(
+        security_level=security_level,
+        operation_type=operation_type,
+        audit_level="standard",
+        allowed_environments=[EnvironmentLevel.STAGING, EnvironmentLevel.DEVELOPMENT],
+    )
+
+
+def non_production_api(
+    operation_type: OperationType = OperationType.ADMIN,
+    security_level: SecurityLevel = SecurityLevel.HIGH,
+):
+    """Decorator for non-production APIs (dangerous admin functions)"""
+    return api_security_framework(
+        security_level=security_level,
+        operation_type=operation_type,
+        audit_level="detailed",
+        allowed_environments=[EnvironmentLevel.STAGING, EnvironmentLevel.DEVELOPMENT],
+    )
+
+
 @frappe.whitelist()
 def get_security_framework_status():
     """Get current security framework configuration and status"""
@@ -949,9 +1069,11 @@ def get_security_framework_status():
 
         return {
             "success": True,
-            "framework_version": "1.0.0",
+            "framework_version": "1.1.0",
+            "current_environment": framework.get_current_environment().value,
             "security_levels": [level.value for level in SecurityLevel],
             "operation_types": [op.value for op in OperationType],
+            "environment_levels": [env.value for env in EnvironmentLevel],
             "default_profiles": {
                 level.value: {
                     "required_roles": profile.required_roles,
@@ -975,13 +1097,82 @@ def get_security_framework_status():
         return {"success": False, "error": str(e)}
 
 
+def validate_deployment_environment():
+    """
+    Validate environment configuration and log for operational visibility.
+
+    This function ensures the security framework correctly detects the deployment
+    environment and provides operational visibility for production deployments.
+    """
+    try:
+        framework = get_security_framework()
+        detected_env = framework.get_current_environment()
+
+        # Log for operational visibility
+        frappe.logger().info(f"Security Framework: Environment detected as {detected_env.value}")
+
+        # Check for explicit environment expectation
+        expected = frappe.conf.get("expected_environment")
+        if expected:
+            expected_normalized = expected.lower()
+            if expected_normalized != detected_env.value:
+                frappe.logger().warning(
+                    f"Environment mismatch detected: "
+                    f"Expected '{expected}', but detected '{detected_env.value}'. "
+                    f"This may indicate configuration issues."
+                )
+            else:
+                frappe.logger().info(
+                    f"Environment validation passed: {detected_env.value} matches expected configuration"
+                )
+
+        # Log security implications
+        if detected_env == EnvironmentLevel.DEVELOPMENT:
+            frappe.logger().info("Security Framework: Development mode - debug functions enabled")
+        elif detected_env == EnvironmentLevel.PRODUCTION:
+            frappe.logger().info("Security Framework: Production mode - debug functions restricted")
+        else:
+            frappe.logger().info(
+                f"Security Framework: {detected_env.value} mode - intermediate security level"
+            )
+
+        # Log configuration sources
+        config_sources = []
+        if frappe.conf.get("developer_mode", False):
+            config_sources.append("developer_mode=True")
+        if frappe.conf.get("deployment_environment"):
+            config_sources.append(f"deployment_environment={frappe.conf.get('deployment_environment')}")
+        if frappe.conf.get("environment"):
+            config_sources.append(f"environment={frappe.conf.get('environment')}")
+
+        if config_sources:
+            frappe.logger().debug(f"Environment detection sources: {', '.join(config_sources)}")
+        else:
+            frappe.logger().debug("Environment detection: Using secure default (PRODUCTION)")
+
+        return {
+            "detected_environment": detected_env.value,
+            "expected_environment": expected,
+            "validation_passed": not expected or expected.lower() == detected_env.value,
+            "config_sources": config_sources,
+        }
+
+    except Exception as e:
+        frappe.logger().error(f"Environment validation failed: {str(e)}")
+        # Don't fail startup on validation error, but log it
+        return {"detected_environment": "unknown", "validation_passed": False, "error": str(e)}
+
+
 def setup_api_security_framework():
     """Setup API security framework during app initialization"""
     # Initialize global framework
     global _security_framework
     _security_framework = APISecurityFramework()
 
-    # Log setup completion
+    # Validate environment configuration
+    env_validation = validate_deployment_environment()
+
+    # Log setup completion with environment info
     _security_framework.audit_logger.log_event(
         "api_security_framework_initialized",
         AuditSeverity.INFO,
@@ -989,5 +1180,6 @@ def setup_api_security_framework():
             "security_levels": [level.value for level in SecurityLevel],
             "operation_types": [op.value for op in OperationType],
             "components_loaded": True,
+            "environment_validation": env_validation,
         },
     )
