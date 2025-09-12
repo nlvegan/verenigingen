@@ -68,9 +68,9 @@ class DonationHistoryManager:
             result = secure_document_operation(
                 operation="update_child_table",
                 doc=donor,
-                justification=f"Sync donation history for donor {donor.donor_name} - donation tracking system",
+                justification=f"Sync donation history for donor {donor.donor_name} - donation tracking system via webhook",
                 required_permissions=["Donor:write"],
-                allow_system_user=False,  # Require explicit user permissions for financial data
+                allow_system_user=True,  # Allow system fallback for authenticated webhook operations
                 bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
             )
 
@@ -136,12 +136,13 @@ class DonationHistoryManager:
             )
 
             # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            # For webhook operations, allow system user fallback as webhook is already authenticated by Mollie
             result = secure_document_operation(
                 operation="update_child_table",
                 doc=donor,
-                justification=f"Add/update donation entry for donor {donor.donor_name} - donation history management",
+                justification=f"Add/update donation entry for donor {donor.donor_name} - donation history management via webhook",
                 required_permissions=["Donor:write"],
-                allow_system_user=False,  # Require explicit user permissions for financial data
+                allow_system_user=True,  # Allow system fallback for authenticated webhook operations
                 bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
             )
 
@@ -176,9 +177,9 @@ class DonationHistoryManager:
             result = secure_document_operation(
                 operation="update_child_table",
                 doc=donor,
-                justification=f"Remove donation entry {donation_name} from donor {donor.donor_name} - donation history cleanup",
+                justification=f"Remove donation entry {donation_name} from donor {donor.donor_name} - donation history cleanup via webhook",
                 required_permissions=["Donor:write"],
-                allow_system_user=False,  # Require explicit user permissions for financial data
+                allow_system_user=True,  # Allow system fallback for authenticated webhook operations
                 bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
             )
 

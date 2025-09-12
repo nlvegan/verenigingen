@@ -77,22 +77,49 @@ def mollie_subscription_webhook():
 
 ### Payload Processing
 
-#### JSON Format
+#### Mollie JSON Event Format (Production)
+**Important**: Mollie sends webhooks as JSON event structures, not simple form data.
+
 ```json
 {
-    "id": "sub_xxxxx",
-    "resource": "subscription",
-    "payment": {
-        "id": "tr_xxxxx",
-        "status": "paid",
-        "amount": {"value": "25.00", "currency": "EUR"}
+    "resource": "event",
+    "id": "event_abc123",
+    "type": "payment.paid",
+    "entityId": "tr_HWjAncEdZDCbf8ckhJ7EJ",
+    "createdAt": "2025-09-12T12:39:00.0Z",
+    "_embedded": {
+        "entity": {
+            "resource": "payment",
+            "id": "tr_HWjAncEdZDCbf8ckhJ7EJ"
+        }
     }
 }
 ```
 
-#### Form-Encoded Format
+**Key Points**:
+- Payment ID is in `entityId`, not `id`
+- Event type (`payment.paid`, `payment.failed`, etc.) is in `type`
+- Status must be fetched from Mollie API, not included in webhook
+- Ping events have type `hook.ping` and should return success without processing
+
+#### Legacy Form-Encoded Format (Manual Testing)
 ```
-id=sub_xxxxx&payment[id]=tr_xxxxx&payment[status]=paid
+id=tr_xxxxx&status=paid
+```
+
+#### Processing Logic
+```python
+# Modern webhook handler must support both formats
+if webhook_data.get("resource") == "event":
+    # Mollie JSON event format
+    event_type = webhook_data.get("type")
+    if event_type.startswith("payment."):
+        payment_id = webhook_data.get("entityId")
+    elif event_type == "hook.ping":
+        return {"status": "success", "message": "Webhook ping received"}
+else:
+    # Legacy form data format
+    payment_id = webhook_data.get("id")
 ```
 
 ### Response Formats
@@ -376,9 +403,40 @@ print(result)
 3. **SSL/TLS termination at load balancer**
 4. **Regular security updates and patches**
 
+## Recent Updates (September 2025)
+
+### JSON Event Format Implementation
+
+**Critical Discovery**: Mollie sends webhooks as JSON event structures in production, not simple form data as used in testing.
+
+**Production Format**:
+```json
+{
+  "resource": "event",
+  "type": "payment.paid",
+  "entityId": "tr_HWjAncEdZDCbf8ckhJ7EJ",
+  "createdAt": "2025-09-12T12:39:00.0Z"
+}
+```
+
+**Key Implementation Updates**:
+- ✅ **Unified Parser**: Created `mollie_webhook_parser.py` for consistent parsing across all handlers
+- ✅ **JSON Event Support**: All webhook handlers now extract payment ID from `entityId` field
+- ✅ **Ping Event Handling**: Proper response to Mollie's `hook.ping` connectivity tests
+- ✅ **Backward Compatibility**: Legacy form data format still supported for manual testing
+- ✅ **Quality Assurance**: QCE review completed with consistency improvements implemented
+
+**Updated Webhook Handlers**:
+- `mollie_payment_webhook.py` - Main donation webhook handler
+- `payment_gateways.py::mollie_subscription_webhook()` - Subscription webhook handler
+- `simple_donation_webhook.py` - Alternative donation webhook handler
+- `secure_webhook_handler.py` - Enterprise webhook processor
+
+**Testing Status**: ✅ Verified working with production Mollie webhook format
+
 ---
 
-**Document Version**: 1.0
+**Document Version**: 1.1
 **Author**: Development Team
 **Last Updated**: September 2025
 **Classification**: Technical Implementation Guide

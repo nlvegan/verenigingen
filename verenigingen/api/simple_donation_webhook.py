@@ -45,16 +45,27 @@ def handle_payment_first_donation():
     frappe.set_user("Administrator")  # TODO: Replace with proper webhook service account
 
     try:
-        # Parse payment ID from webhook data
+        # Parse payment ID from webhook data - handle both JSON events and form data
         webhook_data = frappe.form_dict
+        payment_id = None
 
-        # Parse payment ID from raw payload if form_dict is empty
-        payment_id = webhook_data.get("id")
-        if not payment_id and raw_payload:
-            import urllib.parse
+        # Check for Mollie JSON event format first
+        if webhook_data.get("resource") == "event":
+            event_type = webhook_data.get("type", "")
+            if event_type == "hook.ping":
+                return {"status": "success", "message": "Webhook ping received"}
+            elif event_type.startswith("payment."):
+                payment_id = webhook_data.get("entityId")
+        else:
+            # Legacy format - try form_dict first
+            payment_id = webhook_data.get("id")
 
-            parsed_data = urllib.parse.parse_qs(raw_payload)
-            payment_id = parsed_data.get("id", [None])[0]
+            # Parse payment ID from raw payload if form_dict is empty
+            if not payment_id and raw_payload:
+                import urllib.parse
+
+                parsed_data = urllib.parse.parse_qs(raw_payload)
+                payment_id = parsed_data.get("id", [None])[0]
 
         if not payment_id or not payment_id.startswith("tr_"):
             return error_handler.handle_validation_error(

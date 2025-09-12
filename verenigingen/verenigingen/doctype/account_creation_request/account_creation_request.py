@@ -146,7 +146,13 @@ class AccountCreationRequest(Document):
             frappe.throw(_("Only failed requests can be retried"))
 
         # Validate retry limits
-        max_retries = frappe.db.get_single_value("Verenigingen Settings", "max_account_creation_retries") or 3
+        try:
+            max_retries = (
+                frappe.db.get_single_value("Verenigingen Settings", "max_account_creation_retries") or 3
+            )
+        except frappe.ValidationError:
+            # Fallback if field doesn't exist yet
+            max_retries = 3
         if self.retry_count >= max_retries:
             frappe.throw(_("Maximum retry attempts exceeded ({0})").format(max_retries))
 

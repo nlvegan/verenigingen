@@ -200,8 +200,9 @@ class MolliePaymentService:
         # Add only essential recurring info to stay under length limit
         if is_recurring:
             interval = form_data.get("subscription_interval", "1 month")
-            # Abbreviate common intervals
-            interval_abbrev = interval.replace("month", "m").replace("week", "w").replace("day", "d")
+            # Abbreviate some intervals but keep "day" as "day" since Mollie requires it
+            interval_abbrev = interval.replace("month", "m").replace("week", "w")
+            # Don't abbreviate "day" - Mollie API requires "1 day" format, not "1 d"
             metadata["interval"] = interval_abbrev
 
         return metadata

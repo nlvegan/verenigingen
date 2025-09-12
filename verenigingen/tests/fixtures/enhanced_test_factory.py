@@ -549,6 +549,10 @@ class EnhancedTestDataFactory:
             # Continue without meta validation - let document validation catch issues
         
         try:
+            # Set flags to skip automatic account creation and user permission checks during tests
+            frappe.flags.skip_volunteer_account_creation = True
+            frappe.flags.skip_user_permission_check = True
+            
             volunteer = frappe.get_doc({
                 "doctype": "Volunteer",
                 **data
@@ -1339,6 +1343,10 @@ class EnhancedTestCase(FrappeTestCase):
     
     def setUp(self):
         super().setUp()
+        
+        # Set global test flags for permission bypasses during tests
+        frappe.flags.skip_volunteer_account_creation = True
+        frappe.flags.skip_user_permission_check = True
         
         # Ensure required system settings and master data exist
         self._ensure_production_ready_setup()

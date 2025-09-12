@@ -177,7 +177,7 @@ class PaymentHistoryTestFactory(StreamlinedTestDataFactory):
 
     def _get_or_create_test_companies(self) -> List[str]:
         """Get or create test companies for payment processing"""
-        companies = QueryBuilder.get_all_active_records("Company", filters={"company_name": ["like", "Test%"]}, pluck="name")
+        companies = QueryBuilder.get_all_active_records("Company", additional_filters={"company_name": ["like", "Test%"]}, fields=["name"])
         
         if not companies:
             # Create a test company

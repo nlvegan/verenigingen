@@ -547,6 +547,7 @@ class QueryBuilder:
         doctype: str,
         fields: Optional[list] = None,
         additional_filters: Optional[Dict] = None,
+        filters: Optional[Dict] = None,  # Alias for backward compatibility
         limit: Optional[int] = None,
         order_by: Optional[str] = None,
     ) -> list:
@@ -556,14 +557,17 @@ class QueryBuilder:
         Args:
             doctype: Name of the DocType
             fields: Fields to retrieve
-            additional_filters: Additional filters to apply
+            additional_filters: Additional filters to apply (preferred parameter name)
+            filters: Alias for additional_filters (backward compatibility)
             limit: Maximum number of records to return
             order_by: Order by clause
 
         Returns:
             List of active records
         """
-        filters = cls.get_active_records_filters(doctype, additional_filters)
+        # Handle backward compatibility - prefer additional_filters but allow filters as alias
+        filter_dict = additional_filters or filters
+        filters = cls.get_active_records_filters(doctype, filter_dict)
 
         return frappe.get_all(
             doctype, fields=fields or ["name"], filters=filters, limit=limit, order_by=order_by
@@ -630,6 +634,20 @@ class DocumentExistenceValidator:
                 frappe.throw(error_msg, frappe.DoesNotExistError)
             return False
         return True
+
+    @staticmethod
+    def check_document_exists(doctype: str, name: str) -> bool:
+        """
+        Check if document exists (simple boolean check without throwing exceptions)
+
+        Args:
+            doctype: DocType name
+            name: Document name or dict of filters
+
+        Returns:
+            True if document exists, False otherwise
+        """
+        return bool(frappe.db.exists(doctype, name))
 
     @staticmethod
     def validate_active_document_exists(

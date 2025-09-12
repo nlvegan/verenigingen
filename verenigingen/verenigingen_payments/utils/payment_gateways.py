@@ -175,9 +175,22 @@ class MollieGateway(PaymentGateway):
                 payment_data["sequenceType"] = "first"
                 frappe.logger().info("🎯 Added sequenceType: 'first' for subscription setup")
 
+                # Add subscription metadata for webhook processing
+                subscription_interval = form_data.get("subscription_interval", "1 month")
+                payment_data["metadata"].update(
+                    {
+                        "subscription_setup": "true",
+                        "subscription_interval": subscription_interval,
+                        "subscription_amount": f"{float(donation.amount):.2f}",
+                        "subscription_currency": currency,
+                    }
+                )
+                frappe.logger().info(f"📋 Added subscription metadata: interval={subscription_interval}")
+
                 # Add customerId if available for recurring payments
                 if form_data.get("customer_id"):
                     payment_data["customerId"] = form_data.get("customer_id")
+                    payment_data["metadata"]["customer_id"] = form_data.get("customer_id")
                     frappe.logger().info(f"👤 Added customerId: {form_data.get('customer_id')}")
             elif form_data.get("recurring_payment"):
                 # For subsequent payments in subscription flow
@@ -1065,6 +1078,83 @@ def retry_failed_subscription_activations():
         return {"error": str(e)}
 
 
+def _activate_direct_subscription_after_first_payment(gateway, payment):
+    """
+    Create Mollie subscription directly from payment metadata (no donation agreement needed)
+
+    Args:
+        gateway: MollieGateway instance
+        payment: Mollie payment object from first payment
+
+    Returns:
+        dict: Subscription creation result
+    """
+    try:
+        # Check if this payment has subscription setup metadata
+        if payment.metadata.get("subscription_setup") != "true":
+            return {"status": "skipped", "reason": "Payment not marked for subscription setup"}
+
+        # Get subscription details from payment metadata
+        subscription_interval = payment.metadata.get("subscription_interval")
+        subscription_amount = payment.metadata.get("subscription_amount")
+        subscription_currency = payment.metadata.get("subscription_currency", "EUR")
+        donation_id = payment.metadata.get("donation_id")
+
+        if not (subscription_interval and subscription_amount):
+            return {"status": "error", "reason": "Missing subscription details in payment metadata"}
+
+        # Get customer ID from payment
+        customer_id = payment.customer_id
+        if not customer_id:
+            return {"status": "error", "reason": "No customer ID found in payment"}
+
+        # Create subscription data
+        subscription_data = {
+            "amount": {"currency": subscription_currency, "value": subscription_amount},
+            "interval": subscription_interval,  # Use original format from metadata
+            "description": f"Recurring donation {donation_id}" if donation_id else "Recurring donation",
+            "metadata": {
+                "payment_id": payment.id,
+                "donation_id": donation_id,
+                "created_from": "direct_subscription",
+                "original_amount": subscription_amount,
+                "original_interval": subscription_interval,
+            },
+        }
+
+        # Create subscription using Mollie API directly
+        customer = gateway.client.customers.get(customer_id)
+        subscription = customer.subscriptions.create(data=subscription_data)
+
+        frappe.logger().info(
+            f"Successfully created direct subscription {subscription.id} for payment {payment.id}"
+        )
+
+        # Update donation with subscription ID if donation exists
+        if donation_id:
+            try:
+                donation = frappe.get_doc("Donation", donation_id)
+                donation.db_set("mollie_subscription_id", subscription.id)
+            except:
+                pass  # Don't fail subscription creation if donation update fails
+
+        return {
+            "status": "success",
+            "subscription_id": subscription.id,
+            "customer_id": customer_id,
+            "donation_id": donation_id,
+            "interval": subscription_interval,
+            "amount": subscription_amount,
+        }
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error creating direct subscription after first payment: {str(e)}",
+            "Mollie Direct Subscription Creation",
+        )
+        return {"status": "error", "message": str(e)}
+
+
 def _activate_donation_subscription_after_first_payment(gateway, payment):
     """
     Create Mollie subscription for recurring donation after first payment establishes mandate
@@ -1338,13 +1428,36 @@ def mollie_subscription_webhook():
                 )
                 return {"status": "error", "message": "Invalid JSON payload"}
 
-        # Extract subscription information
-        subscription_id = data.get("id")
+        # Extract subscription information - handle both JSON event format and legacy format
+        subscription_id = None
+
+        # Check for Mollie JSON event format first
+        if data.get("resource") == "event":
+            event_type = data.get("type", "")
+            if event_type == "hook.ping":
+                return {"status": "success", "message": "Subscription webhook ping received"}
+            elif event_type.startswith("subscription."):
+                subscription_id = data.get("entityId")
+            elif event_type.startswith("payment.") and data.get("_embedded", {}).get("entity", {}).get(
+                "subscriptionId"
+            ):
+                # Payment event with subscription information
+                subscription_id = data.get("_embedded", {}).get("entity", {}).get("subscriptionId")
+        else:
+            # Legacy format
+            subscription_id = data.get("id")
+
         if not subscription_id:
             return {"status": "ignored", "reason": "No subscription ID in payload"}
 
         # IDEMPOTENCY: Check if webhook already processed
-        payment_id = data.get("payment", {}).get("id") if data.get("payment") else None
+        payment_id = None
+
+        # Extract payment ID based on format
+        if data.get("resource") == "event" and data.get("type", "").startswith("payment."):
+            payment_id = data.get("entityId")
+        elif data.get("payment", {}).get("id"):
+            payment_id = data.get("payment", {}).get("id")
         if payment_id and DocumentExistenceValidator.check_document_exists(
             "Payment Entry", {"reference_no": payment_id}
         ):
@@ -1589,14 +1702,23 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
         subscription_activation_result = None
         try:
             if payment.sequence_type == "first":
-                # Check if this is for a donation or member subscription
-                if payment.metadata.get("reference_doctype") == "Donation":
+                # Priority 1: Check if payment has direct subscription metadata
+                if payment.metadata.get("subscription_setup") == "true":
                     frappe.logger().info(
-                        "First payment completed for donation, attempting subscription creation"
+                        "First payment completed with subscription metadata, attempting direct subscription creation"
+                    )
+                    subscription_activation_result = _activate_direct_subscription_after_first_payment(
+                        gateway, payment
+                    )
+                # Priority 2: Check if this is for a donation agreement
+                elif payment.metadata.get("reference_doctype") == "Donation":
+                    frappe.logger().info(
+                        "First payment completed for donation, attempting subscription creation via agreement"
                     )
                     subscription_activation_result = _activate_donation_subscription_after_first_payment(
                         gateway, payment
                     )
+                # Priority 3: Member subscription (legacy approach)
                 else:
                     frappe.logger().info(
                         f"First payment completed for member {member_name}, attempting subscription activation"

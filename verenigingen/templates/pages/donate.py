@@ -62,7 +62,7 @@ def get_context(context):
     chapters = []
     if settings.enable_chapter_management:
         chapters = QueryBuilder.get_all_active_records(
-            "Chapter", filters={"published": 1}, fields=["name"], order_by="name"
+            "Chapter", additional_filters={"published": 1}, fields=["name"], order_by="name"
         )
     context.chapters = chapters
 
@@ -177,9 +177,7 @@ def submit_donation(**kwargs):
 
             except Exception as e:
                 frappe.log_error(
-                    "Mollie payment processing error for donation %s: %s",
-                    donation.name if "donation" in locals() else "unknown",
-                    str(e),
+                    f"Mollie payment processing error for donation {donation.name if 'donation' in locals() else 'unknown'}: {str(e)}",
                     "Mollie Payment Error",
                 )
                 return {
@@ -221,7 +219,7 @@ def submit_donation(**kwargs):
         }
 
     except Exception as e:
-        frappe.log_error("Donation submission error: %s", str(e), "Donation Form Error")
+        frappe.log_error(f"Donation submission error: {str(e)}", "Donation Form Error")
         import traceback
 
         traceback.print_exc()
@@ -253,9 +251,7 @@ def get_or_create_donor(form_data):
 
             if not result.success:
                 frappe.log_error(
-                    "Failed to update donor information: %s",
-                    "; ".join(result.errors),
-                    "Donor Update Security",
+                    f"Failed to update donor information: {'; '.join(result.errors)}", "Donor Update Security"
                 )
                 # Continue with donation processing even if phone update fails
         return donor_doc

@@ -41,7 +41,8 @@
   "set_user_permissions": 0,
   "share": 0,
   "print": 0,
-  "email": 0
+  "email": 0,
+  "if_owner": 0
  },
  {
   "doctype": "Custom DocPerm",

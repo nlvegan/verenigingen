@@ -219,7 +219,15 @@ class Donation(Document):
             frappe.throw(_("Chapter is required when Purpose Type is Chapter"))
 
         if purpose_type == "Specific Goal" and not goal_desc:
-            frappe.throw(_("Specific Goal Description is required when Purpose Type is Specific Goal"))
+            # For public donation forms, gracefully fall back to General purpose if no description provided
+            if frappe.session.user == "Guest" or not frappe.has_permission("Donation", "write"):
+                self.donation_purpose_type = "General"
+                frappe.msgprint(
+                    _("Donation purpose changed to General as no specific goal description was provided"),
+                    alert=True,
+                )
+            else:
+                frappe.throw(_("Specific Goal Description is required when Purpose Type is Specific Goal"))
 
         # Validate chapter exists if specified
         if chapter_ref and not frappe.db.exists("Chapter", chapter_ref):

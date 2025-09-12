@@ -7,8 +7,12 @@ Create Test Member with Active Membership for Fee Adjustment Testing
 import frappe
 from frappe.utils import add_days, today
 
+from verenigingen.utils.security_decorators import audit_operation, development_only
+
 
 @frappe.whitelist()
+@development_only()
+@audit_operation("test_data_creation", "Member")
 def create_test_member_with_membership():
     """Create a test member with active membership for testing fee adjustment"""
     try:
@@ -117,6 +121,8 @@ def create_test_member_with_membership():
 
 
 @frappe.whitelist()
+@development_only()
+@audit_operation("test_fee_adjustment", "Member")
 def test_fee_adjustment_with_member(member_email="debug.feetest@test.invalid"):
     """Test fee adjustment functionality with specific member"""
     try:
@@ -164,6 +170,8 @@ def test_fee_adjustment_with_member(member_email="debug.feetest@test.invalid"):
 
 
 @frappe.whitelist()
+@development_only()
+@audit_operation("debug_member_context", "Member")
 def get_member_context_debug(member_email="debug.feetest@test.invalid"):
     """Debug the get_context function for membership fee adjustment page"""
     try:

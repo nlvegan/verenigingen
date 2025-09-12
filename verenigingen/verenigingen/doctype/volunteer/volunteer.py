@@ -184,6 +184,13 @@ class Volunteer(Document):
 
     def after_insert(self):
         """Actions after inserting new volunteer record"""
+        # Skip automatic account creation during tests if flag is set
+        if frappe.flags.get("skip_volunteer_account_creation", False):
+            frappe.logger().info(
+                f"Skipping automatic account creation for volunteer {self.name} due to test flag"
+            )
+            return
+
         # Check if the linked member already has a user account
         existing_user = None
         if self.member:
@@ -904,7 +911,7 @@ class Volunteer(Document):
             settings = frappe.get_single("Verenigingen Settings")
             if settings.national_board_chapter:
                 national_board_member = frappe.db.exists(
-                    "Verenigingen Chapter Board Member",
+                    "Chapter Board Member",
                     {"parent": settings.national_board_chapter, "volunteer": self.name, "is_active": 1},
                 )
 

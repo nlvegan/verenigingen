@@ -23,7 +23,36 @@ class BalancesClient(MollieBaseClient):
     - Transaction history
     - Balance reports
     - Primary balance management
+
+    Note: Requires Organization Access Token (Backend API)
     """
+
+    def __init__(self, settings_name: str = "Mollie Settings"):
+        """
+        Initialize Balances Client with Organization Access Token
+
+        Args:
+            settings_name: Name of Mollie Settings doctype
+        """
+        # Always use backend API for balances - they require Organization Access Token
+        super().__init__(use_backend_api=True)
+        self._validate_backend_api_access()
+
+    def _validate_backend_api_access(self):
+        """
+        Validate that Backend API is properly configured
+
+        Raises:
+            frappe.ValidationError: If backend API is not configured properly
+        """
+        try:
+            # This will raise appropriate errors if backend API is not configured
+            self._get_backend_api_key()
+        except frappe.ValidationError as e:
+            frappe.log_error(
+                f"BalancesClient initialization failed: {str(e)}", "Mollie Backend API Configuration Error"
+            )
+            raise frappe.ValidationError(_("BalancesClient requires Backend API configuration. ") + str(e))
 
     def get_balance(self, balance_id: str) -> Balance:
         """
@@ -40,7 +69,7 @@ class BalancesClient(MollieBaseClient):
         #     AuditEventType.BALANCE_CHECKED, AuditSeverity.INFO, f"Retrieving balance: {balance_id}"
         # )
 
-        response = self.get(f"/balances/{balance_id}")
+        response = self.get(f"balances/{balance_id}")
         return Balance(response)
 
     def list_balances(self, currency: Optional[str] = None, limit: int = 10) -> List[Balance]:
@@ -66,7 +95,7 @@ class BalancesClient(MollieBaseClient):
         #     details={"currency_filter": currency},
         # )
 
-        response = self.get("/balances", params=params, paginated=True)
+        response = self.get("balances", params=params, paginated=True)
 
         balances = []
         for item in response:
@@ -86,7 +115,7 @@ class BalancesClient(MollieBaseClient):
             AuditEventType.BALANCE_CHECKED, AuditSeverity.INFO, "Retrieving primary balance"
         )
 
-        response = self.get("/balances/primary")
+        response = self.get("balances/primary")
         return Balance(response)
 
     def list_balance_transactions(
@@ -125,7 +154,7 @@ class BalancesClient(MollieBaseClient):
         )
 
         try:
-            response = self.get(f"/balances/{balance_id}/transactions", params=params, paginated=True)
+            response = self.get(f"balances/{balance_id}/transactions", params=params, paginated=True)
             transactions = [BalanceTransaction(item) for item in response]
 
             # If API date filtering was used successfully, return directly
@@ -141,7 +170,7 @@ class BalancesClient(MollieBaseClient):
                 api_date_filtering = False
                 # Retry without date parameters
                 params = {"limit": limit}
-                response = self.get(f"/balances/{balance_id}/transactions", params=params, paginated=True)
+                response = self.get(f"balances/{balance_id}/transactions", params=params, paginated=True)
                 transactions = [BalanceTransaction(item) for item in response]
             else:
                 raise
@@ -214,7 +243,7 @@ class BalancesClient(MollieBaseClient):
             details=params,
         )
 
-        response = self.get(f"/balances/{balance_id}/report", params=params)
+        response = self.get(f"balances/{balance_id}/report", params=params)
         return BalanceReport(response)
 
     def get_all_balances_summary(self) -> Dict:

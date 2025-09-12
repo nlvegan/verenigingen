@@ -308,13 +308,13 @@ class TestDonorPermissionsSecurity(VereningingenTestCase):
             "user_type": "System User"
         })
         test_user.insert()
-            
-            # Add proper role
-            test_user.add_roles("Verenigingen Member")
-            self.track_doc("User", test_user.name)
-            
-            # Link to member
-            orm_member = self.factory.create_test_member(
+        
+        # Add proper role
+        test_user.add_roles("Verenigingen Member")
+        self.track_doc("User", test_user.name)
+        
+        # Link to member
+        orm_member = self.factory.create_test_member(
                 first_name="ORM",
                 last_name="TestUser",
                 email="orm_test@example.com",

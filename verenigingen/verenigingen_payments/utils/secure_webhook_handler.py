@@ -223,22 +223,39 @@ class SecureMollieWebhookHandler:
 
     def _route_webhook(self, webhook_data: Dict) -> Dict:
         """
-        Route webhook to appropriate handler based on type
+        Route webhook to appropriate handler based on type - handle both JSON events and legacy format
         """
-        webhook_id = webhook_data.get("id", "")
+        webhook_id = None
+
+        # Check for Mollie JSON event format first
+        if webhook_data.get("resource") == "event":
+            event_type = webhook_data.get("type", "")
+            if event_type == "hook.ping":
+                return {"status": "success", "message": "Webhook ping received"}
+            elif event_type.startswith("payment."):
+                webhook_id = webhook_data.get("entityId")
+            elif event_type.startswith("subscription."):
+                webhook_id = webhook_data.get("entityId")
+        else:
+            # Legacy format
+            webhook_id = webhook_data.get("id", "")
+
+        if not webhook_id:
+            return {"status": "ignored", "reason": "No webhook ID found in payload"}
 
         if webhook_id.startswith("tr_"):  # Payment webhook
-            return self._process_payment_webhook(webhook_data)
+            return self._process_payment_webhook(webhook_data, webhook_id)
         elif webhook_id.startswith("sub_"):  # Subscription webhook
-            return self._process_subscription_webhook(webhook_data)
+            return self._process_subscription_webhook(webhook_data, webhook_id)
         else:
             return {"status": "ignored", "reason": f"Unsupported webhook type: {webhook_id}"}
 
-    def _process_payment_webhook(self, webhook_data: Dict) -> Dict:
+    def _process_payment_webhook(self, webhook_data: Dict, payment_id: str = None) -> Dict:
         """
         Process payment webhook with atomic transactions and real API calls
         """
-        payment_id = webhook_data.get("id")
+        if not payment_id:
+            payment_id = webhook_data.get("id")
 
         with self.transaction_manager.atomic_operation("process_payment_webhook"):
             try:
@@ -445,11 +462,12 @@ class SecureMollieWebhookHandler:
 
         return payment_entry
 
-    def _process_subscription_webhook(self, webhook_data: Dict) -> Dict:
+    def _process_subscription_webhook(self, webhook_data: Dict, subscription_id: str = None) -> Dict:
         """
         Process subscription webhook for recurring payments
         """
-        subscription_id = webhook_data.get("id")
+        if not subscription_id:
+            subscription_id = webhook_data.get("id")
 
         with self.transaction_manager.atomic_operation("process_subscription_webhook"):
             try:

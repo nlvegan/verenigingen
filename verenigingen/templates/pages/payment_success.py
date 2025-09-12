@@ -18,6 +18,10 @@ def get_context(context):
     context.show_sidebar = False
     context.title = _("Payment Status")
 
+    # Ensure we have a valid session for guest users returning from payment providers
+    if not frappe.session.user or frappe.session.user == "None":
+        frappe.set_user("Guest")
+
     # Get parameters from URL
     doctype = frappe.form_dict.get("doctype")
     docname = frappe.form_dict.get("docname")
@@ -32,7 +36,8 @@ def get_context(context):
     if doctype and docname:
         try:
             # Get the document that was being paid for
-            doc = frappe.get_doc(doctype, docname)
+            # Use ignore_permissions for guest access to payment status information only
+            doc = frappe.get_doc(doctype, docname, ignore_permissions=True)
 
             context.document_info = {
                 "doctype": doctype,
@@ -184,7 +189,7 @@ def get_next_steps(status, doctype, docname):
 def refresh_payment_status(doctype, docname, payment_id):
     """API endpoint to refresh payment status"""
     try:
-        doc = frappe.get_doc(doctype, docname)
+        doc = frappe.get_doc(doctype, docname, ignore_permissions=True)
         result = check_payment_status(doc, payment_id)
 
         return {

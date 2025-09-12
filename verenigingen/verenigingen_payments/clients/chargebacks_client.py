@@ -24,7 +24,36 @@ class ChargebacksClient(MollieBaseClient):
     - Dispute management
     - Financial impact analysis
     - Chargeback prevention insights
+
+    Note: Requires Organization Access Token (Backend API)
     """
+
+    def __init__(self, settings_name: str = "Mollie Settings"):
+        """
+        Initialize Chargebacks Client with Organization Access Token
+
+        Args:
+            settings_name: Name of Mollie Settings doctype
+        """
+        # Always use backend API for chargebacks - they require Organization Access Token
+        super().__init__(use_backend_api=True)
+        self._validate_backend_api_access()
+
+    def _validate_backend_api_access(self):
+        """
+        Validate that Backend API is properly configured
+
+        Raises:
+            frappe.ValidationError: If backend API is not configured properly
+        """
+        try:
+            # This will raise appropriate errors if backend API is not configured
+            self._get_backend_api_key()
+        except frappe.ValidationError as e:
+            frappe.log_error(
+                f"ChargebacksClient initialization failed: {str(e)}", "Mollie Backend API Configuration Error"
+            )
+            raise frappe.ValidationError(_("ChargebacksClient requires Backend API configuration. ") + str(e))
 
     def get_chargeback(self, payment_id: str, chargeback_id: str) -> Chargeback:
         """
@@ -43,7 +72,7 @@ class ChargebacksClient(MollieBaseClient):
             f"Retrieving chargeback: {chargeback_id} for payment: {payment_id}",
         )
 
-        response = self.get(f"/payments/{payment_id}/chargebacks/{chargeback_id}")
+        response = self.get(f"payments/{payment_id}/chargebacks/{chargeback_id}")
         return Chargeback(response)
 
     def list_payment_chargebacks(self, payment_id: str) -> List[Chargeback]:
@@ -62,7 +91,7 @@ class ChargebacksClient(MollieBaseClient):
             f"Listing chargebacks for payment: {payment_id}",
         )
 
-        response = self.get(f"/payments/{payment_id}/chargebacks", paginated=True)
+        response = self.get(f"payments/{payment_id}/chargebacks", paginated=True)
         return [Chargeback(item) for item in response]
 
     def list_all_chargebacks(
@@ -94,7 +123,7 @@ class ChargebacksClient(MollieBaseClient):
             AuditEventType.CHARGEBACK_RECEIVED, AuditSeverity.INFO, "Listing all chargebacks", details=params
         )
 
-        response = self.get("/chargebacks", params=params, paginated=True)
+        response = self.get("chargebacks", params=params, paginated=True)
         chargebacks = [Chargeback(item) for item in response]
 
         # Apply date filtering in memory if requested
