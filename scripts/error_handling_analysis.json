@@ -2,90 +2,20 @@
   "total_files": 2097,
   "files_analyzed": 2096,
   "overall_patterns": {
-    "try_except": 8139,
+    "try_except": 8137,
     "except_bare": 219,
     "except_generic": 705,
     "except_specific": 279,
     "frappe_throw": 1330,
     "frappe_msgprint": 187,
-    "frappe_log_error": 2217,
+    "frappe_log_error": 2221,
     "pass_silently": 396,
-    "print_debug": 19371,
+    "print_debug": 19284,
     "raise_without_context": 223,
     "validation_error": 469,
     "permission_error": 367
   },
   "file_analyses": [
-    {
-      "file_path": "/home/frappe/frappe-bench/apps/verenigingen/test_webhook_call.py",
-      "line_count": 55,
-      "error_patterns": {
-        "try_except": 2,
-        "except_bare": 0,
-        "except_generic": 0,
-        "except_specific": 0,
-        "frappe_throw": 0,
-        "frappe_msgprint": 0,
-        "frappe_log_error": 0,
-        "pass_silently": 0,
-        "print_debug": 7,
-        "raise_without_context": 0,
-        "validation_error": 0,
-        "permission_error": 0
-      },
-      "issues": [
-        {
-          "type": "debug_print",
-          "line": 13,
-          "content": "print(\"=== TESTING ACTUAL WEBHOOK CALL ===\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 27,
-          "content": "print(f\"Webhook payload: {frappe.form_dict}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 32,
-          "content": "print(f\"Webhook result: {result}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 35,
-          "content": "print(\"\u2705 Webhook call succeeded\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 37,
-          "content": "print(\"\u2705 Webhook call - already processed\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 39,
-          "content": "print(f\"\u274c Webhook call failed: {result}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 48,
-          "content": "print(f\"\u274c Webhook test error: {e}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        }
-      ],
-      "score": 15
-    },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/test_environment_setup.py",
       "line_count": 65,
@@ -157,636 +87,6 @@
           "type": "debug_print",
           "line": 58,
           "content": "print(\"=\" * 50)",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        }
-      ],
-      "score": 15
-    },
-    {
-      "file_path": "/home/frappe/frappe-bench/apps/verenigingen/debug_mollie_subscription.py",
-      "line_count": 224,
-      "error_patterns": {
-        "try_except": 4,
-        "except_bare": 0,
-        "except_generic": 0,
-        "except_specific": 0,
-        "frappe_throw": 0,
-        "frappe_msgprint": 0,
-        "frappe_log_error": 0,
-        "pass_silently": 0,
-        "print_debug": 87,
-        "raise_without_context": 0,
-        "validation_error": 0,
-        "permission_error": 0
-      },
-      "issues": [
-        {
-          "type": "debug_print",
-          "line": 16,
-          "content": "print(\"=== MOLLIE SUBSCRIPTION DEBUG ===\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 17,
-          "content": "print(f\"Investigating payment: {payment_id}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 18,
-          "content": "print()",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 27,
-          "content": "print(f\"Test Mode: {mollie_settings.test_mode}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 28,
-          "content": "print(f\"Subscriptions Enabled: {getattr(mollie_settings, 'enable_subscriptions', False)}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 29,
-          "content": "print()",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 33,
-          "content": "print(\"\u2705 Mollie client connected successfully\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 34,
-          "content": "print()",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 37,
-          "content": "print(\"=== PAYMENT DETAILS ===\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 42,
-          "content": "print(f\"Payment ID: {payment.id}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 43,
-          "content": "print(f\"Status: {payment.status}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 44,
-          "content": "print(f\"Amount: {payment.amount['value']} {payment.amount['currency']}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 45,
-          "content": "print(f\"Description: {payment.description}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 46,
-          "content": "print(f\"Method: {getattr(payment, 'method', 'N/A')}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 47,
-          "content": "print(f\"Mode: {getattr(payment, 'mode', 'N/A')}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 48,
-          "content": "print(f\"Created At: {payment.created_at}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 49,
-          "content": "print(f\"Paid At: {getattr(payment, 'paid_at', 'N/A')}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 50,
-          "content": "print(f\"Expires At: {getattr(payment, 'expires_at', 'N/A')}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 51,
-          "content": "print(f\"Profile ID: {getattr(payment, 'profile_id', 'N/A')}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 52,
-          "content": "print(f\"Settlement ID: {getattr(payment, 'settlement_id', 'N/A')}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 56,
-          "content": "print(f\"Sequence Type: {sequence_type}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 60,
-          "content": "print(f\"Customer ID: {customer_id}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 64,
-          "content": "print(f\"Subscription ID: {subscription_id}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 68,
-          "content": "print(f\"Metadata: {json.dumps(metadata, indent=2)}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 73,
-          "content": "print(f\"Links: {dir(links)}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 75,
-          "content": "print(f\"Checkout URL: {links.checkout.href}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 77,
-          "content": "print()",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 80,
-          "content": "print(\"=== SUBSCRIPTION ANALYSIS ===\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 83,
-          "content": "print(\"\u2705 This is a 'first' payment - correct for subscription setup\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 86,
-          "content": "print(f\"\u2705 Customer ID found: {customer_id}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 91,
-          "content": "print(f\"Customer Name: {customer.name}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 92,
-          "content": "print(f\"Customer Email: {customer.email}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 93,
-          "content": "print(f\"Customer Created: {customer.created_at}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 97,
-          "content": "print(f\"Number of subscriptions: {len(subscriptions['data'])}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 100,
-          "content": "print(f\"  Subscription {sub.id}: {sub.status} - {sub.amount['value']} {sub.amount['currency']} every {sub.interval}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 103,
-          "content": "print(f\"\u274c Error getting customer details: {e}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 105,
-          "content": "print(\"\u274c No customer ID - subscription setup incomplete\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 108,
-          "content": "print(\"\u26a0\ufe0f This is a 'recurring' payment - subscription should already exist\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 110,
-          "content": "print(\"\u26a0\ufe0f This is a 'oneoff' payment - not for subscriptions\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 112,
-          "content": "print(\"\u274c No sequence type or unknown type - subscription setup likely failed\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 114,
-          "content": "print()",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 117,
-          "content": "print(\"=== DESCRIPTION ANALYSIS ===\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 119,
-          "content": "print(f\"Description: '{description}'\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 125,
-          "content": "print(\"\u2705 Description contains JSON metadata:\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 126,
-          "content": "print(json.dumps(parsed_desc, indent=2))",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 129,
-          "content": "print(\"\u2705 Payment was intended for recurring subscription\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 131,
-          "content": "print(f\"Intended interval: {interval}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 133,
-          "content": "print(\"\u26a0\ufe0f Payment was not marked as recurring in metadata\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 136,
-          "content": "print(\"\u26a0\ufe0f Description is not JSON - likely a simple description\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 138,
-          "content": "print()",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 141,
-          "content": "print(\"=== PAYMENT SUCCESS CHECK ===\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 143,
-          "content": "print(\"\u2705 Payment was successful\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 144,
-          "content": "print(f\"Paid at: {payment.paid_at}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 152,
-          "content": "print(\"\u274c PROBLEM IDENTIFIED: First payment succeeded but no subscription was created!\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 153,
-          "content": "print(\"This suggests the subscription creation step failed after the payment.\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 155,
-          "content": "print(f\"\u2705 Customer has {len(subscriptions['data'])} subscription(s)\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 158,
-          "content": "print(\"\u23f3 Payment is still pending\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 160,
-          "content": "print(\"\u274c Payment was canceled\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 162,
-          "content": "print(\"\u274c Payment expired\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 164,
-          "content": "print(\"\u274c Payment failed\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 166,
-          "content": "print(f\"\u2753 Payment status: {payment.status}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 168,
-          "content": "print()",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 180,
-          "content": "print(f\"\u274c Error retrieving payment: {e}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 184,
-          "content": "print(f\"\u274c Error in debug script: {e}\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 193,
-          "content": "print(\"=== MOLLIE SUBSCRIPTION REQUIREMENTS ===\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 194,
-          "content": "print()",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 195,
-          "content": "print(\"According to Mollie API documentation:\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 196,
-          "content": "print(\"1. First payment must have sequenceType: 'first'\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 197,
-          "content": "print(\"2. Customer must be created before subscription\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 198,
-          "content": "print(\"3. First payment establishes mandate/authorization\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 199,
-          "content": "print(\"4. After first payment succeeds, subscription must be created separately\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 200,
-          "content": "print(\"5. Subsequent payments will have sequenceType: 'recurring'\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 201,
-          "content": "print()",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 202,
-          "content": "print(\"For 1-day intervals:\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 203,
-          "content": "print(\"- Mollie supports 'every day' but with minimum limits\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 204,
-          "content": "print(\"- Some payment methods may not support daily intervals\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 205,
-          "content": "print(\"- Bank transfers typically have minimum intervals\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 206,
-          "content": "print()",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 211,
-          "content": "print()",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 215,
-          "content": "print(\"=== RECOMMENDED NEXT STEPS ===\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 217,
-          "content": "print(\"1. Check webhook processing - did the subscription creation webhook fire?\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 218,
-          "content": "print(\"2. Look for subscription creation errors in Frappe error logs\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 219,
-          "content": "print(\"3. Manually trigger subscription creation for this customer\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 220,
-          "content": "print(\"4. Verify 1-day interval is supported by the payment method used\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 222,
-          "content": "print(\"1. Check if payment was set up correctly as a 'first' payment\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 223,
-          "content": "print(\"2. Verify customer creation succeeded before payment\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 224,
-          "content": "print(\"3. Check if 1-day interval is causing validation issues\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         }
@@ -4749,6 +4049,76 @@
           "type": "debug_print",
           "line": 149,
           "content": "print(f\"   Found {len(supporting_data['sepa_mandates'])} SEPA mandates\")",
+          "severity": "low",
+          "message": "Use logging instead of print for debugging"
+        }
+      ],
+      "score": 15
+    },
+    {
+      "file_path": "/home/frappe/frappe-bench/apps/verenigingen/one-off-test-debug-folder/test_webhook_call.py",
+      "line_count": 54,
+      "error_patterns": {
+        "try_except": 2,
+        "except_bare": 0,
+        "except_generic": 0,
+        "except_specific": 0,
+        "frappe_throw": 0,
+        "frappe_msgprint": 0,
+        "frappe_log_error": 0,
+        "pass_silently": 0,
+        "print_debug": 7,
+        "raise_without_context": 0,
+        "validation_error": 0,
+        "permission_error": 0
+      },
+      "issues": [
+        {
+          "type": "debug_print",
+          "line": 13,
+          "content": "print(\"=== TESTING ACTUAL WEBHOOK CALL ===\")",
+          "severity": "low",
+          "message": "Use logging instead of print for debugging"
+        },
+        {
+          "type": "debug_print",
+          "line": 24,
+          "content": "print(f\"Webhook payload: {frappe.form_dict}\")",
+          "severity": "low",
+          "message": "Use logging instead of print for debugging"
+        },
+        {
+          "type": "debug_print",
+          "line": 29,
+          "content": "print(f\"Webhook result: {result}\")",
+          "severity": "low",
+          "message": "Use logging instead of print for debugging"
+        },
+        {
+          "type": "debug_print",
+          "line": 32,
+          "content": "print(\"\u2705 Webhook call succeeded\")",
+          "severity": "low",
+          "message": "Use logging instead of print for debugging"
+        },
+        {
+          "type": "debug_print",
+          "line": 34,
+          "content": "print(\"\u2705 Webhook call - already processed\")",
+          "severity": "low",
+          "message": "Use logging instead of print for debugging"
+        },
+        {
+          "type": "debug_print",
+          "line": 36,
+          "content": "print(f\"\u274c Webhook call failed: {result}\")",
+          "severity": "low",
+          "message": "Use logging instead of print for debugging"
+        },
+        {
+          "type": "debug_print",
+          "line": 45,
+          "content": "print(f\"\u274c Webhook test error: {e}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         }
@@ -32264,7 +31634,7 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/api/simple_donation_webhook.py",
-      "line_count": 278,
+      "line_count": 289,
       "error_patterns": {
         "try_except": 5,
         "except_bare": 1,
@@ -32282,7 +31652,7 @@
       "issues": [
         {
           "type": "bare_except",
-          "line": 82,
+          "line": 93,
           "content": "except:",
           "severity": "high",
           "message": "Bare except clause can hide errors"
@@ -32611,15 +31981,15 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/api/mollie_payment_webhook.py",
-      "line_count": 779,
+      "line_count": 812,
       "error_patterns": {
-        "try_except": 17,
+        "try_except": 18,
         "except_bare": 0,
         "except_generic": 1,
         "except_specific": 0,
         "frappe_throw": 0,
         "frappe_msgprint": 0,
-        "frappe_log_error": 3,
+        "frappe_log_error": 7,
         "pass_silently": 2,
         "print_debug": 0,
         "raise_without_context": 1,
@@ -32629,14 +31999,14 @@
       "issues": [
         {
           "type": "silent_failure",
-          "line": 360,
+          "line": 393,
           "content": "except (json.JSONDecodeError, TypeError):",
           "severity": "medium",
           "message": "Silent exception handling may hide issues"
         },
         {
           "type": "silent_failure",
-          "line": 498,
+          "line": 531,
           "content": "except (json.JSONDecodeError, TypeError):",
           "severity": "medium",
           "message": "Silent exception handling may hide issues"
@@ -38771,7 +38141,7 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/utils/create_test_member.py",
-      "line_count": 213,
+      "line_count": 214,
       "error_patterns": {
         "try_except": 7,
         "except_bare": 0,
@@ -38791,7 +38161,7 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/utils/mollie_test_helpers.py",
-      "line_count": 445,
+      "line_count": 446,
       "error_patterns": {
         "try_except": 7,
         "except_bare": 0,
@@ -38809,105 +38179,105 @@
       "issues": [
         {
           "type": "debug_print",
-          "line": 120,
+          "line": 121,
           "content": "frappe.msgprint(",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 130,
+          "line": 131,
           "content": "frappe.msgprint(",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 141,
+          "line": 142,
           "content": "frappe.msgprint(f\"\u274c {error_msg}\", title=\"Error\", indicator=\"red\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 174,
+          "line": 175,
           "content": "frappe.msgprint(f\"\ud83d\udcc4 Created test invoice: {invoice_name}\", indicator=\"blue\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 206,
+          "line": 207,
           "content": "frappe.msgprint(",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 216,
+          "line": 217,
           "content": "frappe.msgprint(",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 227,
+          "line": 228,
           "content": "frappe.msgprint(f\"\u274c {error_msg}\", title=\"Error\", indicator=\"red\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 261,
+          "line": 262,
           "content": "frappe.msgprint(",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 273,
+          "line": 274,
           "content": "frappe.msgprint(",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 284,
+          "line": 285,
           "content": "frappe.msgprint(f\"\u274c {error_msg}\", title=\"Error\", indicator=\"red\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 313,
+          "line": 314,
           "content": "frappe.msgprint(",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 319,
+          "line": 320,
           "content": "frappe.msgprint(",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 330,
+          "line": 331,
           "content": "frappe.msgprint(f\"\u274c {error_msg}\", title=\"Error\", indicator=\"red\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 435,
+          "line": 436,
           "content": "frappe.msgprint(summary, title=\"Test Suite Results\", indicator=indicator)",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 443,
+          "line": 444,
           "content": "frappe.msgprint(f\"\u274c {error_msg}\", title=\"Test Suite Error\", indicator=\"red\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
@@ -39375,7 +38745,7 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/utils/fix_donation_status.py",
-      "line_count": 39,
+      "line_count": 41,
       "error_patterns": {
         "try_except": 1,
         "except_bare": 0,
@@ -39935,49 +39305,49 @@
         },
         {
           "type": "debug_print",
-          "line": 43,
+          "line": 41,
           "content": "print(f\"Found {len(recent_donations)} recent donation(s):\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 45,
+          "line": 43,
           "content": "print(f\"  - {donation.name}: {donation.payment_id}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 46,
+          "line": 44,
           "content": "print(f\"    Paid: {donation.paid}, Status: {donation.status}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 47,
+          "line": 45,
           "content": "print(f\"    Donor: {donation.donor}, Amount: {donation.amount}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 48,
+          "line": 46,
           "content": "print(f\"    Created: {donation.creation} by {donation.owner}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 49,
+          "line": 47,
           "content": "print()",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 54,
+          "line": 52,
           "content": "print(f\"\u274c Error: {e}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
@@ -40699,7 +40069,7 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/utils/donation_history_manager.py",
-      "line_count": 322,
+      "line_count": 323,
       "error_patterns": {
         "try_except": 6,
         "except_bare": 0,
@@ -41299,6 +40669,26 @@
       "score": 40
     },
     {
+      "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/utils/mollie_webhook_parser.py",
+      "line_count": 170,
+      "error_patterns": {
+        "try_except": 1,
+        "except_bare": 0,
+        "except_generic": 0,
+        "except_specific": 0,
+        "frappe_throw": 0,
+        "frappe_msgprint": 0,
+        "frappe_log_error": 0,
+        "pass_silently": 0,
+        "print_debug": 0,
+        "raise_without_context": 0,
+        "validation_error": 0,
+        "permission_error": 0
+      },
+      "issues": [],
+      "score": 25
+    },
+    {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/utils/link_ledger_to_accounts.py",
       "line_count": 239,
       "error_patterns": {
@@ -41666,7 +41056,7 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/utils/test_webhook_directly.py",
-      "line_count": 67,
+      "line_count": 69,
       "error_patterns": {
         "try_except": 2,
         "except_bare": 0,
@@ -44445,7 +43835,7 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/utils/test_mollie_subscription_creation.py",
-      "line_count": 117,
+      "line_count": 116,
       "error_patterns": {
         "try_except": 3,
         "except_bare": 0,
@@ -44463,273 +43853,273 @@
       "issues": [
         {
           "type": "debug_print",
-          "line": 15,
+          "line": 16,
           "content": "print(\"=== TESTING SUBSCRIPTION CREATION ===\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 21,
+          "line": 22,
           "content": "print(\"\u2705 Connected to Mollie API\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 26,
+          "line": 27,
           "content": "print(f\"Testing with existing customer: {customer_id}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 29,
+          "line": 30,
           "content": "print(\"\\n--- Test 1: Using '1 d' interval format ---\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 42,
+          "line": 41,
           "content": "print(f\"\u274c UNEXPECTED: '1 d' format worked! Created subscription: {subscription.id}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 46,
+          "line": 45,
           "content": "print(f\"\u2705 EXPECTED: '1 d' format failed: {e}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 49,
+          "line": 48,
           "content": "print(\"\\n--- Test 2: Using '1 day' interval format ---\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 61,
+          "line": 58,
           "content": "print(f\"\u2705 SUCCESS: '1 day' format worked! Created subscription: {subscription.id}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 62,
+          "line": 59,
           "content": "print(f\"   Status: {subscription.status}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 63,
+          "line": 60,
           "content": "print(f\"   Amount: {subscription.amount['value']} {subscription.amount['currency']}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 64,
+          "line": 61,
           "content": "print(f\"   Interval: {subscription.interval}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 65,
+          "line": 62,
           "content": "print(f\"   Next Payment: {getattr(subscription, 'next_payment_date', 'N/A')}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 68,
+          "line": 65,
           "content": "print(f\"\ud83e\uddf9 Cleaning up test subscription {subscription.id}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 70,
+          "line": 67,
           "content": "print(\"\u2705 Test subscription deleted\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 73,
+          "line": 70,
           "content": "print(f\"\u274c UNEXPECTED: '1 day' format failed: {e}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 76,
+          "line": 73,
           "content": "print(\"\\n--- Test 3: Check iDEAL compatibility with subscriptions ---\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 77,
+          "line": 74,
           "content": "print(\"The original payment used iDEAL method\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 78,
+          "line": 75,
           "content": "print(\"iDEAL is typically one-time only and may not support recurring subscriptions\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 79,
+          "line": 76,
           "content": "print(\"This could be why the subscription creation failed even with correct format\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 84,
+          "line": 81,
           "content": "print(f\"\u274c Test error: {e}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 94,
+          "line": 92,
           "content": "print(\"\\n=== RECOMMENDED FIXES ===\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 95,
+          "line": 93,
           "content": "print()",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 96,
+          "line": 94,
           "content": "print(\"1. **Fix Interval Format**:\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 97,
+          "line": 95,
           "content": "print(\"   - Change '1 d' to '1 day' in the interval abbreviation logic\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 98,
+          "line": 96,
           "content": "print(\"   - File: verenigingen/utils/payment_services/mollie_payment_service.py\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 99,
+          "line": 97,
           "content": "print(\"   - Line 204: Update interval abbreviation to use full words for days\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 100,
+          "line": 98,
           "content": "print()",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 101,
+          "line": 99,
           "content": "print(\"2. **Add iDEAL Compatibility Check**:\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 102,
+          "line": 100,
           "content": "print(\"   - iDEAL payments are typically one-time only\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 103,
+          "line": 101,
           "content": "print(\"   - Consider warning users or suggesting alternative payment methods\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 104,
+          "line": 102,
           "content": "print(\"   - Credit card or SEPA Direct Debit work better for subscriptions\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 105,
+          "line": 103,
           "content": "print()",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 106,
+          "line": 104,
           "content": "print(\"3. **Add Retry Logic**:\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 107,
+          "line": 105,
           "content": "print(\"   - Add manual retry functionality for failed subscription creations\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 108,
+          "line": 106,
           "content": "print(\"   - Store first payment details for later subscription setup\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 109,
+          "line": 107,
           "content": "print()",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 110,
+          "line": 108,
           "content": "print(\"4. **Improve Error Handling**:\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 111,
+          "line": 109,
           "content": "print(\"   - Better logging when subscription creation fails\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 112,
+          "line": 110,
           "content": "print(\"   - Store failed attempts for debugging\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
@@ -45318,7 +44708,7 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/utils/debug_mollie_issue.py",
-      "line_count": 168,
+      "line_count": 171,
       "error_patterns": {
         "try_except": 3,
         "except_bare": 1,
@@ -45336,518 +44726,518 @@
       "issues": [
         {
           "type": "bare_except",
-          "line": 66,
+          "line": 67,
           "content": "except:",
           "severity": "high",
           "message": "Bare except clause can hide errors"
         },
         {
           "type": "debug_print",
-          "line": 14,
+          "line": 15,
           "content": "print(f\"=== DEBUGGING MOLLIE PAYMENT {payment_id} ===\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 20,
+          "line": 21,
           "content": "print(f\"API Mode: {'Test' if mollie_settings.test_mode else 'Live'}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 21,
+          "line": 22,
           "content": "print(f\"Subscriptions Enabled: {getattr(mollie_settings, 'enable_subscriptions', False)}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 22,
+          "line": 23,
           "content": "print()",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 27,
-          "content": "print(\"=== PAYMENT DETAILS ===\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 28,
-          "content": "print(f\"ID: {payment.id}\")",
+          "content": "print(\"=== PAYMENT DETAILS ===\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 29,
-          "content": "print(f\"Status: {payment.status}\")",
+          "content": "print(f\"ID: {payment.id}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 30,
-          "content": "print(f\"Amount: {payment.amount['value']} {payment.amount['currency']}\")",
+          "content": "print(f\"Status: {payment.status}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 31,
-          "content": "print(f\"Description: {payment.description}\")",
+          "content": "print(f\"Amount: {payment.amount['value']} {payment.amount['currency']}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 32,
-          "content": "print(f\"Created: {payment.created_at}\")",
+          "content": "print(f\"Description: {payment.description}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 33,
-          "content": "print(f\"Method: {getattr(payment, 'method', 'N/A')}\")",
+          "content": "print(f\"Created: {payment.created_at}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 34,
-          "content": "print(f\"Sequence Type: {getattr(payment, 'sequence_type', 'N/A')}\")",
+          "content": "print(f\"Method: {getattr(payment, 'method', 'N/A')}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 35,
-          "content": "print(f\"Customer ID: {getattr(payment, 'customer_id', 'N/A')}\")",
+          "content": "print(f\"Sequence Type: {getattr(payment, 'sequence_type', 'N/A')}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 36,
-          "content": "print(f\"Subscription ID: {getattr(payment, 'subscription_id', 'N/A')}\")",
+          "content": "print(f\"Customer ID: {getattr(payment, 'customer_id', 'N/A')}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 37,
+          "content": "print(f\"Subscription ID: {getattr(payment, 'subscription_id', 'N/A')}\")",
+          "severity": "low",
+          "message": "Use logging instead of print for debugging"
+        },
+        {
+          "type": "debug_print",
+          "line": 38,
           "content": "print()",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 41,
+          "line": 42,
           "content": "print(f\"Payment Successful: {is_paid}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 43,
+          "line": 44,
           "content": "print(f\"Paid At: {getattr(payment, 'paid_at', 'N/A')}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 44,
+          "line": 45,
           "content": "print()",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 48,
-          "content": "print(\"=== DESCRIPTION ANALYSIS ===\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 49,
+          "content": "print(\"=== DESCRIPTION ANALYSIS ===\")",
+          "severity": "low",
+          "message": "Use logging instead of print for debugging"
+        },
+        {
+          "type": "debug_print",
+          "line": 50,
           "content": "print(f\"Raw Description: '{description}'\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 54,
+          "line": 55,
           "content": "print(\"Parsed Metadata:\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 56,
+          "line": 57,
           "content": "print(f\"  {key}: {value}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 60,
+          "line": 61,
           "content": "print(\"\u2705 Payment was intended for recurring subscription\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 61,
+          "line": 62,
           "content": "print(f\"Interval: {metadata.get('interval', 'unknown')}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 63,
+          "line": 64,
           "content": "print(f\"\u26a0\ufe0f Payment type: {payment_type}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 65,
+          "line": 66,
           "content": "print(\"\u26a0\ufe0f Description is not JSON metadata\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 67,
+          "line": 68,
           "content": "print(\"\u274c Failed to parse description as JSON\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 68,
+          "line": 69,
           "content": "print()",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 73,
+          "line": 74,
           "content": "print(f\"=== CUSTOMER {customer_id} ANALYSIS ===\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 76,
+          "line": 77,
           "content": "print(f\"Name: {customer.name}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 77,
+          "line": 78,
           "content": "print(f\"Email: {customer.email}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 82,
+          "line": 83,
           "content": "print(f\"Subscriptions Count: {sub_count}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 90,
+          "line": 91,
           "content": "print(f\"  Subscription {sub.id}:\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 91,
+          "line": 92,
           "content": "print(f\"    Status: {sub.status}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 92,
+          "line": 93,
           "content": "print(f\"    Amount: {sub.amount['value']} {sub.amount['currency']}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 93,
+          "line": 94,
           "content": "print(f\"    Interval: {sub.interval}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 94,
+          "line": 95,
           "content": "print(f\"    Created: {sub.created_at}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 95,
+          "line": 96,
           "content": "print(f\"    Next Payment: {getattr(sub, 'next_payment_date', 'N/A')}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 98,
+          "line": 99,
           "content": "print(\"\u274c NO SUBSCRIPTIONS FOUND - This is likely the problem!\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 101,
+          "line": 102,
           "content": "print(f\"\u274c Error getting customer details: {e}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 103,
+          "line": 104,
           "content": "print(\"\u274c NO CUSTOMER ID - First payment should have customer_id\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 105,
+          "line": 106,
           "content": "print()",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 117,
+          "line": 118,
           "content": "print(f\"\u274c Error: {e}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 127,
+          "line": 129,
           "content": "print(\"=== MOLLIE SUBSCRIPTION INTERVALS ===\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 128,
+          "line": 130,
           "content": "print(\"According to Mollie API documentation:\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 129,
+          "line": 131,
           "content": "print(\"Supported intervals:\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 130,
+          "line": 132,
           "content": "print(\"- ... days (minimum 1 day)\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 131,
+          "line": 133,
           "content": "print(\"- ... weeks\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 132,
+          "line": 134,
           "content": "print(\"- ... months\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 133,
+          "line": 135,
           "content": "print(\"- ... years\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 134,
-          "content": "print()",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 135,
-          "content": "print(\"Notes:\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
           "line": 136,
-          "content": "print(\"- Daily subscriptions (1 day) are supported\")",
+          "content": "print()",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 137,
-          "content": "print(\"- Some payment methods may have restrictions\")",
+          "content": "print(\"Notes:\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 138,
-          "content": "print(\"- Credit cards: generally support daily\")",
+          "content": "print(\"- Daily subscriptions (1 day) are supported\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 139,
-          "content": "print(\"- SEPA Direct Debit: may have minimum intervals\")",
+          "content": "print(\"- Some payment methods may have restrictions\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 140,
-          "content": "print(\"- iDEAL: typically one-time only, not suitable for recurring\")",
+          "content": "print(\"- Credit cards: generally support daily\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 141,
+          "content": "print(\"- SEPA Direct Debit: may have minimum intervals\")",
+          "severity": "low",
+          "message": "Use logging instead of print for debugging"
+        },
+        {
+          "type": "debug_print",
+          "line": 142,
+          "content": "print(\"- iDEAL: typically one-time only, not suitable for recurring\")",
+          "severity": "low",
+          "message": "Use logging instead of print for debugging"
+        },
+        {
+          "type": "debug_print",
+          "line": 143,
           "content": "print()",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 148,
-          "content": "print(\"=== EXPECTED SUBSCRIPTION WORKFLOW ===\")",
-          "severity": "low",
-          "message": "Use logging instead of print for debugging"
-        },
-        {
-          "type": "debug_print",
-          "line": 149,
-          "content": "print(\"1. User initiates recurring donation\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 150,
-          "content": "print(\"2. Create Mollie customer\")",
+          "content": "print(\"=== EXPECTED SUBSCRIPTION WORKFLOW ===\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 151,
-          "content": "print(\"3. Create first payment with sequenceType: 'first'\")",
+          "content": "print(\"1. User initiates recurring donation\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 152,
-          "content": "print(\"4. User completes payment (establishes mandate)\")",
+          "content": "print(\"2. Create Mollie customer\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 153,
-          "content": "print(\"5. Webhook fires when payment succeeds\")",
+          "content": "print(\"3. Create first payment with sequenceType: 'first'\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 154,
-          "content": "print(\"6. Create subscription based on successful first payment\")",
+          "content": "print(\"4. User completes payment (establishes mandate)\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 155,
-          "content": "print(\"7. Future payments are automatically charged\")",
+          "content": "print(\"5. Webhook fires when payment succeeds\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 156,
-          "content": "print()",
+          "content": "print(\"6. Create subscription based on successful first payment\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 157,
-          "content": "print(\"POTENTIAL ISSUES:\")",
+          "content": "print(\"7. Future payments are automatically charged\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 158,
-          "content": "print(\"- Step 6 might be failing\")",
+          "content": "print()",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 159,
-          "content": "print(\"- 1-day interval might not be supported by payment method\")",
+          "content": "print(\"POTENTIAL ISSUES:\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 160,
-          "content": "print(\"- Webhook might not be creating subscription properly\")",
+          "content": "print(\"- Step 6 might be failing\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 161,
-          "content": "print(\"- Customer creation might be failing\")",
+          "content": "print(\"- 1-day interval might not be supported by payment method\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
           "line": 162,
+          "content": "print(\"- Webhook might not be creating subscription properly\")",
+          "severity": "low",
+          "message": "Use logging instead of print for debugging"
+        },
+        {
+          "type": "debug_print",
+          "line": 163,
+          "content": "print(\"- Customer creation might be failing\")",
+          "severity": "low",
+          "message": "Use logging instead of print for debugging"
+        },
+        {
+          "type": "debug_print",
+          "line": 164,
           "content": "print()",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
@@ -46939,49 +46329,49 @@
         },
         {
           "type": "debug_print",
-          "line": 42,
+          "line": 40,
           "content": "print(f\"Existing Payment Entries: {len(existing_pes)}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 44,
+          "line": 42,
           "content": "print(f\"  {pe.name} (status: {pe.docstatus})\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 47,
+          "line": 45,
           "content": "print(\"Payment Entry already exists - no need to create\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 51,
+          "line": 49,
           "content": "print(\"\\n--- Attempting Payment Entry creation ---\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 68,
+          "line": 66,
           "content": "print(f\"\u2705 Payment Entry created: {payment_entry.name}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 71,
+          "line": 69,
           "content": "print(\"\u274c Payment Entry creation returned None\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 75,
+          "line": 73,
           "content": "print(f\"\u274c Payment Entry creation failed: {e}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
@@ -48390,7 +47780,7 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/utils/debug_payment_entry.py",
-      "line_count": 136,
+      "line_count": 141,
       "error_patterns": {
         "try_except": 3,
         "except_bare": 0,
@@ -48562,35 +47952,35 @@
         },
         {
           "type": "debug_print",
-          "line": 110,
+          "line": 112,
           "content": "print(f\"Payment Entry created in memory\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 114,
+          "line": 116,
           "content": "print(f\"Payment Entry inserted: {pe.name}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 118,
+          "line": 120,
           "content": "print(f\"\u2705 Payment Entry submitted: {pe.name}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 123,
+          "line": 125,
           "content": "print(f\"\u274c Payment Entry creation error: {pe_error}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 129,
+          "line": 132,
           "content": "print(f\"\u274c Debug error: {e}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
@@ -48600,7 +47990,7 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/utils/test_subscription_fixes.py",
-      "line_count": 172,
+      "line_count": 168,
       "error_patterns": {
         "try_except": 3,
         "except_bare": 0,
@@ -48618,238 +48008,238 @@
       "issues": [
         {
           "type": "debug_print",
-          "line": 14,
+          "line": 15,
           "content": "print(\"=== TESTING SUBSCRIPTION METADATA FIXES ===\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 23,
+          "line": 24,
           "content": "print(f\"\u2705 Using existing customer: {customer.name} ({customer.email})\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 26,
+          "line": 27,
           "content": "print(\"\\n--- Test 1: Creating payment with subscription metadata ---\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 47,
+          "line": 48,
           "content": "print(\"Payment data metadata:\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 49,
+          "line": 50,
           "content": "print(f\"  {key}: {value}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 53,
+          "line": 54,
           "content": "print(f\"\u2705 Created test payment: {payment.id}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 54,
+          "line": 55,
           "content": "print(f\"   Status: {payment.status}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 55,
+          "line": 56,
           "content": "print(f\"   Sequence Type: {payment.sequence_type}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 56,
+          "line": 57,
           "content": "print(f\"   Customer ID: {payment.customer_id}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 59,
+          "line": 60,
           "content": "print(\"\\n--- Test 2: Creating subscription from payment metadata ---\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 65,
+          "line": 66,
           "content": "print(\"\u2705 Payment marked for subscription setup\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 82,
+          "line": 83,
           "content": "print(f\"Subscription data:\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 83,
-          "content": "print(f\"  Amount: {subscription_data['amount']['value']} {subscription_data['amount']['currency']}\")",
+          "line": 84,
+          "content": "print(",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 84,
+          "line": 87,
           "content": "print(f\"  Interval: '{subscription_data['interval']}'\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 85,
+          "line": 88,
           "content": "print(f\"  Description: {subscription_data['description']}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 89,
+          "line": 92,
           "content": "print(f\"\u2705 Created subscription: {subscription.id}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 90,
+          "line": 93,
           "content": "print(f\"   Status: {subscription.status}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 91,
+          "line": 94,
           "content": "print(f\"   Amount: {subscription.amount['value']} {subscription.amount['currency']}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 92,
+          "line": 95,
           "content": "print(f\"   Interval: {subscription.interval}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 93,
+          "line": 96,
           "content": "print(f\"   Next Payment: {getattr(subscription, 'next_payment_date', 'N/A')}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 96,
+          "line": 99,
           "content": "print(f\"\ud83e\uddf9 Cleaning up test subscription {subscription.id}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 98,
+          "line": 101,
           "content": "print(\"\u2705 Test subscription deleted\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 101,
+          "line": 104,
           "content": "print(\"\u274c Payment not marked for subscription setup\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 103,
+          "line": 106,
           "content": "print(\"\\n=== TESTS COMPLETED SUCCESSFULLY ===\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 107,
+          "line": 110,
           "content": "print(f\"\u274c Test error: {e}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 117,
+          "line": 121,
           "content": "print(\"\\n=== TESTING INTERVAL FORMATS ===\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 137,
+          "line": 132,
           "content": "print(f\"\\nTesting interval: '{interval}'\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 148,
+          "line": 143,
           "content": "print(f\"  \u2705 SUCCESS: Created {subscription.id}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 149,
+          "line": 144,
           "content": "print(f\"     Parsed interval: {subscription.interval}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 153,
+          "line": 148,
           "content": "print(f\"     \ud83e\uddf9 Cleaned up\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 156,
+          "line": 151,
           "content": "print(f\"  \u274c FAILED: {e}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 161,
+          "line": 156,
           "content": "print(f\"\u274c Interval test error: {e}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 170,
+          "line": 165,
           "content": "print(\"\\n\ud83c\udf89 ALL TESTS PASSED - Subscription fixes are working!\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 172,
+          "line": 167,
           "content": "print(\"\\n\u274c Some tests failed - check the output above\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
@@ -49593,7 +48983,7 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/utils/check_donation_status.py",
-      "line_count": 104,
+      "line_count": 99,
       "error_patterns": {
         "try_except": 3,
         "except_bare": 0,
@@ -49681,112 +49071,112 @@
         },
         {
           "type": "debug_print",
-          "line": 44,
+          "line": 41,
           "content": "print(f\"Found {len(error_logs)} error logs:\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 46,
+          "line": 43,
           "content": "print(f\"  {log.creation}: {log.name}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 47,
+          "line": 44,
           "content": "print(f\"    Error: {log.error[:200]}...\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 49,
+          "line": 46,
           "content": "print(\"No specific error logs found for this donation\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 52,
+          "line": 49,
           "content": "print(\"\\n=== CHECKING WEBHOOK LOGS ===\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 65,
+          "line": 60,
           "content": "print(f\"Found {len(webhook_logs)} recent webhook logs:\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 67,
+          "line": 62,
           "content": "print(f\"  {log.processed_at}: {log.webhook_id} - {log.status}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 69,
+          "line": 64,
           "content": "print(f\"    Error: {log.error_details[:100]}...\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 71,
+          "line": 66,
           "content": "print(\"No webhook processing logs found\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 74,
+          "line": 69,
           "content": "print(\"Webhook Processing Log doctype not found - using alternative approach\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 77,
+          "line": 72,
           "content": "print(\"\\n=== CHECKING GENERAL ERROR LOGS FROM WEBHOOK TIME ===\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 88,
+          "line": 81,
           "content": "print(f\"Found {len(recent_errors)} errors around webhook time:\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 90,
+          "line": 83,
           "content": "print(f\"  {error.creation}: {error.method}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 91,
+          "line": 84,
           "content": "print(f\"    Error: {error.error[:150]}...\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 93,
+          "line": 86,
           "content": "print(\"No errors found around webhook processing time\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 98,
+          "line": 91,
           "content": "print(f\"\u274c Error checking donation: {e}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
@@ -51540,7 +50930,7 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/utils/security_decorators.py",
-      "line_count": 391,
+      "line_count": 385,
       "error_patterns": {
         "try_except": 1,
         "except_bare": 0,
@@ -53439,7 +52829,7 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/utils/manual_webhook_retry.py",
-      "line_count": 93,
+      "line_count": 100,
       "error_patterns": {
         "try_except": 3,
         "except_bare": 0,
@@ -53528,76 +52918,76 @@
         {
           "type": "debug_print",
           "line": 45,
-          "content": "print(f\"Current donation status - Paid: {donation.paid}, Payment Status: {getattr(donation, 'payment_status', 'None')}\")",
+          "content": "print(",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 50,
+          "line": 52,
           "content": "print(\"\u2705 Updated donation payment status\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 56,
+          "line": 58,
           "content": "print(f\"\u2705 Created payment entry: {result}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 58,
+          "line": 60,
           "content": "print(f\"\u26a0\ufe0f Payment entry creation failed: {e}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 62,
+          "line": 64,
           "content": "print(\"\\n--- Creating subscription from metadata ---\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 70,
+          "line": 75,
           "content": "print(f\"Subscription creation result: {result}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 74,
+          "line": 79,
           "content": "print(f\"\u2705 Created subscription: {subscription_id}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 78,
+          "line": 83,
           "content": "print(\"\u2705 Updated donation with subscription ID\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 80,
+          "line": 85,
           "content": "print(f\"\u274c Subscription creation failed: {result.get('message', 'Unknown error')}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 82,
+          "line": 87,
           "content": "print(\"\\n=== MANUAL PROCESSING COMPLETE ===\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 86,
+          "line": 91,
           "content": "print(f\"\u274c Error during manual processing: {e}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
@@ -82355,7 +81745,7 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/donation/donation.py",
-      "line_count": 714,
+      "line_count": 717,
       "error_patterns": {
         "try_except": 2,
         "except_bare": 0,
@@ -82388,7 +81778,7 @@
         {
           "type": "debug_print",
           "line": 225,
-          "content": "frappe.msgprint(_(\"Donation purpose changed to General as no specific goal description was provided\"), alert=True)",
+          "content": "frappe.msgprint(",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         }
@@ -83336,7 +82726,7 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/account_creation_request/account_creation_request.py",
-      "line_count": 321,
+      "line_count": 323,
       "error_patterns": {
         "try_except": 2,
         "except_bare": 0,
@@ -86892,7 +86282,7 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/volunteer/volunteer.py",
-      "line_count": 1533,
+      "line_count": 1535,
       "error_patterns": {
         "try_except": 11,
         "except_bare": 0,
@@ -88428,7 +87818,7 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen_payments/clients/chargebacks_client.py",
-      "line_count": 470,
+      "line_count": 467,
       "error_patterns": {
         "try_except": 2,
         "except_bare": 0,
@@ -88446,7 +87836,7 @@
       "issues": [
         {
           "type": "silent_failure",
-          "line": 145,
+          "line": 142,
           "content": "except (ValueError, TypeError):",
           "severity": "medium",
           "message": "Silent exception handling may hide issues"
@@ -88496,7 +87886,7 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen_payments/clients/balances_client.py",
-      "line_count": 431,
+      "line_count": 428,
       "error_patterns": {
         "try_except": 3,
         "except_bare": 0,
@@ -88514,7 +87904,7 @@
       "issues": [
         {
           "type": "silent_failure",
-          "line": 197,
+          "line": 194,
           "content": "except (ValueError, TypeError):",
           "severity": "medium",
           "message": "Silent exception handling may hide issues"
@@ -89243,7 +88633,7 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen_payments/utils/payment_gateways.py",
-      "line_count": 1956,
+      "line_count": 1981,
       "error_patterns": {
         "try_except": 37,
         "except_bare": 1,
@@ -89261,238 +88651,238 @@
       "issues": [
         {
           "type": "bare_except",
-          "line": 1136,
+          "line": 1138,
           "content": "except:",
           "severity": "high",
           "message": "Bare except clause can hide errors"
         },
         {
           "type": "debug_print",
-          "line": 296,
+          "line": 298,
           "content": "print(f\"\ud83d\udd0d WEBHOOK START: Processing payment_id = {payment_id}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 298,
+          "line": 300,
           "content": "print(\"\u274c WEBHOOK ERROR: No payment ID in payload\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 302,
+          "line": 304,
           "content": "print(f\"\ud83d\udd0d MOLLIE API: Calling client.payments.get({payment_id})\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 304,
+          "line": 306,
           "content": "print(\"\u2705 MOLLIE API: Payment retrieved successfully\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 307,
+          "line": 309,
           "content": "print(\"\ud83d\udd0d MOLLIE API RESPONSE:\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 308,
+          "line": 310,
           "content": "print(f\"   Payment ID: {payment.id}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 309,
+          "line": 311,
           "content": "print(f\"   Status: {payment.status}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 310,
+          "line": 312,
           "content": "print(f\"   Amount: {payment.amount}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 311,
+          "line": 313,
           "content": "print(",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 314,
+          "line": 316,
           "content": "print(f\"   Description: {getattr(payment, 'description', 'N/A')}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 315,
+          "line": 317,
           "content": "print(f\"   Method: {getattr(payment, 'method', 'N/A')}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 316,
+          "line": 318,
           "content": "print(f\"   Created: {getattr(payment, 'created_at', 'N/A')}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 317,
+          "line": 319,
           "content": "print(f\"   Paid at: {getattr(payment, 'paid_at', 'N/A')}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 318,
+          "line": 320,
           "content": "print(f\"   Metadata: {getattr(payment, 'metadata', 'N/A')}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 319,
+          "line": 321,
           "content": "print(f\"   Checkout URL: {getattr(payment, 'checkout_url', 'N/A')}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 326,
+          "line": 328,
           "content": "print(\"\ud83d\udd0d METADATA EXTRACTION:\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 327,
+          "line": 329,
           "content": "print(f\"   reference_doctype: {reference_doctype}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 328,
+          "line": 330,
           "content": "print(f\"   reference_docname: {reference_docname}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 331,
+          "line": 333,
           "content": "print(\"\u274c WEBHOOK IGNORED: No reference document in metadata\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 332,
+          "line": 334,
           "content": "print(f\"   Expected metadata fields but got: {metadata}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 339,
+          "line": 341,
           "content": "print(\"\u2705 PAYMENT PAID: Processing payment completion\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 342,
+          "line": 344,
           "content": "print(f\"\u2705 Set paid = 1 on {reference_docname}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 346,
+          "line": 348,
           "content": "print(f\"\u2705 Set payment_status = Completed on {reference_docname}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 350,
+          "line": 352,
           "content": "print(f\"\ud83d\udd0d CALLING: doc.create_payment_entry() on {reference_docname}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 352,
+          "line": 354,
           "content": "print(f\"\u2705 create_payment_entry() returned: {result}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 354,
+          "line": 356,
           "content": "print(f\"\u274c NO create_payment_entry method on {reference_doctype}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 358,
+          "line": 360,
           "content": "print(f\"\ud83d\udd0d CALLING: doc.on_payment_authorized('Completed') on {reference_docname}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 360,
+          "line": 362,
           "content": "print(\"\u2705 on_payment_authorized() completed\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 362,
+          "line": 364,
           "content": "print(f\"\u274c NO on_payment_authorized method on {reference_doctype}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 365,
+          "line": 367,
           "content": "print(f\"\u2705 WEBHOOK SUCCESS: Payment {payment_id} completed for {reference_docname}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 1306,
+          "line": 1308,
           "content": "print(f\"\ud83d\uddc3\ufe0f Creating webhook processing log: {webhook_id} - {status}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 1308,
+          "line": 1310,
           "content": "print(f\"\u2705 Webhook processing log created: {log_entry.name}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
         },
         {
           "type": "debug_print",
-          "line": 1311,
+          "line": 1313,
           "content": "print(f\"\u274c Failed to create webhook processing log: {str(e)}\")",
           "severity": "low",
           "message": "Use logging instead of print for debugging"
@@ -89866,7 +89256,7 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen_payments/utils/secure_webhook_handler.py",
-      "line_count": 638,
+      "line_count": 656,
       "error_patterns": {
         "try_except": 8,
         "except_bare": 1,
@@ -89884,14 +89274,14 @@
       "issues": [
         {
           "type": "bare_except",
-          "line": 597,
+          "line": 615,
           "content": "except:",
           "severity": "high",
           "message": "Bare except clause can hide errors"
         },
         {
           "type": "silent_failure",
-          "line": 597,
+          "line": 615,
           "content": "except:",
           "severity": "medium",
           "message": "Silent exception handling may hide issues"
@@ -105252,7 +104642,7 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/templates/pages/donate.py",
-      "line_count": 1474,
+      "line_count": 1473,
       "error_patterns": {
         "try_except": 39,
         "except_bare": 0,
@@ -105732,7 +105122,7 @@
     },
     {
       "file_path": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/templates/pages/payment_success.py",
-      "line_count": 199,
+      "line_count": 204,
       "error_patterns": {
         "try_except": 3,
         "except_bare": 0,
@@ -182884,15 +182274,15 @@
     }
   ],
   "summary": {
-    "average_score": 36.83,
-    "total_issues": 19986,
+    "average_score": 36.84,
+    "total_issues": 19899,
     "issue_breakdown": {
       "high": 219,
       "medium": 396,
-      "low": 19371
+      "low": 19284
     },
     "files_with_low_scores": 1035,
-    "try_except_ratio": 3.8831106870229006,
+    "try_except_ratio": 3.8821564885496183,
     "bare_except_files": 137,
     "silent_failure_files": 182
   },

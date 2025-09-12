@@ -50,3 +50,6 @@ cypress.env.json
 *_backup
 .secret
 .password
+
+# Ignore large security analysis files
+scripts/security_migration_inventory.json
