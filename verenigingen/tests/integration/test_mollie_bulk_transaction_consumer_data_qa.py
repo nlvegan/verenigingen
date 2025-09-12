@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 """
 Comprehensive QA Test Suite for Mollie Bulk Transaction Consumer Data Capture
 
@@ -1108,7 +1110,7 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         """Create test company for transactions"""
         company_name = f"TEST Company {random_string(8)}"
         
-        if not frappe.db.exists("Company", company_name):
+        if not DocumentExistenceValidator.check_document_exists("Company", company_name):
             company = frappe.get_doc({
                 "doctype": "Company", 
                 "company_name": company_name,
@@ -1135,7 +1137,7 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         
         # Create a test bank first
         bank_name = f"TEST Bank {random_string(6)}"
-        if not frappe.db.exists("Bank", bank_name):
+        if not DocumentExistenceValidator.check_document_exists("Bank", bank_name):
             bank = frappe.get_doc({
                 "doctype": "Bank",
                 "bank_name": bank_name
@@ -1145,7 +1147,7 @@ class TestMollieBulkTransactionConsumerDataQA(EnhancedTestCase):
         
         # Create bank account with minimal required fields
         account_name = f"TEST Bank Account {random_string(8)}"
-        if not frappe.db.exists("Bank Account", account_name):
+        if not DocumentExistenceValidator.check_document_exists("Bank Account", account_name):
             bank_account = frappe.get_doc({
                 "doctype": "Bank Account",
                 "account_name": account_name,

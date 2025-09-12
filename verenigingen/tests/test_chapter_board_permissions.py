@@ -1,4 +1,6 @@
 """
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 Chapter Board Member Permissions Test Suite
 ===========================================
 
@@ -243,7 +245,7 @@ class TestChapterBoardPermissions(EnhancedTestCase):
         self.assertTrue(result, "Role assignment should succeed")
         
         # Verify role was assigned
-        has_role = frappe.db.exists("Has Role", {
+        has_role = DocumentExistenceValidator.check_document_exists("Has Role", {
             "parent": self.board_member_1.email,
             "role": "Verenigingen Chapter Board Member"
         })
@@ -265,7 +267,7 @@ class TestChapterBoardPermissions(EnhancedTestCase):
         assign_chapter_board_role(self.board_member_1.email)
         
         # Verify role was removed
-        has_role = frappe.db.exists("Has Role", {
+        has_role = DocumentExistenceValidator.check_document_exists("Has Role", {
             "parent": self.board_member_1.email,
             "role": "Verenigingen Chapter Board Member"
         })
@@ -436,7 +438,7 @@ class TestChapterBoardRoleManagement(EnhancedTestCase):
         board_member.insert()
         
         # Verify role was assigned
-        has_role = frappe.db.exists("Has Role", {
+        has_role = DocumentExistenceValidator.check_document_exists("Has Role", {
             "parent": self.test_user.name,
             "role": "Verenigingen Chapter Board Member"
         })
@@ -460,7 +462,7 @@ class TestChapterBoardRoleManagement(EnhancedTestCase):
         board_member.insert()
         
         # Verify role was assigned
-        has_role_before = frappe.db.exists("Has Role", {
+        has_role_before = DocumentExistenceValidator.check_document_exists("Has Role", {
             "parent": self.test_user.name,
             "role": "Verenigingen Chapter Board Member"
         })
@@ -470,7 +472,7 @@ class TestChapterBoardRoleManagement(EnhancedTestCase):
         board_member.delete()
         
         # Verify role was removed
-        has_role_after = frappe.db.exists("Has Role", {
+        has_role_after = DocumentExistenceValidator.check_document_exists("Has Role", {
             "parent": self.test_user.name,
             "role": "Verenigingen Chapter Board Member"
         })
@@ -511,7 +513,7 @@ class TestChapterBoardRoleManagement(EnhancedTestCase):
 
     def create_test_user(self, email):
         """Helper method to create test user"""
-        if frappe.db.exists("User", email):
+        if DocumentExistenceValidator.check_document_exists("User", email):
             return frappe.get_doc("User", email)
         
         user = frappe.get_doc({

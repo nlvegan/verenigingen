@@ -1,4 +1,6 @@
 """
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 Tests for automatic donor creation from payment allocations
 """
 
@@ -50,7 +52,7 @@ class TestDonorAutoCreation(VereningingenTestCase):
         )
         
         # Verify no donor exists initially
-        self.assertFalse(frappe.db.exists("Donor", {"customer": customer.name}))
+        self.assertFalse(DocumentExistenceValidator.check_document_exists("Donor", {"customer": customer.name}))
         
         # Create Payment Entry with donation allocation
         payment = self.create_test_payment_entry(
@@ -134,7 +136,7 @@ class TestDonorAutoCreation(VereningingenTestCase):
         payment.submit()
         
         # Verify no donor was created
-        self.assertFalse(frappe.db.exists("Donor", {"customer": customer.name}))
+        self.assertFalse(DocumentExistenceValidator.check_document_exists("Donor", {"customer": customer.name}))
         
     def test_ineligible_customer_group(self):
         """Test that customers from ineligible groups don't create donors"""
@@ -154,7 +156,7 @@ class TestDonorAutoCreation(VereningingenTestCase):
         payment.submit()
         
         # Verify no donor was created
-        self.assertFalse(frappe.db.exists("Donor", {"customer": customer.name}))
+        self.assertFalse(DocumentExistenceValidator.check_document_exists("Donor", {"customer": customer.name}))
         
     def test_empty_customer_groups_allows_all(self):
         """Test that empty customer groups configuration allows all groups"""
@@ -178,7 +180,7 @@ class TestDonorAutoCreation(VereningingenTestCase):
         payment.submit()
         
         # Verify donor was created
-        self.assertTrue(frappe.db.exists("Donor", {"customer": customer.name}))
+        self.assertTrue(DocumentExistenceValidator.check_document_exists("Donor", {"customer": customer.name}))
         
         # Track for cleanup
         donor_name = frappe.db.get_value("Donor", {"customer": customer.name}, "name")
@@ -234,7 +236,7 @@ class TestDonorAutoCreation(VereningingenTestCase):
         payment.submit()
         
         # Verify no donor was created
-        self.assertFalse(frappe.db.exists("Donor", {"customer": customer.name}))
+        self.assertFalse(DocumentExistenceValidator.check_document_exists("Donor", {"customer": customer.name}))
         
     def test_non_donations_account_ignored(self):
         """Test that payments to non-donations accounts are ignored"""
@@ -256,7 +258,7 @@ class TestDonorAutoCreation(VereningingenTestCase):
         payment.submit()
         
         # Verify no donor was created
-        self.assertFalse(frappe.db.exists("Donor", {"customer": customer.name}))
+        self.assertFalse(DocumentExistenceValidator.check_document_exists("Donor", {"customer": customer.name}))
         
     def test_get_auto_creation_settings_api(self):
         """Test the get_auto_creation_settings API endpoint"""
@@ -360,7 +362,7 @@ class TestDonorAutoCreation(VereningingenTestCase):
     # Helper methods for test data creation
     def create_test_account(self, account_name, account_type):
         """Create a test account"""
-        if frappe.db.exists("Account", account_name):
+        if DocumentExistenceValidator.check_document_exists("Account", account_name):
             return account_name
             
         account = frappe.new_doc("Account")
@@ -441,7 +443,7 @@ class TestDonorAutoCreation(VereningingenTestCase):
             # Fallback to common names
             for name in ["Income", "Direct Income", "Indirect Income"]:
                 full_name = f"{name} - {company}"
-                if frappe.db.exists("Account", full_name):
+                if DocumentExistenceValidator.check_document_exists("Account", full_name):
                     return full_name
         
         # For other types, find root account  

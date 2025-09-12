@@ -1,4 +1,6 @@
 """
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 End-to-End Workflow Validation Tests for Mollie Backend API
 Validates complete business workflows from start to finish
 """
@@ -40,7 +42,7 @@ class TestE2EWorkflowValidation(EnhancedTestCase):
         super().setUpClass()
         
         # Create comprehensive test settings
-        if not frappe.db.exists("Mollie Settings", "E2E Test"):
+        if not DocumentExistenceValidator.check_document_exists("Mollie Settings", "E2E Test"):
             settings = frappe.new_doc("Mollie Settings")
             settings.gateway_name = "E2E Test"
             settings.secret_key = "e2e_test_key_secure"

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 # -*- coding: utf-8 -*-
 """
 Phase 4D Priority 3: Background Job Business Logic Mock Elimination Demonstration
@@ -145,7 +147,7 @@ class TestAccountCreationBackgroundProcessingPhase4D(EnhancedTestCase):
         request_doc.reload()
         self.assertEqual(request_doc.status, "Completed")
         self.assertIsNotNone(request_doc.created_user)
-        self.assertTrue(frappe.db.exists("User", request_doc.created_user))
+        self.assertTrue(DocumentExistenceValidator.check_document_exists("User", request_doc.created_user))
 
     def test_real_priority_based_queueing_no_mocks(self):
         """

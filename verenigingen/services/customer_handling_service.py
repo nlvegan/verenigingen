@@ -9,6 +9,8 @@ from typing import Any, Dict, Optional
 
 import frappe
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 
 class CustomerHandlingService:
     """Service class for handling customer and mandate operations"""
@@ -92,7 +94,7 @@ class CustomerHandlingService:
                 return None
 
             # Check if customer already exists
-            if frappe.db.exists("Customer", donor_name):
+            if DocumentExistenceValidator.check_document_exists("Customer", donor_name):
                 return donor_name
 
             # Create customer record
@@ -194,7 +196,7 @@ class CustomerHandlingService:
             Validation result dict
         """
         try:
-            if not customer_name or not frappe.db.exists("Customer", customer_name):
+            if not customer_name or not DocumentExistenceValidator.check_document_exists("Customer", customer_name):
                 return {"status": "invalid", "message": f"Customer {customer_name} does not exist"}
 
             customer = frappe.get_doc("Customer", customer_name)
@@ -240,7 +242,7 @@ class CustomerHandlingService:
             Dict with Mollie customer and mandate IDs
         """
         try:
-            if not customer_name or not frappe.db.exists("Customer", customer_name):
+            if not customer_name or not DocumentExistenceValidator.check_document_exists("Customer", customer_name):
                 return {"customer_id": None, "mandate_id": None}
 
             customer = frappe.get_doc("Customer", customer_name)

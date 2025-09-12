@@ -25,6 +25,8 @@ import frappe
 from frappe.utils import today, add_days, now_datetime
 from frappe.tests.utils import FrappeTestCase
 from unittest.mock import patch
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 import time
 
 from verenigingen.api.membership_application_review import approve_membership_application
@@ -158,7 +160,7 @@ class TestMembershipApprovalRealIntegration(EnhancedTestCase):
         
         # Real business logic: Account creation might be handled differently
         # Check if user was created directly instead
-        user_exists = frappe.db.exists("User", member.email)
+        user_exists = DocumentExistenceValidator.check_document_exists("User", member.email)
         frappe.logger().info(f"User exists for {member.email}: {user_exists}")
         
         if len(account_requests) == 0 and not user_exists:

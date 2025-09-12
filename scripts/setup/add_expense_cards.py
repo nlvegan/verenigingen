@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 import frappe
 
 
@@ -12,7 +14,7 @@ def add_expense_number_cards():
         cards_created = []
 
         # Card 1: Filed Expense Claims
-        if not frappe.db.exists("Number Card", "Filed Expense Claims"):
+        if not DocumentExistenceValidator.check_document_exists("Number Card", "Filed Expense Claims"):
             filed_card = frappe.get_doc(
                 {
                     "doctype": "Number Card",
@@ -29,7 +31,7 @@ def add_expense_number_cards():
             cards_created.append("Filed Expense Claims")
 
         # Card 2: Approved Expense Claims
-        if not frappe.db.exists("Number Card", "Approved Expense Claims"):
+        if not DocumentExistenceValidator.check_document_exists("Number Card", "Approved Expense Claims"):
             approved_card = frappe.get_doc(
                 {
                     "doctype": "Number Card",
@@ -46,7 +48,7 @@ def add_expense_number_cards():
             cards_created.append("Approved Expense Claims")
 
         # Card 3: Volunteer Expenses
-        if not frappe.db.exists("Number Card", "Volunteer Expenses"):
+        if not DocumentExistenceValidator.check_document_exists("Number Card", "Volunteer Expenses"):
             volunteer_card = frappe.get_doc(
                 {
                     "doctype": "Number Card",

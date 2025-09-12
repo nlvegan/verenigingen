@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 # Copyright (c) 2025, Foppe de Haan
 # License: GNU Affero General Public License v3 (AGPLv3)
 
@@ -49,7 +51,7 @@ class TestRevenueRecognitionAutomation(BaseTestCase):
         ]
         
         for type_data in membership_types:
-            if not frappe.db.exists("Membership Type", type_data["membership_type_name"]):
+            if not DocumentExistenceValidator.check_document_exists("Membership Type", type_data["membership_type_name"]):
                 membership_type = frappe.get_doc({
                     "doctype": "Membership Type",
                     **type_data

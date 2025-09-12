@@ -19,6 +19,8 @@ import time
 import unittest
 from unittest import mock
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, today, getdate
@@ -48,19 +50,19 @@ class TestQueryOptimizationSuite(EnhancedTestCase):
         
         # Clean up any test data created during tests
         for member_name in self.test_members:
-            if frappe.db.exists("Member", member_name):
+            if DocumentExistenceValidator.check_document_exists("Member", member_name):
                 frappe.delete_doc("Member", member_name, force=True)  # EnhancedTestCase handles permissions
         
         for customer_name in self.test_customers:
-            if frappe.db.exists("Customer", customer_name):
+            if DocumentExistenceValidator.check_document_exists("Customer", customer_name):
                 frappe.delete_doc("Customer", customer_name, force=True)  # EnhancedTestCase handles permissions
                 
         for payment_name in self.test_payments:
-            if frappe.db.exists("Payment Entry", payment_name):
+            if DocumentExistenceValidator.check_document_exists("Payment Entry", payment_name):
                 frappe.delete_doc("Payment Entry", payment_name, force=True)  # EnhancedTestCase handles permissions
                 
         for chapter_name in self.test_chapters:
-            if frappe.db.exists("Chapter", chapter_name):
+            if DocumentExistenceValidator.check_document_exists("Chapter", chapter_name):
                 frappe.delete_doc("Chapter", chapter_name, force=True)  # EnhancedTestCase handles permissions
         
         self.test_members.clear()

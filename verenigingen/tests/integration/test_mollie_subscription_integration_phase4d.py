@@ -1,4 +1,6 @@
 """
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 Phase 4D Priority 1 Demonstration: Payment Gateway Business Logic Mock Elimination
 ================================================================================
 
@@ -107,7 +109,7 @@ class TestMollieSubscriptionIntegrationPhase4D(EnhancedTestCase):
         # Create or update Mollie Settings with authentic test configuration
         gateway_name = "Phase4D Test Gateway"
         
-        if frappe.db.exists("Mollie Settings", gateway_name):
+        if DocumentExistenceValidator.check_document_exists("Mollie Settings", gateway_name):
             cls.mollie_settings = frappe.get_doc("Mollie Settings", gateway_name)
             print("✅ Using existing Mollie Settings")
         else:
@@ -206,7 +208,7 @@ class TestMollieSubscriptionIntegrationPhase4D(EnhancedTestCase):
         """Ensure authentic Dutch membership type exists"""
         membership_type_name = "Standard Dutch Membership"
         
-        if frappe.db.exists("Membership Type", membership_type_name):
+        if DocumentExistenceValidator.check_document_exists("Membership Type", membership_type_name):
             return frappe.get_doc("Membership Type", membership_type_name)
             
         # Create authentic Dutch membership type
@@ -470,7 +472,7 @@ class TestMollieSubscriptionIntegrationPhase4D(EnhancedTestCase):
     def _ensure_test_item(self):
         """Ensure Dutch test item exists"""
         item_code = "DUTCH-Membership-Dues"
-        if not frappe.db.exists("Item", item_code):
+        if not DocumentExistenceValidator.check_document_exists("Item", item_code):
             frappe.get_doc({
                 "doctype": "Item",
                 "item_code": item_code,

@@ -2,6 +2,8 @@
 # Copyright (c) 2025, Verenigingen and Contributors
 # See license.txt
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 """
 Real Integration Test for Account Creation System
 ===============================================
@@ -112,7 +114,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
         
         # Stage 4: Validate user account was created
         user_email = request_doc.created_user
-        self.assertTrue(frappe.db.exists("User", user_email))
+        self.assertTrue(DocumentExistenceValidator.check_document_exists("User", user_email))
         
         user = frappe.get_doc("User", user_email)
         self.assertEqual(user.email, self.member.email)
@@ -175,7 +177,7 @@ class TestAccountCreationRealIntegration(EnhancedTestCase):
         
         # Verify employee record exists and is properly linked
         employee_name = request_doc.created_employee
-        self.assertTrue(frappe.db.exists("Employee", employee_name))
+        self.assertTrue(DocumentExistenceValidator.check_document_exists("Employee", employee_name))
         
         employee = frappe.get_doc("Employee", employee_name)
         self.assertEqual(employee.user_id, request_doc.created_user)

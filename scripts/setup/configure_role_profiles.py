@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 """
 Role Profile Configuration Setup Script
 =======================================
@@ -35,7 +37,7 @@ def check_system_requirements() -> Tuple[bool, List[str]]:
     ]
     
     for doctype in required_doctypes:
-        if not frappe.db.exists("DocType", doctype):
+        if not DocumentExistenceValidator.check_document_exists("DocType", doctype):
             issues.append(f"Missing DocType: {doctype}")
     
     # Check common role profiles exist
@@ -47,7 +49,7 @@ def check_system_requirements() -> Tuple[bool, List[str]]:
     ]
     
     for profile in common_profiles:
-        if not frappe.db.exists("Role Profile", profile):
+        if not DocumentExistenceValidator.check_document_exists("Role Profile", profile):
             issues.append(f"Missing Role Profile: {profile}")
     
     return len(issues) == 0, issues

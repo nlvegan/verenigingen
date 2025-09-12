@@ -1,4 +1,6 @@
 """
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 Security Penetration Testing for Mollie Backend API
 Tests system security against various attack vectors
 """
@@ -45,7 +47,7 @@ class TestSecurityPenetration(EnhancedTestCase):
         super().setUpClass()
         
         # Create test settings with security features enabled
-        if not frappe.db.exists("Mollie Settings", "Security Test"):
+        if not DocumentExistenceValidator.check_document_exists("Mollie Settings", "Security Test"):
             settings = frappe.new_doc("Mollie Settings")
             settings.gateway_name = "Security Test"
             settings.secret_key = "sec_test_key_" + "x" * 32
@@ -424,7 +426,7 @@ class TestSecurityPenetration(EnhancedTestCase):
         frappe.set_user("test_user@example.com")
         
         # Ensure user has only basic role - using Enhanced Test Factory
-        if not frappe.db.exists("User", "test_user@example.com"):
+        if not DocumentExistenceValidator.check_document_exists("User", "test_user@example.com"):
             # Use Enhanced Test Factory for consistent test user creation
             test_user = self.create_test_user(
                 email="test_user@example.com",

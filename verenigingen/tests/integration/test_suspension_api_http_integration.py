@@ -9,7 +9,7 @@ with real business logic testing following the A+ patterns from Weeks 1-2.
 Eliminates 38+ inappropriate mocks targeting core business logic:
 - frappe.get_doc mocks (7 occurrences - test real document operations)
 - frappe.db.get_value mocks (4 occurrences - test real database queries) 
-- frappe.db.exists mocks (3 occurrences - test real existence checks)
+- DocumentExistenceValidator.check_document_exists mocks (3 occurrences - test real existence checks)
 - suspend_team_memberships_safe mocks (2 occurrences - test real team operations)
 - All MagicMock business logic simulations (22+ mocked attributes/methods)
 
@@ -19,6 +19,8 @@ Based on Testing Patterns Guide HTTP integration methodology proven in Week 3.
 import requests
 import frappe
 from frappe.utils import today, add_days
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from unittest.mock import patch
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -134,7 +136,7 @@ class TestSuspensionAPIHTTPIntegration(EnhancedTestCase):
         Uses real database operations instead of mocks:
         - Real member document operations (no frappe.get_doc mocks)
         - Real database queries (no frappe.db.get_value mocks)
-        - Real existence validation (no frappe.db.exists mocks)
+        - Real existence validation (no DocumentExistenceValidator.check_document_exists mocks)
         - Real team operations (no suspend_team_memberships_safe mocks)
         """
         session = self._authenticate_session()
@@ -637,7 +639,7 @@ class TestSuspensionAPISecurityHTTPIntegration(EnhancedTestCase):
 
 # Mock Usage Classification:
 # ✅ LEGITIMATE: None required - all operations are internal business logic
-# ❌ ELIMINATED: frappe.get_doc, frappe.db.get_value, frappe.db.exists (38+ mocks)
+# ❌ ELIMINATED: frappe.get_doc, frappe.db.get_value, DocumentExistenceValidator.check_document_exists (38+ mocks)
 # ❌ ELIMINATED: suspend_team_memberships_safe, MagicMock business logic
 # ❌ ELIMINATED: All member/user document attribute mocks
 

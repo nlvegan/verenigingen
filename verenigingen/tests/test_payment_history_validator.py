@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 # -*- coding: utf-8 -*-
 """
 Comprehensive Tests for Payment History Validator
@@ -235,7 +237,7 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
                 # Don't add to payment history to create missing entries
         
         # Check if System Alert doctype exists (may not in all installations)
-        system_alert_exists = frappe.db.exists("DocType", "System Alert")
+        system_alert_exists = DocumentExistenceValidator.check_document_exists("DocType", "System Alert")
         
         # Run validation
         result = validate_and_repair_payment_history()

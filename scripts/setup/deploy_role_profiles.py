@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 """
 Deploy Enhanced Role Profiles for Verenigingen
 
@@ -106,7 +108,7 @@ def deploy_module_profiles(file_path):
     for mp_data in module_profiles:
         try:
             # Check if exists
-            if frappe.db.exists("Module Profile", mp_data["name"]):
+            if DocumentExistenceValidator.check_document_exists("Module Profile", mp_data["name"]):
                 # Update existing
                 doc = frappe.get_doc("Module Profile", mp_data["name"])
                 doc.modules = []  # Clear existing modules
@@ -136,7 +138,7 @@ def deploy_role_profiles_from_file(file_path):
     for rp_data in role_profiles:
         try:
             # Check if exists
-            if frappe.db.exists("Role Profile", rp_data["name"]):
+            if DocumentExistenceValidator.check_document_exists("Role Profile", rp_data["name"]):
                 # Update existing
                 doc = frappe.get_doc("Role Profile", rp_data["name"])
                 doc.roles = []  # Clear existing roles
@@ -180,10 +182,10 @@ def link_module_profiles():
 
     for role_profile_name, module_profile_name in role_module_mapping.items():
         try:
-            if frappe.db.exists("Role Profile", role_profile_name):
+            if DocumentExistenceValidator.check_document_exists("Role Profile", role_profile_name):
                 role_profile = frappe.get_doc("Role Profile", role_profile_name)
 
-                if module_profile_name and frappe.db.exists("Module Profile", module_profile_name):
+                if module_profile_name and DocumentExistenceValidator.check_document_exists("Module Profile", module_profile_name):
                     role_profile.module_profile = module_profile_name
                     role_profile.save(ignore_permissions=True)
                     print(f"  ✓ Linked '{module_profile_name}' to '{role_profile_name}'")

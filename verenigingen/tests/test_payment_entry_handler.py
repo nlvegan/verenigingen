@@ -1,4 +1,6 @@
 """
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 Test suite for the enhanced PaymentEntryHandler.
 
 Tests cover:
@@ -60,7 +62,7 @@ class TestPaymentEntryHandler(EnhancedTestCase):
     def test_bank_account_determination_with_ledger(self):
         """Test bank account determination from ledger mapping."""
         # Create test ledger mapping
-        if not frappe.db.exists("E-Boekhouden Ledger Mapping", {"ledger_id": 99999}):
+        if not DocumentExistenceValidator.check_document_exists("E-Boekhouden Ledger Mapping", {"ledger_id": 99999}):
             # First ensure we have a bank account
             bank_account = frappe.db.get_value(
                 "Account",
@@ -89,7 +91,7 @@ class TestPaymentEntryHandler(EnhancedTestCase):
         result = self.handler._determine_bank_account(88888, "Receive")
         self.assertIsNotNone(result)
         # Should return a valid account
-        self.assertTrue(frappe.db.exists("Account", {"name": result, "company": self.company}))
+        self.assertTrue(DocumentExistenceValidator.check_document_exists("Account", {"name": result, "company": self.company}))
     
     def test_single_invoice_payment(self):
         """Test payment creation for single invoice."""
@@ -136,7 +138,7 @@ class TestPaymentEntryHandler(EnhancedTestCase):
         }
         
         # Create test supplier (Enhanced Test Factory handles cleanup automatically)
-        if not frappe.db.exists("Supplier", "TEST-SUPP-001"):
+        if not DocumentExistenceValidator.check_document_exists("Supplier", "TEST-SUPP-001"):
             supplier = frappe.new_doc("Supplier")
             supplier.supplier_name = "Test Supplier 001"
             supplier_group = frappe.db.get_value("Supplier Group", {"is_group": 0}, "name", order_by="name")

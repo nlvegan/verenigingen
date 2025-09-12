@@ -1,4 +1,6 @@
 """
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 Team Member Lifecycle Tests
 
 Integration tests for team member assignment and removal workflows.
@@ -175,7 +177,7 @@ class TestTeamMemberLifecycle(EnhancedTestCase):
         team_name = f"Test Team {unique_id}"
         
         # Clean up any existing team with this name first
-        existing = frappe.db.exists("Team", {"team_name": team_name})
+        existing = DocumentExistenceValidator.check_document_exists("Team", {"team_name": team_name})
         if existing:
             frappe.delete_doc("Team", existing, force=True)
         

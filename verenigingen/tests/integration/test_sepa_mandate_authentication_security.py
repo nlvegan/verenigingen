@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 # -*- coding: utf-8 -*-
 """
 SEPA Mandate Authentication Security Integration Tests
@@ -351,7 +353,7 @@ class TestSEPAMandateAuthenticationSecurity(EnhancedTestCase):
                 frappe.throw("Administrative access required", frappe.PermissionError)
             
             # Validate member exists
-            if not frappe.db.exists("Member", member_id):
+            if not DocumentExistenceValidator.check_document_exists("Member", member_id):
                 frappe.throw("Member not found", frappe.DoesNotExistError)
             
             mandate = get_member_sepa_mandate(member_id, active_only=False)
@@ -452,7 +454,7 @@ class TestSEPAMandateAuthenticationSecurity(EnhancedTestCase):
                 frappe.throw("Payment processing requires administrative access", frappe.PermissionError)
             
             # Validate member and active mandate
-            if not frappe.db.exists("Member", member_id):
+            if not DocumentExistenceValidator.check_document_exists("Member", member_id):
                 frappe.throw("Member not found", frappe.DoesNotExistError)
             
             mandate = get_member_sepa_mandate(member_id, active_only=True)

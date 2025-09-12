@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
 import frappe
 
 
 def create_onboarding():
     # Check if already exists
-    if frappe.db.exists("Module Onboarding", "Verenigingen"):
+    if DocumentExistenceValidator.check_document_exists("Module Onboarding", "Verenigingen"):
         print("Onboarding already exists")
         return
 

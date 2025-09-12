@@ -1,4 +1,6 @@
 """
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 Comprehensive tests for donor auto-creation functionality with test persona
 Following CLAUDE.md requirements for Frappe ORM compliance and proper test patterns
 """
@@ -105,7 +107,7 @@ class TestDonorAutoCreationComprehensive(VereningingenTestCase):
         payment.submit()
         
         # Verify NO donor was created
-        donor_exists = frappe.db.exists("Donor", {"customer": customer.name})
+        donor_exists = DocumentExistenceValidator.check_document_exists("Donor", {"customer": customer.name})
         self.assertFalse(donor_exists, "Donor should NOT be created below minimum threshold")
     
     def test_ineligible_customer_group_blocks_creation(self):
@@ -120,7 +122,7 @@ class TestDonorAutoCreationComprehensive(VereningingenTestCase):
         payment.submit()
         
         # Verify NO donor was created
-        donor_exists = frappe.db.exists("Donor", {"customer": customer.name})
+        donor_exists = DocumentExistenceValidator.check_document_exists("Donor", {"customer": customer.name})
         self.assertFalse(donor_exists, "Donor should NOT be created for ineligible customer group")
     
     def test_existing_donor_prevents_duplication(self):
@@ -158,7 +160,7 @@ class TestDonorAutoCreationComprehensive(VereningingenTestCase):
         payment.submit()
         
         # Verify NO donor was created
-        donor_exists = frappe.db.exists("Donor", {"customer": customer.name})
+        donor_exists = DocumentExistenceValidator.check_document_exists("Donor", {"customer": customer.name})
         self.assertFalse(donor_exists, "Donor should NOT be created when auto-creation is disabled")
     
     def test_non_donations_account_ignored(self):
@@ -172,7 +174,7 @@ class TestDonorAutoCreationComprehensive(VereningingenTestCase):
         payment.submit()
         
         # Verify NO donor was created
-        donor_exists = frappe.db.exists("Donor", {"customer": customer.name})
+        donor_exists = DocumentExistenceValidator.check_document_exists("Donor", {"customer": customer.name})
         self.assertFalse(donor_exists, "Donor should NOT be created for non-donations account")
     
     def test_empty_customer_groups_allows_all(self):
@@ -191,7 +193,7 @@ class TestDonorAutoCreationComprehensive(VereningingenTestCase):
         payment.submit()
         
         # Verify donor WAS created (any group allowed)
-        donor_exists = frappe.db.exists("Donor", {"customer": customer.name})
+        donor_exists = DocumentExistenceValidator.check_document_exists("Donor", {"customer": customer.name})
         self.assertTrue(donor_exists, "Donor should be created when all groups are allowed")
         
         # Track for cleanup
@@ -469,7 +471,7 @@ class DonorAutoCreationTestPersona:
         
         # Ensure eligible customer group exists
         group_name = "Individual Donors"
-        if not frappe.db.exists("Customer Group", group_name):
+        if not DocumentExistenceValidator.check_document_exists("Customer Group", group_name):
             group = frappe.new_doc("Customer Group")
             group.customer_group_name = group_name
             group.parent_customer_group = "All Customer Groups"
@@ -492,7 +494,7 @@ class DonorAutoCreationTestPersona:
         """Create customer NOT eligible for donor auto-creation"""
         # Ensure ineligible customer group exists
         group_name = "Corporate Accounts"
-        if not frappe.db.exists("Customer Group", group_name):
+        if not DocumentExistenceValidator.check_document_exists("Customer Group", group_name):
             group = frappe.new_doc("Customer Group")
             group.customer_group_name = group_name
             group.parent_customer_group = "All Customer Groups"  
@@ -513,7 +515,7 @@ class DonorAutoCreationTestPersona:
     def create_customer_with_group(self, test_case, group_name):
         """Create customer with specific customer group"""
         # Ensure group exists
-        if not frappe.db.exists("Customer Group", group_name):
+        if not DocumentExistenceValidator.check_document_exists("Customer Group", group_name):
             group = frappe.new_doc("Customer Group")
             group.customer_group_name = group_name
             group.parent_customer_group = "All Customer Groups"

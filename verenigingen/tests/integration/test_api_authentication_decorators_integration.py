@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 # -*- coding: utf-8 -*-
 """
 API Authentication with Security Decorators Integration Tests
@@ -353,7 +355,7 @@ class TestAPIAuthenticationDecoratorsIntegration(EnhancedTestCase):
                 frappe.throw("Administrative access required", frappe.PermissionError)
             
             # Validate member exists and has SEPA mandate
-            if not frappe.db.exists("Member", member_id):
+            if not DocumentExistenceValidator.check_document_exists("Member", member_id):
                 frappe.throw("Member not found", frappe.DoesNotExistError)
                 
             sepa_mandate = get_member_sepa_mandate(member_id)
