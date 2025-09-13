@@ -31,6 +31,13 @@ from frappe import _
 from frappe.utils import flt, getdate
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    development_only_api,
+    high_security_api,
+    public_api,
+)
 from verenigingen.utils.validation_utilities import QueryBuilder
 
 
@@ -125,6 +132,7 @@ def get_context(context):
 
 
 @frappe.whitelist(allow_guest=True)
+@public_api(operation_type=OperationType.FINANCIAL)
 def submit_donation(**kwargs):
     """Process donation form submission"""
     try:
@@ -636,6 +644,7 @@ def process_cash_payment(donation, form_data):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_donation_status(donation_id):
     """Get donation status for tracking"""
     if not donation_id:
@@ -658,6 +667,7 @@ def get_donation_status(donation_id):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def mark_donation_paid(donation_id, payment_reference=None):
     """Mark donation as paid (for manual processing)"""
     if not frappe.has_permission("Donation", "write"):
@@ -685,6 +695,7 @@ def mark_donation_paid(donation_id, payment_reference=None):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_donation_system():
     """Test the donation system components"""
 
@@ -765,6 +776,7 @@ def test_donation_system():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_donation_submission():
     """Test the donation submission flow with sample data"""
 
@@ -824,6 +836,7 @@ def test_donation_submission():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_doctype_access():
     """Test if verenigingen doctypes are accessible"""
 
@@ -879,6 +892,7 @@ def test_doctype_access():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def create_test_data():
     """Create some test data for doctype accessibility testing"""
 
@@ -958,6 +972,7 @@ def create_test_data():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_awesome_bar_search():
     """Test awesome bar search functionality specifically"""
 
@@ -1037,6 +1052,7 @@ def test_awesome_bar_search():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_list_view_access():
     """Test direct list view access for doctypes"""
 
@@ -1097,6 +1113,7 @@ def test_list_view_access():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_direct_url_access():
     """Test if we can generate the correct URLs for doctype list views"""
 
@@ -1156,6 +1173,7 @@ def test_direct_url_access():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_doctype_routing():
     """Debug the doctype routing issue in detail"""
 
@@ -1276,6 +1294,7 @@ def debug_doctype_routing():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def force_doctype_sync():
     """Force sync doctypes to ensure they're properly registered"""
 
@@ -1296,7 +1315,7 @@ def force_doctype_sync():
                 # Re-register the doctype
                 from frappe.model.sync import sync_for
 
-                sync_for(doc.app)
+                sync_for(doc.module)
 
                 results["sync_results"].append(f"✓ Synced {doctype_name}")
 
@@ -1331,6 +1350,7 @@ def force_doctype_sync():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_workspace_links():
     """Test what happens when we simulate clicking workspace links"""
 
@@ -1379,6 +1399,7 @@ def test_workspace_links():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_frontend_routing():
     """Debug what the frontend is actually requesting"""
 

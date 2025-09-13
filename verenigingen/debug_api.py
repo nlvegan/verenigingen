@@ -32,11 +32,11 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.api.membership_application import submit_application
-from verenigingen.utils.security_decorators import development_only
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
 
 @frappe.whitelist()
-@development_only()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_membership_application():
     """
     Test membership application submission workflow with sample data.

@@ -8,8 +8,8 @@ import frappe
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
-@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def generate_invoice_for_schedule(schedule_name, force=False):
     """
     Generate invoice for a specific dues schedule

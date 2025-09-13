@@ -190,10 +190,15 @@ def fix_stuck_schedule(schedule_name, force=False):
 @frappe.whitelist()
 def find_all_stuck_schedules():
     """
-    Find all schedules that are stuck with last_invoice_date = next_invoice_date
+    Find all schedules that are stuck - enhanced detection for multiple stuck patterns:
+    - Type A: last_invoice_date = next_invoice_date (original logic)
+    - Type B: next_invoice_date is overdue (validation-blocked schedules)
+    - Type C: Missing expected invoices based on billing frequency
     """
-    # Optimized query with JOIN to avoid N+1 queries
-    stuck_schedules = frappe.db.sql(
+    from frappe.utils import date_diff
+
+    # Type A: Original stuck schedules (dates equal)
+    type_a_schedules = frappe.db.sql(
         """
         SELECT
             s.name,
@@ -206,6 +211,7 @@ def find_all_stuck_schedules():
             s.status,
             s.auto_generate,
             m.customer,
+            'Type A: Equal Dates' as stuck_type,
             CASE
                 WHEN m.customer IS NOT NULL AND EXISTS (
                     SELECT 1 FROM `tabSales Invoice` si
@@ -214,7 +220,7 @@ def find_all_stuck_schedules():
                     AND si.docstatus != 2
                 ) THEN 1
                 ELSE 0
-            END as invoice_exists
+            END as invoice_exists_for_date
         FROM `tabMembership Dues Schedule` s
         LEFT JOIN `tabMember` m ON s.member = m.name
         WHERE s.is_template = 0
@@ -228,14 +234,91 @@ def find_all_stuck_schedules():
         as_dict=True,
     )
 
+    # Type B: Overdue schedules (validation-blocked)
+    type_b_schedules = frappe.db.sql(
+        """
+        SELECT
+            s.name,
+            s.member,
+            s.member_name,
+            s.billing_frequency,
+            s.dues_rate,
+            s.last_invoice_date,
+            s.next_invoice_date,
+            s.status,
+            s.auto_generate,
+            m.customer,
+            'Type B: Overdue Invoice' as stuck_type,
+            DATEDIFF(CURDATE(), s.next_invoice_date) as days_overdue,
+            CASE
+                WHEN m.customer IS NOT NULL AND EXISTS (
+                    SELECT 1 FROM `tabSales Invoice` si
+                    WHERE si.customer = m.customer
+                    AND si.posting_date >= s.next_invoice_date
+                    AND si.docstatus != 2
+                ) THEN 1
+                ELSE 0
+            END as invoice_exists_for_date
+        FROM `tabMembership Dues Schedule` s
+        LEFT JOIN `tabMember` m ON s.member = m.name
+        WHERE s.is_template = 0
+            AND s.status = 'Active'
+            AND s.auto_generate = 1
+            AND s.next_invoice_date IS NOT NULL
+            AND s.next_invoice_date < CURDATE()
+            AND s.last_invoice_date != s.next_invoice_date  -- Exclude Type A
+            AND (
+                -- Daily schedules: overdue by 2+ days
+                (s.billing_frequency = 'Daily' AND DATEDIFF(CURDATE(), s.next_invoice_date) >= 2)
+                OR
+                -- Weekly schedules: overdue by 2+ days
+                (s.billing_frequency = 'Weekly' AND DATEDIFF(CURDATE(), s.next_invoice_date) >= 2)
+                OR
+                -- Monthly schedules: overdue by 5+ days
+                (s.billing_frequency = 'Monthly' AND DATEDIFF(CURDATE(), s.next_invoice_date) >= 5)
+                OR
+                -- Quarterly schedules: overdue by 7+ days
+                (s.billing_frequency = 'Quarterly' AND DATEDIFF(CURDATE(), s.next_invoice_date) >= 7)
+                OR
+                -- Annual schedules: overdue by 14+ days
+                (s.billing_frequency = 'Annual' AND DATEDIFF(CURDATE(), s.next_invoice_date) >= 14)
+                OR
+                -- Custom frequencies: overdue by 7+ days (conservative)
+                (s.billing_frequency = 'Custom' AND DATEDIFF(CURDATE(), s.next_invoice_date) >= 7)
+            )
+        ORDER BY days_overdue DESC, s.next_invoice_date ASC
+    """,
+        as_dict=True,
+    )
+
+    # Combine all stuck schedules
+    all_stuck = type_a_schedules + type_b_schedules
+
     # Convert invoice_exists from int to boolean for clarity
-    for schedule in stuck_schedules:
-        schedule["invoice_exists"] = bool(schedule["invoice_exists"]) if schedule["customer"] else None
+    for schedule in all_stuck:
+        schedule["invoice_exists"] = (
+            bool(schedule["invoice_exists_for_date"]) if schedule["customer"] else None
+        )
+        # Calculate severity based on stuck type and days overdue
+        if schedule["stuck_type"].startswith("Type B"):
+            days_overdue = schedule.get("days_overdue", 0)
+            if days_overdue >= 30:
+                schedule["severity"] = "CRITICAL"
+            elif days_overdue >= 14:
+                schedule["severity"] = "HIGH"
+            elif days_overdue >= 7:
+                schedule["severity"] = "MEDIUM"
+            else:
+                schedule["severity"] = "LOW"
+        else:
+            schedule["severity"] = "MEDIUM"  # Type A schedules
 
     return {
-        "total_stuck": len(stuck_schedules),
-        "schedules": stuck_schedules,
-        "recommendation": "Run fix_stuck_schedule for each schedule where invoice_exists is False",
+        "total_stuck": len(all_stuck),
+        "type_a_count": len(type_a_schedules),
+        "type_b_count": len(type_b_schedules),
+        "schedules": all_stuck,
+        "recommendation": "Run fix_stuck_schedule for schedules where invoice_exists is False or severity is HIGH/CRITICAL",
     }
 
 
@@ -243,33 +326,61 @@ def find_all_stuck_schedules():
 @frappe.whitelist()
 def check_and_notify_stuck_schedules():
     """
-    Scheduled job to check for stuck schedules and notify administrators.
-    To be run daily by the scheduler.
+    Enhanced scheduled job to check for multiple types of stuck schedules.
+    Detects both equal-date issues and validation-blocked overdue schedules.
     """
     try:
-        # Find all stuck schedules
+        # Find all stuck schedules (enhanced detection)
         result = find_all_stuck_schedules()
 
-        stuck_count = result["total_stuck"]
+        total_stuck = result["total_stuck"]
+        type_a_count = result["type_a_count"]
+        type_b_count = result["type_b_count"]
         stuck_schedules = result["schedules"]
 
-        # Filter to only schedules where no invoice exists
-        truly_stuck = [s for s in stuck_schedules if not s.get("invoice_exists")]
-        truly_stuck_count = len(truly_stuck)
+        # Filter schedules needing immediate attention
+        critical_stuck = [
+            s
+            for s in stuck_schedules
+            if not s.get("invoice_exists") or s.get("severity") in ["HIGH", "CRITICAL"]
+        ]
+        critical_count = len(critical_stuck)
 
-        if truly_stuck_count == 0:
-            # No stuck schedules found - log success
+        # Separate reporting for different issue types
+        type_a_issues = [s for s in stuck_schedules if s["stuck_type"].startswith("Type A")]
+        type_b_issues = [s for s in stuck_schedules if s["stuck_type"].startswith("Type B")]
+
+        type_a_critical = [s for s in type_a_issues if not s.get("invoice_exists")]
+        type_b_critical = [s for s in type_b_issues if s.get("severity") in ["HIGH", "CRITICAL"]]
+
+        if critical_count == 0:
+            # No critical issues - log informational status
             frappe.log_error(
-                f"Daily stuck schedule check completed. Found {stuck_count} with matching dates, "
-                f"but all have existing invoices. No action needed.",
+                f"Daily stuck schedule check completed. Found {total_stuck} potential issues:\n"
+                f"- Type A (Equal Dates): {type_a_count} (all have existing invoices)\n"
+                f"- Type B (Overdue): {type_b_count} (all low/medium severity)\n"
+                f"No critical action needed.",
                 "Stuck Schedule Check - All Clear",
             )
-            return {"success": True, "stuck_count": 0, "notifications_sent": 0}
+            return {
+                "success": True,
+                "stuck_count": 0,
+                "total_found": total_stuck,
+                "type_breakdown": {"type_a": type_a_count, "type_b": type_b_count},
+                "notifications_sent": 0,
+            }
 
-        # Generate notification content using template
+        # Generate enhanced notification content
         notification_html = frappe.render_template(
             "verenigingen/templates/emails/stuck_dues_schedules_alert.html",
-            {"truly_stuck_count": truly_stuck_count, "truly_stuck": truly_stuck},
+            {
+                "critical_count": critical_count,
+                "critical_stuck": critical_stuck,
+                "type_a_critical": type_a_critical,
+                "type_b_critical": type_b_critical,
+                "total_found": total_stuck,
+                "type_breakdown": {"type_a": type_a_count, "type_b": type_b_count},
+            },
         )
 
         # Get notification recipients from settings
@@ -279,9 +390,12 @@ def check_and_notify_stuck_schedules():
 
         if admin_emails:
             # Send email notification
+            # Determine urgency level based on critical issues
+            urgency = "CRITICAL" if any(s.get("severity") == "CRITICAL" for s in critical_stuck) else "URGENT"
+
             frappe.sendmail(
                 recipients=admin_emails,
-                subject=f"[URGENT] {truly_stuck_count} Stuck Dues Schedules Found - Action Required",
+                subject=f"[{urgency}] {critical_count} Stuck Dues Schedules Found - Action Required",
                 message=notification_html,
                 now=True,
             )
@@ -291,7 +405,10 @@ def check_and_notify_stuck_schedules():
                 if user.email:
                     try:
                         notification = frappe.new_doc("Notification Log")
-                        notification.subject = f"🚨 {truly_stuck_count} Stuck Dues Schedules"
+                        urgency_emoji = (
+                            "🔥" if any(s.get("severity") == "CRITICAL" for s in critical_stuck) else "🚨"
+                        )
+                        notification.subject = f"{urgency_emoji} {critical_count} Stuck Dues Schedules"
                         notification.for_user = user.email
                         notification.type = "Alert"
                         notification.document_type = "Membership Dues Schedule"
@@ -312,13 +429,21 @@ def check_and_notify_stuck_schedules():
                     except Exception as e:
                         frappe.log_error(f"Failed to create notification for {user.email}: {str(e)}")
 
-        # Log the event for monitoring
-        schedule_names = [s["name"] for s in truly_stuck]
+        # Enhanced logging with breakdown by issue type
+        critical_names = [s["name"] for s in critical_stuck]
+        type_a_names = [s["name"] for s in type_a_critical]
+        type_b_names = [s["name"] for s in type_b_critical]
+
         frappe.log_error(
-            f"ALERT: Found {truly_stuck_count} stuck dues schedules requiring immediate attention.\n\n"
-            f"Schedules: {', '.join(schedule_names)}\n\n"
+            f"ALERT: Found {critical_count} stuck dues schedules requiring immediate attention.\n\n"
+            f"BREAKDOWN:\n"
+            f"- Type A Critical (Equal Dates, No Invoice): {len(type_a_critical)}\n"
+            f"  Schedules: {', '.join(type_a_names) if type_a_names else 'None'}\n\n"
+            f"- Type B Critical (Overdue, Validation-Blocked): {len(type_b_critical)}\n"
+            f"  Schedules: {', '.join(type_b_names) if type_b_names else 'None'}\n\n"
+            f"Total found: {total_stuck} (Type A: {type_a_count}, Type B: {type_b_count})\n\n"
             f"Notifications sent to {len(admin_emails)} administrators: {', '.join(admin_emails)}",
-            "Stuck Schedule Alert Sent",
+            "Enhanced Stuck Schedule Alert Sent",
         )
 
         # Commit to ensure notifications are saved
@@ -326,9 +451,16 @@ def check_and_notify_stuck_schedules():
 
         return {
             "success": True,
-            "stuck_count": truly_stuck_count,
+            "stuck_count": critical_count,
+            "total_found": total_stuck,
+            "type_breakdown": {
+                "type_a_total": type_a_count,
+                "type_a_critical": len(type_a_critical),
+                "type_b_total": type_b_count,
+                "type_b_critical": len(type_b_critical),
+            },
             "notifications_sent": len(admin_emails),
-            "stuck_schedule_names": schedule_names,
+            "critical_schedule_names": critical_names,
         }
 
     except Exception as e:

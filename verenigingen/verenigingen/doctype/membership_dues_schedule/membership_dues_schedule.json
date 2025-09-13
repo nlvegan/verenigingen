@@ -54,7 +54,13 @@
   "column_break_custom",
   "custom_amount_approved_date",
   "section_billing_schedule",
-  "billing_schedule_notes"
+  "billing_schedule_notes",
+  "section_error_recovery",
+  "custom_invoice_retry_count",
+  "custom_last_invoice_failure_date",
+  "column_break_error_recovery",
+  "custom_last_invoice_error",
+  "custom_requires_manual_review"
  ],
  "fields": [
   {
@@ -381,6 +387,46 @@
    "fieldname": "billing_schedule_notes",
    "fieldtype": "Text",
    "label": "Billing Schedule Notes"
+  },
+  {
+   "fieldname": "section_error_recovery",
+   "fieldtype": "Section Break",
+   "label": "Error Recovery Tracking",
+   "collapsible": 1
+  },
+  {
+   "default": "0",
+   "description": "Number of consecutive invoice generation failures",
+   "fieldname": "custom_invoice_retry_count",
+   "fieldtype": "Int",
+   "label": "Retry Count",
+   "read_only": 1
+  },
+  {
+   "description": "Date of most recent invoice generation failure",
+   "fieldname": "custom_last_invoice_failure_date",
+   "fieldtype": "Date",
+   "label": "Last Failure Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_error_recovery",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Error message from most recent failure (truncated)",
+   "fieldname": "custom_last_invoice_error",
+   "fieldtype": "Text",
+   "label": "Last Error Message",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Schedule requires manual administrator review",
+   "fieldname": "custom_requires_manual_review",
+   "fieldtype": "Check",
+   "label": "Requires Manual Review",
+   "read_only": 1
   },
   {
    "fieldname": "column_break_tooo",

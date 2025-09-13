@@ -378,8 +378,16 @@ def cleanup_orphaned_schedules(dry_run=True, max_cleanup=20):
 
                 if not dry_run:
                     try:
-                        # Delete the orphaned schedule
-                        frappe.delete_doc("Membership Dues Schedule", schedule_data["name"])
+                        # Clear the member reference first to avoid link validation issues
+                        schedule_doc = frappe.get_doc("Membership Dues Schedule", schedule_data["name"])
+                        schedule_doc.member = None
+                        schedule_doc.member_name = None
+                        schedule_doc.save(ignore_permissions=True)
+
+                        # Now delete the orphaned schedule
+                        frappe.delete_doc(
+                            "Membership Dues Schedule", schedule_data["name"], ignore_permissions=True
+                        )
                         schedule_result["action"] = "deleted"
                         results["cleaned_up"] += 1
                     except Exception as e:
@@ -565,6 +573,113 @@ def validate_invoice_generation_readiness():
 
 
 @frappe.whitelist()
+@high_security_api()
+def cleanup_orphaned_member_references(dry_run=True, max_cleanup=50):
+    """
+    Clean up orphaned member references in schedules without deleting the schedules themselves.
+    This is useful when you want to preserve the schedules but remove invalid member links.
+
+    Args:
+        dry_run (bool): If True, only reports what would be cleaned up
+        max_cleanup (int): Maximum number of references to clean up in one run
+
+    Returns:
+        dict: Results of reference cleanup operation
+    """
+
+    if not (
+        frappe.session.user == "Administrator"
+        or "System Manager" in frappe.get_roles()
+        or "Verenigingen Administrator" in frappe.get_roles()
+    ):
+        frappe.throw(_("Insufficient permissions for member reference cleanup"))
+
+    try:
+        results = {
+            "success": True,
+            "dry_run": dry_run,
+            "timestamp": frappe.utils.now(),
+            "orphaned_references_found": 0,
+            "references_cleared": 0,
+            "errors": [],
+            "processed_schedules": [],
+        }
+
+        # Find schedules with orphaned member references
+        from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
+            MembershipDuesSchedule,
+        )
+
+        orphaned_schedules = MembershipDuesSchedule.find_orphaned_schedules(limit=max_cleanup)
+        results["orphaned_references_found"] = len(orphaned_schedules)
+
+        if not orphaned_schedules:
+            results["message"] = "No orphaned member references found"
+            return results
+
+        # Process orphaned references
+        processed = 0
+        for schedule_data in orphaned_schedules:
+            if processed >= max_cleanup:
+                break
+
+            try:
+                schedule_result = {
+                    "schedule": schedule_data["name"],
+                    "member": schedule_data["member"],
+                    "status": schedule_data["status"],
+                }
+
+                if not dry_run:
+                    try:
+                        # Clear the member reference but keep the schedule
+                        schedule_doc = frappe.get_doc("Membership Dues Schedule", schedule_data["name"])
+                        schedule_doc.member = None
+                        schedule_doc.member_name = None
+                        schedule_doc.save(ignore_permissions=True)
+                        schedule_result["action"] = "reference_cleared"
+                        results["references_cleared"] += 1
+                    except Exception as e:
+                        schedule_result["action"] = "clear_failed"
+                        schedule_result["error"] = str(e)
+                        results["errors"].append(
+                            f"Failed to clear reference in {schedule_data['name']}: {str(e)}"
+                        )
+                else:
+                    schedule_result["action"] = "would_clear_reference"
+
+                results["processed_schedules"].append(schedule_result)
+                processed += 1
+
+            except Exception as e:
+                error_msg = f"Error processing schedule {schedule_data['name']}: {str(e)}"
+                results["errors"].append(error_msg)
+                continue
+
+        # Commit changes if not dry run
+        if not dry_run and results["references_cleared"] > 0:
+            frappe.db.commit()
+
+        # Generate summary message
+        if dry_run:
+            results["message"] = (
+                f"Dry run complete: Found {results['orphaned_references_found']} orphaned member references, "
+                f"would clear {processed}"
+            )
+        else:
+            results["message"] = (
+                f"Reference cleanup complete: Cleared {results['references_cleared']} orphaned member references. "
+                f"{len(results['errors'])} errors occurred."
+            )
+
+        return results
+
+    except Exception as e:
+        frappe.log_error(f"Member reference cleanup failed: {str(e)}", "Reference Cleanup")
+        return {"success": False, "error": str(e), "message": f"Reference cleanup failed: {str(e)}"}
+
+
+@frappe.whitelist()
 def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20):
     """
     Enhanced cleanup for orphaned membership-related data including:
@@ -629,7 +744,16 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20):
 
             if not dry_run:
                 try:
-                    frappe.delete_doc("Membership Dues Schedule", schedule_data["name"])
+                    # Clear the member reference first to avoid link validation issues
+                    schedule_doc = frappe.get_doc("Membership Dues Schedule", schedule_data["name"])
+                    schedule_doc.member = None
+                    schedule_doc.member_name = None
+                    schedule_doc.save(ignore_permissions=True)
+
+                    # Now delete the orphaned schedule
+                    frappe.delete_doc(
+                        "Membership Dues Schedule", schedule_data["name"], ignore_permissions=True
+                    )
                     schedule_info["action"] = "deleted"
                     results["orphaned_schedules"]["cleaned"] += 1
                 except Exception as e:

@@ -8,6 +8,8 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 no_cache = 1
 
 
@@ -118,6 +120,80 @@ def get_context(context):
             "color": "brand-secondary",
             "warning": "This will permanently delete orphaned membership data including invalid membership types!",
             "args": {"dry_run": False, "max_cleanup": 20},
+        },
+        {
+            "title": "Find Stuck Dues Schedules",
+            "description": "Identify all schedules that are stuck due to validation failures or equal-date issues",
+            "method": "verenigingen.api.fix_stuck_dues_schedule.find_all_stuck_schedules",
+            "icon": "fa fa-search",
+            "color": "brand-accent",
+        },
+        {
+            "title": "Check Stuck Schedule Notifications",
+            "description": "Run the enhanced stuck schedule detection and notification system",
+            "method": "verenigingen.api.fix_stuck_dues_schedule.check_and_notify_stuck_schedules",
+            "icon": "fa fa-bell",
+            "color": "brand-secondary",
+        },
+        {
+            "title": "Diagnose Specific Schedule",
+            "description": "Get detailed diagnosis of why a specific schedule is not generating invoices",
+            "method": "verenigingen.api.fix_stuck_dues_schedule.diagnose_stuck_schedule",
+            "icon": "fa fa-stethoscope",
+            "color": "brand-primary",
+            "args": {"schedule_name": ""},
+            "requires_input": True,
+        },
+        {
+            "title": "Fix Stuck Schedule (Safe)",
+            "description": "Attempt to fix a specific stuck schedule by resetting dates appropriately",
+            "method": "verenigingen.api.fix_stuck_dues_schedule.fix_stuck_schedule",
+            "icon": "fa fa-wrench",
+            "color": "brand-secondary",
+            "args": {"schedule_name": "", "force": False},
+            "requires_input": True,
+            "warning": "This will modify schedule dates to allow invoice generation",
+        },
+        {
+            "title": "Force Fix Stuck Schedule",
+            "description": "Force fix a schedule even if no obvious issues are detected",
+            "method": "verenigingen.api.fix_stuck_dues_schedule.fix_stuck_schedule",
+            "icon": "fa fa-bolt",
+            "color": "brand-primary",
+            "args": {"schedule_name": "", "force": True},
+            "requires_input": True,
+            "warning": "This will force fix the schedule regardless of detected issues",
+        },
+        {
+            "title": "Comprehensive Dues Health Check",
+            "description": "Full health check: missing schedules + stuck schedules + data integrity + field synchronization",
+            "method": "verenigingen.utils.dues_schedule_health_manager.comprehensive_dues_schedule_health_check",
+            "icon": "fa fa-heartbeat",
+            "color": "brand-primary",
+        },
+        {
+            "title": "Comprehensive Dues Health Maintenance",
+            "description": "Complete maintenance job: reconstruction + synchronization + stuck schedule processing",
+            "method": "verenigingen.utils.dues_schedule_health_manager.comprehensive_dues_health_maintenance",
+            "icon": "fa fa-cogs",
+            "color": "brand-secondary",
+            "warning": "This will run all health maintenance operations and may take several minutes",
+        },
+        {
+            "title": "Sync All Member Fields",
+            "description": "Synchronize all member fields (current_membership_plan, current_dues_schedule, dues_rate) with their related records",
+            "method": "verenigingen.utils.dues_schedule_health_manager.sync_all_member_fields",
+            "icon": "fa fa-refresh",
+            "color": "brand-accent",
+        },
+        {
+            "title": "Reconstruct Member Data",
+            "description": "Reconstruct missing membership and dues schedule data for a specific member",
+            "method": "verenigingen.utils.dues_schedule_health_manager.comprehensive_dues_schedule_health_check",
+            "icon": "fa fa-magic",
+            "color": "brand-primary",
+            "args": {"member_filter": "", "fix_issues": True},
+            "requires_input": True,
         },
     ]
 
@@ -370,6 +446,15 @@ ALLOWED_ADMIN_METHODS = {
     "verenigingen.utils.invoice_management.bulk_generate_dues_invoices",
     "verenigingen.utils.invoice_management.cleanup_orphaned_schedules",
     "verenigingen.utils.invoice_management.cleanup_orphaned_membership_data",
+    # Stuck schedule management
+    "verenigingen.api.fix_stuck_dues_schedule.find_all_stuck_schedules",
+    "verenigingen.api.fix_stuck_dues_schedule.check_and_notify_stuck_schedules",
+    "verenigingen.api.fix_stuck_dues_schedule.diagnose_stuck_schedule",
+    "verenigingen.api.fix_stuck_dues_schedule.fix_stuck_schedule",
+    # Dues schedule health management
+    "verenigingen.utils.dues_schedule_health_manager.comprehensive_dues_schedule_health_check",
+    "verenigingen.utils.dues_schedule_health_manager.comprehensive_dues_health_maintenance",
+    "verenigingen.utils.dues_schedule_health_manager.sync_all_member_fields",
     # System administration
     "verenigingen.utils.performance_dashboard.get_system_health",
     "verenigingen.utils.performance_dashboard.get_performance_dashboard",
@@ -398,6 +483,7 @@ ALLOWED_ADMIN_METHODS = {
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def execute_admin_tool(method, args=None):
     """Execute an admin tool method with strict security validation"""
 

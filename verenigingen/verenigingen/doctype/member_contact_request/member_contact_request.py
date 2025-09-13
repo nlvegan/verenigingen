@@ -2,6 +2,8 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class MemberContactRequest(Document):
     def validate(self):
@@ -23,10 +25,12 @@ class MemberContactRequest(Document):
         """Auto-populate member details from linked member record"""
         if self.member and not self.member_name:
             member_doc = frappe.get_doc("Member", self.member)
-            self.member_name = member_doc.member_name
-            self.email = member_doc.email_address
-            self.phone = member_doc.phone_number
-            self.organization = member_doc.organization
+            self.member_name = member_doc.full_name
+            self.email = member_doc.email
+            self.phone = member_doc.contact_number
+            # Note: Member DocType doesn't have organization field - leaving blank
+            if hasattr(member_doc, 'organization'):
+                self.organization = member_doc.organization
 
     def validate_contact_preferences(self):
         """Validate contact method preferences"""
@@ -259,6 +263,7 @@ class MemberContactRequest(Document):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def create_contact_request(
     member,
     subject,
@@ -317,6 +322,7 @@ def create_contact_request(
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_member_contact_requests(member, limit=10):
     """Get contact requests for a specific member"""
 

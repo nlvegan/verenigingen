@@ -8,10 +8,17 @@ import frappe
 from frappe.utils import add_months, flt, fmt_money, getdate, now_datetime
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_dashboard_data(year=None, period="year", compare_previous=False, filters=None):
     """Get all dashboard data for membership analytics"""
     if not year:
@@ -43,6 +50,7 @@ def get_dashboard_data(year=None, period="year", compare_previous=False, filters
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_summary_metrics(year, period="year", filters=None):
     """Get summary metrics for the dashboard header"""
     filters = filters or {}
@@ -149,6 +157,7 @@ def calculate_projected_revenue(year):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_growth_trend(year, period="year", filters=None):
     """Get member growth trend data for charts"""
     filters = filters or {}
@@ -185,6 +194,7 @@ def get_growth_trend(year, period="year", filters=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_revenue_projection(year, filters=None):
     """Get revenue projection by membership type"""
     filters = filters or {}
@@ -226,6 +236,7 @@ def get_revenue_projection(year, filters=None):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_membership_breakdown(year, filters=None):
     """Get membership breakdown by type"""
     filters = filters or {}
@@ -251,6 +262,7 @@ def get_membership_breakdown(year, filters=None):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_goals_progress(year):
     """Get progress on membership goals"""
 
@@ -294,6 +306,7 @@ def get_goals_progress(year):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_top_insights(year):
     """Get AI-like insights based on data analysis"""
 
@@ -397,6 +410,7 @@ def calculate_retention_rate(year):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def create_goal(goal_data):
     """Create a new membership goal"""
     if isinstance(goal_data, str):
@@ -411,6 +425,7 @@ def create_goal(goal_data):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_segmentation_data(year, period="year", filters=None):
     """Get detailed segmentation data"""
     filters = filters or {}
@@ -621,6 +636,7 @@ def get_join_year_segmentation(year, filter_conditions):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_cohort_analysis(year):
     """Get cohort retention analysis"""
 
@@ -683,6 +699,7 @@ def get_cohort_analysis(year):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def export_dashboard_data(year=None, period="year", format="excel"):
     """Export dashboard data in various formats"""
     data = get_dashboard_data(year, period)

@@ -7,8 +7,11 @@ WARNING: This will delete ALL financial data - use with extreme caution!
 import frappe
 from frappe.utils import now_datetime
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def nuke_all_financial_data(confirm="NO"):
     """
     Delete all financial transactions, GL entries, and related data
@@ -312,6 +315,7 @@ def nuke_all_financial_data(confirm="NO"):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def nuke_gl_entries_older_than(minutes=30):
     """
     Delete GL entries older than specified minutes
@@ -405,6 +409,7 @@ def nuke_gl_entries_older_than(minutes=30):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def check_financial_data_status():
     """Check current status of financial data before deletion"""
 

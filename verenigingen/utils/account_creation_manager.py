@@ -33,6 +33,8 @@ import frappe
 from frappe import _
 from frappe.utils import get_site_name, now
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 
 class AccountCreationManager:
     """Secure account creation manager with proper permission validation"""
@@ -419,6 +421,7 @@ class AccountCreationManager:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def process_account_creation_request(request_name):
     """Background job entry point for processing account creation requests"""
     try:
@@ -432,6 +435,7 @@ def process_account_creation_request(request_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def queue_account_creation_for_member(member_name, roles=None, role_profile=None, priority="Normal"):
     """Queue account creation for a member record"""
     if not frappe.has_permission("User", "create"):
@@ -502,6 +506,7 @@ def queue_account_creation_for_member(member_name, roles=None, role_profile=None
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def queue_account_creation_for_volunteer(volunteer_name, priority="Normal"):
     """Queue account creation for a volunteer record"""
     # Skip permission check during tests if flag is set
@@ -568,6 +573,7 @@ def queue_account_creation_for_volunteer(volunteer_name, priority="Normal"):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def queue_bulk_account_creation_for_members(
     member_names, roles=None, role_profile=None, batch_size=50, priority="Low"
 ):
@@ -799,6 +805,7 @@ def queue_bulk_account_creation_for_members(
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def process_bulk_account_creation_batch(request_names, batch_id, batch_number, tracker_name):
     """
     Process a batch of account creation requests with parallel processing and enhanced error handling.
@@ -849,6 +856,14 @@ def process_bulk_account_creation_batch(request_names, batch_id, batch_number, t
             try:
                 # Ensure request is in processable status (handle retry scenario)
                 request = frappe.get_doc("Account Creation Request", request_name)
+
+                # Skip requests that are already completed
+                if request.status == "Completed":
+                    frappe.logger().info(
+                        f"Batch {batch_id}: Skipping already completed request {request_name}"
+                    )
+                    return {"success": True, "request_name": request_name, "skipped": True}
+
                 if request.status == "Requested":
                     request.status = "Queued"
                     request.processing_started_at = now()
@@ -953,6 +968,7 @@ def process_bulk_account_creation_batch(request_names, batch_id, batch_number, t
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_failed_requests():
     """Get failed account creation requests for admin review"""
     # Skip permission check during tests if flag is set
@@ -979,6 +995,7 @@ def get_failed_requests():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def retry_failed_request(request_name):
     """Manually retry a failed account creation request"""
     if not frappe.has_permission("Account Creation Request", "write"):

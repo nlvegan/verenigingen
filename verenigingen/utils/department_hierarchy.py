@@ -1,6 +1,9 @@
 import frappe
 from frappe import _
 
+from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+
 
 class DepartmentHierarchyManager:
     """Manages department hierarchy for expense approval alignment with ERPNext"""
@@ -78,7 +81,20 @@ class DepartmentHierarchyManager:
             if parent:
                 dept.parent_department = parent
 
-            dept.insert(ignore_permissions=True)
+            result = secure_document_operation(
+                operation="insert",
+                doc=dept,
+                justification=f"Create department {dept_name} for association hierarchy management",
+                required_permissions=["Department:create"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to create department {dept_name}: {'; '.join(result.errors)}",
+                    "Department Creation Security",
+                )
+                frappe.throw(_("Unable to create department: Security validation failed"))
+
             frappe.db.commit()
             return dept
 
@@ -183,11 +199,11 @@ class DepartmentHierarchyManager:
 
             if approvers:
                 # Update chapter board department
-                dept_name = f"Chapter {chapter_doc.chapter_name} Board"
+                dept_name = f"Chapter {chapter_doc.name} Board"
                 self._update_department_approvers(dept_name, approvers)
 
                 # Also update parent chapter department for fallback
-                parent_dept = f"Chapter {chapter_doc.chapter_name}"
+                parent_dept = f"Chapter {chapter_doc.name}"
                 self._update_department_approvers(parent_dept, approvers)
 
     def _sync_team_approvers(self):
@@ -239,7 +255,20 @@ class DepartmentHierarchyManager:
         for email in approver_emails:
             dept.append("expense_approvers", {"approver": email})
 
-        dept.save(ignore_permissions=True)
+        result = secure_document_operation(
+            operation="save",
+            doc=dept,
+            justification=f"Update department {dept_name} expense approvers for financial workflow",
+            required_permissions=["Department:write"],
+        )
+
+        if not result.success:
+            frappe.log_error(
+                f"Failed to update department approvers for {dept_name}: {'; '.join(result.errors)}",
+                "Department Approver Update Security",
+            )
+            return  # Don't commit if update failed
+
         frappe.db.commit()
 
     def _ensure_expense_approver_role(self, user_email):
@@ -248,7 +277,19 @@ class DepartmentHierarchyManager:
 
         if "Expense Approver" not in [r.role for r in user.roles]:
             user.append("roles", {"role": "Expense Approver"})
-            user.save(ignore_permissions=True)
+            result = secure_document_operation(
+                operation="save",
+                doc=user,
+                justification=f"Add Expense Approver role to user {user_email} for department approval workflow",
+                required_permissions=["User:write"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to add Expense Approver role to user {user_email}: {'; '.join(result.errors)}",
+                    "User Role Update Security",
+                )
+                # Continue without failing - role addition is not critical to main workflow
 
     def update_employee_departments(self, volunteer_name=None):
         """Update employee departments for volunteers"""
@@ -271,6 +312,7 @@ class DepartmentHierarchyManager:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def setup_departments():
     """Whitelist function to set up department hierarchy"""
     manager = DepartmentHierarchyManager()
@@ -279,6 +321,7 @@ def setup_departments():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def sync_approvers():
     """Whitelist function to sync approvers"""
     manager = DepartmentHierarchyManager()
@@ -287,6 +330,7 @@ def sync_approvers():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_volunteer_department(volunteer):
     """Get department for a volunteer"""
     manager = DepartmentHierarchyManager()

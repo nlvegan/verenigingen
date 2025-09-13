@@ -4,6 +4,12 @@ from frappe.model.document import Document
 from frappe.utils import add_days, getdate, now_datetime, today
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
 from verenigingen.utils.validation_utilities import DateRangeValidator, DocumentExistenceValidator
 
 # Configuration Constants
@@ -320,6 +326,7 @@ class ContributionAmendmentRequest(Document):
             self.save()
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.FINANCIAL)
     def approve_amendment(self, approval_notes=None):
         """
         Approve the amendment request.
@@ -347,6 +354,7 @@ class ContributionAmendmentRequest(Document):
         frappe.msgprint(_("Amendment approved successfully"))
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.FINANCIAL)
     def reject_amendment(self, rejection_reason):
         """
         Reject the amendment request.
@@ -369,6 +377,7 @@ class ContributionAmendmentRequest(Document):
         frappe.msgprint(_("Amendment rejected"))
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.FINANCIAL)
     def apply_amendment(self):
         """
         Apply the approved amendment to the membership and dues schedule.
@@ -823,6 +832,7 @@ class ContributionAmendmentRequest(Document):
             frappe.log_error(f"Error sending rejection notification: {str(e)}")
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def get_impact_preview(self):
         """
         Generate a preview of the financial impact of this amendment.
@@ -969,6 +979,7 @@ class ContributionAmendmentRequest(Document):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def process_pending_amendments():
     """Process all approved amendments that are ready to be applied"""
     amendments = frappe.get_all(
@@ -996,6 +1007,7 @@ def process_pending_amendments():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def process_pending_amendments_daily():
     """Daily scheduled task to process approved amendments that are ready to be applied"""
     try:
@@ -1058,6 +1070,7 @@ def process_pending_amendments_daily():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_fee_change_amendment(member_name, new_amount, reason, effective_date=None):
     """
     Create a fee change amendment for a member.
@@ -1129,6 +1142,7 @@ def create_fee_change_amendment(member_name, new_amount, reason, effective_date=
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_member_pending_contribution_amendments(member_name):
     """
     Get all pending contribution amendments for a member.

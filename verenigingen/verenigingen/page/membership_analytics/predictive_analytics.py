@@ -12,8 +12,11 @@ from frappe.utils import add_days, add_months, getdate, now_datetime
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_predictive_analytics(months_ahead=12):
     """Get predictive analytics for membership trends"""
     predictions = {

@@ -228,7 +228,19 @@ class RateLimiter:
                 "allowed": True,
                 "current_count": 0,
                 "limit": float("inf"),
-                "reset_time": time.time() + 3600,
+                "window": 0,
+                "reset_time": 0,
+                "retry_after": 0,
+            }
+
+        # Skip rate limiting during test execution
+        if getattr(frappe.flags, "in_test", False):
+            return {
+                "allowed": True,
+                "current_count": 0,
+                "limit": float("inf"),
+                "window": 0,
+                "reset_time": 0,
                 "retry_after": 0,
             }
 

@@ -10,7 +10,12 @@ import frappe
 from frappe import _
 
 # Import security decorators
-from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
 
 
 def has_donor_permlevel_access(permission_type="read"):
@@ -38,7 +43,7 @@ def has_donor_permlevel_access(permission_type="read"):
 
 
 @frappe.whitelist()
-@high_security_api  # Tax identifier management
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def update_donor_tax_identifiers(donor, bsn=None, rsin=None, verification_method=None):
     """
     Update donor tax identifiers with proper security checks and validation.
@@ -122,6 +127,7 @@ def update_donor_tax_identifiers(donor, bsn=None, rsin=None, verification_method
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_donor_anbi_data(donor):
     """
     Get ANBI-related data for a donor (with decryption for authorized users)
@@ -178,6 +184,7 @@ def get_donor_anbi_data(donor):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def generate_anbi_report(from_date, to_date, include_bsn=False):
     """
     Generate ANBI report for Belastingdienst reporting
@@ -272,6 +279,7 @@ def generate_anbi_report(from_date, to_date, include_bsn=False):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def update_anbi_consent(donor, consent, reason=None):
     """
     Update ANBI consent for a donor
@@ -319,6 +327,7 @@ def update_anbi_consent(donor, consent, reason=None):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def validate_bsn(bsn):
     """
     Validate a BSN number using the eleven-proof algorithm
@@ -357,6 +366,7 @@ def validate_bsn(bsn):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_anbi_statistics(from_date=None, to_date=None):
     """
     Get ANBI donation statistics
@@ -416,6 +426,7 @@ def get_anbi_statistics(from_date=None, to_date=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def export_belastingdienst_report(filters):
     """
     Export ANBI report for Belastingdienst in CSV format
@@ -518,6 +529,7 @@ def export_belastingdienst_report(filters):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.ADMIN)
 def send_consent_requests(filters=None):
     """
     Send ANBI consent request emails to donors without consent

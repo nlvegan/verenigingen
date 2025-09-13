@@ -205,8 +205,21 @@ def get_mollie_subscription_info(subscription_id):
 
         # Call actual Mollie API to get subscription details
         try:
-            # Get the subscription directly from Mollie
-            subscription = gateway.client.subscriptions.get(subscription_id)
+            # First, find the member with this subscription ID to get customer ID
+            members = frappe.get_all(
+                "Member",
+                filters={"mollie_subscription_id": subscription_id},
+                fields=["name", "mollie_customer_id"],
+                limit=1,
+            )
+
+            if not members or not members[0].mollie_customer_id:
+                raise Exception(f"No member found with mollie_customer_id for subscription {subscription_id}")
+
+            customer_id = members[0].mollie_customer_id
+
+            # Get the subscription through the customer (correct Mollie API usage)
+            subscription = gateway.client.customers.get(customer_id).subscriptions.get(subscription_id)
 
             return {
                 "subscription_status": subscription.status,
@@ -433,6 +446,7 @@ def update_recurring_donation():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_donation_stats():
     """Get donation statistics for logged-in member (for AJAX calls)"""
     try:

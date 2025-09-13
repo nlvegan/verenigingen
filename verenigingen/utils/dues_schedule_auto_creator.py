@@ -725,6 +725,34 @@ def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=
                 result["error_count"] += 1
                 continue
 
+            # ✅ NEW: Update member fields when creating schedule
+            try:
+                # Update member's current_dues_schedule and dues_rate
+                frappe.db.set_value("Member", member.member_name, "current_dues_schedule", dues_schedule.name)
+                frappe.db.set_value("Member", member.member_name, "dues_rate", dues_schedule.dues_rate)
+                frappe.db.set_value(
+                    "Member", member.member_name, "next_invoice_date", dues_schedule.next_invoice_date
+                )
+
+                # Add fee change history entry
+                member_doc = frappe.get_doc("Member", member.member_name)
+                fee_change = member_doc.append("fee_change_history", {})
+                fee_change.change_date = frappe.utils.now()
+                fee_change.dues_schedule = dues_schedule.name
+                fee_change.billing_frequency = dues_schedule.billing_frequency
+                fee_change.new_dues_rate = dues_schedule.dues_rate
+                fee_change.change_type = "Schedule Created"
+                fee_change.reason = f"Auto-created from membership type {member.membership_type}"
+                fee_change.changed_by = frappe.session.user
+                member_doc.save()
+
+            except Exception as sync_error:
+                # Don't fail the entire operation if sync fails, just log it
+                frappe.log_error(
+                    f"Failed to sync member fields for {member.member_name}: {str(sync_error)}",
+                    "Auto-Creator Field Sync Error",
+                )
+
             result["created_schedules"].append(
                 {
                     "member": member.member_name,

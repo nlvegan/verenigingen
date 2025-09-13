@@ -8,6 +8,8 @@ import frappe
 from frappe import _
 from frappe.utils import cint
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 def safe_log_error(message, title=None):
     """Helper to log errors with length protection"""
@@ -177,6 +179,7 @@ def create_employee_for_approved_volunteer(volunteer_doc):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_existing_employee_user_links():
     """Fix existing employees without user_id links"""
     try:

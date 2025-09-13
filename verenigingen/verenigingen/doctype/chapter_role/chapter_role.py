@@ -3,6 +3,8 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class ChapterRole(Document):
     def validate(self):
@@ -48,6 +50,7 @@ class ChapterRole(Document):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def update_chapters_with_role(role):
     """
     Update all chapters that have board members with this role

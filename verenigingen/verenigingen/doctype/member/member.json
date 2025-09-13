@@ -117,6 +117,8 @@
   "column_break_37",
   "custom_field_3",
   "custom_field_4",
+  "health_check_section",
+  "custom_needs_health_check",
   "financial_details_section",
   "employer",
   "occupation",
@@ -685,6 +687,20 @@
    "fieldname": "custom_field_4",
    "fieldtype": "Data",
    "label": "Custom Field 4"
+  },
+  {
+   "fieldname": "health_check_section",
+   "fieldtype": "Section Break",
+   "label": "Health Check Status",
+   "collapsible": 1
+  },
+  {
+   "default": "0",
+   "description": "Member needs comprehensive health check for dues schedule reconstruction",
+   "fieldname": "custom_needs_health_check",
+   "fieldtype": "Check",
+   "label": "Needs Health Check",
+   "read_only": 1
   },
   {
    "fieldname": "notes_section",

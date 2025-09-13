@@ -3,8 +3,11 @@
 import frappe
 from frappe.utils import add_days, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def fix_missing_payment_history():
     """Fix missing payment history entries for recently generated invoices"""
 

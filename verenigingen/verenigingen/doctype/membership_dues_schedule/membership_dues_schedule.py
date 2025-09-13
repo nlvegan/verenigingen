@@ -11,10 +11,10 @@ from verenigingen.utils.member_utils import get_active_membership_for_member, ge
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
+    development_only_api,
     high_security_api,
     standard_api,
 )
-from verenigingen.utils.security_decorators import development_only
 from verenigingen.utils.validation_utilities import DateRangeValidator, DocumentExistenceValidator
 
 
@@ -137,7 +137,7 @@ class MembershipDuesSchedule(Document):
             if not self.member:
                 frappe.throw("Individual schedules must specify a member")
             # Validate uniqueness - one active schedule per member
-            existing = DocumentExistenceValidator.check_document_exists(
+            existing = frappe.db.get_value(
                 "Membership Dues Schedule",
                 {
                     "member": self.member,
@@ -145,6 +145,7 @@ class MembershipDuesSchedule(Document):
                     "status": "Active",
                     "name": ["!=", self.name or ""],
                 },
+                "name",
             )
             if existing:
                 frappe.throw(
@@ -169,7 +170,6 @@ class MembershipDuesSchedule(Document):
                 frappe.throw(f"Member {self.member} does not have an active membership")
 
             # Auto-link to membership type from active membership if not set
-            self.membership_type = None
             if not self.membership_type:
                 membership_type = frappe.db.get_value("Membership", active_membership, "membership_type")
                 if membership_type:
@@ -1077,6 +1077,240 @@ class MembershipDuesSchedule(Document):
 
         return invoice
 
+    def _handle_invoice_generation_failure(self, error_message):
+        """
+        Handle invoice generation failures with smart recovery logic.
+
+        Returns:
+            dict: Recovery action taken and current retry count
+        """
+        # Get or initialize retry tracking fields
+        retry_count = getattr(self, "custom_invoice_retry_count", 0) or 0
+
+        # Increment retry count
+        retry_count += 1
+
+        # Update retry tracking (use db_set to avoid triggering validation loops)
+        frappe.db.set_value(self.doctype, self.name, "custom_invoice_retry_count", retry_count)
+        frappe.db.set_value(self.doctype, self.name, "custom_last_invoice_failure_date", today())
+        frappe.db.set_value(self.doctype, self.name, "custom_last_invoice_error", error_message[:255])
+
+        # Decision logic based on retry count and error patterns
+        if retry_count >= 3:
+            # After 3 failures, check if we should auto-advance or flag for manual review
+            if self._should_auto_advance_schedule(error_message):
+                # Auto-advance dates to prevent infinite loops
+                old_next_date = self.next_invoice_date
+                self._advance_schedule_dates()
+
+                # Log the advancement
+                frappe.log_error(
+                    f"Auto-advanced schedule {self.name} after {retry_count} failures. "
+                    f"Previous next_invoice_date: {old_next_date}, New: {self.next_invoice_date}",
+                    "Schedule Auto-Advanced",
+                )
+
+                return {"action_taken": "date_advanced", "retry_count": retry_count}
+            else:
+                # Flag for manual review (serious validation issues)
+                frappe.db.set_value(self.doctype, self.name, "custom_requires_manual_review", 1)
+                return {"action_taken": "skipped", "retry_count": retry_count}
+        else:
+            # Track failure and retry next time
+            return {"action_taken": "retry_tracked", "retry_count": retry_count}
+
+    def _clear_retry_tracking(self):
+        """Clear retry tracking fields after successful invoice generation."""
+        try:
+            frappe.db.set_value(self.doctype, self.name, "custom_invoice_retry_count", 0)
+            frappe.db.set_value(self.doctype, self.name, "custom_last_invoice_failure_date", None)
+            frappe.db.set_value(self.doctype, self.name, "custom_last_invoice_error", None)
+            frappe.db.set_value(self.doctype, self.name, "custom_requires_manual_review", 0)
+        except Exception as e:
+            # Don't let retry tracking cleanup break invoice generation success
+            frappe.log_error(
+                f"Failed to clear retry tracking for {self.name}: {str(e)}", "Retry Tracking Cleanup Error"
+            )
+
+    def _should_auto_advance_schedule(self, error_message):
+        """
+        Determine if a schedule should be auto-advanced based on error patterns.
+
+        Auto-advance for recoverable issues like:
+        - Member eligibility changes
+        - Temporary validation failures
+        - Configuration mismatches
+
+        Require manual review for serious issues like:
+        - Missing customer records
+        - Account setup problems
+        - Data corruption indicators
+
+        ✅ NEW: Also check if the error can be resolved by health system reconstruction
+        """
+        # Patterns that suggest manual review is needed
+        manual_review_patterns = [
+            "customer record",
+            "account",
+            "currency",
+            "company",
+            "permission denied",
+            "access forbidden",
+        ]
+
+        # ✅ ENHANCED: Comprehensive patterns for production scenarios
+        reconstruction_patterns = [
+            # Membership data issues
+            "membership_type",
+            "missing template",
+            "missing membership",
+            "no active membership",
+            "membership.*not.*found",
+            "invalid membership status",
+            # Dues and financial issues
+            "dues_rate",
+            "minimum_amount",
+            "invalid.*amount",
+            "negative.*amount",
+            "amount.*required",
+            "payment.*method",
+            # Data integrity issues
+            "constraint.*violation",
+            "foreign.*key",
+            "reference.*not.*found",
+            "orphaned.*record",
+            "missing.*reference",
+            # Template and configuration issues
+            "template.*missing",
+            "configuration.*incomplete",
+            "settings.*not.*found",
+            "invalid.*configuration",
+            # Customer and account issues (but recoverable)
+            "customer.*missing.*recovery",  # Only auto-fix if marked as recoverable
+            "account.*setup.*incomplete",
+        ]
+
+        # ✅ NEW: Patterns that suggest immediate manual review (enhanced)
+        critical_manual_review_patterns = [
+            # Security and permissions
+            "permission denied",
+            "access forbidden",
+            "unauthorized",
+            "authentication failed",
+            "role.*required",
+            # Database and system errors
+            "database.*corruption",
+            "data.*integrity.*critical",
+            "system.*failure",
+            "deadlock",
+            "timeout.*critical",
+            # Customer and accounting (non-recoverable)
+            "customer.*not.*exists",
+            "account.*not.*found",
+            "currency.*mismatch",
+            "company.*invalid",
+            "chart.*accounts.*missing",
+            # Legal and compliance
+            "compliance.*violation",
+            "audit.*requirement",
+            "legal.*constraint",
+        ]
+
+        error_lower = error_message.lower()
+
+        # ✅ ENHANCED: Check critical issues first
+        for pattern in critical_manual_review_patterns:
+            if pattern in error_lower:
+                frappe.log_error(
+                    f"Critical error detected for schedule {self.name}: {error_message}",
+                    "Critical Schedule Error - Manual Review Required",
+                )
+                return False
+
+        # Check legacy manual review patterns
+        for pattern in manual_review_patterns:
+            if pattern in error_lower:
+                return False
+
+        # ✅ ENHANCED: Check if this might be fixable by reconstruction
+        reconstruction_triggered = False
+        for pattern in reconstruction_patterns:
+            if pattern in error_lower:
+                # Try to trigger health system reconstruction
+                self._trigger_health_reconstruction(error_message)
+                reconstruction_triggered = True
+                break
+
+        if reconstruction_triggered:
+            # Log the reconstruction attempt
+            frappe.log_error(
+                f"Health reconstruction triggered for schedule {self.name}: {error_message}",
+                "Health Reconstruction Triggered",
+            )
+            # Still auto-advance since we attempted reconstruction
+            return True
+
+        # Default to auto-advance for most validation errors
+        return True
+
+    def _trigger_health_reconstruction(self, error_message):
+        """
+        ✅ NEW: Trigger health system reconstruction for this member
+        """
+        try:
+            # Flag member for health check reconstruction
+            frappe.db.set_value("Member", self.member, "custom_needs_health_check", 1)
+
+            # Log the trigger for monitoring
+            frappe.log_error(
+                f"Triggered health reconstruction for member {self.member} due to error: {error_message}",
+                "Health Reconstruction Trigger",
+            )
+
+            # If the error suggests missing membership data, try immediate reconstruction
+            error_lower = error_message.lower()
+            if "membership_type" in error_lower or "missing membership" in error_lower:
+                try:
+                    from vereiningen.utils.dues_schedule_health_manager import DuesScheduleHealthManager
+
+                    manager = DuesScheduleHealthManager()
+                    manager.reconstruct_missing_membership(self.member)
+                    manager.sync_member_fields(self.member)
+                except Exception as reconstruction_error:
+                    frappe.log_error(
+                        f"Immediate reconstruction failed for {self.member}: {str(reconstruction_error)}",
+                        "Immediate Reconstruction Error",
+                    )
+
+        except Exception as e:
+            frappe.log_error(
+                f"Failed to trigger health reconstruction for {self.member}: {str(e)}", "Health Trigger Error"
+            )
+
+    def _advance_schedule_dates(self):
+        """Advance schedule dates to the next billing period."""
+        try:
+            # Calculate next invoice date based on billing frequency
+            if self.next_invoice_date:
+                new_next_date = self.calculate_next_invoice_date(self.next_invoice_date)
+
+                # Update dates using db_set to avoid validation loops
+                frappe.db.set_value(self.doctype, self.name, "last_invoice_date", self.next_invoice_date)
+                frappe.db.set_value(self.doctype, self.name, "next_invoice_date", new_next_date)
+
+                # Update local object for immediate consistency
+                self.last_invoice_date = self.next_invoice_date
+                self.next_invoice_date = new_next_date
+
+                frappe.log_error(
+                    f"Advanced schedule {self.name}: last_invoice_date={self.last_invoice_date}, next_invoice_date={self.next_invoice_date}",
+                    "Schedule Date Advancement",
+                )
+        except Exception as e:
+            frappe.log_error(
+                f"Failed to advance dates for schedule {self.name}: {str(e)}", "Date Advancement Error"
+            )
+
     def create_sales_invoice(self):
         """Create a sales invoice for membership dues"""
         # Get member's customer record
@@ -1862,26 +2096,72 @@ def generate_dues_invoices(test_mode=False):
                 can_generate, reason = schedule.can_generate_invoice()
 
                 if can_generate:
-                    invoice = schedule.generate_invoice()
-                    if invoice:
-                        results["generated"] += 1
-                        invoice_data = {
-                            "schedule": schedule_name,
-                            "member": schedule.member_name,
-                            "member_id": schedule.member,
-                            "invoice": invoice,
-                        }
-                        results["invoices"].append(invoice_data)
-                        successful_invoices.append(invoice_data)
+                    # ✅ ENHANCED: Try invoice generation with comprehensive error recovery
+                    try:
+                        invoice = schedule.generate_invoice()
+                        if invoice:
+                            results["generated"] += 1
+                            invoice_data = {
+                                "schedule": schedule_name,
+                                "member": schedule.member_name,
+                                "member_id": schedule.member,
+                                "invoice": invoice,
+                            }
+                            results["invoices"].append(invoice_data)
+                            successful_invoices.append(invoice_data)
 
-                        # Track member for payment history update
-                        if schedule.member:
-                            members_to_update.add(schedule.member)
-                    else:
-                        # Log when invoice generation fails despite can_generate being True
-                        error_msg = f"Schedule {schedule_name} passed can_generate check but failed to generate invoice"
-                        frappe.log_error(error_msg, "Invoice Generation Failed")
-                        results["errors"].append(error_msg)
+                            # Track member for payment history update
+                            if schedule.member:
+                                members_to_update.add(schedule.member)
+
+                            # ✅ NEW: Clear any retry tracking on success
+                            schedule._clear_retry_tracking()
+                        else:
+                            # Log when invoice generation fails despite can_generate being True
+                            error_msg = f"Schedule {schedule_name} passed can_generate check but failed to generate invoice"
+                            frappe.log_error(error_msg, "Invoice Generation Failed")
+                            results["errors"].append(error_msg)
+
+                    except frappe.ValidationError as ve:
+                        # ✅ NEW: Handle validation errors with smart recovery
+                        recovery_result = schedule._handle_invoice_generation_failure(str(ve))
+
+                        if recovery_result["action_taken"] == "date_advanced":
+                            # Schedule was advanced to prevent infinite loops
+                            error_msg = (
+                                f"Schedule {schedule_name} validation failed, dates advanced: {str(ve)[:100]}. "
+                                f"Retry count: {recovery_result['retry_count']}"
+                            )
+                            frappe.log_error(error_msg, "Schedule Auto-Advanced Due to Validation Failure")
+                            results["errors"].append(f"ADVANCED: {error_msg}")
+
+                        elif recovery_result["action_taken"] == "retry_tracked":
+                            # Failure logged, will retry next time
+                            error_msg = (
+                                f"Schedule {schedule_name} validation failed (retry {recovery_result['retry_count']}/3): "
+                                f"{str(ve)[:100]}"
+                            )
+                            frappe.log_error(error_msg, "Invoice Generation Validation Error")
+                            results["errors"].append(f"RETRY {recovery_result['retry_count']}: {error_msg}")
+
+                        elif recovery_result["action_taken"] == "skipped":
+                            # Schedule flagged for manual review
+                            error_msg = (
+                                f"Schedule {schedule_name} flagged for manual review after {recovery_result['retry_count']} failures: "
+                                f"{str(ve)[:100]}"
+                            )
+                            frappe.log_error(error_msg, "Schedule Requires Manual Review")
+                            results["errors"].append(f"MANUAL REVIEW: {error_msg}")
+
+                    except Exception as ge:
+                        # ✅ ENHANCED: Handle unexpected errors with recovery tracking
+                        recovery_result = schedule._handle_invoice_generation_failure(str(ge))
+                        error_msg = (
+                            f"Schedule {schedule_name} unexpected error (retry {recovery_result['retry_count']}/3): "
+                            f"{str(ge)[:100]}"
+                        )
+                        frappe.log_error(error_msg, "Invoice Generation Unexpected Error")
+                        results["errors"].append(f"ERROR: {error_msg}")
 
                 results["processed"] += 1
 
@@ -2115,7 +2395,7 @@ def update_member_contribution(schedule_name, updates):
 
 
 @frappe.whitelist()
-@development_only()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_billing_day_field():
     """Test billing_day field implementation"""
     try:
@@ -2183,7 +2463,7 @@ def test_billing_day_field():
 
 
 @frappe.whitelist()
-@development_only()
+@development_only_api(operation_type=OperationType.UTILITY)
 def create_test_schedule(member_name, membership_name=None):
     """Create a test dues schedule for development"""
     try:
@@ -2216,7 +2496,7 @@ def create_test_schedule(member_name, membership_name=None):
 
 
 @frappe.whitelist()
-@development_only()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_template_daglid_issue():
     """Debug Template-Daglid billing frequency override issue"""
     result = {
@@ -2304,7 +2584,7 @@ def debug_template_daglid_issue():
 
 
 @frappe.whitelist()
-@development_only()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_template_daglid_fix():
     """Test that Template-Daglid billing frequency is preserved during template recreation"""
 

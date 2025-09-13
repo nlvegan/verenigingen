@@ -21,6 +21,7 @@ from frappe import _
 from frappe.utils import now_datetime
 
 from verenigingen.utils.mollie_relationship_manager import MollieRelationshipManager, MollieWebhookQueue
+from verenigingen.utils.security.api_security_framework import OperationType, public_api
 from verenigingen.utils.transaction_manager import (
     MollieOperationManager,
     MollieTransactionManager,
@@ -166,7 +167,8 @@ class EnhancedMollieIntegration:
 
 
 # Enhanced webhook endpoint to replace existing ones
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+@public_api(operation_type=OperationType.FINANCIAL)
 def mollie_webhook_handler():
     """
     Enhanced webhook handler with comprehensive security, transaction safety,

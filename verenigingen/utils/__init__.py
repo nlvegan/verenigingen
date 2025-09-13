@@ -5,6 +5,12 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    development_only_api,
+    high_security_api,
+)
+
 utils_dir = str(Path(__file__).parent)
 if utils_dir not in sys.path:
     sys.path.append(utils_dir)
@@ -445,6 +451,7 @@ def setup_dutch_tax_exemption(doc=None, method=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def apply_btw_exemption(docname, doctype="Sales Invoice", exemption_type=None):
     """
     Apply BTW exemption to a document
@@ -619,6 +626,7 @@ def apply_tax_exemption_from_source(doc, method=None):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_workspace_breadcrumb():
     """Debug workspace breadcrumb issue"""
 
@@ -650,6 +658,7 @@ def debug_workspace_breadcrumb():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_breadcrumb_detailed():
     """More detailed breadcrumb debugging"""
     result = {}
@@ -691,6 +700,7 @@ def debug_breadcrumb_detailed():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def fix_workspace_order():
     """Fix workspace ordering to ensure Verenigingen is the primary workspace"""
 
@@ -716,6 +726,7 @@ def fix_workspace_order():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_workspace_doctype_mapping():
     """Debug how doctypes are mapped to workspaces"""
 

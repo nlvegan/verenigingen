@@ -4,8 +4,11 @@ Create Database Indexes for SEPA Operations
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def create_sepa_indexes():
     """Create all SEPA-related database indexes"""
 

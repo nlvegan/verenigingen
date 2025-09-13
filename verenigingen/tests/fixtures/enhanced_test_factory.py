@@ -450,8 +450,14 @@ class EnhancedTestDataFactory:
                 
                 # Create Customer and Address for invoice generation (infrastructure setup)
                 if not member.customer:
-                    member.create_customer()
-                    member.reload()  # Reload to get customer field
+                    # Set test flag to bypass rate limiting during test data creation
+                    original_in_test = getattr(frappe.local, 'in_test', False)
+                    frappe.local.in_test = True
+                    try:
+                        member.create_customer()
+                        member.reload()  # Reload to get customer field
+                    finally:
+                        frappe.local.in_test = original_in_test
                 
                 # Create Customer Address if missing (required for invoice generation)
                 if member.customer and not self._has_customer_address(member.customer):
@@ -549,16 +555,18 @@ class EnhancedTestDataFactory:
             # Continue without meta validation - let document validation catch issues
         
         try:
-            # Set flags to skip automatic account creation and user permission checks during tests
+            # Set flags to skip automatic account creation during tests
             frappe.flags.skip_volunteer_account_creation = True
-            frappe.flags.skip_user_permission_check = True
+            
+            # Ensure proper user context for volunteer creation
+            self.ensure_test_user_has_role("Verenigingen Administrator")
             
             volunteer = frappe.get_doc({
                 "doctype": "Volunteer",
                 **data
             })
             
-            volunteer.insert(ignore_permissions=True)
+            volunteer.insert()
             self.track_document("Volunteer", volunteer.name)
             return volunteer
         except Exception as e:
@@ -1344,9 +1352,12 @@ class EnhancedTestCase(FrappeTestCase):
     def setUp(self):
         super().setUp()
         
-        # Set global test flags for permission bypasses during tests
+        # Set global test flags for appropriate test behavior
         frappe.flags.skip_volunteer_account_creation = True
-        frappe.flags.skip_user_permission_check = True
+        
+        # Ensure test user has necessary roles instead of bypassing permissions
+        self.ensure_test_user_has_role("System Manager")
+        self.ensure_test_user_has_role("Verenigingen Administrator")
         
         # Ensure required system settings and master data exist
         self._ensure_production_ready_setup()
@@ -1713,6 +1724,35 @@ class EnhancedTestCase(FrappeTestCase):
             # Continue without failing tests
             pass
         
+    def ensure_test_user_has_role(self, role_name):
+        """
+        Ensure the current test user has the required role for document operations.
+        This replaces permission bypasses with proper role-based access.
+        
+        Args:
+            role_name (str): The role required for the operation
+        """
+        current_user = frappe.session.user
+        
+        # Skip for Administrator (has all permissions)
+        if current_user == "Administrator":
+            return
+            
+        # Check if user already has the role
+        existing_roles = frappe.get_roles(current_user)
+        if role_name in existing_roles:
+            return
+            
+        # Add the role to the user for this test session using proper approach
+        frappe.db.sql("""
+            INSERT INTO `tabHas Role` (parent, parenttype, role)
+            VALUES (%s, 'User', %s)
+            ON DUPLICATE KEY UPDATE role = VALUES(role)
+        """, (current_user, role_name))
+        
+        # Clear role cache so the change takes effect immediately
+        frappe.cache().delete_value("roles:" + current_user)
+        
     def _load_essential_fixtures(self):
         """
         ENHANCED FIXTURE LOADING: Load essential fixtures for comprehensive test support
@@ -1786,9 +1826,8 @@ class EnhancedTestCase(FrappeTestCase):
                         frappe.logger().warning(f"Fixture validation failed for {doctype} {name}: {validation_result['error']}")
                         continue
                     
-                    # Create document with selective permission bypassing
+                    # Create document with proper role-based access
                     doc = frappe.get_doc(record)
-                    doc.flags.ignore_permissions = True  # Safe for fixture loading
                     doc.flags.ignore_links = False  # QCE FIX: Validate links exist initially
                     
                     # Pre-insertion validation
