@@ -139,6 +139,7 @@ def validate_membership_dues_schedule_permissions():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def validate_doctype_list_access():
     """Test what happens when accessing the doctype list"""
 
@@ -162,6 +163,7 @@ def validate_doctype_list_access():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def validate_permissions_for_user(test_user_email):
     """Test permissions as a different user"""
 

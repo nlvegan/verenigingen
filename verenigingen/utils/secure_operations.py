@@ -474,6 +474,326 @@ def secure_batch_operation(
     return results
 
 
+# Critical Operations Registry Integration
+class CriticalOperationsRegistry:
+    """
+    Registry for critical operations with DocType-based configuration
+
+    Integrates with Critical Operation Rule DocType to provide runtime configuration
+    of security rules for critical business operations.
+    """
+
+    def __init__(self):
+        self.operation_configs = {}
+        self._load_configs()
+
+    def _load_configs(self):
+        """Load operation configurations from DocType (cached)"""
+        try:
+            # Import here to avoid circular dependencies
+            from verenigingen.verenigingen.doctype.critical_operation_rule.critical_operation_rule import (
+                CriticalOperationRule,
+            )
+
+            self.operation_configs = CriticalOperationRule.get_all_rules()
+        except Exception as e:
+            frappe.logger().warning(f"Failed to load critical operation rules: {str(e)}")
+            self.operation_configs = {}
+
+    def get_operation_config(self, operation_name: str) -> dict:
+        """Get configuration for a specific operation"""
+        if operation_name not in self.operation_configs:
+            # Try to load fresh config for this operation
+            try:
+                from verenigingen.verenigingen.doctype.critical_operation_rule.critical_operation_rule import (
+                    CriticalOperationRule,
+                )
+
+                config = CriticalOperationRule.get_rule_config(operation_name)
+                if config:
+                    self.operation_configs[operation_name] = config
+            except Exception as e:
+                frappe.logger().warning(f"Failed to load config for operation {operation_name}: {str(e)}")
+
+        return self.operation_configs.get(operation_name)
+
+    def is_critical_operation(self, operation_name: str) -> bool:
+        """Check if an operation is registered as critical"""
+        config = self.get_operation_config(operation_name)
+        return config is not None and config.get("security_level") in ["critical", "high"]
+
+    def validate_business_rules(self, operation_name: str, **kwargs) -> List[str]:
+        """
+        Validate business rules for an operation
+
+        Incorporates the reviewer's suggestion for business logic validation
+        """
+        config = self.get_operation_config(operation_name)
+        if not config or not config.get("business_rules", {}).get("enabled"):
+            return []
+
+        violations = []
+
+        # Amount threshold validation (following reviewer's pattern)
+        amount_threshold = config.get("business_rules", {}).get("amount_threshold")
+        if amount_threshold:
+            # Check for amount in various possible kwargs
+            amount = kwargs.get("amount") or kwargs.get("total_amount") or kwargs.get("grand_total")
+            if amount and float(amount) > amount_threshold:
+                violations.append(
+                    f"Amount {amount} exceeds threshold {amount_threshold} for operation {operation_name}"
+                )
+
+        return violations
+
+    def get_monitoring_thresholds(self, operation_name: str) -> dict:
+        """Get monitoring thresholds for an operation"""
+        config = self.get_operation_config(operation_name)
+        if not config:
+            return {}
+
+        return config.get("monitoring", {})
+
+
+# Global registry instance
+_critical_operations_registry = None
+
+
+def get_critical_operations_registry() -> CriticalOperationsRegistry:
+    """Get global critical operations registry"""
+    global _critical_operations_registry
+    if _critical_operations_registry is None:
+        _critical_operations_registry = CriticalOperationsRegistry()
+    return _critical_operations_registry
+
+
+def execute_critical_operation(
+    operation_name: str, operation: str, doc, justification: str = None, **kwargs
+) -> SecureOperationResult:
+    """
+    Execute a critical operation with full security validation
+
+    This function integrates the secure_document_operation with the critical
+    operations registry to provide DocType-configured security validation.
+
+    Args:
+        operation_name: Name of the critical operation (matches DocType rule)
+        operation: Document operation to perform ("create", "save", etc.)
+        doc: Document to operate on
+        justification: Business justification
+        **kwargs: Additional parameters for business rule validation
+
+    Returns:
+        SecureOperationResult with enhanced audit information
+    """
+    registry = get_critical_operations_registry()
+    config = registry.get_operation_config(operation_name)
+
+    operation_id = f"critical_{operation_name}_{int(time.time() * 1000)}"
+    start_time = time.time()
+
+    frappe.logger().info(f"CRITICAL_OP_START: {operation_name} by {frappe.session.user} [{operation_id}]")
+
+    # Create enhanced result object
+    result = SecureOperationResult(True, operation_id)
+    result.add_audit_entry(
+        "critical_operation_start",
+        doc.doctype,
+        getattr(doc, "name", "new"),
+        {
+            "operation_name": operation_name,
+            "operation": operation,
+            "justification": justification,
+            "has_config": config is not None,
+            "original_user": frappe.session.user,
+        },
+    )
+
+    try:
+        # Step 1: Validate business rules if configured
+        if config:
+            violations = registry.validate_business_rules(operation_name, **kwargs)
+            if violations:
+                for violation in violations:
+                    result.add_warning(violation)
+                    frappe.logger().warning(f"BUSINESS_RULE_VIOLATION: {violation} [{operation_id}]")
+
+                # For critical violations, consider failing the operation
+                if config.get("security_level") == "critical" and violations:
+                    result.add_error("Critical business rule violations detected")
+                    return result
+
+            # Use configured permissions and settings
+            required_permissions = config.get("required_permissions", [])
+            allow_system_user = config.get("allow_system_user", True)
+            bypass_validations = config.get("bypass_validations", [])
+            requires_justification = config.get("requires_justification", True)
+
+            # Validate justification requirement
+            if requires_justification and not justification:
+                result.add_error("Justification is required for this critical operation")
+                return result
+
+        else:
+            # Fallback for unconfigured operations
+            required_permissions = []
+            allow_system_user = True
+            bypass_validations = []
+
+            frappe.logger().warning(
+                f"UNCONFIGURED_CRITICAL_OP: {operation_name} has no configuration [{operation_id}]"
+            )
+
+        # Step 2: Execute the operation using existing secure framework
+        doc_result = secure_document_operation(
+            operation=operation,
+            doc=doc,
+            justification=justification or f"Critical operation: {operation_name}",
+            required_permissions=required_permissions,
+            allow_system_user=allow_system_user,
+            bypass_validations=bypass_validations,
+        )
+
+        # Merge results
+        result.success = doc_result.success
+        result.errors.extend(doc_result.errors)
+        result.warnings.extend(doc_result.warnings)
+        result.audit_trail.extend(doc_result.audit_trail)
+        result.doc_name = doc_result.doc_name
+        result.document = doc_result.document
+
+        if result.success:
+            result.add_audit_entry(
+                "critical_operation_success",
+                doc.doctype,
+                doc.name,
+                {
+                    "operation_name": operation_name,
+                    "execution_time_ms": (time.time() - start_time) * 1000,
+                    "business_rules_checked": config is not None,
+                },
+            )
+
+            # Send alerts if configured (following reviewer's pattern)
+            if config and config.get("alert_on_execution"):
+                _send_critical_operation_alert(operation_name, doc, config, result)
+
+    except Exception as e:
+        result.add_error(f"Critical operation failed: {str(e)}")
+        result.add_audit_entry(
+            "critical_operation_failed",
+            doc.doctype,
+            getattr(doc, "name", "new"),
+            {"error": str(e), "operation_name": operation_name},
+        )
+
+        frappe.logger().error(f"CRITICAL_OP_FAILED: {operation_name} failed: {str(e)} [{operation_id}]")
+
+    finally:
+        result.duration = time.time() - start_time
+
+        frappe.logger().info(
+            f"CRITICAL_OP_COMPLETE: {operation_name} completed in {result.duration * 1000:.1f}ms "
+            f"(success: {result.success}) [{operation_id}]"
+        )
+
+    return result
+
+
+def _send_critical_operation_alert(operation_name: str, doc, config: dict, result: SecureOperationResult):
+    """Send alert for critical operation execution"""
+    try:
+        recipients = config.get("notification_recipients", "")
+        if not recipients:
+            return
+
+        # Parse recipients
+        recipient_list = [r.strip() for r in recipients.split(",") if r.strip()]
+        if not recipient_list:
+            return
+
+        # Create alert message
+        subject = f"Critical Operation Executed: {operation_name}"
+        message = f"""
+        <h3>Critical Operation Alert</h3>
+        <p><strong>Operation:</strong> {operation_name}</p>
+        <p><strong>Document:</strong> {doc.doctype} - {getattr(doc, 'name', 'New')}</p>
+        <p><strong>Executed By:</strong> {frappe.session.user}</p>
+        <p><strong>Execution Time:</strong> {result.duration * 1000:.1f}ms</p>
+        <p><strong>Success:</strong> {'Yes' if result.success else 'No'}</p>
+        <p><strong>Timestamp:</strong> {frappe.utils.now()}</p>
+
+        {f'<p><strong>Warnings:</strong><br>{"<br>".join(result.warnings)}</p>' if result.warnings else ''}
+        {f'<p><strong>Errors:</strong><br>{"<br>".join(result.errors)}</p>' if result.errors else ''}
+        """
+
+        frappe.sendmail(
+            recipients=recipient_list,
+            subject=subject,
+            message=message,
+            send_priority=1 if config.get("security_level") == "critical" else 0,
+        )
+
+    except Exception as e:
+        frappe.log_error(f"Failed to send critical operation alert: {str(e)}")
+
+
+# Convenience functions for common critical operations
+def create_financial_document(
+    doctype: str, data: dict, justification: str = None, **kwargs
+) -> SecureOperationResult:
+    """Create financial document using critical operations framework"""
+    doc = frappe.get_doc(data)
+    doc.doctype = doctype
+
+    return execute_critical_operation(
+        operation_name="create_financial_document",
+        operation="create",
+        doc=doc,
+        justification=justification or f"Financial document creation: {doctype}",
+        amount=data.get("grand_total") or data.get("total_amount"),
+        **kwargs,
+    )
+
+
+def process_payment_entry(payment_data: dict, justification: str = None, **kwargs) -> SecureOperationResult:
+    """Process payment entry using critical operations framework"""
+    doc = frappe.get_doc(payment_data)
+    doc.doctype = "Payment Entry"
+
+    return execute_critical_operation(
+        operation_name="process_payment",
+        operation="create",
+        doc=doc,
+        justification=justification or "Payment processing",
+        amount=payment_data.get("paid_amount"),
+        **kwargs,
+    )
+
+
+def execute_bulk_member_operation(
+    operation_data: list, justification: str = None
+) -> List[SecureOperationResult]:
+    """Execute bulk member operations with critical operation validation"""
+    results = []
+
+    for i, op_data in enumerate(operation_data):
+        doc = op_data["doc"]
+        operation = op_data["operation"]
+
+        result = execute_critical_operation(
+            operation_name="bulk_member_operation",
+            operation=operation,
+            doc=doc,
+            justification=f"{justification} (batch operation {i + 1})"
+            if justification
+            else f"Bulk member operation {i + 1}",
+        )
+        results.append(result)
+
+    return results
+
+
 # Legacy compatibility - deprecated
 @contextmanager
 def secure_user_context(target_user: str, operation_description: str):

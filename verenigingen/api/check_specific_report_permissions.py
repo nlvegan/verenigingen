@@ -116,6 +116,7 @@ def analyze_report_security(report_name, roles, ref_doctype):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_all_report_permissions():
     """Get permissions for all Verenigingen reports"""
 

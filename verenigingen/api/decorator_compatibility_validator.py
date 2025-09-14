@@ -86,6 +86,7 @@ def validate_decorator_order_2():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def run_decorator_compatibility_tests():
     """
     Run all decorator compatibility tests and return results

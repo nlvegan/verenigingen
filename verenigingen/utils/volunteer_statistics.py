@@ -12,6 +12,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+
 
 def _get_empty_statistics():
     """Return empty statistics dictionary for error cases or permission denied scenarios"""
@@ -25,6 +27,8 @@ def _get_empty_statistics():
     }
 
 
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_volunteer_expense_statistics(volunteer_name, months_back=12):
     """
     Get comprehensive expense statistics for a volunteer

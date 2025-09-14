@@ -173,6 +173,7 @@ def get_member_from_customer(customer):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def create_customer_member_button():
     """Add a custom button to Customer form to navigate to Member"""
     return """

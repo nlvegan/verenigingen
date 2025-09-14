@@ -16,6 +16,7 @@ from verenigingen.utils.security.api_security_framework import (
 
 @utility_api()
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_workspace_status():
     """Check Verenigingen workspace status and links"""
 
@@ -61,6 +62,7 @@ def check_workspace_status():
 
 @utility_api()
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_eboekhouden_workspace():
     """Check if E-Boekhouden workspace exists and is valid"""
     try:
@@ -176,6 +178,7 @@ def check_dues_system_status():
 
 @high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def fix_eboekhouden_workspace_content():
     """Fix the E-Boekhouden workspace content structure"""
     import json

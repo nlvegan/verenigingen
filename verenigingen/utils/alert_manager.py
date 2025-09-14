@@ -335,7 +335,7 @@ def run_daily_checks():
 
 
 @frappe.whitelist()
-@development_only()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_alert_system():
     """Test the alert system with a sample alert"""
     try:

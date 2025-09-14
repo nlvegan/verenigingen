@@ -19,9 +19,7 @@ from verenigingen.utils.security.rate_limiting import rate_limit
 
 
 @frappe.whitelist()
-@rate_limit(calls=20, period=60)  # 20 calls per minute
-@require_role(["System Manager", "Verenigingen Administrator", "Accounts Manager"])
-@validate_csrf_token
+@standard_api(operation_type=OperationType.REPORTING)
 def test_generic_report_loading(
     report_name, test_filters=None, expected_errors=None, regression_patterns=None
 ):
@@ -161,9 +159,7 @@ def analyze_report_structure(report_result):
 
 
 @frappe.whitelist()
-@rate_limit(calls=10, period=60)  # 10 calls per minute
-@require_role(["System Manager", "Verenigingen Administrator", "Accounts Manager"])
-@validate_csrf_token
+@standard_api(operation_type=OperationType.REPORTING)
 def test_multiple_reports(report_configs):
     """
     Test multiple reports with their specific configurations
@@ -247,9 +243,7 @@ VERENIGINGEN_REPORT_CONFIGS = [
 
 
 @frappe.whitelist()
-@rate_limit(calls=5, period=300)  # 5 calls per 5 minutes
-@require_role(["System Manager", "Verenigingen Administrator", "Accounts Manager"])
-@validate_csrf_token
+@standard_api(operation_type=OperationType.REPORTING)
 def test_all_verenigingen_reports():
     """Test all Verenigingen reports with their specific configurations"""
     # Log this sensitive operation
@@ -261,9 +255,7 @@ def test_all_verenigingen_reports():
 
 
 @frappe.whitelist()
-@rate_limit(calls=5, period=300)  # 5 calls per 5 minutes
-@require_role(["System Manager", "Verenigingen Administrator"])
-@validate_csrf_token
+@standard_api(operation_type=OperationType.REPORTING)
 def discover_and_test_reports(app_name="verenigingen"):
     """
     Discover all reports in an app and test them with basic configuration

@@ -13,6 +13,7 @@ from verenigingen.utils.security.rate_limiting import rate_limit
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @rate_limit(calls=10, period=60)  # 10 calls per minute
 @require_role(["System Manager", "Verenigingen Administrator", "Accounts Manager"])
 @validate_csrf_token
@@ -132,6 +133,7 @@ def full_migration_summary():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 @rate_limit(calls=10, period=60)  # 10 calls per minute
 @require_role(["System Manager", "Verenigingen Administrator"])
 @validate_csrf_token

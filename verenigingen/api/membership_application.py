@@ -758,6 +758,7 @@ def test_submit():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def debug_member_issue(member_name="Assoc-Member-2025-06-0091"):
     """Debug the chapter membership issue for a specific member"""
     try:
@@ -812,6 +813,7 @@ def debug_member_issue(member_name="Assoc-Member-2025-06-0091"):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def fix_specific_member(member_name, chapter_name=None, dry_run=True):
     """
     Fix chapter membership for a specific member
@@ -900,6 +902,7 @@ def fix_specific_member(member_name, chapter_name=None, dry_run=True):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def test_chapter_membership_workflow():
     """Test the complete chapter membership workflow"""
     test_email = f"test-workflow-{int(now_datetime().timestamp())}@example.com"
@@ -1081,6 +1084,7 @@ def test_chapter_membership_workflow():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def test_status_field_integration():
     """Test status field integration without complex chapter operations"""
 

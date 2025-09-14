@@ -7,6 +7,8 @@ Reorganizes the Verenigingen workspace with proper logical categorization.
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 def reorganize_workspace(force_enable=False):
     """Reorganize workspace links into logical categories"""
@@ -142,6 +144,7 @@ def reorganize_workspace(force_enable=False):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.ADMIN)
 def run_workspace_reorganization():
     """API endpoint for workspace reorganization"""
     return reorganize_workspace()

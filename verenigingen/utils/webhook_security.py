@@ -10,6 +10,8 @@ from typing import Optional
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 class WebhookAuthenticationError(frappe.ValidationError):
     """Raised when webhook authentication fails"""
@@ -146,6 +148,7 @@ def log_webhook_security_event(event_type: str, details: dict):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_webhook_signature_verification():
     """Test function to verify webhook signature verification works correctly"""
     try:

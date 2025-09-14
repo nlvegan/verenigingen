@@ -43,8 +43,11 @@ Technical Implementation:
 import frappe
 from frappe.utils import getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_coverage_analysis():
     """
     Perform simplified coverage analysis debugging with database structure validation.
@@ -118,6 +121,7 @@ def debug_coverage_analysis():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_coverage_analysis_original():
     """
     Comprehensive coverage analysis debugging with full data integrity validation.

@@ -75,6 +75,7 @@ def find_stock_account_mutations():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @rate_limit(calls=5, period=300)  # 5 calls per 5 minutes
 @require_role(["System Manager", "Accounts Manager"])
 @validate_csrf_token

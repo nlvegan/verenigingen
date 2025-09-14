@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, get_datetime, now
+from frappe.utils import add_days, get_datetime
 
 from verenigingen.utils.security.api_security_framework import SecurityLevel, get_security_framework
 from verenigingen.utils.security.audit_logging import AuditSeverity, get_audit_logger
@@ -488,6 +488,377 @@ class SecurityMonitor:
 
         return max(0.0, base_score)
 
+    def check_high_value_payments(self, threshold: float = 5000) -> List[Dict]:
+        """
+        Alert if a Payment Entry exceeds the threshold
+
+        Following reviewer's suggestion for business logic monitoring
+        """
+        payments = frappe.db.sql(
+            """
+            SELECT name, paid_amount as amount, owner
+            FROM `tabPayment Entry`
+            WHERE paid_amount > %s AND creation > DATE_SUB(NOW(), INTERVAL 1 DAY)
+        """,
+            (threshold,),
+            as_dict=True,
+        )
+
+        alerts = []
+        for p in payments:
+            alerts.append(
+                {
+                    "type": "HIGH_VALUE_PAYMENT",
+                    "severity": "CRITICAL",
+                    "user": p["owner"],
+                    "message": f"Payment Entry {p['name']} for €{p['amount']} exceeds threshold.",
+                    "timestamp": frappe.utils.now(),
+                    "payment_name": p["name"],
+                    "amount": p["amount"],
+                }
+            )
+        return alerts
+
+    def check_unusual_member_operations(self) -> List[Dict]:
+        """Check for unusual member data operations"""
+        alerts = []
+        now = datetime.now()
+        hour_ago = now - timedelta(hours=1)
+
+        # Check for bulk member updates
+        member_updates = frappe.db.sql(
+            """
+            SELECT owner, COUNT(*) as count
+            FROM `tabMember`
+            WHERE modified > %s
+            GROUP BY owner
+            HAVING count > 10
+        """,
+            hour_ago,
+            as_dict=True,
+        )
+
+        for update in member_updates:
+            alerts.append(
+                {
+                    "type": "BULK_MEMBER_UPDATE",
+                    "severity": "HIGH",
+                    "user": update.owner,
+                    "message": f"User updated {update.count} members in 1 hour",
+                    "timestamp": now,
+                }
+            )
+
+        return alerts
+
+    def check_financial_pattern_anomalies(self) -> List[Dict]:
+        """Check for suspicious financial patterns"""
+        alerts = []
+
+        # Check for round number amounts (potential fraud indicator)
+        round_amounts = frappe.db.sql(
+            """
+            SELECT name, grand_total, owner
+            FROM `tabSales Invoice`
+            WHERE creation > DATE_SUB(NOW(), INTERVAL 1 DAY)
+            AND MOD(grand_total, 100) = 0
+            AND grand_total >= 1000
+        """,
+            as_dict=True,
+        )
+
+        for invoice in round_amounts:
+            alerts.append(
+                {
+                    "type": "ROUND_AMOUNT_PATTERN",
+                    "severity": "MEDIUM",
+                    "user": invoice.owner,
+                    "message": f"Invoice {invoice.name} with round amount €{invoice.grand_total}",
+                    "timestamp": frappe.utils.now(),
+                }
+            )
+
+        # Check for unusual discount patterns
+        high_discounts = frappe.db.sql(
+            """
+            SELECT name, discount_amount, grand_total, owner
+            FROM `tabSales Invoice`
+            WHERE creation > DATE_SUB(NOW(), INTERVAL 1 DAY)
+            AND discount_amount > 0
+            AND (discount_amount / (grand_total + discount_amount)) > 0.3
+        """,
+            as_dict=True,
+        )
+
+        for invoice in high_discounts:
+            discount_percent = (
+                invoice.discount_amount / (invoice.grand_total + invoice.discount_amount)
+            ) * 100
+            alerts.append(
+                {
+                    "type": "HIGH_DISCOUNT_PATTERN",
+                    "severity": "HIGH",
+                    "user": invoice.owner,
+                    "message": f"Invoice {invoice.name} with {discount_percent:.1f}% discount",
+                    "timestamp": frappe.utils.now(),
+                }
+            )
+
+        return alerts
+
+    def monitor_policy_changes(self) -> List[Dict]:
+        """
+        Send alert on any change to Critical Operation Rule DocType
+
+        Following reviewer's suggestion for policy change monitoring
+        """
+        alerts = []
+        changes = frappe.db.sql(
+            """
+            SELECT name, modified_by, modified
+            FROM `tabCritical Operation Rule`
+            WHERE modified > DATE_SUB(NOW(), INTERVAL 1 DAY)
+        """,
+            as_dict=True,
+        )
+
+        for change in changes:
+            alerts.append(
+                {
+                    "type": "POLICY_CHANGE",
+                    "severity": "CRITICAL",
+                    "user": change["modified_by"],
+                    "message": f"Rule {change['name']} changed by {change['modified_by']} at {change['modified']}",
+                    "timestamp": frappe.utils.now(),
+                    "rule_name": change["name"],
+                }
+            )
+
+        return alerts
+
+    def check_sepa_operation_anomalies(self) -> List[Dict]:
+        """Check for unusual SEPA operations"""
+        alerts = []
+
+        # Check for rapid SEPA mandate creations
+        rapid_sepa = frappe.db.sql(
+            """
+            SELECT owner, COUNT(*) as count
+            FROM `tabSEPA Mandate`
+            WHERE creation > DATE_SUB(NOW(), INTERVAL 1 HOUR)
+            GROUP BY owner
+            HAVING count > 5
+        """,
+            as_dict=True,
+        )
+
+        for sepa in rapid_sepa:
+            alerts.append(
+                {
+                    "type": "RAPID_SEPA_CREATION",
+                    "severity": "HIGH",
+                    "user": sepa.owner,
+                    "message": f"User created {sepa.count} SEPA mandates in 1 hour",
+                    "timestamp": frappe.utils.now(),
+                }
+            )
+
+        return alerts
+
+    def detect_business_rule_anomalies(self) -> List[Dict]:
+        """
+        Comprehensive business rule anomaly detection
+
+        Combines all business logic monitoring functions
+        """
+        all_alerts = []
+
+        try:
+            # High value payments
+            all_alerts.extend(self.check_high_value_payments())
+
+            # Member operation anomalies
+            all_alerts.extend(self.check_unusual_member_operations())
+
+            # Financial pattern anomalies
+            all_alerts.extend(self.check_financial_pattern_anomalies())
+
+            # Policy changes
+            all_alerts.extend(self.monitor_policy_changes())
+
+            # SEPA operation anomalies
+            all_alerts.extend(self.check_sepa_operation_anomalies())
+
+        except Exception as e:
+            frappe.log_error(f"Business rule anomaly detection failed: {str(e)}")
+
+        return all_alerts
+
+
+# Global monitor instance
+_security_monitor = None
+
+
+def get_security_monitor() -> SecurityMonitor:
+    """Get global security monitor instance"""
+    global _security_monitor
+    if _security_monitor is None:
+        _security_monitor = SecurityMonitor()
+    return _security_monitor
+
+
+def run_business_rule_monitoring():
+    """
+    Background job to run business rule monitoring
+
+    This should be called periodically (e.g., every 15 minutes) to detect
+    business logic anomalies and send appropriate alerts.
+    """
+    try:
+        monitor = get_security_monitor()
+        alerts = monitor.detect_business_rule_anomalies()
+
+        for alert in alerts:
+            # Log to security audit table
+            frappe.get_doc(
+                {
+                    "doctype": "Security Alert",  # This would need to be created
+                    "alert_type": alert["type"],
+                    "severity": alert["severity"],
+                    "user": alert["user"],
+                    "message": alert["message"],
+                    "detected_at": alert["timestamp"],
+                    "alert_data": frappe.as_json(alert),
+                }
+            ).insert(ignore_permissions=True)
+
+            # Send notifications for high severity alerts
+            if alert["severity"] in ["HIGH", "CRITICAL"]:
+                try:
+                    # Get administrators who should be notified
+                    admins = frappe.get_all(
+                        "Has Role",
+                        filters={"role": "System Manager", "parenttype": "User"},
+                        fields=["parent"],
+                    )
+
+                    admin_emails = []
+                    for admin in admins:
+                        user = frappe.get_doc("User", admin.parent)
+                        if user.enabled and user.email:
+                            admin_emails.append(user.email)
+
+                    if admin_emails:
+                        subject = f"Security Alert: {alert['type']}"
+                        message = f"""
+                        <h3>Business Rule Security Alert</h3>
+                        <p><strong>Alert Type:</strong> {alert['type']}</p>
+                        <p><strong>Severity:</strong> {alert['severity']}</p>
+                        <p><strong>User:</strong> {alert['user']}</p>
+                        <p><strong>Message:</strong> {alert['message']}</p>
+                        <p><strong>Detected At:</strong> {alert['timestamp']}</p>
+
+                        <p>Please review this alert and take appropriate action if necessary.</p>
+                        """
+
+                        frappe.sendmail(
+                            recipients=admin_emails,
+                            subject=subject,
+                            message=message,
+                            send_priority=1 if alert["severity"] == "CRITICAL" else 0,
+                        )
+                except Exception as e:
+                    frappe.log_error(f"Failed to send business rule alert notification: {str(e)}")
+
+        frappe.logger("verenigingen.security.monitoring").info(
+            f"Business rule monitoring completed: {len(alerts)} alerts detected"
+        )
+
+    except Exception as e:
+        frappe.log_error(f"Business rule monitoring job failed: {str(e)}")
+
+
+def analyze_security_trends(days: int = 7) -> Dict[str, Any]:
+    """
+    Analyze security trends over time
+
+    This provides insights into security patterns and helps identify
+    whether security measures are effective.
+    """
+    try:
+        end_date = frappe.utils.now()
+        start_date = frappe.utils.add_days(end_date, -days)
+
+        # Analyze API security events
+        api_events = frappe.db.sql(
+            """
+            SELECT
+                DATE(creation) as event_date,
+                COUNT(*) as event_count,
+                COUNT(DISTINCT user) as unique_users
+            FROM `tabActivity Log`
+            WHERE creation BETWEEN %s AND %s
+            AND reference_doctype IN ('Sales Invoice', 'Payment Entry', 'Member', 'SEPA Mandate')
+            GROUP BY DATE(creation)
+            ORDER BY event_date
+        """,
+            (start_date, end_date),
+            as_dict=True,
+        )
+
+        # Analyze financial operations
+        financial_ops = frappe.db.sql(
+            """
+            SELECT
+                DATE(creation) as op_date,
+                COUNT(*) as operation_count,
+                AVG(grand_total) as avg_amount,
+                MAX(grand_total) as max_amount
+            FROM `tabSales Invoice`
+            WHERE creation BETWEEN %s AND %s
+            GROUP BY DATE(creation)
+            ORDER BY op_date
+        """,
+            (start_date, end_date),
+            as_dict=True,
+        )
+
+        # Get critical operation rules effectiveness
+        rules_stats = frappe.db.sql(
+            """
+            SELECT
+                operation_name,
+                security_level,
+                enabled,
+                modified
+            FROM `tabCritical Operation Rule`
+            ORDER BY modified DESC
+        """,
+            as_dict=True,
+        )
+
+        return {
+            "analysis_period": f"{start_date} to {end_date}",
+            "api_activity_trends": api_events,
+            "financial_operation_trends": financial_ops,
+            "security_rules_status": rules_stats,
+            "summary": {
+                "total_days_analyzed": days,
+                "avg_daily_api_calls": (
+                    sum(e["event_count"] for e in api_events) / len(api_events) if api_events else 0
+                ),
+                "avg_daily_users": (
+                    sum(e["unique_users"] for e in api_events) / len(api_events) if api_events else 0
+                ),
+                "active_security_rules": len([r for r in rules_stats if r["enabled"]]),
+                "total_security_rules": len(rules_stats),
+            },
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Security trends analysis failed: {str(e)}")
+        return {"error": str(e)}
+
     def get_security_dashboard(self) -> Dict[str, Any]:
         """Get current security dashboard data"""
         current_metrics = self.metrics_history[-1] if self.metrics_history else None
@@ -696,18 +1067,8 @@ class SecurityTester:
             }
 
 
-# Global monitoring instances
-_security_monitor = None
+# Global security tester instance
 _security_tester = None
-
-
-def get_security_monitor() -> SecurityMonitor:
-    """Get global security monitor instance"""
-    global _security_monitor
-    if _security_monitor is None:
-        _security_monitor = SecurityMonitor()
-    return _security_monitor
-
 
 def get_security_tester() -> SecurityTester:
     """Get global security tester instance"""

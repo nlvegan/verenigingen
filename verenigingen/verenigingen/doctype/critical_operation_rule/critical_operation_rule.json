@@ -1,0 +1,317 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:operation_name",
+ "creation": "2024-09-14 17:45:00.000000",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "operation_details_section",
+  "operation_name",
+  "operation_type",
+  "description",
+  "enabled",
+  "column_break_5",
+  "security_level",
+  "doctype_targets",
+  "business_context",
+  "permission_settings_section",
+  "required_roles",
+  "required_permissions",
+  "column_break_10",
+  "allow_system_user",
+  "bypass_validations",
+  "rate_limiting_section",
+  "rate_limit_calls",
+  "rate_limit_period_seconds",
+  "column_break_14",
+  "rate_limit_scope",
+  "rate_limit_key_pattern",
+  "business_rules_section",
+  "enable_business_validation",
+  "amount_threshold",
+  "column_break_18",
+  "time_restrictions",
+  "ip_restrictions",
+  "audit_settings_section",
+  "audit_level",
+  "requires_justification",
+  "column_break_22",
+  "alert_on_execution",
+  "notification_recipients",
+  "monitoring_section",
+  "monitor_execution_time",
+  "execution_time_threshold_ms",
+  "column_break_26",
+  "monitor_failure_rate",
+  "failure_rate_threshold_percent"
+ ],
+ "fields": [
+  {
+   "fieldname": "operation_details_section",
+   "fieldtype": "Section Break",
+   "label": "Operation Details"
+  },
+  {
+   "fieldname": "operation_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Operation Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "operation_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Operation Type",
+   "options": "financial\nmember_data\nadmin\nreporting\nutility\npublic",
+   "reqd": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text",
+   "label": "Description"
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "security_level",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Security Level",
+   "options": "critical\nhigh\nmedium\nlow\npublic",
+   "reqd": 1
+  },
+  {
+   "fieldname": "doctype_targets",
+   "fieldtype": "Small Text",
+   "label": "Target DocTypes",
+   "description": "Comma-separated list of DocTypes this rule applies to"
+  },
+  {
+   "fieldname": "business_context",
+   "fieldtype": "Text",
+   "label": "Business Context"
+  },
+  {
+   "fieldname": "permission_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Permission Settings"
+  },
+  {
+   "fieldname": "required_roles",
+   "fieldtype": "Small Text",
+   "label": "Required Roles",
+   "description": "Comma-separated list of required roles"
+  },
+  {
+   "fieldname": "required_permissions",
+   "fieldtype": "Small Text",
+   "label": "Required Permissions",
+   "description": "Comma-separated list of required permissions (format: DocType:permission)"
+  },
+  {
+   "fieldname": "column_break_10",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "allow_system_user",
+   "fieldtype": "Check",
+   "label": "Allow System User Fallback"
+  },
+  {
+   "fieldname": "bypass_validations",
+   "fieldtype": "Small Text",
+   "label": "Allowed Validation Bypasses",
+   "description": "Comma-separated list of validations that can be bypassed"
+  },
+  {
+   "fieldname": "rate_limiting_section",
+   "fieldtype": "Section Break",
+   "label": "Rate Limiting"
+  },
+  {
+   "default": "10",
+   "fieldname": "rate_limit_calls",
+   "fieldtype": "Int",
+   "label": "Rate Limit - Max Calls"
+  },
+  {
+   "default": "3600",
+   "fieldname": "rate_limit_period_seconds",
+   "fieldtype": "Int",
+   "label": "Rate Limit - Period (Seconds)"
+  },
+  {
+   "fieldname": "column_break_14",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "per_user",
+   "fieldname": "rate_limit_scope",
+   "fieldtype": "Select",
+   "label": "Rate Limit Scope",
+   "options": "per_user\nper_ip\nglobal"
+  },
+  {
+   "fieldname": "rate_limit_key_pattern",
+   "fieldtype": "Data",
+   "label": "Rate Limit Key Pattern",
+   "description": "Custom pattern for rate limit key (optional)"
+  },
+  {
+   "fieldname": "business_rules_section",
+   "fieldtype": "Section Break",
+   "label": "Business Rules"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_business_validation",
+   "fieldtype": "Check",
+   "label": "Enable Business Validation"
+  },
+  {
+   "depends_on": "enable_business_validation",
+   "fieldname": "amount_threshold",
+   "fieldtype": "Currency",
+   "label": "Amount Threshold",
+   "description": "Alert if operation exceeds this amount"
+  },
+  {
+   "fieldname": "column_break_18",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "time_restrictions",
+   "fieldtype": "Small Text",
+   "label": "Time Restrictions",
+   "description": "Business hours only, weekend restrictions, etc."
+  },
+  {
+   "fieldname": "ip_restrictions",
+   "fieldtype": "Small Text",
+   "label": "IP Restrictions",
+   "description": "Comma-separated list of allowed IP ranges"
+  },
+  {
+   "fieldname": "audit_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Audit Settings"
+  },
+  {
+   "default": "standard",
+   "fieldname": "audit_level",
+   "fieldtype": "Select",
+   "label": "Audit Level",
+   "options": "minimal\nstandard\ndetailed\ncritical"
+  },
+  {
+   "default": "1",
+   "fieldname": "requires_justification",
+   "fieldtype": "Check",
+   "label": "Requires Justification"
+  },
+  {
+   "fieldname": "column_break_22",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "alert_on_execution",
+   "fieldtype": "Check",
+   "label": "Alert on Execution"
+  },
+  {
+   "depends_on": "alert_on_execution",
+   "fieldname": "notification_recipients",
+   "fieldtype": "Small Text",
+   "label": "Notification Recipients",
+   "description": "Comma-separated list of email addresses"
+  },
+  {
+   "fieldname": "monitoring_section",
+   "fieldtype": "Section Break",
+   "label": "Monitoring"
+  },
+  {
+   "default": "1",
+   "fieldname": "monitor_execution_time",
+   "fieldtype": "Check",
+   "label": "Monitor Execution Time"
+  },
+  {
+   "depends_on": "monitor_execution_time",
+   "default": "5000",
+   "fieldname": "execution_time_threshold_ms",
+   "fieldtype": "Int",
+   "label": "Execution Time Threshold (ms)"
+  },
+  {
+   "fieldname": "column_break_26",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "monitor_failure_rate",
+   "fieldtype": "Check",
+   "label": "Monitor Failure Rate"
+  },
+  {
+   "depends_on": "monitor_failure_rate",
+   "default": "10",
+   "fieldname": "failure_rate_threshold_percent",
+   "fieldtype": "Int",
+   "label": "Failure Rate Threshold (%)"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 0,
+ "links": [],
+ "modified": "2024-09-14 17:45:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Critical Operation Rule",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1
+  }
+ ],
+ "quick_entry": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

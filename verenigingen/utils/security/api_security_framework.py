@@ -548,6 +548,64 @@ class APISecurityFramework:
                 validated.append(item)
         return validated
 
+    def check_critical_operation_integration(self, func: Callable, **kwargs) -> dict:
+        """
+        Check if this API function should use critical operations framework
+
+        This integrates the API security framework with the critical operations registry
+        to provide enhanced security for operations that have been classified as critical.
+        """
+        func_name = func.__name__
+        module_name = func.__module__
+
+        # Import here to avoid circular dependencies
+        try:
+            from verenigingen.utils.secure_operations import get_critical_operations_registry
+
+            registry = get_critical_operations_registry()
+
+            # Check various potential operation names
+            potential_operation_names = [
+                func_name,
+                f"{module_name.split('.')[-1]}_{func_name}",
+                f"api_{func_name}",
+            ]
+
+            for operation_name in potential_operation_names:
+                config = registry.get_operation_config(operation_name)
+                if config:
+                    return {
+                        "is_critical": True,
+                        "operation_name": operation_name,
+                        "config": config,
+                        "business_rules_enabled": config.get("business_rules", {}).get("enabled", False),
+                    }
+
+        except Exception as e:
+            frappe.logger("verenigingen.api_security").warning(
+                f"Failed to check critical operation integration: {str(e)}"
+            )
+
+        return {"is_critical": False}
+
+    def validate_critical_operation_business_rules(self, operation_info: dict, **kwargs) -> List[str]:
+        """Validate business rules for critical operations"""
+        if not operation_info.get("is_critical") or not operation_info.get("business_rules_enabled"):
+            return []
+
+        try:
+            from verenigingen.utils.secure_operations import get_critical_operations_registry
+
+            registry = get_critical_operations_registry()
+
+            return registry.validate_business_rules(operation_info["operation_name"], **kwargs)
+
+        except Exception as e:
+            frappe.logger("verenigingen.api_security").error(
+                f"Failed to validate critical operation business rules: {str(e)}"
+            )
+            return []
+
     def log_audit_event(
         self,
         profile: SecurityProfile,
@@ -733,6 +791,30 @@ def api_security_framework(
                 # Input validation
                 validated_kwargs = framework.validate_input_data(profile, operation_type, **kwargs)
 
+                # Critical operation integration (new)
+                critical_op_info = framework.check_critical_operation_integration(func, **validated_kwargs)
+
+                # Business rule validation for critical operations
+                if critical_op_info.get("is_critical"):
+                    business_rule_violations = framework.validate_critical_operation_business_rules(
+                        critical_op_info, **validated_kwargs
+                    )
+
+                    if business_rule_violations:
+                        # Log business rule violations
+                        for violation in business_rule_violations:
+                            frappe.logger("verenigingen.api_security").warning(
+                                f"BUSINESS_RULE_VIOLATION: {violation} in API {func.__name__}"
+                            )
+
+                        # For critical operations, consider failing early
+                        if critical_op_info.get("config", {}).get("security_level") == "critical":
+                            raise VValidationError(
+                                _("Critical business rule violations: {0}").format(
+                                    "; ".join(business_rule_violations)
+                                )
+                            )
+
                 # Custom validators
                 if custom_validators:
                     for validator in custom_validators:
@@ -741,17 +823,25 @@ def api_security_framework(
                 # Execute function
                 result = func(*args, **validated_kwargs)
 
-                # Log successful execution
+                # Log successful execution with critical operation context
                 execution_time = time.time() - start_time
-                framework.log_audit_event(
-                    profile,
-                    func,
-                    True,
-                    execution_time,
-                    user=frappe.session.user,
-                    args_count=len(args),
-                    kwargs_keys=list(validated_kwargs.keys()),
-                )
+                audit_context = {
+                    "user": frappe.session.user,
+                    "args_count": len(args),
+                    "kwargs_keys": list(validated_kwargs.keys()),
+                }
+
+                # Add critical operation context to audit
+                if critical_op_info.get("is_critical"):
+                    audit_context.update(
+                        {
+                            "critical_operation": critical_op_info["operation_name"],
+                            "critical_operation_config": critical_op_info["config"]["security_level"],
+                            "business_rules_validated": critical_op_info.get("business_rules_enabled", False),
+                        }
+                    )
+
+                framework.log_audit_event(profile, func, True, execution_time, **audit_context)
 
                 # Add security headers to response
                 if hasattr(frappe.local, "response"):
@@ -938,8 +1028,22 @@ def public_api(func_or_operation_type=None, *, operation_type: OperationType = O
         )
 
 
+def development_only_api(
+    operation_type: OperationType = OperationType.UTILITY,
+    security_level: SecurityLevel = SecurityLevel.LOW,
+):
+    """Decorator for development-only APIs (test utilities, debug functions)"""
+    return api_security_framework(
+        security_level=security_level,
+        operation_type=operation_type,
+        audit_level="minimal",
+        allowed_environments=[EnvironmentLevel.DEVELOPMENT],
+    )
+
+
 # API endpoint classification and migration utilities
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def analyze_api_security_status():
     """
     Analyze current API security status across all endpoints
@@ -1037,17 +1141,6 @@ def analyze_api_security_status():
 
 
 # Environment-Aware Decorator Shortcuts
-def development_only_api(
-    operation_type: OperationType = OperationType.UTILITY,
-    security_level: SecurityLevel = SecurityLevel.LOW,
-):
-    """Decorator for development-only APIs (test utilities, debug functions)"""
-    return api_security_framework(
-        security_level=security_level,
-        operation_type=operation_type,
-        audit_level="minimal",
-        allowed_environments=[EnvironmentLevel.DEVELOPMENT],
-    )
 
 
 def staging_and_dev_api(
@@ -1077,6 +1170,7 @@ def non_production_api(
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def get_security_framework_status():
     """Get current security framework configuration and status"""
     # Require admin permission

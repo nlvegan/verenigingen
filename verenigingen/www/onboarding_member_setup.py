@@ -34,8 +34,11 @@ Target Users:
 import frappe
 from frappe import _
 
-from verenigingen.utils.security.api_security_framework import OperationType, standard_api
-from verenigingen.utils.security_decorators import development_only
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    development_only_api,
+    standard_api,
+)
 
 no_cache = 1
 
@@ -146,7 +149,7 @@ def generate_test_members_from_onboarding():
 
 
 @frappe.whitelist()
-@development_only()
+@development_only_api(operation_type=OperationType.UTILITY)
 def cleanup_test_data():
     """
     Remove test members and associated data for clean development environments.

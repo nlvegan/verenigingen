@@ -100,6 +100,7 @@ def fix_child_table_permissions():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def verify_child_table_permissions():
     """Verify that child table permissions are working correctly"""
 

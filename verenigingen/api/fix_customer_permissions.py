@@ -63,6 +63,7 @@ def grant_verenigingen_admin_customer_access():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def verify_customer_access_fix():
     """Verify that the Customer access fix worked"""
 
