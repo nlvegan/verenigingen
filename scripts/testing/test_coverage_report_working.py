@@ -9,8 +9,11 @@ Usage:
 import frappe
 from frappe.utils import today, add_days
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_demo_test():
     """Demonstrate that the coverage analysis report works correctly"""
     

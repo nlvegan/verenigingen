@@ -185,8 +185,11 @@ Planned improvements include:
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_system_status():
     """Check core system status - callable via bench execute"""
 
@@ -260,6 +263,7 @@ def check_system_status():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_field_reference_sample():
     """Check a sample of field reference issues to understand their nature"""
 

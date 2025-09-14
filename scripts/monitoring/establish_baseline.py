@@ -21,8 +21,7 @@ from statistics import mean, median, stdev
 import frappe
 from frappe.utils import now
 from verenigingen.utils.validation_utilities import QueryBuilder
-from verenigingen.utils.security.api_security_framework import high_security_api, OperationType
-from verenigingen.utils.security_decorators import development_only
+from verenigingen.utils.security.api_security_framework import high_security_api, OperationType, development_only_api
 
 class PerformanceBaselineEstablisher:
     """Establishes comprehensive performance baseline for the monitoring system"""
@@ -490,7 +489,7 @@ class PerformanceBaselineEstablisher:
 
 # Main execution function
 @frappe.whitelist()
-@development_only()
+@development_only_api(operation_type=OperationType.UTILITY)
 def establish_performance_baseline():
     """Establish comprehensive performance baseline"""
     establisher = PerformanceBaselineEstablisher()

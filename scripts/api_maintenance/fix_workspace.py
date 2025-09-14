@@ -7,8 +7,11 @@ import os
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def install_eboekhouden_workspace(force_enable=False):
     """Install or update the E-Boekhouden workspace"""
     
@@ -53,6 +56,7 @@ def install_eboekhouden_workspace(force_enable=False):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def verify_workspace_links():
     """Verify that all workspace links point to existing DocTypes"""
     workspace_name = "E-Boekhouden"
@@ -80,6 +84,7 @@ def verify_workspace_links():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_eboekhouden_workspace():
     """Main function to fix workspace issues"""
     results = {"steps": []}

@@ -20,9 +20,11 @@ from datetime import datetime, timedelta
 import frappe
 from frappe import _
 from frappe.utils import (
-    now_datetime, get_datetime, add_days, 
+    now_datetime, get_datetime, add_days,
     cint, flt, cstr
 )
+
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
 
 class ZabbixIntegration:
@@ -43,6 +45,7 @@ class ZabbixIntegration:
 
 
 @frappe.whitelist(allow_guest=True)
+@development_only_api(operation_type=OperationType.UTILITY)
 def get_metrics_for_zabbix():
     """
     Main metrics endpoint for Zabbix monitoring
@@ -475,6 +478,7 @@ def health_check():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def zabbix_webhook_receiver():
     """
     Enhanced webhook receiver supporting both legacy and Zabbix 7.0 formats

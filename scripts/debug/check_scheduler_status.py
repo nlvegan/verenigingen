@@ -6,7 +6,10 @@ Check scheduler status for dues schedule processing
 import frappe
 from frappe.utils import now_datetime, get_datetime, add_days
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_scheduler_and_dues_schedules():
     """Check scheduler status and dues schedule processing"""
     

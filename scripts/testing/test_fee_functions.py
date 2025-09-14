@@ -6,7 +6,10 @@ Simple validation script to test fee calculation functions
 import frappe
 from frappe.utils import today
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_fee_calculation():
     """Test fee calculation priority system"""
     

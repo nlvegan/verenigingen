@@ -7,8 +7,11 @@ Addresses the 47 schedules discovered during invoice generation investigation
 import frappe
 from frappe.utils import today, now
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def identify_invalid_schedules():
     """Identify schedules with non-existent member references"""
     
@@ -52,6 +55,7 @@ def identify_invalid_schedules():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def cleanup_invalid_schedules(dry_run=True):
     """
     Clean up schedules with invalid member references
@@ -133,6 +137,7 @@ def cleanup_invalid_schedules(dry_run=True):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def validate_cleanup_results():
     """Validate that cleanup was successful"""
     

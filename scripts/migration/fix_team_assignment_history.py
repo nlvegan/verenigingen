@@ -2,8 +2,11 @@
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_team_assignment_history(team_name=None, volunteer_name=None):
     """Manually fix team assignment history for existing assignments"""
 

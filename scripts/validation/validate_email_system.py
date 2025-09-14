@@ -11,6 +11,8 @@ import frappe
 from frappe.utils import now_datetime
 import traceback
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 def validate_email_components():
     """Validate core email system components"""
@@ -226,6 +228,7 @@ def validate_security_fixes():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_email_system_validation():
     """Main validation function that can be called via bench execute"""
     

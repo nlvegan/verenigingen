@@ -7,8 +7,11 @@ Run with: bench --site dev.veganisme.net execute verenigingen.manual_employee_cr
 import frappe
 from frappe.utils import today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, standard_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def create_employee_for_volunteer(volunteer_name):
     """Manually create an employee record for a volunteer"""
     try:
@@ -71,6 +74,7 @@ def create_employee_for_volunteer(volunteer_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def create_employees_for_all_volunteers():
     """Create employee records for all volunteers who don't have them"""
     volunteers_without_employees = frappe.get_all(
@@ -98,6 +102,7 @@ def create_employees_for_all_volunteers():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def check_volunteer_employee_status():
     """Check the employee status of all volunteers"""
     volunteers = frappe.get_all(

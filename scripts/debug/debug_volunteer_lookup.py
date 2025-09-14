@@ -2,6 +2,8 @@
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 def debug_volunteer_lookup(user_email=None):
     """Debug volunteer lookup for a specific user email"""
@@ -101,6 +103,7 @@ def debug_volunteer_lookup(user_email=None):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_current_user_volunteer_lookup():
     """Debug volunteer lookup for current user - can be called from web"""
     return debug_volunteer_lookup()

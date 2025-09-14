@@ -6,6 +6,7 @@ Creates a formal workflow for membership application process
 import frappe
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 def create_membership_application_workflow():
@@ -415,6 +416,7 @@ def setup_membership_application_workflow():
 
 # API endpoint
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def setup_membership_workflow():
     """API endpoint for membership workflow setup"""
     return setup_membership_application_workflow()

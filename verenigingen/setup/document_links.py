@@ -58,7 +58,7 @@ def add_member_ledger_link_to_expense_claim():
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_member_from_expense_claim(expense_claim):
-    """Get member record from expense claim via employee"""
+    """Get member record from expense claim via employee or volunteer custom field"""
 
     try:
         if not expense_claim:
@@ -67,16 +67,27 @@ def get_member_from_expense_claim(expense_claim):
         # Get the expense claim document
         expense_doc = frappe.get_doc("Expense Claim", expense_claim)
 
-        if not expense_doc.employee:
-            return None
+        # Try custom volunteer field first (more direct)
+        if hasattr(expense_doc, "custom_volunteer") and expense_doc.custom_volunteer:
+            volunteer_doc = frappe.get_doc("Volunteer", expense_doc.custom_volunteer)
+            if volunteer_doc.member:
+                return volunteer_doc.member
 
-        # Find member with this employee
-        member = frappe.db.get_value("Member", {"employee": expense_doc.employee}, "name")
+        # Fallback to employee lookup (legacy compatibility)
+        if expense_doc.employee:
+            member = frappe.db.get_value("Member", {"employee": expense_doc.employee}, "name")
+            if member:
+                return member
 
-        return member
+        return None
 
+    except frappe.DoesNotExistError:
+        frappe.log_error(f"Expense claim {expense_claim} not found", "Document Links Error")
+        return None
     except Exception as e:
-        frappe.log_error(f"Error getting member from expense claim {expense_claim}: {str(e)}")
+        frappe.log_error(
+            f"Error getting member from expense claim {expense_claim}: {str(e)}", "Document Links Error"
+        )
         return None
 
 

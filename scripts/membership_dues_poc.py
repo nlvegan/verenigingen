@@ -6,11 +6,11 @@ Test the new architecture before full implementation
 
 import frappe
 from frappe.utils import today, add_days, getdate
-from verenigingen.utils.security_decorators import development_only
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
 
 @frappe.whitelist()
-@development_only()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_dues_system_poc():
     """Test the membership dues system with a single member"""
     

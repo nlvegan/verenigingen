@@ -13,6 +13,8 @@ from typing import Dict, List, Any
 import frappe
 from frappe.utils import nowdate, now
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 class PerformanceBaselineTracker:
     """Track performance baselines and validate improvement claims"""
@@ -43,6 +45,7 @@ class PerformanceBaselineTracker:
             frappe.log_error(f"Failed to save baselines: {e}")
     
     @frappe.whitelist()
+    @development_only_api(operation_type=OperationType.UTILITY)
     def establish_baseline(self, measurement_type: str = "all") -> Dict:
         """Establish performance baselines for comparison"""
         from verenigingen.api.performance_measurement import (
@@ -105,6 +108,7 @@ class PerformanceBaselineTracker:
             return {"error": str(e)}
     
     @frappe.whitelist()
+    @development_only_api(operation_type=OperationType.UTILITY)
     def validate_improvement_claim(self, claim_type: str, claimed_improvement: float, actual_measurement: Dict) -> Dict:
         """
         Validate improvement claims against actual measurements
@@ -218,6 +222,7 @@ class PerformanceBaselineTracker:
         return None
     
     @frappe.whitelist()
+    @development_only_api(operation_type=OperationType.UTILITY)
     def generate_improvement_report(self) -> Dict:
         """Generate comprehensive improvement validation report"""
         try:
@@ -314,6 +319,7 @@ class PerformanceBaselineTracker:
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def quick_performance_check() -> Dict:
     """Quick performance check for ongoing monitoring"""
     tracker = PerformanceBaselineTracker()
