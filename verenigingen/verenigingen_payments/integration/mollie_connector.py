@@ -11,6 +11,8 @@ from typing import Any, Dict, List, Optional, Union
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 try:
     from mollie.api.client import Client as MollieClient
     from mollie.api.error import Error as MollieError
@@ -522,6 +524,7 @@ def get_mollie_connector(settings_name: str = None) -> MollieConnector:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def test_mollie_connection(settings_name: str = None) -> Dict:
     """Test Mollie API connection"""
     try:
@@ -540,6 +543,7 @@ def test_mollie_connection(settings_name: str = None) -> Dict:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def get_account_balance(balance_id: str = "primary") -> Dict:
     """Get account balance"""
     try:
@@ -551,6 +555,7 @@ def get_account_balance(balance_id: str = "primary") -> Dict:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def list_recent_settlements(days: int = 30) -> List[Dict]:
     """List recent settlements"""
     try:

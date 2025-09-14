@@ -155,7 +155,7 @@ def get_opening_balance_date_for_js():
                         if mutation.get("date"):
                             if not earliest_date or mutation.get("date") < earliest_date:
                                 earliest_date = mutation.get("date")
-                except:
+                except Exception:
                     continue
             opening_balance_date = earliest_date
 

@@ -630,8 +630,13 @@ class BalanceMonitor:
         return health
 
 
+# Import security framework
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
+
 # Scheduled monitoring task
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def run_balance_monitoring():
     """Run scheduled balance monitoring"""
     settings = frappe.get_single("Mollie Settings")
@@ -645,6 +650,7 @@ def run_balance_monitoring():
 
 # API endpoints
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_balance_health_dashboard():
     """Get balance health dashboard data"""
     settings = frappe.get_single("Mollie Settings")

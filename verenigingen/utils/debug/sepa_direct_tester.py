@@ -7,9 +7,15 @@ Direct test of SEPA Audit Log methods
 import frappe
 
 from verenigingen.doctype.sepa_audit_log.sepa_audit_log import SEPAAuditLog
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    development_only_api,
+    high_security_api,
+)
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_direct_sepa_logging():
     """Test SEPAAuditLog methods directly"""
     try:
@@ -38,6 +44,7 @@ def test_direct_sepa_logging():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_mandate_creation_method():
     """Test the log_mandate_creation method"""
     try:
@@ -70,6 +77,7 @@ def test_mandate_creation_method():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_all_audit_logs():
     """Get all SEPA audit logs for verification"""
     try:

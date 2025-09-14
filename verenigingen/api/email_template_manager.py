@@ -63,10 +63,15 @@ import frappe
 from frappe.utils import get_url
 
 from verenigingen.utils.secure_operations import secure_document_operation
-from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
 
 
-@critical_api()
+@critical_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def create_comprehensive_email_templates():
     """
@@ -654,7 +659,7 @@ def send_template_email(template_name, recipients, context=None, **kwargs):
         return False
 
 
-@standard_api()
+@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
 def test_email_template(template_name, test_context=None):
     """Test email template rendering with sample context"""
@@ -695,7 +700,7 @@ def test_email_template(template_name, test_context=None):
         return {"success": False, "error": str(e), "template_name": template_name}
 
 
-@critical_api()
+@critical_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def create_all_email_templates():
     """
@@ -856,7 +861,7 @@ def create_email_templates_cli():
         return {"success": False, "error": str(e), "message": error_msg}
 
 
-@standard_api()
+@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
 def list_all_email_templates():
     """List all email templates in the system"""

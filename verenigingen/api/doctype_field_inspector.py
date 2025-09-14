@@ -7,8 +7,11 @@ Provides utilities to inspect and validate DocType fields dynamically.
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def inspect_expense_claim_fields():
     """Check actual field names in Expense Claim DocType"""
     try:
@@ -35,6 +38,7 @@ def inspect_expense_claim_fields():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def inspect_member_fields():
     """Check actual field names in Member DocType"""
     try:
@@ -58,6 +62,7 @@ def inspect_member_fields():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def inspect_volunteer_expense_fields():
     """Check actual field names in Volunteer Expense DocType"""
     try:

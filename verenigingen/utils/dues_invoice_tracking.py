@@ -6,6 +6,8 @@ Uses the existing Member Payment History infrastructure
 import frappe
 from frappe.utils import getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+
 
 def get_dues_invoices_for_member(member_name, schedule_name=None):
     """
@@ -68,6 +70,7 @@ def get_pending_dues_for_schedule(schedule_name):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_dues_summary_for_member(member_name):
     """
     Get a comprehensive dues summary for a member

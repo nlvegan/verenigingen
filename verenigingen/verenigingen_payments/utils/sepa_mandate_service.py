@@ -8,6 +8,8 @@ from typing import Dict, List, Optional, Tuple
 import frappe
 from frappe.utils import getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+
 
 class SEPAMandateService:
     """Centralized service for SEPA mandate operations with caching and batch processing"""
@@ -284,6 +286,7 @@ def get_sepa_mandate_service() -> SEPAMandateService:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def clear_sepa_mandate_cache():
     """API to clear SEPA mandate cache"""
     service = get_sepa_mandate_service()
@@ -292,6 +295,7 @@ def clear_sepa_mandate_cache():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_sepa_cache_stats():
     """API to get SEPA cache statistics"""
     service = get_sepa_mandate_service()

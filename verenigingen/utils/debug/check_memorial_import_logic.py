@@ -7,8 +7,11 @@ import json
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_mutation_6353():
     """Check the specific mutation that's causing the issue"""
 
@@ -73,6 +76,7 @@ def check_mutation_6353():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_memorial_import_logic_in_code():
     """Check how memorial bookings are imported in the code"""
 

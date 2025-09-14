@@ -6,6 +6,8 @@ and escalation workflows
 import frappe
 from frappe.utils import add_days, flt, get_url, getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class ExpenseNotificationManager:
     """Centralized expense notification management"""
@@ -507,6 +509,7 @@ class ExpenseNotificationManager:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def send_approval_notification(expense_name):
     """Send approval request notification for an expense"""
     expense = frappe.get_doc("Volunteer Expense", expense_name)
@@ -515,6 +518,7 @@ def send_approval_notification(expense_name):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def send_overdue_reminders(days_overdue=7):
     """Send overdue reminders for expenses pending approval"""
     manager = ExpenseNotificationManager()

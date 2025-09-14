@@ -1243,6 +1243,7 @@ def _convert_frequency_to_mollie_interval(frequency):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def manual_subscription_retry():
     """
     Manual trigger for subscription activation retry
@@ -1340,6 +1341,7 @@ def mollie_webhook():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def mollie_subscription_webhook():
     """
     Handle Mollie subscription webhook notifications with security verification
@@ -1766,6 +1768,7 @@ def _process_subscription_payment(gateway, member_name, member_customer, payment
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def process_donation_payment(donation_id, payment_method, form_data):
     """Process payment for a donation using appropriate gateway"""
     try:
@@ -1782,6 +1785,7 @@ def process_donation_payment(donation_id, payment_method, form_data):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_payment_status(donation_id):
     """Get payment status for a donation"""
     try:
@@ -1802,6 +1806,7 @@ def get_payment_status(donation_id):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def create_member_subscription(member_id, amount, interval="1 month", description=None):
     """Create Mollie subscription for a member"""
     if not frappe.has_permission("Member", "write"):
@@ -1858,6 +1863,7 @@ def cancel_member_subscription(member_id):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_member_subscription_status(member_id):
     """Get subscription status for a member"""
     try:
@@ -1883,6 +1889,7 @@ def get_member_subscription_status(member_id):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def manual_payment_confirmation(donation_id, payment_reference, notes=None):
     """Manually confirm payment (for bank transfers, cash, etc.)"""
     if not frappe.has_permission("Donation", "write"):
@@ -1910,6 +1917,7 @@ def manual_payment_confirmation(donation_id, payment_reference, notes=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def cancel_mollie_subscription_by_id(subscription_id):
     """Cancel Mollie subscription by subscription ID"""
     try:
@@ -1933,6 +1941,7 @@ def cancel_mollie_subscription_by_id(subscription_id):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def update_mollie_subscription_amount(subscription_id, new_amount):
     """Update Mollie subscription amount"""
     try:

@@ -7,6 +7,8 @@ This script helps set up and assign role profiles to users based on their functi
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 def setup_role_profiles():
     """
@@ -49,6 +51,7 @@ def setup_role_profiles():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def assign_role_profile_to_user(user: str, role_profile: str) -> None:
     """
     Assign a role profile to a user.
@@ -136,6 +139,7 @@ def get_recommended_role_profile(user: str) -> str | None:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def auto_assign_role_profiles():
     """
     Automatically assign role profiles to existing users based on their current roles.
@@ -347,6 +351,7 @@ def setup_role_profiles_cli():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def deploy_role_profiles():
     """
     Deploy and setup role profiles for the Verenigingen app.

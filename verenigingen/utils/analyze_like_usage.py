@@ -5,8 +5,11 @@ Analyze LIKE usage in the eBoekhouden processing code
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def analyze_like_usage():
     """Analyze all LIKE patterns in the code for potential issues"""
 
@@ -125,6 +128,7 @@ def analyze_like_usage():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_for_ledger_like_patterns():
     """Specifically check for ledger-related LIKE patterns that should be exact matches"""
 

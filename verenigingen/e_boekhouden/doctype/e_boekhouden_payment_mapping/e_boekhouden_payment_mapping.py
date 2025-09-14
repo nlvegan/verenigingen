@@ -4,6 +4,8 @@
 import frappe
 from frappe.model.document import Document
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 
 class EBoekhoudenPaymentMapping(Document):
     def validate(self):
@@ -34,6 +36,7 @@ class EBoekhoudenPaymentMapping(Document):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_payment_account_mapping(company, account_code):
     """Get payment account mapping for a company and account code"""
     mapping = frappe.db.get_value(
@@ -47,6 +50,7 @@ def get_payment_account_mapping(company, account_code):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def import_default_mappings(company):
     """Import default payment mappings for a company"""
     from verenigingen.e_boekhouden.utils_migration_config import PAYMENT_ACCOUNT_CONFIG

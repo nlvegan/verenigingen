@@ -30,6 +30,8 @@ import json
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 # Bank and cash account configurations for Nederlandse Vereniging voor Veganisme
 # This configuration maps eBoekhouden account codes to ERPNext payment structure
 PAYMENT_ACCOUNT_CONFIG = {
@@ -128,6 +130,7 @@ def get_payment_account_info(account_code, company=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def setup_payment_modes():
     """
     Initialize required payment modes for Dutch banking integration.
@@ -176,6 +179,7 @@ def setup_payment_modes():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def validate_migration_setup():
     """
     Perform comprehensive validation of migration readiness.

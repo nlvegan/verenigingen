@@ -12,6 +12,7 @@ from verenigingen.e_boekhouden.utils.security_helper import (
     validate_and_insert,
     validate_and_save,
 )
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
 class EBoekhoudenMigration(Document):
@@ -400,6 +401,7 @@ class EBoekhoudenMigration(Document):
             return f"Error migrating Chart of Accounts: {str(e)}"
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def analyze_specific_accounts(self):
         """Analyze specific problematic accounts"""
         try:
@@ -482,6 +484,7 @@ class EBoekhoudenMigration(Document):
             return {"success": False, "error": str(e)}
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def analyze_eboekhouden_data(self):
         """Analyze E-Boekhouden data to understand group structure"""
         try:
@@ -539,6 +542,7 @@ class EBoekhoudenMigration(Document):
             return {"success": False, "error": str(e)}
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def test_group_mappings(self):
         """Test the group mapping functionality"""
         try:
@@ -2995,6 +2999,7 @@ class EBoekhoudenMigration(Document):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def start_migration_api(migration_name, dry_run=1):
     """API method to start migration process"""
     try:
@@ -3027,6 +3032,7 @@ def start_migration_api(migration_name, dry_run=1):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def start_migration(migration_name, setup_only=False):
     """API method to start migration process
 
@@ -3070,6 +3076,7 @@ def start_migration(migration_name, setup_only=False):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def cleanup_chart_of_accounts(company, delete_all_accounts=False):
     """Delegated to cleanup_utils for better organization"""
     from verenigingen.e_boekhouden.utils.cleanup_utils import cleanup_chart_of_accounts as cleanup_impl
@@ -3078,6 +3085,7 @@ def cleanup_chart_of_accounts(company, delete_all_accounts=False):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def import_single_mutation(migration_name, mutation_id, overwrite_existing=True):
     """Import a single mutation by ID for testing purposes"""
     try:
@@ -3243,6 +3251,7 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def start_transaction_import(migration_name, import_type="recent"):
     """Start importing transactions using REST API only
 
@@ -3328,6 +3337,7 @@ def start_transaction_import(migration_name, import_type="recent"):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def check_rest_api_status():
     """Check if REST API is configured and working"""
     try:
@@ -3361,6 +3371,7 @@ def check_rest_api_status():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def check_migration_data_quality(migration_name):
     """Check data quality for a migration"""
     try:
@@ -3378,6 +3389,7 @@ def check_migration_data_quality(migration_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def import_opening_balances_only(migration_name):
     """Import only opening balances using the new ERPNext approach"""
     try:
@@ -3452,6 +3464,7 @@ def import_opening_balances_only(migration_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def update_account_type_mapping(account_name, new_account_type, company):
     """Update the account type for a specific account
 
@@ -3510,6 +3523,7 @@ def update_account_type_mapping(account_name, new_account_type, company):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def run_migration_background(migration_name):
     """Background function to run migration without timeout issues"""
     try:
@@ -3532,6 +3546,7 @@ def run_migration_background(migration_name):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_account_type_recommendations(company, show_all=False):
     """Get recommended account types for E-Boekhouden imported accounts
 

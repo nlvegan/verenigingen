@@ -8,6 +8,8 @@ for imported E-Boekhouden data.
 import frappe
 from frappe.utils import now
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class DataQualityChecker:
     """Handles data quality checks for E-Boekhouden migration"""
@@ -261,6 +263,7 @@ class DataQualityChecker:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def check_migration_data_quality(migration_name):
     """Check data quality for a migration"""
     try:

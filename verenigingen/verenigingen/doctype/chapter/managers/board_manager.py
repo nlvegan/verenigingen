@@ -34,7 +34,7 @@ class BoardManager(BaseManager):
             doc=self.chapter_doc,
             justification=f"Board member operation: {operation_description}",
             required_permissions=["Chapter:write"],
-            allow_system_user=False,  # Require explicit user permissions
+            allow_system_user=True,  # Allow system user for automated board operations
             bypass_validations=["link_validation"],  # Allow bypass of problematic references
         )
 

@@ -115,9 +115,9 @@ class AccountCreationManager:
         """Validate that processing can proceed with proper permissions"""
         frappe.logger().info(f"Validating processing permissions for {self.request_name}")
 
-        # Switch to system user context for processing (but maintain permission checks)
+        # Require proper user context - no Guest access
         if frappe.session.user == "Guest":
-            frappe.set_user("Administrator")
+            raise frappe.PermissionError("Account creation requires authenticated user")
 
         # Validate current user has permission to create users
         if not frappe.has_permission("User", "create"):

@@ -20,8 +20,16 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    development_only_api,
+    high_security_api,
+    standard_api,
+)
+
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def create_member_optimized(member_data: str) -> Dict[str, Any]:
     """
     Create member using performance optimizations
@@ -58,6 +66,7 @@ def create_member_optimized(member_data: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def search_members_fast(filters: str = None, limit: int = 20) -> Dict[str, Any]:
     """
     Fast member search with comprehensive related data
@@ -97,6 +106,7 @@ def search_members_fast(filters: str = None, limit: int = 20) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_member_dashboard_fast(member_name: str) -> Dict[str, Any]:
     """
     Get member dashboard data with caching
@@ -124,6 +134,7 @@ def get_member_dashboard_fast(member_name: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def clear_member_cache(member_name: str = None) -> Dict[str, Any]:
     """
     Clear member-related caches
@@ -152,6 +163,7 @@ def clear_member_cache(member_name: str = None) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_performance_stats() -> Dict[str, Any]:
     """
     Get current performance statistics and cache status
@@ -207,6 +219,7 @@ def get_performance_stats() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def bulk_create_members(members_data: str) -> Dict[str, Any]:
     """
     Create multiple members using optimizations
@@ -269,6 +282,7 @@ def bulk_create_members(members_data: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_performance_optimization() -> Dict[str, Any]:
     """
     Run performance optimization validation tests

@@ -6,8 +6,11 @@ Fast cleanup of financial data using direct SQL
 import frappe
 from frappe.utils import now_datetime
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def nuke_financial_data_fast(confirm="NO"):
     """
     Fast deletion of all financial data using direct SQL

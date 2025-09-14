@@ -76,8 +76,11 @@ Version: 1.0
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def validate_sepa_integration():
     """
     Comprehensive SEPA integration validation and system health check.

@@ -1,7 +1,10 @@
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def grant_verenigingen_admin_customer_access():
     """Grant Verenigingen Administrator read access to Customer DocType"""
 

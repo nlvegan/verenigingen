@@ -1,7 +1,10 @@
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def check_customer_permissions():
     """Check Customer DocType permissions"""
 

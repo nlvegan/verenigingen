@@ -34,6 +34,7 @@ from frappe import _
 from frappe.query_builder import DocType
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 # Error codes for standardized API responses
 ERROR_CODES = {
@@ -1088,6 +1089,7 @@ def validate_role_profile_dependencies(role_profile: str, config: EntityConfig) 
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def validate_system_configuration() -> Dict[str, Any]:
     """
     Validate the entire role profile system configuration.
@@ -1174,6 +1176,7 @@ def validate_system_configuration() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def validate_all_role_profiles() -> Dict[str, Any]:
     """
     Validate all role profiles in the system for completeness and dependencies.

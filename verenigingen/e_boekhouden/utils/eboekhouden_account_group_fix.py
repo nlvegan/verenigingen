@@ -7,6 +7,8 @@ import json
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 
 def analyze_account_hierarchy(accounts_data):
     """
@@ -50,6 +52,7 @@ def analyze_account_hierarchy(accounts_data):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def fix_account_groups():
     """
     Fix existing accounts that should be groups
@@ -144,6 +147,7 @@ def fix_account_groups():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def check_problem_accounts():
     """
     Check for the specific problem accounts mentioned

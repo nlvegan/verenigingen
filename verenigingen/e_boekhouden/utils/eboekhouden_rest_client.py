@@ -35,6 +35,8 @@ from typing import Any, Dict, Optional
 import frappe
 import requests
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class EBoekhoudenRESTClient:
     """
@@ -401,6 +403,7 @@ class EBoekhoudenRESTClient:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def count_all_mutations():
     """
     Generate comprehensive mutation statistics for migration planning.

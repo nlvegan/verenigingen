@@ -8,6 +8,7 @@ from verenigingen.utils.dues_schedule_auto_creator import (
     preview_missing_dues_schedules,
     run_auto_creation_manually,
 )
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
 def get_context(context):
@@ -81,6 +82,7 @@ def get_dues_schedule_stats():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def trigger_auto_creation():
     """Trigger the auto-creation process manually"""
     if not frappe.has_permission("Membership Dues Schedule", "create"):

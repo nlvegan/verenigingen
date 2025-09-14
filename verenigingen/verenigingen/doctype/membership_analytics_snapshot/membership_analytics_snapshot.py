@@ -8,12 +8,15 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import add_days, add_months, flt, getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class MembershipAnalyticsSnapshot(Document):
     pass
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def create_snapshot(snapshot_type="Daily", specific_date=None):
     """Create analytics snapshot for the specified type and date"""
     snapshot_date = getdate(specific_date) if specific_date else today()

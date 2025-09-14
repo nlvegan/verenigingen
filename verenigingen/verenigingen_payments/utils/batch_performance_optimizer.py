@@ -19,6 +19,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+
 
 class BatchPerformanceOptimizer:
     """Optimizes SEPA batch processing performance"""
@@ -492,6 +494,7 @@ def get_batch_performance_optimizer() -> BatchPerformanceOptimizer:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_batch_performance_stats():
     """API endpoint to get batch performance statistics"""
     optimizer = get_batch_performance_optimizer()
@@ -499,6 +502,7 @@ def get_batch_performance_stats():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def clear_batch_performance_cache():
     """API endpoint to clear performance caches"""
     optimizer = get_batch_performance_optimizer()

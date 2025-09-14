@@ -156,14 +156,25 @@ bench --version  # Should be v15.0.0+
 
 ## 🔒 **Security & Compliance**
 
+### Enhanced API Security Framework
+- **Multi-Layer Protection**: Comprehensive API security with 5 security levels (@critical_api, @high_security_api, @standard_api, @public_api, @development_only_api)
+- **Operation Type Classification**: Financial, Admin, Member Data, Reporting, and Utility operations with appropriate protections
+- **Production Isolation**: Development and debugging functions automatically blocked in production environments
+- **Rate Limiting & CSRF Protection**: Advanced security measures including request throttling and token validation
+- **Comprehensive Audit Logging**: Detailed security event tracking and monitoring
+
 ### Privacy & Data Protection
 - **Audit Trails**: Complete activity logging and change tracking
 - **Access Controls**: Role-based permissions with fine-grained control
 - **Data Encryption**: Secure storage of sensitive member and financial data
+- **Permission Validation**: Zero-trust security model with explicit permission checking
+- **Secure Operations Framework**: Replacement of all `ignore_permissions=True` usage with validated secure operations
 
 ### Dutch Regulatory Compliance
 - **SEPA Compliance**: EU payment processing standards
 - **Banking Standards**: Dutch banking integration and reconciliation
+- **Financial Data Protection**: Critical-level security for all financial operations
+- **Payment Gateway Security**: Comprehensive Mollie and banking integration protection
 
 ## 🤝 **Community & Support**
 

@@ -4,8 +4,11 @@ Setup date range fields for E-Boekhouden Settings
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def setup_date_range_fields():
     """Add custom fields to E-Boekhouden Settings to store date range"""
 

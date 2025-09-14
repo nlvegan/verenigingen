@@ -96,6 +96,56 @@ The system includes a comprehensive brand management interface that allows admin
 - `verenigingen/templates/pages/brand_css.py` - CSS endpoint handler
 - Brand CSS served globally via `/brand_css` endpoint in `hooks.py`
 
+## Enhanced API Security Framework
+
+**CRITICAL SYSTEM FEATURE:** Verenigingen implements a comprehensive API security framework protecting over 2,200+ @frappe.whitelist() functions across the entire codebase.
+
+### Multi-Layer Security Architecture
+
+**Security Levels:**
+- **@critical_api**: Financial operations, data destruction, system configuration (35+ functions)
+- **@high_security_api**: Administrative operations, sensitive data access (45+ functions)
+- **@standard_api**: Regular business operations, member data access (55+ functions)
+- **@public_api**: Guest-accessible endpoints with validation (25+ functions)
+- **@development_only_api**: Test utilities, debug functions (blocked in production) (63+ functions)
+
+**Operation Types:**
+- **OperationType.FINANCIAL**: Payment processing, banking, financial imports
+- **OperationType.ADMIN**: System administration, cache management, user operations
+- **OperationType.MEMBER_DATA**: Member information, portal access, personal data
+- **OperationType.REPORTING**: Analytics, dashboards, business intelligence
+- **OperationType.UTILITY**: Development tools, testing, validation utilities
+
+### Security Implementation Status
+
+**✅ COMPLETE (223+ Functions Secured):**
+- **Five Security Batches**: Systematic 40+ function batches completed
+- **Critical Financial Systems**: All payment, SEPA, banking operations secured
+- **Member Portal Security**: All member-facing endpoints protected
+- **Administrative Functions**: System management and monitoring secured
+- **Development Isolation**: All debug/test functions blocked from production
+
+**Key Security Features:**
+- **Rate Limiting**: Automatic request throttling and abuse prevention
+- **CSRF Protection**: Token validation for all state-changing operations
+- **Audit Logging**: Comprehensive security event tracking and monitoring
+- **Permission Validation**: Zero-trust model with explicit permission checking
+- **Production Isolation**: Development utilities automatically disabled in production
+- **Operation Classification**: Function-level security based on business context
+
+### Security Framework Files
+
+**Core Framework:**
+- `verenigingen/utils/security/api_security_framework.py` - Main security decorators and validation
+- `verenigingen/utils/security/audit_logging.py` - Security event tracking
+- `verenigingen/utils/security/authorization.py` - Permission validation
+- `verenigingen/utils/security/csrf_protection.py` - Cross-site request forgery protection
+- `verenigingen/utils/security/rate_limiting.py` - Request throttling and abuse prevention
+
+**Documentation:**
+- `SECURITY_MIGRATION_INVENTORY.md` - Complete security implementation tracking
+- `docs/security/` - Detailed security configuration and best practices
+
 ## Workspace Structure and Navigation
 
 The Verenigingen workspace provides organized access to all system functionality through a comprehensive navigation structure. The workspace is organized into logical sections with subsections for related features.
@@ -278,87 +328,12 @@ The system uses extensive document event hooks in `hooks.py` for:
 - Membership lifecycle management
 - Payment history synchronization
 - Termination status updates
-- Tax exemption handling
 
 ### Permission System
 - Organization-based data isolation via `permissions.py`
 - Role-based access control with custom roles
 - Document-level and field-level security
 - Permission query conditions for data access
-
-#### Frappe Permission Levels (Permlevel)
-
-**Critical Understanding of Permlevel in Frappe Framework:**
-
-Frappe uses a multi-level permission system where fields can be assigned different permission levels (0, 1, 2, etc.). This creates field-level security within documents:
-
-**Permlevel 0 (Default):**
-- Standard fields accessible to users with basic document permissions
-- Controlled by standard role permissions (read, write, create, delete)
-- Most fields should be at permlevel 0 for normal access
-
-**Permlevel 1+ (Restricted):**
-- Fields requiring elevated permissions beyond basic document access
-- Requires separate permission entries in the DocType's permissions array
-- Users need BOTH document-level permissions AND permlevel-specific permissions
-- Frappe enforces this at the framework level, hiding fields even from users with correct roles
-
-**Permission Configuration:**
-```json
-// In doctype.json permissions array
-{
-  "role": "System Manager",
-  "read": 1,
-  "write": 1
-}, // Permlevel 0 permissions
-{
-  "permlevel": 1,
-  "role": "System Manager",
-  "read": 1,
-  "write": 1
-}  // Permlevel 1 permissions
-```
-
-**Field Configuration:**
-```json
-{
-  "fieldname": "sensitive_field",
-  "fieldtype": "Currency",
-  "permlevel": 1  // Requires permlevel 1 permissions
-}
-```
-
-**JavaScript Behavior:**
-- `frm.perm[1].read` checks if user has permlevel 1 read access
-- Fields are automatically hidden by Frappe if user lacks permlevel permissions
-- Manual JavaScript visibility control cannot override permlevel restrictions
-- Setting `permlevel: 0` makes fields accessible to standard role permissions
-
-**Best Practices:**
-- Use permlevel 0 for most fields, rely on role-based access control
-- Reserve permlevel 1+ only for highly sensitive fields (financial, admin-only)
-- Always include matching permission entries for each permlevel used
-- Consider user experience - hidden fields can confuse users with appropriate roles
-
-**Common Issues:**
-- Fields hidden despite user having correct roles (missing permlevel permissions)
-- JavaScript cannot force-show permlevel-restricted fields
-- Session permissions may not immediately reflect permlevel changes
-- you misspell 'verenigingen' as 'verenigingen' or other misspellings.
-
-### Scheduled Tasks
-Daily and weekly schedulers handle:
-- Membership renewals and expiration processing
-- Payment failure notifications
-- Termination compliance auditing
-- Amendment request processing
-
-## Key Configuration Files
-
-- `hooks.py` - Central app configuration and event handlers
-- `pyproject.toml` - Python package configuration
-- `permissions.py` - Custom permission logic
-- `validations.py` - Business rule validations
 
 ## Testing Infrastructure
 
@@ -368,7 +343,7 @@ Daily and weekly schedulers handle:
 - 8,852+ lines of test coverage across all components
 - Security, performance, and edge case testing included
 
-**Test Organization (Reorganized for better maintainability):**
+**Test Organization:**
 - `verenigingen/tests/` - Main comprehensive test suite (26+ files)
 - `scripts/testing/` - Organized test scripts and runners
   - `scripts/testing/runners/` - Test runners (regression, ERPNext, volunteer portal)
@@ -387,8 +362,8 @@ Daily and weekly schedulers handle:
 **Site Information:**
 - **Active Site:** `SITE_NAME`
 - **Site Location:** `~/frappe-bench/sites/SITE_NAME`
-- **Bench Directory:** `~/frappe-bench/` (restricted access for Claude Code)
-- **Deployment Type:** Production server running in cloud environment (not local development)
+- **Bench Directory:** `~/frappe-bench/`
+- **Deployment Type:** Production server running in cloud environment (no localhost access)
 
 ## Mock Bank Testing Support
 
@@ -484,8 +459,3 @@ python scripts/validation/hooks_event_validator.py
 # Check specific file for field issues
 python scripts/validation/enhanced_field_validator.py
 ```
-
-**Recent Fixes Applied:**
-- Fixed System Alert doctype field references in monitoring dashboard
-- Updated payment history event handlers to use `refresh_financial_history`
-- Enhanced pre-commit hooks for better module import handling

@@ -16,6 +16,7 @@ from frappe.utils import get_datetime, now_datetime
 
 from verenigingen.utils.config_manager import ConfigManager
 from verenigingen.utils.error_handling import get_logger
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 
 
 class PerformanceMetrics:
@@ -583,24 +584,28 @@ _performance_dashboard = PerformanceDashboard()
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_performance_dashboard():
     """Get performance dashboard data"""
     return _performance_dashboard.get_performance_report(hours=24)
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_system_health():
     """Get system health check"""
     return _performance_dashboard.get_system_health()
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_optimization_suggestions():
     """Get performance optimization suggestions"""
     return _performance_dashboard.get_optimization_suggestions()
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_api_performance_summary(hours=24):
     """Get API performance summary"""
     return _performance_metrics.get_api_performance_summary(int(hours))

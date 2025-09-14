@@ -22,6 +22,7 @@ from frappe.utils import add_to_date, flt, get_datetime, now
 
 from verenigingen.utils.error_handling import SEPAError, log_error
 from verenigingen.utils.performance_utils import performance_monitor
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
 @dataclass
@@ -633,6 +634,7 @@ class SEPAStreamProcessor:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_memory_usage_stats() -> Dict[str, Any]:
     """
     Get current memory usage statistics
@@ -656,6 +658,7 @@ def get_memory_usage_stats() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def optimize_sepa_batch_processing(filters: Dict[str, Any] = None, page_size: int = 1000) -> Dict[str, Any]:
     """
     Optimize SEPA batch processing with memory management
@@ -704,6 +707,7 @@ def optimize_sepa_batch_processing(filters: Dict[str, Any] = None, page_size: in
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def force_memory_cleanup() -> Dict[str, Any]:
     """
     Force memory cleanup operations

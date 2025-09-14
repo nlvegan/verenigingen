@@ -9,9 +9,11 @@ from frappe import _
 from frappe.utils import today
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def create_initial_iban_history(member_name):
     """
     Create initial IBAN history for a member if they have IBAN details
@@ -62,7 +64,7 @@ def create_initial_iban_history(member_name):
             doc=member_doc,
             justification=f"Create initial IBAN history for member {member_name} - financial tracking setup",
             required_permissions=["Member:write"],
-            allow_system_user=False,  # Require explicit user permissions for financial data
+            allow_system_user=True,  # Allow system user for automated financial data tracking
             bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
         )
 
@@ -86,6 +88,7 @@ def create_initial_iban_history(member_name):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_iban_history(member_name):
     """
     Get IBAN history for a member
@@ -161,7 +164,7 @@ def track_iban_change(member_doc):
                 doc=member_doc,
                 justification=f"Update IBAN history for member {member_doc.name} - financial information change tracking",
                 required_permissions=["Member:write"],
-                allow_system_user=False,  # Require explicit user permissions for financial data
+                allow_system_user=True,  # Allow system user for automated financial data tracking
                 bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
             )
 

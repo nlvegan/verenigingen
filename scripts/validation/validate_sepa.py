@@ -11,6 +11,7 @@ from verenigingen.utils.security_decorators import development_only
 
 @frappe.whitelist()
 @development_only()
+@high_security_api(operation_type=OperationType.UTILITY)
 def validate_integration():
     """Validate the enhanced SEPA integration"""
 

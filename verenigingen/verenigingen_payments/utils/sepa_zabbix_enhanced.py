@@ -21,6 +21,7 @@ from frappe.utils import cint, flt, get_datetime, now_datetime
 
 from verenigingen.utils.error_handling import log_error
 from verenigingen.utils.performance_dashboard import _performance_dashboard
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.security.security_monitoring import get_security_monitor
 from verenigingen.verenigingen_payments.utils.sepa_memory_optimizer import SEPAMemoryMonitor
 from verenigingen.verenigingen_payments.utils.sepa_monitoring_dashboard import get_dashboard_instance
@@ -1121,6 +1122,7 @@ def get_sepa_zabbix_discovery() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_zabbix_item_config(item_key: str) -> Optional[Dict[str, Any]]:
     """
     Get Zabbix item configuration
@@ -1135,6 +1137,7 @@ def get_zabbix_item_config(item_key: str) -> Optional[Dict[str, Any]]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_zabbix_trigger_configs() -> List[Dict[str, Any]]:
     """
     Get Zabbix trigger configurations
@@ -1146,6 +1149,7 @@ def get_zabbix_trigger_configs() -> List[Dict[str, Any]]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def test_sepa_zabbix_integration() -> Dict[str, Any]:
     """
     Test SEPA Zabbix integration

@@ -10,6 +10,8 @@ from typing import Any, Callable, Dict, List, Optional
 import frappe
 from frappe.utils import cstr, now_datetime, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+
 
 class SEPAErrorHandler:
     """
@@ -356,6 +358,7 @@ def sepa_retry(operation_name: str = None):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_sepa_error_handler_status():
     """API to get error handler status"""
     handler = get_sepa_error_handler()
@@ -363,6 +366,7 @@ def get_sepa_error_handler_status():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def reset_sepa_circuit_breaker():
     """API to reset SEPA circuit breaker"""
     handler = get_sepa_error_handler()
@@ -371,6 +375,7 @@ def reset_sepa_circuit_breaker():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def create_retry_batch_from_errors(error_data):
     """API to create retry batch from error data"""
     if isinstance(error_data, str):

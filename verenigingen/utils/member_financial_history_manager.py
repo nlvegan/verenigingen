@@ -269,17 +269,38 @@ class MemberFinancialHistoryManager:
         """
         for retry in range(max_retries):
             try:
-                # Save using secure operations with proper permission checking
-                # Use update_child_table operation to avoid irrelevant validation failures
-                # (This operation handles ignore_links and ignore_version internally)
-                result = secure_document_operation(
-                    operation="update_child_table",
-                    doc=self.member,
-                    justification=f"Update {self.history_field} for member {self.member.name}",
-                    required_permissions=["Member:write"],
-                    allow_system_user=False,  # Require explicit user permissions for financial data
-                    bypass_validations=["link_validation"],  # Explicitly allow chapter link bypass
-                )
+                # For background operations, use service account context
+                from verenigingen.utils.secure_service_account import background_service_context
+
+                # Check if we're in a background context (no proper user)
+                current_user = frappe.session.user
+                is_background_operation = current_user in ["Guest", "Administrator", None]
+
+                if is_background_operation:
+                    # Use secure service account for background operations
+                    with background_service_context(
+                        f"Update {self.history_field} for member {self.member.name}"
+                    ) as ctx:
+                        result = secure_document_operation(
+                            operation="update_child_table",
+                            doc=self.member,
+                            justification=f"Background update {self.history_field} for member {self.member.name}",
+                            required_permissions=["Member:write"],
+                            allow_system_user=False,  # Still require proper permissions
+                            bypass_validations=["link_validation"],
+                        )
+                        if result.success:
+                            ctx.log_operation("member_financial_history", self.member.name)
+                else:
+                    # Use current user permissions for interactive operations
+                    result = secure_document_operation(
+                        operation="update_child_table",
+                        doc=self.member,
+                        justification=f"Update {self.history_field} for member {self.member.name}",
+                        required_permissions=["Member:write"],
+                        allow_system_user=False,
+                        bypass_validations=["link_validation"],
+                    )
 
                 if result.success:
                     # ✅ FIX: Let Frappe handle transaction commit automatically

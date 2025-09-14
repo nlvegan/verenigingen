@@ -55,6 +55,7 @@ from verenigingen.utils.migration.migration_error_recovery import MigrationError
 from verenigingen.utils.migration.migration_performance import BatchProcessor, PerformanceOptimizer
 from verenigingen.utils.migration.migration_pre_validation import PreImportValidator
 from verenigingen.utils.migration.migration_transaction_safety import MigrationTransaction
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 from .eboekhouden_payment_mapping import get_payment_account_mappings
 from .eboekhouden_rest_full_migration import start_full_rest_import
@@ -337,6 +338,7 @@ class EnhancedEBoekhoudenMigration:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def execute_enhanced_migration(migration_name):
     """
     Execute eBoekhouden migration with comprehensive enterprise features.
@@ -371,6 +373,7 @@ def execute_enhanced_migration(migration_name):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def run_migration_dry_run(migration_name):
     """
     Execute complete migration simulation without data modification.
@@ -407,6 +410,7 @@ def run_migration_dry_run(migration_name):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def validate_migration_data(migration_name):
     """
     Perform comprehensive pre-migration data validation and readiness assessment.

@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Optional, Union
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 # Type hints following ERPNext patterns
 ReportName = str
 ReportFilters = Dict[str, Any]
@@ -381,6 +383,7 @@ def execute_script_report_hybrid(
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_all_reports_hybrid():
     """
     Whitelisted function to test all reports using hybrid framework
@@ -409,7 +412,8 @@ def test_all_reports_hybrid():
         }
 
 
-@frappe.whitelist()  
+@frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_single_report_hybrid(report_name, filters=None):
     """
     Test a single report using hybrid framework

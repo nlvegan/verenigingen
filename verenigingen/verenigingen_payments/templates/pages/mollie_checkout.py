@@ -36,6 +36,8 @@ import frappe
 from frappe import _
 from frappe.utils import cint, fmt_money
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 no_cache = 1
 
 # Required parameters for checkout processing
@@ -294,6 +296,7 @@ def check_existing_payment(doc, data, payment_id, gateway_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def get_payment_status_only(reference_doctype, reference_docname):
     """
     Get only the payment status without processing

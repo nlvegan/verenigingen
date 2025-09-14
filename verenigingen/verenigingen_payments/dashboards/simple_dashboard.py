@@ -6,8 +6,11 @@ Provides basic dashboard functionality without complex dependencies
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_dashboard_data(settings_name=None):
     """Get dashboard data for frontend - simplified version"""
     # Return test data for now while Mollie API integration is being set up
@@ -26,6 +29,7 @@ def get_dashboard_data(settings_name=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_financial_report(period="month", settings_name=None):
     """Get financial report for specified period - simplified version"""
     return {

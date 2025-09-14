@@ -7,9 +7,15 @@ Test script for SEPA Audit Log functionality
 import frappe
 
 from verenigingen.doctype.sepa_audit_log.sepa_audit_log import SEPAAuditLog
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    development_only_api,
+    high_security_api,
+)
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_sepa_audit_logging():
     """Test SEPA audit logging functionality"""
     try:
@@ -41,6 +47,7 @@ def test_sepa_audit_logging():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_mandate_creation_logging():
     """Test mandate creation specific logging"""
     try:
@@ -74,6 +81,7 @@ def test_mandate_creation_logging():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_recent_audit_logs():
     """Get recent SEPA audit logs for verification"""
     try:

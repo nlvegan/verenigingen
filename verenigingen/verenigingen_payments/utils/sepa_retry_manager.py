@@ -22,6 +22,12 @@ from frappe.utils import add_seconds, get_datetime, now
 
 from verenigingen.utils.error_handling import SEPAError, handle_api_error, log_error
 from verenigingen.utils.performance_utils import performance_monitor
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
 
 
 class RetryStrategy(Enum):
@@ -592,6 +598,7 @@ class SEPARetryConfigs:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 def execute_with_retry(operation_type: str, operation_data: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -660,6 +667,7 @@ def execute_with_retry(operation_type: str, operation_data: Dict[str, Any]) -> D
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 @handle_api_error
 def get_retry_statistics(operation_id: str = None) -> Dict[str, Any]:
     """
@@ -682,6 +690,7 @@ def get_retry_statistics(operation_id: str = None) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 @handle_api_error
 def reset_retry_circuit_breaker(operation_id: str) -> Dict[str, Any]:
     """

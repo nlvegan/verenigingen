@@ -6,6 +6,7 @@ from frappe import _
 from frappe.model.document import Document
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 
 
 class BrandSettings(Document):
@@ -168,6 +169,7 @@ class BrandSettings(Document):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.PUBLIC)
 def get_active_brand_settings():
     """Get the brand settings (now a Single doctype)"""
     # Try to get from cache first
@@ -208,6 +210,7 @@ def get_active_brand_settings():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def generate_brand_css():
     """Generate CSS with brand colors"""
     # Try to get from cache first
@@ -537,6 +540,7 @@ body.portal-page .to-purple-800,
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.PUBLIC)
 def get_organization_logo():
     """Get the currently active organization logo"""
     # Try to get from cache first
@@ -555,6 +559,7 @@ def get_organization_logo():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def create_default_brand_settings():
     """Create default brand settings if none exist"""
     # Brand Settings is a Single DocType, check if it exists properly
@@ -596,6 +601,7 @@ def create_default_brand_settings():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def sync_brand_settings_to_owl_theme():
     """Manual function to sync active Brand Settings to Owl Theme"""
     try:
@@ -616,6 +622,7 @@ def sync_brand_settings_to_owl_theme():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def check_owl_theme_integration():
     """Check if Owl Theme is installed and working"""
     try:
@@ -647,6 +654,7 @@ def check_owl_theme_integration():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.UTILITY)
 def test_owl_theme_integration():
     """Test the complete Owl Theme integration"""
     results = {}
@@ -717,6 +725,7 @@ def test_owl_theme_integration():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.PUBLIC)
 def get_brand_css_inline():
     """Get brand CSS for inline inclusion in pages - bypasses route caching issues"""
     try:
@@ -727,6 +736,7 @@ def get_brand_css_inline():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def force_rebuild_css():
     """Force rebuild and clear all brand-related caches"""
     try:

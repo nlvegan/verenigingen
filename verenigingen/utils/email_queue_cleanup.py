@@ -1,9 +1,11 @@
 import frappe
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def clear_failed_administrator_emails():
     """Clear failed email queue items with Administrator as recipient"""
     if not frappe.has_permission("System Manager"):

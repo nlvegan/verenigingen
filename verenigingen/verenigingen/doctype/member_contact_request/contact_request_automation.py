@@ -8,6 +8,7 @@ from frappe import _
 from frappe.utils import add_days, today
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
 def process_contact_request_automation():
@@ -312,6 +313,7 @@ def sync_crm_status_updates():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_opportunity_from_contact_request(contact_request_name):
     """Create a CRM Opportunity from a contact request"""
 
@@ -390,6 +392,7 @@ def create_opportunity_from_contact_request(contact_request_name):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_contact_request_analytics():
     """Get analytics data for contact requests"""
 

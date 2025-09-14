@@ -115,9 +115,65 @@ def parse_application_data(data_input):
 
     if isinstance(data_input, str):
         try:
-            data = json.loads(data_input)
+            # Log the first part of the JSON for debugging
+            preview = data_input[:200] if len(data_input) > 200 else data_input
+            frappe.logger("verenigingen.application").debug(
+                f"Parsing JSON data (length: {len(data_input)}): {preview}..."
+            )
+
+            # Decode HTML entities (handles cases where JSON gets HTML encoded)
+            import html
+
+            decoded_data = html.unescape(data_input)
+            frappe.logger("verenigingen.application").debug(f"After HTML decoding: {decoded_data[:100]}...")
+
+            # Debug: Check complete data structure
+            if decoded_data:
+                frappe.logger("verenigingen.application").debug(
+                    f"Complete decoded data length: {len(decoded_data)}"
+                )
+                frappe.logger("verenigingen.application").debug(
+                    f"Decoded data starts with: {decoded_data[:100]}"
+                )
+                frappe.logger("verenigingen.application").debug(
+                    f"Decoded data ends with: {decoded_data[-100:]}"
+                )
+
+                first_char = decoded_data[0]
+                first_char_code = ord(first_char)
+                frappe.logger("verenigingen.application").debug(
+                    f"First character: '{first_char}' (ASCII: {first_char_code})"
+                )
+
+                # Check if this looks like truncated JSON
+                if decoded_data.count("{") != decoded_data.count("}"):
+                    frappe.logger("verenigingen.application").error(
+                        f"Unbalanced braces! Opening: {decoded_data.count('{')} Closing: {decoded_data.count('}')}"
+                    )
+
+                # Strip whitespace and try again if needed
+                stripped_data = decoded_data.strip()
+                if stripped_data != decoded_data:
+                    frappe.logger("verenigingen.application").debug(
+                        f"Found whitespace, using stripped version"
+                    )
+                    decoded_data = stripped_data
+
+            data = json.loads(decoded_data)
         except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON format: {str(e)}")
+            # Enhanced error message with more context
+            error_msg = f"Invalid JSON format: {str(e)}"
+            # Use decoded data for error reporting if available
+            error_data = locals().get("decoded_data", data_input)
+            if len(error_data) > 0:
+                # Show the problematic area around the error
+                start = max(0, e.pos - 20) if hasattr(e, "pos") else 0
+                end = min(len(error_data), start + 40)
+                problematic_section = error_data[start:end]
+                error_msg += f" | Problematic section: '{problematic_section}'"
+
+            frappe.logger("verenigingen.application").error(f"JSON parsing failed: {error_msg}")
+            raise ValueError(error_msg)
     else:
         data = data_input
 
@@ -127,23 +183,33 @@ def parse_application_data(data_input):
 def get_form_data():
     """Get data needed for application form"""
     try:
-        # Get active membership types
+        # Get enhanced membership types with contribution options in one bulk operation
         membership_types = []
         try:
-            membership_types = frappe.get_all(
-                "Membership Type",
-                filters={"is_active": 1},
-                fields=[
-                    "name",
-                    "membership_type_name",
-                    "description",
-                    "minimum_amount",
-                    "billing_period",  # Updated from subscription_period
-                ],
-                order_by="minimum_amount",
+            from verenigingen.templates.pages.membership_application import (
+                get_membership_types_with_contributions,
             )
+
+            membership_types = get_membership_types_with_contributions()
         except Exception as e:
-            frappe.log_error(f"Error getting membership types: {str(e)}")
+            # Fallback to basic membership types if enhanced version fails
+            frappe.log_error(f"Error getting enhanced membership types, falling back to basic: {str(e)}")
+            try:
+                membership_types = frappe.get_all(
+                    "Membership Type",
+                    filters={"is_active": 1},
+                    fields=[
+                        "name",
+                        "membership_type_name",
+                        "description",
+                        "minimum_amount",
+                        "billing_period",
+                    ],
+                    order_by="minimum_amount",
+                )
+            except Exception as fallback_e:
+                frappe.log_error(f"Error getting basic membership types: {str(fallback_e)}")
+                membership_types = []
 
         # Get countries - use a fallback list
         countries = [

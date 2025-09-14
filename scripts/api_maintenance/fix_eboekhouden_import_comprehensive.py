@@ -3,8 +3,11 @@ import json
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def fix_import_code_comprehensive():
     """Apply comprehensive fixes to the eBoekhouden import code"""
     import os
@@ -106,6 +109,7 @@ def fix_import_code_comprehensive():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_existing_records():
     """Fix existing Purchase Invoices and Sales Invoices"""
 
@@ -234,6 +238,7 @@ def fix_existing_records():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def restart_required():
     """Notify that bench restart is required"""
     return {"message": 'Please run "bench restart" to apply the code changes', "success": True}

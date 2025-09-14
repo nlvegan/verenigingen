@@ -18,6 +18,8 @@ import traceback
 import frappe
 from frappe.utils import now, get_datetime
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 class TestCoverageReporter:
     """
@@ -601,6 +603,7 @@ class TestCoverageReporter:
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def generate_coverage_dashboard():
     """Generate test coverage dashboard - API endpoint for manual execution"""
     try:
@@ -623,6 +626,7 @@ def generate_coverage_dashboard():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def get_coverage_summary():
     """Get quick coverage summary without full report generation"""
     try:

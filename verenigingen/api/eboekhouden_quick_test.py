@@ -5,8 +5,11 @@ eBoekhouden Quick Test Suite - Fast validation of system after cleanup
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def quick_system_validation():
     """Quick validation that eBoekhouden system is functional after cleanup"""
 
@@ -124,6 +127,7 @@ def quick_system_validation():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_api_endpoints():
     """Test that API endpoints are still functional after cleanup"""
 

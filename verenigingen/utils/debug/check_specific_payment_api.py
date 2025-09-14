@@ -5,8 +5,11 @@ Check specific payment from API to see available fields
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_payment_6724():
     """Check the specific payment mutation 6724 that caused issues"""
 

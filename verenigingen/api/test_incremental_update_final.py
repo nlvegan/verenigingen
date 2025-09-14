@@ -3,8 +3,11 @@ from datetime import datetime
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_incremental_update_comprehensive():
     """
     Comprehensive final validation test for the incremental history update system.

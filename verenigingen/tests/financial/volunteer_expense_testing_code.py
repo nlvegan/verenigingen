@@ -1,4 +1,10 @@
+import frappe
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+from verenigingen.utils.secure_service_account import background_service_context
+
+
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_expense_query_fix():
     """Test that the expense claim query works without 'title' field"""
     try:
@@ -27,6 +33,7 @@ def test_expense_query_fix():
         return {"success": False, "error": str(e)}
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_employee_creation_only():
     """Test just the employee creation functionality without expense submission"""
     try:
@@ -164,6 +171,7 @@ def test_employee_creation_only():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_expense_integration():
     """Test ERPNext Expense Claim integration with HRMS"""
     try:
@@ -361,6 +369,7 @@ def test_expense_integration():
         frappe.db.commit()
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_expense_form_with_foppe():
     """Test expense form APIs with Foppe de Haan's account"""
 
@@ -400,7 +409,9 @@ def test_expense_form_with_foppe():
                     "start_date": frappe.utils.today(),
                 }
             )
-            volunteer_doc.insert(ignore_permissions=True)
+            # Use secure service account for test data creation
+            with background_service_context("Create test volunteer record for expense testing"):
+                volunteer_doc.insert()
             foppe_volunteer = {
                 "name": volunteer_doc.name,
                 "volunteer_name": volunteer_doc.volunteer_name,
@@ -613,6 +624,7 @@ def debug_volunteer_access():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_request_info():
     """Debug function to check what's available in the request without file upload"""
     try:

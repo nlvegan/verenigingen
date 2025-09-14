@@ -6,8 +6,11 @@ from unittest.mock import MagicMock, patch
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_webhook_with_real_payment():
     """Test webhook using the real pending payment from Mollie"""
     try:
@@ -67,6 +70,7 @@ def test_webhook_with_real_payment():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_payment_status(payment_id="tr_7AGtd7xRcVUhJ3DntVXDJ"):
     """Check the status of our real test payment"""
     try:

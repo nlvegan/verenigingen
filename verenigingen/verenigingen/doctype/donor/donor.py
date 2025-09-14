@@ -592,8 +592,8 @@ class Donor(Document):
 
                 # Trigger Customer field refresh from Contact
                 # This saves the Customer, so mark it to prevent double-save later
-                # Pass the customer_doc to ensure pending changes are included
-                self.refresh_customer_from_contact(customer_name, contact.name, customer_doc)
+                # Refresh customer contact reference (no pending changes in this context)
+                self.refresh_customer_from_contact(customer_name, contact.name)
 
                 # Set flag to prevent double Customer save in main sync logic
                 if hasattr(frappe.local, "_contact_triggered_customer_save"):

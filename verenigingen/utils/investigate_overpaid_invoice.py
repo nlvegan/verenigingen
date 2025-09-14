@@ -2,8 +2,11 @@ from decimal import Decimal
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def investigate_overpaid_invoice(invoice_number="vf-stickers-24"):
     """Investigate why invoice shows negative outstanding amount"""
     results = []

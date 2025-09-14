@@ -4,6 +4,8 @@
 import frappe
 from frappe.model.document import Document
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 
 class EBoekhoudenItemMapping(Document):
     def validate(self):
@@ -46,6 +48,7 @@ class EBoekhoudenItemMapping(Document):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_item_for_account(account_code, company, transaction_type="Both"):
     """Get the mapped item for an E-boekhouden account"""
     if not account_code:
@@ -78,6 +81,7 @@ def get_item_for_account(account_code, company, transaction_type="Both"):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_default_mappings(company):
     """Create default mappings based on common account patterns"""
     frappe.set_user("Administrator")

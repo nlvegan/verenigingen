@@ -6,6 +6,8 @@ Demonstrates the membership application workflow in action
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+
 
 def get_context(context):
     """Get context for workflow demo page"""
@@ -78,6 +80,7 @@ def get_context(context):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_workflow_actions(member_name):
     """Get available workflow actions for a member"""
 
@@ -111,6 +114,7 @@ def get_workflow_actions(member_name):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def execute_workflow_action(member_name, action, next_state):
     """Execute a workflow action on a member"""
 

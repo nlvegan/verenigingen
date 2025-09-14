@@ -5,8 +5,11 @@ API endpoints for E-Boekhouden clean migration
 import frappe
 from frappe.utils import getdate
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def debug_opening_balance_import():
     """Debug the opening balance import issue"""
     try:
@@ -76,6 +79,7 @@ def debug_opening_balance_import():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def preview_migration(from_date=None, to_date=None):
     """Preview what will be migrated"""
     from verenigingen.e_boekhouden.utils.migration_clean_import import get_migration_preview
@@ -84,6 +88,7 @@ def preview_migration(from_date=None, to_date=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def execute_migration(from_date=None, to_date=None, confirm=False):
     """Execute the clean migration"""
     if not confirm:
@@ -98,6 +103,7 @@ def execute_migration(from_date=None, to_date=None, confirm=False):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def test_single_mutation(mutation_id):
     """Test import of a single mutation with enhanced features"""
     from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import _process_single_mutation

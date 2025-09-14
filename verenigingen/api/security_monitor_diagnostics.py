@@ -8,8 +8,11 @@ Provides diagnostic functions to analyze and troubleshoot security monitor initi
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def diagnose_security_monitor_initialization():
     """Debug security monitor initialization issues"""
     try:
@@ -139,6 +142,7 @@ def diagnose_security_monitor_initialization():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_security_monitor_basic_functionality():
     """Test basic security monitor functionality"""
     try:
@@ -193,6 +197,7 @@ def test_security_monitor_basic_functionality():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def fix_security_monitor_initialization():
     """Attempt to fix security monitor initialization issues"""
     try:

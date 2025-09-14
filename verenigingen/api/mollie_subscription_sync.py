@@ -15,8 +15,11 @@ try:
 except ImportError:
     get_mollie_connector = None
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def sync_mollie_subscriptions(dry_run=True) -> Dict:
     """
     Sync subscription data from Mollie API to Customer records
@@ -222,6 +225,7 @@ def sync_customer_subscriptions(connector, customer_data: Dict, dry_run: bool = 
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def sync_single_customer_subscription(customer_name: str, dry_run: bool = True) -> Dict:
     """
     Sync subscriptions for a single customer
@@ -261,6 +265,7 @@ def sync_single_customer_subscription(customer_name: str, dry_run: bool = True) 
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_mollie_subscription_details(customer_name: str) -> Dict:
     """
     Get subscription details from Mollie for a specific customer

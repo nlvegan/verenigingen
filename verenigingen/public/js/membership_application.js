@@ -1864,48 +1864,22 @@ class _MembershipApplication {
 		const container = $('#membership-types');
 		container.empty();
 
-		// Load detailed membership type information with custom amount support
-		const loadPromises = membershipTypes.map(type => {
-			return new Promise((resolve) => {
-				if (this.apiService && typeof this.apiService.call === 'function') {
-					this.apiService.call('verenigingen.api.membership_application.get_membership_type_details', { membership_type: type.name })
-						.then(result => resolve(result || type))
-						.catch(() => resolve(type)); // Fallback to basic type data
-				} else {
-					// Fallback - enhance basic type with custom amount support
-					const baseAmount = parseFloat(type.amount) || 50; // fallback to 50 if amount is invalid
-					const enhancedType = {
-						...type,
-						allow_custom_amount: true,
-						minimum_amount: baseAmount * 0.5,
-						maximum_amount: baseAmount * 5,
-						suggested_amounts: [
-							{ amount: baseAmount, label: 'Standard' },
-							{ amount: baseAmount * 1.5, label: 'Supporter' },
-							{ amount: baseAmount * 2, label: 'Patron' },
-							{ amount: baseAmount * 3, label: 'Benefactor' }
-						]
-					};
-					console.log('Enhanced type with suggested amounts:', enhancedType);
-					resolve(enhancedType);
-				}
-			});
+		// Enhanced membership types now come with full details from get_form_data
+		// No need for individual API calls - process the data directly
+		this.processMembershipTypes(membershipTypes);
+	}
+
+	processMembershipTypes(membershipTypes) {
+		const container = $('#membership-types');
+
+		membershipTypes.forEach(type => {
+			// Data already comes enhanced with contribution_options from server
+			const card = this.createMembershipCard(type);
+			container.append(card);
 		});
 
-		Promise.all(loadPromises).then(detailedTypes => {
-			detailedTypes.forEach(type => {
-				if (type.error) {
-					console.error('Error loading membership type:', type.error);
-					return;
-				}
-
-				const card = this.createMembershipCard(type);
-				container.append(card);
-			});
-
-			this.bindMembershipEvents();
-			console.log('Loaded', detailedTypes.length, 'membership types with custom amount support');
-		});
+		this.bindMembershipEvents();
+		console.log('Loaded', membershipTypes.length, 'membership types (enhanced data from server)');
 	}
 
 	loadPaymentMethods(paymentMethods) {
@@ -2993,35 +2967,16 @@ class MembershipStep extends BaseStep {
 		const container = $('#membership-types');
 		container.empty();
 
-		// Get detailed information for each membership type
-		const loadPromises = membershipTypes.map(type => {
-			return new Promise((resolve) => {
-				frappe.call({
-					method: 'verenigingen.api.membership_application.get_membership_type_details',
-					args: { membership_type: type.name },
-					callback(r) {
-						resolve(r.message || type);
-					},
-					error() {
-						resolve(type); // Fallback to basic type data
-					}
-				});
-			});
+		// Enhanced membership types already come with full details from get_form_data
+		// No need for individual API calls - process the data directly
+		membershipTypes.forEach(type => {
+			// Data already comes enhanced with contribution_options from server
+			const card = this.createMembershipCard(type);
+			container.append(card);
 		});
 
-		Promise.all(loadPromises).then(detailedTypes => {
-			detailedTypes.forEach(type => {
-				if (type.error) {
-					console.error('Error loading membership type:', type.error);
-					return;
-				}
-
-				const card = this.createMembershipCard(type);
-				container.append(card);
-			});
-
-			this.bindMembershipEvents();
-		});
+		this.bindMembershipEvents();
+		console.log('Rendered', membershipTypes.length, 'membership types (enhanced data from server)');
 	}
 }
 
@@ -3495,12 +3450,25 @@ class MembershipAPI {
 		return new Promise((resolve, reject) => {
 			console.log('Submitting application data:', data);
 
+			// Validate data before JSON.stringify to catch serialization issues
+			let jsonData;
+			try {
+				jsonData = JSON.stringify(data);
+				console.log('JSON serialized data length:', jsonData.length);
+				console.log('JSON serialized data preview:', jsonData.substring(0, 100) + '...');
+			} catch (error) {
+				console.error('JSON serialization failed:', error);
+				console.error('Problem data:', data);
+				reject(new Error(`Failed to serialize form data: ${error.message}`));
+				return;
+			}
+
 			// Use direct AJAX call instead of frappe.call to avoid URL issues
 			$.ajax({
 				url: '/api/method/verenigingen.api.membership_application.submit_application_with_tracking',
 				type: 'POST',
 				data: {
-					data: JSON.stringify(data)
+					data: jsonData
 				},
 				headers: {
 					'X-Frappe-CSRF-Token': frappe.csrf_token || ''

@@ -25,6 +25,7 @@ from frappe import _
 from frappe.utils import add_days, getdate, today
 
 from verenigingen.utils.error_handling import SEPAError, ValidationError, handle_api_error
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.verenigingen_payments.utils.sepa_xml_enhanced_generator import (
     SEPALocalInstrument,
     SEPASequenceType,
@@ -1140,6 +1141,7 @@ class SEPARulebookValidator:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 def validate_sepa_xml_rulebook(xml_content: str, country: str = "NL") -> Dict[str, Any]:
     """
@@ -1157,6 +1159,7 @@ def validate_sepa_xml_rulebook(xml_content: str, country: str = "NL") -> Dict[st
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 def get_sepa_rules(rule_type: str = None, country: str = None) -> Dict[str, Any]:
     """
@@ -1196,6 +1199,7 @@ def get_sepa_rules(rule_type: str = None, country: str = None) -> Dict[str, Any]
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 def validate_batch_against_rulebook(batch_name: str) -> Dict[str, Any]:
     """

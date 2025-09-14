@@ -3,8 +3,11 @@ import json
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def rebuild_workspace(force_enable=False):
     """Rebuild the workspace with proper structure based on fixtures
 

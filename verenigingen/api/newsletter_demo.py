@@ -7,9 +7,11 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def setup_email_groups():
     """Create default email groups for the organization"""
 
@@ -115,6 +117,7 @@ def setup_email_groups():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def populate_email_groups():
     """Populate email groups with current members"""
 
@@ -227,6 +230,7 @@ def add_to_email_group(group_name, email, member_name=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def create_sample_newsletter():
     """Create a sample newsletter template"""
 
@@ -298,6 +302,7 @@ def create_sample_newsletter():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def send_test_newsletter(email_group=None):
     """Send a test newsletter to demonstrate the system"""
 
@@ -342,6 +347,7 @@ def send_test_newsletter(email_group=None):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_newsletter_statistics():
     """Get statistics about newsletter subscribers and opt-outs"""
 

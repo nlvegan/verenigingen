@@ -6,8 +6,11 @@ Includes Payment Ledger Entry cleanup and better error handling
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def robust_cleanup_all_imported_data(company=None):
     """Robust function to completely clean up all imported data for fresh migration"""
     try:

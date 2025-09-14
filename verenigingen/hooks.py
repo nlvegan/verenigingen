@@ -434,9 +434,12 @@ doc_events = {
     },
     "Expense Claim": {
         "validate": "verenigingen.utils.account_group_validation_hooks.validate_expense_claim",
-        "after_save": "verenigingen.events.delayed_expense_hooks.schedule_member_expense_history_update",
         "on_update_after_submit": "verenigingen.events.delayed_expense_hooks.schedule_member_expense_history_update",
-        "on_cancel": "verenigingen.events.delayed_expense_hooks.schedule_member_expense_history_removal",
+        "on_submit": "verenigingen.utils.expense_handlers.update_member_expense_history",
+        "on_cancel": [
+            "verenigingen.events.delayed_expense_hooks.schedule_member_expense_history_removal",
+            "verenigingen.utils.expense_handlers.on_expense_claim_cancel",
+        ],
     },
     "Purchase Invoice": {
         "validate": "verenigingen.utils.account_group_validation_hooks.validate_purchase_invoice"
@@ -987,6 +990,11 @@ fixtures = [
     },
     # Custom HTML Blocks
     {"doctype": "Custom HTML Block", "filters": [["name", "=", "Page Links"]]},
+    # Background Service User and Role
+    {"doctype": "Role", "filters": [["name", "=", "Verenigingen Background Service"]]},
+    {"doctype": "User", "filters": [["email", "=", "background.service@verenigingen.local"]]},
+    # Verenigingen Settings with system user
+    {"doctype": "Verenigingen Settings"},
 ]
 
 # Authentication and authorization

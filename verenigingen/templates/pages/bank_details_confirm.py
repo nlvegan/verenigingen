@@ -8,6 +8,12 @@ from frappe import _
 from frappe.utils import now, today
 
 from verenigingen.utils.member_utils import get_current_user_member_name
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    development_only_api,
+    standard_api,
+)
 
 
 def get_context(context):
@@ -311,6 +317,7 @@ def update_existing_mandate(mandate_name, new_iban, new_bic, new_account_holder)
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def test_sepa_integration():
     """Test SEPA Direct Debit integration functionality"""
     results = {"tests": [], "summary": {}}
@@ -438,6 +445,7 @@ def test_sepa_integration():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_foppe_member_record():
     """Check if Foppe de Haan has a member record"""
     try:
@@ -473,6 +481,7 @@ def check_foppe_member_record():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_foppe_member_lookup():
     """Test member lookup for Foppe's accounts"""
     try:
@@ -505,6 +514,7 @@ def test_foppe_member_lookup():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_current_user_info():
     """Get current user information and member lookup status"""
     try:

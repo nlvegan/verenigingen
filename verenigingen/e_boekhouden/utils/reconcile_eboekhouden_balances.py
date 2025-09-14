@@ -6,8 +6,11 @@ Reconcile eBoekhouden balances with ERPNext
 import frappe
 from frappe.utils import flt
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def reconcile_account_05000():
     """Detailed reconciliation of account 05000"""
 

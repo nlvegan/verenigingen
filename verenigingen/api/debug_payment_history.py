@@ -6,10 +6,11 @@ Debug Payment History Event Handler
 import frappe
 from frappe.utils import nowdate, today
 
-from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_report_config():
     """Fix the Membership Dues Coverage Analysis report configuration"""
     try:
@@ -41,6 +42,7 @@ def fix_report_config():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def debug_coverage_report_display():
     """Debug the actual coverage report display issue"""
     from verenigingen.verenigingen.report.membership_dues_coverage_analysis.membership_dues_coverage_analysis import (
@@ -122,6 +124,7 @@ def debug_coverage_report_display():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def debug_membership_periods():
     """Debug why membership periods are returning 0 active days"""
     from verenigingen.verenigingen.report.membership_dues_coverage_analysis.membership_dues_coverage_analysis import (

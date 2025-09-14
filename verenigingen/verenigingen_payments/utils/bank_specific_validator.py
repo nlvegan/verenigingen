@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 from verenigingen.verenigingen_payments.utils.sepa_config_manager import get_sepa_config_manager
 
 
@@ -146,6 +147,7 @@ def get_bank_specific_validator() -> BankSpecificValidator:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def validate_sepa_transaction_for_bank(transaction_data, bank_bic):
     """
     API endpoint to validate SEPA transaction for specific bank
@@ -172,6 +174,7 @@ def validate_sepa_transaction_for_bank(transaction_data, bank_bic):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_bank_validation_requirements(bank_bic):
     """Get validation requirements for a specific bank"""
     try:

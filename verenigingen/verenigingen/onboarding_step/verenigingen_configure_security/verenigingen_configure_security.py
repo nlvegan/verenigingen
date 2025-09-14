@@ -7,6 +7,8 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class VereningingenConfigureSecurity(Document):
     """Onboarding step for configuring critical security settings"""
@@ -16,6 +18,7 @@ class VereningingenConfigureSecurity(Document):
         pass
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def get_security_checklist(self):
         """Return security configuration checklist for administrators"""
         return {
@@ -153,6 +156,7 @@ class VereningingenConfigureSecurity(Document):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_security_configuration_guide():
     """API endpoint to get complete security configuration guide"""
     step = frappe.get_doc("Onboarding Step", "Verenigingen-Configure-Security")
@@ -160,6 +164,7 @@ def get_security_configuration_guide():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def validate_security_configuration():
     """Validate that security configurations have been applied"""
     issues_found = []

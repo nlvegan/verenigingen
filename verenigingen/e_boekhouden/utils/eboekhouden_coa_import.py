@@ -8,9 +8,11 @@ import re
 import frappe
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def coa_import_with_bank_accounts(migration_doc_name):
     """
     CoA import that creates Bank and Bank Account records for bank accounts
@@ -594,6 +596,7 @@ def create_bank_account_record(account, bank_name, bank_info, company):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def find_bank_accounts_in_coa():
     """
     Find potential bank accounts in existing Chart of Accounts
@@ -634,6 +637,7 @@ def find_bank_accounts_in_coa():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_bank_accounts_for_existing_coa():
     """
     Create Bank Account records for existing Chart of Accounts bank accounts
@@ -696,6 +700,7 @@ def create_bank_accounts_for_existing_coa():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def validate_bank_account_mappings(company=None):
     """
     Validate that all bank accounts are properly mapped to Chart of Accounts
@@ -761,6 +766,7 @@ def validate_bank_account_mappings(company=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def discover_missing_bank_accounts(company=None):
     """
     Find Chart of Accounts accounts that should have Bank Account records
@@ -830,6 +836,7 @@ def discover_missing_bank_accounts(company=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_missing_bank_accounts(company=None):
     """
     Create Bank Account records for Chart of Accounts accounts that are missing them
@@ -892,6 +899,7 @@ def create_missing_bank_accounts(company=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def fix_bank_account_mappings(company=None):
     """
     Fix bank account mappings and ensure Chart of Accounts accounts have proper types
@@ -970,6 +978,7 @@ def fix_bank_account_mappings(company=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def cleanup_duplicate_bank_accounts():
     """
     Clean up duplicate bank accounts with problematic names

@@ -1,7 +1,10 @@
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def fix_overpaid_invoice_vf_stickers_24():
     """Fix the overpaid invoice by cancelling the incorrect €297 payment entry"""
     results = []
@@ -50,6 +53,7 @@ def fix_overpaid_invoice_vf_stickers_24():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def check_eboekhouden_mutation_6208():
     """Check what E-Boekhouden mutation 6208 actually represents"""
     results = []

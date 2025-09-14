@@ -8,8 +8,11 @@ are incorrectly assigned to "Te ontvangen contributies" (13500) instead of
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def fix_existing_sales_invoice_receivables(company=None):
     """
     Fix existing sales invoices that have wrong receivable account assignment
@@ -88,6 +91,7 @@ def fix_existing_sales_invoice_receivables(company=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_receivable_account_mapping(company=None):
     """
     Get the correct receivable account for sales invoices
@@ -104,6 +108,7 @@ def get_receivable_account_mapping(company=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def check_sales_invoice_receivables(company=None):
     """
     Check how many sales invoices are using the wrong receivable account

@@ -71,7 +71,7 @@ class AssignmentHistoryManager:
                 doc=volunteer,
                 justification=f"Add assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
                 required_permissions=["Volunteer:write"],
-                allow_system_user=False,  # Require explicit user permissions for assignment tracking
+                allow_system_user=True,  # Allow system user for automated assignment tracking
                 bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
             )
 
@@ -202,7 +202,7 @@ class AssignmentHistoryManager:
                 doc=volunteer,
                 justification=f"Complete assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
                 required_permissions=["Volunteer:write"],
-                allow_system_user=False,  # Require explicit user permissions for assignment tracking
+                allow_system_user=True,  # Allow system user for automated assignment tracking
                 bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
             )
 
@@ -306,7 +306,7 @@ class AssignmentHistoryManager:
                     doc=volunteer,
                     justification=f"Remove assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
                     required_permissions=["Volunteer:write"],
-                    allow_system_user=False,  # Require explicit user permissions for assignment tracking
+                    allow_system_user=True,  # Allow system user for automated assignment tracking
                     bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
                 )
 

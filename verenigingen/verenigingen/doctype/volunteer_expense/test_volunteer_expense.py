@@ -128,6 +128,8 @@ class TestVolunteerExpense(unittest.TestCase):
             cls.chapter_member = frappe.get_doc(
                 {
                     "doctype": "Member",
+                    "first_name": "Chapter",
+                    "last_name": "Volunteer",
                     "email": "chapter.volunteer@test.com",
                     "full_name": "Chapter Volunteer",
                     "membership_status": "Active",

@@ -7,8 +7,11 @@ Test function for SecureTestDataFactory
 import frappe
 from verenigingen.tests.fixtures.field_validator import FieldValidator, validate_field
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_field_validator():
     """Test the field validator functionality"""
     try:
@@ -52,6 +55,7 @@ def test_field_validator():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_schema_validation():
     """Test schema validation features"""
     try:
@@ -94,6 +98,7 @@ def test_schema_validation():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_secure_factory_basic():
     """Test basic SecureTestDataFactory functionality"""
     try:
@@ -131,6 +136,7 @@ def test_secure_factory_basic():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_all_factory_tests():
     """Run all factory tests"""
     results = []

@@ -441,11 +441,10 @@ class EnhancedTestDataFactory:
                 **data
             })
             
-            # Insert using proper test admin user (no permission bypasses)
-            test_admin = self.ensure_test_admin_user()
+            # Insert using Administrator for tests (required for member creation)
             current_user = frappe.session.user
             try:
-                frappe.set_user(test_admin.email)
+                frappe.set_user("Administrator")
                 member.insert()
                 
                 # Create Customer and Address for invoice generation (infrastructure setup)

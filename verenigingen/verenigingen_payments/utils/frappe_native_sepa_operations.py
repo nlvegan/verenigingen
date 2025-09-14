@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Tuple
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.verenigingen_payments.utils.audit_context import (
     AuditContextManagerClean,
     ExecutionSource,
@@ -506,6 +507,7 @@ class FrappeNativeBulkQueryClean:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def process_bulk_sepa_operations_clean(operations_json: str) -> Dict[str, Any]:
     """
     Clean API endpoint for bulk SEPA operations
@@ -544,6 +546,7 @@ def process_bulk_sepa_operations_clean(operations_json: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_members_for_sepa_bulk_operations_clean(filters_json: str = None) -> Dict[str, Any]:
     """
     Clean API endpoint to get members suitable for bulk SEPA operations

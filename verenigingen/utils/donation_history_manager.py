@@ -5,6 +5,7 @@ Donation History Manager for tracking donation history on donor records
 import frappe
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 
 
 class DonationHistoryManager:
@@ -244,6 +245,7 @@ class DonationHistoryManager:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def sync_all_donor_histories():
     """Sync donation history for all donors"""
     try:
@@ -273,6 +275,7 @@ def sync_all_donor_histories():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def sync_donor_history(donor_name):
     """Sync donation history for a specific donor"""
     manager = DonationHistoryManager(donor_name)
@@ -280,6 +283,7 @@ def sync_donor_history(donor_name):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_donor_summary(donor_name):
     """Get donation summary for a donor"""
     manager = DonationHistoryManager(donor_name)

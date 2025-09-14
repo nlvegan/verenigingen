@@ -3,8 +3,11 @@ import traceback
 import frappe
 from frappe.utils import getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def import_camt_file(bank_account, file_content, company=None):
     """
     Manual CAMT.053 file import for when EBICS isn't available or too expensive.
@@ -207,6 +210,7 @@ def generate_transaction_hash(transaction):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_import_status():
     """Get status of manual CAMT imports"""
     try:
@@ -230,6 +234,7 @@ def get_import_status():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def validate_camt_file(file_content):
     """Validate a CAMT file without importing it"""
     try:

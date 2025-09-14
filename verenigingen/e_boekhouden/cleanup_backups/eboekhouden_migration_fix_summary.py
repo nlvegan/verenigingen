@@ -4,8 +4,11 @@ E-Boekhouden Migration Fix Summary
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def migration_fix_summary():
     """Summary of the E-Boekhouden migration fixes applied"""
 
@@ -74,6 +77,7 @@ This occurred because:
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def verify_migration_ready():
     """Verify the system is ready for migration"""
 

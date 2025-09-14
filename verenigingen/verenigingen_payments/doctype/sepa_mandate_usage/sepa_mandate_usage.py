@@ -5,6 +5,8 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+
 
 class SEPAMandateUsage(Document):
     def validate(self):
@@ -143,6 +145,7 @@ def create_mandate_usage_record(mandate_name, reference_doctype, reference_name,
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def get_mandate_sequence_type(mandate_name, reference_name=None):
     """
     API to determine what sequence type should be used for a mandate

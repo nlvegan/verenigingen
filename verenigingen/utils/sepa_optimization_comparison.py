@@ -15,6 +15,7 @@ from typing import Any, Dict, List
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 from verenigingen.verenigingen_payments.utils.sepa_operations_simple import (
     SimpleSEPAManager,
     SimpleSEPAOperation,
@@ -158,6 +159,7 @@ def test_both_implementations() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_sepa_comparison_test():
     """
     Whitelisted method to run SEPA implementation comparison

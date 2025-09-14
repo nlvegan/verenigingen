@@ -7,6 +7,12 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import getdate
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    development_only_api,
+)
+
 
 class EBoekhoudenMigration(Document):
     def validate(self):
@@ -2682,6 +2688,7 @@ class EBoekhoudenMigration(Document):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def start_migration_api(migration_name, dry_run=1):
     """API method to start migration process"""
     try:

@@ -5,8 +5,11 @@ Analyze why the cleanup function missed eBoekhouden Payment Entries
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def analyze_missed_payments():
     """Analyze why Payment Entries were missed by cleanup"""
     try:

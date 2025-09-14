@@ -5,8 +5,11 @@ Analyze the ledger IDs in payment mutations to understand account mapping
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def analyze_payment_ledgers():
     """Analyze the ledger mappings for payment mutation 6724"""
 

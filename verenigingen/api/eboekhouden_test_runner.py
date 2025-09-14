@@ -7,8 +7,11 @@ Test the eBoekhouden migration system functionality after cleanup.
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_enhanced_migration_dry_run():
     """Test the enhanced migration dry run functionality"""
 
@@ -72,6 +75,7 @@ def test_enhanced_migration_dry_run():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_migration_validation():
     """Test the enhanced migration validation functionality"""
 
@@ -136,6 +140,7 @@ def test_migration_validation():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def comprehensive_eboekhouden_test():
     """Run comprehensive test suite for eBoekhouden system after cleanup"""
 

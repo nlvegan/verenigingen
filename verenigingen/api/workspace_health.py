@@ -18,6 +18,8 @@ from typing import Dict, List, Optional, Tuple
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class WorkspaceHealthManager:
     """Unified workspace health management"""
@@ -427,6 +429,7 @@ class WorkspaceHealthManager:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def diagnose_and_fix(workspace_name: str, auto_fix: bool = True, create_backup: bool = True) -> Dict:
     """
     Complete workspace health check and repair
@@ -444,6 +447,7 @@ def diagnose_and_fix(workspace_name: str, auto_fix: bool = True, create_backup: 
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def health_check(workspace_name: str) -> Dict:
     """
     Run diagnostics only without applying fixes
@@ -459,6 +463,7 @@ def health_check(workspace_name: str) -> Dict:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def quick_fix(workspace_name: str) -> Dict:
     """
     Quick fix for the most common workspace issue (content sync)

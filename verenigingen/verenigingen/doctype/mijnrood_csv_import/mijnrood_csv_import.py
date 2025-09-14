@@ -15,6 +15,7 @@ from frappe.utils import cstr, flt, getdate, today
 
 from verenigingen.utils.account_creation_manager import queue_bulk_account_creation_for_members
 from verenigingen.utils.safe_member_optimizer import safe_member_optimizer
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 try:
     import pandas as pd
@@ -1754,6 +1755,7 @@ class MijnroodCSVImport(Document):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def validate_import_file(import_doc_name):
     """Manually validate an import file."""
     try:
@@ -1827,6 +1829,7 @@ def validate_import_file(import_doc_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def get_import_template():
     """Generate a CSV template for member import."""
     headers = [

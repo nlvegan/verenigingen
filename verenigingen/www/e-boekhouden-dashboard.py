@@ -3,6 +3,8 @@ import json
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, public_api
+
 
 def get_context(context):
     """Get context for dashboard page"""
@@ -197,6 +199,7 @@ def get_system_health():
 
 
 @frappe.whitelist(allow_guest=True)
+@public_api(operation_type=OperationType.PUBLIC)
 def get_live_dashboard_data():
     """API endpoint for live dashboard updates"""
     try:

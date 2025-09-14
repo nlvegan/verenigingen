@@ -12,6 +12,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, get_datetime, now_datetime
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 from ..clients.balances_client import BalancesClient
 from ..clients.settlements_client import SettlementsClient
 from ..core.compliance.audit_trail import AuditEventType, AuditSeverity
@@ -577,6 +579,7 @@ class SubscriptionManager:
 
 # Scheduled tasks
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def sync_all_subscription_payments():
     """Sync payments for all active subscriptions"""
     settings = frappe.get_single("Mollie Settings")
@@ -610,6 +613,7 @@ def sync_all_subscription_payments():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def analyze_subscription_health():
     """Analyze overall subscription health"""
     settings = frappe.get_single("Mollie Settings")

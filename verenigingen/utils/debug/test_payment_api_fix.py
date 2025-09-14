@@ -5,8 +5,11 @@ Test the payment API fix to simulate what accounts would be used
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_payment_api_fix():
     """Test the payment fix with actual API data"""
 

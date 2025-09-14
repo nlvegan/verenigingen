@@ -4,9 +4,11 @@ from verenigingen.api.check_eboekhouden_accounts import (
     check_eboekhouden_accounts,
     debug_cleanup_eboekhouden_accounts,
 )
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_eboekhouden_accounts_summary():
     """
     Get a summary of all E-Boekhouden accounts in the system.
@@ -16,6 +18,7 @@ def get_eboekhouden_accounts_summary():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def cleanup_eboekhouden_accounts_with_confirmation(company, confirmed=False):
     """
     Clean up E-Boekhouden accounts with confirmation step.
@@ -48,6 +51,7 @@ def cleanup_eboekhouden_accounts_with_confirmation(company, confirmed=False):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_account_cleanup_status(company):
     """
     Get the current status of E-Boekhouden accounts for a company.

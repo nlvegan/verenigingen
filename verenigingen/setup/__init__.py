@@ -5,6 +5,13 @@ from frappe import _
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from frappe.desk.page.setup_wizard.setup_wizard import make_records
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    development_only_api,
+    high_security_api,
+)
+
 
 def ensure_prerequisites():
     """Ensure required master data exists before creating records"""
@@ -448,6 +455,7 @@ def setup_tax_exemption_on_install():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def install_missing_btw_fields():
     """Install BTW custom fields that were missing"""
     try:
@@ -461,6 +469,7 @@ def install_missing_btw_fields():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def verify_btw_installation():
     """Verify that BTW fields are properly installed"""
     missing_fields = []
@@ -488,6 +497,7 @@ def verify_btw_installation():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_btw_installation():
     """Fix BTW installation issues"""
     try:
@@ -631,6 +641,7 @@ def setup_termination_roles_and_permissions():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def setup_termination_system_manual():
     """Manual setup endpoint for termination system"""
     try:
@@ -641,6 +652,7 @@ def setup_termination_system_manual():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def check_termination_system_status():
     """Check the status of termination system setup"""
 
@@ -679,6 +691,7 @@ def check_termination_system_status():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.ADMIN)
 def run_termination_diagnostics():
     """Run diagnostics on termination system"""
 
@@ -1236,6 +1249,7 @@ def load_application_fixtures():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def run_complete_setup():
     """Run the complete setup process manually"""
     try:
@@ -1246,6 +1260,7 @@ def run_complete_setup():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def setup_membership_application_system_manual():
     """Manual setup endpoint for membership application system"""
     try:
@@ -1256,6 +1271,7 @@ def setup_membership_application_system_manual():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def setup_workspace_manual():
     """Manual setup endpoint for workspace"""
     try:
@@ -1305,6 +1321,7 @@ def create_default_donation_types():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def create_donation_types_manual():
     """Manual endpoint to create donation types"""
     try:
@@ -1315,6 +1332,7 @@ def create_donation_types_manual():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def verify_donation_type_setup():
     """Verify donation types are properly set up"""
     try:
@@ -1339,6 +1357,7 @@ def verify_donation_type_setup():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def create_email_templates_manual():
     """Manual endpoint to create email templates"""
     try:
@@ -1379,6 +1398,7 @@ def create_email_templates_manual():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def verify_email_templates():
     """Verify email templates are properly installed"""
     try:
@@ -1509,6 +1529,7 @@ def link_module_onboarding():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_onboarding_visibility():
     """Manual function to fix onboarding visibility"""
     try:
@@ -1540,6 +1561,7 @@ def fix_onboarding_visibility():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def check_onboarding_setup():
     """Check onboarding setup status"""
     try:
@@ -1577,6 +1599,7 @@ def check_onboarding_setup():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_onboarding_fix():
     """Simple test function to verify onboarding setup"""
     try:
@@ -1631,6 +1654,7 @@ def test_onboarding_fix():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_onboarding_schema():
     """Check what fields are available in Module Onboarding DocType"""
     try:
@@ -1680,6 +1704,7 @@ def check_onboarding_schema():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def final_onboarding_verification():
     """Final verification that onboarding is working"""
     try:
@@ -1725,6 +1750,7 @@ def final_onboarding_verification():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def install_email_templates_ui():
     """User-friendly endpoint for installing email templates from onboarding"""
     try:
@@ -1834,6 +1860,7 @@ def install_email_templates_ui():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def verify_app_dependencies():
     """Verify all app dependencies are properly configured and installed"""
     try:
@@ -1871,6 +1898,7 @@ def verify_app_dependencies():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_email_template_page():
     """Test that the email template installation page works"""
     try:
@@ -1912,6 +1940,7 @@ def test_email_template_page():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def add_module_onboarding_custom_field():
     """Add module_onboarding as a custom field to Workspace"""
     try:
@@ -1958,6 +1987,7 @@ def add_module_onboarding_custom_field():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_onboarding_api():
     """Test if onboarding can be accessed via the Frappe workspace API"""
     try:
@@ -1998,6 +2028,7 @@ def test_onboarding_api():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_onboarding_visibility():
     """Debug why onboarding might not be showing"""
     try:
@@ -2070,6 +2101,7 @@ def debug_onboarding_visibility():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_module_mapping():
     """Check how modules are mapped between workspaces and onboarding"""
     try:
@@ -2111,6 +2143,7 @@ def check_module_mapping():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def investigate_other_module_onboarding():
     """Investigate how other modules link their onboarding to workspaces"""
     try:
@@ -2152,6 +2185,7 @@ def investigate_other_module_onboarding():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_workspace_schema():
     """Check Workspace DocType schema for module_onboarding field"""
     try:
@@ -2172,6 +2206,7 @@ def check_workspace_schema():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def force_workspace_onboarding_link():
     """Force update workspace module_onboarding link via database"""
     try:
@@ -2190,6 +2225,7 @@ def force_workspace_onboarding_link():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_workspace_onboarding_link():
     """Fix the workspace module_onboarding link"""
     try:
@@ -2212,6 +2248,7 @@ def fix_workspace_onboarding_link():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def examine_existing_onboarding():
     """Examine existing Module Onboarding to understand structure"""
     try:
@@ -2245,6 +2282,7 @@ def examine_existing_onboarding():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_onboarding_creation():
     """Debug function to test Module Onboarding creation with steps"""
     try:
@@ -2305,6 +2343,7 @@ def debug_onboarding_creation():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def reinstall_onboarding():
     """Reinstall the Module Onboarding document with steps"""
     try:

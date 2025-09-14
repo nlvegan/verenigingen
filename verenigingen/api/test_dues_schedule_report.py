@@ -1,7 +1,10 @@
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_dues_schedule_report_permissions():
     """Test if the Members Without Dues Schedule report can run without permission errors"""
 
@@ -50,6 +53,7 @@ def test_dues_schedule_report_permissions():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_report_as_verenigingen_admin():
     """Test report access specifically as Verenigingen Administrator role"""
 

@@ -7,10 +7,12 @@ from datetime import datetime, timezone
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 from verenigingen.verenigingen_payments.clients.bulk_transaction_importer import BulkTransactionImporter
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def validate_bulk_importer():
     """Debug function to validate bulk importer functionality"""
 
@@ -123,6 +125,7 @@ def validate_bulk_importer():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_api_endpoints():
     """Test bulk importer API endpoints"""
 

@@ -1,7 +1,10 @@
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_unmapped_accounts(company):
     """Get E-boekhouden accounts that don't have item mappings yet"""
     frappe.set_user("Administrator")
@@ -114,6 +117,7 @@ def suggest_item_name(account):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def create_mapping(company, account_code, account_name, item_code, transaction_type="Both"):
     """Create a new item mapping"""
     frappe.set_user("Administrator")

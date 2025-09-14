@@ -9,6 +9,7 @@ from frappe import _
 from frappe.utils import add_months, date_diff, flt, format_date, getdate, today
 
 from verenigingen.utils.member_utils import get_member_customer
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 
 
 def get_context(context):
@@ -430,6 +431,7 @@ def get_analytics_data(member):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_dashboard_data():
     """Get dashboard data for API calls"""
 
@@ -446,6 +448,7 @@ def get_dashboard_data():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_analytics_data_api():
     """Get analytics data for API calls"""
 
@@ -462,6 +465,7 @@ def get_analytics_data_api():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_payment_history_api():
     """Get payment history for API calls"""
 
@@ -478,6 +482,7 @@ def get_payment_history_api():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_month_data(year, month):
     """Get payment data for a specific month"""
 
@@ -528,6 +533,7 @@ def get_month_data(year, month):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def save_settings(settings):
     """Save notification and other settings"""
 
@@ -562,6 +568,7 @@ def save_settings(settings):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def export_financial_data():
     """Export financial data as CSV"""
 
@@ -617,6 +624,7 @@ def export_financial_data():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def export_payments(year=None):
     """Export payment data as CSV"""
 
@@ -656,6 +664,7 @@ def export_payments(year=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def export_all_data():
     """Export all financial data as comprehensive CSV"""
 

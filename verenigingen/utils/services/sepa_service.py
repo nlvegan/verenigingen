@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Optional
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class SEPAService:
     """
@@ -374,6 +376,7 @@ def get_sepa_service() -> SEPAService:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def create_sepa_mandate_via_service(member_name: str, iban: str, bic: str = None) -> Dict[str, Any]:
     """
     API endpoint for creating SEPA mandates via service layer
@@ -385,6 +388,7 @@ def create_sepa_mandate_via_service(member_name: str, iban: str, bic: str = None
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_member_mandates_via_service(member_name: str) -> List[Dict[str, Any]]:
     """API endpoint for getting member mandates via service layer"""
     service = get_sepa_service()
@@ -392,6 +396,7 @@ def get_member_mandates_via_service(member_name: str) -> List[Dict[str, Any]]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def cancel_mandate_via_service(mandate_name: str, reason: str = "Cancelled via API") -> Dict[str, Any]:
     """API endpoint for cancelling mandates via service layer"""
     service = get_sepa_service()

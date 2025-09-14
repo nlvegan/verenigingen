@@ -22,6 +22,7 @@ from frappe.utils import format_datetime, getdate, today
 
 from verenigingen.utils.error_handling import SEPAError, ValidationError, handle_api_error
 from verenigingen.utils.performance_utils import performance_monitor
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.validation.iban_validator import derive_bic_from_iban, validate_iban
 
 
@@ -757,6 +758,7 @@ def create_sepa_transaction_from_invoice(
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 def generate_enhanced_sepa_xml(batch_name: str) -> Dict[str, Any]:
     """
@@ -838,6 +840,7 @@ def generate_enhanced_sepa_xml(batch_name: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 def validate_sepa_xml_compliance(xml_content: str) -> Dict[str, Any]:
     """

@@ -13,6 +13,8 @@ from pathlib import Path
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 # Role mapping: old_name -> new_name
 ROLE_MAPPINGS = {
     "Verenigingen Chapter Board Member": "Verenigingen Chapter Board Member",
@@ -24,6 +26,7 @@ ROLE_MAPPINGS = {
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def update_all_role_references():
     """Update all role references in code files"""
 
@@ -177,6 +180,7 @@ def update_file_role_references(file_path):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def validate_role_updates():
     """Validate that role updates were applied correctly"""
 

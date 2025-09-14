@@ -7,8 +7,11 @@ import re
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_migration_statistics():
     """
     Get statistics about E-Boekhouden migrations
@@ -87,6 +90,7 @@ def get_migration_statistics():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def validate_migration_readiness():
     """
     Validate if the system is ready for E-Boekhouden migration

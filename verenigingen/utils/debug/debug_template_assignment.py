@@ -1,7 +1,10 @@
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_schedule_creation_history():
     """Investigate why Schedule-Assoc-Member-2025-07-2910-Daily Access-001 was created with wrong template"""
 
@@ -77,6 +80,7 @@ def debug_schedule_creation_history():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_template_creation_logic():
     """Check how templates are selected during dues schedule creation"""
 

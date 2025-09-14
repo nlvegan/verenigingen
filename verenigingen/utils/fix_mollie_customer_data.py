@@ -3,8 +3,15 @@ Fix Mollie data storage - move from Member to Customer fields
 """
 import frappe
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    development_only_api,
+)
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def update_emma_customer_mollie_data():
     """Update Emma's Customer record with the correct Mollie IDs"""
     try:
@@ -64,6 +71,7 @@ def update_emma_customer_mollie_data():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_mollie_field_definitions():
     """Check where Mollie fields are defined in the system"""
     try:

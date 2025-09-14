@@ -6,8 +6,11 @@ from unittest.mock import MagicMock, patch
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_webhook_member_lookup():
     """Test if webhook can find Emma by subscription ID"""
     try:
@@ -55,6 +58,7 @@ def test_webhook_member_lookup():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_payment_entry_issue():
     """Investigate the Payment Entry creation issue"""
     try:

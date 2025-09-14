@@ -5,8 +5,11 @@ from datetime import datetime
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def analyze_payment_mutations():
     """Fetch and analyze specific payment mutations: 7833, 5473, 6217"""
     from verenigingen.e_boekhouden.utils.eboekhouden_api import EBoekhoudenAPI

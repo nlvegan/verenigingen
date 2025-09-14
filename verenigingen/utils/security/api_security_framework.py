@@ -474,12 +474,21 @@ class APISecurityFramework:
             )
             raise VPermissionError(_("Rate limit exceeded"))
 
-    def validate_input_data(self, profile: SecurityProfile, **kwargs) -> Dict[str, Any]:
+    def validate_input_data(
+        self, profile: SecurityProfile, operation_type: OperationType = None, **kwargs
+    ) -> Dict[str, Any]:
         """Validate and sanitize input data"""
         if not profile.input_validation:
             return kwargs
 
         validated_data = {}
+
+        # Determine appropriate max_length based on operation type
+        max_length = 1000  # default
+        if operation_type == OperationType.MEMBER_DATA:
+            max_length = 5000  # Allow larger data for membership applications and member data
+        elif operation_type == OperationType.REPORTING:
+            max_length = 2000  # Allow larger data for reports
 
         for key, value in kwargs.items():
             # Skip None values
@@ -489,42 +498,52 @@ class APISecurityFramework:
 
             # Sanitize string inputs
             if isinstance(value, str):
-                validated_data[key] = APIValidator.sanitize_text(value, max_length=1000)
+                # Decode HTML entities first (common issue with form submissions)
+                import html
+
+                decoded_value = html.unescape(value)
+                validated_data[key] = APIValidator.sanitize_text(decoded_value, max_length=max_length)
             elif isinstance(value, dict):
                 # Recursively validate dict inputs
-                validated_data[key] = self._validate_dict_input(value)
+                validated_data[key] = self._validate_dict_input(value, max_length)
             elif isinstance(value, list):
                 # Validate list inputs
-                validated_data[key] = self._validate_list_input(value)
+                validated_data[key] = self._validate_list_input(value, max_length)
             else:
                 validated_data[key] = value
 
         return validated_data
 
-    def _validate_dict_input(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_dict_input(self, data: Dict[str, Any], max_length: int = 500) -> Dict[str, Any]:
         """Validate dictionary input data"""
         validated = {}
         for key, value in data.items():
             if isinstance(value, str):
-                validated[key] = APIValidator.sanitize_text(value, max_length=500)
+                import html
+
+                decoded_value = html.unescape(value)
+                validated[key] = APIValidator.sanitize_text(decoded_value, max_length=max_length)
             elif isinstance(value, dict):
-                validated[key] = self._validate_dict_input(value)
+                validated[key] = self._validate_dict_input(value, max_length)
             elif isinstance(value, list):
-                validated[key] = self._validate_list_input(value)
+                validated[key] = self._validate_list_input(value, max_length)
             else:
                 validated[key] = value
         return validated
 
-    def _validate_list_input(self, data: List[Any]) -> List[Any]:
+    def _validate_list_input(self, data: List[Any], max_length: int = 500) -> List[Any]:
         """Validate list input data"""
         validated = []
         for item in data:
             if isinstance(item, str):
-                validated.append(APIValidator.sanitize_text(item, max_length=500))
+                import html
+
+                decoded_item = html.unescape(item)
+                validated.append(APIValidator.sanitize_text(decoded_item, max_length=max_length))
             elif isinstance(item, dict):
-                validated.append(self._validate_dict_input(item))
+                validated.append(self._validate_dict_input(item, max_length))
             elif isinstance(item, list):
-                validated.append(self._validate_list_input(item))
+                validated.append(self._validate_list_input(item, max_length))
             else:
                 validated.append(item)
         return validated
@@ -712,7 +731,7 @@ def api_security_framework(
                 framework.validate_rate_limits(profile, operation_key)
 
                 # Input validation
-                validated_kwargs = framework.validate_input_data(profile, **kwargs)
+                validated_kwargs = framework.validate_input_data(profile, operation_type, **kwargs)
 
                 # Custom validators
                 if custom_validators:

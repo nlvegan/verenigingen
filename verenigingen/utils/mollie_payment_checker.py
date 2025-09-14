@@ -3,10 +3,12 @@ Check real Mollie payments for our test subscription
 """
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.verenigingen_payments.utils.payment_gateways import PaymentGatewayFactory
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def check_subscription_payments():
     """Check what payments exist for Emma's subscription"""
     try:
@@ -88,6 +90,7 @@ def check_subscription_payments():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def list_all_mollie_payments():
     """List all payments in the Mollie test account"""
     try:

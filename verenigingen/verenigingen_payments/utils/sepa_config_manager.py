@@ -37,6 +37,8 @@ from typing import Any, Dict, List, Optional
 import frappe
 from frappe.utils import add_days, getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 
 class SEPAConfigManager:
     """
@@ -395,6 +397,7 @@ def get_sepa_config_manager() -> SEPAConfigManager:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_sepa_config(section: str = None):
     """API to get SEPA configuration"""
     manager = get_sepa_config_manager()
@@ -412,6 +415,7 @@ def get_sepa_config(section: str = None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def validate_sepa_configuration():
     """API to validate SEPA configuration"""
     manager = get_sepa_config_manager()
@@ -419,6 +423,7 @@ def validate_sepa_configuration():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def update_sepa_setting(section, key, value):
     """API to update a SEPA setting"""
     manager = get_sepa_config_manager()
@@ -431,6 +436,7 @@ def update_sepa_setting(section, key, value):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def clear_sepa_config_cache():
     """API to clear SEPA configuration cache"""
     manager = get_sepa_config_manager()
@@ -439,6 +445,7 @@ def clear_sepa_config_cache():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_sepa_config_cache_info():
     """API to get SEPA configuration cache information"""
     manager = get_sepa_config_manager()

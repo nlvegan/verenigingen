@@ -14,6 +14,11 @@
   "currency",
   "entry_count",
   "status",
+  "approval_section",
+  "approval_status",
+  "risk_level",
+  "column_break_approval",
+  "approval_notes",
   "validation_section",
   "validation_status",
   "validation_errors",
@@ -90,6 +95,39 @@
    "label": "Status",
    "options": "Draft\nGenerated\nSubmitted\nProcessed\nFailed",
    "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "approval_section",
+   "fieldtype": "Section Break",
+   "label": "Approval Workflow"
+  },
+  {
+   "default": "Pending Approval",
+   "fieldname": "approval_status",
+   "fieldtype": "Select",
+   "label": "Approval Status",
+   "options": "Pending Approval\nPending Senior Approval\nApproved\nRejected",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "default": "Low",
+   "fieldname": "risk_level",
+   "fieldtype": "Select",
+   "label": "Risk Level",
+   "options": "Low\nMedium\nHigh\nCritical",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "column_break_approval",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "approval_notes",
+   "fieldtype": "Long Text",
+   "label": "Approval Notes",
    "allow_on_submit": 1
   },
   {

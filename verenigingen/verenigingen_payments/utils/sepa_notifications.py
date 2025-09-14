@@ -3,6 +3,7 @@ from frappe import _
 from frappe.utils import add_days, getdate, today
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
 
 class SEPAMandateNotificationManager:
@@ -565,6 +566,7 @@ def check_and_send_expiry_notifications():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_mandate_notification(mandate_id, notification_type="created"):
     """Test function to send a mandate notification"""
     mandate = frappe.get_doc("SEPA Mandate", mandate_id)

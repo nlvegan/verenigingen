@@ -7,6 +7,7 @@ from frappe import _
 from frappe.utils import flt
 
 from verenigingen.utils.member_utils import get_current_user_member_name
+from verenigingen.utils.security.api_security_framework import OperationType, public_api, standard_api
 
 
 def get_context(context):
@@ -212,6 +213,7 @@ def get_membership_types_with_contributions():
 
 
 @frappe.whitelist()
+@public_api
 def get_membership_type_details(membership_type_name):
     """Get detailed contribution options for a specific membership type"""
     if not membership_type_name:
@@ -247,6 +249,7 @@ def get_membership_type_details(membership_type_name):
 
 
 @frappe.whitelist()
+@public_api
 def validate_contribution_amount(
     membership_type_name, amount, contribution_mode=None, selected_tier=None, base_multiplier=None
 ):
@@ -318,6 +321,7 @@ def validate_contribution_amount(
 
 
 @frappe.whitelist()
+@public_api
 def calculate_suggested_contribution(membership_type_name, monthly_income, payment_interval="monthly"):
     """Calculate suggested contribution based on income"""
     if not membership_type_name or not monthly_income:

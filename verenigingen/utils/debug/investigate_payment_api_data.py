@@ -5,8 +5,11 @@ Investigate what data the REST API actually provides for payment types 3/4
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def investigate_payment_api_structure():
     """Get actual payment mutation data from eBoekhouden API to see what fields are available"""
 

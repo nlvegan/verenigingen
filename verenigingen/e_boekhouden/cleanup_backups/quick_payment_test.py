@@ -5,8 +5,11 @@ Quick test to verify enhanced payment processing.
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def quick_test():
     """Quick test of payment handler functionality."""
     from verenigingen.e_boekhouden.utils.payment_processing.payment_entry_handler import PaymentEntryHandler
@@ -84,6 +87,7 @@ def quick_test():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_migration_status():
     """Check if the enhanced payment handler is integrated."""
     # Read the _create_payment_entry function to see if it's using enhanced handler

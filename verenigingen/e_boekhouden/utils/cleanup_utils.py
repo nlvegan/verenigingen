@@ -10,10 +10,12 @@ import json
 import frappe
 
 from verenigingen.e_boekhouden.utils.security_helper import migration_context
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.security_decorators import development_only
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def cleanup_chart_of_accounts(company, delete_all_accounts=0):
     """Clean up chart of accounts imported from E-Boekhouden"""
     try:
@@ -91,6 +93,7 @@ def cleanup_chart_of_accounts(company, delete_all_accounts=0):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @development_only()
 def test_cleanup_small_batch():
     """Test cleanup on a small batch of documents to verify fix"""
@@ -140,6 +143,7 @@ def test_cleanup_small_batch():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def nuclear_cleanup_all_imported_data():
     """WARNING: Nuclear option - deletes ALL imported data from E-Boekhouden"""
     try:
@@ -254,6 +258,7 @@ def nuclear_cleanup_all_imported_data():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def cleanup_orphaned_gl_entries():
     """Clean up GL entries, Payment Entry References, and Payment Ledger Entries that reference deleted documents"""
     try:
@@ -419,6 +424,7 @@ def cleanup_orphaned_gl_entries():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def cleanup_cancelled_payment_gl_entries():
     """Clean up GL entries from cancelled payment entries"""
     try:

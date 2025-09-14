@@ -13,6 +13,8 @@ from typing import Dict, List, Optional
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+
 
 class NewsletterTemplateManager:
     """Manager for newsletter templates and content generation"""
@@ -450,6 +452,7 @@ class NewsletterTemplateManager:
 
 # API Functions
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_newsletter_templates(category: str = None) -> Dict:
     """
     Get available newsletter templates
@@ -478,6 +481,7 @@ def get_newsletter_templates(category: str = None) -> Dict:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_template_details(template_id: str) -> Dict:
     """
     Get detailed information about a specific template
@@ -498,6 +502,7 @@ def get_template_details(template_id: str) -> Dict:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def preview_template(template_id: str, variables: str) -> Dict:
     """
     Preview a rendered template
@@ -529,6 +534,7 @@ def preview_template(template_id: str, variables: str) -> Dict:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def send_templated_email(
     template_id: str, variables: str, chapter_name: str = None, segment: str = "all"
 ) -> Dict:

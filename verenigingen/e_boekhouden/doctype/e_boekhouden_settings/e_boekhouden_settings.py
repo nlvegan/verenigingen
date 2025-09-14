@@ -8,6 +8,8 @@ import requests
 from frappe.model.document import Document
 from frappe.utils import now_datetime
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 
 class EBoekhoudenSettings(Document):
     def test_connection(self):
@@ -128,6 +130,7 @@ class EBoekhoudenSettings(Document):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def test_connection():
     """API method to test connection"""
     try:
@@ -141,6 +144,7 @@ def test_connection():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_grootboekrekeningen():
     """Test method to fetch Chart of Accounts from e-Boekhouden"""
     try:
@@ -164,6 +168,7 @@ def get_grootboekrekeningen():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def parse_groups_and_suggest_cost_centers(group_mappings_text, company):
     """Parse account group mappings text and suggest cost center configuration"""
     try:
@@ -306,6 +311,7 @@ def might_be_group_cost_center(code, name, all_groups):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_cost_centers_from_mappings():
     """Create ERPNext cost centers based on configured mappings"""
     try:
@@ -473,6 +479,7 @@ def generate_cost_center_id(cost_center_name, company):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def preview_cost_center_creation():
     """Preview what cost centers would be created without actually creating them"""
     try:

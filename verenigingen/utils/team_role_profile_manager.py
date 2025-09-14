@@ -26,6 +26,7 @@ from verenigingen.utils.base_role_profile_manager import (
     _is_system_operation_authorized,
     safe_hook_execution,
 )
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 # Team-specific configuration
 TEAM_CONFIG = EntityConfig(
@@ -144,6 +145,7 @@ def determine_role_profile_for_team_member(team_name, team_role=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def assign_team_role_profile(user, team_name, team_role=None):
     """
     Assign role profile when user joins a team
@@ -160,6 +162,7 @@ def assign_team_role_profile(user, team_name, team_role=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def remove_team_role_profile(user, team_name, team_role=None):
     """
     Remove role profile when user leaves a team
@@ -176,6 +179,7 @@ def remove_team_role_profile(user, team_name, team_role=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def bulk_assign_team_role_profiles(team_name):
     """
     Bulk assign role profiles to all existing members of a team
@@ -185,6 +189,7 @@ def bulk_assign_team_role_profiles(team_name):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_team_role_profile_mapping():
     """Get the current team to role profile mapping for admin reference"""
     mapping = {}

@@ -10,8 +10,11 @@ and team-based project permissions.
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_permission_caching():
     """Test permission caching system functionality"""
     try:
@@ -44,6 +47,7 @@ def test_permission_caching():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_volunteer_role_assignment():
     """Test volunteer role assignment functionality"""
     try:
@@ -85,6 +89,7 @@ def test_volunteer_role_assignment():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_team_project_permissions():
     """Test team-based project permissions"""
     try:
@@ -112,6 +117,7 @@ def test_team_project_permissions():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_basic_doctype_operations():
     """Test basic DocType operations for regression testing"""
     try:
@@ -138,6 +144,7 @@ def test_basic_doctype_operations():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_comprehensive_regression_tests():
     """Run all regression tests and return comprehensive results"""
     try:
@@ -189,6 +196,7 @@ def run_comprehensive_regression_tests():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_volunteer_after_insert_functionality():
     """Test the after_insert hook functionality specifically"""
     try:

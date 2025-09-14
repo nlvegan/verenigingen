@@ -62,6 +62,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import format_datetime, getdate, nowdate, nowtime, random_string, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.verenigingen_payments.utils.batch_performance_optimizer import (
     get_batch_performance_optimizer,
 )
@@ -332,6 +333,7 @@ class DirectDebitBatch(Document):
         self.add_to_batch_log(_("Batch cancelled"))
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.FINANCIAL)
     def generate_sepa_xml(self):
         """Generate SEPA Direct Debit XML file for Dutch banks"""
         try:
@@ -932,6 +934,7 @@ def get_bic_from_iban(iban):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def generate_direct_debit_batch(date=None):
     """
     Create a direct debit batch for unpaid membership invoices
@@ -962,6 +965,7 @@ def generate_direct_debit_batch(date=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def process_batch(batch_name):
     """Process a direct debit batch"""
     try:
@@ -984,6 +988,7 @@ def process_batch(batch_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def mark_invoices_as_paid(batch_name):
     """Mark all invoices in a batch as paid"""
     try:
@@ -1004,6 +1009,7 @@ def mark_invoices_as_paid(batch_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_direct_debit_batch_for_unpaid_memberships():
     """
     Create a batch for direct debit payments for unpaid memberships
@@ -1065,6 +1071,7 @@ def create_direct_debit_batch_for_unpaid_memberships():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_enhanced_dues_batch(collection_date=None):
     """
     Create a direct debit batch using the enhanced processor for membership dues schedules
@@ -1095,6 +1102,7 @@ def create_enhanced_dues_batch(collection_date=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_dues_collection_preview(collection_date=None, days_ahead=30):
     """
     Get a preview of upcoming dues collections without creating batches

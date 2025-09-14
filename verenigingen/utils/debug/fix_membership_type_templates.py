@@ -1,7 +1,14 @@
 import frappe
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    development_only_api,
+    high_security_api,
+)
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_membership_types_missing_templates():
     """Check which membership types are missing dues_schedule_template assignments"""
 
@@ -50,6 +57,7 @@ def check_membership_types_missing_templates():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def auto_assign_templates_to_membership_types():
     """Automatically assign templates to membership types that have matching templates"""
 
@@ -115,6 +123,7 @@ def auto_assign_templates_to_membership_types():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def create_missing_templates():
     """Create basic templates for membership types that don't have any"""
 

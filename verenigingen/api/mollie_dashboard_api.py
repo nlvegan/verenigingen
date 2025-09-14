@@ -8,14 +8,22 @@ import json
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    development_only_api,
+    high_security_api,
+)
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_api():
     """Simple test endpoint to verify API whitelist is working"""
     return {"success": True, "message": "Mollie Dashboard API is working", "timestamp": frappe.utils.now()}
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_dashboard_data():
     """Get dashboard data for frontend"""
     try:
@@ -70,6 +78,7 @@ def get_dashboard_data():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_financial_report(period: str = "month"):
     """Get financial report for specified period"""
     try:

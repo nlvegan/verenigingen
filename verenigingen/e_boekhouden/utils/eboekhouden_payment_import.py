@@ -9,6 +9,7 @@ import frappe
 from frappe import _
 
 from verenigingen.e_boekhouden.utils.payment_processing.payment_entry_handler import PaymentEntryHandler
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
 def create_payment_entry(mutation_detail, company, cost_center, debug_info):
@@ -89,6 +90,7 @@ def log_payment_statistics(payment_name, mutation_detail, handler):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def compare_payment_implementations(limit=10):
     """
     Compare hardcoded vs enhanced payment implementation results.

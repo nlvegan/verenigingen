@@ -5,6 +5,7 @@ from frappe.utils import now
 from frappe.utils.background_jobs import enqueue
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
 def refresh_all_member_financial_histories():
@@ -163,6 +164,7 @@ def process_member_history_batch(members):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def enqueue_member_history_refresh(members=None):
     """
     Enqueue member financial history refresh as a background job for large datasets.
@@ -185,6 +187,7 @@ def enqueue_member_history_refresh(members=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def refresh_specific_member_histories(member_names):
     """
     Refresh financial history for specific members.
@@ -215,6 +218,7 @@ def refresh_specific_member_histories(member_names):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_member_history_refresh_status():
     """
     Get status information about the member history refresh process.
@@ -267,6 +271,7 @@ def get_member_history_refresh_status():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.UTILITY)
 def test_member_history_refresh(member_name=None):
     """
     Test the member history refresh functionality with a single member.
@@ -432,6 +437,7 @@ def update_all_membership_durations():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def update_single_member_duration(member_name):
     """Update duration for a single member - useful for testing"""
     try:

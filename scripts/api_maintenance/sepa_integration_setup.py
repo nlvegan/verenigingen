@@ -3,7 +3,8 @@ Complete SEPA Integration Setup and Testing
 """
 
 import frappe
-from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, OperationType
+
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.security_decorators import development_only
 
 
@@ -105,6 +106,7 @@ def complete_sepa_integration_setup():
 
 @frappe.whitelist()
 @development_only()
+@high_security_api(operation_type=OperationType.UTILITY)
 def test_sepa_workflow_step_by_step():
     """Test SEPA workflow step by step with detailed logging"""
     try:
@@ -182,6 +184,7 @@ def test_sepa_workflow_step_by_step():
 
 @frappe.whitelist()
 @development_only()
+@high_security_api(operation_type=OperationType.UTILITY)
 def quick_sepa_demo():
     """Quick demo of SEPA reconciliation capabilities"""
     try:

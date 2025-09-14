@@ -8,8 +8,11 @@ from datetime import datetime
 import frappe
 from frappe.utils import formatdate
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def get_actual_date_range():
     """
     Get the actual date range of transactions in E-Boekhouden
@@ -153,6 +156,7 @@ def save_date_range_to_settings(earliest_date, latest_date):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def get_cached_date_range():
     """Get cached date range from settings"""
     settings = frappe.get_single("E-Boekhouden Settings")

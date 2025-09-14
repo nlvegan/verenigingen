@@ -252,10 +252,13 @@ class MolliePaymentService:
                 }
 
             if customer and customer.id:
-                # Store customer ID on donor
+                # Store customer ID on donor (handle guest user permissions for public donations)
                 try:
                     donor_doc.mollie_customer_id = customer.id
+                    # PUBLIC DONATION FLOW: Allow guest users to update donor with Mollie customer ID
+                    donor_doc.flags.ignore_permissions = True
                     donor_doc.save()
+                    frappe.db.commit()
                     frappe.logger().debug(f"Saved customer ID {customer.id} to donor")
                 except Exception as e:
                     frappe.logger().debug(f"Failed to save customer ID: {str(e)}")

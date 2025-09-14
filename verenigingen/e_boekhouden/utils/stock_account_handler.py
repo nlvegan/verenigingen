@@ -11,6 +11,8 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 
 class StockAccountHandler:
     """Handler for stock accounts in eBoekhouden opening balance import"""
@@ -299,6 +301,7 @@ class StockAccountHandler:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def analyze_stock_accounts_in_opening_balances(company: str = None) -> Dict[str, Any]:
     """
     Analyze stock accounts in opening balances and provide handling options
@@ -349,6 +352,7 @@ def analyze_stock_accounts_in_opening_balances(company: str = None) -> Dict[str,
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def import_opening_balances_with_stock_handling(
     company: str = None, stock_handling_method: str = "skip_stock_accounts"
 ) -> Dict[str, Any]:

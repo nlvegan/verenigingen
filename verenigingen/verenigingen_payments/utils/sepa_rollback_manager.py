@@ -20,6 +20,7 @@ from frappe.utils import add_days, getdate, now, today
 
 from verenigingen.utils.error_handling import SEPAError, handle_api_error, log_error
 from verenigingen.utils.performance_utils import performance_monitor
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 class RollbackReason(Enum):
@@ -1024,6 +1025,7 @@ class SEPARollbackManager:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 def initiate_sepa_batch_rollback(
     batch_name: str, reason: str, scope: str = "full_batch", affected_invoices: str = None, **metadata
@@ -1068,6 +1070,7 @@ def initiate_sepa_batch_rollback(
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.REPORTING)
 @handle_api_error
 def get_rollback_operation_status(operation_id: str) -> Dict[str, Any]:
     """
@@ -1084,6 +1087,7 @@ def get_rollback_operation_status(operation_id: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.REPORTING)
 @handle_api_error
 def list_rollback_operations(batch_name: str = None, days_back: int = 30) -> Dict[str, Any]:
     """

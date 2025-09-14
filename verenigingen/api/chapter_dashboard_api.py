@@ -55,7 +55,13 @@ from verenigingen.utils.migration.migration_performance import BatchProcessor
 from verenigingen.utils.performance_utils import QueryOptimizer, cached, performance_monitor
 
 # Import security decorators
-from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    development_only_api,
+    high_security_api,
+    standard_api,
+)
 from verenigingen.utils.security_decorators import development_only
 from verenigingen.utils.validation.api_validators import (
     APIValidator,
@@ -66,7 +72,7 @@ from verenigingen.utils.validation.api_validators import (
 
 
 @frappe.whitelist()
-@high_security_api  # Member data access
+@high_security_api(operation_type=OperationType.MEMBER_DATA)  # Member data access
 @handle_api_error
 @performance_monitor(threshold_ms=500)
 @cached(ttl=300)  # Cache for 5 minutes
@@ -147,7 +153,7 @@ def get_chapter_member_emails(chapter_name):
 
 
 @frappe.whitelist()
-@high_security_api  # Member approval operations
+@high_security_api(operation_type=OperationType.MEMBER_DATA)  # Member approval operations
 @handle_api_error
 @performance_monitor(threshold_ms=2000)
 def quick_approve_member(member_name, chapter_name=None):
@@ -694,6 +700,7 @@ def debug_mt940_transaction_creation(import_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def reprocess_mt940_import(import_name):
     """Reprocess an existing MT940 import"""
     try:
@@ -1055,7 +1062,7 @@ def test_eboekhouden_complete():
 
 
 @frappe.whitelist()
-@standard_api  # Dashboard notifications - read-only
+@standard_api(operation_type=OperationType.REPORTING)  # Dashboard notifications - read-only
 def get_dashboard_notifications():
     """Get notifications for dashboard (upcoming deadlines, overdue items, etc.)"""
 
@@ -1125,7 +1132,7 @@ def get_dashboard_notifications():
 
 
 @frappe.whitelist()
-@standard_api  # Chapter statistics - read-only
+@standard_api(operation_type=OperationType.REPORTING)  # Chapter statistics - read-only
 def get_chapter_quick_stats(chapter_name):
     """Get quick statistics for a specific chapter"""
 
@@ -1182,7 +1189,7 @@ def get_chapter_quick_stats(chapter_name):
 
 
 @frappe.whitelist()
-@high_security_api  # Member application rejection
+@high_security_api(operation_type=OperationType.MEMBER_DATA)  # Member application rejection
 def reject_member_application(member_name, chapter_name, reason=None):
     """Reject a member application from dashboard"""
 
@@ -1300,7 +1307,7 @@ def reject_member_application(member_name, chapter_name, reason=None):
 
 
 @frappe.whitelist()
-@high_security_api  # Chapter announcement operations
+@high_security_api(operation_type=OperationType.ADMIN)  # Chapter announcement operations
 def send_chapter_announcement(chapter_name, subject, message, send_to="all"):
     """Send announcement to chapter members"""
 
@@ -1498,7 +1505,7 @@ def test_url_access():
 
 # Number Card API methods for Frappe Dashboard
 @frappe.whitelist()
-@standard_api  # Member count statistics - read-only
+@standard_api(operation_type=OperationType.REPORTING)  # Member count statistics - read-only
 def get_active_members_count(chapter=None):
     """Get count of active members for dashboard number card"""
 
@@ -1527,7 +1534,7 @@ def get_active_members_count(chapter=None):
 
 
 @frappe.whitelist()
-@standard_api  # Application count statistics - read-only
+@standard_api(operation_type=OperationType.REPORTING)  # Application count statistics - read-only
 def get_pending_applications_count(chapter=None):
     """Get count of pending applications for dashboard number card"""
 
@@ -1549,7 +1556,7 @@ def get_pending_applications_count(chapter=None):
 
 
 @frappe.whitelist()
-@standard_api  # Board member count statistics - read-only
+@standard_api(operation_type=OperationType.REPORTING)  # Board member count statistics - read-only
 def get_board_members_count(chapter=None):
     """Get count of active board members for dashboard number card"""
 
@@ -1571,7 +1578,7 @@ def get_board_members_count(chapter=None):
 
 
 @frappe.whitelist()
-@standard_api  # New member count statistics - read-only
+@standard_api(operation_type=OperationType.REPORTING)  # New member count statistics - read-only
 def get_new_members_count(chapter=None):
     """Get count of new members this month for dashboard number card"""
 
@@ -1864,6 +1871,7 @@ def create_simple_dashboard():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def add_existing_cards_to_dashboard():
     """Add existing working number cards to the dashboard"""
 
@@ -1897,6 +1905,7 @@ def add_existing_cards_to_dashboard():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def finalize_chapter_dashboard():
     """Complete the chapter dashboard setup"""
 
@@ -1935,6 +1944,7 @@ def finalize_chapter_dashboard():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def add_chapter_specific_chart():
     """Add a chapter-specific chart to the dashboard"""
 
@@ -1978,6 +1988,7 @@ def add_chapter_specific_chart():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_dashboard_completion_summary():
     """Get final summary of the completed dashboard"""
 
@@ -2048,6 +2059,7 @@ def get_dashboard_completion_summary():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_dashboard_chart_issue():
     """Fix the dashboard chart issue causing page navigation errors"""
 
@@ -2108,6 +2120,7 @@ def fix_dashboard_chart_issue():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_all_chart_issues():
     """Fix all chart navigation issues and add proper dashboard functionality"""
 
@@ -2193,6 +2206,7 @@ def fix_all_chart_issues():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_chart_currency_display():
     """Fix the euro symbol appearing in chart tooltips"""
 
@@ -2216,6 +2230,7 @@ def fix_chart_currency_display():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_chart_timeseries_display():
     """Fix charts showing flat lines by correcting timeseries configuration"""
 
@@ -2252,6 +2267,7 @@ def fix_chart_timeseries_display():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def recreate_working_charts():
     """Completely recreate charts with minimal working configuration"""
 
@@ -2335,6 +2351,7 @@ def recreate_working_charts():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def use_existing_working_charts():
     """Replace problematic charts with existing working ones"""
 
@@ -2383,6 +2400,7 @@ def use_existing_working_charts():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def create_cards_only_dashboard():
     """Create dashboard with only Number Cards, no charts to avoid KeyError"""
 
@@ -2418,6 +2436,7 @@ def create_cards_only_dashboard():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def create_proper_chapter_charts():
     """Create working chapter-specific charts using the proven pattern"""
 
@@ -2509,6 +2528,7 @@ def create_proper_chapter_charts():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def create_minimal_working_charts():
     """Create the most minimal possible working charts"""
 
@@ -2581,6 +2601,7 @@ def debug_number_cards():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def create_working_basic_charts():
     """Create charts using basic data that every system has"""
 
@@ -2651,6 +2672,7 @@ def create_working_basic_charts():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_dashboard_with_working_chart():
     """Fix dashboard with a chart that actually works"""
 
@@ -2695,6 +2717,7 @@ def test_number_card_format():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def create_chapter_member_charts():
     """Create working charts showing chapter and member data"""
 
@@ -2843,6 +2866,7 @@ def simple_test_count():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def clean_dashboard_completely():
     """Clean up dashboard and recreate with working components"""
 
@@ -2920,6 +2944,7 @@ def clean_dashboard_completely():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_dashboard_simple():
     """Simple dashboard fix without deleting linked cards"""
 
@@ -2954,6 +2979,7 @@ def fix_dashboard_simple():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def restore_all_member_cards():
     """Restore all the important member overview cards"""
 
@@ -3001,6 +3027,7 @@ def restore_all_member_cards():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def add_working_chapter_charts():
     """Add working chapter-specific charts back to dashboard"""
 
@@ -3048,6 +3075,7 @@ def add_working_chapter_charts():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_filed_expense_claims_count(chapter=None):
     """Get count of filed expense claims for dashboard number card"""
 
@@ -3069,6 +3097,7 @@ def get_filed_expense_claims_count(chapter=None):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_approved_expense_claims_count(chapter=None):
     """Get count of approved expense claims for dashboard number card"""
 
@@ -3090,6 +3119,7 @@ def get_approved_expense_claims_count(chapter=None):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_volunteer_expenses_count(chapter=None):
     """Get count of volunteer expenses for dashboard number card"""
 

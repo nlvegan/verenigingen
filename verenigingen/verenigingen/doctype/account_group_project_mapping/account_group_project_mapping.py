@@ -1,6 +1,8 @@
 import frappe
 from frappe.model.document import Document
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class AccountGroupProjectMapping(Document):
     def validate(self):
@@ -71,6 +73,7 @@ class AccountGroupProjectMapping(Document):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_account_group_defaults(account_group):
     """Get default project and cost center for an account group"""
     if not account_group:
@@ -96,6 +99,7 @@ def get_account_group_defaults(account_group):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_valid_projects_for_account_group(account_group):
     """Get valid projects for an account group"""
     if not account_group:
@@ -110,6 +114,7 @@ def get_valid_projects_for_account_group(account_group):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_valid_cost_centers_for_account_group(account_group):
     """Get valid cost centers for an account group"""
     if not account_group:
@@ -126,6 +131,7 @@ def get_valid_cost_centers_for_account_group(account_group):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def validate_account_group_selection(account_group, project=None, cost_center=None):
     """Validate project and cost center selection for an account group"""
     if not account_group:

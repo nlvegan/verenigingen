@@ -2,8 +2,11 @@ import json
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_edge_cases():
     """Test edge cases for the incremental update system"""
 
@@ -116,6 +119,7 @@ def test_edge_cases():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_interface_compatibility():
     """Test that the interface matches what JavaScript expects"""
 

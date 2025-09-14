@@ -11,8 +11,11 @@ import time
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_team_validation_performance():
     """Test performance of team validation with various team sizes"""
 

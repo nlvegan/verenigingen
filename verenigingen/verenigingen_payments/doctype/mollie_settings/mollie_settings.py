@@ -39,6 +39,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import get_url
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 
 class MollieSettings(Document):
     """
@@ -469,6 +471,7 @@ class MollieSettings(Document):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_mollie_settings():
     """
     Get Mollie settings singleton
@@ -480,6 +483,7 @@ def get_mollie_settings():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def test_mollie_connection():
     """
     Test Mollie API connection
@@ -498,6 +502,7 @@ def test_mollie_connection():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def update_webhook_urls():
     """
     Update webhook URLs in Mollie Settings

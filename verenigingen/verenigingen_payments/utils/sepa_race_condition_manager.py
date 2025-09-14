@@ -21,6 +21,7 @@ from frappe.utils import add_seconds, get_datetime, now
 
 from verenigingen.utils.error_handling import SEPAError, handle_api_error, log_error
 from verenigingen.utils.performance_utils import performance_monitor
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 @dataclass
@@ -778,6 +779,7 @@ class SEPABatchRaceConditionManager:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 def create_sepa_batch_with_race_protection(**batch_data) -> Dict[str, Any]:
     """
@@ -794,6 +796,7 @@ def create_sepa_batch_with_race_protection(**batch_data) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 @handle_api_error
 def get_batch_lock_status(resource: str) -> Dict[str, Any]:
     """
@@ -812,6 +815,7 @@ def get_batch_lock_status(resource: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 @handle_api_error
 def force_release_batch_lock(resource: str) -> Dict[str, Any]:
     """

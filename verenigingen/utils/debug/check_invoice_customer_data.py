@@ -2,8 +2,11 @@ import json
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_invoice_customer_data():
     """Check how customer data is stored in Sales Invoices"""
 
@@ -74,6 +77,7 @@ def check_invoice_customer_data():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def search_for_customer_name():
     """Search for any reference to 'Maxime Boven' in the system"""
 

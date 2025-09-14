@@ -1357,55 +1357,55 @@ class MembershipDuesSchedule(Document):
                 # Set SEPA-specific fields on invoice if needed
                 invoice.sepa_mandate_id = active_mandate
 
-        # Payment terms template already set above if specified
+            # Payment terms template already set above if specified
 
-        # Add membership dues item
-        invoice.append(
-            "items",
-            {
-                "item_code": self.get_membership_dues_item(),
-                "qty": 1,
-                "rate": self.dues_rate,
-                "description": self.get_invoice_description(),
-            },
-        )
-
-        # Add reference to this schedule (as a custom field or in remarks)
-        invoice.remarks = (
-            f"Generated from Membership Dues Schedule: {self.name}\n{self.get_invoice_description()}"
-        )
-
-        # Save and optionally submit
-        # Insert with minimal logging for automated invoices
-        invoice.flags.ignore_version = True
-        invoice.flags.ignore_links = True
-        invoice.insert()
-
-        # Auto-submit if configured (default to True for membership invoices)
-        try:
-            auto_submit = frappe.db.get_single_value(
-                "Verenigingen Settings", "auto_submit_membership_invoices"
+            # Add membership dues item
+            invoice.append(
+                "items",
+                {
+                    "item_code": self.get_membership_dues_item(),
+                    "qty": 1,
+                    "rate": self.dues_rate,
+                    "description": self.get_invoice_description(),
+                },
             )
-            # Default to auto-submit if setting doesn't exist (better UX)
-            if auto_submit is None or auto_submit:
-                # Keep minimal logging flags for submit operation
-                invoice.flags.ignore_version = True
-                invoice.flags.ignore_links = True
-                invoice.submit()
-        except Exception:
-            # If setting doesn't exist, default to auto-submit for membership invoices
-            try:
-                # Keep minimal logging flags for submit operation
-                invoice.flags.ignore_version = True
-                invoice.flags.ignore_links = True
-                invoice.submit()
-            except Exception as e:
-                frappe.log_error(
-                    f"Failed to auto-submit invoice {invoice.name}: {str(e)}", "Invoice Auto-Submit"
-                )
-                pass
 
-        return invoice.name
+            # Add reference to this schedule (as a custom field or in remarks)
+            invoice.remarks = (
+                f"Generated from Membership Dues Schedule: {self.name}\n{self.get_invoice_description()}"
+            )
+
+            # Save and optionally submit
+            # Insert with minimal logging for automated invoices
+            invoice.flags.ignore_version = True
+            invoice.flags.ignore_links = True
+            invoice.insert()
+
+            # Auto-submit if configured (default to True for membership invoices)
+            try:
+                auto_submit = frappe.db.get_single_value(
+                    "Verenigingen Settings", "auto_submit_membership_invoices"
+                )
+                # Default to auto-submit if setting doesn't exist (better UX)
+                if auto_submit is None or auto_submit:
+                    # Keep minimal logging flags for submit operation
+                    invoice.flags.ignore_version = True
+                    invoice.flags.ignore_links = True
+                    invoice.submit()
+            except Exception:
+                # If setting doesn't exist, default to auto-submit for membership invoices
+                try:
+                    # Keep minimal logging flags for submit operation
+                    invoice.flags.ignore_version = True
+                    invoice.flags.ignore_links = True
+                    invoice.submit()
+                except Exception as e:
+                    frappe.log_error(
+                        f"Failed to auto-submit invoice {invoice.name}: {str(e)}", "Invoice Auto-Submit"
+                    )
+                    pass
+
+            return invoice.name
 
     def get_membership_dues_item(self):
         """Get the membership dues item name (assumes it exists)"""

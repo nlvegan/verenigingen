@@ -11,8 +11,11 @@ from datetime import datetime, timedelta
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def generate_monitoring_test_data():
     """Generate various test data for monitoring system validation"""
     print("Generating test data for monitoring system...")
@@ -155,6 +158,7 @@ def generate_monitoring_test_data():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def cleanup_test_data():
     """Clean up test data after testing"""
     print("Cleaning up test data...")

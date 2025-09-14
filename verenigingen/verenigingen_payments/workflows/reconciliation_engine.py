@@ -13,6 +13,7 @@ from frappe import _
 from frappe.utils import add_days, get_datetime, now_datetime
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 from ..clients.balances_client import BalancesClient
 from ..clients.chargebacks_client import ChargebacksClient
@@ -687,6 +688,7 @@ class ReconciliationEngine:
 
 # Scheduled task for daily reconciliation
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def run_scheduled_reconciliation():
     """Run scheduled daily reconciliation"""
     settings = frappe.get_single("Mollie Settings")

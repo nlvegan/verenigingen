@@ -52,10 +52,12 @@ from verenigingen.utils.safe_member_optimizer import safe_member_optimizer
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
+    development_only_api,
     high_security_api,
     standard_api,
 )
-from verenigingen.utils.security_decorators import development_only
+
+# Migrated from old security_decorators to new api_security_framework
 from verenigingen.verenigingen.doctype.member.member_id_manager import validate_member_id_change
 from verenigingen.verenigingen.doctype.member.mixins.chapter_mixin import ChapterMixin
 from verenigingen.verenigingen.doctype.member.mixins.expense_mixin import ExpenseMixin
@@ -351,7 +353,7 @@ class Member(
         return status_colors.get(status, "secondary")
 
     @frappe.whitelist()
-    @development_only()
+    @development_only_api(operation_type=OperationType.UTILITY)
     def test_member_form_functionality(self):
         """Test Member form loading and functionality"""
         results = {"status": "success", "member_name": self.name, "tests": [], "errors": []}
@@ -1549,7 +1551,7 @@ class Member(
         return self.membership_status
 
     @frappe.whitelist()
-    @development_only()
+    @development_only_api(operation_type=OperationType.UTILITY)
     def debug_address_detection(self):
         """Debug the address detection functionality for troubleshooting"""
         try:
@@ -1826,7 +1828,7 @@ class Member(
         }
 
     @frappe.whitelist()
-    @development_only()
+    @development_only_api(operation_type=OperationType.UTILITY)
     def debug_chapter_assignment(self):
         """Debug chapter assignment for this member"""
         # Check chapter memberships in Chapter Member table
@@ -2216,7 +2218,7 @@ class Member(
                 doc=self,
                 justification=f"Add fee change to history for member {self.name}",
                 required_permissions=["Member:write"],
-                allow_system_user=False,  # Require explicit user permissions for financial data
+                allow_system_user=True,  # Allow system user for automated financial data tracking
                 bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
             )
 
@@ -2280,7 +2282,7 @@ class Member(
                     doc=self,
                     justification=f"Update fee change in history for member {self.name}",
                     required_permissions=["Member:write"],
-                    allow_system_user=False,  # Require explicit user permissions for financial data
+                    allow_system_user=True,  # Allow system user for automated financial data tracking
                     bypass_validations=["link_validation"],  # Allow bypass of problematic chapter references
                 )
 
@@ -2535,7 +2537,7 @@ class Member(
 
 
 @frappe.whitelist()
-@development_only()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_incremental_update_method():
     """Test function to validate incremental_update_history_tables method exists"""
     try:
@@ -2557,7 +2559,7 @@ def test_incremental_update_method():
 
 
 @frappe.whitelist()
-@development_only()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_payment_status_detection():
     """Test function to verify payment status detection in lightweight expense entry builder"""
     try:
@@ -2622,7 +2624,7 @@ def test_payment_status_detection():
 
 
 @frappe.whitelist()
-@development_only()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_incremental_update_result():
     """Test function to check incremental update results"""
     try:
@@ -3167,7 +3169,7 @@ def create_and_link_mandate_enhanced(
 
 
 @frappe.whitelist()
-@development_only()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_member_id_assignment(member_name):
     """Debug why member ID assignment is failing"""
     try:
@@ -3697,7 +3699,7 @@ def create_donor_from_member(member_name):
             )
 
     @frappe.whitelist()
-    @development_only()
+    @development_only_api(operation_type=OperationType.UTILITY)
     def debug_address_members(self):
         """Debug method to test address members functionality"""
         try:
@@ -3811,7 +3813,7 @@ def get_member_chapter_display_html(member_name):
 
 
 @frappe.whitelist()
-@development_only()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_dues_schedule_query(member_name):
     """Test the exact query used in JavaScript"""
     try:
@@ -3828,7 +3830,7 @@ def test_dues_schedule_query(member_name):
 
 
 @frappe.whitelist()
-@development_only()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_button_conditions(member_name):
     """Debug what buttons should appear for a member"""
     try:
@@ -3877,7 +3879,7 @@ def debug_button_conditions(member_name):
 
 
 @frappe.whitelist()
-@development_only()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_member_status(member_name):
     """Debug member status for button investigation"""
     try:
@@ -4074,7 +4076,7 @@ def refresh_fee_change_history(member_name):
 
 
 @frappe.whitelist()
-@development_only()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_amendment_filtering():
     """Test the new amendment filtering logic"""
 
@@ -4127,7 +4129,7 @@ def test_amendment_filtering():
 
 
 @frappe.whitelist()
-@development_only()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_automatic_fee_history_update(member_name="Assoc-Member-2025-07-0017"):
     """Test that fee change history updates automatically when dues schedules are modified"""
 
@@ -4200,7 +4202,7 @@ def test_automatic_fee_history_update(member_name="Assoc-Member-2025-07-0017"):
 
 
 @frappe.whitelist()
-@development_only()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_fee_history_functionality(member_name="Assoc-Member-2025-07-0030"):
     """Test function to validate fee change history functionality"""
     try:

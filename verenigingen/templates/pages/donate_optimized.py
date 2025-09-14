@@ -22,6 +22,12 @@ from frappe import _
 from frappe.utils import flt, getdate
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    high_security_api,
+    public_api,
+    standard_api,
+)
 
 
 def get_context(context):
@@ -154,6 +160,7 @@ def _get_user_and_donor_data(user_email):
 
 # All other functions remain exactly the same to maintain API compatibility
 @frappe.whitelist(allow_guest=True)
+@public_api
 def submit_donation(**kwargs):
     """Process donation form submission - maintains exact same functionality"""
     try:
@@ -544,6 +551,7 @@ def process_cash_payment(donation):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_donation_status(donation_id):
     """Get donation status - maintains exact same logic"""
     if not donation_id:
@@ -561,6 +569,7 @@ def get_donation_status(donation_id):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def mark_donation_paid(donation_id, payment_reference=None):
     """Mark donation as paid manually - maintains exact same logic"""
     if not frappe.has_permission("Donation", "write"):
@@ -576,6 +585,7 @@ def mark_donation_paid(donation_id, payment_reference=None):
 
 # Performance comparison function for validation
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_performance_comparison():
     """Compare performance between original and optimized versions"""
 

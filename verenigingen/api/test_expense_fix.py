@@ -5,8 +5,11 @@ Test API for expense claim update fix
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_expense_claim_fix():
     """Test that expense claim updates don't create duplicates"""
 
@@ -88,6 +91,7 @@ def test_expense_claim_fix():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_expense_history_structure():
     """Check the Member expense history structure"""
 

@@ -9,8 +9,11 @@ import json
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def start_migration_api(migration_name, dry_run=1):
     """API method to start migration process"""
     try:
@@ -48,6 +51,7 @@ def start_migration_api(migration_name, dry_run=1):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def start_migration(migration_name, setup_only=False):
     """Start migration with optional setup-only mode"""
     try:
@@ -119,6 +123,7 @@ def run_migration_background(migration_name, setup_only=False):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_staging_data_for_review(migration_name):
     """Get staged data for manual review and configuration"""
     try:
@@ -140,6 +145,7 @@ def get_staging_data_for_review(migration_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_manual_account_mapping(
     migration_name, eboekhouden_code, erpnext_account, account_type, notes=None
 ):
@@ -170,6 +176,7 @@ def create_manual_account_mapping(
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def preview_mapping_impact(migration_name, account_mappings):
     """Preview the impact of proposed account mappings"""
     try:
@@ -223,6 +230,7 @@ def preview_mapping_impact(migration_name, account_mappings):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def approve_and_continue_migration(migration_name):
     """Approve staging data and continue with full migration"""
     try:

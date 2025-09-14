@@ -6,6 +6,7 @@ from frappe.model.document import Document
 from frappe.utils import add_to_date, get_datetime, now_datetime
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
 class AnalyticsAlertRule(Document):
@@ -423,6 +424,7 @@ class AnalyticsAlertRule(Document):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def check_all_active_alerts():
     """Check all active alert rules - called by scheduler"""
     active_rules = frappe.get_all("Analytics Alert Rule", filters={"is_active": 1}, fields=["name"])

@@ -13,6 +13,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, flt, get_datetime, now_datetime
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+
 from ..clients.balances_client import BalancesClient
 from ..clients.chargebacks_client import ChargebacksClient
 from ..clients.invoices_client import InvoicesClient
@@ -896,6 +898,7 @@ class FinancialDashboard:
 
 # API endpoints for dashboard
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_dashboard_data():
     """Get dashboard data for frontend"""
     try:
@@ -959,6 +962,7 @@ def get_dashboard_data():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_financial_report(period: str = "month"):
     """Get financial report for specified period"""
     dashboard = FinancialDashboard()
@@ -966,6 +970,7 @@ def get_financial_report(period: str = "month"):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def test_dashboard_api():
     """Simple test endpoint to verify API whitelist is working"""
     return {"success": True, "message": "Dashboard API is working", "timestamp": frappe.utils.now()}

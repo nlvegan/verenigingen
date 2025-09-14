@@ -8,6 +8,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import add_days, add_months, flt, getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
@@ -222,6 +223,7 @@ class PaymentPlan(Document):
             frappe.log_error(f"Error updating dues schedule: {str(e)}")
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def process_payment(self, installment_number, payment_amount, payment_reference=None, payment_date=None):
         """Process a payment for a specific installment"""
         if not payment_date:
@@ -399,6 +401,7 @@ class PaymentPlan(Document):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def create_payment_plan_from_application(member, total_amount, installments, frequency, reason=None):
     """Create payment plan from membership application or dues schedule"""
     try:
@@ -422,6 +425,7 @@ def create_payment_plan_from_application(member, total_amount, installments, fre
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def approve_payment_plan(plan_name, approver_notes=None):
     """Approve a payment plan"""
     try:
@@ -448,6 +452,7 @@ def approve_payment_plan(plan_name, approver_notes=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def process_overdue_installments():
     """Scheduled function to mark overdue installments"""
     try:

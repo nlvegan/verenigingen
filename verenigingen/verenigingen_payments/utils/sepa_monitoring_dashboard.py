@@ -21,6 +21,11 @@ from frappe.utils import cint, flt, get_datetime, now_datetime
 
 from verenigingen.utils.error_handling import log_error
 from verenigingen.utils.performance_dashboard import PerformanceMetrics
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    development_only_api,
+    high_security_api,
+)
 from verenigingen.verenigingen_payments.utils.sepa_memory_optimizer import SEPAMemoryMonitor
 
 
@@ -688,6 +693,7 @@ _sepa_dashboard = SEPAMonitoringDashboard()
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_sepa_dashboard_data(days: int = 7) -> Dict[str, Any]:
     """
     Get SEPA dashboard data
@@ -702,6 +708,7 @@ def get_sepa_dashboard_data(days: int = 7) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_sepa_performance_metrics(hours: int = 24) -> Dict[str, Any]:
     """
     Get SEPA performance metrics
@@ -716,6 +723,7 @@ def get_sepa_performance_metrics(hours: int = 24) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_batch_analytics(days: int = 7) -> Dict[str, Any]:
     """
     Get batch processing analytics
@@ -730,6 +738,7 @@ def get_batch_analytics(days: int = 7) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_mandate_health_report() -> Dict[str, Any]:
     """
     Get mandate health report
@@ -741,6 +750,7 @@ def get_mandate_health_report() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_financial_metrics(days: int = 30) -> Dict[str, Any]:
     """
     Get financial metrics
@@ -755,6 +765,7 @@ def get_financial_metrics(days: int = 30) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_system_alerts() -> List[Dict[str, Any]]:
     """
     Get current system alerts
@@ -766,6 +777,7 @@ def get_system_alerts() -> List[Dict[str, Any]]:
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def record_sepa_operation(
     operation_type: str,
     execution_time_ms: float,

@@ -6,6 +6,8 @@ import string
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 def setup_webhook_user():
     """
@@ -255,6 +257,7 @@ def verify_webhook_user_setup():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def setup_webhook_user_manual():
     """Manual API endpoint to setup webhook user (for development/troubleshooting)"""
     try:
@@ -265,6 +268,7 @@ def setup_webhook_user_manual():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def verify_webhook_user_setup_manual():
     """Manual API endpoint to verify webhook user setup"""
     try:
@@ -312,6 +316,7 @@ def get_webhook_credentials_for_display():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_webhook_credentials_manual():
     """Manual API endpoint to get webhook credentials for display"""
     try:

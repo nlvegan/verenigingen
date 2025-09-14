@@ -12,6 +12,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, get_datetime, getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+
 
 class BillingFrequencyTransitionManager:
     """Manages complex billing frequency transitions with business rule validation"""
@@ -491,6 +493,7 @@ class BillingFrequencyTransitionManager:
 
 # API Functions for external use
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def validate_billing_frequency_transition(member, old_frequency, new_frequency, effective_date):
     """API endpoint to validate billing frequency transition"""
     manager = BillingFrequencyTransitionManager()
@@ -498,6 +501,7 @@ def validate_billing_frequency_transition(member, old_frequency, new_frequency, 
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def execute_billing_frequency_transition(
     member, old_frequency, new_frequency, effective_date, new_rate=None, reason=None
 ):
@@ -518,6 +522,7 @@ def execute_billing_frequency_transition(
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_billing_transition_preview(member, old_frequency, new_frequency, effective_date):
     """API endpoint to get billing frequency transition preview"""
     manager = BillingFrequencyTransitionManager()

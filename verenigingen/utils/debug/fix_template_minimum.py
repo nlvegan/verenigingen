@@ -1,7 +1,10 @@
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def fix_daily_access_template():
     """Fix the Template-Daily Access to have correct minimum amount"""
 
@@ -30,6 +33,7 @@ def fix_daily_access_template():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def update_existing_schedules_from_template():
     """Update existing schedules that were created from the incorrect template"""
 

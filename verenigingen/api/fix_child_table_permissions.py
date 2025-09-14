@@ -2,8 +2,11 @@ import json
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_child_table_permissions():
     """Fix read permissions for child table DocTypes that need them for functionality"""
 

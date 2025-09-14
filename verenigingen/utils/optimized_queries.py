@@ -31,6 +31,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, cstr, flt, get_datetime, getdate, now, nowdate
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.validation_utilities import QueryBuilder
 
 
@@ -220,6 +221,7 @@ class OptimizedMemberQueries:
 
     @staticmethod
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.MEMBER_DATA)
     def get_members_with_payment_data(filters: Dict = None) -> List[Dict]:
         """
         Optimized bulk loading of members with payment data
@@ -291,6 +293,7 @@ class OptimizedMemberQueries:
 
     @staticmethod
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def bulk_update_payment_history(member_names: List[str]) -> Dict[str, Any]:
         """
         Optimized bulk payment history update
@@ -485,6 +488,7 @@ class OptimizedMemberQueries:
 
     @staticmethod
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def get_member_financial_summary(member_names: List[str]) -> Dict[str, Dict]:
         """
         Get financial summary for multiple members in one query
@@ -532,6 +536,7 @@ class OptimizedVolunteerQueries:
 
     @staticmethod
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.MEMBER_DATA)
     def get_volunteer_assignments_bulk(volunteer_names: List[str]) -> Dict[str, List[Dict]]:
         """
         Optimized bulk loading of volunteer assignments
@@ -640,6 +645,7 @@ class OptimizedSEPAQueries:
 
     @staticmethod
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def get_active_mandates_for_members(member_names: List[str]) -> Dict[str, Dict]:
         """
         Optimized bulk loading of active SEPA mandates for members
@@ -690,6 +696,7 @@ class OptimizedSEPAQueries:
 
     @staticmethod
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def bulk_update_mandate_payment_history(mandate_names: List[str], payment_entries: List[str]) -> Dict:
         """
         Bulk update SEPA mandate payment history
@@ -777,6 +784,7 @@ class OptimizedChapterQueries:
 
     @staticmethod
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def get_chapter_assignments_bulk(postal_codes: List[str]) -> Dict[str, str]:
         """
         Optimized bulk chapter assignment by postal codes
@@ -863,6 +871,7 @@ class QueryCache:
 
 # Utility functions for replacing existing N+1 patterns
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def optimize_member_payment_history_update(payment_entry_name: str) -> Dict:
     """
     Drop-in replacement for the N+1 payment history update pattern
@@ -897,6 +906,7 @@ def optimize_member_payment_history_update(payment_entry_name: str) -> Dict:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def optimize_volunteer_assignment_loading(volunteer_name: str) -> List[Dict]:
     """
     Drop-in replacement for individual volunteer assignment loading

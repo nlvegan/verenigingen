@@ -9,6 +9,8 @@ from typing import Any, Dict, Optional, Union
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 # Direct mapping of E-boekhouden transaction types to ERPNext document types
 TRANSACTION_TYPE_MAPPING = {
     # Dutch transaction types from E-boekhouden SOAP API
@@ -118,6 +120,7 @@ def get_payment_entry_reference_type(eboekhouden_transaction_type: Union[str, in
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_transaction_type_mapping() -> Dict[str, Any]:
     """
     Get all available transaction type mappings

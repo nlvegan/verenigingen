@@ -6,9 +6,17 @@ Handles Dutch naming conventions including tussenvoegsels
 import frappe
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    development_only_api,
+    high_security_api,
+    public_api,
+    standard_api,
+)
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
+@public_api(operation_type=OperationType.UTILITY)
 def is_dutch_installation():
     """Check if this is a Dutch installation based on company country"""
     try:
@@ -40,6 +48,7 @@ def get_full_last_name(last_name, tussenvoegsel=None):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def format_dutch_full_name(first_name, middle_name=None, tussenvoegsel=None, last_name=None):
     """Format a complete Dutch name with proper tussenvoegsel handling"""
     parts = []
@@ -59,6 +68,7 @@ def format_dutch_full_name(first_name, middle_name=None, tussenvoegsel=None, las
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def setup_dutch_name_fields():
     """Setup tussenvoegsel custom field for User doctype if Dutch installation"""
     if not is_dutch_installation():
@@ -102,6 +112,7 @@ def setup_dutch_name_fields():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_dutch_name_formatting():
     """Test function for Dutch name formatting"""
     test_cases = [

@@ -26,6 +26,8 @@ from typing import Any, Dict, List
 import frappe
 import psutil
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 @dataclass
 class PerformanceMetric:
@@ -347,6 +349,7 @@ class monitor_sepa_operation:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_sepa_performance_report(hours_back: int = 24):
     """API endpoint to get SEPA performance report"""
     monitor = get_sepa_performance_monitor()
@@ -354,6 +357,7 @@ def get_sepa_performance_report(hours_back: int = 24):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def clear_sepa_performance_data():
     """API endpoint to clear SEPA performance data"""
     monitor = get_sepa_performance_monitor()
@@ -362,6 +366,7 @@ def clear_sepa_performance_data():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def benchmark_sepa_batch_processing(max_batch_size: int = 500):
     """API endpoint to benchmark SEPA batch processing performance"""
     if max_batch_size > 1000:

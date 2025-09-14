@@ -19,6 +19,7 @@ from verenigingen.utils.security.api_security_framework import (
     OperationType,
     SecurityLevel,
     critical_api,
+    development_only_api,
     high_security_api,
     standard_api,
     utility_api,
@@ -1889,6 +1890,7 @@ def can_approve_members():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_member_incremental_update_debug():
     """Test the incremental update functionality with the specific member"""
     try:

@@ -7,6 +7,8 @@ Run with: bench --site dev.veganisme.net execute verenigingen.test_dues_schedule
 import frappe
 from frappe.utils import today
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 def test_complete_workflow():
     """Test the complete dues schedule workflow"""
     
@@ -196,6 +198,7 @@ def test_template_operations():
         return {"success": False, "error": str(e)}
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def create_all_templates():
     """Create dues schedule templates for all membership types"""
     
@@ -231,6 +234,7 @@ def create_all_templates():
         return {"success": False, "error": str(e)}
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_all_tests():
     """Run all dues schedule tests"""
     

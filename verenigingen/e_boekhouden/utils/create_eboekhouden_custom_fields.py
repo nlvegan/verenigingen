@@ -5,6 +5,8 @@ Create custom fields for E-Boekhouden migration tracking
 import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 def create_eboekhouden_tracking_fields():
     """Create custom fields for tracking E-Boekhouden data"""
@@ -142,12 +144,14 @@ def create_eboekhouden_tracking_fields():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def ensure_eboekhouden_fields():
     """Ensure all E-Boekhouden tracking fields exist"""
     return create_eboekhouden_tracking_fields()
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def update_mutation_type_field_options():
     """Update E-Boekhouden Mutation Type field to include empty option"""
     try:

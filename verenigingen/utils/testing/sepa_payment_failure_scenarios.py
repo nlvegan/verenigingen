@@ -8,6 +8,8 @@ for testing payment processing, retry logic, and error handling.
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 # Official SEPA Error Codes (ISO 20022)
 SEPA_ERROR_CODES = {
     # Account Errors
@@ -110,6 +112,7 @@ SEPA_ERROR_CODES = {
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def create_payment_failure_scenario(failure_type="insufficient_funds", **kwargs):
     """
     Create test scenarios for payment failures with official SEPA error codes
@@ -242,6 +245,7 @@ def create_payment_failure_scenario(failure_type="insufficient_funds", **kwargs)
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def simulate_payment_failure_sequence(member_name, failure_types=None):
     """
     Simulate a sequence of payment failures for comprehensive testing
@@ -280,6 +284,7 @@ def simulate_payment_failure_sequence(member_name, failure_types=None):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def get_retry_schedule(error_code, initial_failure_date=None):
     """
     Generate retry schedule based on SEPA error code
@@ -323,6 +328,7 @@ def get_retry_schedule(error_code, initial_failure_date=None):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def validate_payment_recovery_scenario(scenario_data):
     """
     Validate if a payment failure scenario allows for recovery

@@ -7,6 +7,7 @@ import json
 import frappe
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
 def migrate_cost_centers_with_hierarchy(settings):
@@ -298,6 +299,7 @@ def ensure_root_cost_center(company):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def add_eboekhouden_id_field():
     """Add custom field to track e-boekhouden cost center IDs"""
     if not frappe.db.has_column("Cost Center", "eboekhouden_id"):
@@ -325,6 +327,7 @@ def add_eboekhouden_id_field():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def fix_cost_center_groups(company):
     """
     Fix cost centers that should be groups based on having children
@@ -366,6 +369,7 @@ def fix_cost_center_groups(company):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def cleanup_cost_centers(company):
     """
     Clean up cost centers with missing parent references

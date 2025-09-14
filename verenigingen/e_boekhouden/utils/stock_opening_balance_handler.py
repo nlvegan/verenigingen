@@ -8,6 +8,8 @@ instead of trying to update stock accounts directly via Journal Entries.
 import frappe
 from frappe.utils import flt, getdate
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 def create_stock_reconciliation_for_opening_balance(stock_accounts_data, company, debug_info):
     """
@@ -151,6 +153,7 @@ def _get_or_create_stock_item_for_account(account, company, debug_info):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def test_stock_reconciliation():
     """Test function to verify stock reconciliation creation"""
     debug_info = []

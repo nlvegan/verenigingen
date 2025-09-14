@@ -9,10 +9,12 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 from verenigingen.utils.security_decorators import audit_operation, development_only
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 @development_only()
 @audit_operation("mollie_test_setup", "Member")
 def create_test_member_with_subscription(first_name="Test", last_name="Member", email=None):
@@ -85,6 +87,7 @@ def create_test_member_with_subscription(first_name="Test", last_name="Member", 
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 @development_only()
 @audit_operation("mollie_subscription_test", "Member")
 def test_mollie_subscription_creation(member_name, amount=25.0, interval="1 month"):
@@ -144,6 +147,7 @@ def test_mollie_subscription_creation(member_name, amount=25.0, interval="1 mont
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 @development_only()
 @audit_operation("mollie_webhook_test", "Member")
 def test_mollie_webhook_simulation(member_name, payment_amount=25.0):
@@ -230,6 +234,7 @@ def test_mollie_webhook_simulation(member_name, payment_amount=25.0):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 @development_only()
 @audit_operation("mollie_status_check", "Member")
 def get_mollie_subscription_status(member_name):
@@ -287,6 +292,7 @@ def get_mollie_subscription_status(member_name):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 @development_only()
 @audit_operation("mollie_subscription_cancel", "Member")
 def cancel_mollie_subscription(member_name):
@@ -333,6 +339,7 @@ def cancel_mollie_subscription(member_name):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 @development_only()
 @audit_operation("mollie_test_suite", "System")
 def run_mollie_integration_test_suite():

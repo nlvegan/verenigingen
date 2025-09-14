@@ -6,6 +6,7 @@ from frappe.utils import validate_email_address
 
 from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
 def get_context(context):
@@ -136,6 +137,7 @@ def get_context(context):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def update_member_address(address_data):
     """Update member's address with the provided data"""
 
@@ -323,6 +325,7 @@ def update_member_address(address_data):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_current_address():
     """Get current address for the logged-in member"""
 

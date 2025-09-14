@@ -23,6 +23,7 @@ from verenigingen.utils.payment_services.constants import (
     STANDARD_SUCCESS_RESPONSE,
 )
 from verenigingen.utils.payment_services.mollie_payment_service import MolliePaymentService
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
 def _create_error_response(
@@ -80,6 +81,7 @@ def _validate_refund_reason(reason: Optional[str]) -> Optional[Dict[str, Any]]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def initiate_refund(
     payment_entry_name: str, amount: Optional[float] = None, reason: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -197,6 +199,7 @@ def initiate_refund(
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_payment_refund_info(payment_entry_name: str) -> Dict[str, Any]:
     """
     Get refund information for a Payment Entry.
@@ -255,6 +258,7 @@ def get_payment_refund_info(payment_entry_name: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_donation_refund_info(donation_name: str) -> Dict[str, Any]:
     """
     Get refund information for a Donation.
@@ -337,6 +341,7 @@ def get_donation_refund_info(donation_name: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def initiate_donation_refund(
     donation_name: str, amount: Optional[float] = None, reason: Optional[str] = None
 ) -> Dict[str, Any]:

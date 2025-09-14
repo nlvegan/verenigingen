@@ -4,6 +4,7 @@ from frappe.utils import flt, formatdate, today
 
 from verenigingen.utils.member_utils import get_current_user_member_name, get_volunteer_for_current_user
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.utils.volunteer_expense_setup import (
     create_default_cost_center,
@@ -75,6 +76,7 @@ def get_context(context):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def create_volunteer_for_member(member_name):
     """Create a volunteer record for an existing member (admin function)"""
     if not frappe.has_permission("Volunteer", "create"):
@@ -434,6 +436,7 @@ def get_status_class(status):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def upload_expense_receipt():
     """Upload receipt file and return file data for later attachment"""
     try:
@@ -533,14 +536,25 @@ def upload_expense_receipt():
 
 
 @frappe.whitelist()
-def submit_expense(expense_data):
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def submit_expense(expense_data=None):
     """Submit a new expense from the portal"""
     try:
-        # Parse JSON string if needed
-        if isinstance(expense_data, str):
+        # Handle JSON request body
+        if expense_data is None:
             import json
 
-            expense_data = json.loads(expense_data)
+            request_data = json.loads(frappe.request.data.decode("utf-8"))
+            expense_data = request_data.get("expense_data")
+
+        # Parse JSON string if needed (fallback for form submissions)
+        if isinstance(expense_data, str):
+            import html
+            import json
+
+            # Decode HTML entities (handles cases where JSON gets HTML encoded)
+            decoded_data = html.unescape(expense_data)
+            expense_data = json.loads(decoded_data)
         # Get current user's volunteer record
         volunteer_name = get_volunteer_for_current_user()
         if not volunteer_name:
@@ -885,18 +899,9 @@ def submit_expense(expense_data):
         # Keep as Draft status to match ERPNext Expense Claim workflow
         # Will be updated when the ERPNext expense claim is approved and submitted
 
-        # Update member expense history synchronously to avoid background job issues
-        try:
-            member_doc = frappe.get_doc("Member", volunteer.member)
-            if hasattr(member_doc, "add_expense_to_history"):
-                member_doc.add_expense_to_history(expense_claim.name)
-                frappe.logger().info(f"Successfully updated expense history for member {volunteer.member}")
-        except Exception as e:
-            # Log error but don't fail the expense submission
-            frappe.log_error(
-                f"Failed to update member expense history for {expense_claim.name}: {str(e)}",
-                "Member Expense History Update Error",
-            )
+        # Member expense history will be updated automatically via on_submit event hook
+        # when the Expense Claim is submitted. This runs with proper system permissions
+        # and handles errors gracefully without blocking the expense submission.
 
         # Prepare success message
         success_message = _("Expense claim saved successfully and awaiting approval")
@@ -917,6 +922,7 @@ def submit_expense(expense_data):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_organization_options(organization_type, volunteer_name=None):
     """Get organization options for the current volunteer"""
     if not volunteer_name:
@@ -939,6 +945,7 @@ def get_organization_options(organization_type, volunteer_name=None):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_expense_details(expense_name):
     """Get details for a specific expense from ERPNext or legacy records"""
     volunteer_name = get_volunteer_for_current_user()

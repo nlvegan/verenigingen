@@ -4,8 +4,11 @@ API endpoint to test the financial history security fix
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_member_financial_history(member_name="Assoc-Member-2025-07-0870"):
     """
     Test the financial history operation that was failing with bypass_validations error

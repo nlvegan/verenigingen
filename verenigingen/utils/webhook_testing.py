@@ -3,6 +3,7 @@ Webhook Testing Utilities for Mollie Subscription Integration
 """
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 from verenigingen.verenigingen_payments.utils.payment_gateways import (
     PaymentGatewayFactory,
     _process_subscription_payment,
@@ -10,6 +11,7 @@ from verenigingen.verenigingen_payments.utils.payment_gateways import (
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def recreate_emma_with_mollie_ids():
     """Recreate Emma with the actual Mollie IDs from our successful subscription"""
     try:
@@ -50,6 +52,7 @@ def recreate_emma_with_mollie_ids():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def find_emma():
     """Find Emma van Subscription member"""
     try:
@@ -73,6 +76,7 @@ def find_emma():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_emma_status(member_name=None):
     """Check Emma van Subscription's current status and invoice situation"""
     try:
@@ -145,6 +149,7 @@ def check_emma_status(member_name=None):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def create_test_invoice_for_emma(member_name=None):
     """Create a test membership invoice for Emma to test payment processing"""
     try:
@@ -213,6 +218,7 @@ def create_test_invoice_for_emma(member_name=None):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def simulate_webhook_payment():
     """Simulate a webhook payment for Emma's subscription"""
     try:
@@ -271,6 +277,7 @@ def simulate_webhook_payment():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_full_webhook():
     """Test the full webhook endpoint with Emma's subscription"""
     try:

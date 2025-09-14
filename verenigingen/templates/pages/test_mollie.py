@@ -11,6 +11,8 @@ import traceback
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 def get_context(context):
     """Basic context for the test page"""
@@ -21,6 +23,7 @@ def get_context(context):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_mollie_settings():
     """Test Mollie Settings configuration"""
     try:
@@ -81,6 +84,7 @@ def test_mollie_settings():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_mollie_client():
     """Test Mollie client creation"""
     try:
@@ -139,6 +143,7 @@ def test_mollie_client():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_payment_creation(**kwargs):
     """Test Mollie payment creation"""
     try:
@@ -222,6 +227,7 @@ def test_payment_creation(**kwargs):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_comprehensive_mollie():
     """Run all Mollie tests in sequence"""
     try:

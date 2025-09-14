@@ -7,10 +7,12 @@ Create Test Member with Active Membership for Fee Adjustment Testing
 import frappe
 from frappe.utils import add_days, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 from verenigingen.utils.security_decorators import audit_operation, development_only
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 @development_only()
 @audit_operation("test_data_creation", "Member")
 def create_test_member_with_membership():
@@ -121,6 +123,7 @@ def create_test_member_with_membership():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 @development_only()
 @audit_operation("test_fee_adjustment", "Member")
 def test_fee_adjustment_with_member(member_email="debug.feetest@test.invalid"):
@@ -170,6 +173,7 @@ def test_fee_adjustment_with_member(member_email="debug.feetest@test.invalid"):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 @development_only()
 @audit_operation("debug_member_context", "Member")
 def get_member_context_debug(member_email="debug.feetest@test.invalid"):

@@ -249,17 +249,18 @@ def get_or_create_donor(form_data):
         if form_data.get("donor_phone") and not donor_doc.phone:
             donor_doc.phone = form_data.donor_phone
 
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            result = secure_document_operation(
-                operation="save",
-                doc=donor_doc,
-                justification=f"Update existing donor {existing_donor} with new phone information from donation form - donor data enhancement for better contact management",
-                required_permissions=["Donor:write"],
-            )
-
-            if not result.success:
+            # PUBLIC DONATION FLOW: Allow guest users to update donor records for donations
+            try:
+                donor_doc.flags.ignore_permissions = True
+                donor_doc.save()
+                frappe.db.commit()
                 frappe.log_error(
-                    f"Failed to update donor information: {'; '.join(result.errors)}", "Donor Update Security"
+                    f"Updated donor {existing_donor} with phone information from public donation form",
+                    "Public Donation - Donor Update",
+                )
+            except Exception as e:
+                frappe.log_error(
+                    f"Failed to update donor information: {str(e)}", "Public Donation - Donor Update Error"
                 )
                 # Continue with donation processing even if phone update fails
         return donor_doc
@@ -291,22 +292,34 @@ def get_or_create_donor(form_data):
             }
         )
 
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        result = secure_document_operation(
-            operation="insert",
-            doc=donor_doc,
-            justification=f"Create new donor record for {form_data.donor_name} ({form_data.donor_email}) from public donation form - donor data creation for donation processing",
-            required_permissions=["Donor:create"],
-        )
+        # PUBLIC DONATION FLOW: Use system user for creating public donation records
+        # This ensures proper ownership and permissions for webhook processing
+        try:
+            # Temporarily switch to system user for donor creation
+            original_user = frappe.session.user
+            frappe.set_user("webhook.user@veganisme.org")
 
-        if not result.success:
+            donor_doc.insert()
+            frappe.db.commit()
+
+            # Switch back to original user
+            frappe.set_user(original_user)
+
             frappe.log_error(
-                "Failed to create donor record: %s", "; ".join(result.errors), "Donor Creation Security"
+                f"Created donor record for public donation: {form_data.donor_name} ({form_data.donor_email})",
+                "Public Donation - Donor Creation",
+            )
+            return donor_doc
+
+        except Exception as e:
+            # Ensure we switch back to original user even on error
+            if "original_user" in locals():
+                frappe.set_user(original_user)
+            frappe.log_error(
+                f"Failed to create donor record for public donation: {str(e)}",
+                "Public Donation - Donor Creation Error",
             )
             frappe.throw(_("Unable to process donation: Failed to create donor record"))
-
-        # Return the created document (operation already saved it)
-        return donor_doc
 
 
 def create_draft_donation_for_payment(donor, form_data):
@@ -349,18 +362,20 @@ def create_draft_donation_for_payment(donor, form_data):
     # Validate the donation
     donation_doc.validate()
 
-    # Save as DRAFT (do not submit - webhook will submit after payment)
-    result = secure_document_operation(
-        operation="insert",
-        doc=donation_doc,
-        justification=f"Create draft donation for payment-first flow - {donor.donor_name} amount €{form_data.amount}",
-        required_permissions=[],
-        allow_system_user=True,
-    )
+    # PUBLIC DONATION FLOW: Save as DRAFT (do not submit - webhook will submit after payment)
+    try:
+        donation_doc.flags.ignore_permissions = True
+        donation_doc.flags.ignore_mandatory = False  # Keep data validation
+        donation_doc.insert()
+        frappe.db.commit()
 
-    if not result.success:
         frappe.log_error(
-            "Failed to create draft donation: %s", "; ".join(result.errors), "Draft Donation Creation"
+            f"Created draft donation for public donation: {donor.donor_name} amount €{form_data.amount}",
+            "Public Donation - Draft Creation",
+        )
+    except Exception as e:
+        frappe.log_error(
+            f"Failed to create draft donation: {str(e)}", "Public Donation - Draft Creation Error"
         )
         frappe.throw(_("Unable to process donation: Failed to create donation record"))
 

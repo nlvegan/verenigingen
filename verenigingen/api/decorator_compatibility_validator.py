@@ -33,9 +33,9 @@ def validate_performance_monitor_decorator():
 
 
 @frappe.whitelist()
-@standard_api()
+@standard_api(operation_type=OperationType.UTILITY)
 def validate_standard_api_only():
-    """Test @standard_api() alone"""
+    """Test @standard_api(operation_type=OperationType.UTILITY) alone"""
     return {"result": "@standard_api works"}
 
 
@@ -44,13 +44,13 @@ def validate_standard_api_only():
 @handle_api_error
 @performance_monitor(threshold_ms=1000)
 def validate_working_combination():
-    """Test the working combination without @standard_api()"""
+    """Test the working combination without @standard_api(operation_type=OperationType.UTILITY)"""
     return {"result": "working combination without @standard_api"}
 
 
 # Original failing combination - this should reproduce the error
 @frappe.whitelist(allow_guest=True)
-@standard_api()
+@standard_api(operation_type=OperationType.UTILITY)
 @handle_api_error
 @performance_monitor(threshold_ms=1000)
 def validate_failing_combination():
@@ -59,7 +59,7 @@ def validate_failing_combination():
 
 
 # Known working @standard_api pattern from dd_batch_workflow_controller.py
-@standard_api()
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def validate_known_working_pattern():
     """Test the pattern that works in dd_batch_workflow_controller.py"""
@@ -67,18 +67,18 @@ def validate_known_working_pattern():
 
 
 # Test different orders
-@standard_api()
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist(allow_guest=True)
 @handle_api_error
 @performance_monitor(threshold_ms=1000)
 def validate_decorator_order_1():
-    """Test with @standard_api() first"""
+    """Test with @standard_api(operation_type=OperationType.UTILITY) first"""
     return {"result": "@standard_api first"}
 
 
 @performance_monitor(threshold_ms=1000)
 @handle_api_error
-@standard_api()
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist(allow_guest=True)
 def validate_decorator_order_2():
     """Test with @performance_monitor first"""
@@ -142,9 +142,11 @@ def analyze_results(results):
     standard_api_failures = [f for f in failed_tests if "standard_api" in f["test"]]
     if standard_api_failures:
         analysis["standard_api_issue"] = True
-        analysis["recommendation"] = "Issue with @standard_api() decorator chaining identified"
+        analysis[
+            "recommendation"
+        ] = "Issue with @standard_api(operation_type=OperationType.UTILITY) decorator chaining identified"
     else:
         analysis["standard_api_issue"] = False
-        analysis["recommendation"] = "No @standard_api() issues detected"
+        analysis["recommendation"] = "No @standard_api(operation_type=OperationType.UTILITY) issues detected"
 
     return analysis

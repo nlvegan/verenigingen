@@ -28,6 +28,7 @@ class PaymentRetryManager:
         }
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.FINANCIAL)
     def schedule_retry(self, failed_invoice, reason_code=None, reason_message=None):
         """Schedule a retry for a failed payment"""
 

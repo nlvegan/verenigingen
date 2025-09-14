@@ -72,7 +72,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Termination Type",
-   "options": "Voluntary\nNon-payment\nDeceased\n--- Disciplinary ---\nPolicy Violation\nDisciplinary Action\nExpulsion",
+   "options": "Voluntary\nNon-payment\nDeceased\nAdministrative\n--- Disciplinary ---\nPolicy Violation\nDisciplinary Action\nExpulsion",
    "reqd": 1
   },
   {
@@ -99,7 +99,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nPending\nApproved\nRejected\nExecuted",
+   "options": "Draft\nPending\nApproved\nRejected\nExecuted\nCancelled",
    "reqd": 1
   },
   {

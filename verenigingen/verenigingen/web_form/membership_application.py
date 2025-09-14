@@ -37,6 +37,7 @@ def get_context(context):
 
 
 @frappe.whitelist(allow_guest=True)
+@critical_api(operation_type=OperationType.FINANCIAL)
 def submit_membership_application(data):
     """Process membership application from portal"""
     import json

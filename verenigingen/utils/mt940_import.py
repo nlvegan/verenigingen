@@ -7,6 +7,8 @@ import traceback
 import frappe
 from frappe.utils import getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+
 # Dutch Banking Transaction Type Mapping (ING, Triodos, ABN AMRO, Rabobank)
 DUTCH_BOOKING_CODES = {
     "005": "Transfer/Wire",
@@ -45,6 +47,7 @@ SEPA_TRANSACTION_TYPES = {
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def import_mt940_file(bank_account, file_content, company=None):
     """
     Import MT940 bank statement file without expensive fintech license.
@@ -537,6 +540,7 @@ def generate_mt940_transaction_hash(transaction):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_mt940_import_status():
     """Get status of recent MT940 imports"""
     try:
@@ -560,6 +564,7 @@ def get_mt940_import_status():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def validate_mt940_file(file_content):
     """Validate an MT940 file without importing it"""
     try:
@@ -623,6 +628,7 @@ def validate_mt940_file(file_content):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def convert_mt940_to_csv(file_content, bank_account):
     """
     Convert MT940 file to CSV format that ERPNext can import.

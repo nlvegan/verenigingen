@@ -1,6 +1,7 @@
 import frappe
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 def create_termination_workflow_corrected():
@@ -521,6 +522,7 @@ def setup_workflows_corrected():
 
 # API endpoint
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def setup_production_workflows_corrected():
     """API endpoint for corrected workflow setup"""
     return setup_workflows_corrected()

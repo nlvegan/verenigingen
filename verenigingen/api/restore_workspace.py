@@ -4,9 +4,11 @@ import os
 import frappe
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def restore_workspace(force_enable=False):
     """Restore the workspace from fixtures"""
 

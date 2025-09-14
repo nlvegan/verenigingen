@@ -13,6 +13,7 @@ from typing import Dict, List, Optional
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 from verenigingen.verenigingen.doctype.chapter.managers.communication_manager import CommunicationManager
 
 
@@ -273,6 +274,7 @@ class SimplifiedEmailManager(CommunicationManager):
 
 # Whitelisted API functions
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def send_chapter_email(chapter_name: str, segment: str, subject: str, content: str) -> Dict:
     """
     API endpoint for sending chapter emails
@@ -300,6 +302,7 @@ def send_chapter_email(chapter_name: str, segment: str, subject: str, content: s
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_segment_recipient_count(chapter_name: str, segment: str) -> Dict:
     """
     Get recipient count for a segment
@@ -323,6 +326,7 @@ def get_segment_recipient_count(chapter_name: str, segment: str) -> Dict:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def send_organization_newsletter(subject: str, content: str, filters: Dict = None) -> Dict:
     """
     Send organization-wide newsletter

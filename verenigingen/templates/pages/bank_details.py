@@ -16,7 +16,11 @@ from verenigingen.utils.member_utils import (
 )
 
 # Import security framework for proper API protection
-from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    development_only_api,
+    high_security_api,
+)
 
 
 def get_context(context):
@@ -293,6 +297,7 @@ def determine_mandate_action(current_mandate, current_payment_method, enable_dd,
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_bank_details_api():
     """Test function to check if the bank details API is accessible"""
     try:
@@ -341,6 +346,7 @@ def debug_form_submission():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def simple_test():
     """Simple test endpoint"""
     return {"status": "working", "user": frappe.session.user}

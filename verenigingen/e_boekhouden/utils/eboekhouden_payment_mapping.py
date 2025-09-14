@@ -7,6 +7,8 @@ Provides flexible account mapping configuration for different organizations
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 def get_payment_account_mappings(company):
     """Get all payment account mappings for a company"""
@@ -122,6 +124,7 @@ def get_mapped_account(company, eboekhouden_account_code=None, account_type=None
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def setup_default_payment_mappings(company):
     """Setup default payment mappings for a company"""
 

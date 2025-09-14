@@ -40,6 +40,8 @@ from datetime import datetime
 import frappe
 from frappe.utils import add_days, now, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 
 class EBoekhoudenImportManager:
     """Manages E-Boekhouden imports with clean slate and update capabilities"""
@@ -50,6 +52,7 @@ class EBoekhoudenImportManager:
         self.cost_center = frappe.db.get_value("Company", self.company, "cost_center")
 
     @frappe.whitelist()
+    @critical_api(operation_type=OperationType.FINANCIAL)
     def clean_import_all(self, from_date=None, to_date=None, mutation_types=None):
         """
         Clean import - removes existing imported documents and reimports
@@ -78,6 +81,7 @@ class EBoekhoudenImportManager:
         return results
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def update_existing_imports(self, from_date=None, to_date=None, force_update=False):
         """
         Update existing imports with latest data from E-Boekhouden
@@ -258,6 +262,7 @@ class EBoekhoudenImportManager:
         _process_single_mutation(mutation_detail, self.company, self.cost_center, debug_info)
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def get_import_status(self, from_date=None, to_date=None):
         """Get current import status and statistics"""
         status = {
@@ -311,6 +316,7 @@ class EBoekhoudenImportManager:
 
 # Convenience functions
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def clean_import_all(from_date=None, to_date=None):
     """Clean import all E-Boekhouden data"""
     manager = EBoekhoudenImportManager()
@@ -318,6 +324,7 @@ def clean_import_all(from_date=None, to_date=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def update_existing_imports(from_date=None, to_date=None, force_update=False):
     """Update existing E-Boekhouden imports"""
     manager = EBoekhoudenImportManager()
@@ -325,6 +332,7 @@ def update_existing_imports(from_date=None, to_date=None, force_update=False):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_import_status():
     """Get E-Boekhouden import status"""
     manager = EBoekhoudenImportManager()

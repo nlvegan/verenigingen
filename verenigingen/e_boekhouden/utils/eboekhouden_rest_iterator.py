@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional
 import frappe
 import requests
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class EBoekhoudenRESTIterator:
     def __init__(self, settings=None):
@@ -393,6 +395,7 @@ class EBoekhoudenRESTIterator:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def estimate_mutation_range():
     """Estimate the range of mutation IDs"""
     try:
@@ -419,6 +422,7 @@ def estimate_mutation_range():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def fix_crediteuren_accounts():
     """Fix Crediteuren accounts to be Payable type"""
     try:
@@ -457,6 +461,7 @@ def fix_crediteuren_accounts():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def fetch_mutations_batch(start_id=1, end_id=100):
     """Fetch a batch of mutations for testing"""
     try:

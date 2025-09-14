@@ -5,7 +5,13 @@ Workspace debugging API
 import frappe
 
 from verenigingen.utils.secure_operations import secure_document_operation
-from verenigingen.utils.security.api_security_framework import high_security_api, standard_api, utility_api
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    development_only_api,
+    high_security_api,
+    standard_api,
+    utility_api,
+)
 
 
 @utility_api()
@@ -94,6 +100,7 @@ def check_eboekhouden_workspace():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_dues_system_status():
     """Check core dues invoice submission system status"""
 
@@ -167,7 +174,7 @@ def check_dues_system_status():
         return {"success": False, "error": str(e), "status": status}
 
 
-@high_security_api()
+@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def fix_eboekhouden_workspace_content():
     """Fix the E-Boekhouden workspace content structure"""
@@ -241,7 +248,7 @@ def check_eboekhouden_doctypes():
         return {"success": False, "error": str(e)}
 
 
-@high_security_api()
+@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def add_missing_eboekhouden_doctypes():
     """Add the missing E-Boekhouden doctypes to the workspace"""
@@ -324,7 +331,7 @@ def add_missing_eboekhouden_doctypes():
         return {"success": False, "error": str(e)}
 
 
-@high_security_api()
+@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def force_reload_workspace():
     """Force reload the workspace from JSON file"""
@@ -345,7 +352,7 @@ def force_reload_workspace():
         return {"success": False, "error": str(e)}
 
 
-@high_security_api()
+@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def create_minimal_workspace():
     """Create minimal workspace and add workflow demo link"""
@@ -425,7 +432,7 @@ def create_minimal_workspace():
         return {"success": False, "error": str(e)}
 
 
-@high_security_api()
+@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def restore_full_workspace_structure():
     """Restore full workspace structure with all sections and links"""

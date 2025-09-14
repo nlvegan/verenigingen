@@ -5,8 +5,11 @@ Setup script for testing enhanced payment processing.
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def setup_payment_test_data():
     """
     Set up test data for enhanced payment processing.
@@ -102,6 +105,7 @@ def setup_payment_test_data():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_payment_test():
     """
     Run the enhanced payment test with prepared data.
@@ -177,6 +181,7 @@ def run_payment_test():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def cleanup_test_data():
     """Clean up test data created for payment testing."""
     # Clean up test payments

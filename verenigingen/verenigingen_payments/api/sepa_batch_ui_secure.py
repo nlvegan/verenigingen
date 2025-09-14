@@ -45,8 +45,8 @@ from verenigingen.utils.security.rate_limiting import (
 from verenigingen.verenigingen_payments.utils.sepa_input_validation import SEPAInputValidator
 
 
-@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def load_unpaid_invoices_secure(date_range="overdue", membership_type=None, limit=100):
     """
     Securely load unpaid invoices for batch processing

@@ -4,8 +4,11 @@ Check if opening balance mutations (type 0) are being imported
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_opening_balance_mutations():
     """Check if type 0 mutations are being imported"""
 
@@ -107,6 +110,7 @@ def check_opening_balance_mutations():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_import_logic_for_type_0():
     """Check the import logic to see if type 0 is being skipped"""
 

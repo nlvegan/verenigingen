@@ -6,8 +6,11 @@ Provides utilities for testing and validating DocType permissions across differe
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def validate_membership_dues_schedule_permissions():
     """Test permissions for membership dues schedule"""
 

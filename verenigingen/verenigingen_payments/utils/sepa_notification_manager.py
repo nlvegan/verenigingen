@@ -22,6 +22,7 @@ from frappe.utils import add_days, get_datetime, now, today
 
 from verenigingen.utils.error_handling import SEPAError, handle_api_error, log_error
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 
 
 class NotificationType(Enum):
@@ -806,6 +807,7 @@ def notify_performance_alert(alert_type: str, **context):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 def send_sepa_notification(notification_type: str, context: str, priority: str = None) -> Dict[str, Any]:
     """
@@ -834,6 +836,7 @@ def send_sepa_notification(notification_type: str, context: str, priority: str =
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 @handle_api_error
 def get_sepa_notification_history(days_back: int = 7, notification_type: str = None) -> Dict[str, Any]:
     """
@@ -851,6 +854,7 @@ def get_sepa_notification_history(days_back: int = 7, notification_type: str = N
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 @handle_api_error
 def test_sepa_notification_system() -> Dict[str, Any]:
     """

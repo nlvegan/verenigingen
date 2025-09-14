@@ -9,8 +9,11 @@ import os
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def install_sepa_audit_log():
     """Install SEPA Audit Log DocType manually"""
     try:
@@ -44,6 +47,7 @@ def install_sepa_audit_log():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def create_sepa_audit_table():
     """Create the SEPA Audit Log database table"""
     try:

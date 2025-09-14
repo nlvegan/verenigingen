@@ -8,6 +8,7 @@ from frappe import _
 from frappe.utils import cint
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 class MemberIDManager:
@@ -289,6 +290,7 @@ def validate_member_id_change(doc, method=None):
 
 # Whitelisted methods for client-side calls
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def reset_member_id_counter(counter_value):
     """Reset the member ID counter (called from client-side)"""
     if not frappe.has_permission("Member", "write"):
@@ -307,6 +309,7 @@ def reset_member_id_counter(counter_value):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.MEMBER_DATA)
 def get_next_member_id_preview():
     """Get the next member ID that would be assigned"""
     if not frappe.has_permission("Member", "read"):
@@ -324,6 +327,7 @@ def get_next_member_id_preview():
 
 # Function to get counter statistics for dashboard
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def get_member_id_statistics():
     """Get statistics about member ID usage"""
     if not frappe.has_permission("Member", "read"):

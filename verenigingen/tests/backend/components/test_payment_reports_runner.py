@@ -10,6 +10,8 @@ from unittest.mock import patch
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 def run_payment_report_tests():
     """Run all payment reporting tests"""
@@ -254,6 +256,7 @@ def cleanup_test_data():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_all_payment_tests():
     """API endpoint to run all payment tests"""
     try:
@@ -266,6 +269,7 @@ def run_all_payment_tests():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_payment_smoke_tests():
     """API endpoint to run payment smoke tests"""
     try:

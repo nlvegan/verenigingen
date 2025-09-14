@@ -6,8 +6,11 @@ Maps internal E-Boekhouden ledger IDs to actual account codes
 import frappe
 import requests
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def fetch_and_create_ledger_mapping():
     """Fetch all ledger accounts from E-Boekhouden and create mapping"""
 
@@ -114,6 +117,7 @@ def fetch_and_create_ledger_mapping():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_account_code_from_ledger_id(ledger_id):
     """Get account code from E-Boekhouden ledger ID"""
 
@@ -130,6 +134,7 @@ def get_account_code_from_ledger_id(ledger_id):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def create_ledger_mapping_doctype():
     """Create the E-Boekhouden Ledger Mapping DocType"""
 
@@ -204,6 +209,7 @@ def create_ledger_mapping_doctype():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def quick_create_mapping_from_logs():
     """Quick create mapping from error logs to fix immediate issue"""
 

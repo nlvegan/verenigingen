@@ -8,6 +8,7 @@ import frappe
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def simulate_payment_completion():
     """Simulate the complete payment flow: mark payment as paid and process webhook"""
     try:
@@ -138,6 +139,7 @@ def simulate_payment_completion():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_reconciliation_status():
     """Check the reconciliation status after payment processing"""
     try:

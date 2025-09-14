@@ -4,6 +4,8 @@
 import frappe
 from frappe.model.document import Document
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class PartyEnrichmentQueue(Document):
     """Party Enrichment Queue for managing E-Boekhouden relation data enhancement"""
@@ -62,6 +64,7 @@ class PartyEnrichmentQueue(Document):
             return False
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def retry_enrichment(self):
         """Retry enrichment for failed entries"""
         if self.status == "Failed" and self.retry_count < 3:

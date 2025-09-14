@@ -11,6 +11,13 @@ import xml.etree.ElementTree as ET
 import frappe
 import requests
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 class EBoekhoudenAPI:
     """E-Boekhouden API client"""
@@ -453,6 +460,7 @@ class EBoekhoudenXMLParser:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def update_api_url():
     """Update API URL to the correct modern endpoint"""
     try:
@@ -473,6 +481,7 @@ def update_api_url():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def test_api_connection():
     """Test API connection and return sample data"""
     try:
@@ -496,6 +505,7 @@ def test_api_connection():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def preview_chart_of_accounts():
     """Preview Chart of Accounts data"""
     try:
@@ -538,6 +548,7 @@ def preview_chart_of_accounts():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def preview_customers():
     """Preview Customers data"""
     try:
@@ -581,6 +592,7 @@ def preview_customers():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def preview_suppliers():
     """Preview Suppliers data"""
     try:
@@ -638,12 +650,14 @@ def update_dashboard_data_periodically():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_dashboard_data_api():
     """API endpoint for dashboard data (properly whitelisted)"""
     return test_dashboard_data()
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def fix_account_types():
     """Fix migrated accounts that have party requirements"""
     try:
@@ -686,6 +700,7 @@ def fix_account_types():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def explore_invoice_fields():
     """Explore what fields are available in invoice data"""
     try:
@@ -758,6 +773,7 @@ def explore_invoice_fields():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def check_equity_import_status():
     """Check if equity mutations are actually being imported correctly"""
     try:
@@ -882,6 +898,7 @@ def get_ledger_info_for_analysis(ledger_id):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def check_api_relation_data():
     """Check REST API for relation data quality"""
     results = {

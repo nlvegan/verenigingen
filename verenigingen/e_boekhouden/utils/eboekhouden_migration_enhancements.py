@@ -7,6 +7,7 @@ Enhanced migration functions that leverage category and group information
 import frappe
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 class EnhancedAccountMigration:
@@ -397,6 +398,7 @@ class EnhancedTransactionMigration:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def run_enhanced_migration(migration_name):
     """
     Run migration with enhanced category and group support

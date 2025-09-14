@@ -18,6 +18,7 @@ from frappe.utils import add_days, getdate, now, today
 
 from verenigingen.utils.error_handling import SEPAError, ValidationError, handle_api_error
 from verenigingen.utils.performance_utils import performance_monitor
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
 class ConflictSeverity(Enum):
@@ -743,6 +744,7 @@ class SEPAConflictDetector:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 def detect_batch_conflicts(**batch_data) -> Dict[str, Any]:
     """
@@ -760,6 +762,7 @@ def detect_batch_conflicts(**batch_data) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 def validate_batch_with_conflicts(**batch_data) -> Dict[str, Any]:
     """

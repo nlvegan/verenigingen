@@ -19,6 +19,7 @@ from frappe.utils import add_days, getdate, now, today
 
 from verenigingen.utils.error_handling import SEPAError, ValidationError, handle_api_error
 from verenigingen.utils.performance_utils import performance_monitor
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.verenigingen_payments.utils.sepa_xml_enhanced_generator import SEPASequenceType
 
 
@@ -659,6 +660,7 @@ class SEPAMandateLifecycleManager:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 def determine_mandate_sequence_type(mandate_id: str, **transaction_context) -> Dict[str, Any]:
     """
@@ -690,6 +692,7 @@ def determine_mandate_sequence_type(mandate_id: str, **transaction_context) -> D
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 def validate_mandate_for_transaction(mandate_id: str, amount: float, **context) -> Dict[str, Any]:
     """
@@ -723,6 +726,7 @@ def validate_mandate_for_transaction(mandate_id: str, amount: float, **context) 
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 def get_mandate_usage_report(
     mandate_id: str = None, member_id: str = None, date_from: str = None, date_to: str = None
@@ -744,6 +748,7 @@ def get_mandate_usage_report(
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 @handle_api_error
 def get_mandate_lifecycle_status(mandate_id: str) -> Dict[str, Any]:
     """
@@ -760,6 +765,7 @@ def get_mandate_lifecycle_status(mandate_id: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 def bulk_validate_mandates(mandate_ids: str) -> Dict[str, Any]:
     """

@@ -10,6 +10,8 @@ import frappe
 from frappe import _
 from frappe.utils import formatdate, getdate
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 from ..core.compliance.audit_trail import AuditEventType, AuditSeverity
 from ..core.compliance.audit_trail import ImmutableAuditTrail as AuditTrail
 from ..core.mollie_base_client import MollieBaseClient
@@ -1203,6 +1205,7 @@ class BulkTransactionImporter(MollieBaseClient):
 
 # API endpoints for bulk import functionality
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def estimate_bulk_import_size(from_date: str, to_date: str, strategy: str = "hybrid") -> Dict:
     """
     API endpoint to estimate bulk import size
@@ -1227,6 +1230,7 @@ def estimate_bulk_import_size(from_date: str, to_date: str, strategy: str = "hyb
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def run_bulk_import(
     from_date: str,
     to_date: str,
@@ -1272,6 +1276,7 @@ def run_bulk_import(
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.REPORTING)
 def get_bulk_import_history(days: int = 30) -> List[Dict]:
     """
     API endpoint to get bulk import history

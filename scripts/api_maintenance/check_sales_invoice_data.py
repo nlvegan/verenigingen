@@ -1,8 +1,11 @@
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_sales_invoice_data():
     """Check Sales Invoice data to understand customer extraction"""
 
@@ -70,7 +73,12 @@ def check_sales_invoice_data():
             as_dict=True,
         )
 
-        if first_item and len(first_item) > 0 and hasattr(first_item[0], 'description') and first_item[0].description:
+        if (
+            first_item
+            and len(first_item) > 0
+            and hasattr(first_item[0], "description")
+            and first_item[0].description
+        ):
             print(f"  First item description: {first_item[0].description[:150]}")
 
     # Check if we're storing original mutation data anywhere

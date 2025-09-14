@@ -178,9 +178,9 @@ def mollie_webhook_handler():
     endpoints with improved architecture.
     """
 
-    # Security verification (addresses QC finding about webhook vulnerabilities)
+    # Security verification - require proper user permissions
     if frappe.session.user == "Guest":
-        frappe.set_user("Administrator")
+        frappe.throw("Webhook processing requires authenticated user")
 
     if not frappe.has_permission("Payment Entry", "create"):
         frappe.throw("Insufficient permissions for webhook processing")

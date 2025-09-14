@@ -14,6 +14,7 @@ from frappe import _
 from frappe.utils import add_days, get_datetime, now_datetime
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 from ..clients.chargebacks_client import ChargebacksClient
@@ -796,6 +797,7 @@ class DisputeResolutionWorkflow:
 
 # API endpoints
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_dispute_from_webhook(payment_id: str, chargeback_id: str):
     """Create dispute case from webhook notification"""
     settings = frappe.get_all("Mollie Settings", filters={"enable_backend_api": True}, limit=1)
@@ -808,6 +810,7 @@ def create_dispute_from_webhook(payment_id: str, chargeback_id: str):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_dispute_analytics():
     """Get dispute analytics dashboard data"""
     settings = frappe.get_all("Mollie Settings", filters={"enable_backend_api": True}, limit=1)

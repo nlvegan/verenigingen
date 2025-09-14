@@ -10,12 +10,12 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, flt, getdate, today
 
-from verenigingen.utils.security.api_security_framework import critical_api, high_security_api
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.validation_utilities import DateRangeValidator
 
 
 @frappe.whitelist()
-@critical_api()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def bulk_generate_dues_invoices(filter_criteria=None, dry_run=True, max_invoices=50):
     """
     Generate invoices for multiple dues schedules with comprehensive filtering and validation
@@ -219,7 +219,7 @@ def bulk_generate_dues_invoices(filter_criteria=None, dry_run=True, max_invoices
 
 
 @frappe.whitelist()
-@high_security_api()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_dues_schedules_summary(include_orphaned=True, days_ahead=30):
     """
     Get a comprehensive summary of dues schedules for admin dashboard
@@ -313,7 +313,7 @@ def get_dues_schedules_summary(include_orphaned=True, days_ahead=30):
 
 
 @frappe.whitelist()
-@critical_api()
+@critical_api(operation_type=OperationType.ADMIN)
 def cleanup_orphaned_schedules(dry_run=True, max_cleanup=20):
     """
     Clean up orphaned dues schedules that reference non-existent members
@@ -429,7 +429,7 @@ def cleanup_orphaned_schedules(dry_run=True, max_cleanup=20):
 
 
 @frappe.whitelist()
-@high_security_api()
+@high_security_api(operation_type=OperationType.REPORTING)
 def validate_invoice_generation_readiness():
     """
     Validate system readiness for invoice generation and identify potential issues
@@ -573,7 +573,7 @@ def validate_invoice_generation_readiness():
 
 
 @frappe.whitelist()
-@high_security_api()
+@high_security_api(operation_type=OperationType.ADMIN)
 def cleanup_orphaned_member_references(dry_run=True, max_cleanup=50):
     """
     Clean up orphaned member references in schedules without deleting the schedules themselves.
@@ -680,6 +680,7 @@ def cleanup_orphaned_member_references(dry_run=True, max_cleanup=50):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20):
     """
     Enhanced cleanup for orphaned membership-related data including:

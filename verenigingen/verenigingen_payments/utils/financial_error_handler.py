@@ -15,6 +15,8 @@ from typing import Any, Dict, List, Optional
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class FinancialErrorSeverity(Enum):
     """Financial error severity levels"""
@@ -300,6 +302,7 @@ def handle_data_integrity_error(error_code: str, context: Dict[str, Any] = None)
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_financial_error_statistics():
     """API endpoint to get financial error statistics"""
     handler = get_financial_error_handler()

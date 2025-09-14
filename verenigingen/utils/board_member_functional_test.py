@@ -5,8 +5,11 @@ Functional test for Chapter Board Member system
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_board_member_functionality():
     """Test core board member functionality without complex test infrastructure"""
 
@@ -161,6 +164,7 @@ def test_board_member_functionality():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_expense_workflow_simulation():
     """Simulate expense approval workflow without creating test data"""
 

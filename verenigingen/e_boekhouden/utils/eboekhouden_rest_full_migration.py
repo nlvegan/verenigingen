@@ -13,6 +13,7 @@ from verenigingen.e_boekhouden.utils.eboekhouden_payment_naming import (
     enhance_journal_entry_fields,
     get_journal_entry_title,
 )
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 
 
 def get_default_cost_center(company):
@@ -198,6 +199,7 @@ def should_skip_mutation(mutation, debug_info=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def export_unprocessed_mutations_csv(export_path="/tmp/unprocessed_mutations.csv"):
     """Export unprocessed mutations to CSV for easy analysis"""
     try:
@@ -263,6 +265,7 @@ def export_unprocessed_mutations_csv(export_path="/tmp/unprocessed_mutations.csv
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def export_unprocessed_mutations(export_path="/tmp/unprocessed_mutations.json"):
     """Export all unprocessed mutations to a local file for analysis"""
     try:
@@ -402,6 +405,7 @@ def export_unprocessed_mutations(export_path="/tmp/unprocessed_mutations.json"):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def migration_status_summary(company=None):
     """Get a summary of migration status across all data types"""
     try:
@@ -633,6 +637,7 @@ def _cache_all_mutations(settings):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_progress_info():
     """Get real-time progress information for the migration"""
     # This will be called by frontend to get progress updates
@@ -1187,6 +1192,7 @@ def _get_or_create_company_as_supplier(company, debug_info):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def analyze_import_failures():
     """Analyze recent import failures and categorize them"""
     try:
@@ -1228,6 +1234,7 @@ def analyze_import_failures():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def debug_single_mutation(mutation_id):
     """Debug a single mutation by ID - useful for investigating import failures"""
     try:
@@ -1272,6 +1279,7 @@ def debug_single_mutation(mutation_id):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_mutation_gap_report():
     """Generate a report of missing mutations in the sequence"""
     try:
@@ -2062,6 +2070,7 @@ def _get_or_create_stock_temporary_account(company, debug_info):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def import_opening_balances_only(migration_name):
     """Import only opening balances via REST API"""
     try:

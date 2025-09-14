@@ -84,10 +84,10 @@ def handle_mollie_payment_webhook():
 
             except (ValueError, TypeError, Exception):
                 # Fall back to form-encoded parsing (for manual testing)
-                webhook_data = frappe.form_dict
+                webhook_data = dict(frappe.form_dict)  # Convert to regular dict
                 payment_id = webhook_data.get("id")
         else:
-            webhook_data = frappe.form_dict
+            webhook_data = dict(frappe.form_dict)  # Convert to regular dict
             payment_id = webhook_data.get("id")
 
         # Validate webhook payload structure with enhanced debugging
@@ -192,6 +192,8 @@ def handle_mollie_payment_webhook():
             donation.paid = 0
             if hasattr(donation, "payment_status"):
                 donation.payment_status = "Failed"
+            # WEBHOOK PROCESSING: Ensure permissions for webhook operations
+            donation.flags.ignore_permissions = True
             donation.save()
             return {"status": "processed", "payment_status": "failed"}
 
@@ -732,6 +734,8 @@ def create_payment_entry_for_donation(donation, mollie_data):
             }
         )
 
+        # WEBHOOK PROCESSING: Ensure permissions for payment entry operations
+        pe.flags.ignore_permissions = True
         pe.insert()
         pe.submit()
 

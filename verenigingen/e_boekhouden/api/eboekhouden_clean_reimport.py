@@ -5,8 +5,11 @@ API for clean re-import of E-Boekhouden data with enhanced features
 import frappe
 from frappe.utils import add_days, getdate
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def preview_clean_import(from_date=None, to_date=None):
     """Preview what will be deleted and imported"""
 
@@ -46,6 +49,7 @@ def preview_clean_import(from_date=None, to_date=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def execute_clean_import(confirm=False, from_date=None, to_date=None):
     """Execute the clean import with enhanced features"""
 
@@ -64,6 +68,7 @@ def execute_clean_import(confirm=False, from_date=None, to_date=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def setup_enhanced_infrastructure():
     """Setup all enhanced features before import"""
 

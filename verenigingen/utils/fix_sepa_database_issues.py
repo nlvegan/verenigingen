@@ -7,8 +7,11 @@ Collection of functions to fix identified database issues from code reviews.
 import frappe
 from frappe.utils import now
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_sepa_invoice_index():
     """Fix the incomplete idx_sepa_invoice_lookup index"""
 
@@ -137,6 +140,7 @@ def fix_sepa_invoice_index():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def test_cleanup_script_optimized():
     """Test the optimized cleanup script logic"""
 
@@ -194,6 +198,7 @@ def test_cleanup_script_optimized():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_cleanup_script_n1_query():
     """Fix the N+1 query issue in cleanup_invalid_member_schedules.py"""
 
@@ -285,6 +290,7 @@ def fix_cleanup_script_n1_query():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def apply_sepa_performance_monitoring():
     """Add performance monitoring decorators to SEPA functions"""
 
@@ -333,6 +339,7 @@ def get_invoice_mandate_info(invoice):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def run_all_sepa_fixes():
     """Run all SEPA database fixes in sequence"""
 

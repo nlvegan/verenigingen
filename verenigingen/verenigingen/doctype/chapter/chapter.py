@@ -972,7 +972,7 @@ def get_chapters_by_postal_code(postal_code):
     return matching_chapters
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 def suggest_chapters_for_member(member, postal_code=None, state=None, city=None):
     """Suggest appropriate chapters for a member based on location data"""

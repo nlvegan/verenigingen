@@ -32,6 +32,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import add_to_date, cint, flt, getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+
 
 class DonationAgreement(Document):
     def validate(self):
@@ -407,6 +409,7 @@ class DonationAgreement(Document):
 
 # Utility functions
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
 def create_donation_agreement_from_form(donor_data, agreement_data):
     """Create donation agreement from web form submission"""
     # This would be called from the enhanced donation form
@@ -414,6 +417,7 @@ def create_donation_agreement_from_form(donor_data, agreement_data):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_income_forecast(months=12):
     """Get income forecast from active donation agreements"""
     active_agreements = frappe.get_all(
@@ -433,6 +437,7 @@ def get_income_forecast(months=12):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def process_due_agreements():
     """Process all agreements that are due for transaction creation"""
     due_agreements = frappe.get_all(
@@ -469,6 +474,7 @@ def process_due_agreements():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def suspend_agreement(agreement_name, reason):
     """Suspend a donation agreement"""
     doc = frappe.get_doc("Donation Agreement", agreement_name)
@@ -479,6 +485,7 @@ def suspend_agreement(agreement_name, reason):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_agreement_summary_for_donor(donor):
     """Get all agreements for a specific donor"""
     agreements = frappe.get_all(

@@ -22,12 +22,14 @@ from frappe import _
 from frappe.utils import date_diff, today
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
 class PaymentMixinOptimized:
     """Optimized Mixin for payment-related functionality - N+1 eliminated"""
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def load_payment_history(self):
         """
         Load payment history for this member with focus on invoices.
@@ -529,6 +531,7 @@ class PaymentMixinOptimized:
 
 # Performance comparison function for validation
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.UTILITY)
 def compare_payment_mixin_performance(member_name):
     """Compare performance between original and optimized payment mixin"""
 

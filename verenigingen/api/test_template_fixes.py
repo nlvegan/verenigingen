@@ -7,8 +7,11 @@ import re
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def validate_template_fixes():
     """
     Validate that JavaScript/Jinja2 template mixing has been properly fixed.
@@ -86,6 +89,7 @@ def validate_template_fixes():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_client_translation_functionality():
     """
     Test that client-side translation functions are working correctly.
@@ -121,6 +125,7 @@ def test_client_translation_functionality():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def comprehensive_template_validation():
     """
     Run comprehensive validation of template fixes.

@@ -4,8 +4,11 @@ Test payment interval fix for contribution calculator
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_payment_interval_mapping():
     """Test that payment intervals correctly map to membership types"""
 

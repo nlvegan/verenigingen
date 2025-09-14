@@ -7,8 +7,11 @@ Testing functions for validating the eBoekhouden migration system after cleanup.
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_migration_system_integrity():
     """Test the integrity of the eBoekhouden migration system after cleanup"""
 
@@ -114,6 +117,7 @@ def test_migration_system_integrity():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_api_connectivity():
     """Test if API connectivity works after cleanup"""
 
@@ -127,6 +131,7 @@ def test_api_connectivity():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_migration_dry_run():
     """Test dry run functionality after cleanup"""
 
@@ -170,6 +175,7 @@ def test_migration_dry_run():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def comprehensive_cleanup_test():
     """Run comprehensive test of migration system after cleanup"""
 

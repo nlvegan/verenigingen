@@ -21,6 +21,12 @@ import frappe
 from frappe.utils import add_to_date, now
 
 from verenigingen.api.security_monitoring_dashboard import get_security_dashboard_data
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    development_only_api,
+    high_security_api,
+    standard_api,
+)
 from verenigingen.utils.security.security_monitoring import get_security_monitor
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
@@ -78,6 +84,7 @@ def get_context(context):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_system_metrics():
     """Get real-time system metrics"""
     try:
@@ -118,6 +125,7 @@ def get_system_metrics():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_recent_errors():
     """Get recent error summary"""
     try:
@@ -143,6 +151,7 @@ def get_recent_errors():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_audit_summary():
     """Get audit trail summary"""
     try:
@@ -171,6 +180,7 @@ def get_audit_summary():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_active_alerts():
     """Get active system alerts"""
     try:
@@ -190,6 +200,7 @@ def get_active_alerts():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_performance_metrics():
     """Get performance metrics"""
     try:
@@ -339,6 +350,7 @@ def get_member_growth_rate():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def refresh_dashboard_data():
     """Refresh all dashboard data"""
     try:

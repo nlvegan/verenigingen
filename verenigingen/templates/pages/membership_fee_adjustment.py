@@ -8,6 +8,7 @@ from frappe.utils import flt, getdate, today
 
 from verenigingen.utils.member_utils import get_current_user_member_name
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 
 # Default fallback fee amount in EUR
 DEFAULT_STANDARD_FEE = 15.0
@@ -293,6 +294,7 @@ def can_member_adjust_fee(member, settings):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def submit_fee_adjustment_request(new_amount, reason=""):
     """Submit a fee adjustment request from member portal"""
     if frappe.session.user == "Guest":
@@ -477,6 +479,7 @@ def create_new_dues_schedule(member, new_amount, reason):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_fee_calculation_info():
     """Get fee calculation information for member"""
     if frappe.session.user == "Guest":
@@ -613,6 +616,7 @@ def get_member_fee_history(member_name):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_available_membership_types():
     """Get available membership types for the member to switch to"""
     if frappe.session.user == "Guest":
@@ -670,6 +674,7 @@ def get_available_membership_types():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def submit_membership_type_change_request(new_membership_type, reason=""):
     """Submit a membership type change request from member portal"""
     if frappe.session.user == "Guest":

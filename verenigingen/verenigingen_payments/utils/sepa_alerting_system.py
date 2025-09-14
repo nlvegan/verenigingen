@@ -23,6 +23,11 @@ from frappe.core.doctype.communication.email import make
 from frappe.utils import cint, flt, get_datetime, now_datetime
 
 from verenigingen.utils.error_handling import log_error
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    development_only_api,
+    high_security_api,
+)
 from verenigingen.utils.security.security_monitoring import get_security_monitor
 from verenigingen.verenigingen_payments.utils.sepa_notification_manager import SEPANotificationManager
 
@@ -920,6 +925,7 @@ _alerting_system = SEPAAlertingSystem()
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_active_alerts(severity: str = None) -> List[Dict[str, Any]]:
     """
     Get active alerts
@@ -935,6 +941,7 @@ def get_active_alerts(severity: str = None) -> List[Dict[str, Any]]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def acknowledge_alert(alert_id: str) -> Dict[str, Any]:
     """
     Acknowledge an alert
@@ -953,6 +960,7 @@ def acknowledge_alert(alert_id: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def resolve_alert(alert_id: str) -> Dict[str, Any]:
     """
     Resolve an alert
@@ -968,6 +976,7 @@ def resolve_alert(alert_id: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_alert_statistics(days: int = 7) -> Dict[str, Any]:
     """
     Get alert statistics
@@ -982,6 +991,7 @@ def get_alert_statistics(days: int = 7) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def check_security_integration() -> Dict[str, Any]:
     """
     Check security incidents and integrate with alerting system
@@ -1007,6 +1017,7 @@ def check_security_integration() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def toggle_security_integration(enabled: bool = True) -> Dict[str, Any]:
     """
     Enable or disable security integration
@@ -1034,6 +1045,7 @@ def toggle_security_integration(enabled: bool = True) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_alert_system() -> Dict[str, Any]:
     """
     Test the alert system with sample data

@@ -7,9 +7,12 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import format_datetime, now_datetime
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class EBoekhoudenDashboard(Document):
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.ADMIN)
     def load_dashboard_data(self):
         """Load and update dashboard data"""
         try:
@@ -391,6 +394,7 @@ class EBoekhoudenDashboard(Document):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def refresh_dashboard_data():
     """Refresh dashboard data"""
     try:
@@ -405,6 +409,7 @@ def refresh_dashboard_data():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_migration_summary():
     """Get migration summary statistics"""
     try:

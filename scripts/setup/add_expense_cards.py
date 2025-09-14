@@ -4,8 +4,11 @@ from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def add_expense_number_cards():
     """Add expense-related Number Cards to the dashboard"""
 

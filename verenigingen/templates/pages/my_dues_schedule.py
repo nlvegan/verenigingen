@@ -8,6 +8,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, format_date, getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 from verenigingen.utils.validation_utilities import DateRangeValidator
 
 
@@ -249,6 +250,7 @@ def get_next_payment(member):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def export_schedule():
     """Export dues schedule as CSV"""
 
@@ -281,6 +283,7 @@ def export_schedule():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_payment_details(date):
     """Get payment details for a specific date"""
 
@@ -306,6 +309,7 @@ def get_payment_details(date):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def update_notification_settings(email_notifications=None, auto_renewal=None):
     """Update notification settings for current user's dues schedule"""
 

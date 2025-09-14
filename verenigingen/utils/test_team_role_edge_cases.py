@@ -6,8 +6,11 @@ Team Role edge case testing utilities
 import frappe
 from frappe.utils import add_days, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_missing_team_role_reference():
     """Test handling of missing Team Role references"""
     print("=== Testing Missing Team Role Reference ===")
@@ -71,6 +74,7 @@ def test_missing_team_role_reference():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_unique_role_constraint():
     """Test unique role constraint enforcement"""
     print("=== Testing Unique Role Constraint ===")
@@ -155,6 +159,7 @@ def test_unique_role_constraint():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_backwards_compatibility():
     """Test backwards compatibility with old role_type system"""
     print("=== Testing Backwards Compatibility ===")
@@ -218,6 +223,7 @@ def test_backwards_compatibility():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_team_leader_detection():
     """Test Team Leader detection and team_lead field population"""
     print("=== Testing Team Leader Detection ===")
@@ -292,6 +298,7 @@ def test_team_leader_detection():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_all_edge_case_tests():
     """Run all edge case tests"""
     results = {"tests_run": 0, "tests_passed": 0, "tests_failed": 0, "test_results": {}}

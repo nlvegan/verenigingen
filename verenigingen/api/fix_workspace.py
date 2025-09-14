@@ -1,9 +1,11 @@
 import frappe
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_workspace(force_enable=False):
     # SAFETY GUARD: Prevent accidental workspace corruption
     if not force_enable:

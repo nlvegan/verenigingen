@@ -19,6 +19,7 @@ from frappe import _
 from frappe.utils import add_days, getdate, today
 
 from verenigingen.utils.error_handling import SEPAError, ValidationError
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 from verenigingen.utils.validation.iban_validator import validate_iban
 
 
@@ -580,6 +581,7 @@ class SEPAInputValidator:
 
 # API functions for validation
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def validate_sepa_batch_params(**params) -> Dict[str, Any]:
     """
     API endpoint to validate SEPA batch creation parameters
@@ -595,6 +597,7 @@ def validate_sepa_batch_params(**params) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def validate_single_sepa_invoice(invoice_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     API endpoint to validate a single invoice for SEPA processing
@@ -613,6 +616,7 @@ def validate_single_sepa_invoice(invoice_data: Dict[str, Any]) -> Dict[str, Any]
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.REPORTING)
 def get_sepa_validation_rules() -> Dict[str, Any]:
     """
     API endpoint to get SEPA validation rules and constraints

@@ -12,12 +12,14 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api, public_api
 from verenigingen.utils.webhook_security import authenticate_mollie_webhook
 
 from .mollie_webhook_processor import MollieWebhookProcessor
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
+@public_api
 def handle_mollie_webhook_test():
     """
     Test environment webhook handler for Mollie payments.
@@ -28,7 +30,8 @@ def handle_mollie_webhook_test():
     return _process_mollie_webhook(environment="test")
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
+@public_api
 def handle_mollie_webhook_live():
     """
     Live environment webhook handler for Mollie payments.
@@ -88,6 +91,7 @@ def _process_mollie_webhook(environment: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def get_webhook_status():
     """
     Get webhook processing statistics and health status.
@@ -128,6 +132,7 @@ def get_webhook_status():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_webhook_processor():
     """
     Test the webhook processor with sample data.
