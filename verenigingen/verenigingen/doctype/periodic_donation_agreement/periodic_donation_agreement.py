@@ -8,6 +8,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import add_months, add_years, date_diff, flt, get_datetime, getdate
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class PeriodicDonationAgreement(Document):
     def validate(self):
@@ -272,6 +274,7 @@ class PeriodicDonationAgreement(Document):
         """
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def link_donation(self, donation_name):
         """Link a donation to this agreement"""
         donation = frappe.get_doc("Donation", donation_name)
@@ -304,6 +307,7 @@ class PeriodicDonationAgreement(Document):
         return True
 
     @frappe.whitelist()
+    @high_security_api(operation_type=OperationType.FINANCIAL)
     def cancel_agreement(self, reason=None):
         """Cancel the agreement"""
         if self.status == "Cancelled":

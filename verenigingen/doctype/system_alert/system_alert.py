@@ -61,6 +61,8 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import now
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 class SystemAlert(Document):
     """
@@ -194,6 +196,7 @@ class SystemAlert(Document):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def acknowledge_alert(alert_name):
     """API endpoint to acknowledge an alert"""
     try:
@@ -206,6 +209,7 @@ def acknowledge_alert(alert_name):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def resolve_alert(alert_name):
     """API endpoint to resolve an alert"""
     try:

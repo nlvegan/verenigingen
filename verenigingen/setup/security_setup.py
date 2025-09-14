@@ -14,6 +14,7 @@ from frappe import _
 from frappe.rate_limiter import rate_limit
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 # Import and initialize the security logger configuration
 try:
@@ -562,6 +563,7 @@ def setup_all_security():
 @rate_limit(limit=5, seconds=60)  # 5 attempts per minute
 @security_rate_limit(limit=3, seconds=300)  # Additional: 3 attempts per 5 minutes
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def enable_csrf_protection():
     """Manually enable CSRF protection."""
     # Validate CSRF token if protection is enabled
@@ -601,6 +603,7 @@ def enable_csrf_protection():
 
 @rate_limit(limit=10, seconds=60)  # 10 attempts per minute (read-only, less restrictive)
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def check_current_security_status():
     """Check current security configuration status."""
     # No CSRF validation needed for read-only operation
@@ -637,6 +640,7 @@ def check_current_security_status():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def apply_production_security():
     """Apply recommended security settings for production."""
     # Check permissions

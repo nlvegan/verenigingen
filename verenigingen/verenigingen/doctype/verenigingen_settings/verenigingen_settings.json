@@ -181,8 +181,8 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Company",
-   "options": "Company",
-   "reqd": 1
+   "mandatory_depends_on": "eval:!doc.__islocal",
+   "options": "Company"
   },
   {
    "default": "1",
@@ -356,8 +356,8 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Company",
-   "options": "Company",
-   "reqd": 1
+   "mandatory_depends_on": "eval:!doc.__islocal",
+   "options": "Company"
   },
   {
    "description": "The user that will be used to create Donations, Memberships, Invoices, and Payment Entries. This user should have the relevant permissions.",

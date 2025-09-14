@@ -4,8 +4,11 @@ API endpoints for E-Boekhouden mapping setup
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def setup_eboekhouden_mapping_fields():
     """Add custom fields needed for E-Boekhouden mapping functionality"""
 
@@ -46,6 +49,7 @@ def setup_eboekhouden_mapping_fields():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def get_mapping_summary():
     """Get a summary of current mapping configuration"""
 
@@ -79,6 +83,7 @@ def get_mapping_summary():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_mutation_mapping(mutation_nr=None, account_code=None, description=None):
     """Test how a specific mutation would be mapped"""
 

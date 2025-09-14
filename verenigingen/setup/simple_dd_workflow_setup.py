@@ -6,6 +6,7 @@ Implements basic approval workflow using existing Frappe states and actions
 import frappe
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 def create_simple_dd_batch_workflow():
@@ -271,6 +272,7 @@ def setup_simple_dd_workflow():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def setup_production_simple_workflow():
     """API endpoint for Simple DD workflow setup"""
     return setup_simple_dd_workflow()

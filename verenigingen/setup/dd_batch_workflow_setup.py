@@ -5,6 +5,8 @@ Implements risk-based approval workflows for SEPA batch processing
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 def create_dd_batch_workflow():
     """Create comprehensive SEPA Direct Debit Batch workflow"""
@@ -376,6 +378,7 @@ def setup_dd_batch_workflow():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def setup_production_dd_workflow():
     """API endpoint for SEPA Direct Debit workflow setup"""
     return setup_dd_batch_workflow()

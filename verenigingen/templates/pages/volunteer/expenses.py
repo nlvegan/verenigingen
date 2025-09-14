@@ -14,6 +14,18 @@ from verenigingen.utils.volunteer_expense_setup import (
 )
 
 
+def _get_empty_statistics():
+    """Return empty statistics dictionary for error cases or permission denied scenarios"""
+    return {
+        "total_submitted": 0,
+        "total_approved": 0,
+        "pending_amount": 0,
+        "pending_count": 0,
+        "approved_count": 0,
+        "total_count": 0,
+    }
+
+
 def get_context(context):
     """Get context for volunteer expense portal page"""
 
@@ -61,47 +73,41 @@ def get_context(context):
     # Get volunteer's recent expenses
     context.recent_expenses = get_volunteer_expenses(volunteer.name, limit=10)
 
-    # Get expense statistics - DETAILED DEBUGGING IMPLEMENTATION
+    # Get expense statistics using SAME DATA SOURCE as recent expenses
     try:
-        # Direct implementation instead of calling external function
-        volunteer_doc = frappe.get_doc("Volunteer", volunteer.name)
-        if not volunteer_doc.member:
-            context.stats_debug = "No member found for volunteer"
-            context.expense_stats = _get_empty_statistics()
-        else:
-            member_doc = frappe.get_doc("Member", volunteer_doc.member)
-            expenses = getattr(member_doc, "volunteer_expenses", [])
+        # Use the same logic as get_volunteer_expenses to ensure consistency
+        all_expenses = get_volunteer_expenses(volunteer.name, limit=None)  # Get all expenses
 
-            debug_details = f"Found {len(expenses)} expenses in member_doc.volunteer_expenses\n"
-            debug_details += f"Member: {volunteer_doc.member}\n"
+        total_submitted = 0
+        total_approved = 0
+        pending_count = 0
+        approved_count = 0
 
-            total_submitted = 0
-            for i, exp in enumerate(expenses):
-                exp_dict = exp.as_dict() if hasattr(exp, "as_dict") else dict(exp)
-                debug_details += f"Expense {i + 1}: {exp_dict}\n"
+        debug_details = f"Found {len(all_expenses)} total expenses from get_volunteer_expenses\n"
 
-                # Try different amount fields
-                amount_fields = ["amount", "total_claimed_amount", "total_sanctioned_amount"]
-                amount_found = 0
-                for field in amount_fields:
-                    if field in exp_dict and exp_dict[field]:
-                        amount_found = flt(exp_dict[field])
-                        debug_details += f"  - Using {field}: {amount_found}\n"
-                        break
+        for exp in all_expenses:
+            amount = flt(exp.get("amount", 0))
+            status = exp.get("status", "Draft")
 
-                total_submitted += amount_found
-                debug_details += f"  - Running total: {total_submitted}\n"
+            debug_details += f"Expense: {exp.get('description', 'No description')[:30]}... Amount: {amount}, Status: {status}\n"
 
-            context.stats_debug = debug_details
+            total_submitted += amount
 
-            context.expense_stats = {
-                "total_submitted": total_submitted,
-                "total_approved": 0,
-                "pending_amount": total_submitted,
-                "pending_count": len(expenses),
-                "approved_count": 0,
-                "total_count": len(expenses),
-            }
+            if status == "Approved" or status == "Reimbursed":
+                total_approved += amount
+                approved_count += 1
+            else:
+                pending_count += 1
+
+        context.stats_debug = debug_details
+        context.expense_stats = {
+            "total_submitted": total_submitted,
+            "total_approved": total_approved,
+            "pending_amount": total_submitted - total_approved,
+            "pending_count": pending_count,
+            "approved_count": approved_count,
+            "total_count": len(all_expenses),
+        }
 
     except Exception as e:
         import traceback

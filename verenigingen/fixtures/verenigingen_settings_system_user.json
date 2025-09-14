@@ -3,6 +3,8 @@
   "docstatus": 0,
   "doctype": "Verenigingen Settings",
   "name": "Verenigingen Settings",
-  "creation_user": "system.operations@verenigingen.local"
+  "creation_user": "system.operations@verenigingen.local",
+  "company": null,
+  "donation_company": null
  }
 ]

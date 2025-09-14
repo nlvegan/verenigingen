@@ -9,6 +9,7 @@ from frappe.query_builder import DocType
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
+    development_only_api,
     high_security_api,
     standard_api,
 )
@@ -433,7 +434,7 @@ def fix_missing_assignment_history(team_name=None, volunteer_name=None):
 
 
 @frappe.whitelist()
-@development_only()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_team_assignments():
     """Debug team assignments - backward compatibility wrapper"""
     from verenigingen.api.team_admin_utilities import debug_team_assignments as _debug_team_assignments

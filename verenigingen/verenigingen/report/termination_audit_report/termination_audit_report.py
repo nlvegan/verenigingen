@@ -4,6 +4,7 @@ import frappe
 from frappe import _
 from frappe.utils import today
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 from verenigingen.utils.validation_utilities import QueryBuilder
 
 
@@ -278,6 +279,7 @@ def get_chart_data(data):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_audit_trail_details(request_id):
     """Get detailed audit trail for a specific termination request"""
 

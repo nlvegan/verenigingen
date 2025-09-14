@@ -7,6 +7,12 @@ to provide better integration with the Verenigingen association management syste
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    development_only_api,
+    standard_api,
+)
+
 
 def setup_custom_document_links(bootinfo=None):
     """Setup custom document links for better navigation between related records"""
@@ -50,6 +56,7 @@ def add_member_ledger_link_to_expense_claim():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_member_from_expense_claim(expense_claim):
     """Get member record from expense claim via employee"""
 
@@ -74,6 +81,7 @@ def get_member_from_expense_claim(expense_claim):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_document_links():
     """Test function to verify document links are working"""
     try:

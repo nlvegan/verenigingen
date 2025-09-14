@@ -9,6 +9,7 @@ from frappe import _
 from frappe.utils import add_days, cint, date_diff, flt, getdate, today
 
 from verenigingen.utils.secure_operations import secure_document_operation
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
 def execute(filters=None):
@@ -931,6 +932,7 @@ def get_empty_coverage_analysis():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def generate_catchup_invoices(members):
     """Generate catch-up invoices for members with coverage gaps"""
 
