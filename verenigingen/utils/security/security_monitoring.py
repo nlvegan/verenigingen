@@ -18,7 +18,12 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, get_datetime
 
-from verenigingen.utils.security.api_security_framework import SecurityLevel, get_security_framework
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    SecurityLevel,
+    get_security_framework,
+    high_security_api,
+)
 from verenigingen.utils.security.audit_logging import AuditSeverity, get_audit_logger
 
 
@@ -1070,6 +1075,7 @@ class SecurityTester:
 # Global security tester instance
 _security_tester = None
 
+
 def get_security_tester() -> SecurityTester:
     """Get global security tester instance"""
     global _security_tester
@@ -1080,6 +1086,7 @@ def get_security_tester() -> SecurityTester:
 
 # API endpoints for security monitoring
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def get_security_dashboard():
     """Get real-time security dashboard"""
     if not frappe.has_permission("System Manager"):
@@ -1093,6 +1100,7 @@ def get_security_dashboard():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def resolve_security_incident(incident_id: str, resolution_notes: str):
     """Resolve security incident"""
     if not frappe.has_permission("System Manager"):
@@ -1107,6 +1115,7 @@ def resolve_security_incident(incident_id: str, resolution_notes: str):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def run_security_tests():
     """Run automated security tests"""
     if not frappe.has_permission("System Manager"):

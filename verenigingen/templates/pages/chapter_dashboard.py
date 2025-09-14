@@ -13,6 +13,7 @@ from frappe.utils import now_datetime
 from verenigingen.utils.api_response import api_response_handler
 from verenigingen.utils.constants import Roles
 from verenigingen.utils.error_handling import cache_with_ttl, validate_user_logged_in
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
 def serialize_dates(obj):
@@ -226,6 +227,7 @@ def get_role_permissions(role_name: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 @api_response_handler
 @cache_with_ttl(ttl=300)  # Cache for 5 minutes - dashboard data changes frequently
 def get_chapter_dashboard_data(chapter_name: str) -> Dict[str, Any]:

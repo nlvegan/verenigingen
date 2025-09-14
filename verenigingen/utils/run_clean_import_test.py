@@ -6,8 +6,11 @@ Run a clean import test with proper error tracking
 import frappe
 from frappe.utils import now_datetime
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_clean_import_test():
     """Run a clean import of recent transactions"""
 

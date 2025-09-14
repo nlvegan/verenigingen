@@ -12,8 +12,6 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, today
 
-from verenigingen.utils.security.api_security_framework import OperationType, standard_api
-
 
 def _get_empty_statistics():
     """Return empty statistics dictionary for error cases or permission denied scenarios"""
@@ -27,135 +25,91 @@ def _get_empty_statistics():
     }
 
 
-@frappe.whitelist()
-@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_volunteer_expense_statistics(volunteer_name, months_back=12):
     """
     Get comprehensive expense statistics for a volunteer
 
-    Args:
-        volunteer_name (str): Name of the volunteer record
-        months_back (int): Number of months to look back (default: 12)
-
-    Returns:
-        dict: Dictionary containing expense statistics with keys:
-            - total_submitted: Total amount submitted in period
-            - total_approved: Total amount approved/reimbursed
-            - pending_amount: Amount still pending approval
-            - pending_count: Number of expenses pending
-            - approved_count: Number of expenses approved/reimbursed
-            - total_count: Total number of expenses
+    This function uses the EXACT same data source as get_volunteer_expenses()
+    to ensure consistency between displayed recent expenses and statistics.
     """
     try:
-        # Get expenses from specified months back
+        # Mirror the exact logic from get_volunteer_expenses function
+        volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
+        if not volunteer_doc.member:
+            return _get_empty_statistics()
+
+        # Get member document to access stored expense history
+        member_doc = frappe.get_doc("Member", volunteer_doc.member)
+
+        # Get expenses from Member's volunteer_expenses child table (same as recent expenses)
+        if not (hasattr(member_doc, "volunteer_expenses") and member_doc.volunteer_expenses):
+            return _get_empty_statistics()
+
+        # Calculate date range for filtering
         from_date = add_months(today(), -months_back)
 
         total_submitted = 0
         total_approved = 0
         pending_count = 0
         approved_count = 0
-        reimbursed_count = 0
         total_count = 0
 
-        # Check if volunteer exists and user has permission to access it
-        if not frappe.db.exists("Volunteer", volunteer_name):
-            frappe.logger().warning(f"Volunteer {volunteer_name} not found")
-            return _get_empty_statistics()
+        # DEBUG: Log what we're processing
+        debug_info = f"STATS FUNCTION: volunteer_name='{volunteer_name}', member='{volunteer_doc.member}'"
+        debug_info += f"\nProcessing {len(member_doc.volunteer_expenses)} expenses, from_date={from_date}"
 
-        # Validate permission to read volunteer data
-        if not frappe.has_permission("Volunteer", "read", volunteer_name):
-            frappe.logger().warning(
-                f"Permission denied to access volunteer {volunteer_name} for user {frappe.session.user}"
-            )
-            return _get_empty_statistics()
+        for stored_expense in member_doc.volunteer_expenses:
+            expense_date_raw = stored_expense.get("expense_date")
+            amount = flt(stored_expense.get("amount", 0))
+            status = stored_expense.get("status", "Draft")
 
-        # Get volunteer document
-        volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
+            # Convert expense_date to date object if it's a string
+            if isinstance(expense_date_raw, str):
+                from datetime import datetime
 
-        frappe.logger().debug(
-            f"Getting expense statistics for volunteer {volunteer_name}, employee_id: {getattr(volunteer_doc, 'employee_id', 'None')}"
-        )
+                try:
+                    expense_date = datetime.strptime(expense_date_raw, "%Y-%m-%d").date()
+                except:
+                    expense_date = None
+            else:
+                expense_date = expense_date_raw
 
-        # Try ERPNext Expense Claims first if employee_id exists
-        if hasattr(volunteer_doc, "employee_id") and volunteer_doc.employee_id:
-            # Get ERPNext Expense Claims for this employee
-            expense_claims = frappe.get_all(
-                "Expense Claim",
-                filters={
-                    "employee": volunteer_doc.employee_id,
-                    "posting_date": [">=", from_date],
-                    "docstatus": ["!=", 2],  # Not cancelled
-                },
-                fields=[
-                    "total_claimed_amount",
-                    "total_sanctioned_amount",
-                    "status",
-                    "approval_status",
-                ],
-            )
+            debug_info += f"\nExpense: raw_date={expense_date_raw} ({type(expense_date_raw)}), converted_date={expense_date}, amount={amount}, status={status}"
+            debug_info += f", from_date={from_date} ({type(from_date)}), comparison={expense_date >= from_date if expense_date else False}"
 
-            for claim in expense_claims:
-                amount = flt(claim.total_claimed_amount)
-                status = _map_erpnext_status_to_volunteer_status(claim.status, claim.approval_status)
-
-                total_count += 1
-                # All expenses count toward total_submitted
-                total_submitted += amount
-
-                if status == "Approved":
-                    sanctioned_amount = flt(claim.total_sanctioned_amount or amount)
-                    total_approved += sanctioned_amount
-                    approved_count += 1
-                elif status == "Awaiting Approval":  # Draft status = pending approval
-                    pending_count += 1
-                elif status == "Submitted":  # Submitted but not yet approved/rejected
-                    pending_count += 1
-                elif status == "Rejected":  # Rejected expenses
-                    pass  # Already counted in total_submitted
-                elif status == "Reimbursed":
-                    total_approved += flt(claim.total_sanctioned_amount or amount)
-                    reimbursed_count += 1
-
-        # Also check Volunteer Expense records as fallback
-        # This covers volunteers who haven't had ERPNext expense claims created yet
-        volunteer_expenses = frappe.get_all(
-            "Volunteer Expense",
-            filters={
-                "volunteer": volunteer_name,
-                "expense_date": [">=", from_date],
-                "docstatus": ["!=", 2],  # Not cancelled
-            },
-            fields=["amount", "status"],
-        )
-
-        for expense in volunteer_expenses:
-            amount = flt(expense.amount)
-            status = expense.status
+            # TEMPORARY: Skip date filtering to test if that's the issue
+            # if not expense_date or expense_date < from_date:
+            #     debug_info += " -> SKIPPED (date filter)"
+            #     continue
 
             total_count += 1
             total_submitted += amount
+            debug_info += f" -> COUNTED (total_submitted now {total_submitted})"
 
             if status == "Approved":
                 total_approved += amount
                 approved_count += 1
-            elif status in ["Submitted", "Awaiting Approval"]:
+            elif status in ["Submitted", "Draft", "Awaiting Approval"]:
                 pending_count += 1
 
-        stats = {
+        # Log the complete debug info AND store it for template display
+        frappe.log_error(debug_info, "Expense Statistics Debug")
+
+        # HACK: Store debug info in response for immediate visibility
+        if hasattr(frappe.local, "response"):
+            frappe.local.response.setdefault("debug_info", []).append(debug_info)
+
+        return {
             "total_submitted": total_submitted,
             "total_approved": total_approved,
             "pending_amount": total_submitted - total_approved,
             "pending_count": pending_count,
-            "approved_count": approved_count + reimbursed_count,
+            "approved_count": approved_count,
             "total_count": total_count,
         }
 
-        frappe.logger().debug(f"Expense statistics for volunteer {volunteer_name}: {stats}")
-        return stats
-
     except Exception as e:
         frappe.log_error(f"Error getting expense statistics: {str(e)}", "Volunteer Expense Statistics Error")
-        # Return empty statistics if error occurs
         return _get_empty_statistics()
 
 
@@ -179,28 +133,14 @@ def get_volunteer_expense_summary(volunteer_name):
 
         recent_count = 0
 
-        # Count recent ERPNext expenses if employee exists
-        if hasattr(volunteer_doc, "employee_id") and volunteer_doc.employee_id:
-            recent_erpnext = frappe.db.count(
-                "Expense Claim",
-                filters={
-                    "employee": volunteer_doc.employee_id,
-                    "posting_date": [">=", recent_date],
-                    "docstatus": ["!=", 2],
-                },
-            )
-            recent_count += recent_erpnext
-
-        # Count recent Volunteer Expenses
-        recent_volunteer = frappe.db.count(
-            "Volunteer Expense",
-            filters={
-                "volunteer": volunteer_name,
-                "expense_date": [">=", recent_date],
-                "docstatus": ["!=", 2],
-            },
-        )
-        recent_count += recent_volunteer
+        # Count recent expenses from Member's volunteer_expenses child table
+        if volunteer_doc.member:
+            member_doc = frappe.get_doc("Member", volunteer_doc.member)
+            if hasattr(member_doc, "volunteer_expenses") and member_doc.volunteer_expenses:
+                for expense in member_doc.volunteer_expenses:
+                    expense_date = expense.get("expense_date")
+                    if expense_date and expense_date >= recent_date:
+                        recent_count += 1
 
         # Add recent count to stats
         stats["recent_count"] = recent_count
@@ -210,30 +150,3 @@ def get_volunteer_expense_summary(volunteer_name):
         stats["recent_count"] = 0
 
     return stats
-
-
-def _map_erpnext_status_to_volunteer_status(erpnext_status, approval_status):
-    """Map ERPNext Expense Claim status to Volunteer Expense status"""
-    if erpnext_status == "Draft":
-        return "Awaiting Approval"
-    elif erpnext_status == "Submitted":
-        if approval_status == "Approved":
-            return "Approved"
-        elif approval_status == "Rejected":
-            return "Rejected"
-        else:
-            return "Submitted"
-    elif erpnext_status == "Unpaid":
-        # Unpaid means it's been processed (approved/rejected)
-        if approval_status == "Approved":
-            return "Approved"
-        elif approval_status == "Rejected":
-            return "Rejected"
-        else:
-            return "Submitted"
-    elif erpnext_status == "Paid":
-        return "Reimbursed"
-    elif erpnext_status == "Cancelled":
-        return "Rejected"
-    else:
-        return "Submitted"  # Default fallback

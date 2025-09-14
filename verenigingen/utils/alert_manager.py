@@ -13,6 +13,7 @@ from frappe.utils import add_to_date, now
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
+    development_only_api,
     high_security_api,
     standard_api,
 )

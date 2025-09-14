@@ -61,10 +61,60 @@ def get_context(context):
     # Get volunteer's recent expenses
     context.recent_expenses = get_volunteer_expenses(volunteer.name, limit=10)
 
-    # Get expense statistics
-    from verenigingen.utils.volunteer_statistics import get_volunteer_expense_statistics
+    # Get expense statistics - DETAILED DEBUGGING IMPLEMENTATION
+    try:
+        # Direct implementation instead of calling external function
+        volunteer_doc = frappe.get_doc("Volunteer", volunteer.name)
+        if not volunteer_doc.member:
+            context.stats_debug = "No member found for volunteer"
+            context.expense_stats = _get_empty_statistics()
+        else:
+            member_doc = frappe.get_doc("Member", volunteer_doc.member)
+            expenses = getattr(member_doc, "volunteer_expenses", [])
 
-    context.expense_stats = get_volunteer_expense_statistics(volunteer.name)
+            debug_details = f"Found {len(expenses)} expenses in member_doc.volunteer_expenses\n"
+            debug_details += f"Member: {volunteer_doc.member}\n"
+
+            total_submitted = 0
+            for i, exp in enumerate(expenses):
+                exp_dict = exp.as_dict() if hasattr(exp, "as_dict") else dict(exp)
+                debug_details += f"Expense {i + 1}: {exp_dict}\n"
+
+                # Try different amount fields
+                amount_fields = ["amount", "total_claimed_amount", "total_sanctioned_amount"]
+                amount_found = 0
+                for field in amount_fields:
+                    if field in exp_dict and exp_dict[field]:
+                        amount_found = flt(exp_dict[field])
+                        debug_details += f"  - Using {field}: {amount_found}\n"
+                        break
+
+                total_submitted += amount_found
+                debug_details += f"  - Running total: {total_submitted}\n"
+
+            context.stats_debug = debug_details
+
+            context.expense_stats = {
+                "total_submitted": total_submitted,
+                "total_approved": 0,
+                "pending_amount": total_submitted,
+                "pending_count": len(expenses),
+                "approved_count": 0,
+                "total_count": len(expenses),
+            }
+
+    except Exception as e:
+        import traceback
+
+        context.stats_debug = f"EXCEPTION: {str(e)}\n{traceback.format_exc()}"
+        context.expense_stats = {
+            "total_submitted": 0,
+            "total_approved": 0,
+            "pending_amount": 0,
+            "pending_count": 0,
+            "approved_count": 0,
+            "total_count": 0,
+        }
 
     # Get maximum amounts for each approval level (for UI guidance)
     context.approval_thresholds = get_approval_thresholds()

@@ -9,8 +9,11 @@ Usage: Call functions via bench console or admin interface
 """
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def create_subscription_for_customer(
     customer_id, amount=25.0, interval="1 month", description="Manual Subscription"
 ):

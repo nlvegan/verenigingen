@@ -7,6 +7,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.member_utils import get_current_user_member_name
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
 def get_context(context):
@@ -91,6 +92,7 @@ def get_recent_contact_requests(member_name, limit=5):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def submit_contact_request():
     """Handle contact request form submission"""
 

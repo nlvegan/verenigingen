@@ -5,8 +5,11 @@ Test transaction management functionality in security helper
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_transaction_management():
     """Test the transaction management features"""
 

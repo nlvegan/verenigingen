@@ -50,7 +50,13 @@ import frappe
 from frappe import _
 
 # Import security decorators
-from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    development_only_api,
+    high_security_api,
+    standard_api,
+)
 
 
 def add_customer_to_member_link():

@@ -1,5 +1,7 @@
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 def get_context(context):
     """Context for the email template installation page"""
@@ -36,6 +38,7 @@ def get_context(context):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def install_templates():
     """Install all missing email templates"""
     try:
