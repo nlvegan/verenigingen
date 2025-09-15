@@ -534,7 +534,7 @@ class TestDutchMembershipLifecycle(EnhancedTestCase):
         # Note: Full termination execution would require approval workflow
         # This tests the request creation part of the termination system
     
-    @patch('frappe.sendmail')  # KEEP: External email service mock (appropriate)
+    @patch('frappe.sendmail')  # Mock justified: External Service - email infrastructure, not business logic
     def test_membership_notifications_real_triggers(self, mock_sendmail):
         """Test membership notifications with real trigger logic"""
         
@@ -806,9 +806,9 @@ class TestDutchBusinessLogicPermissionBoundaries(EnhancedTestCase):
                 limited_user.save()
             finally:
                 # EnhancedTestCase handles permissions: frappe.set_user(current_user)
-            # Handle missing track_doc method gracefully
-            if hasattr(self, 'track_doc'):
-                self.track_doc("User", limited_user.name)
+                # Handle missing track_doc method gracefully
+                if hasattr(self, 'track_doc'):
+                    self.track_doc("User", limited_user.name)
         
         self.limited_user = "limited@permission.test"
         

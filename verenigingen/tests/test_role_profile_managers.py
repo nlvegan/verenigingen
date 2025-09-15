@@ -60,12 +60,14 @@ class TestValidationFunctions(EnhancedTestCase):
         for profile in test_profiles:
             if DocumentExistenceValidator.check_document_exists("Role Profile", profile):
                 # EnhancedTestCase handles cleanup automatically
+                pass
         
         # Delete test teams
         test_teams = ["Test Team", "Test Team No Config", "Test Team Invalid"]
         for team in test_teams:
             if DocumentExistenceValidator.check_document_exists("Team", team):
                 # EnhancedTestCase handles cleanup automatically
+                pass
     
     def test_validate_doctype_fields_success(self):
         """Test successful DocType field validation"""
@@ -158,12 +160,13 @@ class TestTeamRoleProfileManager(EnhancedTestCase):
             ("Volunteer", ["Test Volunteer"]),
             ("Member", ["Test Member"])
         ]
-        
+
         for doctype, names in test_items:
             for name in names:
                 if DocumentExistenceValidator.check_document_exists(doctype, name):
                     # EnhancedTestCase handles cleanup automatically
-    
+                    pass
+
     def create_test_data(self):
         """Create test data for team role profile testing"""
         # Create test role profiles with correct role names
@@ -332,15 +335,14 @@ class TestTeamRoleProfileManager(EnhancedTestCase):
     
     def test_bulk_assign_role_profiles(self):
         """Test bulk role profile assignment"""
-        # Add test volunteer to team
-        team_member = frappe.get_doc({
-            "doctype": "Team Member",
-            "parent": "Test Team Valid",
+        # Add test volunteer to team using proper parent-child relationship
+        team_doc = frappe.get_doc("Team", "Test Team Valid")
+        team_doc.append("team_members", {
             "volunteer": "Test Volunteer",
             "team_role": "Member",
             "status": "Active"
         })
-        team_member.insert()
+        team_doc.save()
         
         result = self.manager.bulk_assign_role_profiles("Test Team Valid")
         
@@ -378,7 +380,8 @@ class TestChapterRoleProfileManager(EnhancedTestCase):
             for name in names:
                 if DocumentExistenceValidator.check_document_exists(doctype, name):
                     # EnhancedTestCase handles cleanup automatically
-    
+                    pass
+
     def create_test_data(self):
         """Create test data for chapter role profile testing"""
         # Create test role profile

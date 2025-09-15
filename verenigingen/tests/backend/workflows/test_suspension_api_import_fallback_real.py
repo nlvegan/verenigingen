@@ -84,9 +84,12 @@ class TestSuspensionAPIFallbackReal(EnhancedTestCase):
             
             # If permissions work correctly, board member should be able to suspend
             # But we're testing that the API doesn't crash with real data
-            
+            pass
+
         finally:
             # EnhancedTestCase handles permissions automatically
+            pass
+            pass
 
     def test_suspension_fallback_with_real_member_data(self):
         """Test fallback mechanism with real database operations (no mocks)"""
@@ -110,6 +113,8 @@ class TestSuspensionAPIFallbackReal(EnhancedTestCase):
             
         finally:
             # EnhancedTestCase handles permissions automatically
+            pass
+            pass
 
     def test_regular_user_suspension_permissions_real(self):
         """Test regular user permissions with real database operations"""
@@ -126,6 +131,8 @@ class TestSuspensionAPIFallbackReal(EnhancedTestCase):
             
         finally:
             # EnhancedTestCase handles permissions automatically
+            pass
+            pass
 
     def test_fallback_error_handling_real_operations(self):
         """Test fallback error handling with real database operations"""
@@ -149,6 +156,8 @@ class TestSuspensionAPIFallbackReal(EnhancedTestCase):
             
         finally:
             # EnhancedTestCase handles permissions automatically
+            pass
+            pass
 
     def test_suspension_api_import_behavior_real(self):
         """Test API import behavior with real system state"""
@@ -170,6 +179,8 @@ class TestSuspensionAPIFallbackReal(EnhancedTestCase):
             
         finally:
             # EnhancedTestCase handles permissions automatically
+            pass
+            pass
 
     def test_board_member_chapter_access_real_database(self):
         """Test board member chapter access with real database relationships"""
@@ -197,6 +208,8 @@ class TestSuspensionAPIFallbackReal(EnhancedTestCase):
             
         finally:
             # EnhancedTestCase handles permissions automatically
+            pass
+            pass
 
     def test_permission_system_integration_real(self):
         """Test integration with real Frappe permission system"""
@@ -218,3 +231,4 @@ class TestSuspensionAPIFallbackReal(EnhancedTestCase):
             
         finally:
             # EnhancedTestCase handles permissions automatically
+            pass

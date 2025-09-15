@@ -238,11 +238,11 @@ class TestOrganizationsClient(EnhancedTestCase):
                 else:
                     # Real business logic might require additional setup
                     self.skipTest("Company creation requires additional ERP setup not available in test environment")
-                        
-                        # Verify result
-                        self.assertEqual(result["status"], "success")
-                        self.assertIn("email", result["synced_fields"])
-                        self.assertIn("vat_number", result["synced_fields"])
+
+                # Verify result
+                self.assertEqual(result["status"], "success")
+                self.assertIn("email", result["synced_fields"])
+                self.assertIn("vat_number", result["synced_fields"])
 
     def test_sync_organization_to_frappe_existing_company(self):
         """Test syncing organization to existing Frappe company"""

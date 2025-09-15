@@ -18,6 +18,8 @@ Verenigingen handles all aspects of running a modern Dutch association - from me
 - **Regulatory Compliance**: Built-in compliance with Dutch association law and financial regulations
 - **Administrative Automation**: Daily tasks handled automatically, freeing up your board's time
 
+
+- **Additional details can be found VERENIGINGEN_PROJECT_OVERVIEW.md**
 ## Key Features for Your Association
 
 ### Member Management That Works

@@ -491,15 +491,15 @@ class TestDonorSecurityComprehensive(EnhancedTestCase):
         """
         # Test as admin - should see all donors
         # EnhancedTestCase handles permissions automatically
-            admin_donors = frappe.get_all(
-                'Donor',
-                fields=['name', 'donor_name', 'member']
-            )
-            
-            # Should see multiple donors including test ones
-            admin_donor_names = [d.name for d in admin_donors]
-            self.assertIn(self.linked_donor.name, admin_donor_names)
-            self.assertIn(self.orphaned_donor.name, admin_donor_names)
+        admin_donors = frappe.get_all(
+            'Donor',
+            fields=['name', 'donor_name', 'member']
+        )
+
+        # Should see multiple donors including test ones
+        admin_donor_names = [d.name for d in admin_donors]
+        self.assertIn(self.linked_donor.name, admin_donor_names)
+        self.assertIn(self.orphaned_donor.name, admin_donor_names)
             
         # Test as regular user - should see limited donors
         with frappe.set_user('test_member_user@example.com'):

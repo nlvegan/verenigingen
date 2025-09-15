@@ -113,6 +113,7 @@ class TestVolunteerPortalSecurity(EnhancedTestCase):
         finally:
             # EnhancedTestCase handles permissions: frappe.set_user("Administrator")
             # Enhanced Test Factory handles cleanup automatically
+            pass
 
     def test_organization_access_control(self):
         """Test that volunteers can only submit expenses for authorized organizations"""
@@ -312,6 +313,7 @@ class TestVolunteerPortalSecurity(EnhancedTestCase):
         finally:
             # EnhancedTestCase handles permissions: frappe.set_user("Administrator")
             # Enhanced Test Factory handles cleanup automatically
+            pass
 
     # RATE LIMITING TESTS
 

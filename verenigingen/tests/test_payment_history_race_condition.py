@@ -172,11 +172,11 @@ class TestPaymentHistoryRaceCondition(EnhancedTestCase):
         # Verify invoice was eventually added
         found_entry = None
         for entry in self.test_member.payment_history:
-                if entry.invoice == invoice.name:
-                    found_entry = entry
-                    break
-            
-            self.assertIsNotNone(found_entry, "Invoice should be added after retries")
+            if entry.invoice == invoice.name:
+                found_entry = entry
+                break
+
+        self.assertIsNotNone(found_entry, "Invoice should be added after retries")
 
     def test_race_condition_exhausted_retries(self):
         """Test behavior when all retries are exhausted"""

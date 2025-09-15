@@ -120,7 +120,7 @@ class TestMembershipAnalyticsFunctionality(BaseTestCase):
                     "to_date": add_months(getdate(), 12),
                     "status": "Active"
                 })
-                membership.insert(# VereningingenTestCase (BaseTestCase) handles permissions)
+                membership.insert()  # VereningingenTestCase (BaseTestCase) handles permissions
     
     def create_test_terminations(self):
         """Create termination requests for some members"""
@@ -137,7 +137,7 @@ class TestMembershipAnalyticsFunctionality(BaseTestCase):
                 "reason": "Test termination",
                 "status": "Completed"
             })
-            termination.insert(# VereningingenTestCase (BaseTestCase) handles permissions)
+            termination.insert()  # VereningingenTestCase (BaseTestCase) handles permissions
             
             # Update member status
             frappe.db.set_value("Member", member.name, "status", "Terminated")
@@ -161,7 +161,7 @@ class TestMembershipAnalyticsFunctionality(BaseTestCase):
                 "outstanding_amount": 0,
                 "status": "Paid"
             })
-            invoice.insert(# VereningingenTestCase (BaseTestCase) handles permissions)
+            invoice.insert()  # VereningingenTestCase (BaseTestCase) handles permissions
             invoice.submit()
             
             # Create some overdue invoices for payment failure testing
@@ -176,7 +176,7 @@ class TestMembershipAnalyticsFunctionality(BaseTestCase):
                     "outstanding_amount": 100,
                     "status": "Overdue"
                 })
-                overdue_invoice.insert(# VereningingenTestCase (BaseTestCase) handles permissions)
+                overdue_invoice.insert()  # VereningingenTestCase (BaseTestCase) handles permissions
                 overdue_invoice.submit()
     
     def test_summary_metrics_calculation(self):
@@ -534,7 +534,7 @@ class TestPredictiveAnalytics(BaseTestCase):
                     "to_date": add_months(join_date, 12),
                     "status": "Active"
                 })
-                membership.insert(# VereningingenTestCase (BaseTestCase) handles permissions)
+                membership.insert()  # VereningingenTestCase (BaseTestCase) handles permissions
         
         # Create membership type if not exists
         if not frappe.db.exists("Membership Type", "TEST_Standard"):
@@ -544,7 +544,7 @@ class TestPredictiveAnalytics(BaseTestCase):
                 "amount": 100,
                 "is_active": 1
             })
-            mt.insert(# VereningingenTestCase (BaseTestCase) handles permissions)
+            mt.insert()  # VereningingenTestCase (BaseTestCase) handles permissions
         
         frappe.db.commit()
     
@@ -673,7 +673,7 @@ class TestPredictiveAnalytics(BaseTestCase):
                 "outstanding_amount": 100,
                 "status": "Overdue"
             })
-            invoice.insert(# VereningingenTestCase (BaseTestCase) handles permissions)
+            invoice.insert()  # VereningingenTestCase (BaseTestCase) handles permissions
             invoice.submit()
     
     def test_seasonal_patterns(self):

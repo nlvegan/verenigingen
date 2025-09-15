@@ -46,7 +46,7 @@ class TestChapterDashboard(VereningingenTestCase):
                 "introduction": "Test chapter for dashboard testing",
                 "published": 1
             })
-            chapter.insert(# VereningingenTestCase handles permissions)
+            chapter.insert()  # VereningingenTestCase handles permissions
             return chapter
         return frappe.get_doc("Chapter", chapter_name)
         
@@ -100,7 +100,7 @@ class TestChapterDashboard(VereningingenTestCase):
             
             # Add Chapter Board Member role
             user.append("roles", {"role": "Verenigingen Chapter Board Member"})
-            user.insert(# VereningingenTestCase handles permissions)
+            user.insert()  # VereningingenTestCase handles permissions
             return user
         return frappe.get_doc("User", email)
         
@@ -229,7 +229,7 @@ class TestChapterDashboard(VereningingenTestCase):
         pending_member.reload()
         pending_member.status = "Active"
         pending_member.application_status = "Approved"
-        pending_member.save(# VereningingenTestCase handles permissions)
+        pending_member.save() # VereningingenTestCase handles permissions
         
         # Verify approval
         pending_member.reload()
@@ -369,7 +369,7 @@ class TestChapterDashboard(VereningingenTestCase):
                 member = frappe.get_doc("Member", member_id)
                 if member.status != bulk_update["new_status"]:
                     member.status = bulk_update["new_status"]
-                    member.save(# VereningingenTestCase handles permissions)
+                    member.save() # VereningingenTestCase handles permissions
                     updated_count += 1
             except Exception:
                 pass

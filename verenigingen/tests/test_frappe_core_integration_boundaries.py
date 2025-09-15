@@ -254,8 +254,9 @@ class TestPaymentEntryCoreIntegration(TransactionBoundaryTestCase):
                     invoice.reload()
                     expected_outstanding = 25.0 - amount
                     self.assertAlmostEqual(
-                        flt(invoice.outstanding_amount), expected_outstanding, places=2,
-                        "Core ERPNext should auto-update invoice outstanding amount"
+                        flt(invoice.outstanding_amount), expected_outstanding,
+                        places=2,
+                        msg="Core ERPNext should auto-update invoice outstanding amount"
                     )
                     
                     return {
@@ -647,8 +648,9 @@ class TestERPNextAccountsIntegration(TransactionBoundaryTestCase):
                     invoice_total_credit = sum(flt(entry.credit) for entry in invoice_gl_entries)
                     
                     self.assertAlmostEqual(
-                        invoice_total_debit, invoice_total_credit, places=2,
-                        "Invoice GL entries should be balanced"
+                        invoice_total_debit, invoice_total_credit,
+                        places=2,
+                        msg="Invoice GL entries should be balanced"
                     )
                     
                     return {

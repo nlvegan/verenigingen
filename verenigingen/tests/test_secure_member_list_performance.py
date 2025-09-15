@@ -104,6 +104,7 @@ class TestSecureMemberListPerformance(EnhancedTestCase):
                 
         finally:
             # EnhancedTestCase handles permissions automatically
+            pass
 
     def test_large_batch_security_limits(self):
         """Test that optimization respects security limits for large requests"""

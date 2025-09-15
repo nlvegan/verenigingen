@@ -394,12 +394,12 @@ class TestPaymentHistoryLargeScale(PaymentHistoryScalabilityTestCase):
                         member_doc = frappe.get_doc("Member", member.name)
                         member_doc.load_payment_history()
                         # Ensure admin context for performance measurement accuracy
-                original_user = frappe.session.user
-                try:
-                    # VereningingenTestCase handles permissions automatically
-                    member_doc.save()
-                finally:
-                    frappe.session.user = original_user
+                        original_user = frappe.session.user
+                        try:
+                            # VereningingenTestCase handles permissions automatically
+                            member_doc.save()
+                        finally:
+                            frappe.session.user = original_user
                         processed_count += 1
                     except Exception as e:
                         frappe.log_error(f"Failed to process member {member.name}: {str(e)}")

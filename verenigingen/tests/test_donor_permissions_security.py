@@ -321,12 +321,12 @@ class TestDonorPermissionsSecurity(VereningingenTestCase):
                 user="orm_test@example.com",
                 birth_date="1992-01-01"
             )
-            
-            orm_donor = self.create_test_donor(
-                donor_name="ORM Test Donor",
-                donor_type="Individual",
-                donor_email="ormdonor@example.com",
-                member=orm_member.name
+
+        orm_donor = self.create_test_donor(
+            donor_name="ORM Test Donor",
+            donor_type="Individual",
+            donor_email="ormdonor@example.com",
+            member=orm_member.name
             )
         
         # Test with actual Frappe user context
