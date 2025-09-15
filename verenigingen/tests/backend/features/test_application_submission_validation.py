@@ -6,6 +6,8 @@ import frappe
 from frappe.utils import today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 class TestApplicationSubmissionValidation(EnhancedTestCase):
     """Test application submission validation and edge cases"""
@@ -279,6 +281,7 @@ def run_application_validation_tests():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_application_submission_tests():
     """Whitelisted function to run application submission validation tests"""
     try:

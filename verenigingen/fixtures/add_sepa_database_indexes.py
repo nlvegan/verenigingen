@@ -6,6 +6,8 @@ Run via: bench --site dev.veganisme.net execute verenigingen.fixtures.add_sepa_d
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 def create_sepa_indexes():
     """Create database indexes for SEPA and membership dues queries"""
@@ -276,6 +278,7 @@ def verify_sepa_indexes():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def get_sepa_index_status():
     """API to check SEPA index status"""
     return verify_sepa_indexes()

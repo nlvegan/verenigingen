@@ -8,6 +8,8 @@ from typing import Dict, List, Optional
 import frappe
 from frappe.utils import add_days, flt, now
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 class EBoekhoudenCorrectImporter:
     """Demonstrates correct way to import e-boekhouden data"""
@@ -484,6 +486,7 @@ class EBoekhoudenCorrectImporter:
 
 # Whitelisted function to test
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_correct_import(mutation_id: int):
     """Test the correct import implementation"""
     company = frappe.get_single("E-Boekhouden Settings").default_company

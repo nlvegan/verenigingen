@@ -6,6 +6,13 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.query_builder import DocType
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    development_only_api,
+    standard_api,
+)
+
 
 class Team(Document):
     def validate(self):
@@ -481,6 +488,7 @@ class Team(Document):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_team_members(team):
     """Get team members with volunteer info"""
     if not team:
@@ -520,6 +528,7 @@ def get_team_members(team):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def sync_team_with_volunteers(team_name=None):
     """Sync all team members with volunteer system"""
     filters = {}
@@ -546,6 +555,7 @@ def sync_team_with_volunteers(team_name=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_all_missing_assignment_history():
     """Fix missing assignment history for all teams - admin utility function"""
     try:
@@ -607,6 +617,7 @@ def fix_all_missing_assignment_history():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_missing_assignment_history(team_name=None, volunteer_name=None):
     """Fix missing team assignment history for existing assignments"""
 
@@ -668,6 +679,7 @@ def fix_missing_assignment_history(team_name=None, volunteer_name=None):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_team_assignments():
     """Debug team assignments and volunteers"""
 
@@ -719,6 +731,7 @@ def debug_team_assignments():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_team_member_removal():
     """Test that removing a team member properly updates assignment history"""
 
@@ -885,6 +898,7 @@ def get_team_permission_query_conditions(user=None):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_role_profile_preview(team_name):
     """Get preview of which role profiles would be assigned to team members"""
     if not team_name or not frappe.db.exists("Team", team_name):
@@ -936,6 +950,7 @@ def get_role_profile_preview(team_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def bulk_apply_team_role_profiles(team_name):
     """Apply role profiles to all current team members based on team configuration"""
     from verenigingen.utils.team_role_profile_manager import bulk_assign_team_role_profiles

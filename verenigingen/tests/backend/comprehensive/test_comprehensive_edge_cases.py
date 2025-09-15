@@ -8,6 +8,8 @@ from datetime import datetime
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 def run_all_edge_case_tests():
     """Run all edge case test suites"""
@@ -194,6 +196,7 @@ def run_smoke_edge_cases():
 
 # API endpoints for integration with existing test infrastructure
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def api_run_edge_case_tests():
     """API endpoint to run edge case tests"""
     try:
@@ -204,6 +207,7 @@ def api_run_edge_case_tests():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def api_run_security_tests():
     """API endpoint to run security tests only"""
     try:
@@ -214,6 +218,7 @@ def api_run_security_tests():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def api_run_financial_tests():
     """API endpoint to run financial tests only"""
     try:
@@ -225,6 +230,7 @@ def api_run_financial_tests():
 
 # Additional API endpoints
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def api_run_business_logic_tests():
     """API endpoint to run business logic tests only"""
     try:
@@ -235,6 +241,7 @@ def api_run_business_logic_tests():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def api_run_performance_tests():
     """API endpoint to run performance tests only"""
     try:
@@ -245,6 +252,7 @@ def api_run_performance_tests():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def api_run_environment_check():
     """API endpoint to run environment validation"""
     try:

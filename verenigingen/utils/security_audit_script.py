@@ -35,6 +35,8 @@ from typing import Dict, List, Tuple
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 class SecurityAuditResult:
     """Data class for security audit findings"""
@@ -271,6 +273,7 @@ def generate_migration_script(audit_results: List[SecurityAuditResult]) -> str:
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_comprehensive_audit():
     """
     Run comprehensive security audit and return results
@@ -333,6 +336,7 @@ def run_comprehensive_audit():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def generate_security_report():
     """
     Generate a detailed security report in markdown format

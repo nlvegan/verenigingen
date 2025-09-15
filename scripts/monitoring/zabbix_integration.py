@@ -45,7 +45,6 @@ class ZabbixIntegration:
 
 
 @frappe.whitelist(allow_guest=True)
-@development_only_api(operation_type=OperationType.UTILITY)
 def get_metrics_for_zabbix():
     """
     Main metrics endpoint for Zabbix monitoring

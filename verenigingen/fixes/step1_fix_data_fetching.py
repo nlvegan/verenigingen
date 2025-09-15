@@ -8,6 +8,8 @@ from typing import Dict, List, Optional
 import frappe
 from frappe.utils import add_days, flt, now
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 def create_sales_invoice_with_full_data(mutation_detail: Dict, company: str, cost_center: str) -> Dict:
     """
@@ -420,6 +422,7 @@ def map_unit_of_measure(dutch_unit: str) -> str:
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_new_invoice_creation(mutation_id: int):
     """Test the new invoice creation with full data"""
     from verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
@@ -446,6 +449,7 @@ def test_new_invoice_creation(mutation_id: int):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def compare_old_vs_new_import(mutation_id: int):
     """Compare current implementation vs new implementation"""
     from verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator import EBoekhoudenRESTIterator

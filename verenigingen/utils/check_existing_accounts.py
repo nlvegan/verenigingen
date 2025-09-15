@@ -5,8 +5,11 @@ Check existing accounts to find the closing accounts used by E-Boekhouden
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_existing_accounts():
     """Find accounts that could be used for Period Closing Vouchers"""
 

@@ -5,8 +5,11 @@ Summary of the cleanup function fix
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def cleanup_function_summary():
     """Summary of the cleanup function fix"""
 

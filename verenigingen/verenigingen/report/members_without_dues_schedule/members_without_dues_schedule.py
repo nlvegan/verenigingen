@@ -5,6 +5,8 @@ import frappe
 from frappe import _
 from frappe.utils import date_diff, getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 def execute(filters=None):
     columns = get_columns()
@@ -311,6 +313,7 @@ def get_chart_data(data):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def fix_member_schedule_issues(member_list):
     """API function to batch fix member schedule issues or create missing memberships/schedules"""
     try:

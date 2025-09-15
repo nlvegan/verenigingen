@@ -18,6 +18,13 @@ from .authorization import (
     require_sepa_permission,
     setup_authorization,
 )
+from .context_validators import (
+    get_context_validator,
+    list_available_validators,
+    validate_chapter_specific_access,
+    validate_self_service_access,
+    validate_volunteer_operations_access,
+)
 from .csrf_protection import CSRFProtection, require_csrf_token, setup_csrf_protection
 from .rate_limiting import RateLimiter, rate_limit, setup_rate_limiting
 
@@ -42,6 +49,12 @@ __all__ = [
     "AuditSeverity",
     "audit_log",
     "setup_audit_logging",
+    # Context Validators
+    "get_context_validator",
+    "list_available_validators",
+    "validate_self_service_access",
+    "validate_chapter_specific_access",
+    "validate_volunteer_operations_access",
     # Setup
     "setup_all_security",
 ]

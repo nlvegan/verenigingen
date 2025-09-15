@@ -9,16 +9,13 @@ from pathlib import Path
 import frappe
 from frappe.utils import today
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
 
 class TestValidationRegression(EnhancedTestCase):
     """Regression tests to catch validation issues before they reach production"""
 
     # Enhanced Test Factory handles setup and cleanup automatically
-                    frappe.delete_doc(doctype, name, force=True)
-            frappe.db.commit()
-        except Exception:
-            frappe.db.rollback()
 
     def add_cleanup(self, doctype, name):
         """Add record to cleanup list"""
@@ -334,6 +331,7 @@ def run_validation_regression_tests():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_validation_regression_suite():
     """Whitelisted function to run validation regression tests"""
     try:
@@ -370,6 +368,7 @@ def run_validation_regression_suite():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_field_validation_on_tests():
     """Whitelisted function to run field validation specifically on test files"""
     try:

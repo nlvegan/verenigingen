@@ -237,7 +237,7 @@
    "label": "SEPA Mandate Starting Counter"
   },
   {
-   "description": "Organization name as it should appear in SEPA communications and member notifications",
+   "description": "Organization name as it should appear in member notifications",
    "fieldname": "company_name",
    "fieldtype": "Data",
    "label": "Company Name"
@@ -725,7 +725,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2025-09-07 07:29:18.159189",
+ "modified": "2025-09-15 08:47:43.388833",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Verenigingen Settings",

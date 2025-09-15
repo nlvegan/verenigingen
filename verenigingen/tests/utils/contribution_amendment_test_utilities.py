@@ -18,6 +18,8 @@ Created: 2025-09-11 (extracted from production controller)
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 def note_about_extracted_code():
     """
@@ -72,6 +74,7 @@ def note_about_extracted_code():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_utilities_info():
     """
     Provide information about the extracted test utilities.

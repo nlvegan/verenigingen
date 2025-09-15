@@ -5,8 +5,11 @@ Create required items for eBoekhouden import
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def create_eboekhouden_import_item():
     """Create the required eBoekhouden Import Item"""
 
@@ -71,6 +74,7 @@ def create_eboekhouden_import_item():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_required_items():
     """Check if all required items exist"""
 

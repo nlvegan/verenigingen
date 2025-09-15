@@ -28,9 +28,11 @@ class CriticalOperationRule(Document):
         if not self.operation_name:
             frappe.throw(_("Operation Name is required"))
 
-        # Operation names should be descriptive and follow snake_case
-        if not self.operation_name.replace("_", "").replace("-", "").isalnum():
-            frappe.throw(_("Operation Name should contain only letters, numbers, underscores, and hyphens"))
+        # Operation names should be descriptive and follow snake_case or module.function format
+        if not self.operation_name.replace("_", "").replace("-", "").replace(".", "").isalnum():
+            frappe.throw(
+                _("Operation Name should contain only letters, numbers, underscores, hyphens, and dots")
+            )
 
     def validate_security_level_consistency(self):
         """Ensure security level matches operation type"""

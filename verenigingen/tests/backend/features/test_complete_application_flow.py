@@ -4,8 +4,11 @@ Test complete application submission flow with special characters
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_complete_application_submission():
     """Test the complete application submission with special characters"""
 

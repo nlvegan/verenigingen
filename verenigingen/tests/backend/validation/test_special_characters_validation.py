@@ -4,6 +4,7 @@ Test cases for special character handling in membership applications
 
 import frappe
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
 
 class TestSpecialCharactersValidation(EnhancedTestCase):
@@ -102,6 +103,7 @@ def run_tests():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_special_character_validation():
     """Whitelisted function to test special character validation"""
     try:

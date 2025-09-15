@@ -1,92 +1,70 @@
 # Verenigingen
 
-A comprehensive association management system built on the Frappe Framework for Dutch non-profit organizations.
+A complete association management system designed specifically for Dutch non-profit organizations. Manages your members, finances, volunteers, and chapters while ensuring compliance with Dutch regulations.
 
-## Overview
+## What Verenigingen Does for Your Association
 
-Verenigingen is a powerful Frappe application designed specifically for Dutch associations, non-profits, and NGOs. It provides complete business process management with regulatory compliance and modern automation features.
+Verenigingen handles all aspects of running a modern Dutch association - from member applications to financial management to volunteer coordination. It automates routine tasks, ensures regulatory compliance, and gives your board the tools to make informed decisions.
 
-### Core Capabilities
+### What Your Association Gets
 
-- **Member Management**: Complete lifecycle from application to termination with automated workflows
-- **Financial Integration**: Full ERPNext integration with SEPA direct debit, Mollie and invoice processing
-- **Chapter Organization**: Geographic chapters with postal code matching and board management
-- **Volunteer Coordination**: Assignment tracking, expense management, and team organization
-- **eBoekhouden Integration**: Comprehensive accounting system integration with REST API support
-- **Portal Systems**: Member and volunteer self-service portals with responsive design
-- **Analytics & Reporting**: Real-time business intelligence with predictive analytics
+- **Complete Member Management**: Handle applications, renewals, and member communications automatically
+- **Automated Financial Operations**: SEPA direct debit, invoicing, and bank reconciliation without manual work
+- **Geographic Chapter Organization**: Organize members by location with automated assignment based on postal codes
+- **Volunteer Coordination**: Track volunteer skills, manage teams, and handle expense reimbursements
+- **Professional Accounting Integration**: Direct connection to eBoekhouden for seamless bookkeeping
+- **Modern Payment Processing**: Accept online payments through Mollie for donations and memberships
+- **Easy Migration**: Seamlessly import your existing member data from Mijnrood exports
+- **Regulatory Compliance**: Built-in compliance with Dutch association law and financial regulations
+- **Administrative Automation**: Daily tasks handled automatically, freeing up your board's time
 
-## Key Features
+## Key Features for Your Association
 
-### 🏢 **Organizational Management**
-- **Multi-Chapter Structure**: Regional chapters with geographic postal code assignment
-- **Board Management**: Chapter board positions with role-based permissions
-- **Regional Coordination**: Hierarchical organization with regional oversight
-- **Department Integration**: ERPNext HR integration for staff management
+### Member Management That Works
+- **Online Applications**: Members apply through your website, with automatic review workflows
+- **Smart Organization**: Members automatically assigned to local chapters based on their address
+- **Communication Tools**: Send targeted emails to specific member groups or chapters
+- **Member Portal**: Members can update their own information and view payment history
+- **Proper Dutch Names**: Handles Dutch naming conventions including tussenvoegsel correctly
 
-### 👥 **Member Lifecycle Management**
-- **Application Processing**: Online applications with review workflows and approval tracking
-- **Membership Types**: Flexible membership categories with custom pricing and periods
-- **Status Tracking**: Complete member journey from application to termination
-- **Automated Billing**: Subscription management with custom override capabilities
-- **Termination Workflows**: Governance-compliant termination with audit trails and appeals
+### Finances Made Simple
+- **Automatic Dues Collection**: SEPA direct debit (batch) support for membership dues payments
+- **Professional Invoicing**: Generate invoices that comply with Dutch standards
+- **Bank Integration**: Import bank statements and match payments automatically
+- **eBoekhouden Connection**: Your accounting records update automatically
+- **Payment Flexibility**: Accept online payments for donations and fees through Mollie
 
-### 💰 **Financial Operations**
-- **SEPA Direct Debit**: EU-compliant automated payment collection with mandate management
-- **eBoekhouden Integration**: Complete import tool via REST API
-- **Invoice Processing**: Automated invoice generation and payment tracking
-- **Banking Integration**: MT940 import and bank reconciliation with Dutch banking standards
-- **Donation Management**: ANBI-donation agreement tracking with tax receipt generation
+### Volunteer Management
+- **Skills Database**: Track what volunteers can do and match them to opportunities
+- **Team Organization**: Organize volunteers into project teams with clear leadership
+- **Expense Handling**: Volunteers submit expenses online, board approves with one click
+- **Recognition Tools**: Track volunteer contributions and celebrate achievements
 
-### 🤝 **Volunteer Management**
-- **Volunteer Profiles**: Skills tracking, availability, and assignment history
-- **Team Organization**: Project-based teams with leader assignments
-- **Expense Management**: Volunteer expense claims with approval workflows
-- **Goal Setting**: Personal development tracking and achievement recognition
-- **Time Tracking**: Volunteer hour logging and contribution analytics
+### Chapter Operations
+- **Geographic Organization**: Chapters automatically get members from their area
+- **Board Management**: Track chapter board positions and terms
+- **Local Events**: Each chapter can manage their own activities and communications
+- **Reporting**: See how each chapter is performing with membership and finances
 
-### 🌐 **Portal Systems**
-- **Member Portal**: Self-service member management with payment history and profile updates
-- **Volunteer Portal**: Assignment tracking, expense submission, and team collaboration
-- **Brand Management**: Customizable theming system with real-time color preview and logo
-- **Mobile Responsive**: Full functionality across all device types
+### Compliance and Security
+- **Dutch Law Compliance**: Built-in compliance with association governance requirements
+- **Data Protection**: Full AVG/GDPR compliance with proper consent management
+- **Audit Trails**: Complete record of who did what and when for accountability
+- **Secure Access**: Role-based permissions ensure people only see what they should
 
-### 📊 **Analytics & Intelligence**
-- **Membership Analytics**: Real-time KPI tracking and membrship growth modeling
-- **Financial Reporting**: Comprehensive revenue and payment analysis
-- **Volunteer Impact**: Contribution tracking and resource optimization
-- **Cohort Analysis**: Member retention and lifecycle insights
-- **Automated Alerts**: Proactive notifications for critical metrics
+## Technical Foundation
 
-## 🛠 **Technical Architecture**
+### Built for Dutch Associations
+- **Modern Web Platform**: Reliable, secure, and fast
+- **Dutch Integration**: Native support for Dutch banking, accounting, and regulations
+- **Professional Services**: Integrates with eBoekhouden accounting and Mollie payments
+- **Scalable**: Grows with your association from small local groups to large national organizations
 
-### Technology Stack
-- **Backend**: Python 3.10+ with Frappe Framework v15
-- **Frontend**: Modern JavaScript ES6+ with responsive HTML5/CSS3
-- **Database**: MariaDB/MySQL with optimized indexing and performance monitoring
-- **Queue System**: Redis for background job processing and caching
-- **API**: RESTful APIs with comprehensive endpoint coverage
-- **Testing**: Enhanced testing framework with automatic cleanup and factory methods
-
-### Required Dependencies
-- **ERPNext v15+**: Core ERP functionality and financial modules
-- **Payments App**: Payment gateway integrations and SEPA processing
-- **HRMS App**: Human resources and employee management
-
-### Development Dependencies
-- **Redis**: Background job processing and session management
-- **Node.js**: Frontend asset compilation and JavaScript testing
-- **Git**: Version control with organized commit structure
-
-### Integration Capabilities
-- **eBoekhouden API**: Production-ready REST API integration for financial data import
-- **SEPA Direct Debit**: EU payment processing compliance with automated mandate management
-- **Dutch Banking**: MT940, CAMT, and bank reconciliation with automated processing
-- **Email Systems**: SMTP, SendGrid, Mailgun integration with template management
-- **External APIs**: Extensible API framework for third-party integrations
-- **ERPNext Integration**: Deep financial module integration with customer/invoice automation
-- **Brand Management**: Dynamic theming system with real-time color preview
-- **Mollie payments and backend API support**: support for both the payments and backend APIs
+### What You Need
+- **Web Browser**: Works on any device - desktop, tablet, or phone
+- **Internet Connection**: Cloud-based system accessible anywhere
+- **Dutch Bank Account**: For SEPA direct debit functionality
+- **Optional Integrations**: eBoekhouden for accounting, Mollie for online payments
 ## 🚀 **Quick Start**
 
 ### Installation
@@ -116,79 +94,72 @@ bench --version  # Should be v15.0.0+
 4. **Payment Methods**: Configure SEPA and other payment options
 5. **Email Templates**: Customize communication templates
 
-### Documentation Links
+### Documentation
 
-#### 📚 **Essential Guides**
-- **[📖 Complete Documentation](docs/README.md)** - Full documentation index and navigation
-- **[🚀 Getting Started](docs/GETTING_STARTED.md)** - New user onboarding and first steps
-- **[⚙️ Installation Guide](docs/INSTALLATION.md)** - Complete installation and deployment
-- **[🔒 Security Guide](SECURITY.md)** - Security configuration and best practices
+#### Technical Overview
+- **[Technical Overview](docs/VERENIGINGEN_TECHNICAL_OVERVIEW.md)** - Complete system architecture and integration
 
-#### 👥 **User Guides**
-- **[👨‍💼 Admin Guide](docs/ADMIN_GUIDE.md)** - System administration and configuration
-- **[👤 Member Portal](docs/user-manual/MEMBER_PORTAL_GUIDE.md)** - Member self-service guide
-- **[🤝 Volunteer Portal](docs/user-manual/VOLUNTEER_PORTAL_GUIDE.md)** - Volunteer coordination guide
+#### Detailed Subsystem Documentation
+- **[Member Lifecycle Management](docs/subsystems/member-lifecycle-management.md)** - Member management and workflows
+- **[Financial Operations](docs/subsystems/financial-operations.md)** - SEPA, billing, and payment processing
+- **[eBoekhouden Integration](docs/subsystems/eboekhouden-integration.md)** - Dutch accounting platform sync
+- **[Volunteer Management](docs/subsystems/volunteer-management.md)** - Volunteer coordination and team management
+- **[Chapter Organization](docs/subsystems/chapter-organization.md)** - Geographic structure and governance
+- **[Payment Processing](docs/subsystems/payment-processing-mollie.md)** - Mollie integration with payments and backend APIs, support for subscriptions and one-off payment making
+- **[Security Framework](docs/subsystems/security-and-permissions.md)** - Security and compliance systems
+- **[Background Processing](docs/subsystems/background-processing.md)** - Asynchronous task management
+- **[Test Infrastructure](docs/subsystems/test-infrastructure.md)** - Comprehensive testing framework
 
-#### 🔧 **Technical Documentation**
-- **[🏗️ Technical Architecture](docs/TECHNICAL_ARCHITECTURE.md)** - System architecture and design patterns
-- **[🧪 Testing Framework 2025](docs/TESTING_FRAMEWORK_2025.md)** - Enhanced testing framework and best practices
-- **[👨‍💻 Developer Testing Guide](docs/DEVELOPER_TESTING_GUIDE.md)** - Testing standards and requirements
-- **[⚡ Cypress JavaScript Controller Testing](cypress/README-JAVASCRIPT-TESTING.md)** - Complete E2E testing for 25+ DocType controllers
-- **[🔌 API Documentation](docs/API_DOCUMENTATION.md)** - Complete API reference and examples
-- **[❓ FAQ & Troubleshooting](docs/FAQ_TROUBLESHOOTING.md)** - Common issues and solutions
-- **[🛠️ Developer Guide](CLAUDE.md)** - Development guidelines and technical context
+#### Development
+- **[Developer Guide](CLAUDE.md)** - Development workflow, commands, and guidelines
+- **[Security Guide](SECURITY.md)** - Security configuration and compliance
 
-## 🎯 **Use Cases**
+## Perfect For Your Association
 
-### Perfect For
-- **Non-profit Organizations**: Member-driven associations with complex needs
-- **NGOs**: International organizations requiring multi-chapter management
-- **Professional Associations**: Industry groups with certification and member services
-- **Community Organizations**: Local groups with volunteer coordination needs
-- **Charitable Institutions**: ANBI-qualified organizations with donation management
+### Types of Organizations
+- **Local Associations**: Sports clubs, hobby groups, neighborhood organizations
+- **Professional Networks**: Industry associations, trade organizations
+- **Advocacy Groups**: Environmental, social, and political organizations
+- **Multi-Chapter Organizations**: National organizations with local chapters
+- **Charitable Organizations**: ANBI-qualified institutions managing donations
+- **Volunteer Organizations**: Groups coordinating community service and projects
 
-### Organization Sizes
-- **Small** (< 100 members): Quick setup with essential features
-- **Medium** (100-1000 members): Full automation and process optimization
-- **Large** (1000+ members): Should work just fine, though may require some more testing
-- **Multi-Chapter support**: Complex organizational structures with regional management
-- **Volunteer support**: volunteer history and expense tracking and claim support
+### Flexible for Any Organization
+- **Scales with your needs**: Use the features that matter to your organization, ignore the rest
+- **Start simple, grow complex**: Begin with basic member management and add capabilities as needed
+- **Multi-Chapter or Single Location**: Works equally well for local clubs and national organizations
+- **Migration Support**: Seamlessly import your existing Mijnrood member data to get started quickly
 
-## 🔒 **Security & Compliance**
+## Security & Compliance You Can Trust
 
-### Enhanced API Security Framework
-- **Multi-Layer Protection**: Comprehensive API security with 5 security levels (@critical_api, @high_security_api, @standard_api, @public_api, @development_only_api)
-- **Operation Type Classification**: Financial, Admin, Member Data, Reporting, and Utility operations with appropriate protections
-- **Production Isolation**: Development and debugging functions automatically blocked in production environments
-- **Rate Limiting & CSRF Protection**: Advanced security measures including request throttling and token validation
-- **Comprehensive Audit Logging**: Detailed security event tracking and monitoring
+### Your Data Is Protected
+- **Enhanced API Security**: Multi-layer security framework beyond standard protections
+- **Secure Access**: Only authorized board members and volunteers can access relevant information
+- **Audit Records**: Complete trail of who accessed or changed what information
+- **Data Backup**: Your association's data is safely backed up and protected
+- **Member Consent**: Consent management for all member communications
 
-### Privacy & Data Protection
-- **Audit Trails**: Complete activity logging and change tracking
-- **Access Controls**: Role-based permissions with fine-grained control
-- **Data Encryption**: Secure storage of sensitive member and financial data
-- **Permission Validation**: Zero-trust security model with explicit permission checking
-- **Secure Operations Framework**: Replacement of all `ignore_permissions=True` usage with validated secure operations
+### Regulatory Compliance
+- **Association Governance**: Meets Dutch association law requirements
+- **Financial Standards**: SEPA banking compliance for automated payments (including full support for SEPA Direct Debit batches)
+- **Tax Compliance**: Proper documentation for ANBI status and donations
+- **Board Accountability**: Tools to ensure transparent and compliant governance
+- **Security Standards**: Enterprise-grade secure operations middleware protecting sensitive data
 
-### Dutch Regulatory Compliance
-- **SEPA Compliance**: EU payment processing standards
-- **Banking Standards**: Dutch banking integration and reconciliation
-- **Financial Data Protection**: Critical-level security for all financial operations
-- **Payment Gateway Security**: Comprehensive Mollie and banking integration protection
+*For technical details on our security implementation, see [Security Framework Documentation](docs/subsystems/security-and-permissions.md)*
 
-## 🤝 **Community & Support**
+## Support & Development
 
 ### Getting Help
-- **[Documentation](docs/)**: Comprehensive guides and tutorials
+- **Documentation**: Comprehensive technical guides and system documentation
 - **GitHub Issues**: Bug reports and feature requests
-- **Community Forums**: User discussions and best practices
-- **Professional Support**: Available for enterprise deployments
+- **Development Support**: Available for implementation and customization
 
 ### Contributing
-- **Code Contributions**: Pull requests welcome for features and fixes
-- **Documentation**: Help improve guides and examples
-- **Testing**: Beta testing for new features and releases
-- **Feedback**: User experience insights and improvement suggestions
+- **Code Contributions**: Pull requests for features, fixes, and improvements welcome
+- **Documentation**: Technical documentation and implementation guides
+- **Testing**: Comprehensive testing framework validation
+- **Security**: Responsible disclosure and security improvements
 
 ## 📄 **License**
 

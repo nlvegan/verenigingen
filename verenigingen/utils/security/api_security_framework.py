@@ -186,12 +186,54 @@ class APISecurityFramework:
         OperationType.PUBLIC: SecurityLevel.PUBLIC,
     }
 
+    # Role Profile to Security Level mapping
+    # This replaces hardcoded role lists with role profile-based access
+    ROLE_PROFILE_SECURITY_MAPPING = {
+        "Verenigingen System Administrator": [
+            SecurityLevel.CRITICAL,
+            SecurityLevel.HIGH,
+            SecurityLevel.MEDIUM,
+            SecurityLevel.LOW,
+        ],
+        "Verenigingen Administrator": [
+            SecurityLevel.CRITICAL,
+            SecurityLevel.HIGH,
+            SecurityLevel.MEDIUM,
+            SecurityLevel.LOW,
+        ],
+        "Verenigingen Treasurer": [
+            SecurityLevel.CRITICAL,
+            SecurityLevel.HIGH,
+            SecurityLevel.MEDIUM,
+        ],  # Full financial access
+        "Verenigingen National Board Member": [
+            SecurityLevel.CRITICAL,
+            SecurityLevel.HIGH,
+            SecurityLevel.MEDIUM,
+        ],  # National oversight
+        "Verenigingen Manager": [SecurityLevel.HIGH, SecurityLevel.MEDIUM, SecurityLevel.LOW],
+        "Verenigingen Board Member": [
+            SecurityLevel.MEDIUM,
+            SecurityLevel.LOW,
+        ],  # + contextual for their chapter
+        "Verenigingen Kascommissie": [SecurityLevel.MEDIUM, SecurityLevel.LOW],  # Audit/compliance access
+        "Verenigingen Staff": [SecurityLevel.MEDIUM, SecurityLevel.LOW],
+        "Verenigingen Team Leader": [SecurityLevel.LOW],  # + contextual for their team
+        "Verenigingen Auditor": [SecurityLevel.LOW],  # Read-only audit access
+        "Verenigingen Member": [SecurityLevel.LOW],
+        "Verenigingen Volunteer": [SecurityLevel.LOW],  # + self_service_only
+        "Verenigingen Webhook User": [SecurityLevel.PUBLIC, SecurityLevel.LOW],
+    }
+
     def __init__(self):
         """Initialize the security framework"""
         self.audit_logger = get_audit_logger()
         self.auth_manager = get_auth_manager()
         self.rate_limiter = get_rate_limiter()
         self.csrf_protection = CSRFProtection()
+
+        # Validate role profile configuration on initialization
+        self._validate_role_profile_configuration()
 
     def _safe_has_csrf_header(self) -> bool:
         """Safely check for CSRF headers, handling cases where there's no request context"""
@@ -322,6 +364,104 @@ class APISecurityFramework:
 
         return True
 
+    def _validate_role_profile_configuration(self):
+        """Validate that all configured role profiles exist in the system"""
+        try:
+            missing_profiles = []
+            invalid_mappings = []
+
+            for profile_name, security_levels in self.ROLE_PROFILE_SECURITY_MAPPING.items():
+                # Check if role profile exists
+                if not frappe.db.exists("Role Profile", profile_name):
+                    missing_profiles.append(profile_name)
+
+                # Check if security levels are valid
+                for level in security_levels:
+                    if not isinstance(level, SecurityLevel):
+                        invalid_mappings.append(f"{profile_name}: {level}")
+
+            # Log warnings for missing profiles but don't fail initialization
+            if missing_profiles:
+                frappe.logger("verenigingen.api_security").warning(
+                    f"Security framework configured with non-existent role profiles: {missing_profiles}. "
+                    f"These will be ignored until role profiles are created."
+                )
+
+            if invalid_mappings:
+                frappe.logger("verenigingen.api_security").error(
+                    f"Invalid security level mappings found: {invalid_mappings}"
+                )
+
+            # Log successful validation
+            valid_profiles = [
+                p for p in self.ROLE_PROFILE_SECURITY_MAPPING.keys() if p not in missing_profiles
+            ]
+            if valid_profiles:
+                frappe.logger("verenigingen.api_security").debug(
+                    f"Security framework initialized with {len(valid_profiles)} valid role profile mappings"
+                )
+
+        except Exception as e:
+            # Don't fail initialization, but log the error
+            frappe.logger("verenigingen.api_security").error(
+                f"Error validating role profile configuration: {str(e)}"
+            )
+
+    def _get_user_role_profiles(self, user: str = None) -> List[str]:
+        """Get user's role profiles from Frappe's Role Profile system"""
+        if not user:
+            user = frappe.session.user
+
+        # SECURITY FIX: Get user's directly assigned role profiles only
+        try:
+            role_profiles = []
+
+            # Method 1: Get role profile directly assigned to user in User DocType
+            user_role_profile = frappe.db.get_value("User", user, "role_profile_name")
+            if user_role_profile:
+                # Verify the role profile actually exists
+                if frappe.db.exists("Role Profile", user_role_profile):
+                    role_profiles.append(user_role_profile)
+                    frappe.logger("verenigingen.api_security").debug(
+                        f"Found direct role profile assignment: {user_role_profile}"
+                    )
+                else:
+                    frappe.logger("verenigingen.api_security").warning(
+                        f"User {user} has invalid role profile assignment: {user_role_profile}"
+                    )
+
+            # Note: We intentionally do NOT query role intersections as that would
+            # create privilege escalation vulnerabilities (QCE finding)
+
+            return role_profiles
+
+        except Exception as e:
+            frappe.logger("verenigingen.api_security").error(
+                f"Failed to get role profiles for user {user}: {str(e)}"
+            )
+            return []
+
+    def _role_profile_grants_access(self, role_profile: str, required_level: SecurityLevel) -> bool:
+        """Check if a role profile grants access to the required security level"""
+        allowed_levels = self.ROLE_PROFILE_SECURITY_MAPPING.get(role_profile, [])
+        return required_level in allowed_levels
+
+    def _validate_role_profile_access(self, required_level: SecurityLevel, user: str = None) -> bool:
+        """Check if user's role profiles grant required security level"""
+        user_profiles = self._get_user_role_profiles(user)
+
+        for profile in user_profiles:
+            if self._role_profile_grants_access(profile, required_level):
+                frappe.logger("verenigingen.api_security").debug(
+                    f"Access granted via role profile: {profile} → {required_level.value}"
+                )
+                return True
+
+        frappe.logger("verenigingen.api_security").debug(
+            f"Access denied: User role profiles {user_profiles} do not grant {required_level.value} access"
+        )
+        return False
+
     def validate_authentication(self, profile: SecurityProfile, user: str = None) -> bool:
         """Validate user authentication and authorization"""
         if not user:
@@ -335,15 +475,37 @@ class APISecurityFramework:
         if user == "Guest":
             raise VPermissionError(_("Authentication required for this endpoint"))
 
-        # Check required roles
+        # Primary authorization: Check role profile access
+        if self._validate_role_profile_access(profile.level, user):
+            return True
+
+        # Fallback authorization: Check hardcoded required roles (for backwards compatibility)
         if profile.required_roles:
             user_roles = frappe.get_roles(user)
-            if not any(role in user_roles for role in profile.required_roles):
-                raise VPermissionError(
-                    _("Access denied. Required roles: {0}").format(", ".join(profile.required_roles))
+            if any(role in user_roles for role in profile.required_roles):
+                frappe.logger("verenigingen.api_security").debug(
+                    f"Access granted via fallback hardcoded roles: {profile.required_roles}"
                 )
+                return True
 
-        return True
+        # Collect user info for error message
+        user_profiles = self._get_user_role_profiles(user)
+        user_roles = frappe.get_roles(user)
+
+        # Deny access with detailed error message
+        error_details = []
+        if user_profiles:
+            error_details.append(f"Role profiles: {', '.join(user_profiles)}")
+        if user_roles:
+            error_details.append(f"Individual roles: {', '.join(user_roles)}")
+
+        raise VPermissionError(
+            _("Access denied. Required security level: {0}. Your access: {1}").format(
+                profile.level.value, "; ".join(error_details) if error_details else "No roles assigned"
+            )
+        )
+
+        return False
 
     def validate_request_method(self, profile: SecurityProfile) -> bool:
         """Validate HTTP method is allowed"""
@@ -548,6 +710,68 @@ class APISecurityFramework:
                 validated.append(item)
         return validated
 
+    def _validate_self_service_access(self, **kwargs) -> bool:
+        """Validate that user can only access their own data in self-service operations"""
+        current_user = frappe.session.user
+
+        # Skip validation for system users
+        if current_user in ("Administrator", "Guest"):
+            return True
+
+        # Get user's member record
+        try:
+            user_member = frappe.db.get_value("Member", {"email": current_user}, "name")
+        except Exception:
+            user_member = None
+
+        # Check various patterns for member identification in kwargs
+        target_member = None
+        member_fields = ["member", "member_name", "member_id", "volunteer"]
+
+        for field in member_fields:
+            if field in kwargs and kwargs[field]:
+                if field == "volunteer":
+                    # For volunteer operations, get the linked member
+                    try:
+                        volunteer_doc = frappe.get_doc("Volunteer", kwargs[field])
+                        if hasattr(volunteer_doc, "member") and volunteer_doc.member:
+                            target_member = volunteer_doc.member
+                    except Exception:
+                        pass
+                else:
+                    target_member = kwargs[field]
+                break
+
+        # SECURITY FIX: Handle implicit self-service operations more carefully
+        if not target_member:
+            # For truly implicit self-service operations (like expense submission), validate carefully
+            if not user_member:
+                raise VPermissionError(
+                    _(
+                        "Access denied: No member record found for user. Self-service operations require valid member account."
+                    )
+                )
+
+            # Log this case for monitoring - implicit self-service should be rare
+            frappe.logger("verenigingen.api_security").info(
+                f"Implicit self-service operation detected for user {current_user}. "
+                f"Consider adding explicit member identification to API parameters for better security."
+            )
+
+            # Allow implicit self-service but only for users with valid member records
+            return True
+
+        # If we found a target member, validate access
+        if target_member and user_member:
+            if target_member != user_member:
+                raise VPermissionError(
+                    _("Access denied: You can only perform this operation on your own data")
+                )
+        elif target_member and not user_member:
+            raise VPermissionError(_("Access denied: Unable to verify member access for this user"))
+
+        return True
+
     def check_critical_operation_integration(self, func: Callable, **kwargs) -> dict:
         """
         Check if this API function should use critical operations framework
@@ -726,6 +950,7 @@ def api_security_framework(
     audit_level: str = "standard",
     custom_validators: List[Callable] = None,
     allowed_environments: List[EnvironmentLevel] = None,
+    self_service_only: bool = False,
 ):
     """
     Comprehensive API Security Decorator
@@ -787,6 +1012,10 @@ def api_security_framework(
                 # Rate limiting
                 operation_key = f"{func.__module__}.{func.__name__}"
                 framework.validate_rate_limits(profile, operation_key)
+
+                # Self-service validation (if enabled)
+                if self_service_only:
+                    framework._validate_self_service_access(**kwargs)
 
                 # Input validation
                 validated_kwargs = framework.validate_input_data(profile, operation_type, **kwargs)
@@ -933,17 +1162,25 @@ def api_security_framework(
 
 
 # Convenience decorators for common security patterns
-def critical_api(operation_type: OperationType = OperationType.FINANCIAL):
+def critical_api(operation_type: OperationType = OperationType.FINANCIAL, self_service_only: bool = False):
     """Decorator for critical security APIs (financial, admin)"""
     return api_security_framework(
-        security_level=SecurityLevel.CRITICAL, operation_type=operation_type, audit_level="detailed"
+        security_level=SecurityLevel.CRITICAL,
+        operation_type=operation_type,
+        audit_level="detailed",
+        self_service_only=self_service_only,
     )
 
 
-def high_security_api(operation_type: OperationType = OperationType.MEMBER_DATA):
+def high_security_api(
+    operation_type: OperationType = OperationType.MEMBER_DATA, self_service_only: bool = False
+):
     """Decorator for high security APIs (member data, batch operations)"""
     return api_security_framework(
-        security_level=SecurityLevel.HIGH, operation_type=operation_type, audit_level="standard"
+        security_level=SecurityLevel.HIGH,
+        operation_type=operation_type,
+        audit_level="standard",
+        self_service_only=self_service_only,
     )
 
 
@@ -1274,6 +1511,72 @@ def validate_deployment_environment():
         frappe.logger().error(f"Environment validation failed: {str(e)}")
         # Don't fail startup on validation error, but log it
         return {"detected_environment": "unknown", "validation_passed": False, "error": str(e)}
+
+
+@frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
+def get_user_security_profile_analysis(email=None):
+    """
+    Analyze user's security profile and access levels (admin/debugging utility)
+
+    Args:
+        email: User email to analyze (defaults to current user)
+
+    Returns:
+        Dict containing user's role profiles, security levels, and access analysis
+    """
+    # Require System Manager permission
+    if not frappe.has_permission("System Manager"):
+        frappe.throw(_("Only System Managers can access security profile analysis"), frappe.PermissionError)
+
+    try:
+        if not email:
+            email = frappe.session.user
+
+        framework = get_security_framework()
+
+        # Get user's role profiles
+        user_role_profiles = framework._get_user_role_profiles(email)
+        user_individual_roles = frappe.get_roles(email)
+
+        # Analyze security level access
+        security_level_access = {}
+        for level in SecurityLevel:
+            has_access = framework._validate_role_profile_access(level, email)
+            granting_profiles = []
+
+            for profile in user_role_profiles:
+                if framework._role_profile_grants_access(profile, level):
+                    granting_profiles.append(profile)
+
+            security_level_access[level.value] = {
+                "has_access": has_access,
+                "granting_profiles": granting_profiles,
+            }
+
+        # Operation type analysis
+        operation_type_access = {}
+        for op_type, security_level in framework.OPERATION_SECURITY_MAPPING.items():
+            has_access = framework._validate_role_profile_access(security_level, email)
+            operation_type_access[op_type.value] = {
+                "required_security_level": security_level.value,
+                "has_access": has_access,
+            }
+
+        return {
+            "success": True,
+            "user_email": email,
+            "role_profiles": user_role_profiles,
+            "individual_roles": user_individual_roles,
+            "security_level_access": security_level_access,
+            "operation_type_access": operation_type_access,
+            "role_profile_mappings": dict(framework.ROLE_PROFILE_SECURITY_MAPPING),
+            "analysis_timestamp": frappe.utils.now(),
+        }
+
+    except Exception as e:
+        log_error(e, module="verenigingen.utils.security.api_security_framework")
+        return {"success": False, "error": str(e)}
 
 
 def setup_api_security_framework():

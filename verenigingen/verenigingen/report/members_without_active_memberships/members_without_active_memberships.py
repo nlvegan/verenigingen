@@ -5,6 +5,8 @@ import frappe
 from frappe import _
 from frappe.utils import getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+
 
 def validate_doctype_fields(doctype, required_fields):
     """Validate that required fields exist in DocType for defensive programming"""
@@ -196,6 +198,7 @@ def get_data(filters):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_report_summary(filters=None):
     """Generate summary statistics for the report"""
     try:

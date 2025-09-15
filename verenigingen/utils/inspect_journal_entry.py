@@ -6,8 +6,11 @@ Inspect specific journal entry and related memorial booking
 import frappe
 from frappe.utils import flt
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def inspect_journal_entry(journal_entry_name):
     """Inspect specific journal entry details"""
 
@@ -37,6 +40,7 @@ def inspect_journal_entry(journal_entry_name):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_memorial_booking_logic():
     """Check memorial booking (type 7) import logic"""
 
@@ -96,6 +100,7 @@ def check_memorial_booking_logic():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def analyze_account_05320():
     """Analyze what happened with account 05320"""
 

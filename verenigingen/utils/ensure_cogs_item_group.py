@@ -4,8 +4,11 @@ Ensure Cost of Goods Sold Items group exists
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def ensure_cogs_item_group():
     """Ensure the Cost of Goods Sold Items group exists"""
 
@@ -28,6 +31,7 @@ def ensure_cogs_item_group():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def update_existing_inkoop_items():
     """Update existing items that should be categorized as COGS"""
 
@@ -76,6 +80,7 @@ def update_existing_inkoop_items():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_inkoop_accounts():
     """Check accounts that contain inkoop/materiaal keywords"""
 

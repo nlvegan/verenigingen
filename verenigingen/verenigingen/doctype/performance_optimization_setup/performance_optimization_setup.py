@@ -17,6 +17,8 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 class PerformanceOptimizationSetup(Document):
     def validate(self):
@@ -447,6 +449,7 @@ class PerformanceOptimizationSetup(Document):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def run_performance_optimization():
     """Run performance optimization setup - FIXED with proper error handling"""
 
@@ -487,6 +490,7 @@ def run_performance_optimization():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def get_optimization_status():
     """Get current optimization status for monitoring"""
 

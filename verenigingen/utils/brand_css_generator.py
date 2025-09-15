@@ -7,6 +7,12 @@ import os
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    development_only_api,
+    standard_api,
+)
+
 
 def generate_brand_css_file(doc=None, method=None):
     """Generate static brand CSS file when Brand Settings is saved"""
@@ -179,6 +185,7 @@ def create_fallback_css():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def regenerate_brand_css():
     """API endpoint to manually regenerate brand CSS"""
     try:
@@ -207,6 +214,7 @@ def regenerate_brand_css():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def check_brand_settings_and_generate():
     """Check Brand Settings and generate CSS file"""
     try:
@@ -257,6 +265,7 @@ except Exception:
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_member_user_link():
     """Debug Member-User link for troubleshooting"""
     member_name = "Assoc-Member-2025-07-0030"

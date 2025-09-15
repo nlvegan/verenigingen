@@ -4,8 +4,15 @@ Link E-Boekhouden Ledger Mappings to ERPNext Accounts
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    development_only_api,
+)
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def auto_link_ledgers_to_accounts():
     """Automatically link ledger mappings to ERPNext accounts based on code matching"""
 
@@ -73,6 +80,7 @@ def auto_link_ledgers_to_accounts():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_mapping_status():
     """Check the status of ledger to account mappings"""
 
@@ -140,6 +148,7 @@ def check_mapping_status():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_missing_accounts_from_ledgers():
     """Create ERPNext accounts for unlinked ledgers"""
 

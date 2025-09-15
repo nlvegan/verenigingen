@@ -1,5 +1,7 @@
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 class SmartTegenrekeningMapper:
     """Smart mapping system for E-Boekhouden tegenrekening codes to ERPNext items"""
@@ -367,6 +369,7 @@ def create_invoice_line_for_tegenrekening(
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_tegenrekening_mapping():
     """Test the smart tegenrekening mapping system"""
     try:

@@ -5,8 +5,11 @@ Test membership application with special characters
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_membership_application_special_characters():
     """Test membership application submission with special characters"""
 

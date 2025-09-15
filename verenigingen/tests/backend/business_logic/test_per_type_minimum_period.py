@@ -5,8 +5,11 @@ Test per-membership-type minimum period enforcement
 import frappe
 from frappe.utils import add_months, getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_per_type_minimum_period():
     """Test that minimum period enforcement works per membership type"""
 

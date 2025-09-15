@@ -26,6 +26,11 @@ import frappe
 from frappe.utils import now
 
 from verenigingen.utils.optimized_queries import QueryCache
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    development_only_api,
+    standard_api,
+)
 
 
 class CacheInvalidationManager:
@@ -446,6 +451,7 @@ def on_document_cancel(doc, method):
 
 # API endpoints for cache management
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_cache_status():
     """Get current cache status and invalidation statistics"""
 
@@ -467,6 +473,7 @@ def get_cache_status():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def manual_cache_invalidation(pattern: str = None, member_name: str = None):
     """Manual cache invalidation for testing and troubleshooting"""
 
@@ -500,6 +507,7 @@ def manual_cache_invalidation(pattern: str = None, member_name: str = None):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def warm_cache_manually(member_names: str = None):
     """Manual cache warming for testing"""
 

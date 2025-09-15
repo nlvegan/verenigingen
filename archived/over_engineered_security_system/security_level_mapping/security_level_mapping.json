@@ -1,0 +1,144 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:SLM-{security_level}-{operation_context}-{#####}",
+ "creation": "2025-09-15 09:55:00.000000",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "security_level",
+  "operation_context",
+  "role_profile",
+  "column_break_4",
+  "priority",
+  "effective_from",
+  "effective_to",
+  "section_break_8",
+  "description",
+  "business_justification",
+  "section_break_11",
+  "additional_conditions",
+  "context_validation_method"
+ ],
+ "fields": [
+  {
+   "fieldname": "security_level",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Security Level",
+   "options": "Critical\nHigh\nMedium\nLow\nPublic\nContextual",
+   "reqd": 1
+  },
+  {
+   "fieldname": "operation_context",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Operation Context",
+   "options": "financial\nmember_data\ngovernance\noperations\ncompliance\nself_service\nchapter_specific\nvolunteer_operations",
+   "reqd": 1
+  },
+  {
+   "fieldname": "role_profile",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Role Profile",
+   "options": "Role Profile",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "priority",
+   "fieldtype": "Int",
+   "default": 100,
+   "label": "Priority",
+   "description": "Higher number = higher priority for conflict resolution"
+  },
+  {
+   "fieldname": "effective_from",
+   "fieldtype": "Date",
+   "label": "Effective From",
+   "default": "Today"
+  },
+  {
+   "fieldname": "effective_to",
+   "fieldtype": "Date",
+   "label": "Effective To",
+   "description": "Leave blank for permanent rule"
+  },
+  {
+   "fieldname": "section_break_8",
+   "fieldtype": "Section Break",
+   "label": "Documentation"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text",
+   "label": "Description",
+   "description": "Explain when this mapping applies"
+  },
+  {
+   "fieldname": "business_justification",
+   "fieldtype": "Text",
+   "label": "Business Justification",
+   "description": "Why this role profile needs this access level"
+  },
+  {
+   "fieldname": "section_break_11",
+   "fieldtype": "Section Break",
+   "label": "Advanced Configuration"
+  },
+  {
+   "fieldname": "additional_conditions",
+   "fieldtype": "Code",
+   "label": "Additional Conditions",
+   "options": "Python",
+   "description": "Python code for custom validation (advanced users only)"
+  },
+  {
+   "fieldname": "context_validation_method",
+   "fieldtype": "Data",
+   "label": "Context Validation Method",
+   "description": "Name of Python method for context-specific validation"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-09-15 09:55:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Security Level Mapping",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1
+  }
+ ],
+ "sort_field": "priority",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

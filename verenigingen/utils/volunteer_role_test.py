@@ -5,10 +5,12 @@ Test utilities for volunteer role assignment
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator, QueryBuilder
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_volunteer_role_assignment():
     """Test that Volunteer role is automatically assigned when volunteer record is created"""
 
@@ -119,6 +121,7 @@ def test_volunteer_role_assignment():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_project_team_access():
     """Test project access through team membership"""
 

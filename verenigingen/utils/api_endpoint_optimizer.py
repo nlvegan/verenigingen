@@ -19,6 +19,7 @@ import frappe
 
 from verenigingen.utils.config_manager import ConfigManager
 from verenigingen.utils.error_handling import get_logger
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
 
 class APIEndpointOptimizer:
@@ -340,6 +341,7 @@ from verenigingen.utils.config_manager import ConfigManager
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_api_optimization(dry_run=True):
     """Run API endpoint optimization"""
     optimizer = APIEndpointOptimizer()
@@ -347,6 +349,7 @@ def run_api_optimization(dry_run=True):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def analyze_api_performance():
     """Analyze API endpoint performance"""
     optimizer = APIEndpointOptimizer()
@@ -354,6 +357,7 @@ def analyze_api_performance():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def generate_api_report():
     """Generate comprehensive API optimization report"""
     optimizer = APIEndpointOptimizer()

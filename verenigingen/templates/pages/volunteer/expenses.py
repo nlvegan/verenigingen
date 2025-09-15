@@ -471,7 +471,7 @@ def upload_expense_receipt():
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.FINANCIAL)
+@standard_api(operation_type=OperationType.REPORTING, self_service_only=True)
 def submit_expense(expense_data=None):
     """Submit a new expense from the portal"""
     try:

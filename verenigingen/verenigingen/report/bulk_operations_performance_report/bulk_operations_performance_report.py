@@ -14,6 +14,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, now_datetime
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+
 
 def execute(filters=None):
     """Generate bulk operations performance report."""
@@ -208,6 +210,7 @@ def get_chart_data(filters):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_performance_trends():
     """Get performance trends for dashboard widgets."""
 
@@ -236,6 +239,7 @@ def get_performance_trends():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_performance_alerts():
     """Check for performance issues and return alerts."""
 

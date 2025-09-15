@@ -31,8 +31,11 @@ from decimal import Decimal
 import frappe
 from frappe.utils import add_months, flt, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def create_emma_subscription_persona():
     """
     Create comprehensive test persona: Emma van Subscription
@@ -161,6 +164,7 @@ def create_emma_subscription_persona():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def create_subscription_for_emma(member_name=None):
     """
     Create real Mollie subscription for Emma
@@ -242,6 +246,7 @@ def create_subscription_for_emma(member_name=None):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def simulate_subscription_payment(member_name=None):
     """
     Simulate webhook payment for Emma's subscription
@@ -318,6 +323,7 @@ def simulate_subscription_payment(member_name=None):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_emma_payment_status(member_name=None):
     """Check Emma's payment and invoice status"""
     try:
@@ -376,6 +382,7 @@ def check_emma_payment_status(member_name=None):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def cleanup_emma_persona(member_name=None):
     """Clean up Emma's subscription and test data"""
     try:
