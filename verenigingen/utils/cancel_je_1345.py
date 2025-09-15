@@ -5,8 +5,11 @@ Cancel and delete Journal Entry ACC-JV-2025-72016 for re-import
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def cancel_and_delete_je_1345():
     """Cancel and delete Journal Entry ACC-JV-2025-72016"""
     try:

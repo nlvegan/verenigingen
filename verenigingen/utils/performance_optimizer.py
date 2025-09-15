@@ -23,6 +23,7 @@ from frappe.utils import add_to_date, cint, flt, get_datetime, now, now_datetime
 
 from verenigingen.utils.error_handling import get_logger
 from verenigingen.utils.performance_dashboard import _performance_metrics
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
 class PerformanceOptimizer:
@@ -1004,6 +1005,7 @@ class PerformanceOptimizer:
 
 # API endpoints for performance optimization
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.ADMIN)
 def run_performance_optimization():
     """API endpoint to run comprehensive performance optimization"""
     try:
@@ -1015,6 +1017,7 @@ def run_performance_optimization():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.ADMIN)
 def optimize_database_performance():
     """API endpoint for database-specific optimizations"""
     try:
@@ -1026,6 +1029,7 @@ def optimize_database_performance():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.ADMIN)
 def implement_caching_improvements():
     """API endpoint for caching optimizations"""
     try:
@@ -1037,6 +1041,7 @@ def implement_caching_improvements():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.ADMIN)
 def optimize_system_resources():
     """API endpoint for resource optimization"""
     try:
@@ -1048,6 +1053,7 @@ def optimize_system_resources():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_optimization_status():
     """API endpoint to get current optimization status"""
     try:

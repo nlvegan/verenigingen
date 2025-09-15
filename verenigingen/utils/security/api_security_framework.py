@@ -250,6 +250,15 @@ class APISecurityFramework:
             frappe.logger("verenigingen.api_security").info(f"API key detection error: {e}")
             return False
 
+    def _get_client_ip(self) -> str:
+        """Get client IP address, handling test environments gracefully"""
+        try:
+            if hasattr(frappe.local, "request") and frappe.local.request:
+                return frappe.local.request.environ.get("REMOTE_ADDR", "unknown")
+        except (AttributeError, RuntimeError):
+            pass
+        return "test_environment"
+
     def get_security_profile(self, level: SecurityLevel) -> SecurityProfile:
         """Get security profile for given level"""
         return self.SECURITY_PROFILES.get(level, self.SECURITY_PROFILES[SecurityLevel.MEDIUM])
@@ -556,6 +565,10 @@ class APISecurityFramework:
         if not profile.requires_csrf:
             return True
 
+        # Skip CSRF validation when there's no HTTP request context (migrations, background jobs)
+        if not hasattr(frappe, "request") or not frappe.request:
+            return True
+
         # Skip for GET requests
         if frappe.request and frappe.request.method == "GET":
             return True
@@ -566,6 +579,10 @@ class APISecurityFramework:
 
         # Skip for test environment detection
         if hasattr(frappe, "flags") and getattr(frappe.flags, "in_test", False):
+            return True
+
+        # Skip for migration context (when functions are called during migrations)
+        if hasattr(frappe, "flags") and getattr(frappe.flags, "in_migrate", False):
             return True
 
         # Skip CSRF validation for API key authentication
@@ -598,6 +615,15 @@ class APISecurityFramework:
         try:
             self.csrf_protection.validate_request()
             return True
+        except RuntimeError as e:
+            # Handle cases where request object is not bound (migration, background jobs)
+            if "object is not bound" in str(e):
+                frappe.logger("verenigingen.api_security").debug(
+                    f"CSRF validation skipped - no request context: {str(e)}"
+                )
+                return True
+            # Re-raise other runtime errors
+            raise VPermissionError(_("CSRF validation failed: {0}").format(str(e)))
         except Exception as e:
             # Log with more detail for debugging
             self._get_audit_logger().log_event(
@@ -830,7 +856,7 @@ class APISecurityFramework:
                     "user_member": user_member,
                     "violations": violations,
                     "function": getattr(frappe.local, "form_dict", {}).get("cmd", "unknown"),
-                    "ip_address": frappe.local.request.environ.get("REMOTE_ADDR", "unknown"),
+                    "ip_address": self._get_client_ip(),
                 },
             )
 

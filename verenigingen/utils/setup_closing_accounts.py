@@ -5,8 +5,11 @@ Setup accounts needed for Period Closing Vouchers
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.ADMIN)
 def setup_closing_accounts():
     """Setup required closing accounts if they don't exist"""
 
@@ -75,6 +78,7 @@ def setup_closing_accounts():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.ADMIN)
 def create_period_closing_vouchers_with_account_setup():
     """Setup accounts and create Period Closing Vouchers"""
 

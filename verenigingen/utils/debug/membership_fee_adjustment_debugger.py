@@ -13,8 +13,11 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, flt, getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_membership_fee_adjustment():
     """
     Whitelisted function to debug membership fee adjustment functionality
@@ -448,6 +451,7 @@ def generate_recommendations(test_results):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_api_directly(member_email=None, new_amount=35.00, reason="Direct API test"):
     """
     Test the API endpoints directly with specific parameters
@@ -499,6 +503,7 @@ def test_api_directly(member_email=None, new_amount=35.00, reason="Direct API te
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def get_debug_summary():
     """Get a quick summary for debugging purposes"""
     try:

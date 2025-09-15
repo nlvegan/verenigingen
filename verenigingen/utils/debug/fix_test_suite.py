@@ -1,7 +1,10 @@
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def identify_test_issues():
     """Identify common issues in test suite after template changes"""
 
@@ -59,6 +62,7 @@ def identify_test_issues():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def get_test_suite_status():
     """Get overall status of test suite compatibility"""
 

@@ -1,8 +1,11 @@
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_and_fix_member_ownership():
     """Check and fix member ownership issues"""
 

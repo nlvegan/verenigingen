@@ -2,8 +2,11 @@ import frappe
 from frappe import _
 from frappe.permissions import has_permission
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_specific_member_access():
     """Check why Foppe can access specific members"""
 

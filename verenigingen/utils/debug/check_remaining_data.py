@@ -5,8 +5,11 @@ Check what data remains after cleanup
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_remaining_data():
     """Check what financial data remains after cleanup"""
     try:
@@ -77,6 +80,7 @@ def check_remaining_data():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def nuclear_cleanup_remaining():
     """Nuclear cleanup of ALL remaining financial data"""
     try:

@@ -17,6 +17,8 @@ Author: Verenigingen Development Team
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+
 
 def get_bulk_queue_config():
     """
@@ -101,6 +103,7 @@ def configure_bulk_queue():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_queue_status():
     """
     Get current status of all Redis queues for monitoring.
@@ -169,6 +172,7 @@ def get_queue_status():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.ADMIN)
 def clear_stuck_jobs():
     """
     Clear jobs that have been running too long (admin function).

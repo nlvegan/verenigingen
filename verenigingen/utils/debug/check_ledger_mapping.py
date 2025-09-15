@@ -5,8 +5,11 @@ Check specific ledger mapping for debugging
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_ledger_mapping_16167827():
     """Check if mapping exists for main ledger 16167827"""
     try:
@@ -34,6 +37,7 @@ def check_ledger_mapping_16167827():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def trace_balancing_logic_issue():
     """Trace why balancing logic didn't use the main ledger for mutation 1345"""
     try:

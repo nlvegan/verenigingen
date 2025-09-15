@@ -15,8 +15,11 @@ from datetime import datetime, timedelta
 import frappe
 from frappe.utils import add_days, date_diff, flt, getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_full_debug():
     """Run comprehensive debugging of the coverage analysis system"""
 
@@ -455,6 +458,7 @@ def generate_solution_recommendations():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def quick_coverage_test(member_name=None):
     """Quick test of coverage analysis for a specific member"""
 
@@ -539,6 +543,7 @@ def quick_coverage_test(member_name=None):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def create_coverage_fields():
     """Create the missing custom coverage fields in Sales Invoice"""
 
@@ -604,6 +609,7 @@ def create_coverage_fields():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def populate_coverage_dates():
     """Populate coverage dates for existing invoices based on membership dues schedule"""
 

@@ -30,6 +30,8 @@ from typing import Any, Dict, List, Tuple
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+
 
 class SecurityValidationError(Exception):
     """Custom exception for security validation failures"""
@@ -397,6 +399,7 @@ def test_privilege_escalation_scenarios():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.ADMIN)
 def run_complete_security_validation():
     """
     Run complete security validation suite
@@ -463,6 +466,7 @@ def run_complete_security_validation():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def generate_security_report():
     """
     Generate detailed security report for the permission system

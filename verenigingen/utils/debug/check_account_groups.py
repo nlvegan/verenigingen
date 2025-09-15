@@ -4,8 +4,11 @@ Check and fix account group mappings
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def get_account_group_mappings():
     """Get the configured account group mappings from settings"""
 
@@ -70,6 +73,7 @@ def get_account_group_mappings():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def create_missing_account_groups():
     """Create missing account groups based on E-Boekhouden structure"""
 
@@ -121,6 +125,7 @@ def create_missing_account_groups():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def get_complete_account_structure():
     """Get complete account structure for analysis"""
 
@@ -229,6 +234,7 @@ def get_complete_account_structure():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def fix_account_parents():
     """Fix parent accounts based on account number ranges"""
 

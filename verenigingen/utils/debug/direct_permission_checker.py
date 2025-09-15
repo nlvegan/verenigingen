@@ -2,9 +2,11 @@ import frappe
 from frappe import _
 
 from verenigingen.permissions import has_member_permission
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_direct_permission_check(user_email=None, member_names=None):
     """Test the permission function directly for any user and members
 
@@ -87,6 +89,7 @@ def test_direct_permission_check(user_email=None, member_names=None):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_user_permissions_summary(user_email=None):
     """Get a summary of what a user can access
 

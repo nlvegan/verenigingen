@@ -1,8 +1,11 @@
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_member_list_permissions():
     """Test what members Foppe can see in a list view"""
 

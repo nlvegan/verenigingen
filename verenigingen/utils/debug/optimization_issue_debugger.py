@@ -1,7 +1,10 @@
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_optimization_issues():
     """Debug why the optimization is performing poorly"""
 
@@ -118,6 +121,7 @@ def debug_optimization_issues():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_direct_query_performance():
     """Test direct SQL query performance vs the optimized matcher"""
 

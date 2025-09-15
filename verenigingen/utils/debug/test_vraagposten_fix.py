@@ -5,8 +5,11 @@ Test the Vraagposten fix to see what accounts will be used
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_party_account_fix():
     """Test the new get_party_account function"""
 

@@ -1,7 +1,10 @@
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def fix_orphaned_dues_schedules():
     """Fix existing dues schedules that have null membership fields"""
 
@@ -85,6 +88,7 @@ def fix_orphaned_dues_schedules():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_orphaned_dues_schedules():
     """Check how many dues schedules have null membership fields (preview only)"""
 

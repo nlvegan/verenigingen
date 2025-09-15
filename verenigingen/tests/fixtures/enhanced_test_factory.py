@@ -339,7 +339,50 @@ class EnhancedTestDataFactory:
         # Use 90000000-99999999 range for test numbers
         test_number = 90000000 + seq
         return f"+31 6 {test_number}"
-            
+
+    def _generate_unique_test_member_id(self) -> str:
+        """Generate unique member ID for test members to avoid database conflicts"""
+        # Use a test-specific prefix to distinguish from production member IDs
+        # Format: TEST followed by timestamp and sequence to ensure uniqueness
+        seq = self.get_next_sequence('member_id')
+        timestamp = int(datetime.now().timestamp() * 1000) % 100000  # Last 5 digits for brevity
+        return f"TEST{timestamp:05d}{seq:03d}"
+
+    def ensure_test_user_has_role(self, role_name):
+        """Ensure the current test user has the required role for document operations"""
+        current_user = frappe.session.user
+
+        # Skip for Administrator (has all permissions)
+        if current_user == "Administrator":
+            return
+
+        # Check if user already has the role
+        existing_roles = frappe.get_roles(current_user)
+        if role_name in existing_roles:
+            return
+
+        # Use Frappe's proper API to add role to user
+        try:
+            user_doc = frappe.get_doc("User", current_user)
+            # Add role if not already present
+            if not any(role.role == role_name for role in user_doc.roles):
+                user_doc.append("roles", {"role": role_name})
+                user_doc.save(ignore_permissions=True)
+
+                # Clear role cache so the change takes effect immediately
+                frappe.cache().delete_value("roles:" + current_user)
+
+                # Force reload of user permissions
+                frappe.clear_cache(user=current_user)
+
+                # Ensure permission context is refreshed
+                if hasattr(frappe.local, 'login_manager'):
+                    frappe.local.login_manager.user = current_user
+        except Exception as e:
+            # Fallback: Skip role assignment error during tests to avoid blocking
+            frappe.logger().info(f"Role assignment skipped in test environment: {e}")
+            pass
+
     def validate_field_exists(self, doctype: str, fieldname: str) -> bool:
         """Validate that field exists in doctype schema"""
         return self.field_validator.validate_field_exists(doctype, fieldname)
@@ -413,7 +456,8 @@ class EnhancedTestDataFactory:
             "email": self.generate_test_email("member"),
             "birth_date": add_days(getdate(), -random.randint(6570, 25550)),  # 18-70 years old (validated via AgeValidator)
             "status": "Active",
-            "contact_number": self.generate_test_phone()
+            "contact_number": self.generate_test_phone(),
+            "member_id": self._generate_unique_test_member_id()  # Ensure unique member ID for tests
         }
         
         # Merge with provided kwargs
@@ -565,7 +609,8 @@ class EnhancedTestDataFactory:
                 **data
             })
             
-            volunteer.insert()
+            # Use ignore_permissions for test environment to avoid complex role timing issues
+            volunteer.insert(ignore_permissions=True)
             self.track_document("Volunteer", volunteer.name)
             return volunteer
         except Exception as e:
@@ -1742,15 +1787,26 @@ class EnhancedTestCase(FrappeTestCase):
         if role_name in existing_roles:
             return
             
-        # Add the role to the user for this test session using proper approach
-        frappe.db.sql("""
-            INSERT INTO `tabHas Role` (parent, parenttype, role)
-            VALUES (%s, 'User', %s)
-            ON DUPLICATE KEY UPDATE role = VALUES(role)
-        """, (current_user, role_name))
-        
+        # Add the role to the user for this test session using Frappe API
+        try:
+            user_doc = frappe.get_doc("User", current_user)
+            if not any(role.role == role_name for role in user_doc.roles):
+                user_doc.append("roles", {"role": role_name})
+                user_doc.save(ignore_permissions=True)
+        except frappe.DoesNotExistError:
+            # User doesn't exist yet, skip role assignment for now
+            # This can happen when tests call setUp before creating test users
+            return
+
         # Clear role cache so the change takes effect immediately
         frappe.cache().delete_value("roles:" + current_user)
+
+        # Force reload of user permissions
+        frappe.clear_cache(user=current_user)
+
+        # Ensure permission context is refreshed
+        if hasattr(frappe.local, 'login_manager'):
+            frappe.local.login_manager.user = current_user
         
     def _load_essential_fixtures(self):
         """

@@ -5,8 +5,11 @@ Fix orphaned GL entries from deleted Journal Entries
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def fix_orphaned_gl_entries():
     """Find and fix orphaned GL entries"""
 
@@ -95,6 +98,7 @@ def fix_orphaned_gl_entries():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def cancel_orphaned_gl_entries(voucher_no):
     """Cancel orphaned GL entries for a specific voucher"""
 
@@ -136,6 +140,7 @@ def cancel_orphaned_gl_entries(voucher_no):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def verify_fix():
     """Verify the fix worked"""
 

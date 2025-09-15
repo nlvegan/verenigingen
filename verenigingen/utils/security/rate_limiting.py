@@ -17,11 +17,7 @@ from frappe import _
 from frappe.utils import cstr
 
 from verenigingen.utils.error_handling import SEPAError, log_error
-from verenigingen.utils.security.api_security_framework import (
-    OperationType,
-    development_only_api,
-    standard_api,
-)
+from verenigingen.utils.security.types import OperationType
 
 
 class RateLimitExceeded(SEPAError):
@@ -421,8 +417,8 @@ def rate_limit_sepa_analytics(func):
 
 # API endpoints for rate limit management
 @frappe.whitelist(allow_guest=False)
-@standard_api(operation_type=OperationType.UTILITY)
 def get_rate_limit_status(operation: str = None):
+    # Utility operation: Rate limit status retrieval
     """
     Get current rate limit status for user
 
@@ -482,8 +478,8 @@ def get_rate_limit_status(operation: str = None):
 
 
 @frappe.whitelist()
-@development_only_api(operation_type=OperationType.UTILITY)
 def clear_rate_limits(operation: str = None, user: str = None):
+    # Development-only utility operation: Clear rate limits
     """
     Clear rate limits (admin only)
 
@@ -494,6 +490,10 @@ def clear_rate_limits(operation: str = None, user: str = None):
     Returns:
         Dictionary with result
     """
+    # Development-only check
+    if not frappe.conf.developer_mode:
+        frappe.throw(_("Rate limit clearing is only available in developer mode"), frappe.PermissionError)
+
     # Require admin permission
     if not frappe.has_permission("System Manager"):
         frappe.throw(_("Only System Managers can clear rate limits"), frappe.PermissionError)

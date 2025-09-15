@@ -16,6 +16,7 @@ from frappe.utils import get_datetime, now_datetime
 
 from verenigingen.utils.config_manager import ConfigManager
 from verenigingen.utils.error_handling import get_logger
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
 class QueryAnalyzer:
@@ -578,6 +579,7 @@ class QueryAnalyzer:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.ADMIN)
 def analyze_database_performance(hours=24):
     """Analyze database performance and return optimization recommendations"""
 
@@ -586,6 +588,7 @@ def analyze_database_performance(hours=24):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.ADMIN)
 def get_index_recommendations(table_name=None):
     """Get index recommendations for tables"""
 
@@ -612,6 +615,7 @@ def get_index_recommendations(table_name=None):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.ADMIN)
 def analyze_specific_query(query):
     """Analyze execution plan for a specific query"""
 
@@ -623,6 +627,7 @@ def analyze_specific_query(query):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_table_statistics():
     """Get statistics for all tables in the database"""
 

@@ -3,8 +3,11 @@ import re
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def identify_fuzzy_logic_patterns():
     """Identify cases of fuzzy logic similar to the template lookup issue"""
 
@@ -128,6 +131,7 @@ def identify_fuzzy_logic_patterns():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def identify_specific_fuzzy_cases():
     """Identify specific fuzzy logic cases that might cause issues like the template problem"""
 

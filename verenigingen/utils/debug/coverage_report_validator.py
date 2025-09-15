@@ -9,8 +9,11 @@ Usage:
 import frappe
 from frappe.utils import add_days, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def quick_report_test():
     """Quick test to show the report works"""
 
@@ -46,6 +49,7 @@ The report is working correctly!
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def show_sample_data():
     """Show sample data from the report to demonstrate it's working"""
 

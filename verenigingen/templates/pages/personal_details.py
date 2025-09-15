@@ -66,15 +66,13 @@ def update_personal_details():
 
     # Immediate validation: Check for parameter tampering
     if form_data.get("member") and form_data.get("member") != member_name:
-        from vereinigingen.utils.security.audit_logging import AuditLogger
-
+        from verenigingen.utils.security.audit_logging import log_security_event
         from verenigingen.utils.security.types import AuditEventType, AuditSeverity
 
         # Log parameter tampering attempt
-        audit_logger = AuditLogger()
-        audit_logger.log_security_event(
-            event_type=AuditEventType.PARAMETER_TAMPERING,
-            severity=AuditSeverity.ERROR,
+        log_security_event(
+            event_type=AuditEventType.PARAMETER_TAMPERING.value,
+            severity=AuditSeverity.ERROR.value,
             details={
                 "submitted_member": form_data.get("member"),
                 "actual_member": member_name,

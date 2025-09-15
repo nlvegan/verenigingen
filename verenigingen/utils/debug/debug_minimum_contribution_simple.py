@@ -1,7 +1,10 @@
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_minimum_contribution_simple():
     """Simple debug for minimum contribution issue"""
 
@@ -45,6 +48,7 @@ def debug_minimum_contribution_simple():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_daily_access_membership_type():
     """Check Daily Access membership type settings"""
 

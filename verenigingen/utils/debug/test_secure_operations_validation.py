@@ -9,8 +9,11 @@ to verify that QCE security issues have been properly addressed.
 import frappe
 from frappe.utils import now_datetime
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_permission_validation_logic():
     """
     Test the permission validation logic in secure operations
@@ -84,6 +87,7 @@ def test_permission_validation_logic():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_secure_document_operation_pattern():
     """
     Test the secure document operation pattern implementation
@@ -167,6 +171,7 @@ def test_secure_document_operation_pattern():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def analyze_member_doctype_security_improvements():
     """
     Analyze the Member DocType methods for security improvements

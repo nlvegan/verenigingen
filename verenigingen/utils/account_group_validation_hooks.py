@@ -7,6 +7,7 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.account_group_project_framework import account_group_framework
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
 def validate_journal_entry(doc, method):
@@ -117,6 +118,7 @@ def get_account_group_for_account(account):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_account_group_info_for_account(account):
     """Get account group info for frontend use"""
     account_group = get_account_group_for_account(account)
@@ -140,6 +142,7 @@ def get_account_group_info_for_account(account):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_filtered_projects_for_account(account):
     """Get filtered projects for an account based on account group mapping"""
     account_group = get_account_group_for_account(account)
@@ -150,6 +153,7 @@ def get_filtered_projects_for_account(account):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_filtered_cost_centers_for_account(account):
     """Get filtered cost centers for an account based on account group mapping"""
     account_group = get_account_group_for_account(account)
@@ -180,6 +184,7 @@ def setup_validation_hooks():
 
 # Client-side integration functions
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_account_defaults_for_form(account):
     """Get account defaults for form auto-population"""
     info = get_account_group_info_for_account(account)
@@ -197,6 +202,7 @@ def get_account_defaults_for_form(account):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def validate_form_selection(account, project=None, cost_center=None):
     """Validate form selection before save"""
     account_group = get_account_group_for_account(account)

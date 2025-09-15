@@ -9,6 +9,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, now
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+
 
 def process_payment_for_donor_creation(doc, method=None):
     """
@@ -281,6 +283,7 @@ def create_donor_from_customer(customer_doc, donation_amount, reference_doc):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_auto_creation_settings():
     """
     Get current auto-creation settings for display
@@ -299,6 +302,7 @@ def get_auto_creation_settings():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_auto_creation_stats():
     """
     Get statistics on auto-created donors
@@ -352,6 +356,7 @@ def get_auto_creation_stats():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def test_auto_creation_conditions(customer_name, amount):
     """
     Test if auto-creation conditions would be met for a given customer and amount

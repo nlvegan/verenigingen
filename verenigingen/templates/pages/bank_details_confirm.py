@@ -43,6 +43,18 @@ def get_context(context):
         frappe.local.response["location"] = "/bank_details"
         return
 
+    # Handle both dict and JSON string session data formats
+    if isinstance(update_data, str):
+        import json
+
+        try:
+            update_data = json.loads(update_data)
+        except json.JSONDecodeError:
+            frappe.logger().error("Bank details confirm - Invalid JSON in session data")
+            frappe.local.response["type"] = "redirect"
+            frappe.local.response["location"] = "/bank_details"
+            return
+
     context.no_cache = 1
     context.show_sidebar = True
     context.title = _("Confirm Bank Details Update")
@@ -70,6 +82,7 @@ def has_website_permission(doc, ptype, user, verbose=False):
 
 
 @frappe.whitelist(allow_guest=False, methods=["POST"])
+@critical_api(operation_type=OperationType.FINANCIAL)
 def process_bank_details_update():
     """Process the confirmed bank details update"""
 
@@ -83,16 +96,24 @@ def process_bank_details_update():
     if not update_data:
         frappe.throw(_("No pending update found"), frappe.ValidationError)
 
+    # Handle both dict and JSON string session data formats
+    if isinstance(update_data, str):
+        import json
+
+        try:
+            update_data = json.loads(update_data)
+        except json.JSONDecodeError:
+            frappe.throw(_("Invalid session data format"), frappe.ValidationError)
+
     # Immediate validation: Check for parameter tampering in session data
     if update_data.get("member_name") and update_data.get("member_name") != member_name:
-        from verenigingen.utils.security.audit_logging import AuditLogger
+        from verenigingen.utils.security.audit_logging import log_security_event
         from verenigingen.utils.security.types import AuditEventType, AuditSeverity
 
         # Log parameter tampering attempt
-        audit_logger = AuditLogger()
-        audit_logger.log_security_event(
-            event_type=AuditEventType.PARAMETER_TAMPERING,
-            severity=AuditSeverity.ERROR,
+        log_security_event(
+            event_type=AuditEventType.PARAMETER_TAMPERING.value,
+            severity=AuditSeverity.ERROR.value,
             details={
                 "submitted_member": update_data.get("member_name"),
                 "actual_member": member_name,

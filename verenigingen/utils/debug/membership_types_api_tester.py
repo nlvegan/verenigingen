@@ -6,8 +6,11 @@ Tests the membership types API functionality for debugging and validation.
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_membership_types_api(test_user_email=None):
     """Test the get_available_membership_types API to check fee information
 
@@ -63,6 +66,7 @@ def test_membership_types_api(test_user_email=None):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_api_for_multiple_users(user_emails=None):
     """Test the membership types API for multiple users
 

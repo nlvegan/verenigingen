@@ -5,8 +5,11 @@ Find account 9999 wherever it might be
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def find_9999_account():
     """Find account 9999 in any form"""
 
@@ -45,6 +48,7 @@ def find_9999_account():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def fix_9999_under_assets():
     """Fix account 9999 if it's under Assets"""
 
