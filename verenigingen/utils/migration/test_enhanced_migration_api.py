@@ -9,8 +9,11 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_migration_test():
     """Run a comprehensive test of the enhanced migration system"""
     results = {"tests": [], "summary": {"passed": 0, "failed": 0, "warnings": 0}}
@@ -180,6 +183,7 @@ def run_migration_test():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_soap_api_connection():
     """Test the SOAP API connection"""
     try:
@@ -208,6 +212,7 @@ def test_soap_api_connection():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def ensure_payment_mapping_doctype():
     """Ensure the E-Boekhouden Payment Mapping DocType exists"""
     try:
@@ -223,6 +228,7 @@ def ensure_payment_mapping_doctype():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def create_test_payment_mappings():
     """Create test payment account mappings"""
     try:

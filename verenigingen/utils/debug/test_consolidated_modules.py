@@ -5,8 +5,11 @@ Test consolidated E-Boekhouden modules
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_consolidated_modules():
     """Test the consolidated E-Boekhouden modules"""
 

@@ -10,6 +10,8 @@ import json
 import frappe
 from frappe.utils import add_to_date, now
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+
 
 class ResourceMonitor:
     """Monitor system resources and performance"""
@@ -536,6 +538,7 @@ class ResourceMonitor:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_system_health():
     """Get overall system health status"""
     try:
@@ -563,6 +566,7 @@ def get_system_health():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_performance_report():
     """Get comprehensive performance report"""
     try:

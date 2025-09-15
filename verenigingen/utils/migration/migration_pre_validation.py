@@ -12,6 +12,8 @@ from decimal import Decimal
 import frappe
 from frappe.utils import flt, getdate, validate_email_address
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 class PreImportValidator:
     """Comprehensive pre-import validation"""
@@ -657,6 +659,7 @@ class JournalEntryValidator(BaseValidator):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def validate_migration_data(migration_name, sample_size=None):
     """Run pre-import validation on migration data"""
     # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)

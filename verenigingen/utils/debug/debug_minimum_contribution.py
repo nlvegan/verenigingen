@@ -1,7 +1,10 @@
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def debug_minimum_contribution_issue():
     """Debug the minimum contribution requirement discrepancy"""
 
@@ -62,6 +65,7 @@ def debug_minimum_contribution_issue():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_contribution_validation_rules():
     """Check where the 5€ minimum might be coming from"""
 

@@ -5,8 +5,11 @@ Simple robust cleanup function to completely clean up all imported eBoekhouden d
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def simple_robust_cleanup(company=None):
     """Simple robust function to completely clean up all imported data"""
     try:

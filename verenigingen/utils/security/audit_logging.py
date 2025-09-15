@@ -8,7 +8,6 @@ monitoring for all SEPA operations with configurable retention and alerting.
 import json
 import time
 from datetime import datetime, timedelta
-from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
 import frappe
@@ -16,6 +15,16 @@ from frappe import _
 from frappe.utils import add_days, now, today
 
 from verenigingen.utils.error_handling import log_error
+from verenigingen.utils.security.types import AuditEventType, AuditSeverity, OperationType
+
+
+# Simple development-only decorator to avoid circular dependency
+def _development_only(func):
+    """Simple development-only wrapper for audit API endpoints"""
+    if hasattr(func, "__name__"):
+        func._is_development_only = True
+    return func
+
 
 # Export all public functions for proper module interface
 __all__ = [
@@ -34,61 +43,6 @@ __all__ = [
     "weekly_security_health_check",
     "setup_audit_logging",
 ]
-
-
-class AuditEventType(Enum):
-    """Audit event types for categorization"""
-
-    # SEPA Operations (stored in SEPA Audit Log)
-    SEPA_BATCH_CREATED = "sepa_batch_created"
-    SEPA_BATCH_VALIDATED = "sepa_batch_validated"
-    SEPA_BATCH_PROCESSED = "sepa_batch_processed"
-    SEPA_BATCH_CANCELLED = "sepa_batch_cancelled"
-    SEPA_XML_GENERATED = "sepa_xml_generated"
-    SEPA_INVOICE_LOADED = "sepa_invoice_loaded"
-    SEPA_MANDATE_VALIDATED = "sepa_mandate_validated"
-
-    # Additional SEPA process types to match SEPA Audit Log options
-    MANDATE_CREATION = "mandate_creation"
-    BATCH_GENERATION = "batch_generation"
-    BANK_SUBMISSION = "bank_submission"
-    PAYMENT_PROCESSING = "payment_processing"
-
-    # API and Security Events (stored in API Audit Log)
-    API_CALL_SUCCESS = "api_call_success"
-    API_CALL_FAILED = "api_call_failed"
-    CSRF_VALIDATION_SUCCESS = "csrf_validation_success"
-    CSRF_VALIDATION_FAILED = "csrf_validation_failed"
-    RATE_LIMIT_EXCEEDED = "rate_limit_exceeded"
-    UNAUTHORIZED_ACCESS_ATTEMPT = "unauthorized_access_attempt"
-    PERMISSION_DENIED = "permission_denied"
-    SUSPICIOUS_ACTIVITY = "suspicious_activity"
-
-    # Authentication Events (stored in API Audit Log)
-    USER_LOGIN = "user_login"
-    USER_LOGOUT = "user_logout"
-    SESSION_EXPIRED = "session_expired"
-    FAILED_LOGIN_ATTEMPT = "failed_login_attempt"
-
-    # Data Events (stored in API Audit Log)
-    SENSITIVE_DATA_ACCESS = "sensitive_data_access"
-    DATA_EXPORT = "data_export"
-    DATA_IMPORT = "data_import"
-    DATA_MODIFICATION = "data_modification"
-
-    # System Events (stored in API Audit Log)
-    CONFIGURATION_CHANGE = "configuration_change"
-    SYSTEM_ERROR = "system_error"
-    PERFORMANCE_ALERT = "performance_alert"
-
-
-class AuditSeverity(Enum):
-    """Audit event severity levels"""
-
-    INFO = "info"
-    WARNING = "warning"
-    ERROR = "error"
-    CRITICAL = "critical"
 
 
 class SEPAAuditLogger:
@@ -896,6 +850,7 @@ def audit_log(event_type: str, severity: str = "info", capture_args: bool = Fals
 
 # API endpoints for audit log management
 @frappe.whitelist()
+@_development_only
 def search_audit_logs(**filters):
     """
     API endpoint to search audit logs
@@ -920,6 +875,7 @@ def search_audit_logs(**filters):
 
 
 @frappe.whitelist()
+@_development_only
 def get_audit_statistics(days: int = 7):
     """
     Get audit log statistics from both SEPA and API audit tables

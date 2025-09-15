@@ -5,8 +5,15 @@ Create required custom fields for eBoekhouden migration
 import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    development_only_api,
+)
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def create_eboekhouden_migration_fields():
     """Create custom fields required for eBoekhouden migration"""
 
@@ -71,6 +78,7 @@ def create_eboekhouden_migration_fields():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_migration_fields():
     """Check if migration fields exist"""
 

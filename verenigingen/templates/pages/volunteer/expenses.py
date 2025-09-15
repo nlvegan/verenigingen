@@ -4,7 +4,8 @@ from frappe.utils import flt, formatdate, today
 
 from verenigingen.utils.member_utils import get_current_user_member_name, get_volunteer_for_current_user
 from verenigingen.utils.secure_operations import secure_document_operation
-from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.utils.security.api_security_framework import high_security_api, standard_api
+from verenigingen.utils.security.types import OperationType
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 from verenigingen.utils.volunteer_expense_setup import (
     create_default_cost_center,
@@ -512,6 +513,28 @@ def submit_expense(expense_data=None):
                 ).format(user_email)
 
             frappe.throw(error_msg)
+
+        # Immediate validation: Check if expense data contains correct volunteer reference
+        if expense_data.get("volunteer") and expense_data.get("volunteer") != volunteer_name:
+            from verenigingen.utils.security.audit_logging import AuditLogger
+            from verenigingen.utils.security.types import AuditEventType, AuditSeverity
+
+            # Log parameter tampering attempt
+            audit_logger = AuditLogger()
+            audit_logger.log_security_event(
+                event_type=AuditEventType.PARAMETER_TAMPERING,
+                severity=AuditSeverity.ERROR,
+                details={
+                    "submitted_volunteer": expense_data.get("volunteer"),
+                    "actual_volunteer": volunteer_name,
+                    "endpoint": "submit_expense",
+                    "user": frappe.session.user,
+                },
+            )
+
+            frappe.throw(
+                _("Security violation: volunteer parameter tampering detected"), frappe.PermissionError
+            )
 
         # Validate required fields
         required_fields = ["description", "amount", "expense_date", "organization_type", "category"]

@@ -7,6 +7,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, format_date, getdate
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+
 
 def send_donation_confirmation(donation_id):
     """Send donation confirmation email to donor"""
@@ -90,7 +92,7 @@ def send_payment_confirmation(donation_id):
         context.update(
             {
                 "payment_date": format_date(donation.modified),
-                "payment_method": donation.payment_method,
+                "payment_method": getattr(donation, "payment_method", donation.mode_of_payment),
                 "payment_reference": donation.payment_id or donation.name,
             }
         )
@@ -109,7 +111,7 @@ def send_payment_confirmation(donation_id):
         )
 
         # Send ANBI receipt if applicable
-        if donation.belastingdienst_reportable and donation.anbi_agreement_number:
+        if getattr(donation, "belastingdienst_reportable", False) and donation.anbi_agreement_number:
             send_anbi_receipt(donation_id)
 
         donation.add_comment("Email", "Payment confirmation sent to {donor_email}")
@@ -128,7 +130,7 @@ def send_anbi_receipt(donation_id):
         donor = frappe.get_doc("Donor", donation.donor)
 
         # Only send for ANBI-eligible donations
-        if not donation.belastingdienst_reportable or not donation.anbi_agreement_number:
+        if not getattr(donation, "belastingdienst_reportable", False) or not donation.anbi_agreement_number:
             return False
 
         donor_email = getattr(donor, "donor_email", "") or getattr(donor, "email", "")
@@ -167,7 +169,10 @@ def send_anbi_receipt(donation_id):
             send_priority=1,
         )
 
-        donation.add_comment("Email", f"ANBI receipt sent to {donor.donor_email or donor.email}")
+        donation.add_comment(
+            "Email",
+            f"ANBI receipt sent to {getattr(donor, 'donor_email', '') or getattr(donor, 'email', '')}",
+        )
 
         return True
 
@@ -189,8 +194,8 @@ def get_email_context(donation, donor):
         if donation.donation_purpose_type == "Chapter" and donation.chapter_reference:
             chapter_name = frappe.db.get_value("Chapter", donation.chapter_reference, "name")
             earmarking = f"Chapter: {chapter_name}"
-        elif donation.donation_purpose_type == "Campaign" and donation.campaign_reference:
-            earmarking = f"Campaign: {donation.campaign_reference}"
+        elif donation.donation_purpose_type == "Campaign" and getattr(donation, "campaign_reference", None):
+            earmarking = f"Campaign: {getattr(donation, 'campaign_reference', '')}"
         elif donation.donation_purpose_type == "Specific Goal" and donation.specific_goal_description:
             earmarking = f"Specific Goal: {donation.specific_goal_description[:50]}"
 
@@ -198,8 +203,8 @@ def get_email_context(donation, donor):
         # Donation details
         "donation_id": donation.name,
         "donation_amount": flt(donation.amount),
-        "donation_date": format_date(donation.date),
-        "donation_type": donation.donation_type,
+        "donation_date": format_date(donation.donation_date),
+        "donation_type": getattr(donation, "donation_type", "One-time"),
         "donation_status": donation.status,
         "earmarking": earmarking,
         "donation_notes": donation.donation_notes or "",
@@ -439,6 +444,7 @@ def donation_payment_received(doc, method):
 
 # Utility functions
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def resend_donation_confirmation(donation_id):
     """Manually resend donation confirmation email"""
     if not frappe.has_permission("Donation", "read", donation_id):
@@ -453,6 +459,7 @@ def resend_donation_confirmation(donation_id):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def resend_payment_confirmation(donation_id):
     """Manually resend payment confirmation email"""
     if not frappe.has_permission("Donation", "write", donation_id):
@@ -467,6 +474,7 @@ def resend_payment_confirmation(donation_id):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def send_anbi_receipt_manual(donation_id):
     """Manually send ANBI receipt"""
     if not frappe.has_permission("Donation", "write", donation_id):

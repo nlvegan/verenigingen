@@ -13,6 +13,8 @@ from difflib import SequenceMatcher
 import frappe
 from frappe.utils import flt, getdate
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 class DuplicateDetector:
     """Advanced duplicate detection with multiple strategies"""
@@ -424,6 +426,7 @@ class DuplicateMerger:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def detect_migration_duplicates(doctype, filters=None):
     """Detect all duplicates for a doctype"""
     detector = DuplicateDetector()
@@ -463,6 +466,7 @@ def detect_migration_duplicates(doctype, filters=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def merge_duplicate_group(doctype, primary, duplicates):
     """Merge a group of duplicates"""
     merger = DuplicateMerger()

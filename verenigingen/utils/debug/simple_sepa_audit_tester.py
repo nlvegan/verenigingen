@@ -9,8 +9,11 @@ import json
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_sepa_audit_creation(process_type=None, action=None, test_details=None):
     """Test SEPA audit log creation with configurable parameters
 
@@ -42,8 +45,8 @@ def test_sepa_audit_creation(process_type=None, action=None, test_details=None):
             }
         )
 
-        # Insert the document
-        doc.insert(ignore_permissions=True)
+        # Insert the document with proper permission context
+        doc.insert()
 
         return {
             "status": "success",
@@ -58,6 +61,7 @@ def test_sepa_audit_creation(process_type=None, action=None, test_details=None):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_sepa_audit_table():
     """Check if SEPA Audit Log table exists and get its structure"""
     try:
@@ -92,6 +96,7 @@ def check_sepa_audit_table():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def validate_sepa_audit_functionality():
     """Run comprehensive validation of SEPA audit log functionality"""
     results = {"timestamp": frappe.utils.now(), "tests": {}}
@@ -137,12 +142,14 @@ def validate_sepa_audit_functionality():
 
 # Legacy function name for backward compatibility
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def simple_audit_test():
     """Legacy function - use test_sepa_audit_creation instead"""
     return test_sepa_audit_creation()
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_table_exists():
     """Legacy function - use check_sepa_audit_table instead"""
     return check_sepa_audit_table()

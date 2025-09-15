@@ -4,8 +4,11 @@
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_html_field():
     """Test HTML field rendering in Member doctype"""
     # Get a member with address
@@ -77,6 +80,7 @@ def test_html_field():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_field_permissions():
     """Check if there are any permission issues with HTML fields"""
     meta = frappe.get_meta("Member")

@@ -19,6 +19,7 @@ from frappe import _
 from frappe.utils import cstr, get_datetime, getdate
 
 from verenigingen.utils.error_handling import ValidationError as VValidationError
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
 from verenigingen.utils.security.audit_logging import AuditSeverity, get_audit_logger
 from verenigingen.utils.validation.api_validators import APIValidator
 
@@ -759,6 +760,7 @@ def validate_business_rules(*rule_functions):
 
 # API endpoints for validation management
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def get_validation_schemas():
     """Get list of available validation schemas"""
     if not frappe.has_permission("System Manager"):
@@ -779,6 +781,7 @@ def get_validation_schemas():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def validate_data_with_schema(data: str, schema_name: str):
     """API endpoint to validate data against schema"""
     if not frappe.has_permission("System Manager"):

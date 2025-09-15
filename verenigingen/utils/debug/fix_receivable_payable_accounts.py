@@ -4,8 +4,11 @@ Fix Purchase Invoices with Receivable/Payable account issues
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_account_types():
     """Check which accounts are being used incorrectly"""
 
@@ -61,6 +64,7 @@ def check_account_types():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def fix_account_types():
     """Fix account types for prepaid/accrual accounts"""
 

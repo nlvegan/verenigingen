@@ -18,6 +18,7 @@ from frappe import _
 from frappe.utils import cint, now, now_datetime
 
 from verenigingen.utils.account_creation_manager import process_bulk_account_creation_batch
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 
 def process_retry_queues():
@@ -210,6 +211,7 @@ def manual_retry_failed_requests(tracker_name: str) -> Dict:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def get_retry_queue_status():
     """Get status of all retry queues for admin dashboard."""
     if not frappe.has_permission("Bulk Operation Tracker", "read"):
@@ -252,6 +254,7 @@ def get_retry_queue_status():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def clear_retry_queue(tracker_name: str):
     """Clear retry queue for a specific tracker (admin function)."""
     if not frappe.has_permission("Bulk Operation Tracker", "write"):

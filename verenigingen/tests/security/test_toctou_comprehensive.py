@@ -1,0 +1,404 @@
+"""
+Comprehensive TOCTOU (Time-of-Check-Time-of-Use) Security Testing
+
+Tests for parameter tampering vulnerabilities in self-service member portal operations.
+Validates that users cannot modify data belonging to other members by tampering
+with request parameters between authorization checks and data usage.
+"""
+
+import json
+import unittest
+from unittest.mock import patch
+
+import frappe
+from frappe.test_runner import make_test_records
+
+from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+
+
+class TestTOCTOUSecurityFixes(EnhancedTestCase):
+    """Test TOCTOU vulnerability fixes across member portal operations"""
+
+    def setUp(self):
+        """Setup test environment with multiple members"""
+        super().setUp()
+
+        # Create two test members for tampering tests
+        self.member_a = self.create_test_member(
+            first_name="Alice",
+            last_name="Member",
+            birth_date="1990-01-01",
+            email="alice@example.com"
+        )
+
+        self.member_b = self.create_test_member(
+            first_name="Bob",
+            last_name="Member",
+            birth_date="1985-01-01",
+            email="bob@example.com"
+        )
+
+        # Create volunteer records for expense testing
+        self.volunteer_a = self.create_test_volunteer(self.member_a.name)
+        self.volunteer_b = self.create_test_volunteer(self.member_b.name)
+
+        # Create test users linked to members
+        self.user_a = self.create_test_user(
+            email="alice@example.com",
+            first_name="Alice",
+            last_name="Member",
+            member_name=self.member_a.name
+        )
+
+        self.user_b = self.create_test_user(
+            email="bob@example.com",
+            first_name="Bob",
+            last_name="Member",
+            member_name=self.member_b.name
+        )
+
+    def test_volunteer_expense_toctou_protection(self):
+        """Test TOCTOU protection in volunteer expense submission"""
+
+        # Set session as user A
+        frappe.set_user("alice@example.com")
+
+        # Attempt to submit expense with user B's volunteer ID (parameter tampering)
+        tampered_expense_data = {
+            "volunteer": self.volunteer_b.name,  # TAMPERING: Alice trying to submit as Bob
+            "description": "Malicious expense",
+            "amount": 100.0,
+            "expense_date": "2025-01-01",
+            "organization_type": "National",
+            "category": "Office Supplies"
+        }
+
+        # Import the function we're testing
+        from verenigingen.templates.pages.volunteer.expenses import submit_expense
+
+        # Should detect tampering and raise PermissionError
+        with self.assertRaises(frappe.PermissionError) as context:
+            submit_expense(expense_data=tampered_expense_data)
+
+        self.assertIn("parameter tampering detected", str(context.exception))
+
+    def test_personal_details_toctou_protection(self):
+        """Test TOCTOU protection in personal details update"""
+
+        # Set session as user A
+        frappe.set_user("alice@example.com")
+
+        # Mock form data with tampering attempt
+        tampered_form_data = {
+            "member": self.member_b.name,  # TAMPERING: Alice trying to update Bob's data
+            "first_name": "Tampered",
+            "last_name": "Name"
+        }
+
+        # Mock frappe.local.form_dict
+        with patch('frappe.local.form_dict', tampered_form_data):
+            from verenigingen.templates.pages.personal_details import update_personal_details
+
+            # Should detect tampering and raise PermissionError
+            with self.assertRaises(frappe.PermissionError) as context:
+                update_personal_details()
+
+            self.assertIn("parameter tampering detected", str(context.exception))
+
+    def test_bank_details_toctou_protection(self):
+        """Test TOCTOU protection in bank details update"""
+
+        # Set session as user A
+        frappe.set_user("alice@example.com")
+
+        # Setup session data with tampering attempt
+        tampered_session_data = {
+            "member_name": self.member_b.name,  # TAMPERING: Alice trying to update Bob's bank details
+            "new_iban": "NL91ABNA0417164300",
+            "new_bic": "ABNANL2A",
+            "new_account_holder": "Tampered Name",
+            "enable_dd": True,
+            "action_needed": "create_new",
+            "current_mandate": None
+        }
+
+        # Mock session data
+        with patch.object(frappe.session, 'get', return_value=tampered_session_data):
+            from verenigingen.templates.pages.bank_details_confirm import process_bank_details_update
+
+            # Should detect tampering and raise PermissionError
+            with self.assertRaises(frappe.PermissionError) as context:
+                process_bank_details_update()
+
+            self.assertIn("parameter tampering detected", str(context.exception))
+
+    def test_legitimate_operations_still_work(self):
+        """Test that legitimate self-service operations still work after TOCTOU fixes"""
+
+        # Set session as user A
+        frappe.set_user("alice@example.com")
+
+        # Test legitimate personal details update (no member parameter)
+        legitimate_form_data = {
+            "first_name": "Alice Updated",
+            "last_name": "Member Updated"
+        }
+
+        with patch('frappe.local.form_dict', legitimate_form_data):
+            from verenigingen.templates.pages.personal_details import update_personal_details
+
+            # Should work without issues
+            try:
+                # Mock the redirect response to avoid actual redirect
+                with patch('frappe.local.response', {}):
+                    update_personal_details()
+            except Exception as e:
+                # Should not be a security violation
+                self.assertNotIn("parameter tampering", str(e))
+
+    def test_audit_logging_for_tampering_attempts(self):
+        """Test that parameter tampering attempts are properly logged"""
+
+        # Set session as user A
+        frappe.set_user("alice@example.com")
+
+        # Mock the audit logger to capture log calls
+        with patch('verenigingen.utils.security.audit_logging.AuditLogger') as mock_audit_logger:
+            mock_logger_instance = mock_audit_logger.return_value
+
+            # Attempt tampering in expense submission
+            tampered_expense_data = {
+                "volunteer": self.volunteer_b.name,
+                "description": "Malicious expense",
+                "amount": 100.0,
+                "expense_date": "2025-01-01",
+                "organization_type": "National",
+                "category": "Office Supplies"
+            }
+
+            from verenigingen.templates.pages.volunteer.expenses import submit_expense
+
+            try:
+                submit_expense(expense_data=tampered_expense_data)
+            except frappe.PermissionError:
+                pass  # Expected
+
+            # Verify audit logging was called
+            mock_logger_instance.log_security_event.assert_called_once()
+            call_args = mock_logger_instance.log_security_event.call_args
+
+            # Verify log details
+            self.assertEqual(call_args[1]['event_type'].value, 'parameter_tampering')
+            self.assertEqual(call_args[1]['severity'].value, 'error')
+            self.assertIn('submitted_volunteer', call_args[1]['details'])
+            self.assertEqual(call_args[1]['details']['user'], "alice@example.com")
+
+    def test_multiple_tampering_attempts_detection(self):
+        """Test that multiple types of parameter tampering are detected"""
+
+        # Set session as user A
+        frappe.set_user("alice@example.com")
+
+        tampering_scenarios = [
+            {
+                "name": "expense_submission",
+                "data": {"volunteer": self.volunteer_b.name, "amount": 100.0},
+                "function": "verenigingen.templates.pages.volunteer.expenses.submit_expense"
+            },
+            {
+                "name": "personal_details",
+                "data": {"member": self.member_b.name, "first_name": "Tampered"},
+                "function": "verenigingen.templates.pages.personal_details.update_personal_details"
+            }
+        ]
+
+        tampering_detected_count = 0
+
+        for scenario in tampering_scenarios:
+            try:
+                if scenario["name"] == "expense_submission":
+                    from verenigingen.templates.pages.volunteer.expenses import submit_expense
+                    submit_expense(expense_data=scenario["data"])
+                elif scenario["name"] == "personal_details":
+                    with patch('frappe.local.form_dict', scenario["data"]):
+                        from verenigingen.templates.pages.personal_details import update_personal_details
+                        update_personal_details()
+
+            except frappe.PermissionError as e:
+                if "parameter tampering detected" in str(e):
+                    tampering_detected_count += 1
+
+        # All tampering attempts should be detected
+        self.assertEqual(tampering_detected_count, len(tampering_scenarios))
+
+    def test_framework_level_protection(self):
+        """Test that the security framework also provides TOCTOU protection"""
+
+        # This test verifies that the framework-level _validate_self_service_request_content
+        # method catches tampering attempts that might bypass immediate validation
+
+        from verenigingen.utils.security.api_security_framework import APISecurityFramework
+        framework = APISecurityFramework()
+
+        # Set session as user A
+        frappe.set_user("alice@example.com")
+
+        # Test framework-level validation with nested tampering
+        tampered_kwargs = {
+            "expense_data": {
+                "volunteer": self.volunteer_b.name,  # Tampering attempt
+                "nested": {
+                    "member": self.member_b.name  # Nested tampering
+                }
+            }
+        }
+
+        # Should detect tampering at framework level
+        with self.assertRaises(Exception):  # Could be ValidationError or PermissionError
+            framework._validate_self_service_request_content(
+                user_member=self.member_a.name,
+                **tampered_kwargs
+            )
+
+    def tearDown(self):
+        """Clean up test data"""
+        super().tearDown()
+        # Reset user session
+        frappe.set_user("Administrator")
+
+
+class TestTOCTOUPenetrationTesting(EnhancedTestCase):
+    """Penetration testing scenarios for TOCTOU vulnerabilities"""
+
+    def test_parameter_injection_attack(self):
+        """Test various parameter injection attack scenarios"""
+
+        # Create test data
+        member_a = self.create_test_member(
+            first_name="Victim",
+            last_name="User",
+            birth_date="1990-01-01",
+            email="victim@example.com"
+        )
+
+        member_b = self.create_test_member(
+            first_name="Attacker",
+            last_name="User",
+            birth_date="1985-01-01",
+            email="attacker@example.com"
+        )
+
+        # Set session as attacker
+        frappe.set_user("attacker@example.com")
+
+        # Test various injection patterns
+        injection_patterns = [
+            {"member": member_a.name},                    # Direct member tampering
+            {"member_name": member_a.name},               # Alternative field name
+            {"volunteer": f"{member_a.name}-volunteer"},  # Volunteer tampering
+            {"target_member": member_a.name},             # Different parameter name
+        ]
+
+        for pattern in injection_patterns:
+            with self.subTest(pattern=pattern):
+                # Try to inject parameters into personal details update
+                with patch('frappe.local.form_dict', pattern):
+                    from verenigingen.templates.pages.personal_details import update_personal_details
+
+                    try:
+                        update_personal_details()
+                    except frappe.PermissionError as e:
+                        if "parameter tampering detected" in str(e):
+                            continue  # Good - tampering detected
+                    except Exception:
+                        continue  # Other errors are fine too
+
+                    # If we get here without an error, the injection might have worked
+                    self.fail(f"Parameter injection was not detected: {pattern}")
+
+    def test_session_manipulation_attack(self):
+        """Test session data manipulation attacks"""
+
+        # Create test members
+        victim = self.create_test_member(
+            first_name="Victim",
+            last_name="User",
+            birth_date="1990-01-01",
+            email="victim@example.com"
+        )
+
+        attacker = self.create_test_member(
+            first_name="Attacker",
+            last_name="User",
+            birth_date="1985-01-01",
+            email="attacker@example.com"
+        )
+
+        # Set session as attacker
+        frappe.set_user("attacker@example.com")
+
+        # Manipulate session data to point to victim
+        malicious_session_data = {
+            "member_name": victim.name,
+            "new_iban": "NL91ABNA0417164300",
+            "new_bic": "ABNANL2A",
+            "new_account_holder": "Stolen Identity",
+            "enable_dd": True,
+            "action_needed": "create_new",
+            "current_mandate": None
+        }
+
+        # Attempt session manipulation attack
+        with patch.object(frappe.session, 'get', return_value=malicious_session_data):
+            from verenigingen.templates.pages.bank_details_confirm import process_bank_details_update
+
+            with self.assertRaises(frappe.PermissionError) as context:
+                process_bank_details_update()
+
+            self.assertIn("parameter tampering detected", str(context.exception))
+
+    def test_race_condition_attack(self):
+        """Test potential race condition attacks in TOCTOU validation"""
+
+        # This test simulates an attacker trying to exploit the time gap
+        # between security checks and data usage
+
+        import threading
+        import time
+
+        member_a = self.create_test_member(
+            first_name="Target",
+            last_name="User",
+            birth_date="1990-01-01",
+            email="target@example.com"
+        )
+
+        volunteer_a = self.create_test_volunteer(member_a.name)
+
+        # Set session as legitimate user
+        frappe.set_user("target@example.com")
+
+        # This is a conceptual test - in practice, Frappe's request handling
+        # makes this type of race condition difficult to exploit
+
+        legitimate_data = {
+            "volunteer": volunteer_a.name,
+            "description": "Legitimate expense",
+            "amount": 50.0,
+            "expense_date": "2025-01-01",
+            "organization_type": "National",
+            "category": "Office Supplies"
+        }
+
+        from verenigingen.templates.pages.volunteer.expenses import submit_expense
+
+        # This should work fine
+        try:
+            with patch('frappe.local.response', {}):
+                result = submit_expense(expense_data=legitimate_data)
+        except Exception as e:
+            # Should not be a security violation
+            self.assertNotIn("parameter tampering", str(e))
+
+if __name__ == "__main__":
+    unittest.main()

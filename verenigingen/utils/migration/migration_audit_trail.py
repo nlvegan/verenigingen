@@ -13,6 +13,8 @@ from datetime import datetime
 import frappe
 from frappe.utils import cstr, now_datetime
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 class MigrationAuditTrail:
     """Comprehensive audit trail for migration operations"""
@@ -529,6 +531,7 @@ class AuditedMigrationOperation:
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def get_migration_audit_summary(migration_name):
     """Get audit summary for a migration"""
     # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
@@ -538,6 +541,7 @@ def get_migration_audit_summary(migration_name):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def get_migration_audit_details(migration_name, event_type=None, severity=None):
     """Get detailed audit entries with filters"""
     # Find the latest audit file for this migration

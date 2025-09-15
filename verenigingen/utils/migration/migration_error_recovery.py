@@ -14,6 +14,8 @@ from functools import wraps
 import frappe
 from frappe.utils import add_days, now_datetime
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 class MigrationError:
     """Represents a migration error with full context"""
@@ -384,6 +386,7 @@ class MigrationErrorRecovery:
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def retry_failed_migration_records(migration_name):
     """Retry all failed records from a migration"""
     # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
@@ -424,6 +427,7 @@ def retry_failed_migration_records(migration_name):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def get_migration_recovery_report(migration_name):
     """Get recovery report for a migration"""
     # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)

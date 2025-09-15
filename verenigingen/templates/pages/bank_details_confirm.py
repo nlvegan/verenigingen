@@ -83,6 +83,26 @@ def process_bank_details_update():
     if not update_data:
         frappe.throw(_("No pending update found"), frappe.ValidationError)
 
+    # Immediate validation: Check for parameter tampering in session data
+    if update_data.get("member_name") and update_data.get("member_name") != member_name:
+        from verenigingen.utils.security.audit_logging import AuditLogger
+        from verenigingen.utils.security.types import AuditEventType, AuditSeverity
+
+        # Log parameter tampering attempt
+        audit_logger = AuditLogger()
+        audit_logger.log_security_event(
+            event_type=AuditEventType.PARAMETER_TAMPERING,
+            severity=AuditSeverity.ERROR,
+            details={
+                "submitted_member": update_data.get("member_name"),
+                "actual_member": member_name,
+                "endpoint": "process_bank_details_update",
+                "user": frappe.session.user,
+            },
+        )
+
+        frappe.throw(_("Security violation: member parameter tampering detected"), frappe.PermissionError)
+
     try:
         # Get member document
         member = frappe.get_doc("Member", member_name)

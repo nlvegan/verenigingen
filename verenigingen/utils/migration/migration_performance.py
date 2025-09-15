@@ -14,6 +14,8 @@ from functools import partial
 import frappe
 from frappe.utils import cint, flt
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 class PerformanceOptimizer:
     """Main performance optimization controller"""
@@ -393,6 +395,7 @@ def create_migration_index(doctype, fields):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def get_migration_performance_report(migration_name):
     """Get performance report for a migration"""
     # This would fetch actual performance metrics from the migration

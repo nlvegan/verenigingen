@@ -1,7 +1,10 @@
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_base_class_functionality():
     """Test if the base test class still works after template changes"""
 

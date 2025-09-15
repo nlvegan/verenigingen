@@ -16,7 +16,6 @@ Architecture:
 
 import json
 import time
-from enum import Enum
 from functools import wraps
 from typing import Any, Callable, Dict, List, Optional, Set, Union
 
@@ -27,40 +26,18 @@ from frappe.utils import cstr
 from verenigingen.utils.error_handling import PermissionError as VPermissionError
 from verenigingen.utils.error_handling import ValidationError as VValidationError
 from verenigingen.utils.error_handling import log_error
-from verenigingen.utils.security.audit_logging import AuditEventType, AuditSeverity, get_audit_logger
-from verenigingen.utils.security.authorization import SEPAOperation, get_auth_manager
+
+# Lazy import to avoid circular dependency - get_auth_manager imported when needed
 from verenigingen.utils.security.csrf_protection import CSRFProtection
 from verenigingen.utils.security.rate_limiting import get_rate_limiter
+from verenigingen.utils.security.types import (
+    AuditEventType,
+    AuditSeverity,
+    EnvironmentLevel,
+    OperationType,
+    SecurityLevel,
+)
 from verenigingen.utils.validation.api_validators import APIValidator
-
-
-class SecurityLevel(Enum):
-    """API Security Classification Levels"""
-
-    CRITICAL = "critical"  # Financial transactions, member data changes, system administration
-    HIGH = "high"  # Member data access, batch operations, administrative functions
-    MEDIUM = "medium"  # Reporting, read-only operations, analytics
-    LOW = "low"  # Public information, utility functions, health checks
-    PUBLIC = "public"  # No authentication required
-
-
-class EnvironmentLevel(Enum):
-    """Deployment environment levels for environment-aware security"""
-
-    PRODUCTION = "production"
-    STAGING = "staging"
-    DEVELOPMENT = "development"
-
-
-class OperationType(Enum):
-    """Types of operations for context-aware security"""
-
-    FINANCIAL = "financial"  # Payment processing, invoicing, SEPA operations
-    MEMBER_DATA = "member_data"  # Member information access/modification
-    ADMIN = "admin"  # System administration, settings
-    REPORTING = "reporting"  # Data export, analytics, dashboards
-    UTILITY = "utility"  # Health checks, status endpoints
-    PUBLIC = "public"  # Public information, documentation
 
 
 class SecurityProfile:
@@ -221,19 +198,32 @@ class APISecurityFramework:
         "Verenigingen Team Leader": [SecurityLevel.LOW],  # + contextual for their team
         "Verenigingen Auditor": [SecurityLevel.LOW],  # Read-only audit access
         "Verenigingen Member": [SecurityLevel.LOW],
-        "Verenigingen Volunteer": [SecurityLevel.LOW],  # + self_service_only
+        "Verenigingen Volunteer": [
+            SecurityLevel.MEDIUM,
+            SecurityLevel.LOW,
+        ],  # MEDIUM for self_service_only operations
         "Verenigingen Webhook User": [SecurityLevel.PUBLIC, SecurityLevel.LOW],
     }
 
     def __init__(self):
         """Initialize the security framework"""
-        self.audit_logger = get_audit_logger()
-        self.auth_manager = get_auth_manager()
+        # Initialize audit logger as None to avoid circular dependency
+        # It will be lazily initialized when first needed
+        self.audit_logger = None
+        self.auth_manager = None  # Lazy loading to avoid circular import
         self.rate_limiter = get_rate_limiter()
         self.csrf_protection = CSRFProtection()
 
         # Validate role profile configuration on initialization
         self._validate_role_profile_configuration()
+
+    def _get_audit_logger(self):
+        """Lazily initialize audit logger to avoid circular dependency"""
+        if self.audit_logger is None:
+            from verenigingen.utils.security.audit_logging import get_audit_logger
+
+            self.audit_logger = get_audit_logger()
+        return self.audit_logger
 
     def _safe_has_csrf_header(self) -> bool:
         """Safely check for CSRF headers, handling cases where there's no request context"""
@@ -610,7 +600,7 @@ class APISecurityFramework:
             return True
         except Exception as e:
             # Log with more detail for debugging
-            self.audit_logger.log_event(
+            self._get_audit_logger().log_event(
                 AuditEventType.CSRF_VALIDATION_FAILED,
                 AuditSeverity.WARNING,
                 details={
@@ -629,7 +619,7 @@ class APISecurityFramework:
             self.rate_limiter.check_rate_limit(operation_key)
             return True
         except Exception as e:
-            self.audit_logger.log_event(
+            self._get_audit_logger().log_event(
                 AuditEventType.RATE_LIMIT_EXCEEDED,
                 AuditSeverity.WARNING,
                 details={"operation": operation_key, "error": str(e)},
@@ -772,6 +762,87 @@ class APISecurityFramework:
 
         return True
 
+    def _validate_self_service_request_content(self, user_member, **kwargs) -> bool:
+        """
+        Deep validation of request content for self-service operations.
+        This catches parameter tampering where users try to access other users' data.
+        """
+        violations = []
+
+        def inspect_data(data, path=""):
+            """Recursively inspect data for member/volunteer references"""
+            if isinstance(data, dict):
+                for key, value in data.items():
+                    current_path = f"{path}.{key}" if path else key
+
+                    # Check for member-related fields
+                    if key in ["member", "member_name", "member_id"]:
+                        if value and value != user_member:
+                            violations.append(
+                                {"field": current_path, "attempted_value": value, "user_member": user_member}
+                            )
+
+                    # Check for volunteer-related fields
+                    elif key in ["volunteer", "volunteer_name", "volunteer_id"]:
+                        if value:
+                            try:
+                                # Get member linked to this volunteer
+                                volunteer_member = frappe.db.get_value("Volunteer", value, "member")
+                                if volunteer_member and volunteer_member != user_member:
+                                    violations.append(
+                                        {
+                                            "field": current_path,
+                                            "attempted_value": value,
+                                            "linked_member": volunteer_member,
+                                            "user_member": user_member,
+                                        }
+                                    )
+                            except Exception:
+                                # If volunteer doesn't exist, that's also suspicious
+                                violations.append(
+                                    {
+                                        "field": current_path,
+                                        "attempted_value": value,
+                                        "error": "Invalid volunteer reference",
+                                    }
+                                )
+
+                    # Recursively check nested structures
+                    elif isinstance(value, (dict, list)):
+                        inspect_data(value, current_path)
+
+            elif isinstance(data, list):
+                for i, item in enumerate(data):
+                    inspect_data(item, f"{path}[{i}]")
+
+        # Inspect all parameters
+        for key, value in kwargs.items():
+            if isinstance(value, (dict, list)):
+                inspect_data(value, key)
+
+        # If violations found, log and raise error
+        if violations:
+            self._get_audit_logger().log_event(
+                AuditEventType.SELF_SERVICE_VIOLATION,
+                AuditSeverity.ERROR,
+                details={
+                    "user": frappe.session.user,
+                    "user_member": user_member,
+                    "violations": violations,
+                    "function": getattr(frappe.local, "form_dict", {}).get("cmd", "unknown"),
+                    "ip_address": frappe.local.request.environ.get("REMOTE_ADDR", "unknown"),
+                },
+            )
+
+            raise VPermissionError(
+                _(
+                    "Access denied: Self-service operations can only be performed on your own data. "
+                    "Attempted access to other member/volunteer data has been logged."
+                )
+            )
+
+        return True
+
     def check_critical_operation_integration(self, func: Callable, **kwargs) -> dict:
         """
         Check if this API function should use critical operations framework
@@ -896,7 +967,7 @@ class APISecurityFramework:
         if error:
             details["error"] = str(error)
 
-        self.audit_logger.log_event(event_type, severity, details=details)
+        self._get_audit_logger().log_event(event_type, severity, details=details)
 
     def create_security_response_headers(self, profile: SecurityProfile) -> Dict[str, str]:
         """Create security-related response headers"""
@@ -1016,6 +1087,13 @@ def api_security_framework(
                 # Self-service validation (if enabled)
                 if self_service_only:
                     framework._validate_self_service_access(**kwargs)
+
+                    # Enhanced content validation for TOCTOU protection
+                    current_user = frappe.session.user
+                    if current_user not in ("Administrator", "Guest"):
+                        user_member = frappe.db.get_value("Member", {"email": current_user}, "name")
+                        if user_member:
+                            framework._validate_self_service_request_content(user_member, **kwargs)
 
                 # Input validation
                 validated_kwargs = framework.validate_input_data(profile, operation_type, **kwargs)
@@ -1184,7 +1262,12 @@ def high_security_api(
     )
 
 
-def standard_api(func_or_operation_type=None, *, operation_type: OperationType = OperationType.REPORTING):
+def standard_api(
+    func_or_operation_type=None,
+    *,
+    operation_type: OperationType = OperationType.REPORTING,
+    self_service_only: bool = False,
+):
     """
     Decorator for standard security APIs (reporting, read operations)
 
@@ -1192,22 +1275,32 @@ def standard_api(func_or_operation_type=None, *, operation_type: OperationType =
     - @standard_api
     - @standard_api()
     - @standard_api(operation_type=OperationType.PUBLIC)
+    - @standard_api(operation_type=OperationType.REPORTING, self_service_only=True)
     """
     # Handle both @standard_api and @standard_api() usage patterns
     if func_or_operation_type is None:
         # Called as @standard_api()
         return api_security_framework(
-            security_level=SecurityLevel.MEDIUM, operation_type=operation_type, audit_level="standard"
+            security_level=SecurityLevel.MEDIUM,
+            operation_type=operation_type,
+            audit_level="standard",
+            self_service_only=self_service_only,
         )
     elif callable(func_or_operation_type):
         # Called as @standard_api (without parentheses)
         return api_security_framework(
-            security_level=SecurityLevel.MEDIUM, operation_type=operation_type, audit_level="standard"
+            security_level=SecurityLevel.MEDIUM,
+            operation_type=operation_type,
+            audit_level="standard",
+            self_service_only=self_service_only,
         )(func_or_operation_type)
     else:
         # Called as @standard_api(operation_type=...) - func_or_operation_type is the operation_type
         return api_security_framework(
-            security_level=SecurityLevel.MEDIUM, operation_type=func_or_operation_type, audit_level="standard"
+            security_level=SecurityLevel.MEDIUM,
+            operation_type=func_or_operation_type,
+            audit_level="standard",
+            self_service_only=self_service_only,
         )
 
 
@@ -1589,7 +1682,7 @@ def setup_api_security_framework():
     env_validation = validate_deployment_environment()
 
     # Log setup completion with environment info
-    _security_framework.audit_logger.log_event(
+    _security_framework._get_audit_logger().log_event(
         "api_security_framework_initialized",
         AuditSeverity.INFO,
         details={

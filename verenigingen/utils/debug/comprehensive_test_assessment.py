@@ -2,8 +2,11 @@ import subprocess
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def assess_test_suite_impact():
     """Comprehensive assessment of test suite impact after template changes"""
 
@@ -84,6 +87,7 @@ def assess_test_suite_impact():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def create_test_fix_plan():
     """Create a plan to fix the test suite issues"""
 

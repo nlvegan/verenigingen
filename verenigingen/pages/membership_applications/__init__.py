@@ -1,8 +1,11 @@
 import frappe
 from frappe.utils import format_datetime, getdate
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_pending_applications(chapter=None):
     """Get pending membership applications"""
     filters = {"application_status": "Pending", "status": "Pending"}
@@ -69,6 +72,7 @@ def get_pending_applications(chapter=None):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_application_stats():
     """Get statistics for membership applications"""
     stats = {
@@ -140,6 +144,7 @@ def get_application_stats():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.ADMIN)
 def bulk_approve_applications(member_names, membership_type, create_invoices=True):
     """Bulk approve multiple membership applications"""
     if isinstance(member_names, str):

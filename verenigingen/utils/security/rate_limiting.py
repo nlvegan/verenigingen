@@ -17,6 +17,11 @@ from frappe import _
 from frappe.utils import cstr
 
 from verenigingen.utils.error_handling import SEPAError, log_error
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    development_only_api,
+    standard_api,
+)
 
 
 class RateLimitExceeded(SEPAError):
@@ -416,6 +421,7 @@ def rate_limit_sepa_analytics(func):
 
 # API endpoints for rate limit management
 @frappe.whitelist(allow_guest=False)
+@standard_api(operation_type=OperationType.UTILITY)
 def get_rate_limit_status(operation: str = None):
     """
     Get current rate limit status for user
@@ -476,6 +482,7 @@ def get_rate_limit_status(operation: str = None):
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def clear_rate_limits(operation: str = None, user: str = None):
     """
     Clear rate limits (admin only)

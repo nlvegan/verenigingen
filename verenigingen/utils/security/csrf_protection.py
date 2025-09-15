@@ -16,6 +16,7 @@ from frappe import _
 from frappe.utils import cstr
 
 from verenigingen.utils.error_handling import SEPAError, log_error
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
 
 class CSRFError(SEPAError):
@@ -359,6 +360,7 @@ def csrf_protect_sepa_endpoints():
 
 # API endpoints for CSRF token management
 @frappe.whitelist(allow_guest=False)
+@standard_api(operation_type=OperationType.UTILITY)
 def get_csrf_token():
     """
     API endpoint to get CSRF token for current user
@@ -387,6 +389,7 @@ def get_csrf_token():
 
 
 @frappe.whitelist(allow_guest=False)
+@standard_api(operation_type=OperationType.UTILITY)
 def validate_csrf_token(token: str):
     """
     API endpoint to validate CSRF token

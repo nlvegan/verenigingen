@@ -4,14 +4,17 @@ One-off test script for security helper functionality
 
 Created: 2025-08-02
 Purpose: Test the new security helper to ensure it works correctly
-Related Issue: Replacing ignore_permissions=True with proper security
+Related Issue: Validates proper security framework integration
 TODO: Remove after security helper implementation is verified
 """
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_security_helper():
     """Test the security helper functions"""
 

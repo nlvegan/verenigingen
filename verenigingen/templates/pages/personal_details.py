@@ -64,6 +64,27 @@ def update_personal_details():
     # Get form data
     form_data = frappe.local.form_dict
 
+    # Immediate validation: Check for parameter tampering
+    if form_data.get("member") and form_data.get("member") != member_name:
+        from vereinigingen.utils.security.audit_logging import AuditLogger
+
+        from verenigingen.utils.security.types import AuditEventType, AuditSeverity
+
+        # Log parameter tampering attempt
+        audit_logger = AuditLogger()
+        audit_logger.log_security_event(
+            event_type=AuditEventType.PARAMETER_TAMPERING,
+            severity=AuditSeverity.ERROR,
+            details={
+                "submitted_member": form_data.get("member"),
+                "actual_member": member_name,
+                "endpoint": "update_personal_details",
+                "user": frappe.session.user,
+            },
+        )
+
+        frappe.throw(_("Security violation: member parameter tampering detected"), frappe.PermissionError)
+
     # Validate required fields
     first_name = form_data.get("first_name", "").strip()
     last_name = form_data.get("last_name", "").strip()

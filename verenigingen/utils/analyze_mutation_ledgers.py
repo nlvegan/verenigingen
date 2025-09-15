@@ -6,8 +6,11 @@ from collections import Counter
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def analyze_mutation_ledgers():
     """Analyze the ledger IDs in actual mutations to understand the mapping issue"""
 
@@ -100,6 +103,7 @@ def analyze_mutation_ledgers():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_ledger_extraction():
     """Debug how ledger IDs are being extracted from mutations"""
 

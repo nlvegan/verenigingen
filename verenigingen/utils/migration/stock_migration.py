@@ -11,6 +11,8 @@ from datetime import datetime, timedelta
 import frappe
 from frappe.utils import getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 class StockTransactionMigrator:
     """Handles stock transaction migration from e-Boekhouden"""
@@ -550,6 +552,7 @@ class StockTransactionMigrator:
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_eboekhouden_product_data():
     """Test what product/inventory data is available from e-Boekhouden API"""
     try:
@@ -629,6 +632,7 @@ def test_eboekhouden_product_data():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def migrate_stock_transactions_standalone(migration_name, date_from=None, date_to=None, dry_run=True):
     """Standalone function to migrate stock transactions"""
     try:

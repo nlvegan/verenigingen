@@ -5,8 +5,11 @@ Test the opening balance fix to verify it works correctly
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_temporary_account_fix():
     """Test the new _get_or_create_temporary_diff_account function"""
 

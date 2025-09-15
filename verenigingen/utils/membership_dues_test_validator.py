@@ -4,8 +4,11 @@ Validation utility for the membership dues system tests
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def validate_membership_dues_test_environment():
     """Validate that the test environment is ready for membership dues system tests"""
 
@@ -129,6 +132,7 @@ def validate_membership_dues_test_environment():
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_quick_membership_dues_tests():
     """Run a quick subset of membership dues system tests"""
 

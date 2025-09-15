@@ -10,7 +10,7 @@ This package provides comprehensive security measures for SEPA operations includ
 All security measures are configured to work together seamlessly.
 """
 
-from .audit_logging import AuditEventType, AuditSeverity, SEPAAuditLogger, audit_log, setup_audit_logging
+from .audit_logging import SEPAAuditLogger, audit_log, setup_audit_logging
 from .authorization import (
     SEPAAuthorizationManager,
     SEPAOperation,
@@ -22,6 +22,7 @@ from .authorization import (
 # Context validators removed - functionality moved to api_security_framework
 from .csrf_protection import CSRFProtection, require_csrf_token, setup_csrf_protection
 from .rate_limiting import RateLimiter, rate_limit, setup_rate_limiting
+from .types import AuditEventType, AuditSeverity
 
 __all__ = [
     # CSRF Protection
@@ -68,7 +69,8 @@ def setup_all_security():
         setup_audit_logging()
 
         # Log successful security setup
-        from .audit_logging import AuditSeverity, log_sepa_event
+        from .audit_logging import log_sepa_event
+        from .types import AuditSeverity
 
         log_sepa_event(
             "security_system_initialized",

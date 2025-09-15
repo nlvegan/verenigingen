@@ -5,8 +5,11 @@ Test the enhanced payment handler with API row ledger data
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def test_enhanced_handler_api_fix():
     """Test the enhanced handler uses API row ledger data correctly"""
 

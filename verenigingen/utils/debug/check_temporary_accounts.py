@@ -5,8 +5,11 @@ Check existing temporary accounts in the system for opening balance fixes
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def check_existing_temporary_accounts():
     """Check what temporary accounts already exist in the system"""
 

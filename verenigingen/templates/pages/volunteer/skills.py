@@ -1,6 +1,8 @@
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+
 
 def get_context(context):
     """Get context for volunteer skills browse page"""
@@ -138,6 +140,7 @@ def get_skills_statistics():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def search_skills(skill_name="", category="", min_level=""):
     """API endpoint for skills search (can be called via AJAX)"""
     from verenigingen.verenigingen.doctype.volunteer.volunteer import search_volunteers_by_skill

@@ -12,6 +12,8 @@ from datetime import datetime
 import frappe
 from frappe.utils import cint, flt
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 class DryRunSimulator:
     """Simulates migration operations without database changes"""
@@ -473,6 +475,7 @@ class DryRunSimulator:
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def run_migration_dry_run(migration_name, sample_size=None):
     """Run a dry-run simulation of the migration"""
     from .eboekhouden_soap_migration import fetch_eboekhouden_data

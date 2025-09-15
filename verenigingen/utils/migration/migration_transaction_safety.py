@@ -13,6 +13,8 @@ from datetime import datetime
 import frappe
 from frappe.utils import now_datetime
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 class MigrationTransaction:
     """Manages transactional safety for migration operations"""
@@ -562,6 +564,7 @@ class MigrationTransaction:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def create_migration_backup(migration_name):
     """Create a backup before starting migration"""
     migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
@@ -573,6 +576,7 @@ def create_migration_backup(migration_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def verify_migration_integrity(migration_name):
     """Verify data integrity after migration"""
     migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
@@ -582,6 +586,7 @@ def verify_migration_integrity(migration_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def rollback_migration_checkpoint(migration_name, checkpoint_id):
     """Rollback to a specific checkpoint"""
     migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)

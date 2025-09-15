@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 import frappe
 from frappe.utils import add_days, date_diff, getdate
 
+from verenigingen.utils.security.api_security_framework import OperationType, development_only_api
+
 
 class DateRangeChunker:
     """Manages date range chunking for API calls"""
@@ -345,6 +347,7 @@ def process_with_date_chunks(
 
 
 @frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
 def estimate_migration_chunks(migration_name):
     """Estimate optimal chunking strategy for a migration"""
     # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
