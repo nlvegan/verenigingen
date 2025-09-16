@@ -1027,16 +1027,33 @@ class MembershipAnalytics {
 
 		// Render charts after dialog is shown
 		setTimeout(() => {
-			this.render_forecast_chart(data.member_growth_forecast);
-			this.render_revenue_forecast_chart(data.revenue_forecast);
-			this.render_scenarios_chart(data.growth_scenarios);
+			// Only render charts if data exists and DOM elements are available
+			if (data.member_growth_forecast && !data.member_growth_forecast.error && document.getElementById('member-forecast-chart')) {
+				this.render_forecast_chart(data.member_growth_forecast);
+			}
+			if (data.revenue_forecast && !data.revenue_forecast.error && document.getElementById('revenue-forecast-chart')) {
+				this.render_revenue_forecast_chart(data.revenue_forecast);
+			}
+			if (data.growth_scenarios && data.growth_scenarios.scenarios && document.getElementById('scenarios-chart')) {
+				this.render_scenarios_chart(data.growth_scenarios);
+			}
 		}, 100);
 	}
 
 	build_predictive_html(data) {
-		return `
-            <div class="predictive-analytics-content">
-                <!-- Member Growth Forecast -->
+		// Handle member growth forecast section
+		let memberGrowthSection = '';
+		if (data.member_growth_forecast && data.member_growth_forecast.error) {
+			memberGrowthSection = `
+                <div class="section">
+                    <h4>${__('Member Growth Forecast')}</h4>
+                    <div class="alert alert-warning">
+                        <i class="fa fa-exclamation-triangle"></i> ${data.member_growth_forecast.error}
+                        <br><small>Please ensure you have at least 12 months of historical member data.</small>
+                    </div>
+                </div>`;
+		} else if (data.member_growth_forecast && data.member_growth_forecast.metrics) {
+			memberGrowthSection = `
                 <div class="section">
                     <h4>${__('Member Growth Forecast')}</h4>
                     <div class="row">
@@ -1061,9 +1078,29 @@ class MembershipAnalytics {
                             </div>
                         </div>
                     </div>
-                </div>
+                </div>`;
+		} else {
+			memberGrowthSection = `
+                <div class="section">
+                    <h4>${__('Member Growth Forecast')}</h4>
+                    <div class="alert alert-info">
+                        <i class="fa fa-info-circle"></i> No member growth forecast data available.
+                    </div>
+                </div>`;
+		}
 
-                <!-- Revenue Forecast -->
+		// Handle revenue forecast section
+		let revenueForecastSection = '';
+		if (data.revenue_forecast && data.revenue_forecast.error) {
+			revenueForecastSection = `
+                <div class="section mt-4">
+                    <h4>${__('Revenue Forecast')}</h4>
+                    <div class="alert alert-warning">
+                        <i class="fa fa-exclamation-triangle"></i> ${data.revenue_forecast.error}
+                    </div>
+                </div>`;
+		} else if (data.revenue_forecast && data.revenue_forecast.annual_projection !== undefined) {
+			revenueForecastSection = `
                 <div class="section mt-4">
                     <h4>${__('Revenue Forecast')}</h4>
                     <div class="row">
@@ -1083,18 +1120,41 @@ class MembershipAnalytics {
                             </div>
                         </div>
                     </div>
-                </div>
+                </div>`;
+		} else {
+			revenueForecastSection = `
+                <div class="section mt-4">
+                    <h4>${__('Revenue Forecast')}</h4>
+                    <div class="alert alert-info">
+                        <i class="fa fa-info-circle"></i> No revenue forecast data available.
+                    </div>
+                </div>`;
+		}
 
-                <!-- Growth Scenarios -->
+		// Handle other sections with error checking
+		let growthScenariosSection = '';
+		if (data.growth_scenarios && data.growth_scenarios.scenarios) {
+			growthScenariosSection = `
                 <div class="section mt-4">
                     <h4>${__('Growth Scenarios')}</h4>
                     <div id="scenarios-chart" style="height: 300px;"></div>
                     <div class="scenarios-grid mt-3">
                         ${this.build_scenarios_html(data.growth_scenarios)}
                     </div>
-                </div>
+                </div>`;
+		} else {
+			growthScenariosSection = `
+                <div class="section mt-4">
+                    <h4>${__('Growth Scenarios')}</h4>
+                    <div class="alert alert-info">
+                        <i class="fa fa-info-circle"></i> No growth scenarios data available.
+                    </div>
+                </div>`;
+		}
 
-                <!-- Churn Risk Analysis -->
+		let churnAnalysisSection = '';
+		if (data.churn_risk_analysis && data.churn_risk_analysis.statistics) {
+			churnAnalysisSection = `
                 <div class="section mt-4">
                     <h4>${__('Churn Risk Analysis')}</h4>
                     <div class="row">
@@ -1104,15 +1164,15 @@ class MembershipAnalytics {
                                 <div class="risk-stats">
                                     <div class="risk-stat high-risk">
                                         <span class="label">${__('High Risk')}</span>
-                                        <span class="value">${data.churn_risk_analysis.statistics.high_risk}</span>
+                                        <span class="value">${data.churn_risk_analysis.statistics.high_risk || 0}</span>
                                     </div>
                                     <div class="risk-stat medium-risk">
                                         <span class="label">${__('Medium Risk')}</span>
-                                        <span class="value">${data.churn_risk_analysis.statistics.medium_risk}</span>
+                                        <span class="value">${data.churn_risk_analysis.statistics.medium_risk || 0}</span>
                                     </div>
                                     <div class="risk-stat low-risk">
                                         <span class="label">${__('Low Risk')}</span>
-                                        <span class="value">${data.churn_risk_analysis.statistics.low_risk}</span>
+                                        <span class="value">${data.churn_risk_analysis.statistics.low_risk || 0}</span>
                                     </div>
                                 </div>
                             </div>
@@ -1120,19 +1180,47 @@ class MembershipAnalytics {
                         <div class="col-md-8">
                             <h6>${__('High Risk Members')}</h6>
                             <div class="risk-members-list">
-                                ${this.build_risk_members_html(data.churn_risk_analysis.high_risk_members)}
+                                ${this.build_risk_members_html(data.churn_risk_analysis.high_risk_members || [])}
                             </div>
                         </div>
                     </div>
-                </div>
+                </div>`;
+		} else {
+			churnAnalysisSection = `
+                <div class="section mt-4">
+                    <h4>${__('Churn Risk Analysis')}</h4>
+                    <div class="alert alert-info">
+                        <i class="fa fa-info-circle"></i> No churn risk analysis data available.
+                    </div>
+                </div>`;
+		}
 
-                <!-- Recommendations -->
+		let recommendationsSection = '';
+		if (data.recommendations && data.recommendations.length > 0) {
+			recommendationsSection = `
                 <div class="section mt-4">
                     <h4>${__('Recommendations')}</h4>
                     <div class="recommendations-list">
                         ${this.build_recommendations_html(data.recommendations)}
                     </div>
-                </div>
+                </div>`;
+		} else {
+			recommendationsSection = `
+                <div class="section mt-4">
+                    <h4>${__('Recommendations')}</h4>
+                    <div class="alert alert-info">
+                        <i class="fa fa-info-circle"></i> No recommendations available.
+                    </div>
+                </div>`;
+		}
+
+		return `
+            <div class="predictive-analytics-content">
+                ${memberGrowthSection}
+                ${revenueForecastSection}
+                ${growthScenariosSection}
+                ${churnAnalysisSection}
+                ${recommendationsSection}
             </div>
 
             <style>

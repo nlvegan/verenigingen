@@ -242,6 +242,23 @@ def get_data(filters):
         "Chapter", filters={"published": 1}, fields=["name", "region"], order_by="name"
     )
 
+    # OPTIMIZATION: Batch process chapter suggestions for all members at once
+    member_postal_codes = []
+    for member in members:
+        address_info = address_data.get(member.primary_address, {})
+        postal_code = address_info.get("pincode")
+        if postal_code:
+            member_postal_codes.append((member.name, postal_code))
+
+    # Get all chapter suggestions in one batch operation
+    try:
+        from verenigingen.utils.optimized_chapter_lookup import batch_suggest_chapters_for_members
+
+        batch_chapter_suggestions = batch_suggest_chapters_for_members(member_postal_codes)
+    except ImportError:
+        frappe.logger().warning("Optimized batch chapter lookup not available - using individual lookups")
+        batch_chapter_suggestions = {}
+
     data = []
     for member in members:
         # Get cached address information
@@ -262,10 +279,13 @@ def get_data(filters):
 
             member_since = getdate(member.creation)  # Fallback to member creation date
 
-        # Suggest chapter based on location
-        suggested_chapter = suggest_chapter_for_member_optimized(
-            member, address_info, chapters_for_suggestion
-        )
+        # Get suggested chapter from batch results or fallback to individual lookup
+        suggested_chapter = batch_chapter_suggestions.get(member.name)
+        if suggested_chapter is None and address_info.get("pincode"):
+            # Fallback for members not in batch (shouldn't happen normally)
+            suggested_chapter = suggest_chapter_for_member_optimized(
+                member, address_info, chapters_for_suggestion
+            )
 
         # Apply user access filtering if needed
         if user_chapters is not None:  # None means see all
@@ -306,24 +326,25 @@ def get_data(filters):
 
 
 def suggest_chapter_for_member_optimized(member, address_info, preloaded_chapters):
-    """Optimized version that uses pre-loaded chapters to avoid N+1 queries"""
+    """Optimized version that uses cached chapter lookup to avoid N+1 queries"""
     postal_code = address_info.get("pincode")
     if not postal_code:
         return None
 
     try:
-        # Use the existing chapter suggestion logic
-        from verenigingen.verenigingen.doctype.member.member_utils import find_chapter_by_postal_code
+        # Use the new optimized chapter lookup utility
+        from verenigingen.utils.optimized_chapter_lookup import get_lookup_instance
 
-        result = find_chapter_by_postal_code(postal_code)
+        lookup = get_lookup_instance()
+        suggested_chapter = lookup.find_best_chapter_for_postal_code(postal_code)
 
-        if result.get("success") and result.get("matching_chapters"):
-            return result["matching_chapters"][0]["name"]
+        if suggested_chapter:
+            return suggested_chapter
 
         return None
 
     except ImportError:
-        frappe.logger().warning("Chapter suggestion utility not available - falling back to simple matching")
+        frappe.logger().warning("Optimized chapter lookup not available - falling back to simple matching")
         # Fallback: use pre-loaded chapters for simple proximity matching
         try:
             # Simple heuristic: match by city/region if available
@@ -340,7 +361,9 @@ def suggest_chapter_for_member_optimized(member, address_info, preloaded_chapter
             )
             return None
     except Exception as e:
-        frappe.logger().error(f"Error in chapter suggestion for postal code {postal_code}: {str(e)}")
+        frappe.logger().error(
+            f"Error in optimized chapter suggestion for postal code {postal_code}: {str(e)}"
+        )
         return None
 
 

@@ -44,7 +44,7 @@ def validate_filters(filters):
         from verenigingen.utils.validation_utilities import DateRangeValidator, validate_document_exists
 
         date_result = DateRangeValidator.validate_date_range(
-            from_date, to_date, max_duration_days=365 * 5, throw_on_error=False
+            from_date, to_date, max_duration_days=365 * 5, allow_past_start=True, throw_on_error=False
         )
         if not date_result.get("valid"):
             raise ValueError(date_result.get("message", "Date range too large (maximum 5 years)"))

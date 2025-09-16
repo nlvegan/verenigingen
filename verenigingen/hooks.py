@@ -333,10 +333,15 @@ doc_events = {
     # Updated to use dues schedule system instead of subscription hooks
     "Chapter": {
         "validate": "verenigingen.verenigingen.doctype.chapter.chapter.validate_chapter_access",
+        "on_update": "verenigingen.utils.optimized_chapter_lookup.invalidate_chapter_lookup_cache",
+        "after_save": "verenigingen.utils.optimized_chapter_lookup.invalidate_chapter_lookup_cache",
     },
     "Verenigingen Settings": {
         "validate": "verenigingen.validations.validate_verenigingen_settings",
-        "on_update": "verenigingen.verenigingen.doctype.member.member_utils.sync_member_counter_with_settings",
+        "on_update": [
+            "verenigingen.verenigingen.doctype.member.member_utils.sync_member_counter_with_settings",
+            "verenigingen.utils.optimized_chapter_lookup.invalidate_chapter_lookup_cache",
+        ],
     },
     "Payment Entry": {
         "on_submit": [

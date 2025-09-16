@@ -476,7 +476,7 @@ class DuesScheduleHealthManager:
 @standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def comprehensive_dues_schedule_health_check(
-    member_filter=None, fix_issues=True, batch_size=100, continue_on_error=True, max_members=None
+    member_filter=None, fix_issues=False, batch_size=100, continue_on_error=True, max_members=50
 ):
     """
     ✅ ENHANCED: Comprehensive health check with batch processing and transaction safety

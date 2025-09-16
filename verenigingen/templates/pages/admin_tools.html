@@ -144,8 +144,9 @@ if (typeof frappe !== 'undefined' && frappe.ready) {
                                     <button class="btn btn-sm btn-{{ tool.color }} execute-tool"
                                             data-method="{{ tool.method }}"
                                             data-title="{{ tool.title }}"
-                                            {% if tool.args %}data-args='{{ tool.args|replace("True", "true")|replace("False", "false")|tojson|safe }}'{% endif %}
-                                            {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}>
+                                            {% if tool.args %}data-args='{{ tool.args|tojson|safe }}'{% endif %}
+                                            {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}
+                                            data-formatter="{{ tool.formatter or 'generic' }}">
                                         <i class="fa fa-play"></i> Execute
                                     </button>
                                 </div>
@@ -187,8 +188,9 @@ if (typeof frappe !== 'undefined' && frappe.ready) {
                                     <button class="btn btn-sm btn-{{ tool.color }} execute-tool"
                                             data-method="{{ tool.method }}"
                                             data-title="{{ tool.title }}"
-                                            {% if tool.args %}data-args='{{ tool.args|replace("True", "true")|replace("False", "false")|tojson|safe }}'{% endif %}
-                                            {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}>
+                                            {% if tool.args %}data-args='{{ tool.args|tojson|safe }}'{% endif %}
+                                            {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}
+                                            data-formatter="{{ tool.formatter or 'generic' }}">
                                         <i class="fa fa-play"></i> Execute
                                     </button>
                                 </div>
@@ -233,8 +235,9 @@ if (typeof frappe !== 'undefined' && frappe.ready) {
                                     <button class="btn btn-sm btn-{{ tool.color }} execute-tool"
                                             data-method="{{ tool.method }}"
                                             data-title="{{ tool.title }}"
-                                            {% if tool.args %}data-args='{{ tool.args|replace("True", "true")|replace("False", "false")|tojson|safe }}'{% endif %}
-                                            {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}>
+                                            {% if tool.args %}data-args='{{ tool.args|tojson|safe }}'{% endif %}
+                                            {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}
+                                            data-formatter="{{ tool.formatter or 'generic' }}">
                                         <i class="fa fa-play"></i> Execute
                                     </button>
                                 </div>
@@ -279,8 +282,9 @@ if (typeof frappe !== 'undefined' && frappe.ready) {
                                     <button class="btn btn-sm btn-{{ tool.color }} execute-tool"
                                             data-method="{{ tool.method }}"
                                             data-title="{{ tool.title }}"
-                                            {% if tool.args %}data-args='{{ tool.args|replace("True", "true")|replace("False", "false")|tojson|safe }}'{% endif %}
-                                            {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}>
+                                            {% if tool.args %}data-args='{{ tool.args|tojson|safe }}'{% endif %}
+                                            {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}
+                                            data-formatter="{{ tool.formatter or 'generic' }}">
                                         <i class="fa fa-play"></i> Execute
                                     </button>
                                 </div>
@@ -576,7 +580,8 @@ if (typeof frappe !== 'undefined' && frappe.ready) {
 <script>
 
 // Function to format tool results into user-friendly HTML
-function formatToolResult(result, toolTitle) {
+function formatToolResult(result, toolTitle, formatterType) {
+    formatterType = formatterType || 'generic'; // Fallback for backward compatibility
     var html = '<div class="result-content" style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif;">';
     html += '<div class="alert" style="background-color: rgba(var(--brand-secondary-rgb, 26, 85, 95), 0.1); border-color: var(--brand-secondary, #1A555F); color: var(--brand-secondary, #1A555F); border-radius: 8px; margin-bottom: 1.5rem;">';
     html += '<i class="fa fa-check-circle"></i> <strong>Execution Successful</strong>';
@@ -586,21 +591,34 @@ function formatToolResult(result, toolTitle) {
         html += '<small style="color: var(--brand-text-secondary, #666666); display: block; margin-bottom: 1.5rem;">Executed: ' + result.timestamp + '</small>';
     }
 
-    // Handle different types of results based on the tool
-    if (toolTitle.includes('Invoice') || toolTitle.includes('Dues')) {
-        html += formatInvoiceResult(result);
-    } else if (toolTitle.includes('Security')) {
-        html += formatSecurityResult(result);
-    } else if (toolTitle.includes('System Health')) {
-        html += formatHealthResult(result);
-    } else if (toolTitle.includes('Performance')) {
-        html += formatPerformanceResult(result);
-    } else if (toolTitle.includes('Member') || toolTitle.includes('Cleanup') || toolTitle.includes('NUCLEAR')) {
-        html += formatCleanupResult(result);
-    } else if (toolTitle.includes('Invoice') || toolTitle.includes('Race Condition') || toolTitle.includes('Payment History')) {
-        html += formatPaymentFixResult(result);
-    } else {
-        html += formatGenericResult(result);
+    // Deterministic routing based on explicit formatter type
+    switch(formatterType) {
+        case 'health':
+            html += formatHealthResult(result);
+            break;
+        case 'invoice':
+            html += formatInvoiceResult(result);
+            break;
+        case 'cleanup':
+            html += formatCleanupResult(result);
+            break;
+        case 'payment_fix':
+            html += formatPaymentFixResult(result);
+            break;
+        case 'security':
+            html += formatSecurityResult(result);
+            break;
+        case 'performance':
+        case 'database':
+        case 'system':
+            html += formatPerformanceResult(result);
+            break;
+        case 'api':
+        case 'fraud':
+        case 'generic':
+        default:
+            html += formatGenericResult(result);
+            break;
     }
 
     html += '</div>';
@@ -682,13 +700,90 @@ function formatInvoiceResult(result) {
 }
 
 function formatHealthResult(result) {
-    var html = '<h5>System Health Status</h5>';
-    // Add health-specific formatting here
-    try {
-        return html + '<pre class="bg-light p-3">' + JSON.stringify(result, null, 2) + '</pre>';
-    } catch (e) {
-        return html + '<pre class="bg-light p-3">' + String(result) + '</pre>';
+    var html = '<h5 class="text-brand-primary mb-4"><i class="fa fa-heartbeat"></i> System Health Status</h5>';
+
+    if (result.members_processed !== undefined) {
+        // Health check dashboard
+        html += '<div class="statistics-grid mb-4" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">';
+
+        // Members processed
+        html += '<div class="stat-card" style="padding: 1.5rem; background: var(--brand-bg-secondary, #f8f9fa); border-left: 4px solid var(--brand-secondary, #1A555F); border-radius: 8px;">';
+        html += '<div class="stat-value" style="font-size: 2rem; font-weight: bold; color: var(--brand-secondary, #1A555F);">' + result.members_processed + '</div>';
+        html += '<div class="stat-label" style="color: var(--brand-text-secondary, #666); font-size: 0.875rem;">Members Processed</div>';
+        html += '</div>';
+
+        // Success rate
+        var successRate = result.processing_summary ? result.processing_summary.success_rate : 100;
+        var successColor = successRate >= 95 ? '#28a745' : successRate >= 80 ? '#ffc107' : '#dc3545';
+        html += '<div class="stat-card" style="padding: 1.5rem; background: var(--brand-bg-secondary, #f8f9fa); border-left: 4px solid ' + successColor + '; border-radius: 8px;">';
+        html += '<div class="stat-value" style="font-size: 2rem; font-weight: bold; color: ' + successColor + ';">' + successRate.toFixed(1) + '%</div>';
+        html += '<div class="stat-label" style="color: var(--brand-text-secondary, #666); font-size: 0.875rem;">Success Rate</div>';
+        html += '</div>';
+
+        // Issues found/fixed
+        var totalIssues = (result.memberships_reconstructed || 0) + (result.schedules_created || 0) + (result.fields_synchronized || 0);
+        html += '<div class="stat-card" style="padding: 1.5rem; background: var(--brand-bg-secondary, #f8f9fa); border-left: 4px solid var(--brand-primary, #F99F20); border-radius: 8px;">';
+        html += '<div class="stat-value" style="font-size: 2rem; font-weight: bold; color: var(--brand-primary, #F99F20);">' + totalIssues + '</div>';
+        html += '<div class="stat-label" style="color: var(--brand-text-secondary, #666); font-size: 0.875rem;">Issues Fixed</div>';
+        html += '</div>';
+
+        // Errors
+        var errorCount = result.errors ? result.errors.length : 0;
+        var errorColor = errorCount > 0 ? '#dc3545' : '#28a745';
+        html += '<div class="stat-card" style="padding: 1.5rem; background: var(--brand-bg-secondary, #f8f9fa); border-left: 4px solid ' + errorColor + '; border-radius: 8px;">';
+        html += '<div class="stat-value" style="font-size: 2rem; font-weight: bold; color: ' + errorColor + ';">' + errorCount + '</div>';
+        html += '<div class="stat-label" style="color: var(--brand-text-secondary, #666); font-size: 0.875rem;">Errors</div>';
+        html += '</div>';
+
+        html += '</div>';
+
+        // Details section
+        if (totalIssues > 0 || errorCount > 0) {
+            html += '<div class="mt-4">';
+            html += '<h6 class="mb-3">Detailed Results</h6>';
+
+            if (result.memberships_reconstructed > 0) {
+                html += '<div class="alert alert-info"><i class="fa fa-repair"></i> <strong>' + result.memberships_reconstructed + '</strong> memberships reconstructed</div>';
+            }
+            if (result.schedules_created > 0) {
+                html += '<div class="alert alert-info"><i class="fa fa-plus-circle"></i> <strong>' + result.schedules_created + '</strong> schedules created</div>';
+            }
+            if (result.fields_synchronized > 0) {
+                html += '<div class="alert alert-info"><i class="fa fa-sync"></i> <strong>' + result.fields_synchronized + '</strong> fields synchronized</div>';
+            }
+
+            if (result.errors && result.errors.length > 0) {
+                html += '<div class="alert alert-warning"><i class="fa fa-exclamation-triangle"></i> <strong>Errors:</strong><ul class="mt-2 mb-0">';
+                result.errors.forEach(function(error) {
+                    html += '<li>' + error + '</li>';
+                });
+                html += '</ul></div>';
+            }
+            html += '</div>';
+        } else {
+            html += '<div class="alert alert-success mt-4"><i class="fa fa-check-circle"></i> <strong>All Good!</strong> No issues found in the processed members.</div>';
+        }
+
+        // Batch info
+        if (result.batch_info) {
+            html += '<div class="mt-3" style="font-size: 0.875rem; color: var(--brand-text-secondary, #666);">';
+            html += '<i class="fa fa-info-circle"></i> Processed ' + result.batch_info.total_batches + ' batch(es) of ' + result.batch_info.batch_size + ' members each';
+            html += '</div>';
+        }
+    } else {
+        // Fallback to formatted JSON for other health check types
+        try {
+            html += '<div class="bg-light p-3" style="border-left: 4px solid var(--brand-primary, #F99F20); border-radius: 8px;">';
+            html += '<pre style="margin: 0; font-family: Monaco, monospace; font-size: 0.875rem;">' + JSON.stringify(result, null, 2) + '</pre>';
+            html += '</div>';
+        } catch (e) {
+            html += '<div class="bg-light p-3" style="border-left: 4px solid var(--brand-primary, #F99F20); border-radius: 8px;">';
+            html += '<pre style="margin: 0; font-family: Monaco, monospace; font-size: 0.875rem;">' + String(result) + '</pre>';
+            html += '</div>';
+        }
     }
+
+    return html;
 }
 
 function formatPerformanceResult(result) {
@@ -782,6 +877,14 @@ function formatCleanupResult(result) {
         html += '</div>';
     }
 
+    // Handle message field for orphaned schedule cleanup
+    if (result.message) {
+        html += '<div class="alert alert-' + (result.dry_run ? 'info' : 'success') + ' mb-3">';
+        html += '<strong><i class="fa fa-info-circle"></i> Result:</strong> ' + result.message;
+        html += '</div>';
+    }
+
+    // Handle summary field for other cleanup types
     if (result.summary) {
         html += '<div class="alert alert-' + (result.dry_run ? 'info' : 'warning') + ' mb-3">';
         html += '<strong>Summary:</strong> ' + result.summary;
@@ -1040,6 +1143,7 @@ function initializeAdminTools() {
             var title = this.getAttribute('data-title');
             var warning = this.getAttribute('data-warning');
             var args = this.getAttribute('data-args');
+            var formatter = this.getAttribute('data-formatter') || 'generic';
             var button = this;
 
 
@@ -1091,7 +1195,7 @@ function initializeAdminTools() {
                         var modalTitle = document.querySelector('#resultsModal .modal-title');
                         if (modalTitle) modalTitle.textContent = title + ' - Results';
 
-                        var resultHtml = formatToolResult(r.message.result, title);
+                        var resultHtml = formatToolResult(r.message.result, title, formatter);
 
                         var toolResults = document.getElementById('tool-results');
                         if (toolResults) toolResults.innerHTML = resultHtml;
@@ -1143,11 +1247,13 @@ function initializeAdminTools() {
 
             if (args) {
                 try {
-                    // args is already a JSON string from data-args attribute
-                    // Parse it first to get the actual object, then pass it
-                    var parsedArgs = JSON.parse(args);
+                    // Decode HTML entities that might be present in the args string
+                    var decodedArgs = args.replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+                    // Parse the decoded JSON string
+                    var parsedArgs = JSON.parse(decodedArgs);
                     callArgs.args.args = parsedArgs;
                 } catch (e) {
+                    console.error('Failed to parse admin tool args:', args, e);
                     callArgs.args.args = args;
                 }
             }
@@ -1161,11 +1267,13 @@ function initializeAdminTools() {
 
             if (args) {
                 try {
-                    // args is already a JSON string from data-args attribute
-                    // Parse it first to get the actual object, then stringify it for the request
-                    var parsedArgs = JSON.parse(args);
+                    // Decode HTML entities that might be present in the args string
+                    var decodedArgs = args.replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+                    // Parse the decoded JSON string, then stringify it for the request
+                    var parsedArgs = JSON.parse(decodedArgs);
                     requestData.args = JSON.stringify(parsedArgs);
                 } catch (e) {
+                    console.error('Failed to parse admin tool args:', args, e);
                     requestData.args = args;
                 }
             }

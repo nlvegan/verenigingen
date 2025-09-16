@@ -62,6 +62,7 @@ def get_context(context):
             "method": "verenigingen.utils.invoice_management.get_dues_schedules_summary",
             "icon": "fa fa-file-text-o",
             "color": "brand-primary",
+            "formatter": "invoice",
         },
         {
             "title": "Validate Invoice System",
@@ -69,6 +70,7 @@ def get_context(context):
             "method": "verenigingen.utils.invoice_management.validate_invoice_generation_readiness",
             "icon": "fa fa-check-circle",
             "color": "brand-secondary",
+            "formatter": "invoice",
         },
         {
             "title": "Bulk Generate Invoices (Dry Run)",
@@ -77,6 +79,7 @@ def get_context(context):
             "icon": "fa fa-eye",
             "color": "brand-accent",
             "args": {"dry_run": True, "max_invoices": 20},
+            "formatter": "invoice",
         },
         {
             "title": "Bulk Generate Invoices (Live)",
@@ -86,6 +89,7 @@ def get_context(context):
             "color": "brand-primary",
             "warning": "This will create actual invoices. Use after reviewing dry run results!",
             "args": {"dry_run": False, "max_invoices": 50},
+            "formatter": "invoice",
         },
         {
             "title": "Cleanup Orphaned Schedules (Dry Run)",
@@ -94,6 +98,7 @@ def get_context(context):
             "icon": "fa fa-search",
             "color": "brand-accent",
             "args": {"dry_run": True, "max_cleanup": 10},
+            "formatter": "cleanup",
         },
         {
             "title": "Cleanup Orphaned Schedules (Live)",
@@ -103,6 +108,7 @@ def get_context(context):
             "color": "brand-primary",
             "warning": "This will permanently delete orphaned dues schedules!",
             "args": {"dry_run": False, "max_cleanup": 20},
+            "formatter": "cleanup",
         },
         {
             "title": "Enhanced Membership Cleanup (Dry Run)",
@@ -111,6 +117,7 @@ def get_context(context):
             "icon": "fa fa-search-plus",
             "color": "brand-accent",
             "args": {"dry_run": True, "max_cleanup": 20},
+            "formatter": "cleanup",
         },
         {
             "title": "Enhanced Membership Cleanup (Live)",
@@ -120,6 +127,7 @@ def get_context(context):
             "color": "brand-secondary",
             "warning": "This will permanently delete orphaned membership data including invalid membership types!",
             "args": {"dry_run": False, "max_cleanup": 20},
+            "formatter": "cleanup",
         },
         {
             "title": "Find Stuck Dues Schedules",
@@ -145,31 +153,26 @@ def get_context(context):
             "requires_input": True,
         },
         {
-            "title": "Fix Stuck Schedule (Safe)",
-            "description": "Attempt to fix a specific stuck schedule by resetting dates appropriately",
-            "method": "verenigingen.api.fix_stuck_dues_schedule.fix_stuck_schedule",
-            "icon": "fa fa-wrench",
+            "title": "Find All Stuck Schedules",
+            "description": "Find and analyze all stuck schedules that need attention",
+            "method": "verenigingen.api.fix_stuck_dues_schedule.find_all_stuck_schedules",
+            "icon": "fa fa-search",
+            "color": "brand-accent",
+        },
+        {
+            "title": "Check and Notify Stuck Schedules",
+            "description": "Check for stuck schedules and send notifications about critical ones",
+            "method": "verenigingen.api.fix_stuck_dues_schedule.check_and_notify_stuck_schedules",
+            "icon": "fa fa-bell",
             "color": "brand-secondary",
-            "args": {"schedule_name": "", "force": False},
-            "requires_input": True,
-            "warning": "This will modify schedule dates to allow invoice generation",
         },
         {
-            "title": "Force Fix Stuck Schedule",
-            "description": "Force fix a schedule even if no obvious issues are detected",
-            "method": "verenigingen.api.fix_stuck_dues_schedule.fix_stuck_schedule",
-            "icon": "fa fa-bolt",
-            "color": "brand-primary",
-            "args": {"schedule_name": "", "force": True},
-            "requires_input": True,
-            "warning": "This will force fix the schedule regardless of detected issues",
-        },
-        {
-            "title": "Comprehensive Dues Health Check",
-            "description": "Full health check: missing schedules + stuck schedules + data integrity + field synchronization",
+            "title": "Schedule Health Check - Sample Run",
+            "description": "Health check sample: missing schedules + stuck schedules + data integrity (uses default limits)",
             "method": "verenigingen.utils.dues_schedule_health_manager.comprehensive_dues_schedule_health_check",
             "icon": "fa fa-heartbeat",
             "color": "brand-primary",
+            "formatter": "health",
         },
         {
             "title": "Comprehensive Dues Health Maintenance",
@@ -178,6 +181,7 @@ def get_context(context):
             "icon": "fa fa-cogs",
             "color": "brand-secondary",
             "warning": "This will run all health maintenance operations and may take several minutes",
+            "formatter": "health",
         },
         {
             "title": "Sync All Member Fields",
@@ -205,6 +209,7 @@ def get_context(context):
             "method": "verenigingen.setup.security_setup.check_current_security_status",
             "icon": "fa fa-lock",
             "color": "brand-primary",
+            "formatter": "security",
         },
         {
             "title": "Apply Production Security",
@@ -339,6 +344,7 @@ def get_context(context):
             "icon": "fa fa-refresh",
             "color": "brand-secondary",
             "args": {"days_back": 7},
+            "formatter": "payment_fix",
         },
         {
             "title": "Fix Recent Missing Invoices (14 days)",

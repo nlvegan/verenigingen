@@ -27,6 +27,8 @@ dependencies = [
     "cryptography>=41.0.0",
     "requests>=2.31.0",
     "python-dateutil>=2.8.2",
+    # Machine learning for predictive analytics
+    "scikit-learn>=1.0.0",
 ]
 
 [build-system]

@@ -322,7 +322,7 @@ def find_all_stuck_schedules():
     }
 
 
-@utility_api(operation_type=OperationType.UTILITY)
+@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
 def check_and_notify_stuck_schedules():
     """
