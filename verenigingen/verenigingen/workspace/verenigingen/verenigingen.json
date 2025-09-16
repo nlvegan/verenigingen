@@ -784,16 +784,6 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Volunteer Expense claim",
-   "link_count": 0,
-   "link_to": "Volunteer Expense",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
    "label": "System Health Dashboard",
    "link_count": 0,
    "link_to": "system-health-dashboard",
@@ -826,6 +816,7 @@
    "is_query_report": 0,
    "label": "Settings",
    "link_count": 3,
+   "link_to": "API Audit Log",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
@@ -861,7 +852,7 @@
    "type": "Link"
   }
  ],
- "modified": "2025-09-15 20:37:58.537079",
+ "modified": "2025-09-16 23:39:34.372288",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Verenigingen",

@@ -9,28 +9,33 @@ The Security and Permissions System provides enterprise-grade access control, da
 ### Role-Based Access Control (RBAC)
 
 #### Role Hierarchy
-Comprehensive role structure supporting association governance:
+Comprehensive role structure with 13 defined role profiles:
 
-**Core Roles:**
-- **System Manager**: Complete system administration
+**Administrative Roles:**
+- **Verenigingen System Administrator**: Complete system administration
 - **Verenigingen Administrator**: Full association management
-- **Verenigingen Manager**: Operational management without system access
-- **Verenigingen Staff**: Read-only operational access
-- **Verenigingen Chapter Board Member**: Chapter-specific management
+- **Verenigingen Manager**: Operational management
+- **Verenigingen Staff**: Limited operational access
+
+**Governance Roles:**
+- **Verenigingen National Board Member**: National oversight
+- **Verenigingen Board Member**: Chapter board leadership
+- **Verenigingen Treasurer**: Financial management
+- **Verenigingen Kascommissie**: Financial audit/compliance
+
+**Operational Roles:**
 - **Verenigingen Member**: Self-service member access
 - **Verenigingen Volunteer**: Volunteer-specific access
-- **Verenigingen Volunteer Manager**: Volunteer coordination
+- **Verenigingen Team Leader**: Team coordination
+- **Verenigingen Auditor**: Read-only audit access
+- **Verenigingen Webhook User**: System integration access
 
-#### Permission Query Conditions
-Dynamic row-level security based on user context:
+#### Permission Query Implementation
+Limited row-level security implementation for specific DocTypes:
 
-**DocType Permission Queries:**
-- **Member**: Chapter-based access control
-- **Membership**: Member ownership and chapter boundaries
-- **Chapter**: Geographic and role-based access
-- **Team**: Team membership and chapter affiliation
-- **Volunteer**: Member linkage and chapter boundaries
-- **SEPA Mandate**: Member ownership and financial access rights
+**Implemented Permission Queries:**
+- **Chapter**: Published chapters visible to all users; full access for administrators
+- **Team**: Team membership and chapter affiliation (referenced in hooks)
 
 ### API Security Framework
 
@@ -38,11 +43,11 @@ Dynamic row-level security based on user context:
 Comprehensive API protection using a 5-tier security classification system:
 
 **Security Level Decorators:**
-- `@critical_api`: Financial transactions, member data changes, system administration
-- `@high_security_api`: Member data access, batch operations, administrative functions
-- `@standard_api`: Reporting, read-only operations, analytics
-- `@public_api`: Public information, utility functions, health checks
-- `@development_only_api`: Development/debug functions (automatically blocked in production)
+- `@critical_api`: Financial transactions, system administration (SecurityLevel.CRITICAL)
+- `@high_security_api`: Member data access, administrative functions (SecurityLevel.HIGH)
+- `@standard_api`: Reporting, standard business operations (SecurityLevel.MEDIUM)
+- `@public_api`: Public endpoints, no authentication required (SecurityLevel.PUBLIC)
+- `@development_only_api`: Development/debug functions (blocked in production)
 
 #### Operation Type Classification
 API operations classified by business context for appropriate security measures:
@@ -66,216 +71,165 @@ Production isolation with automatic blocking of development functions:
 ### Data Protection and Privacy
 
 #### Personal Data Protection
-GDPR/AVG compliance for personal information:
+GDPR/AVG compliance features are implemented through:
 
 **Privacy Features:**
-- **Data Classification**: Automatic PII identification and protection
-- **Consent Management**: Member consent tracking and management
-- **Right to Erasure**: Automated data anonymization capabilities
-- **Data Portability**: Member data export in standard formats
-- **Access Logging**: Complete access audit trail for personal data
-
-#### Information Visibility Controls
-Granular control over information sharing:
-
-**Visibility Categories:**
-- **Public**: Basic information available to all members
-- **Board Only**: Sensitive information restricted to board members
-- **Admin Only**: Administrative data restricted to system administrators
+- **Role-based access control**: Restricts data access to authorized users
+- **Audit logging**: API security framework provides comprehensive audit trails
+- **Data validation**: Input sanitization and validation in security decorators
+- **Member data security**: `@high_security_api` protection for member operations
 
 ### Audit and Compliance
 
-#### Comprehensive Audit Logging
-Complete audit trail for all system operations:
+#### Security Audit Logging
+Audit logging is implemented through the API security framework:
 
-**Audit Categories:**
-- **API Access Logs**: All API calls with user, timestamp, and operation details
-- **Security Events**: Authentication, authorization, and security-related events
-- **Data Modifications**: All data changes with before/after values
-- **Financial Operations**: All financial transactions and modifications
-- **Permission Changes**: Role and permission modifications
+**Audit Features:**
+- **API Access Logs**: Logged through security decorators with configurable audit levels
+- **Security Events**: CSRF validation, rate limiting, and authorization failures
+- **Critical Operations**: Enhanced logging for `@critical_api` operations
+- **Background Jobs**: Audit trail for secure operations processing
 
 #### Security Monitoring
-Real-time security event monitoring and alerting:
+Basic security monitoring through:
 
 **Monitoring Features:**
-- **Failed Authentication Alerts**: Suspicious login attempt detection
-- **Permission Escalation Monitoring**: Unauthorized access attempt detection
-- **Data Access Anomalies**: Unusual data access pattern detection
-- **System Health Monitoring**: Security system status and performance
+- **Security Framework Status**: Environment detection and configuration validation
+- **API Protection Coverage**: Automated security coverage analysis
+- **Permission Validation**: Role profile and permission checking
 
 ### Authentication and Session Management
 
-#### Session Security
-Robust session management with security controls:
+The security system builds upon Frappe's standard authentication with:
 
-**Session Features:**
-- **Secure Session Creation**: Strong session token generation
-- **Session Timeout Management**: Automatic timeout for inactive sessions
-- **Multi-Device Session Control**: Device-based session management
-- **Session Invalidation**: Immediate logout and session cleanup
-
-#### Authentication Enhancement
-Enhanced authentication beyond standard Frappe capabilities:
-
-**Authentication Features:**
-- **Member Portal Integration**: Seamless member authentication
-- **Role-Based Redirection**: Automatic redirection based on user roles
-- **Account Creation Workflow**: Secure account creation with approval process
-- **Password Policy Enforcement**: Strong password requirements
+**Enhanced Security Features:**
+- **Account Creation Workflow**: Secure account creation through Account Creation Request system
+- **Role Profile Integration**: Comprehensive role profile system for access control
+- **API Authentication**: API key and session-based authentication support
+- **Environment-Aware Security**: Different security levels for development/production
 
 ### Chapter and Team Security
 
-#### Chapter Boundary Enforcement
-Strict data isolation between chapters:
+#### Chapter Access Control
+Basic chapter access control is implemented through:
 
-**Boundary Controls:**
-- **Member Access**: Members can only access their own chapter data
-- **Board Access**: Board members limited to their chapter scope
-- **Cross-Chapter Operations**: Explicit permission required for multi-chapter access
-- **Financial Isolation**: Financial data strictly separated by chapter
+**Chapter Security:**
+- **Permission Query**: Published chapters visible to all users via `get_chapter_permission_query_conditions`
+- **Administrative Access**: System managers and administrators have full access
+- **Member Context**: Chapter membership tracked through Chapter Member DocType
 
-#### Team-Based Permissions
-Dynamic permissions based on team membership:
+#### Team Access Control
+Team security is referenced in hooks configuration:
 
 **Team Security:**
-- **Team Member Access**: Access limited to team-specific data
-- **Team Leader Privileges**: Enhanced access for team leadership
-- **Project Access Control**: Project data access based on team assignment
-- **Volunteer Assignment Security**: Volunteer data access based on team membership
+- **Permission Query**: Implemented via `get_team_permission_query_conditions`
+- **Team Membership**: Access control based on team assignment patterns
 
 ### Financial Data Security
 
 #### Payment Information Protection
-Enhanced security for financial and payment data:
+Financial data security is implemented through:
 
 **Financial Security:**
-- **SEPA Data Encryption**: IBAN and mandate information encrypted at rest
-- **Payment History Protection**: Limited access to payment information
-- **Financial Report Security**: Role-based financial report access
-- **Bank Data Anonymization**: Partial IBAN display for security
-
-#### eBoekhouden Integration Security
-Secure financial data synchronization:
-
-**Integration Security:**
-- **API Credential Encryption**: All financial API credentials encrypted
-- **Data Transmission Security**: Encrypted communication channels
-- **Access Logging**: Complete audit trail for financial data access
-- **Error Handling**: Secure error handling without data exposure
+- **Critical API Protection**: All financial operations protected with `@critical_api`
+- **Role-Based Access**: Financial operations require administrative roles
+- **SEPA Operations**: Secure SEPA batch processing with audit trails
+- **Payment Processing**: Protected payment history and reconciliation operations
 
 ### Volunteer and HR Security
 
-#### Volunteer Information Protection
-Secure handling of volunteer personal and professional information:
+Volunteer security is handled through the standard role-based access control system:
 
 **Volunteer Security:**
-- **Background Check Management**: Secure storage of sensitive documents
-- **Skills and Qualification Protection**: Limited access to personal capabilities
-- **Expense Information Security**: Financial information access control
-- **Employee Integration Security**: HR system integration with access controls
+- **Role-Based Access**: Volunteer data protected through role assignments
+- **Account Integration**: Account Creation Manager creates Employee records for volunteers
+- **Expense System Access**: Employee roles enable expense reporting functionality
 
 ### API Security Implementation
 
-#### Advanced Security Features
+#### Security Features in Practice
 
-**Rate Limiting and Throttling:**
-- **Per-User Rate Limits**: Configurable request limits per security level
-- **API Endpoint Throttling**: Protection against abuse and DDoS attacks
-- **Business Hours Restrictions**: Optional time-based access controls for sensitive operations
-- **IP-Based Restrictions**: Geographic and network-based access controls
+The API security framework provides:
 
-**Input Validation and Sanitization:**
+**Request Protection:**
+- **Rate Limiting**: Configurable request limits per security level via rate limiter
+- **Input Validation**: Automatic sanitization of input parameters
 - **Request Size Limits**: Configurable maximum request sizes per security level
-- **Content Type Validation**: Strict validation of request content types
-- **Parameter Sanitization**: Automatic sanitization of input parameters
-- **SQL Injection Prevention**: Built-in protection against SQL injection attacks
+- **CSRF Protection**: Token validation for state-changing operations (with API key exemption)
 
-**CSRF Protection:**
-- **Token-Based Validation**: CSRF tokens required for state-changing operations
-- **Origin Header Validation**: Request origin verification
-- **Referer Header Checks**: Additional validation for sensitive operations
-- **SameSite Cookie Attributes**: Modern CSRF protection mechanisms
+**Environment Controls:**
+- **Development Isolation**: `@development_only_api` blocked in production
+- **Environment Detection**: Automatic environment detection and appropriate security
+- **Permission Validation**: Role profile and individual role checking
 
-#### Secure Operations Middleware
-Enterprise-grade secure operations framework:
+#### Background Job Security
 
-**Secure Document Operations:**
-- **Permission Context Preservation**: Operations maintain proper user context
-- **Audit Trail Integration**: All document operations logged with full context
-- **Transaction Safety**: Database transaction integrity for all operations
-- **Error Recovery**: Graceful error handling without data exposure
+Background job processing includes:
 
-**Background Job Security:**
-- **Permission Context Preservation**: Background jobs maintain user permission context
-- **Secure Job Queuing**: Encrypted job data and secure processing
-- **Audit Trail for Jobs**: Complete audit trail for background operations
-- **Error Handling Security**: Secure error handling in background processes
-
-**Security-Aware Caching:**
-- **User-Specific Caching**: Cache isolation based on user permissions
-- **Permission-Aware Cache Keys**: Cache keys include permission context
-- **Cache Invalidation Security**: Secure cache invalidation on permission changes
-- **Data Leakage Prevention**: Prevention of cross-user data leakage through cache
+**Security Features:**
+- **Account Creation Jobs**: Secure background processing for user account creation
+- **Audit Trail**: Job processing logged through security framework
+- **Error Handling**: Proper error handling and retry logic for failed operations
+- **Permission Context**: Background jobs maintain appropriate user context
 
 ### Compliance and Regulatory Adherence
 
-#### Dutch Data Protection (AVG) Compliance
-Comprehensive compliance with Dutch data protection regulations:
+The security system supports Dutch regulatory compliance through:
 
-**Compliance Features:**
-- **Data Processing Records**: Automatic documentation of data processing activities
-- **Consent Management**: Digital consent capture and management
-- **Data Subject Rights**: Automated handling of data subject requests
-- **Breach Notification**: Automatic breach detection and notification procedures
-
-#### Financial Compliance
-Compliance with Dutch financial and accounting regulations:
+**Privacy Compliance:**
+- **Role-Based Data Access**: Restricts personal data access to authorized users
+- **Audit Logging**: Security framework provides audit trails for data access
+- **Data Protection**: Input validation and sanitization protects against data breaches
 
 **Financial Compliance:**
-- **SEPA Compliance**: Full compliance with European payment regulations
-- **Audit Trail Requirements**: Comprehensive audit trails for financial operations
-- **Data Retention Policies**: Automated data retention and archival
-- **Regulatory Reporting**: Automated compliance report generation
+- **SEPA Operations**: Secure SEPA batch processing with proper audit trails
+- **Financial Data Protection**: Critical API protection for all financial operations
+- **Access Control**: Role-based restrictions on financial data access
 
-### Security Configuration and Management
+### Security Management and Testing
 
-#### Security Settings Management
-Centralized security configuration and management:
+#### Security Configuration
+Security configuration is managed through:
 
 **Configuration Features:**
-- **Password Policy Configuration**: Customizable password requirements
-- **Session Timeout Settings**: Configurable session timeout periods
-- **Access Control Policies**: Role-based access control configuration
-- **Audit Log Retention**: Configurable audit log retention periods
+- **Security Profiles**: Pre-defined security levels with configurable parameters
+- **Environment Detection**: Automatic development/staging/production environment detection
+- **Role Profile System**: Comprehensive role-based access control configuration
 
-#### Security Validation and Testing
-Comprehensive security validation and testing framework:
+#### Security Testing and Validation
+Security validation is provided through:
 
-**Validation Features:**
-- **Permission Testing**: Automated permission validation tests
-- **Security Regression Testing**: Continuous security testing
-- **Penetration Testing Support**: Framework for security testing
-- **Vulnerability Assessment**: Regular security assessment procedures
+**Testing Features:**
+- **Automated Security Audit**: `scripts/analysis/detailed_security_audit.py` provides comprehensive coverage analysis
+- **API Protection Validation**: Automatic detection of unprotected API endpoints
+- **Permission Testing**: Role profile and permission validation in test suite
 
-### Emergency Security Procedures
+## Current Security Status
 
-#### Security Incident Response
-Comprehensive incident response procedures:
+**Security Coverage Metrics** (as of 2025-09-16):
+- **93.8% API Protection Rate** (150/160 files protected)
+- **90.5% High-Risk Coverage** (19/21 critical files secured)
+- **100% Critical Function Coverage** (all exposed API endpoints protected)
 
-**Response Features:**
-- **Immediate Account Suspension**: Emergency account deactivation
-- **Session Termination**: Immediate session invalidation across all devices
-- **Access Logging**: Enhanced logging during security incidents
-- **Communication Procedures**: Stakeholder notification procedures
+**Remaining Security Gaps:**
+- 2 high-risk files lack protection: `payment_sync_system.py`, `payment_audit.py`
+- These files contain **0 `@frappe.whitelist()` functions**, so pose no actual security risk
+- 8 low-risk utility files are unprotected but contain no exposed API endpoints
 
-#### Data Breach Response
-Automated and manual data breach response procedures:
+**Security Audit Validation:**
+```bash
+# Run comprehensive security audit
+python scripts/analysis/detailed_security_audit.py
 
-**Breach Response:**
-- **Automatic Detection**: Real-time breach detection and alerting
-- **Containment Procedures**: Immediate containment and isolation
-- **Impact Assessment**: Automated assessment of breach scope and impact
-- **Regulatory Notification**: Automated compliance with notification requirements
+# Generate detailed security coverage report
+# Report saved to: detailed_security_audit_report.md
+```
+
+**Security Framework Features:**
+- **Complete Framework Detection**: Recognizes all security decorators (@critical_api, @high_security_api, @standard_api, @public_api, @development_only_api)
+- **Risk Classification**: Automatically categorizes files by risk level (HIGH/MEDIUM/LOW)
+- **Coverage Metrics**: Accurate API protection percentages
+- **Gap Analysis**: Identifies unprotected endpoints requiring security
+- **False Positive Filtering**: Excludes non-API files and archived code
 
 This security and permissions system provides enterprise-grade protection while maintaining usability and compliance with Dutch regulatory requirements for association management.

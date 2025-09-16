@@ -1577,6 +1577,22 @@ def non_production_api(
     )
 
 
+def webhook_api(
+    operation_type: OperationType = OperationType.FINANCIAL,
+):
+    """
+    Decorator for webhook APIs (payment processors, external integrations)
+
+    Provides secure webhook processing with proper authentication and authorization
+    without requiring admin permissions.
+    """
+    return api_security_framework(
+        security_level=SecurityLevel.MEDIUM,  # Medium security - not admin level
+        operation_type=operation_type,
+        audit_level="standard",
+    )
+
+
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
 def get_security_framework_status():

@@ -62,33 +62,59 @@ def handle_mollie_payment_webhook():
         raw_payload = frappe.request.get_data(as_text=True) if frappe.request else ""
         payment_id = None
         event_type = None
+        webhook_data = {}
 
+        # Enhanced debugging for webhook parsing
+        frappe.logger().info(f"🔍 Raw payload: {repr(raw_payload)}")
+        frappe.logger().info(f"🔍 Form dict: {dict(frappe.form_dict)}")
+
+        # Try different parsing approaches in order
         if raw_payload and raw_payload.strip():
-            try:
-                # Try JSON first - Mollie sends webhooks as JSON events
-                webhook_data = frappe.parse_json(raw_payload)
+            # First, check if it's URL-encoded data (common for POST form data)
+            if "=" in raw_payload and not raw_payload.startswith("{"):
+                try:
+                    import urllib.parse
 
-                # Handle Mollie's JSON event structure
-                if webhook_data.get("resource") == "event":
-                    event_type = webhook_data.get("type")
+                    parsed_data = urllib.parse.parse_qs(raw_payload)
+                    # parse_qs returns lists, so get first value
+                    payment_id = parsed_data.get("id", [None])[0]
+                    webhook_data = {k: v[0] if v else None for k, v in parsed_data.items()}
+                    frappe.logger().info(
+                        f"✅ Parsed URL-encoded data: payment_id={payment_id}, data={webhook_data}"
+                    )
+                except Exception as parse_error:
+                    frappe.logger().error(f"⚠️ Failed to parse URL-encoded data: {parse_error}")
+            else:
+                # Try JSON parsing for Mollie event webhooks
+                try:
+                    webhook_data = frappe.parse_json(raw_payload)
 
-                    # For payment events, the payment ID is in entityId
-                    if event_type and event_type.startswith("payment."):
-                        payment_id = webhook_data.get("entityId")
-                    elif event_type == "hook.ping":
-                        # Handle ping events - respond successfully but don't process
-                        return {"status": "success", "message": "Webhook ping received", "event_type": "ping"}
-                else:
-                    # Direct JSON with payment ID (for API testing)
-                    payment_id = webhook_data.get("id")
+                    # Handle Mollie's JSON event structure
+                    if webhook_data.get("resource") == "event":
+                        event_type = webhook_data.get("type")
 
-            except (ValueError, TypeError, Exception):
-                # Fall back to form-encoded parsing (for manual testing)
-                webhook_data = dict(frappe.form_dict)  # Convert to regular dict
-                payment_id = webhook_data.get("id")
-        else:
+                        # For payment events, the payment ID is in entityId
+                        if event_type and event_type.startswith("payment."):
+                            payment_id = webhook_data.get("entityId")
+                        elif event_type == "hook.ping":
+                            # Handle ping events - respond successfully but don't process
+                            return {
+                                "status": "success",
+                                "message": "Webhook ping received",
+                                "event_type": "ping",
+                            }
+                    else:
+                        # Direct JSON with payment ID (for API testing)
+                        payment_id = webhook_data.get("id")
+
+                except (ValueError, TypeError, Exception) as json_error:
+                    frappe.logger().error(f"⚠️ Failed to parse JSON: {json_error}")
+
+        # Final fallback to frappe.form_dict if no payment_id found yet
+        if not payment_id:
             webhook_data = dict(frappe.form_dict)  # Convert to regular dict
             payment_id = webhook_data.get("id")
+            frappe.logger().info(f"🔍 Fallback to form_dict: payment_id={payment_id}, data={webhook_data}")
 
         # Validate webhook payload structure with enhanced debugging
         if not payment_id:
@@ -118,8 +144,9 @@ def handle_mollie_payment_webhook():
         donation = find_donation_for_payment_by_id(payment_id, with_lock=True)
 
         # If not found, try subscription_id lookup (for recurring payments)
+        # Note: We'll get the payment object from Mollie API later, so pass None for now
         if not donation:
-            donation = find_donation_for_subscription_payment(payment_id, payment, with_lock=True)
+            donation = find_donation_for_subscription_payment(payment_id, None, with_lock=True)
 
         if not donation:
             return {"status": "error", "message": "No matching donation found"}
@@ -130,15 +157,13 @@ def handle_mollie_payment_webhook():
         if idempotency_status["all_complete"]:
             return {"status": "already_processed", "donation": donation.name, "details": idempotency_status}
 
-        # Get Mollie API client
-        settings = frappe.get_single("Mollie Settings")
-        if not settings:
-            return {"status": "error", "message": "Mollie settings not configured"}
+        # Get Mollie API client using webhook-safe access
+        from verenigingen.utils.webhook_payment_gateway_access import get_mollie_client_for_webhook
 
-        import mollie.api.client
-
-        client = mollie.api.client.Client()
-        client.set_api_key(settings.get_active_api_key())
+        try:
+            client = get_mollie_client_for_webhook("Default")
+        except Exception as e:
+            return {"status": "error", "message": f"Failed to get Mollie client: {str(e)}"}
 
         # Retrieve full payment details from Mollie API
         try:
@@ -192,8 +217,7 @@ def handle_mollie_payment_webhook():
             donation.paid = 0
             if hasattr(donation, "payment_status"):
                 donation.payment_status = "Failed"
-            # WEBHOOK PROCESSING: Ensure permissions for webhook operations
-            donation.flags.ignore_permissions = True
+            # Use proper webhook user permissions - no bypass needed
             donation.save()
             return {"status": "processed", "payment_status": "failed"}
 
@@ -229,38 +253,41 @@ def find_donation_for_subscription_payment(payment_id, payment, with_lock=False)
 
     Args:
         payment_id (str): Mollie payment ID
-        payment: Full Mollie payment object
+        payment: Full Mollie payment object (can be None if not available yet)
         with_lock (bool): If True, acquire FOR UPDATE lock
     """
-    # Check if this is a subscription payment
-    if not hasattr(payment, "subscription_id") or not payment.subscription_id:
+    # If payment object is available, check if this is a subscription payment
+    if payment and (not hasattr(payment, "subscription_id") or not payment.subscription_id):
         return None
 
-    # Get donation_id from payment metadata (set by subscription creation)
-    metadata = getattr(payment, "metadata", {})
-    donation_id = metadata.get("donation_id")
+    # If payment object is available, get donation_id from payment metadata
+    if payment:
+        metadata = getattr(payment, "metadata", {})
+        donation_id = metadata.get("donation_id")
 
-    if donation_id:
-        frappe.logger().info(f"🔍 Found donation_id in subscription payment metadata: {donation_id}")
-        try:
+        if donation_id:
+            frappe.logger().info(f"🔍 Found donation_id in subscription payment metadata: {donation_id}")
+            try:
+                if with_lock:
+                    # Acquire row-level lock
+                    frappe.db.sql("SELECT name FROM `tabDonation` WHERE name = %s FOR UPDATE", (donation_id,))
+                return frappe.get_doc("Donation", donation_id)
+            except frappe.DoesNotExistError:
+                frappe.logger().error(f"❌ Donation {donation_id} from metadata not found")
+                return None
+
+        # Fallback: try to find by subscription_id (if donation has it stored)
+        frappe.logger().info(f"🔍 Trying fallback lookup by subscription_id: {payment.subscription_id}")
+        donation_name = frappe.db.get_value(
+            "Donation", {"mollie_subscription_id": payment.subscription_id}, "name"
+        )
+        if donation_name:
             if with_lock:
-                # Acquire row-level lock
-                frappe.db.sql("SELECT name FROM `tabDonation` WHERE name = %s FOR UPDATE", (donation_id,))
-            return frappe.get_doc("Donation", donation_id)
-        except frappe.DoesNotExistError:
-            frappe.logger().error(f"❌ Donation {donation_id} from metadata not found")
-            return None
+                frappe.db.sql("SELECT name FROM `tabDonation` WHERE name = %s FOR UPDATE", (donation_name,))
+            return frappe.get_doc("Donation", donation_name)
 
-    # Fallback: try to find by subscription_id (if donation has it stored)
-    frappe.logger().info(f"🔍 Trying fallback lookup by subscription_id: {payment.subscription_id}")
-    donation_name = frappe.db.get_value(
-        "Donation", {"mollie_subscription_id": payment.subscription_id}, "name"
-    )
-    if donation_name:
-        if with_lock:
-            frappe.db.sql("SELECT name FROM `tabDonation` WHERE name = %s FOR UPDATE", (donation_name,))
-        return frappe.get_doc("Donation", donation_name)
-
+    # If no payment object or no subscription info found, return None
+    # This is normal for first payments that haven't been processed yet
     return None
 
 
@@ -734,8 +761,7 @@ def create_payment_entry_for_donation(donation, mollie_data):
             }
         )
 
-        # WEBHOOK PROCESSING: Ensure permissions for payment entry operations
-        pe.flags.ignore_permissions = True
+        # Use proper webhook user permissions - no bypass needed
         pe.insert()
         pe.submit()
 

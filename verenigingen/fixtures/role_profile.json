@@ -343,6 +343,9 @@
     "roles": [
       {
         "role": "Verenigingen Webhook User"
+      },
+      {
+        "role": "Webhook Payment Processor"
       }
     ]
   }

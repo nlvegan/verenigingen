@@ -2647,5 +2647,38 @@
  "rate_limit_scope": "user",
  "audit_level": "comprehensive",
  "alert_on_execution": 0
+},
+{
+ "doctype": "Critical Operation Rule",
+ "name": "can_terminate_member_api",
+ "operation_name": "can_terminate_member_api",
+ "operation_type": "WRITE",
+ "description": "API endpoint to check if a member can be terminated",
+ "enabled": 1,
+ "security_level": "high",
+ "business_context": "Member lifecycle management - termination eligibility check",
+ "required_roles": "Verenigingen Staff\nVerenigingen Manager\nSystem Manager"
+},
+{
+ "doctype": "Critical Operation Rule",
+ "name": "permissions_can_terminate_member_api",
+ "operation_name": "permissions_can_terminate_member_api",
+ "operation_type": "READ",
+ "description": "Check permissions for member termination API access",
+ "enabled": 1,
+ "security_level": "medium",
+ "business_context": "Permission validation for member termination operations",
+ "required_roles": "Verenigingen Staff\nVerenigingen Manager\nSystem Manager"
+},
+{
+ "doctype": "Critical Operation Rule",
+ "name": "api_can_terminate_member_api",
+ "operation_name": "api_can_terminate_member_api",
+ "operation_type": "READ",
+ "description": "API wrapper for member termination eligibility checks",
+ "enabled": 1,
+ "security_level": "medium",
+ "business_context": "API access control for member termination functionality",
+ "required_roles": "Verenigingen Staff\nVerenigingen Manager\nSystem Manager"
 }
 ]
