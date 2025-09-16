@@ -517,6 +517,21 @@ doc_events = {
     "Donation Agreement": {
         "on_update_after_submit": "verenigingen.utils.donation_agreement_scheduler.on_donation_payment",
     },
+    # Security framework cache invalidation
+    "User": {
+        "on_update": "verenigingen.utils.security.cache_invalidation.invalidate_user_role_cache_on_user_update",
+        "after_insert": "verenigingen.utils.security.cache_invalidation.invalidate_user_role_cache_on_user_update",
+    },
+    "Role Profile": {
+        "on_update": "verenigingen.utils.security.cache_invalidation.invalidate_all_user_caches_on_role_profile_update",
+        "after_insert": "verenigingen.utils.security.cache_invalidation.invalidate_all_user_caches_on_role_profile_update",
+        "on_trash": "verenigingen.utils.security.cache_invalidation.invalidate_all_user_caches_on_role_profile_update",
+    },
+    "Has Role": {
+        "on_update": "verenigingen.utils.security.cache_invalidation.invalidate_user_cache_on_user_role_update",
+        "after_insert": "verenigingen.utils.security.cache_invalidation.invalidate_user_cache_on_user_role_update",
+        "on_trash": "verenigingen.utils.security.cache_invalidation.invalidate_user_cache_on_user_role_update",
+    },
 }
 
 # Scheduled Tasks

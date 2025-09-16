@@ -315,21 +315,21 @@ class TestPaymentReportIntegration(EnhancedTestCase):
                     filters={},  # No specific filters - tests real data retrieval
                     format="CSV"
                 )
-                    
-                    # Verify export completion with real business logic
-                    self.assertIsInstance(result, dict)
-                    self.assertTrue("success" in result)
-                    self.assertTrue("count" in result)
-                    
-                    if result["success"]:
-                        print(f"✅ Real export workflow successful - {result['count']} records exported")
-                        
-                        # Verify file operations with real data
-                        if result["count"] > 0:
-                            # CSV writer should be called with real payment data
-                            self.assertTrue(mock_csv_writer.called or mock_open.called)
-                    else:
-                        print("ℹ️ Export found no data - may be expected with test scenarios")
+
+                # Verify export completion with real business logic
+                self.assertIsInstance(result, dict)
+                self.assertTrue("success" in result)
+                self.assertTrue("count" in result)
+
+                if result["success"]:
+                    print(f"✅ Real export workflow successful - {result['count']} records exported")
+
+                    # Verify file operations with real data
+                    if result["count"] > 0:
+                        # CSV writer should be called with real payment data
+                        self.assertTrue(mock_csv_writer.called or mock_open.called)
+                else:
+                    print("ℹ️ Export found no data - may be expected with test scenarios")
 
     @patch("frappe.sendmail")  # Mock justified: External Service - email infrastructure, not business logic
     def test_complete_bulk_action_workflow_real_business_logic(self, mock_sendmail):

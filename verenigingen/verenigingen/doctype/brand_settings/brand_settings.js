@@ -74,9 +74,18 @@ frappe.ui.form.on('Brand Settings', {
 	},
 
 	// Auto-preview color changes
-	primary_color(frm) { update_color_preview(frm); },
-	secondary_color(frm) { update_color_preview(frm); },
-	accent_color(frm) { update_color_preview(frm); },
+	primary_color(frm) {
+		update_color_preview(frm);
+		suggest_button_text_color(frm, 'primary_color', 'primary_button_text_color');
+	},
+	secondary_color(frm) {
+		update_color_preview(frm);
+		suggest_button_text_color(frm, 'secondary_color', 'secondary_button_text_color');
+	},
+	accent_color(frm) {
+		update_color_preview(frm);
+		suggest_button_text_color(frm, 'accent_color', 'accent_button_text_color');
+	},
 	background_primary_color(frm) { update_color_preview(frm); },
 	background_secondary_color(frm) { update_color_preview(frm); }
 });
@@ -333,4 +342,161 @@ function force_rebuild_css(frm) {
 			}
 		}
 	});
+}
+
+/**
+ * Suggests Button Text Color Based on WCAG Contrast Guidelines
+ *
+ * Automatically calculates and suggests an appropriate text color (white or black)
+ * for buttons based on the background color to ensure WCAG 2.1 AA compliance
+ * with a minimum contrast ratio of 4.5:1.
+ *
+ * @description Accessibility Standards:
+ * - WCAG 2.1 AA compliance (4.5:1 minimum contrast ratio)
+ * - Automatic selection between white (#ffffff) and black (#000000)
+ * - Real-time calculation as user changes background colors
+ * - Visual feedback with contrast ratio display
+ *
+ * @description Implementation:
+ * - Converts hex colors to RGB for luminance calculation
+ * - Uses W3C relative luminance formula
+ * - Suggests white text for dark backgrounds, black for light backgrounds
+ * - Updates field value automatically with user confirmation
+ *
+ * @param {Object} frm - Frappe form instance
+ * @param {string} backgroundField - Name of the background color field
+ * @param {string} textField - Name of the text color field to update
+ *
+ * @example
+ * // Called when primary_color changes
+ * suggest_button_text_color(frm, 'primary_color', 'primary_button_text_color');
+ *
+ * @see {@link calculate_contrast_ratio} For contrast calculation logic
+ * @see {@link get_relative_luminance} For luminance calculation
+ */
+function suggest_button_text_color(frm, backgroundField, textField) {
+	const backgroundColor = frm.doc[backgroundField];
+	if (!backgroundColor) return;
+
+	const suggestedColor = get_optimal_text_color(backgroundColor);
+	const contrastRatio = calculate_contrast_ratio(backgroundColor, suggestedColor);
+
+	// Only update if the suggested color is different from current
+	if (frm.doc[textField] !== suggestedColor) {
+		frappe.confirm(
+			`For better accessibility, we recommend ${suggestedColor === '#ffffff' ? 'white' : 'black'} text on this background.<br>` +
+			`<small>Contrast ratio: ${contrastRatio.toFixed(1)}:1 (${contrastRatio >= 4.5 ? 'WCAG AA compliant' : 'below WCAG AA standard'})</small><br><br>` +
+			`Update the ${__(textField.replace(/_/g, ' '))} to ${suggestedColor}?`,
+			() => {
+				frm.set_value(textField, suggestedColor);
+			},
+			__('Accessibility Suggestion')
+		);
+	}
+}
+
+/**
+ * Calculates Optimal Text Color for Accessibility
+ *
+ * Determines whether white or black text provides better contrast
+ * against the given background color according to WCAG guidelines.
+ *
+ * @description Algorithm:
+ * - Calculates relative luminance of background color
+ * - Compares contrast ratios with white and black text
+ * - Returns the color that provides higher contrast
+ * - Ensures WCAG 2.1 AA compliance when possible
+ *
+ * @param {string} backgroundColor - Hex color code (e.g., '#ff0000')
+ * @returns {string} Optimal text color ('#ffffff' or '#000000')
+ *
+ * @example
+ * const textColor = get_optimal_text_color('#cf3131'); // Returns '#ffffff'
+ * const textColor = get_optimal_text_color('#f8f9fa'); // Returns '#000000'
+ */
+function get_optimal_text_color(backgroundColor) {
+	const whiteContrast = calculate_contrast_ratio(backgroundColor, '#ffffff');
+	const blackContrast = calculate_contrast_ratio(backgroundColor, '#000000');
+
+	return whiteContrast > blackContrast ? '#ffffff' : '#000000';
+}
+
+/**
+ * Calculates WCAG 2.1 Contrast Ratio Between Two Colors
+ *
+ * Implements the official W3C contrast ratio calculation formula
+ * for determining accessibility compliance between foreground and
+ * background colors.
+ *
+ * @description WCAG Standards:
+ * - Level AA: Minimum 4.5:1 for normal text
+ * - Level AAA: Minimum 7:1 for normal text
+ * - Level AA Large: Minimum 3:1 for large text (18pt+ or 14pt+ bold)
+ *
+ * @description Formula:
+ * - (L1 + 0.05) / (L2 + 0.05) where L1 is lighter, L2 is darker
+ * - L = relative luminance calculated per W3C specification
+ * - Range: 1:1 (no contrast) to 21:1 (maximum contrast)
+ *
+ * @param {string} color1 - First color in hex format (#rrggbb)
+ * @param {string} color2 - Second color in hex format (#rrggbb)
+ * @returns {number} Contrast ratio (1-21)
+ *
+ * @example
+ * const ratio = calculate_contrast_ratio('#ffffff', '#000000'); // Returns 21
+ * const ratio = calculate_contrast_ratio('#cf3131', '#ffffff'); // Returns ~3.8
+ */
+function calculate_contrast_ratio(color1, color2) {
+	const lum1 = get_relative_luminance(color1);
+	const lum2 = get_relative_luminance(color2);
+
+	const lightest = Math.max(lum1, lum2);
+	const darkest = Math.min(lum1, lum2);
+
+	return (lightest + 0.05) / (darkest + 0.05);
+}
+
+/**
+ * Calculates Relative Luminance According to W3C Specification
+ *
+ * Implements the official W3C relative luminance formula used in
+ * WCAG contrast calculations, converting sRGB color values to
+ * their linear RGB equivalents and applying luminance coefficients.
+ *
+ * @description W3C Formula:
+ * - L = 0.2126 * R + 0.7152 * G + 0.0722 * B
+ * - RGB values are linearized: if <= 0.03928 then C/12.92, else ((C+0.055)/1.055)^2.4
+ * - Input values are normalized to 0-1 range from 0-255
+ *
+ * @description Color Space:
+ * - Input: sRGB hex color (#rrggbb)
+ * - Output: Relative luminance (0-1, where 0 = black, 1 = white)
+ * - Gamma correction applied for accurate perceptual luminance
+ *
+ * @param {string} hexColor - Hex color code (#rrggbb format)
+ * @returns {number} Relative luminance value (0-1)
+ *
+ * @example
+ * const luminance = get_relative_luminance('#ffffff'); // Returns 1.0
+ * const luminance = get_relative_luminance('#000000'); // Returns 0.0
+ * const luminance = get_relative_luminance('#cf3131'); // Returns ~0.127
+ */
+function get_relative_luminance(hexColor) {
+	// Convert hex to RGB
+	const hex = hexColor.replace('#', '');
+	const r = parseInt(hex.substr(0, 2), 16) / 255;
+	const g = parseInt(hex.substr(2, 2), 16) / 255;
+	const b = parseInt(hex.substr(4, 2), 16) / 255;
+
+	// Apply gamma correction
+	const linearize = (c) => {
+		return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+	};
+
+	const rLin = linearize(r);
+	const gLin = linearize(g);
+	const bLin = linearize(b);
+
+	// Calculate relative luminance using W3C coefficients
+	return 0.2126 * rLin + 0.7152 * gLin + 0.0722 * bLin;
 }

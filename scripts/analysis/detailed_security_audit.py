@@ -80,8 +80,8 @@ def analyze_api_files(api_dir: str, risk_patterns: List[str]) -> Dict:
         else:
             analysis['low_risk_files'].append(file_info)
         
-        # Track protection status
-        if security_status['has_critical_api'] or security_status['has_other_protection']:
+        # Track protection status - use broader security framework detection
+        if security_status['has_security_decorator'] or security_status['has_other_protection']:
             analysis['protected_files'].append(file_info)
         else:
             analysis['unprotected_files'].append(file_info)
@@ -138,7 +138,15 @@ def analyze_file_security(file_path: str) -> Dict:
         security_status['error'] = str(e)
         return security_status
     
-    # Count @critical_api decorators
+    # Count all security framework decorators
+    security_decorators = [
+        '@critical_api', '@standard_api', '@high_security_api',
+        '@development_only_api', '@public_api'
+    ]
+    security_status['security_decorator_count'] = sum(content.count(decorator) for decorator in security_decorators)
+    security_status['has_security_decorator'] = security_status['security_decorator_count'] > 0
+
+    # For backward compatibility, also track critical_api specifically
     security_status['critical_api_count'] = content.count('@critical_api')
     security_status['has_critical_api'] = security_status['critical_api_count'] > 0
     
@@ -173,7 +181,7 @@ def analyze_file_security(file_path: str) -> Dict:
             security_status['security_patterns'].append(pattern)
     
     # Check for other protection mechanisms
-    if security_status['has_permission_checks'] or security_status['has_role_checks']:
+    if security_status['has_permission_checks'] or security_status['has_role_checks'] or security_status['has_security_decorator']:
         security_status['has_other_protection'] = True
     
     # Find unprotected whitelisted functions
@@ -190,14 +198,15 @@ def analyze_function_protection(lines: List[str], security_status: Dict):
         line = lines[i].strip()
         
         if '@frappe.whitelist()' in line:
-            # Check if this function has @critical_api protection
-            has_critical_api = False
+            # Check if this function has any security framework protection
+            has_security_protection = False
             function_name = None
-            
-            # Look for @critical_api in surrounding lines
+
+            # Look for any security decorator in surrounding lines
+            security_decorators = ['@critical_api', '@standard_api', '@high_security_api', '@development_only_api', '@public_api']
             for j in range(max(0, i - 3), min(len(lines), i + 3)):
-                if '@critical_api' in lines[j]:
-                    has_critical_api = True
+                if any(decorator in lines[j] for decorator in security_decorators):
+                    has_security_protection = True
                     break
             
             # Find the function name
@@ -208,7 +217,7 @@ def analyze_function_protection(lines: List[str], security_status: Dict):
                     break
             
             if function_name:
-                if has_critical_api:
+                if has_security_protection:
                     security_status['protected_functions'].append(function_name)
                 else:
                     security_status['unprotected_whitelisted_functions'].append(function_name)
@@ -237,8 +246,8 @@ def generate_detailed_security_report(analysis: Dict):
     report.append(f"- **Unprotected Files**: {unprotected_count}")
     
     if high_risk_count > 0:
-        high_risk_protection_rate = sum(1 for f in analysis['high_risk_files'] 
-                                      if f['security_status']['has_critical_api'] or f['security_status']['has_other_protection'])
+        high_risk_protection_rate = sum(1 for f in analysis['high_risk_files']
+                                      if f['security_status']['has_security_decorator'] or f['security_status']['has_other_protection'])
         high_risk_percentage = (high_risk_protection_rate / high_risk_count) * 100
         report.append(f"- **High Risk Protection Rate**: {high_risk_protection_rate}/{high_risk_count} ({high_risk_percentage:.1f}%)")
     
@@ -253,9 +262,10 @@ def generate_detailed_security_report(analysis: Dict):
         filename = file_info['filename']
         security = file_info['security_status']
         
-        status_emoji = "🔒" if (security['has_critical_api'] or security['has_other_protection']) else "⚠️"
+        status_emoji = "🔒" if (security['has_security_decorator'] or security['has_other_protection']) else "⚠️"
         report.append(f"### {status_emoji} {filename}")
-        
+
+        report.append(f"- **Security decorators**: {security['security_decorator_count']}")
         report.append(f"- **@critical_api decorators**: {security['critical_api_count']}")
         report.append(f"- **@frappe.whitelist() functions**: {security['whitelist_count']}")
         report.append(f"- **Permission checks**: {'Yes' if security['has_permission_checks'] else 'No'}")
@@ -274,7 +284,7 @@ def generate_detailed_security_report(analysis: Dict):
     
     critical_gaps = []
     for file_info in analysis['high_risk_files']:
-        if not file_info['security_status']['has_critical_api'] and not file_info['security_status']['has_other_protection']:
+        if not file_info['security_status']['has_security_decorator'] and not file_info['security_status']['has_other_protection']:
             critical_gaps.append(file_info)
     
     if critical_gaps:
@@ -289,8 +299,8 @@ def generate_detailed_security_report(analysis: Dict):
     
     # Medium Risk Files
     report.append("## Medium Risk Files Summary")
-    medium_protected = sum(1 for f in analysis['medium_risk_files'] 
-                         if f['security_status']['has_critical_api'] or f['security_status']['has_other_protection'])
+    medium_protected = sum(1 for f in analysis['medium_risk_files']
+                         if f['security_status']['has_security_decorator'] or f['security_status']['has_other_protection'])
     medium_total = len(analysis['medium_risk_files'])
     
     if medium_total > 0:
@@ -311,8 +321,8 @@ def generate_detailed_security_report(analysis: Dict):
         report.append("")
     
     # Priority 2: Medium risk improvements
-    medium_gaps = [f for f in analysis['medium_risk_files'] 
-                   if not f['security_status']['has_critical_api'] and not f['security_status']['has_other_protection']]
+    medium_gaps = [f for f in analysis['medium_risk_files']
+                   if not f['security_status']['has_security_decorator'] and not f['security_status']['has_other_protection']]
     
     if medium_gaps:
         report.append("### ⚠️ Priority 2: Medium Risk Improvements")
@@ -338,15 +348,30 @@ def generate_detailed_security_report(analysis: Dict):
     
     report.append("")
     
+    # List all unprotected files
+    report.append("## All Unprotected Files")
+    if analysis['unprotected_files']:
+        report.append("The following files lack security framework protection:")
+        report.append("")
+        for file_info in analysis['unprotected_files']:
+            filename = file_info['filename']
+            risk_level = file_info['risk_level']
+            whitelist_count = file_info['security_status']['whitelist_count']
+            report.append(f"- **{filename}** ({risk_level} risk) - {whitelist_count} whitelist functions")
+    else:
+        report.append("✅ All files are protected!")
+
+    report.append("")
+
     # Corrected Coverage Calculation
     report.append("## Corrected Coverage Metrics")
     report.append("")
-    
+
     if high_risk_count > 0:
         accurate_coverage = (high_risk_protection_rate / high_risk_count) * 100
         report.append(f"**Accurate High-Risk API Coverage: {accurate_coverage:.1f}%**")
         report.append(f"*(Based on {high_risk_protection_rate} protected out of {high_risk_count} high-risk APIs)*")
-    
+
     overall_protection_rate = (protected_count / total_files) * 100 if total_files > 0 else 0
     report.append(f"**Overall API Protection Rate: {overall_protection_rate:.1f}%**")
     report.append(f"*(Based on {protected_count} protected out of {total_files} total APIs)*")

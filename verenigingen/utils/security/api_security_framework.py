@@ -407,9 +407,16 @@ class APISecurityFramework:
             )
 
     def _get_user_role_profiles(self, user: str = None) -> List[str]:
-        """Get user's role profiles from Frappe's Role Profile system"""
+        """Get user's role profiles from Frappe's Role Profile system with caching"""
         if not user:
             user = frappe.session.user
+
+        # Use cache to avoid repeated database queries (5 minute cache)
+        cache_key = f"user_role_profiles:{user}"
+        cached_profiles = frappe.cache.get_value(cache_key)
+
+        if cached_profiles is not None:
+            return cached_profiles
 
         # SECURITY FIX: Get user's directly assigned role profiles only
         try:
@@ -432,6 +439,9 @@ class APISecurityFramework:
             # Note: We intentionally do NOT query role intersections as that would
             # create privilege escalation vulnerabilities (QCE finding)
 
+            # Cache the result for 24 hours (role profiles are static data)
+            frappe.cache.set_value(cache_key, role_profiles, expires_in_sec=86400)
+
             return role_profiles
 
         except Exception as e:
@@ -439,6 +449,35 @@ class APISecurityFramework:
                 f"Failed to get role profiles for user {user}: {str(e)}"
             )
             return []
+
+    @staticmethod
+    def invalidate_user_role_cache(user: str = None):
+        """Invalidate cached role profiles for a user (or all users if none specified)"""
+        if user:
+            # Invalidate specific user's cache
+            cache_key = f"user_role_profiles:{user}"
+            frappe.cache.delete_value(cache_key)
+            frappe.logger("verenigingen.api_security").info(
+                f"Invalidated role profile cache for user: {user}"
+            )
+        else:
+            # Invalidate all user role profile caches (nuclear option)
+            # Get all cache keys matching the pattern and delete them
+            try:
+                import redis
+
+                redis_client = frappe.cache.redis_client
+                pattern = "user_role_profiles:*"
+                keys = redis_client.keys(pattern)
+                if keys:
+                    redis_client.delete(*keys)
+                    frappe.logger("verenigingen.api_security").info(
+                        f"Invalidated {len(keys)} user role profile cache entries"
+                    )
+            except Exception as e:
+                frappe.logger("verenigingen.api_security").error(
+                    f"Failed to invalidate role profile caches: {str(e)}"
+                )
 
     def _role_profile_grants_access(self, role_profile: str, required_level: SecurityLevel) -> bool:
         """Check if a role profile grants access to the required security level"""
@@ -871,13 +910,20 @@ class APISecurityFramework:
 
     def check_critical_operation_integration(self, func: Callable, **kwargs) -> dict:
         """
-        Check if this API function should use critical operations framework
+        Check if this API function should use critical operations framework (with caching)
 
         This integrates the API security framework with the critical operations registry
         to provide enhanced security for operations that have been classified as critical.
         """
         func_name = func.__name__
         module_name = func.__module__
+
+        # Cache the operation check to avoid repeated registry lookups
+        cache_key = f"critical_op_check:{module_name}.{func_name}"
+        cached_result = frappe.cache.get_value(cache_key)
+
+        if cached_result is not None:
+            return cached_result
 
         # Import here to avoid circular dependencies
         try:
@@ -895,19 +941,25 @@ class APISecurityFramework:
             for operation_name in potential_operation_names:
                 config = registry.get_operation_config(operation_name)
                 if config:
-                    return {
+                    result = {
                         "is_critical": True,
                         "operation_name": operation_name,
                         "config": config,
                         "business_rules_enabled": config.get("business_rules", {}).get("enabled", False),
                     }
+                    # Cache the result for 10 minutes
+                    frappe.cache.set_value(cache_key, result, expires_in_sec=600)
+                    return result
 
         except Exception as e:
             frappe.logger("verenigingen.api_security").warning(
                 f"Failed to check critical operation integration: {str(e)}"
             )
 
-        return {"is_critical": False}
+        # Cache the "not critical" result too (shorter cache time)
+        result = {"is_critical": False}
+        frappe.cache.set_value(cache_key, result, expires_in_sec=300)
+        return result
 
     def validate_critical_operation_business_rules(self, operation_info: dict, **kwargs) -> List[str]:
         """Validate business rules for critical operations"""

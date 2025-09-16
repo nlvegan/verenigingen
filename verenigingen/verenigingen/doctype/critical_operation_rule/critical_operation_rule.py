@@ -124,40 +124,89 @@ class CriticalOperationRule(Document):
 
     def notify_policy_change(self):
         """Send notifications about policy changes following reviewer's pattern"""
+        # Only attempt notifications for critical/high security rules
+        if self.security_level not in ["critical", "high"]:
+            return
+
         try:
+            # Check if email is properly configured before attempting to send
+            if not self._is_email_configured():
+                frappe.logger("critical_operation_rule").info(
+                    f"Skipping email notification for COR '{self.operation_name}' - "
+                    "email not configured in this environment"
+                )
+                return
+
             # Get administrators who should be notified
+            admin_emails = self._get_admin_emails()
+
+            if not admin_emails:
+                frappe.logger("critical_operation_rule").info(
+                    f"No admin emails found for COR notification: {self.operation_name}"
+                )
+                return
+
+            # Send notification for critical/high security rule changes
+            frappe.sendmail(
+                recipients=admin_emails,
+                subject=f"Critical Operation Rule Changed: {self.operation_name}",
+                message=f"""
+                <h3>Security Policy Change Alert</h3>
+                <p><strong>Rule:</strong> {self.operation_name}</p>
+                <p><strong>Security Level:</strong> {self.security_level}</p>
+                <p><strong>Operation Type:</strong> {self.operation_type}</p>
+                <p><strong>Changed By:</strong> {frappe.session.user}</p>
+                <p><strong>Changed At:</strong> {frappe.utils.now()}</p>
+                <p><strong>Enabled:</strong> {'Yes' if self.enabled else 'No'}</p>
+
+                <p>Please review this change to ensure it aligns with security policies.</p>
+                """,
+                send_priority=1,
+            )
+
+        except Exception as e:
+            # Gracefully handle any notification failures - don't interrupt the main flow
+            frappe.logger("critical_operation_rule").warning(
+                f"Could not send policy change notification for '{self.operation_name}': {str(e)}"
+            )
+
+    def _is_email_configured(self):
+        """Check if email is properly configured"""
+        try:
+            # Check if there's a default outgoing email account with valid configuration
+            default_account = frappe.db.get_value(
+                "Email Account", {"default_outgoing": 1}, ["name", "email_id", "enable_outgoing"]
+            )
+
+            if not default_account:
+                return False
+
+            # Check if the email account has a valid email_id
+            return bool(default_account[1])  # email_id should not be None/empty
+
+        except Exception:
+            return False
+
+    def _get_admin_emails(self):
+        """Get list of admin emails for notifications"""
+        try:
             admins = frappe.get_all(
                 "Has Role", filters={"role": "System Manager", "parenttype": "User"}, fields=["parent"]
             )
 
             admin_emails = []
             for admin in admins:
-                user = frappe.get_doc("User", admin.parent)
-                if user.enabled and user.email:
-                    admin_emails.append(user.email)
+                try:
+                    user = frappe.get_doc("User", admin.parent)
+                    if user.enabled and user.email and "@" in user.email:
+                        admin_emails.append(user.email)
+                except Exception:
+                    continue  # Skip problematic user records
 
-            if admin_emails and self.security_level in ["critical", "high"]:
-                # Send notification for critical/high security rule changes
-                frappe.sendmail(
-                    recipients=admin_emails,
-                    subject=f"Critical Operation Rule Changed: {self.operation_name}",
-                    message=f"""
-                    <h3>Security Policy Change Alert</h3>
-                    <p><strong>Rule:</strong> {self.operation_name}</p>
-                    <p><strong>Security Level:</strong> {self.security_level}</p>
-                    <p><strong>Operation Type:</strong> {self.operation_type}</p>
-                    <p><strong>Changed By:</strong> {frappe.session.user}</p>
-                    <p><strong>Changed At:</strong> {frappe.utils.now()}</p>
-                    <p><strong>Enabled:</strong> {'Yes' if self.enabled else 'No'}</p>
+            return admin_emails
 
-                    <p>Please review this change to ensure it aligns with security policies.</p>
-                    """,
-                    send_priority=1,
-                )
-
-        except Exception as e:
-            # Don't fail the document save if notifications fail
-            frappe.log_error(f"Failed to send policy change notification: {str(e)}")
+        except Exception:
+            return []
 
     @staticmethod
     def get_rule_config(operation_name: str) -> dict:

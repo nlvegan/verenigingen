@@ -27,19 +27,19 @@ def get_context(context):
 
         # Get volunteer profile info (this might be failing)
         try:
-            context.volunteer_profile = get_volunteer_profile(volunteer.name)
+            context.volunteer_profile = get_volunteer_profile(volunteer["name"])
         except Exception as e:
             frappe.log_error(
                 f"Error getting volunteer profile: {str(e)}", "Volunteer Dashboard Profile Error"
             )
             context.volunteer_profile = {
-                "name": volunteer.name,
+                "name": volunteer["name"],
                 "volunteer_name": volunteer.get("volunteer_name", "Unknown"),
             }
 
         # Get volunteer's organizations (this might be failing)
         try:
-            context.organizations = get_volunteer_organizations(volunteer.name)
+            context.organizations = get_volunteer_organizations(volunteer["name"])
         except Exception as e:
             frappe.log_error(
                 f"Error getting volunteer organizations: {str(e)}", "Volunteer Dashboard Orgs Error"
@@ -48,7 +48,7 @@ def get_context(context):
 
         # Get recent activities with user-friendly error handling
         try:
-            context.recent_activities = get_recent_activities(volunteer.name)
+            context.recent_activities = get_recent_activities(volunteer["name"])
         except Exception as e:
             frappe.log_error(
                 f"Error getting recent activities: {str(e)}", "Volunteer Dashboard Activities Error"
@@ -61,9 +61,7 @@ def get_context(context):
 
         # Get expense summary with user-friendly error handling
         try:
-            from verenigingen.utils.volunteer_statistics import get_volunteer_expense_summary
-
-            context.expense_summary = get_volunteer_expense_summary(volunteer.name)
+            context.expense_summary = get_expense_summary(volunteer["name"])
         except Exception as e:
             frappe.log_error(f"Error getting expense summary: {str(e)}", "Volunteer Dashboard Expenses Error")
             context.expense_summary = {
@@ -80,7 +78,7 @@ def get_context(context):
 
         # Get upcoming assignments/activities with user-friendly error handling
         try:
-            context.upcoming_activities = get_upcoming_activities(volunteer.name)
+            context.upcoming_activities = get_upcoming_activities(volunteer["name"])
         except Exception as e:
             frappe.log_error(
                 f"Error getting upcoming activities: {str(e)}", "Volunteer Dashboard Upcoming Error"
@@ -280,42 +278,65 @@ def get_recent_activities(volunteer_name):
 
 
 def get_expense_summary(volunteer_name):
-    """Get expense summary for the volunteer with optimized aggregation"""
-    from_date = add_months(today(), -12)
-    recent_date = add_months(today(), -1)
+    """Get expense summary for the volunteer using the same query as expenses page"""
+    try:
+        # Get volunteer document and employee_id (same as expenses page)
+        volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
+        if not volunteer_doc.employee_id:
+            return {
+                "total_submitted": 0,
+                "total_approved": 0,
+                "pending_count": 0,
+                "recent_count": 0,
+                "pending_amount": 0,
+            }
 
-    # Use SQL aggregation for better performance
-    summary_data = frappe.db.sql(
-        """
-        SELECT
-            SUM(CASE WHEN status IN ('Submitted', 'Approved') THEN amount ELSE 0 END) as total_submitted,
-            SUM(CASE WHEN status = 'Approved' THEN amount ELSE 0 END) as total_approved,
-            COUNT(CASE WHEN status = 'Submitted' THEN 1 END) as pending_count,
-            COUNT(CASE WHEN expense_date >= %s THEN 1 END) as recent_count
-        FROM `tabVolunteer Expense`
-        WHERE volunteer = %s
-        AND expense_date >= %s
-        AND docstatus != 2
-    """,
-        [recent_date, volunteer_name, from_date],
-        as_dict=True,
-    )
+        from_date = add_months(today(), -12)
+        recent_date = add_months(today(), -1)
 
-    if summary_data:
-        summary = summary_data[0]
-        summary["pending_amount"] = flt(summary["total_approved"]) - flt(summary["total_submitted"])
-        # Convert decimals to float for JSON serialization
-        for key in ["total_submitted", "total_approved"]:
-            summary[key] = flt(summary[key])
-        return summary
+        # Use the exact same SQL query as expenses page
+        stats_result = frappe.db.sql(
+            """
+            SELECT
+                COUNT(*) as total_count,
+                COALESCE(SUM(total_claimed_amount), 0) as total_submitted,
+                COALESCE(SUM(CASE
+                    WHEN status IN ('Paid', 'Reimbursed') OR approval_status = 'Approved'
+                    THEN COALESCE(total_sanctioned_amount, total_claimed_amount)
+                    ELSE 0
+                END), 0) as total_approved,
+                COUNT(CASE
+                    WHEN status IN ('Paid', 'Reimbursed') OR approval_status = 'Approved'
+                    THEN 1
+                END) as approved_count,
+                COUNT(CASE WHEN posting_date >= %s THEN 1 END) as recent_count,
+                COUNT(CASE WHEN status = 'Draft' OR (status = 'Submitted' AND approval_status != 'Approved') THEN 1 END) as pending_count
+            FROM `tabExpense Claim`
+            WHERE employee = %s AND docstatus != 2 AND posting_date >= %s
+        """,
+            [recent_date, volunteer_doc.employee_id, from_date],
+            as_dict=True,
+        )[0]
 
-    return {
-        "total_submitted": 0,
-        "total_approved": 0,
-        "pending_count": 0,
-        "recent_count": 0,
-        "pending_amount": 0,
-    }
+        return {
+            "total_submitted": flt(stats_result.total_submitted),
+            "total_approved": flt(stats_result.total_approved),
+            "pending_count": stats_result.pending_count or 0,
+            "recent_count": stats_result.recent_count or 0,
+            "pending_amount": flt(stats_result.total_submitted) - flt(stats_result.total_approved),
+        }
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error getting expense summary for {volunteer_name}: {str(e)}", "Dashboard Expense Summary Error"
+        )
+        return {
+            "total_submitted": 0,
+            "total_approved": 0,
+            "pending_count": 0,
+            "recent_count": 0,
+            "pending_amount": 0,
+        }
 
 
 def get_upcoming_activities(volunteer_name):

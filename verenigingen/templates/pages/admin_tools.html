@@ -144,7 +144,7 @@ if (typeof frappe !== 'undefined' && frappe.ready) {
                                     <button class="btn btn-sm btn-{{ tool.color }} execute-tool"
                                             data-method="{{ tool.method }}"
                                             data-title="{{ tool.title }}"
-                                            {% if tool.args %}data-args='{{ tool.args|tojson|safe }}'{% endif %}
+                                            {% if tool.args %}data-args='{{ tool.args|replace("True", "true")|replace("False", "false")|tojson|safe }}'{% endif %}
                                             {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}>
                                         <i class="fa fa-play"></i> Execute
                                     </button>
@@ -187,7 +187,7 @@ if (typeof frappe !== 'undefined' && frappe.ready) {
                                     <button class="btn btn-sm btn-{{ tool.color }} execute-tool"
                                             data-method="{{ tool.method }}"
                                             data-title="{{ tool.title }}"
-                                            {% if tool.args %}data-args='{{ tool.args|tojson|safe }}'{% endif %}
+                                            {% if tool.args %}data-args='{{ tool.args|replace("True", "true")|replace("False", "false")|tojson|safe }}'{% endif %}
                                             {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}>
                                         <i class="fa fa-play"></i> Execute
                                     </button>
@@ -233,7 +233,7 @@ if (typeof frappe !== 'undefined' && frappe.ready) {
                                     <button class="btn btn-sm btn-{{ tool.color }} execute-tool"
                                             data-method="{{ tool.method }}"
                                             data-title="{{ tool.title }}"
-                                            {% if tool.args %}data-args='{{ tool.args|tojson|safe }}'{% endif %}
+                                            {% if tool.args %}data-args='{{ tool.args|replace("True", "true")|replace("False", "false")|tojson|safe }}'{% endif %}
                                             {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}>
                                         <i class="fa fa-play"></i> Execute
                                     </button>
@@ -279,7 +279,7 @@ if (typeof frappe !== 'undefined' && frappe.ready) {
                                     <button class="btn btn-sm btn-{{ tool.color }} execute-tool"
                                             data-method="{{ tool.method }}"
                                             data-title="{{ tool.title }}"
-                                            {% if tool.args %}data-args='{{ tool.args|tojson|safe }}'{% endif %}
+                                            {% if tool.args %}data-args='{{ tool.args|replace("True", "true")|replace("False", "false")|tojson|safe }}'{% endif %}
                                             {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}>
                                         <i class="fa fa-play"></i> Execute
                                     </button>
@@ -684,13 +684,21 @@ function formatInvoiceResult(result) {
 function formatHealthResult(result) {
     var html = '<h5>System Health Status</h5>';
     // Add health-specific formatting here
-    return html + '<pre class="bg-light p-3">' + JSON.stringify(result, null, 2) + '</pre>';
+    try {
+        return html + '<pre class="bg-light p-3">' + JSON.stringify(result, null, 2) + '</pre>';
+    } catch (e) {
+        return html + '<pre class="bg-light p-3">' + String(result) + '</pre>';
+    }
 }
 
 function formatPerformanceResult(result) {
     var html = '<h5>Performance Metrics</h5>';
     // Add performance-specific formatting here
-    return html + '<pre class="bg-light p-3">' + JSON.stringify(result, null, 2) + '</pre>';
+    try {
+        return html + '<pre class="bg-light p-3">' + JSON.stringify(result, null, 2) + '</pre>';
+    } catch (e) {
+        return html + '<pre class="bg-light p-3">' + String(result) + '</pre>';
+    }
 }
 
 function formatSecurityResult(result) {
@@ -993,7 +1001,11 @@ function formatGenericResult(result) {
     var html = '<h5 class="text-brand-primary mb-3">Results</h5>';
     if (typeof result === 'object') {
         html += '<div class="bg-light p-3" style="max-height: 400px; overflow-y: auto; border-left: 4px solid var(--brand-primary, #F99F20); background-color: var(--brand-bg-secondary, #f8f9fa);">';
-        html += '<pre style="margin: 0; font-family: \'Monaco\', \'Menlo\', \'Ubuntu Mono\', monospace; font-size: 0.875rem; color: var(--brand-text-primary, #333);">' + JSON.stringify(result, null, 2) + '</pre>';
+        try {
+            html += '<pre style="margin: 0; font-family: \'Monaco\', \'Menlo\', \'Ubuntu Mono\', monospace; font-size: 0.875rem; color: var(--brand-text-primary, #333);">' + JSON.stringify(result, null, 2) + '</pre>';
+        } catch (e) {
+            html += '<pre style="margin: 0; font-family: \'Monaco\', \'Menlo\', \'Ubuntu Mono\', monospace; font-size: 0.875rem; color: var(--brand-text-primary, #333);">' + String(result) + '</pre>';
+        }
         html += '</div>';
     } else {
         html += '<div class="alert" style="background-color: rgba(var(--brand-secondary-rgb, 26, 85, 95), 0.1); border-color: var(--brand-secondary, #1A555F); color: var(--brand-secondary, #1A555F);">' + result + '</div>';
@@ -1110,7 +1122,13 @@ function initializeAdminTools() {
                             }
                         } else {
                             // Fallback - just show an alert with results
-                            alert('Tool executed successfully!\n\nResult: ' + JSON.stringify(r.message.result, null, 2));
+                            var resultText;
+                            try {
+                                resultText = JSON.stringify(r.message.result, null, 2);
+                            } catch (e) {
+                                resultText = String(r.message.result);
+                            }
+                            alert('Tool executed successfully!\n\nResult: ' + resultText);
                         }
                     } else {
                         alert('Error: ' + (r.message ? r.message.error : 'Failed to execute tool'));
@@ -1164,8 +1182,15 @@ function initializeAdminTools() {
                     button.innerHTML = '<i class="fa fa-play"></i> Execute';
 
                     if (response.message && response.message.success) {
-                        // Show results in alert for now (modal requires bootstrap)
-                        alert('Tool executed successfully!\n\nResult: ' + JSON.stringify(response.message.result, null, 2));
+                        // Safely format the result for display
+                        var resultText;
+                        try {
+                            resultText = JSON.stringify(response.message.result, null, 2);
+                        } catch (e) {
+                            // Fallback if JSON.stringify fails
+                            resultText = String(response.message.result);
+                        }
+                        alert('Tool executed successfully!\n\nResult: ' + resultText);
                     } else {
                         alert('Error: ' + (response.message ? response.message.error : 'Failed to execute tool'));
                     }

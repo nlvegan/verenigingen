@@ -62,7 +62,7 @@ class ContributionAmendmentRequest(Document):
 
         # Use validation utilities for existence and status checking
         DocumentExistenceValidator.validate_document_exists(
-            self.membership, "Membership", "Membership is required for amendment request"
+            "Membership", self.membership, "Membership is required for amendment request"
         )
 
         membership = frappe.get_doc("Membership", self.membership)

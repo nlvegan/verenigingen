@@ -621,15 +621,44 @@ def execute_admin_tool(method, args=None):
         if args:
             import json
 
-            # Parse args if string
-            args = json.loads(args) if isinstance(args, str) else args
+            try:
+                # Parse args if string
+                if isinstance(args, str):
+                    # Handle common malformed JSON cases
+                    args = args.strip()
+                    if not args:
+                        args = {}
+                    elif args.startswith("{") and args.endswith("}"):
+                        # Decode HTML entities that may be present from template rendering
+                        import html
 
-            # Validate args is a dict
-            if not isinstance(args, dict):
-                frappe.throw(_("Invalid arguments format"), frappe.ValidationError)
+                        decoded_args = html.unescape(args)
+                        args = json.loads(decoded_args)
+                    else:
+                        # Log the problematic input for debugging
+                        frappe.log_error(
+                            f"Invalid JSON args received for method {method}: {args[:100]}",
+                            "Admin Tool Args Error",
+                        )
+                        frappe.throw(
+                            _('Invalid JSON format in arguments. Expected format: {{"key": "value"}}'),
+                            frappe.ValidationError,
+                        )
 
-            # Execute with arguments
-            result = func(**args)
+                # Validate args is a dict
+                if not isinstance(args, dict):
+                    frappe.throw(_("Invalid arguments format - must be a dictionary"), frappe.ValidationError)
+
+                # Execute with arguments
+                result = func(**args)
+            except json.JSONDecodeError as e:
+                frappe.log_error(
+                    f"JSON parsing error in admin tool {method}: {str(e)} | Raw args: {args[:200] if isinstance(args, str) else str(args)[:200]}",
+                    "Admin Tool JSON Error",
+                )
+                frappe.throw(
+                    _("Invalid JSON format in arguments: {0}").format(str(e)), frappe.ValidationError
+                )
         else:
             # Execute without arguments
             result = func()
