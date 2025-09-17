@@ -305,7 +305,7 @@ def create_unreconciled_payment_entry(mutation, company, cost_center, payment_ty
             if not result.success:
                 frappe.throw(f"Failed to create payment entry: {'; '.join(result.errors)}")
 
-            pe = result.doc  # Get the inserted document
+            pe = result.document  # Get the inserted document
             pe.submit()
             return {"success": True, "payment_entry": pe.name}
         except IntegrityError as ie:

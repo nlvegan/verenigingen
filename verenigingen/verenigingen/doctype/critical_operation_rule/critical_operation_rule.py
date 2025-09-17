@@ -91,7 +91,26 @@ class CriticalOperationRule(Document):
     def validate_notification_settings(self):
         """Validate notification configuration"""
         if self.alert_on_execution and not self.notification_recipients:
-            frappe.throw(_("Notification recipients are required when alert on execution is enabled"))
+            # Auto-populate from Verenigingen Settings if available
+            try:
+                settings = frappe.get_single("Verenigingen Settings")
+                # Try contact_email first, fall back to member_contact_email
+                contact_email = getattr(settings, "contact_email", None) or getattr(
+                    settings, "member_contact_email", None
+                )
+                if contact_email:
+                    self.notification_recipients = contact_email
+                    frappe.logger().info(
+                        f"Auto-populated notification recipients for COR {self.name}: {contact_email}"
+                    )
+                else:
+                    frappe.throw(
+                        _(
+                            "Notification recipients are required when alert on execution is enabled. Please configure contact_email or member_contact_email in Verenigingen Settings."
+                        )
+                    )
+            except Exception:
+                frappe.throw(_("Notification recipients are required when alert on execution is enabled"))
 
         if self.notification_recipients:
             # Basic email validation for recipients

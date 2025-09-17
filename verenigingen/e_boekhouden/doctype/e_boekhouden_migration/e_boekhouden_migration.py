@@ -3524,7 +3524,7 @@ def update_account_type_mapping(account_name, new_account_type, company):
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
-def run_migration_background(migration_name):
+def run_migration_background(migration_name, setup_only=False):
     """Background function to run migration without timeout issues"""
     try:
         migration = frappe.get_doc("E-Boekhouden Migration", migration_name)

@@ -273,7 +273,7 @@ def batch_suggest_chapters_for_members(
     return lookup.batch_find_chapters_for_members(members_with_postal_codes)
 
 
-def invalidate_chapter_lookup_cache():
+def invalidate_chapter_lookup_cache(doc=None, method=None):
     """Invalidate the chapter lookup cache (call when chapters are modified)"""
     lookup = get_lookup_instance()
     lookup.invalidate_cache()

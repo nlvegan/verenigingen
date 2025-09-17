@@ -100,7 +100,7 @@ def fix_workspace(force_enable=False):
                 return f"Failed to update workspace: {'; '.join(result.errors)}"
 
             # Only commit if operation was successful
-            workspace = result.doc  # Use the saved document from secure operation
+            workspace = result.document  # Use the saved document from secure operation
             frappe.db.commit()
 
             # Clear cache

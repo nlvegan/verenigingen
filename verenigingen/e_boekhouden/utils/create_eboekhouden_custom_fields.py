@@ -132,6 +132,15 @@ def create_eboekhouden_tracking_fields():
                 "description": "0=Opening, 1=PurchInv, 2=SalesInv, 3=CustPayment, 4=SuppPayment, 5=MoneyReceived, 6=MoneySent, 7=Memorial",
             },
         ],
+        "Account": [
+            {
+                "fieldname": "eboekhouden_grootboek_nummer",
+                "label": "E-Boekhouden Grootboek Nummer",
+                "fieldtype": "Data",
+                "insert_after": "account_name",
+                "module": "E-Boekhouden",
+            },
+        ],
     }
 
     try:

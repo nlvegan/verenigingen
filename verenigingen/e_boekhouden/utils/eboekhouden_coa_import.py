@@ -485,7 +485,7 @@ def get_or_create_bank(bank_info):
             frappe.log_error(f"Failed to create Bank record {bank.bank_name}: {'; '.join(result.errors)}")
             return None
 
-        bank = result.doc
+        bank = result.document
         frappe.logger().info(f"Created Bank: {bank.name}")
         return bank.name
 
@@ -567,7 +567,7 @@ def create_bank_account_record(account, bank_name, bank_info, company):
             )
             return None
 
-        bank_account = result.doc
+        bank_account = result.document
 
         # Validate the mapping was successful
         if not bank_account.account:

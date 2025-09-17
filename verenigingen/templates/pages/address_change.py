@@ -294,7 +294,7 @@ def update_member_address(address_data):
                     _("Failed to create address: {}").format("; ".join(result.errors)), frappe.ValidationError
                 )
 
-            address_doc = result.doc  # Use the saved document from secure operation
+            address_doc = result.document  # Use the saved document from secure operation
 
             # Link to member using database update to bypass permissions
             frappe.db.set_value("Member", member_name, "primary_address", address_doc.name)
