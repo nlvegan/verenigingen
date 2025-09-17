@@ -68,7 +68,7 @@ The framework defines five security levels with corresponding requirements:
   - Rate limit: 10 calls/hour
   - Full audit logging
   - IP restrictions enabled
-  - Business hours validation
+  - Optional business hours validation for SEPA operations
 
 #### HIGH
 - **Use Cases**: Member data access, batch operations, administrative functions
