@@ -244,9 +244,6 @@ For financial operations, the security model integrates with ERPNext:
 ### Security Benefits
 
 #### Risk Reduction
-- **85% reduction** in financial operation risks through controls
-- **70% reduction** in member data access risks through enhanced permissions
-- **90% reduction** in administrative operation risks through approval workflows
 - **Elimination** of unmonitored critical operations
 
 #### Compliance Benefits
@@ -319,8 +316,6 @@ For financial operations, the security model integrates with ERPNext:
 
 #### Industry Leadership
 - **Framework Contribution**: Contribution to Frappe security ecosystem
-- **Best Practice Sharing**: Industry leadership in association management security
-- **Certification Support**: Support for security certifications and compliance frameworks
 
 #### Ecosystem Integration
 - **Partner Integration**: Secure integration with partner systems
