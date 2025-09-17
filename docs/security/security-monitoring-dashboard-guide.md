@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide provides comprehensive implementation instructions for the enhanced security monitoring dashboard, designed based on the July 2025 security review findings and next phase implementation requirements.
+This guide provides implementation instructions for the enhanced security monitoring dashboard, designed based on the July 2025 security review findings and next phase implementation requirements.
 
 **Target**: Transition from 82/100 to 90/100 security score with real-time monitoring capabilities.
 
@@ -63,7 +63,7 @@ from typing import Dict, List, Any
 from verenigingen.utils.security.api_security_framework import get_security_framework_status
 
 class SecurityMetricsCalculator:
-    """Calculate comprehensive security metrics for dashboard"""
+    """Calculate security metrics for dashboard"""
 
     def __init__(self):
         self.framework_status = get_security_framework_status()

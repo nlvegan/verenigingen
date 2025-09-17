@@ -39,7 +39,7 @@ def get_webhook_secret(self):
 
 **File**: `verenigingen/utils/webhook_security.py` (NEW)
 
-Created comprehensive security utilities including:
+Created security utilities including:
 
 - `verify_mollie_webhook_signature()`: Core HMAC-SHA256 signature verification
 - `authenticate_mollie_webhook()`: Complete request authentication with error handling
@@ -50,7 +50,7 @@ Key security features:
 - Constant-time signature comparison to prevent timing attacks
 - Proper error handling and logging
 - Support for Mollie's `sha256=` signature format
-- Comprehensive security event logging
+- security event logging
 
 ### 3. Webhook Endpoint Security
 

@@ -79,16 +79,22 @@ def _get_mollie_settings_for_webhook(gateway_name: str = "Default") -> Dict[str,
         # Use proper role-based access - webhook user should have read access to Mollie Settings
         settings_doc = frappe.get_doc("Mollie Settings", "Mollie Settings")
 
+        # Check if Mollie is properly configured (equivalent to "enabled")
+        api_key = settings_doc.get_active_api_key()
+        is_enabled = bool(settings_doc.profile_id and api_key)
+
         # Return only webhook-safe fields (no sensitive configuration data)
         return {
             "gateway_type": "mollie",
             "gateway_name": gateway_name,
-            "enabled": getattr(settings_doc, "enabled", False),
-            "is_sandbox": getattr(settings_doc, "is_sandbox", True),
-            "api_key": settings_doc.get_active_api_key(),  # Uses existing safe method
-            "webhook_url": getattr(settings_doc, "webhook_url", ""),
-            "currency": getattr(settings_doc, "currency", "EUR"),
-            "company": getattr(settings_doc, "company", ""),
+            "enabled": is_enabled,
+            "is_sandbox": getattr(settings_doc, "test_mode", True),
+            "api_key": api_key,
+            "webhook_url": getattr(settings_doc, "testing_webhook_url", "")
+            if getattr(settings_doc, "test_mode", True)
+            else getattr(settings_doc, "live_webhook_url", ""),
+            "currency": "EUR",  # Mollie supports many currencies, EUR is default
+            "company": "",  # Not stored in Mollie Settings
             # Don't expose: admin settings, webhook secrets, configuration URLs
         }
 

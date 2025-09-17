@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document provides comprehensive documentation for the Verenigingen security framework, specifically addressing the critical security vulnerabilities related to `frappe.get_roles()` usage and implementing production-ready security wrappers.
+This document provides documentation for the Verenigingen security framework, specifically addressing the critical security vulnerabilities related to `frappe.get_roles()` usage and implementing production-ready security wrappers.
 
 ## Executive Summary
 
@@ -17,7 +17,7 @@ The Frappe framework contains a systemic vulnerability where `frappe.get_roles(N
 
 ### Solution Implemented
 
-We have implemented a comprehensive security framework consisting of:
+We have implemented a security framework consisting of:
 
 1. **Centralized Security Wrappers** (`utils/security_wrappers.py`)
 2. **Security Audit Script** (`utils/security_audit_script.py`)
@@ -69,7 +69,7 @@ validate_security_wrapper_installation() -> bool
 
 **Usage**:
 ```bash
-# Run comprehensive audit
+# Run audit
 bench --site dev.veganisme.net execute verenigingen.utils.security_audit_script.run_comprehensive_audit
 
 # Generate security report
@@ -179,7 +179,7 @@ bench --site dev.veganisme.net run-tests --module verenigingen.tests --pattern="
 
 ### Audit Logging
 
-The security framework provides comprehensive audit logging:
+The security framework provides audit logging:
 
 ```python
 # Get security audit information
@@ -226,7 +226,7 @@ grep "suspicious\|invalid\|security" /home/frappe/frappe-bench/logs/frappe.log
 
 ### Pre-Deployment Checklist
 
-- [ ] **Run Security Audit**: Execute comprehensive security audit script
+- [ ] **Run Security Audit**: Execute security audit script
 - [ ] **Review Critical Issues**: Address all CRITICAL and HIGH risk findings
 - [ ] **Run Test Suite**: Execute full security test suite
 - [ ] **Validate Installation**: Run `validate_security_wrapper_installation()`

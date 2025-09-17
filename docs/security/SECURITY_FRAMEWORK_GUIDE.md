@@ -18,14 +18,14 @@
 
 ## Overview
 
-The Verenigingen Security Framework implements a pragmatic, layered security approach designed specifically for association management operations. Rather than attempting to secure every operation, it focuses on the 50-70 critical operations that represent 80% of security risk.
+The Verenigingen Security Framework implements a layered security approach for association management operations. Rather than attempting to secure every operation, it focuses on the 50-70 critical operations that represent 80% of security risk.
 
 ### Key Components
 
 - **Critical Operation Rules**: Runtime-configurable security policies stored in database
 - **API Security Framework**: Decorator-based security layers for API endpoints
 - **Security Monitoring**: Business logic monitoring and anomaly detection
-- **Audit Logging**: Comprehensive tracking of security events
+- **Audit Logging**: Tracking of security events
 
 ### Design Philosophy
 
@@ -33,7 +33,7 @@ The framework follows a **Selective Hardening** approach:
 - **80/20 Principle**: Secure the 20% of operations that represent 80% of risk
 - **Runtime Configuration**: Security policies managed via DocType without code deployment
 - **Business Logic Awareness**: Security rules understand business context and thresholds
-- **Performance Optimized**: Minimal overhead for non-critical operations
+- **Performance Optimization**: Minimal overhead for non-critical operations
 
 ## Architecture
 
@@ -373,7 +373,7 @@ When a Critical Operation Rule exists for the function name, the framework will:
 
 ### Business Logic Monitoring
 
-The security framework includes comprehensive business logic monitoring that goes beyond technical security to detect suspicious patterns:
+The security framework includes business logic monitoring that goes beyond technical security to detect suspicious patterns:
 
 #### High-Value Payment Detection
 ```python
@@ -958,4 +958,4 @@ def debug_rate_limit_performance():
     }
 ```
 
-This comprehensive guide provides everything needed to understand, implement, and maintain the Verenigingen Security Framework. For additional support, refer to the related documentation files or contact the development team.
+This guide provides everything needed to understand, implement, and maintain the Verenigingen Security Framework. For additional support, refer to the related documentation files or contact the development team.

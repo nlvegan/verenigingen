@@ -341,7 +341,7 @@ The Role Profile Integration transforms the API Security Framework from a hardco
 - ✅ **Backwards compatibility maintained** (existing code works unchanged)
 - ✅ **Self-service operations secured** (volunteers can submit own expenses safely)
 
-The system now provides **enterprise-grade security** that **scales with organizational changes** and **aligns with business requirements** while maintaining the **architectural integrity** of the existing Frappe RBAC system.
+The system now provides **quality security** that **scales with organizational changes** and **aligns with business requirements** while maintaining the **architectural integrity** of the existing Frappe RBAC system.
 
 ---
 

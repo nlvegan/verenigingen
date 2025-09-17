@@ -26,7 +26,6 @@ from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
-@public_api(operation_type=OperationType.FINANCIAL)
 def handle_mollie_payment_webhook():
     """
     Handle Mollie webhook for existing donations

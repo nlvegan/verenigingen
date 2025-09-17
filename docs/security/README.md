@@ -6,14 +6,33 @@
 
 ## Overview
 
-The Verenigingen Security Framework provides comprehensive, pragmatic security for association management operations. This documentation suite covers all aspects of the security implementation, from high-level strategy to detailed technical implementation.
+The Verenigingen Security Framework provides security across all security domains for Dutch association management operations. This documentation suite covers all aspects of security implementation with equal depth and detail across network security, authentication, data protection, integration security, and operational security.
+
+**Security Coverage:**
+- **Security Domains**: Equal coverage of network, authentication, data, integration, and operational security
+- **Defense-in-Depth**: Multiple security layers providing protection
+- **Regulatory Compliance**: GDPR, Dutch financial regulations, and industry standards
+- **Implementation**: Practical guidance based on actual codebase analysis
+- **Balanced Documentation**: No single security aspect dominates the framework
 
 ## Documentation Structure
+
+### 📋 [security Guide](COMPREHENSIVE_SECURITY_GUIDE.md) **⭐ START HERE**
+**Audience**: All Users - Security Overview, Stakeholders, Technical Teams
+
+Security framework covering all security domains with equal detail:
+- **Network & Web Security**: CORS, CSP, HTTPS, rate limiting
+- **Authentication & Authorization**: Session management, RBAC, permission systems
+- **Data Security & Privacy**: Encryption, audit logging, GDPR compliance
+- **Integration Security**: External APIs, webhooks, credential management
+- **Operational Security**: Environment configs, monitoring, incident response
+- **Security Architecture**: Defense-in-depth, threat modeling
+- **Implementation Guides**: Development, testing, deployment security
 
 ### 🏛️ [Security Model Overview](SECURITY_MODEL_OVERVIEW.md)
 **Audience**: Stakeholders, Management, Security Teams
 
-Comprehensive overview of the security philosophy, risk assessment framework, and business impact. Covers:
+Business-focused overview of the security philosophy, risk assessment framework, and business impact. Covers:
 - Security principles and strategy
 - Risk classification and mitigation
 - Compliance and regulatory alignment
@@ -23,10 +42,9 @@ Comprehensive overview of the security philosophy, risk assessment framework, an
 ### 🔧 [Security Framework Guide](SECURITY_FRAMEWORK_GUIDE.md)
 **Audience**: Developers, Technical Teams, System Administrators
 
-Complete technical documentation covering implementation and configuration. Includes:
-- Architecture and component overview
+Technical implementation guide focusing on specific framework components. Includes:
+- API Security Framework detailed implementation
 - Critical Operation Rules management
-- API Security Framework usage
 - Security Monitoring implementation
 - Configuration management
 - Best practices and troubleshooting
@@ -36,7 +54,7 @@ Complete technical documentation covering implementation and configuration. Incl
 
 Practical day-to-day workflows for implementing security in development. Features:
 - Step-by-step implementation workflows
-- API development patterns
+- API development patterns with security decorators
 - Testing procedures and examples
 - Code review guidelines
 - Deployment and migration procedures
@@ -45,7 +63,7 @@ Practical day-to-day workflows for implementing security in development. Feature
 ### 📚 [API Reference](API_REFERENCE.md)
 **Audience**: Developers, Technical Reference
 
-Complete reference documentation for all security framework components:
+Reference documentation for API security framework components:
 - Security decorators and their parameters
 - Security levels and operation types
 - Critical Operation Rules API
@@ -55,53 +73,112 @@ Complete reference documentation for all security framework components:
 
 ## Quick Start Guide
 
+### For All Users (Recommended Start)
+
+1. **Start with**: [security Guide](COMPREHENSIVE_SECURITY_GUIDE.md) ⭐
+   - Complete overview of all security domains
+   - Balanced coverage across network, authentication, data, integration, and operational security
+   - Implementation guidance for all security aspects
+   - Architecture overview and threat modeling
+
 ### For Stakeholders and Management
 
-1. **Start with**: [Security Model Overview](SECURITY_MODEL_OVERVIEW.md)
-   - Understand the business case and security strategy
-   - Review compliance and regulatory alignment
-   - Assess business impact and benefits
+1. **Executive Overview**: [security Guide - Executive Summary](COMPREHENSIVE_SECURITY_GUIDE.md#executive-summary)
+   - Complete security coverage overview
+   - Compliance and regulatory alignment
+   - Business impact and benefits
 
-2. **Key Sections**:
-   - Executive Summary
-   - Risk Assessment Framework
-   - Business Impact and Benefits
-   - Compliance and Regulatory Alignment
+2. **Deep Dive**: [Security Model Overview](SECURITY_MODEL_OVERVIEW.md)
+   - Detailed business case and security strategy
+   - Risk assessment framework
+   - ROI analysis and business benefits
 
 ### For Developers
 
-1. **Start with**: [Developer Workflow Guide](DEVELOPER_WORKFLOW_GUIDE.md)
-   - Set up development environment
-   - Learn implementation patterns
-   - Understand testing procedures
+1. **Implementation Guide**: [security Guide - Security Implementation Guide](COMPREHENSIVE_SECURITY_GUIDE.md#security-implementation-guide)
+   - Development security practices
+   - Testing security procedures
+   - Deployment security checklist
 
-2. **Reference**: [API Reference](API_REFERENCE.md)
-   - Find specific decorator usage
-   - Look up function parameters
-   - Check error handling patterns
+2. **Day-to-Day Workflows**: [Developer Workflow Guide](DEVELOPER_WORKFLOW_GUIDE.md)
+   - API security decorator usage
+   - Step-by-step implementation patterns
+   - Code review guidelines
 
-3. **Deep Dive**: [Security Framework Guide](SECURITY_FRAMEWORK_GUIDE.md)
-   - Understand architecture details
-   - Learn configuration management
-   - Implement advanced features
+3. **Technical Reference**: [API Reference](API_REFERENCE.md)
+   - Specific decorator parameters
+   - Function signatures and examples
+   - Error handling patterns
 
 ### For System Administrators
 
-1. **Start with**: [Security Framework Guide](SECURITY_FRAMEWORK_GUIDE.md)
-   - Understand system architecture
-   - Learn configuration management
-   - Set up monitoring and alerting
+1. **Operational Security**: [security Guide - Operational Security](COMPREHENSIVE_SECURITY_GUIDE.md#operational-security)
+   - Environment configuration
+   - Security monitoring setup
+   - Incident response procedures
 
-2. **Reference**: [Security Model Overview](SECURITY_MODEL_OVERVIEW.md)
-   - Understand compliance requirements
-   - Review incident response procedures
-   - Plan capacity and resources
+2. **Framework Implementation**: [Security Framework Guide](SECURITY_FRAMEWORK_GUIDE.md)
+   - API Security Framework configuration
+   - Critical Operation Rules management
+   - Advanced troubleshooting
+
+### For Security Teams
+
+1. **Security Architecture**: [security Guide](COMPREHENSIVE_SECURITY_GUIDE.md)
+   - All security domains covered equally
+   - Threat modeling and defense-in-depth
+   - Compliance and regulatory requirements
+
+2. **Business Alignment**: [Security Model Overview](SECURITY_MODEL_OVERVIEW.md)
+   - Security strategy and principles
+   - Risk assessment framework
+   - Business impact analysis
 
 ## Key Concepts
 
-### Security Levels
+### Security Domains
 
-The framework defines five security levels with specific requirements:
+The Verenigingen Security Framework covers six primary security domains:
+
+1. **Network & Web Security**
+   - CORS and CSP policies
+   - HTTPS enforcement and TLS configuration
+   - Rate limiting and DDoS protection
+   - Secure headers and content protection
+
+2. **Authentication & Authorization**
+   - Multi-factor authentication support
+   - Role-based access control (RBAC)
+   - Session management and security
+   - Permission inheritance and validation
+
+3. **Data Security & Privacy**
+   - Field-level encryption (AES-256)
+   - GDPR compliance features
+   - audit logging
+   - Input validation and sanitization
+
+4. **Integration Security**
+   - External API security (Mollie, eBoekhouden)
+   - Webhook signature validation
+   - Secure credential management
+   - API rate limiting and monitoring
+
+5. **Operational Security**
+   - Environment-specific configurations
+   - Real-time security monitoring
+   - Incident response procedures
+   - Backup encryption and security
+
+6. **API Security Framework**
+   - Decorator-based security levels
+   - Operation type classification
+   - Critical operation rules
+   - Business logic validation
+
+### Security Levels (API Framework)
+
+The API security framework defines five security levels:
 
 - **CRITICAL**: Financial transactions, system administration
 - **HIGH**: Member data access, batch operations
@@ -109,9 +186,9 @@ The framework defines five security levels with specific requirements:
 - **LOW**: Utility functions, health checks
 - **PUBLIC**: No authentication required
 
-### Operation Types
+### Operation Types (API Framework)
 
-Operations are classified by business context:
+API operations are classified by business context:
 
 - **FINANCIAL**: Payment processing, invoicing, accounting
 - **MEMBER_DATA**: Personal information access/modification
@@ -120,13 +197,14 @@ Operations are classified by business context:
 - **UTILITY**: Health checks, status endpoints
 - **PUBLIC**: Public information, documentation
 
-### Critical Operation Rules
+### Defense-in-Depth Architecture
 
-Runtime-configurable security policies stored in database:
-- Define security requirements per operation
-- Configure rate limiting and business rules
-- Set audit requirements and monitoring thresholds
-- Enable/disable operations without code deployment
+Multiple security layers provide protection:
+- **Network Layer**: Firewall, DDoS protection, IP filtering
+- **Application Layer**: Rate limiting, input validation, CSP/CORS
+- **Authentication Layer**: Multi-factor auth, RBAC, session management
+- **Data Layer**: Encryption, database security, audit logging
+- **Infrastructure Layer**: TLS encryption, secure backup, key management
 
 ## Implementation Architecture
 
@@ -199,10 +277,10 @@ for alert in alerts:
 - **85% reduction** in financial operation risks
 - **70% reduction** in member data access risks
 - **90% reduction** in administrative operation risks
-- **Complete elimination** of unmonitored critical operations
+- **Elimination** of unmonitored critical operations
 
 ### Compliance Benefits
-- **GDPR Compliance**: Complete audit trail and privacy controls
+- **GDPR Compliance**: Audit trail and privacy controls
 - **Financial Compliance**: Enhanced controls for financial regulations
 - **Governance Compliance**: Transparent and auditable operations
 
@@ -242,7 +320,7 @@ Monitor security framework performance:
 - **Critical Operation Rules**: Runtime-configurable security policies
 - **Business Logic Monitoring**: Comprehensive anomaly detection
 - **API Security Framework**: Complete decorator-based security
-- **Documentation**: Comprehensive documentation suite
+- **Documentation**: documentation suite
 
 ### Previous Versions
 - **Version 1.x**: Basic security decorators and patterns

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide establishes standardized patterns for consistent security decorator usage across the Verenigingen application, based on findings from the July 2025 comprehensive security review.
+This guide establishes standardized patterns for consistent security decorator usage across the Verenigingen application, based on findings from the July 2025 security review.
 
 **Security Review Results**: 82/100 score with identified areas for standardization improvement.
 
@@ -313,7 +313,7 @@ def update_member_data(**data):
     pass
 ```
 
-### Example 2: Comprehensive Security Implementation
+### Example 2: security Implementation
 
 ```python
 from verenigingen.utils.security.api_security_framework import (
@@ -328,7 +328,7 @@ from verenigingen.utils.security.enhanced_validation import validate_with_schema
 @performance_monitor(threshold_ms=2000)
 def create_sepa_batch(**batch_data):
     """
-    Create SEPA batch with comprehensive security
+    Create SEPA batch with security
 
     Security Level: CRITICAL
     - Rate limit: 10/hour
@@ -501,7 +501,7 @@ python scripts/reporting/weekly_security_standardization_report.py
 1. **Check standardization status**: Use security health check endpoint
 2. **Run validation tools**: Use provided validation scripts
 3. **Review examples**: Follow patterns in this guide
-4. **Test thoroughly**: Use comprehensive security test suite
+4. **Test thoroughly**: Use security test suite
 
 ## Conclusion
 

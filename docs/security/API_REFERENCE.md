@@ -634,7 +634,7 @@ Analyze current API security status across all endpoints.
 @development_only_api(operation_type=OperationType.UTILITY)
 def analyze_api_security_status():
     """Analyze current API security status"""
-    # Returns comprehensive security analysis
+    # Returns security analysis
     pass
 
 # Usage
@@ -923,4 +923,4 @@ def test_api_security():
 test_api_security()
 ```
 
-This comprehensive API reference provides complete documentation for all security framework components, enabling developers to effectively implement and maintain secure operations in the Verenigingen system.
+This API reference provides documentation for all security framework components, enabling developers to effectively implement and maintain secure operations in the Verenigingen system.
