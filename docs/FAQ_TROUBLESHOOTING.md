@@ -681,8 +681,6 @@ A: Application performance tuning:
 
 ### Self-Help Resources
 
-Before contacting support, try these resources:
-
 1. **Documentation**:
    - Read relevant user guides
    - Check API documentation
@@ -693,80 +691,6 @@ Before contacting support, try these resources:
    - Check system status indicators
    - Review error logs
 
-3. **Community Resources**:
-   - Search community forums
-   - Check GitHub issues
-   - Review known issues lists
+### bugs, feature requests and other issues
 
-### Support Channels
-
-#### Technical Support
-- **Email**: support@yourorganization.org
-- **Response Time**: 24-48 hours during business days
-- **Escalation**: Available for urgent issues
-
-#### User Support
-- **Email**: help@yourorganization.org
-- **Phone**: [Support Phone Number]
-- **Business Hours**: Monday-Friday, 9:00-17:00 CET
-
-#### Emergency Support
-- **Critical Issues**: Available 24/7 for production systems
-- **Contact**: emergency@yourorganization.org
-- **Response Time**: 2-4 hours
-
-### Information to Provide
-
-When contacting support, include:
-
-1. **System Information**:
-   - Verenigingen version
-   - ERPNext version
-   - Server operating system
-   - Browser and version
-
-2. **Issue Details**:
-   - Detailed description of the problem
-   - Steps to reproduce the issue
-   - Error messages (exact text)
-   - Screenshots if applicable
-
-3. **Impact Assessment**:
-   - Number of users affected
-   - Business impact severity
-   - Urgency of resolution needed
-
-4. **Attempted Solutions**:
-   - What you've already tried
-   - Results of troubleshooting steps
-   - Any temporary workarounds
-
-### Support Ticket Priority
-
-#### Critical (4-hour response)
-- System completely down
-- Data loss or corruption
-- Security breaches
-- Payment processing failures
-
-#### High (8-hour response)
-- Major functionality broken
-- Multiple users affected
-- Integration failures
-- Performance severely degraded
-
-#### Medium (24-hour response)
-- Single feature not working
-- Workaround available
-- Configuration issues
-- Minor data inconsistencies
-
-#### Low (48-72 hour response)
-- Enhancement requests
-- Documentation clarifications
-- Training questions
-- Non-urgent issues
-
----
-
-This FAQ and troubleshooting guide covers the most common issues and questions. For specific technical problems not covered here, please contact support with detailed information about your issue.
+   - these can be submitted to github.com/nlvegan/verenigingen/issues
