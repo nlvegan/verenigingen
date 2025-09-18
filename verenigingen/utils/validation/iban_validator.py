@@ -142,14 +142,29 @@ def generate_test_iban(bank_code="TEST", account_number=None):
     Generate a valid test IBAN with proper MOD-97 checksum
 
     Args:
-        bank_code: Mock bank code (TEST, MOCK, or DEMO)
+        bank_code: Bank code (TEST, MOCK, DEMO for testing, or real Dutch bank codes like INGB, RABO, etc.)
         account_number: Optional account number (10 digits), auto-generated if None
 
     Returns:
         Valid test IBAN string
     """
-    if bank_code not in ["TEST", "MOCK", "DEMO"]:
-        bank_code = "TEST"
+    # Allow real Dutch bank codes for testing, but default to TEST for unknown ones
+    valid_bank_codes = [
+        "TEST",
+        "MOCK",
+        "DEMO",  # Test banks
+        "INGB",
+        "ABNA",
+        "RABO",
+        "TRIO",
+        "SNSB",
+        "ASNB",
+        "KNAB",
+        "BUNQ",  # Real Dutch banks
+    ]
+
+    if bank_code not in valid_bank_codes:
+        bank_code = "TEST"  # Default to TEST for unknown bank codes
 
     if not account_number:
         # Generate a simple 10-digit account number

@@ -39132,5 +39132,53 @@
   "rate_limit_scope": "user",
   "audit_level": "minimal",
   "alert_on_execution": 0
+ },
+ {
+  "doctype": "Critical Operation Rule",
+  "name": "is_dutch_installation",
+  "operation_name": "is_dutch_installation",
+  "operation_type": "READ",
+  "description": "Check if the installation is configured for Dutch operations",
+  "enabled": 1,
+  "security_level": "low",
+  "business_context": "System configuration validation for Dutch-specific features",
+  "required_roles": "System Manager\nVerenigingen Manager\nVerenigingen Staff\nVerenigingen Member",
+  "rate_limit_calls": 1000,
+  "rate_limit_period_seconds": 60,
+  "rate_limit_scope": "user",
+  "audit_level": "minimal",
+  "alert_on_execution": 0
+ },
+ {
+  "doctype": "Critical Operation Rule",
+  "name": "dutch_name_utils_is_dutch_installation",
+  "operation_name": "dutch_name_utils_is_dutch_installation",
+  "operation_type": "READ",
+  "description": "Dutch name utilities check for Dutch installation configuration",
+  "enabled": 1,
+  "security_level": "low",
+  "business_context": "Name processing utilities requiring Dutch installation validation",
+  "required_roles": "System Manager\nVerenigingen Manager\nVerenigingen Staff\nVerenigingen Member",
+  "rate_limit_calls": 1000,
+  "rate_limit_period_seconds": 60,
+  "rate_limit_scope": "user",
+  "audit_level": "minimal",
+  "alert_on_execution": 0
+ },
+ {
+  "doctype": "Critical Operation Rule",
+  "name": "api_is_dutch_installation",
+  "operation_name": "api_is_dutch_installation",
+  "operation_type": "READ",
+  "description": "API endpoint to check Dutch installation configuration",
+  "enabled": 1,
+  "security_level": "medium",
+  "business_context": "Public API endpoint for Dutch installation validation",
+  "required_roles": "System Manager\nVerenigingen Manager\nVerenigingen Staff\nVerenigingen Member",
+  "rate_limit_calls": 500,
+  "rate_limit_period_seconds": 60,
+  "rate_limit_scope": "user",
+  "audit_level": "standard",
+  "alert_on_execution": 0
  }
 ]

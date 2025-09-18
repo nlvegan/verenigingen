@@ -126,7 +126,7 @@ def _emit_invoice_event(event_name, event_data):
                     frappe.enqueue(
                         method=subscriber,
                         queue="short",
-                        job_name=f"payment_history_update_{member.name}",
+                        job_name=f"payment_history_update_{member['name']}",
                         dedupe=True,  # This prevents multiple jobs for same member
                         timeout=300,  # 5 minutes timeout
                         delay=2,  # Add 2-second delay to allow transaction commit

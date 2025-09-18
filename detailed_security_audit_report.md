@@ -2,11 +2,11 @@
 ============================================================
 
 ## Executive Summary
-- **Total API Files**: 160
+- **Total API Files**: 162
 - **High Risk Files**: 21
-- **Protected Files**: 150
-- **Unprotected Files**: 10
-- **High Risk Protection Rate**: 19/21 (90.5%)
+- **Protected Files**: 151
+- **Unprotected Files**: 11
+- **High Risk Protection Rate**: 18/21 (85.7%)
 
 ## High Risk Files Analysis
 These files handle critical financial/administrative operations:
@@ -35,8 +35,8 @@ These files handle critical financial/administrative operations:
 - **Role validation**: No
 - **Protected functions**: get_termination_preview, get_impact_summary, execute_safe_termination
 
-### 🔒 mollie_payment_webhook.py
-- **Security decorators**: 1
+### ⚠️ mollie_payment_webhook.py
+- **Security decorators**: 0
 - **@critical_api decorators**: 0
 - **@frappe.whitelist() functions**: 0
 - **Permission checks**: No
@@ -177,6 +177,7 @@ These files handle critical financial/administrative operations:
 ## Critical Security Gaps
 The following high-risk files lack adequate protection:
 
+- **mollie_payment_webhook.py**: 0 unprotected whitelist functions
 - **payment_sync_system.py**: 0 unprotected whitelist functions
 - **payment_audit.py**: 0 unprotected whitelist functions
 
@@ -186,6 +187,7 @@ The following high-risk files lack adequate protection:
 ## Security Recommendations
 
 ### 🚨 Priority 1: Critical Security Gaps
+- Add @critical_api protection to **mollie_payment_webhook.py**
 - Add @critical_api protection to **payment_sync_system.py**
 - Add @critical_api protection to **payment_audit.py**
 
@@ -193,9 +195,9 @@ The following high-risk files lack adequate protection:
 - Consider protection for **dashboard_charts.py**
 
 ### 📈 Coverage Improvement Plan
-- **Current high-risk coverage**: 90.5%
+- **Current high-risk coverage**: 85.7%
 - **Target coverage**: 95%
-- **Files needing protection**: 0
+- **Files needing protection**: 1
 
 ## All Unprotected Files
 The following files lack security framework protection:
@@ -204,6 +206,7 @@ The following files lack security framework protection:
 - **simple_donation_webhook.py** (LOW risk) - 0 whitelist functions
 - **phase2_2_rollback.py** (LOW risk) - 0 whitelist functions
 - **chart_sources.py** (LOW risk) - 0 whitelist functions
+- **mollie_payment_webhook.py** (HIGH risk) - 0 whitelist functions
 - **dashboard_charts.py** (MEDIUM risk) - 0 whitelist functions
 - **payment_sync_system.py** (HIGH risk) - 0 whitelist functions
 - **migrate_donation_agreements.py** (LOW risk) - 0 whitelist functions
@@ -213,7 +216,7 @@ The following files lack security framework protection:
 
 ## Corrected Coverage Metrics
 
-**Accurate High-Risk API Coverage: 90.5%**
-*(Based on 19 protected out of 21 high-risk APIs)*
-**Overall API Protection Rate: 93.8%**
-*(Based on 150 protected out of 160 total APIs)*
+**Accurate High-Risk API Coverage: 85.7%**
+*(Based on 18 protected out of 21 high-risk APIs)*
+**Overall API Protection Rate: 93.2%**
+*(Based on 151 protected out of 162 total APIs)*

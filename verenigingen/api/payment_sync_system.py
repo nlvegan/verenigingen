@@ -4,8 +4,11 @@ from datetime import datetime, timedelta
 import frappe
 from frappe.utils import add_days, flt, getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
-@frappe.whitelist(allow_guest=True)
+
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def comprehensive_payment_sync(start_date=None, end_date=None, dry_run=True, fix_webhooks=True):
     """
     Comprehensive payment synchronization system
@@ -26,7 +29,7 @@ def comprehensive_payment_sync(start_date=None, end_date=None, dry_run=True, fix
     """
 
     try:
-        frappe.set_user("Administrator")
+        # Security framework validates user permissions - no admin escalation needed
 
         # Set default date range if not provided
         if not start_date:
@@ -526,7 +529,8 @@ def create_donation_for_payment(payment, dry_run=True):
                 "payment_id": payment["id"],
                 "payment_status": "Completed",
                 "mode_of_payment": "Mollie",
-                "company": frappe.defaults.get_global_default("company") or "Test Company",
+                "company": frappe.defaults.get_global_default("company")
+                or frappe.throw(_("No default company configured")),
                 "donation_notes": f"Auto-created from Mollie payment {payment['id']} on {today()}",
                 "mollie_customer_id": payment.get("customer_id"),
                 "mollie_subscription_id": payment.get("subscription_id"),
@@ -696,7 +700,8 @@ def generate_sync_summary(sync_results):
     }
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def quick_payment_sync(days_back=7):
     """Quick sync for recent payments"""
 

@@ -38,6 +38,11 @@ class MembershipDuesSchedule(Document):
                 f"Membership Type '{membership_type.name}' must have a dues schedule template assigned"
             )
 
+        # Calculate membership type minimum first to use as fallback
+        membership_type_minimum = (
+            membership_type.minimum_amount if membership_type.minimum_amount is not None else 0
+        )
+
         try:
             template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
 
@@ -49,7 +54,9 @@ class MembershipDuesSchedule(Document):
 
             values.update(
                 {
-                    "minimum_amount": template.minimum_amount if template.minimum_amount is not None else 0,
+                    "minimum_amount": template.minimum_amount
+                    if template.minimum_amount is not None
+                    else membership_type_minimum,
                     "suggested_amount": template.suggested_amount,  # Required field, validated above
                     "billing_frequency": template.billing_frequency
                     or "Annual",  # Explicit default, validated in template creation
@@ -65,9 +72,6 @@ class MembershipDuesSchedule(Document):
 
         # Validate template respects membership type minimum (both required)
         # Skip this validation when updating existing schedules to allow flexible dues rates
-        membership_type_minimum = (
-            membership_type.minimum_amount if membership_type.minimum_amount is not None else 0
-        )
         template_minimum = values["minimum_amount"]  # Already validated above
         template_suggested = values["suggested_amount"]  # Already validated above
 

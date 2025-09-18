@@ -141,7 +141,8 @@ def test_migration_dry_run():
         test_migration.update(
             {
                 "migration_name": "Test Migration - Cleanup Validation",
-                "company": frappe.defaults.get_defaults().get("company") or "Test Company",
+                "company": frappe.defaults.get_defaults().get("company")
+                or frappe.throw(_("No default company configured")),
                 "migration_status": "Draft",
                 "dry_run": 1,
                 "date_from": "2024-01-01",

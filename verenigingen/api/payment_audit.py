@@ -4,8 +4,11 @@ from datetime import datetime, timedelta
 import frappe
 from frappe.utils import add_days, flt, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
-@frappe.whitelist(allow_guest=True)
+
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def audit_mollie_payments(start_date=None, end_date=None, detailed=True):
     """
     Audit Mollie payments against our database records
@@ -26,7 +29,7 @@ def audit_mollie_payments(start_date=None, end_date=None, detailed=True):
         if not end_date:
             end_date = today()
 
-        frappe.set_user("Administrator")
+        # Security framework validates user permissions - no admin escalation needed
 
         # Get Mollie settings and client
         mollie_settings = frappe.get_single("Mollie Settings")
@@ -396,7 +399,8 @@ def generate_audit_summary(audit_report):
         audit_report["summary"]["data_integrity_percentage"] = 100.0
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def audit_subscription_payments(customer_id=None, subscription_id=None):
     """
     Audit subscription payments for specific customer/subscription
@@ -410,7 +414,7 @@ def audit_subscription_payments(customer_id=None, subscription_id=None):
     """
 
     try:
-        frappe.set_user("Administrator")
+        # Security framework validates user permissions - no admin escalation needed
 
         mollie_settings = frappe.get_single("Mollie Settings")
         client = mollie_settings.get_mollie_client()
@@ -458,7 +462,8 @@ def audit_subscription_payments(customer_id=None, subscription_id=None):
         return {"success": False, "message": f"Subscription audit failed: {str(e)}"}
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def fix_missing_payments(payment_ids=None, dry_run=True):
     """
     Attempt to fix payments that exist in Mollie but are missing from database
@@ -472,7 +477,7 @@ def fix_missing_payments(payment_ids=None, dry_run=True):
     """
 
     try:
-        frappe.set_user("Administrator")
+        # Security framework validates user permissions - no admin escalation needed
 
         if not payment_ids:
             return {"success": False, "message": "No payment IDs provided"}

@@ -56,7 +56,8 @@ def migrate_all_donation_agreements(dry_run=True):
                     "donation_type": "Herhalend",  # All agreements are recurring
                     "is_recurring": 1,
                     "recurring_frequency": "Monthly",
-                    "company": frappe.defaults.get_global_default("company") or "Test Company",
+                    "company": frappe.defaults.get_global_default("company")
+                    or frappe.throw(_("No default company configured")),
                     "donation_notes": f"Migrated from Donation Agreement {agreement.name} on {today()}",
                     "payment_status": "Completed" if agreement.status == "Active" else "Pending",
                     # Preserve Mollie fields if they exist

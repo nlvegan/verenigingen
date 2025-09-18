@@ -4,8 +4,11 @@ import frappe
 from frappe import _
 from frappe.utils import date_diff, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
-@frappe.whitelist(allow_guest=False)
+
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_member_age_distribution_chart():
     """
     Get member age distribution data formatted for dashboard charts

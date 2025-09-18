@@ -38,6 +38,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import date_diff, getdate, now, now_datetime, today
 
+from verenigingen.services.member_address_service import member_address_service
+from verenigingen.services.member_lifecycle_service import member_lifecycle_service
 from verenigingen.utils.address_matching.dutch_address_normalizer import (
     AddressFingerprintCollisionHandler,
     DutchAddressNormalizer,
@@ -197,16 +199,16 @@ class Member(
         return False
 
     def _update_computed_address_fields(self):
-        """Update computed address fields for optimized matching when address changes.
+        """Update computed address fields using Address Management Service.
 
-        Creates normalized address representations and fingerprints for efficient
-        duplicate member detection and address matching operations.
+        Delegates to member_address_service for consistent address processing
+        with improved error handling and performance optimization.
 
         Features:
-            - Dutch address normalization
-            - Address fingerprinting for fast comparison
+            - Dutch address normalization via service
+            - Address fingerprinting with collision handling
             - Change detection to avoid unnecessary processing
-            - Collision handling for duplicate addresses
+            - Comprehensive error handling and logging
 
         Side Effects:
             - Updates address_fingerprint field
@@ -214,55 +216,22 @@ class Member(
             - Updates normalized_city field
             - Sets address_last_updated timestamp
         """
-
-        # Handle case where member has no primary address
-        if not self.primary_address:
-            # Clear all computed address fields to maintain data consistency
-            self.address_fingerprint = None
-            self.normalized_address_line = None
-            self.normalized_city = None
-            self.address_last_updated = None
-            return
-
-        # Determine if address normalization is needed based on changes
-        address_changed = self.is_new() or (
-            hasattr(self, "has_value_changed") and self.has_value_changed("primary_address")
-        )
-
-        if not address_changed and self.address_fingerprint:
-            # Skip processing if address is unchanged and fingerprint exists
-            return
-
         try:
-            # Perform address normalization and fingerprint generation
-            address = frappe.get_doc("Address", self.primary_address)
+            result = member_address_service.update_member_address_fields(self)
 
-            # Generate normalized forms and fingerprint
-            normalized_line, normalized_city, fingerprint = DutchAddressNormalizer.normalize_address_pair(
-                address.address_line1 or "", address.city or ""
-            )
+            if not result["success"]:
+                # Log errors from the service
+                for error in result["errors"]:
+                    frappe.log_error(error, "Member Address Update")
 
-            # Handle potential collisions
-            if AddressFingerprintCollisionHandler.detect_collision(
-                fingerprint, normalized_line, normalized_city, self.name
-            ):
-                fingerprint = AddressFingerprintCollisionHandler.resolve_collision(
-                    fingerprint, normalized_line, normalized_city, self.name
-                )
-
-            # Set computed fields
-            self.address_fingerprint = fingerprint
-            self.normalized_address_line = normalized_line
-            self.normalized_city = normalized_city
-            self.address_last_updated = now()
+                # Log warnings if any
+                for warning in result["warnings"]:
+                    frappe.logger().warning(warning)
 
         except Exception as e:
-            frappe.log_error(f"Error updating computed address fields for {self.name}: {e}")
-            # Set empty values on error to avoid inconsistent state
-            self.address_fingerprint = None
-            self.normalized_address_line = None
-            self.normalized_city = None
-            self.address_last_updated = None
+            frappe.log_error(
+                f"Error calling address service for {self.name}: {str(e)}", "Member Address Service"
+            )
 
     def validate_fee_override_permissions(self):
         """Validate that only authorized users can set fee overrides"""
@@ -344,13 +313,7 @@ class Member(
 
     def _get_status_color(self, status):
         """Get Bootstrap color class for member status"""
-        status_colors = {
-            "Active": "success",
-            "Pending": "warning",
-            "Suspended": "danger",
-            "Terminated": "secondary",
-        }
-        return status_colors.get(status, "secondary")
+        return member_lifecycle_service.get_status_color(status)
 
     @frappe.whitelist()
     @development_only_api(operation_type=OperationType.UTILITY)
@@ -514,9 +477,7 @@ class Member(
 
     def is_application_member(self):
         """Check if this member was created through the application process"""
-        # Check if application_id exists and is not empty
-        app_id = getattr(self, "application_id", None)
-        return bool(app_id and app_id.strip() if isinstance(app_id, str) else app_id)
+        return member_lifecycle_service.is_application_member(self)
 
     def should_have_member_id(self):
         """Check if this member should have a member ID assigned"""
@@ -659,107 +620,19 @@ class Member(
         except Exception:
             return None
 
+    @frappe.whitelist()
+    @critical_api(operation_type=OperationType.ADMIN)
     def approve_application(self):
         """Approve this application and assign member ID"""
-        if not self.is_application_member():
-            frappe.throw(_("This is not an application member"))
+        # Use lifecycle service for core approval logic
+        result = member_lifecycle_service.approve_application(self)
 
-        if self.application_status == "Approved":
-            frappe.throw(_("Application is already approved"))
-
-        # Assign member ID
-        if not self.member_id:
-            self.member_id = self.generate_member_id()
-
-        # Update status
-        self.application_status = "Approved"
-        self.status = "Active"
-        self.reviewed_by = frappe.session.user
-        self.review_date = now_datetime()
-
-        # Save the member with concurrency handling
-        try:
-            self.save()
-        except frappe.TimestampMismatchError:
-            # Reload member and retry save once
-            self.reload()
-            # Re-apply the approval changes
-            if not self.member_id:
-                self.member_id = self.generate_member_id()
-            self.application_status = "Approved"
-            self.status = "Active"
-            self.reviewed_by = frappe.session.user
-            self.review_date = now_datetime()
-            self.save()
-
-        # Create user account if not exists
-        if not self.user:
-            self.create_user()
-
-        # Create customer if not exists
-        if not self.customer:
-            self.create_customer()
-
-        # Activate pending Chapter Member records
-        try:
-            from verenigingen.utils.application_helpers import activate_pending_chapter_membership
-
-            # First, try to find existing pending chapter memberships for this member
-            pending_chapters = frappe.db.sql(
-                """
-                SELECT c.name as chapter_name
-                FROM `tabChapter` c
-                JOIN `tabChapter Member` cm ON cm.parent = c.name
-                WHERE cm.member = %s AND cm.status = 'Pending'
-            """,
-                self.name,
-                as_dict=True,
-            )
-
-            activated_count = 0
-            for chapter_info in pending_chapters:
-                chapter_member = activate_pending_chapter_membership(self, chapter_info.chapter_name)
-                if chapter_member:
-                    frappe.logger().info(
-                        f"Activated chapter membership for {self.name} in {chapter_info.chapter_name}"
-                    )
-                    activated_count += 1
-                else:
-                    frappe.logger().warning(
-                        f"Failed to activate chapter membership for {self.name} in {chapter_info.chapter_name}"
-                    )
-
-            if activated_count == 0:
-                # Fallback: Check for suggested chapter or current chapter display fields
-                chapter_to_activate = None
-                if hasattr(self, "current_chapter_display") and self.current_chapter_display:
-                    chapter_to_activate = self.current_chapter_display
-                elif hasattr(self, "previous_chapter") and self.previous_chapter:
-                    chapter_to_activate = self.previous_chapter
-
-                if chapter_to_activate:
-                    chapter_member = activate_pending_chapter_membership(self, chapter_to_activate)
-                    if chapter_member:
-                        frappe.logger().info(
-                            f"Activated chapter membership for {self.name} in {chapter_to_activate} (fallback)"
-                        )
-                        activated_count += 1
-                    else:
-                        frappe.logger().warning(
-                            f"Failed to activate chapter membership for {self.name} in {chapter_to_activate} (fallback)"
-                        )
-
-            if activated_count == 0:
-                frappe.logger().warning(
-                    f"No chapter memberships were activated for {self.name} - no pending chapter memberships found"
-                )
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error activating chapter membership for {self.name}: {str(e)}",
-                "Chapter Membership Activation",
-            )
-            # Don't fail the approval if chapter membership activation fails
+        if not result["success"]:
+            # If there are errors, throw the first one
+            if result["errors"]:
+                frappe.throw(_(result["errors"][0]))
+            else:
+                frappe.throw(_("Application approval failed"))
 
         # Create membership - this should trigger the dues schedule logic
         return self.create_membership_on_approval()
@@ -821,64 +694,15 @@ class Member(
     @critical_api(operation_type=OperationType.ADMIN)
     def reject_application(self, reason):
         """Reject this application and clean up pending records"""
-        if not self.is_application_member():
-            frappe.throw(_("This is not an application member"))
+        # Use lifecycle service for core rejection logic
+        result = member_lifecycle_service.reject_application(self, reason)
 
-        if self.application_status == "Rejected":
-            frappe.throw(_("Application is already rejected"))
-
-        # Update status
-        self.application_status = "Rejected"
-        self.status = "Rejected"
-        self.reviewed_by = frappe.session.user
-        self.review_date = now_datetime()
-        self.rejection_reason = reason
-
-        # Save the member with concurrency handling
-        try:
-            self.save()
-        except frappe.TimestampMismatchError:
-            # Reload member and retry save once
-            self.reload()
-            # Re-apply the rejection changes
-            self.application_status = "Rejected"
-            self.status = "Rejected"
-            self.reviewed_by = frappe.session.user
-            self.review_date = now_datetime()
-            self.rejection_reason = reason
-            self.save()
-
-        # Remove pending Chapter Member records
-        try:
-            from verenigingen.utils.application_helpers import remove_pending_chapter_membership
-
-            # Check for suggested chapter or current chapter display
-            chapter_to_remove = None
-            if hasattr(self, "current_chapter_display") and self.current_chapter_display:
-                chapter_to_remove = self.current_chapter_display
-            elif hasattr(self, "previous_chapter") and self.previous_chapter:
-                chapter_to_remove = self.previous_chapter
-
-            if chapter_to_remove:
-                success = remove_pending_chapter_membership(self, chapter_to_remove)
-                if success:
-                    frappe.logger().info(
-                        f"Removed pending chapter membership for {self.name} from {chapter_to_remove}"
-                    )
-                else:
-                    frappe.logger().warning(
-                        f"Failed to remove pending chapter membership for {self.name} from {chapter_to_remove}"
-                    )
+        if not result["success"]:
+            # If there are errors, throw the first one
+            if result["errors"]:
+                frappe.throw(_(result["errors"][0]))
             else:
-                # Try to remove from any chapter (fallback)
-                remove_pending_chapter_membership(self)
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error removing pending chapter membership for {self.name}: {str(e)}",
-                "Chapter Membership Removal",
-            )
-            # Don't fail the rejection if chapter membership removal fails
+                frappe.throw(_("Application rejection failed"))
 
         frappe.logger().info(f"Rejected application for {self.name}")
         return True
@@ -913,50 +737,19 @@ class Member(
 
     def set_application_status_defaults(self):
         """Set appropriate defaults for application_status based on member type"""
-        # Check if application_status is not set
-        if not hasattr(self, "application_status") or not self.application_status:
-            # Check if this member was created through application process
-            is_application_member = bool(getattr(self, "application_id", None))
+        # Use lifecycle service for setting application status defaults
+        result = member_lifecycle_service.set_application_status_defaults(self)
 
-            if is_application_member:
-                # Application members start as Pending
-                self.application_status = "Pending"
-            else:
-                # Backend-created members are considered approved
-                self.application_status = "Approved"
+        if not result["success"]:
+            frappe.log_error(f"Error setting application status defaults for {self.name}: {result['errors']}")
 
     def sync_status_fields(self):
         """Ensure status and application_status fields are synchronized"""
-        # Check if this member was created through application process
-        is_application_member = bool(getattr(self, "application_id", None))
+        # Use lifecycle service for status synchronization
+        result = member_lifecycle_service.sync_status_fields(self)
 
-        if is_application_member:
-            # Handle application-created members
-            if hasattr(self, "application_status") and self.application_status:
-                if self.application_status == "Approved" and self.status != "Active":
-                    self.status = "Active"
-                    # Set member_since date when application becomes approved
-                    self.member_since = None
-                    if not self.member_since:
-                        self.member_since = today()
-                elif self.application_status == "Rejected" and self.status != "Rejected":
-                    # Don't override status if member was terminated
-                    termination_statuses = ["Deceased", "Banned", "Suspended", "Terminated", "Expired"]
-                    if self.status not in termination_statuses:
-                        self.status = "Rejected"
-                elif self.application_status == "Pending" and self.status not in ["Pending", "Active"]:
-                    # For pending applications, default to Pending unless already Active
-                    if self.status != "Active":
-                        self.status = "Pending"
-        else:
-            # Handle backend-created members (no application process)
-            if not hasattr(self, "application_status") or not self.application_status:
-                # Set application_status to Approved for backend-created members
-                self.application_status = "Approved"
-
-            # Ensure backend-created members are Active by default unless explicitly set
-            if not self.status or self.status == "Pending":
-                self.status = "Active"
+        if not result["success"]:
+            frappe.log_error(f"Error syncing status fields for {self.name}: {result['errors']}")
 
     def after_insert(self):
         """Execute after document is inserted"""
@@ -1522,33 +1315,14 @@ class Member(
 
     def update_membership_status(self):
         """Update member's membership_status field based on active memberships"""
-        active_membership = self.get_active_membership()
+        # Use lifecycle service for membership status updates
+        result = member_lifecycle_service.update_membership_status(self)
 
-        if active_membership:
-            self.membership_status = "Active"
-            # Also update current membership type
-            if hasattr(self, "current_membership_type"):
-                self.current_membership_type = active_membership.membership_type
-        else:
-            # Check for expired memberships
-            expired = frappe.get_all(
-                "Membership",
-                filters={"member": self.name, "renewal_date": ["<", today()], "docstatus": 1},
-                fields=["membership_type"],
-                limit=1,
-            )
+        if not result["success"]:
+            frappe.log_error(f"Error updating membership status for {self.name}: {result['errors']}")
+            return None
 
-            if expired:
-                self.membership_status = "Expired"
-                # Keep the last membership type even if expired
-                if hasattr(self, "current_membership_type") and expired[0].membership_type:
-                    self.current_membership_type = expired[0].membership_type
-            else:
-                self.membership_status = None
-                if hasattr(self, "current_membership_type"):
-                    self.current_membership_type = None
-
-        return self.membership_status
+        return result["membership_status"]
 
     @frappe.whitelist()
     @development_only_api(operation_type=OperationType.UTILITY)
@@ -1589,46 +1363,33 @@ class Member(
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.MEMBER_DATA)
     def get_other_members_at_address(self):
-        """Get other members living at the same address using optimized O(log N) matching"""
+        """Get other members living at the same address using Address Management Service"""
         try:
-            from verenigingen.utils.address_matching.simple_optimized_matcher import (
-                SimpleOptimizedAddressMatcher,
-            )
-
             frappe.logger().info(
                 f"get_other_members_at_address called for {self.name} with address {self.primary_address}"
             )
 
-            if not self.primary_address:
-                frappe.logger().info(f"No primary address for {self.name}")
-                return []
-            # Use simple optimized matcher for O(log N) performance with minimal overhead
-            matching_members = SimpleOptimizedAddressMatcher.get_other_members_at_address_simple(self)
+            result = member_address_service.get_colocated_members(self)
 
-            # Enrich the data with relationship guessing for compatibility (only if needed)
-            enriched_members = []
-            for member in matching_members:
-                member_data = {
-                    "name": member.get("name"),
-                    "full_name": member.get("full_name"),
-                    "email": member.get("email"),
-                    "status": member.get("status"),
-                    "member_since": member.get("member_since"),
-                    "birth_date": member.get("birth_date"),  # Add birth_date
-                    "relationship": member.get("relationship", "Unknown"),
-                    "age_group": member.get("age_group"),
-                    "contact_number": member.get("contact_number"),
-                    "days_member": member.get("days_member"),
-                }
-                enriched_members.append(member_data)
+            if not result["success"]:
+                # Log errors from the service
+                for error in result["errors"]:
+                    frappe.log_error(error, "Get Colocated Members")
+
+                # Return empty list to ensure valid JSON response
+                return []
+
+            # Log warnings if any
+            for warning in result["warnings"]:
+                frappe.logger().warning(warning)
 
             frappe.logger().info(
-                f"Found {len(enriched_members)} other members for {self.name} using simple optimized matcher"
+                f"Found {result['count']} other members for {self.name} using address service"
             )
-            return enriched_members
+            return result["members"]
 
         except Exception as e:
-            frappe.log_error(f"Error getting other members at address for {self.name}: {str(e)}")
+            frappe.log_error(f"Error calling address service for {self.name}: {str(e)}")
             # Return empty list to ensure valid JSON response
             return []
 
