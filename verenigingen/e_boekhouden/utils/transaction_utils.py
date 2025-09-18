@@ -250,19 +250,42 @@ def create_sales_invoice_impl(migration_doc, invoice_data):
         si.eboekhouden_invoice_number = invoice_data.get("Factuurnummer")
         si.eboekhouden_relation_id = customer_id
 
+        # Check for credit notes and handle negative amounts (same logic as main migration)
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
+            _detect_credit_note_improved,
+        )
+
+        is_credit_note, effective_total_amount = _detect_credit_note_improved(invoice_data, [])
+        si.is_return = is_credit_note
+
         # Process invoice lines
         for line in invoice_data.get("Regels", []):
             item_description = line.get("Omschrijving", "Service Item")
-            quantity = flt(line.get("Aantal", 1))
-            rate = flt(line.get("PrijsExclBTW", 0))
+
+            # Handle quantities properly for credit notes
+            raw_quantity = line.get("Aantal", 1)
+            if is_credit_note and raw_quantity > 0:
+                # For Sales Invoice credit notes, ERPNext expects negative quantities
+                quantity = -abs(flt(raw_quantity))
+            else:
+                # Preserve negative quantities if already negative, or use positive for normal invoices
+                quantity = flt(raw_quantity) if raw_quantity >= 0 else raw_quantity
+
+            rate = abs(flt(line.get("PrijsExclBTW", 0)))  # Always positive for ERPNext
 
             # Get or create item using intelligent creation
             from verenigingen.e_boekhouden.utils.eboekhouden_improved_item_naming import (
                 get_or_create_item_improved,
             )
+            from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
+                _get_ledger_code_from_id,
+            )
 
-            # Use account code from the transaction for intelligent item creation
-            account_code = line.get("TegenrekeningCode", "")
+            # Resolve ledger ID to account code for proper mapping
+            raw_tegenrekening = line.get("TegenrekeningCode", "")
+            debug_info = []
+            account_code = _get_ledger_code_from_id(raw_tegenrekening, debug_info)
+
             item_code = get_or_create_item_improved(
                 account_code=account_code,
                 company=migration_doc.company,
@@ -346,19 +369,42 @@ def create_purchase_invoice_impl(migration_doc, invoice_data):
         pi.eboekhouden_invoice_number = invoice_data.get("Factuurnummer")
         pi.eboekhouden_relation_id = supplier_id
 
+        # Check for credit notes and handle negative amounts (same logic as main migration)
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
+            _detect_credit_note_improved,
+        )
+
+        is_credit_note, effective_total_amount = _detect_credit_note_improved(invoice_data, [])
+        pi.is_return = is_credit_note
+
         # Process invoice lines
         for line in invoice_data.get("Regels", []):
             item_description = line.get("Omschrijving", "Service Item")
-            quantity = flt(line.get("Aantal", 1))
-            rate = flt(line.get("PrijsExclBTW", 0))
+
+            # Handle quantities properly for credit notes
+            raw_quantity = line.get("Aantal", 1)
+            if is_credit_note and raw_quantity > 0:
+                # For Purchase Invoice credit notes, ERPNext expects negative quantities
+                quantity = -abs(flt(raw_quantity))
+            else:
+                # Preserve negative quantities if already negative, or use positive for normal invoices
+                quantity = flt(raw_quantity) if raw_quantity >= 0 else raw_quantity
+
+            rate = abs(flt(line.get("PrijsExclBTW", 0)))  # Always positive for ERPNext
 
             # Get or create item using intelligent creation
             from verenigingen.e_boekhouden.utils.eboekhouden_improved_item_naming import (
                 get_or_create_item_improved,
             )
+            from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
+                _get_ledger_code_from_id,
+            )
 
-            # Use account code from the transaction for intelligent item creation
-            account_code = line.get("TegenrekeningCode", "")
+            # Resolve ledger ID to account code for proper mapping
+            raw_tegenrekening = line.get("TegenrekeningCode", "")
+            debug_info = []
+            account_code = _get_ledger_code_from_id(raw_tegenrekening, debug_info)
+
             item_code = get_or_create_item_improved(
                 account_code=account_code,
                 company=migration_doc.company,

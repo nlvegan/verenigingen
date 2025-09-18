@@ -109,9 +109,27 @@ class PaymentEntryHandler:
                     f"Checking {len(mutation.get('rows', []))} rows and {len(mutation.get('Regels', []))} regels for invoice references"
                 )
 
-            # Determine payment type and party
-            payment_type = "Receive" if mutation_type == 3 else "Pay"
-            party_type = "Customer" if payment_type == "Receive" else "Supplier"
+            # Determine payment type and party based on mutation type AND amount sign
+            # For negative amounts, payment direction is reversed (refunds)
+            raw_amount = flt(mutation.get("amount", 0))
+            is_refund = raw_amount < 0
+
+            # Base payment type from mutation type
+            base_payment_type = "Receive" if mutation_type == 3 else "Pay"
+
+            # Reverse payment type for refunds (negative amounts)
+            if is_refund:
+                payment_type = "Pay" if base_payment_type == "Receive" else "Receive"
+                self._log(
+                    f"Negative amount detected ({raw_amount}) - reversing payment type from {base_payment_type} to {payment_type}"
+                )
+            else:
+                payment_type = base_payment_type
+
+            party_type = "Customer" if mutation_type == 3 else "Supplier"
+
+            # Validate payment direction consistency
+            self._validate_payment_direction(mutation_type, raw_amount, payment_type, party_type)
 
             # Get or create party
             party = self._get_or_create_party(
@@ -953,6 +971,50 @@ class PaymentEntryHandler:
         timestamp = nowdate()
         self.debug_log.append(f"{timestamp} {message}")
         frappe.logger().info(f"PaymentHandler: {message}")
+
+    def _validate_payment_direction(
+        self, mutation_type: int, amount: float, payment_type: str, party_type: str
+    ):
+        """Validate that payment direction is correct based on mutation type and amount."""
+        # Expected payment types for positive amounts (normal case)
+        expected_for_positive = {
+            3: "Receive",  # Customer Payment - money comes in
+            4: "Pay",  # Supplier Payment - money goes out
+        }
+
+        # For negative amounts, payment direction should be reversed
+        expected_payment_type = expected_for_positive.get(mutation_type)
+        if not expected_payment_type:
+            # Not a payment mutation type we validate
+            return
+
+        if amount < 0:
+            # Negative amount = refund, so reverse the expected direction
+            expected_payment_type = "Pay" if expected_payment_type == "Receive" else "Receive"
+
+        if payment_type != expected_payment_type:
+            error_msg = (
+                f"Payment direction validation failed: "
+                f"Mutation type {mutation_type} with amount {amount} should have payment_type '{expected_payment_type}', "
+                f"but got '{payment_type}'"
+            )
+            self._log(f"ERROR: {error_msg}")
+            frappe.throw(error_msg, title="Payment Direction Error")
+
+        # Validate party type consistency
+        expected_party_type = "Customer" if mutation_type == 3 else "Supplier"
+        if party_type != expected_party_type:
+            error_msg = (
+                f"Party type validation failed: "
+                f"Mutation type {mutation_type} should have party_type '{expected_party_type}', "
+                f"but got '{party_type}'"
+            )
+            self._log(f"ERROR: {error_msg}")
+            frappe.throw(error_msg, title="Party Type Error")
+
+        self._log(
+            f"Payment direction validation passed: type={mutation_type}, amount={amount}, payment_type={payment_type}, party_type={party_type}"
+        )
 
     def get_debug_log(self) -> List[str]:
         """Get the debug log for inspection."""

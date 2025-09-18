@@ -143,7 +143,21 @@ class SmartTegenrekeningMapper:
                 },
             )
 
-            item.insert(ignore_permissions=True)
+            # Use secure operation framework instead of bypassing permissions
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            result = secure_document_operation(
+                operation="insert",
+                doc=item,
+                justification=f"Dynamic item creation for E-Boekhouden account {account_code} during migration",
+                required_permissions=["Item:create"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to create item {item_code} - permission denied", "Tegenrekening Mapping"
+                )
+                return None
 
             return {
                 "item_code": item_code,
@@ -297,7 +311,21 @@ class SmartTegenrekeningMapper:
                     },
                 )
 
-            item.insert(ignore_permissions=True)
+            # Use secure operation framework instead of bypassing permissions
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            result = secure_document_operation(
+                operation="insert",
+                doc=item,
+                justification=f"Fallback item creation for {transaction_type} transactions",
+                required_permissions=["Item:create"],
+            )
+
+            if not result.success:
+                frappe.log_error(
+                    f"Failed to create fallback item {item_code} - permission denied", "Tegenrekening Mapping"
+                )
+                return
         except Exception:
             pass  # Ignore if already exists
 

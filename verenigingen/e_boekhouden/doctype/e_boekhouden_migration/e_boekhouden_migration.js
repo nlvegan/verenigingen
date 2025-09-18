@@ -1293,30 +1293,10 @@ function handle_import_transactions(frm) {
 		return;
 	}
 
-	// Check if CoA exists
-	frappe.call({
-		method: 'frappe.client.get_count',
-		args: {
-			doctype: 'Account',
-			filters: {
-				company: frm.doc.company,
-				eboekhouden_grootboek_nummer: ['!=', '']
-			}
-		},
-		callback(r) {
-			if (r.message === 0) {
-				frappe.msgprint({
-					title: __('Setup Required'),
-					message: __('Please run "Setup Chart of Accounts" first. No E-Boekhouden accounts found.'),
-					indicator: 'orange'
-				});
-				return;
-			}
-
-			// Show transaction import dialog
-			show_transaction_import_dialog(frm);
-		}
-	});
+	// Show transaction import dialog directly
+	// Note: Chart of Accounts validation removed - if accounts are missing,
+	// the import will fail with specific error messages about missing accounts
+	show_transaction_import_dialog(frm);
 }
 
 function show_transaction_import_dialog(frm) {

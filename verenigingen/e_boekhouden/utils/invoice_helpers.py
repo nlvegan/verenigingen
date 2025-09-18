@@ -169,7 +169,9 @@ def process_line_items(invoice, regels, invoice_type, cost_center, debug_info):
         unit = regel.get("unit") or regel.get("Eenheid", "Nos")
         btw_code = regel.get("vatCode") or regel.get("BTWCode")
         account_code = regel.get("ledgerId") or regel.get("GrootboekNummer")
-        quantity = flt(regel.get("quantity") or regel.get("Aantal", 1))
+        # Handle quantity properly - preserve negative values for credit notes
+        raw_quantity = regel.get("quantity") or regel.get("Aantal", 1)
+        quantity = flt(raw_quantity) if isinstance(raw_quantity, (int, float)) else flt(raw_quantity)
         price = flt(regel.get("amount") or regel.get("Prijs", 0))
 
         # Debug: Log the amounts we're processing
@@ -280,7 +282,9 @@ def add_tax_lines(invoice, regels, invoice_type, debug_info):
         # Handle both Dutch (SOAP) and English (REST) field names
         btw_code = (regel.get("vatCode") or regel.get("BTWCode", "")).upper()
         description = regel.get("description") or regel.get("Omschrijving", "Unknown")
-        line_qty = flt(regel.get("quantity") or regel.get("Aantal", 1))
+        # Handle quantity properly - preserve negative values for credit notes
+        raw_line_qty = regel.get("quantity") or regel.get("Aantal", 1)
+        line_qty = flt(raw_line_qty) if isinstance(raw_line_qty, (int, float)) else flt(raw_line_qty)
         line_price = flt(regel.get("amount") or regel.get("Prijs", 0))
 
         # Handle quantities and prices for tax calculation with correction line item support
@@ -719,11 +723,15 @@ def create_single_line_fallback(invoice, mutation_detail, cost_center, debug_inf
 
     # Use existing function to create line
     from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
+        _get_ledger_code_from_id,
         create_invoice_line_for_tegenrekening,
     )
 
+    # Convert ledger_id to ledger_code for proper account mapping
+    ledger_code = _get_ledger_code_from_id(ledger_id, debug_info)
+
     line_dict = create_invoice_line_for_tegenrekening(
-        tegenrekening_code=ledger_id,
+        tegenrekening_code=ledger_code,
         amount=abs(amount),
         description=description,
         transaction_type=transaction_type,
@@ -732,20 +740,20 @@ def create_single_line_fallback(invoice, mutation_detail, cost_center, debug_inf
     # Get or create item using intelligent creation
     from verenigingen.e_boekhouden.utils.eboekhouden_improved_item_naming import get_or_create_item_improved
 
-    # Use account code from the appropriate account for intelligent item creation
+    # Get the actual account code from the Account record instead of parsing names
     account_code = ""
-    if transaction_type == "sales":
-        account_code = (
-            line_dict.get("income_account", "").split(" - ")[0]
-            if " - " in line_dict.get("income_account", "")
-            else ""
+    account_name = line_dict.get("income_account" if transaction_type == "sales" else "expense_account", "")
+
+    if account_name:
+        # Query the actual account record to get the proper account code
+        account_code = frappe.db.get_value(
+            "Account", account_name, ["eboekhouden_grootboek_nummer", "account_number"], as_dict=True
         )
-    else:
-        account_code = (
-            line_dict.get("expense_account", "").split(" - ")[0]
-            if " - " in line_dict.get("expense_account", "")
-            else ""
-        )
+        if account_code:
+            # Prefer eboekhouden_grootboek_nummer, fallback to account_number
+            account_code = (
+                account_code.get("eboekhouden_grootboek_nummer") or account_code.get("account_number") or ""
+            )
 
     item_code = get_or_create_item_improved(
         account_code=account_code,

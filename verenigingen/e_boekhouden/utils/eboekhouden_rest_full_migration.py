@@ -6,6 +6,7 @@ Fetches ALL mutations by iterating through IDs and caches them
 import json
 
 import frappe
+import requests
 from frappe import _
 from frappe.utils import getdate
 
@@ -2411,6 +2412,97 @@ def _detect_credit_note_improved(mutation_detail, debug_info):
         return False, line_item_total
 
 
+def _get_ledger_code_from_id(ledger_id, debug_info):
+    """Get the ledger code (account number) from ledger ID via mapping table"""
+    if not ledger_id:
+        return None
+
+    mapping_result = frappe.db.sql(
+        """SELECT ledger_code FROM `tabE-Boekhouden Ledger Mapping` WHERE ledger_id = %s LIMIT 1""",
+        str(ledger_id),
+    )
+
+    if mapping_result:
+        ledger_code = mapping_result[0][0]
+        debug_info.append(f"Resolved ledger_id {ledger_id} to ledger_code {ledger_code}")
+        return ledger_code
+    else:
+        debug_info.append(f"No mapping found for ledger_id {ledger_id}")
+        # Try to fetch missing mapping from E-Boekhouden API before failing
+        try:
+            _fetch_and_create_missing_ledger_mapping(ledger_id, debug_info)
+            # Retry the lookup after creating mapping
+            retry_result = frappe.db.sql(
+                """SELECT ledger_code FROM `tabE-Boekhouden Ledger Mapping` WHERE ledger_id = %s LIMIT 1""",
+                str(ledger_id),
+            )
+            if retry_result:
+                ledger_code = retry_result[0][0]
+                debug_info.append(
+                    f"Created missing mapping and resolved ledger_id {ledger_id} to ledger_code {ledger_code}"
+                )
+                return ledger_code
+        except Exception as e:
+            debug_info.append(f"Failed to create missing ledger mapping: {str(e)}")
+
+        # If all else fails, raise an error instead of returning invalid data
+        error_msg = f"No account mapping found for E-Boekhouden ledger ID {ledger_id}. Please configure the ledger mapping or run the Chart of Accounts import to create missing mappings."
+        frappe.throw(error_msg, title="Missing Account Mapping")
+
+
+def _fetch_and_create_missing_ledger_mapping(ledger_id, debug_info):
+    """Fetch ledger details from E-Boekhouden API and create mapping if missing"""
+    try:
+        from .eboekhouden_rest_iterator import EBoekhoudenRESTIterator
+
+        iterator = EBoekhoudenRESTIterator()
+        session_token = iterator._get_session_token()
+
+        if not session_token:
+            debug_info.append(f"Failed to get session token for ledger {ledger_id}")
+            return None
+
+        headers = {"Authorization": session_token, "Accept": "application/json"}
+        ledger_url = f"{iterator.base_url}/v1/ledger/{ledger_id}"
+
+        response = requests.get(ledger_url, headers=headers, timeout=30)
+
+        if response.status_code == 200:
+            ledger_data = response.json()
+            ledger_code = ledger_data.get("code")
+            ledger_name = ledger_data.get("description", "")
+
+            if ledger_code:
+                # Check if account exists with this code
+                account_name = frappe.db.get_value(
+                    "Account",
+                    {"company": "Ned Ver Vegan", "eboekhouden_grootboek_nummer": ledger_code},
+                    "name",
+                )
+
+                if account_name:
+                    # Create ledger mapping
+                    mapping = frappe.new_doc("E-Boekhouden Ledger Mapping")
+                    mapping.ledger_id = str(ledger_id)
+                    mapping.ledger_code = ledger_code
+                    mapping.ledger_name = ledger_name
+                    mapping.erpnext_account = account_name
+                    mapping.insert()
+
+                    debug_info.append(f"Created ledger mapping: {ledger_id} -> {account_name}")
+                    return account_name
+                else:
+                    debug_info.append(f"No account found for ledger code {ledger_code}")
+
+        else:
+            debug_info.append(f"API error fetching ledger {ledger_id}: {response.status_code}")
+
+    except Exception as e:
+        debug_info.append(f"Error fetching ledger {ledger_id}: {str(e)}")
+
+    return None
+
+
 def _convert_negative_amounts_to_positive(regels, debug_info):
     """Convert negative amounts in line items to positive values for credit notes (Purchase Invoices)"""
     return _convert_regels_for_credit_note(regels, "purchase", debug_info)
@@ -2856,16 +2948,26 @@ def _create_money_transfer_payment_entry(mutation, company, cost_center, debug_i
     if not target_account:
         # Create appropriate account based on mutation type
         if mutation_type == 5:  # Money Received - need income account
+            # Get ledger code instead of ledger ID
+            ledger_code = None
+            if rows:
+                ledger_code = _get_ledger_code_from_id(rows[0].get("ledgerId"), debug_info)
+
             line_dict = create_invoice_line_for_tegenrekening(
-                tegenrekening_code=str(rows[0].get("ledgerId")) if rows else None,
+                tegenrekening_code=ledger_code,
                 amount=abs(amount),
                 description=description,
                 transaction_type="sales",
             )
             target_account = line_dict.get("income_account")
         else:  # Money Paid - need expense account
+            # Get ledger code instead of ledger ID
+            ledger_code = None
+            if rows:
+                ledger_code = _get_ledger_code_from_id(rows[0].get("ledgerId"), debug_info)
+
             line_dict = create_invoice_line_for_tegenrekening(
-                tegenrekening_code=str(rows[0].get("ledgerId")) if rows else None,
+                tegenrekening_code=ledger_code,
                 amount=abs(amount),
                 description=description,
                 transaction_type="purchase",
@@ -3046,8 +3148,11 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
                     row_account = mapping_result[0][0]
 
             if not row_account:
+                # Get ledger code instead of ledger ID
+                ledger_code = _get_ledger_code_from_id(row_ledger_id, debug_info) if row_ledger_id else None
+
                 line_dict = create_invoice_line_for_tegenrekening(
-                    tegenrekening_code=str(row_ledger_id) if row_ledger_id else None,
+                    tegenrekening_code=ledger_code,
                     amount=abs(row_amount),
                     description=row_description,
                     transaction_type="purchase",
@@ -3065,8 +3170,15 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
                     ledger_id,
                 )
 
+                main_account = None
                 if main_mapping_result:
                     main_account = main_mapping_result[0][0]
+                else:
+                    # Try to fetch and create missing ledger mapping
+                    debug_info.append(f"Missing ledger mapping for {ledger_id}, attempting to fetch from API")
+                    main_account = _fetch_and_create_missing_ledger_mapping(ledger_id, debug_info)
+
+                if main_account:
                     abs_amount = abs(row_amount)
 
                     if row_amount > 0:
@@ -3112,7 +3224,7 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
                     }
                 else:
                     frappe.throw(
-                        "Memorial booking {mutation_id}: No mapping found for main ledger {ledger_id}"
+                        f"Memorial booking {mutation.get('ID', 'unknown')}: No mapping found for main ledger {ledger_id}"
                     )
             else:
                 # Non-memorial booking
@@ -3155,8 +3267,11 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
                 main_account = mapping_result[0][0]
 
         if not main_account:
+            # Get ledger code instead of ledger ID
+            ledger_code = _get_ledger_code_from_id(ledger_id, debug_info) if ledger_id else None
+
             line_dict = create_invoice_line_for_tegenrekening(
-                tegenrekening_code=str(ledger_id) if ledger_id else None,
+                tegenrekening_code=ledger_code,
                 amount=abs(amount),
                 description=description,
                 transaction_type="purchase",
