@@ -63,15 +63,6 @@ from frappe.model.document import Document
 from frappe.utils import format_datetime, getdate, nowdate, nowtime, random_string, today
 
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
-from verenigingen.verenigingen_payments.services.batch_processing_service import batch_processing_service
-from verenigingen.verenigingen_payments.services.batch_validation_service import batch_validation_service
-from verenigingen.verenigingen_payments.services.business_logic_orchestration_service import (
-    business_logic_service,
-)
-
-# Import refactored services
-from verenigingen.verenigingen_payments.services.sepa_configuration_service import sepa_config_service
-from verenigingen.verenigingen_payments.services.sepa_xml_generation_service import sepa_xml_service
 from verenigingen.verenigingen_payments.utils.batch_performance_optimizer import (
     get_batch_performance_optimizer,
 )
@@ -80,14 +71,6 @@ from verenigingen.verenigingen_payments.utils.financial_error_handler import (
     handle_data_integrity_error,
     handle_permission_error,
     handle_sepa_validation_error,
-)
-from verenigingen.verenigingen_payments.utils.sepa_utilities import (
-    BatchLoggingUtilities,
-    CalculationUtilities,
-    FileManagementUtilities,
-    InvoiceManagementUtilities,
-    SEPAUtilities,
-    SEPAXMLValidator,
 )
 
 
@@ -99,13 +82,48 @@ class DirectDebitBatch(Document):
 
     def validate_invoices(self):
         """Validate that all invoices are valid for direct debit using performance optimization"""
-        validation_result = batch_processing_service.validate_batch_invoices_optimized(self)
+        if not self.invoices:
+            frappe.throw(_("No invoices added to batch"))
 
-        if not validation_result["is_valid"] and validation_result["valid_invoices"] == 0:
-            frappe.throw(_("No valid invoices found in batch"))
+        # Use performance optimizer for bulk validation
+        performance_optimizer = get_batch_performance_optimizer()
+        invoice_names = [invoice.invoice for invoice in self.invoices]
 
-        if validation_result.get("has_warnings"):
-            frappe.msgprint(_("Some invoice validation warnings were found. Check batch log for details."))
+        # Get invoice details in bulk to avoid N+1 queries
+        invoice_details = performance_optimizer.get_invoices_with_details_bulk(invoice_names)
+
+        validation_errors = []
+
+        for invoice in self.invoices:
+            invoice_data = invoice_details.get(invoice.invoice)
+
+            # Check if invoice exists
+            if not invoice_data:
+                validation_errors.append(f"Invoice {invoice.invoice} does not exist")
+                continue
+
+            # Check if invoice is unpaid
+            if invoice_data["status"] not in ["Unpaid", "Overdue"]:
+                validation_errors.append(
+                    f"Invoice {invoice.invoice} is not unpaid (status: {invoice_data['status']})"
+                )
+
+            # Check if membership exists (from bulk data)
+            if invoice.membership and not invoice_data.get("membership"):
+                validation_errors.append(f"Membership {invoice.membership} does not exist")
+
+            # Check bank details
+            if not invoice.iban:
+                validation_errors.append(f"IBAN is required for invoice {invoice.invoice}")
+
+            if not invoice.mandate_reference:
+                validation_errors.append(f"Mandate reference is required for invoice {invoice.invoice}")
+
+        # Throw all validation errors at once
+        if validation_errors:
+            handle_data_integrity_error(
+                "F3001", {"batch_name": self.name, "validation_errors": validation_errors}
+            )
 
     def validate_sequence_types(self):
         """Validate SEPA sequence types for automated batch processing"""
@@ -219,7 +237,12 @@ class DirectDebitBatch(Document):
 
     def calculate_totals(self):
         """Calculate batch totals - optimized with database aggregation for large batches"""
-        batch_processing_service.calculate_batch_totals_optimized(self)
+        if not self.name:
+            # New document, use Python iteration
+            self._calculate_totals_python()
+            return
+
+        # For existing documents with potentially large child tables, use SQL aggregation
         try:
             result = frappe.db.sql(
                 """
@@ -265,9 +288,39 @@ class DirectDebitBatch(Document):
 
     def _calculate_totals_python(self):
         """Fallback Python calculation for new documents or when SQL fails"""
-        totals = CalculationUtilities.calculate_document_totals_python(self.invoices)
-        self.entry_count = totals["entry_count"]
-        self.total_amount = totals["total_amount"]
+        if not self.invoices:
+            self.entry_count = 0
+            self.total_amount = 0.0
+            return
+
+        # Functionally equivalent to SQL aggregation with comprehensive edge case handling
+        self.entry_count = len(self.invoices)
+
+        # Handle None/NULL values same way as SQL COALESCE(amount, 0)
+        # Also handle potential string values and invalid data types gracefully
+        total = 0.0
+        for invoice in self.invoices:
+            try:
+                amount = invoice.amount
+                if amount is None:
+                    # Same as SQL COALESCE(amount, 0)
+                    amount = 0.0
+                elif isinstance(amount, str):
+                    # Handle string amounts (shouldn't happen but defensive programming)
+                    amount = float(amount) if amount.strip() else 0.0
+                else:
+                    # Ensure it's a float for precision consistency with SQL
+                    amount = float(amount)
+
+                total += amount
+
+            except (ValueError, TypeError, AttributeError):
+                # Handle any conversion errors by treating as 0 (same as SQL COALESCE behavior)
+                # This matches the SQL behavior where invalid/NULL data becomes 0
+                continue
+
+        # Ensure precision consistency with database currency handling
+        self.total_amount = round(total, 2)
 
     def on_submit(self):
         """Generate SEPA file on submit if not already generated"""
@@ -283,15 +336,143 @@ class DirectDebitBatch(Document):
     @critical_api(operation_type=OperationType.FINANCIAL)
     def generate_sepa_xml(self):
         """Generate SEPA Direct Debit XML file for Dutch banks"""
-        return sepa_xml_service.generate_sepa_xml_for_batch(self)
+        try:
+            frappe.logger().info(f"Starting SEPA XML generation for batch {self.name} (pain.008.001.08)")
+
+            # Generate IDs for SEPA message
+            message_id = f"BATCH-{self.name}-{random_string(8)}"
+            payment_info_id = f"PMT-{self.name}-{random_string(8)}"
+
+            # Store IDs - use db_set to avoid validation issues after submission
+            self.db_set("sepa_message_id", message_id)
+            self.db_set("sepa_payment_info_id", payment_info_id)
+            self.db_set("sepa_generation_date", f"{nowdate()} {nowtime()}")
+
+            # Get company settings from Verenigingen Settings
+            settings = frappe.get_single("Verenigingen Settings")
+            company = frappe.get_doc(
+                "Company", settings.company or frappe.defaults.get_global_default("company")
+            )
+
+            # Validate required settings
+            required_settings = ["company_iban", "creditor_id", "company_account_holder"]
+            missing_settings = []
+
+            for setting in required_settings:
+                if not hasattr(settings, setting) or not getattr(settings, setting):
+                    missing_settings.append(setting)
+
+            # BIC is optional - can be derived from IBAN
+            if not getattr(settings, "company_bic", None) and getattr(settings, "company_iban", None):
+                # Try to derive BIC from IBAN
+                from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
+
+                derived_bic = derive_bic_from_iban(settings.company_iban)
+                if derived_bic:
+                    frappe.logger().info(f"Derived BIC {derived_bic} from company IBAN")
+                    settings.company_bic = derived_bic
+                else:
+                    missing_settings.append("company_bic (could not be derived from IBAN)")
+
+            if missing_settings:
+                # Use financial error handler for SEPA configuration errors
+                handle_sepa_validation_error(
+                    "F5001",
+                    {
+                        "batch_name": self.name,
+                        "missing_settings": missing_settings,
+                        "required_settings": required_settings,
+                    },
+                )
+
+            # Create XML structure specifically for Dutch banks
+            root = self.create_dutch_sepa_xml_structure(
+                message_id=message_id, payment_info_id=payment_info_id, company=company, settings=settings
+            )
+
+            # Convert to string
+            xml_string = ET.tostring(root, encoding="utf-8", method="xml")
+
+            # Validate XML against schema if available (Recommendation #3)
+            validation_result = self._validate_sepa_xml_schema(xml_string)
+            if not validation_result["valid"]:
+                frappe.logger().warning(
+                    f"SEPA XML validation warnings for batch {self.name}: {validation_result['errors']}"
+                )
+                # Log warnings but continue - some banks may have different validation rules
+
+            # Prettify XML
+            import xml.dom.minidom
+
+            xml_pretty = xml.dom.minidom.parseString(xml_string).toprettyxml()
+
+            # Create temporary file
+            temp_file_path = os.path.join(tempfile.gettempdir(), f"sepa-{self.name}.xml")
+            with open(temp_file_path, "w") as f:
+                f.write(xml_pretty)
+
+            # Attach to document
+            sepa_file = self.attach_sepa_file(temp_file_path)
+
+            # Use db_set instead of direct assignment for fields that need to change after submit
+            self.db_set("sepa_file", sepa_file)
+            self.db_set("sepa_file_generated", 1)
+            self.db_set("status", "Generated")
+
+            # Update log
+            self.add_to_batch_log(_("SEPA XML file generated successfully"))
+
+            # Clean up
+            os.remove(temp_file_path)
+
+            frappe.logger().info(f"SEPA XML file generated successfully for batch {self.name}")
+            return sepa_file
+
+        except Exception as e:
+            error_msg = _("Error generating SEPA file: {0}").format(str(e))
+            self.add_to_batch_log(error_msg)
+            frappe.log_error(
+                f"Error generating SEPA file for batch {self.name}: {str(e)}", "SEPA Direct Debit Batch Error"
+            )
+            frappe.throw(error_msg)
 
     def attach_sepa_file(self, file_path):
         """Attach SEPA file to document"""
-        return FileManagementUtilities.attach_file_to_document(file_path, self.doctype, self.name)
+        try:
+            file_name = os.path.basename(file_path)
+
+            with open(file_path, "rb") as f:
+                file_content = f.read()
+
+            # Use Frappe's file API to attach the file
+            file_doc = frappe.get_doc(
+                {
+                    "doctype": "File",
+                    "file_name": file_name,
+                    "attached_to_doctype": self.doctype,
+                    "attached_to_name": self.name,
+                    "content": file_content,
+                    "is_private": 1,
+                }
+            )
+            file_doc.insert()
+
+            return file_doc.file_url
+        except Exception as e:
+            frappe.log_error(
+                f"Error attaching SEPA file for batch {self.name}: {str(e)}", "SEPA Direct Debit Batch Error"
+            )
+            raise
 
     def add_to_batch_log(self, message):
         """Add message to batch log"""
-        BatchLoggingUtilities.add_to_document_batch_log(self, message)
+        timestamp = format_datetime(datetime.now())
+        log_message = f"{timestamp}: {message}\n"
+
+        if self.batch_log:
+            self.batch_log += log_message
+        else:
+            self.batch_log = log_message
 
     def process_batch(self):
         """Process the batch - to be implemented based on bank requirements"""
@@ -318,17 +499,66 @@ class DirectDebitBatch(Document):
 
     def update_invoice_status(self, invoice_index, status, result_code=None, result_message=None):
         """Update status of a specific invoice in the batch"""
-        try:
-            InvoiceManagementUtilities.update_batch_invoice_status(
-                self.invoices, invoice_index, status, result_code, result_message
-            )
-            self.save()
-        except IndexError:
+        if invoice_index < 0 or invoice_index >= len(self.invoices):
             frappe.throw(_("Invalid invoice index"))
+
+        self.invoices[invoice_index].status = status
+
+        if result_code:
+            self.invoices[invoice_index].result_code = result_code
+
+        if result_message:
+            self.invoices[invoice_index].result_message = result_message
+
+        self.save()
 
     def mark_invoices_as_paid(self):
         """Mark all invoices in the batch as paid"""
-        return batch_processing_service.mark_batch_invoices_as_paid(self)
+        success_count = 0
+
+        for i, invoice_item in enumerate(self.invoices):
+            try:
+                # Get the invoice
+                invoice = frappe.get_doc("Sales Invoice", invoice_item.invoice)
+
+                # Create payment entry
+                payment_entry = create_payment_entry_for_invoice(
+                    invoice=invoice,
+                    payment_type="Receive",
+                    mode_of_payment="SEPA Direct Debit",
+                    reference_no=self.name,
+                    reference_date=self.batch_date,
+                )
+
+                # Update batch invoice status
+                self.update_invoice_status(
+                    i, "Successful", "PDNG", f"Payment entry {payment_entry.name} created"
+                )
+
+                # Update membership
+                update_membership_payment_status(invoice_item.membership)
+
+                success_count += 1
+
+            except Exception as e:
+                self.update_invoice_status(i, "Failed", "RJCT", f"Error: {str(e)}")
+                frappe.log_error(
+                    f"Error processing payment for invoice {invoice_item.invoice}: {str(e)}",
+                    "SEPA Direct Debit Payment Error",
+                )
+
+        # Update batch status
+        if success_count == len(self.invoices):
+            self.status = "Processed"
+        elif success_count > 0:
+            self.status = "Partially Processed"
+        else:
+            self.status = "Failed"
+
+        self.add_to_batch_log(_(f"Processed {success_count} of {len(self.invoices)} invoices"))
+        self.save()
+
+        return success_count
 
     def create_dutch_sepa_xml_structure(self, message_id, payment_info_id, company, settings):
         """Create SEPA XML structure specifically for Dutch direct debit"""
@@ -572,7 +802,52 @@ class DirectDebitBatch(Document):
 
     def _validate_sepa_xml_schema(self, xml_string):
         """Validate SEPA XML against pain.008.001.08 schema (Recommendation #3)"""
-        return SEPAXMLValidator.validate_sepa_xml_schema(xml_string, self.name)
+        try:
+            # Try to import xmlschema for validation
+            try:
+                import xmlschema
+            except ImportError:
+                frappe.logger().info("xmlschema not available - skipping XML schema validation")
+                return {"valid": True, "warnings": ["Schema validation skipped - xmlschema not installed"]}
+
+            # Check if XSD schema file exists
+            import os
+
+            schema_path = os.path.join(frappe.get_app_path("verenigingen"), "schemas", "pain.008.001.08.xsd")
+
+            if not os.path.exists(schema_path):
+                # For financial transactions, missing schema validation is a concern
+                frappe.log_error(
+                    f"SEPA XSD schema not found at {schema_path} - validation skipped for batch {self.name if hasattr(self, 'name') else 'unknown'}",
+                    "SEPA Schema Validation - Missing XSD File",
+                )
+                return {
+                    "valid": True,
+                    "warnings": ["Schema file not found - validation skipped"],
+                    "critical": True,
+                }
+
+            # Perform validation
+            schema = xmlschema.XMLSchema(schema_path)
+            validation_errors = list(
+                schema.iter_errors(
+                    xml_string.decode("utf-8") if isinstance(xml_string, bytes) else xml_string
+                )
+            )
+
+            if validation_errors:
+                error_messages = [str(error) for error in validation_errors[:5]]  # Limit to first 5 errors
+                return {
+                    "valid": False,
+                    "errors": error_messages,
+                    "warning": f"Found {len(validation_errors)} validation errors",
+                }
+            else:
+                return {"valid": True, "message": "XML validates against pain.008.001.08 schema"}
+
+        except Exception as e:
+            frappe.logger().warning(f"XML schema validation failed: {str(e)}")
+            return {"valid": True, "warnings": [f"Validation error: {str(e)}"]}
 
 
 # Helper Functions
@@ -652,8 +927,10 @@ def update_membership_payment_status(membership_name):
 
 
 def get_bic_from_iban(iban):
-    """Try to determine BIC from IBAN - use SEPA utilities service"""
-    return SEPAUtilities.get_bic_from_iban(iban)
+    """Try to determine BIC from IBAN - use enhanced validator"""
+    from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
+
+    return derive_bic_from_iban(iban)
 
 
 @frappe.whitelist()

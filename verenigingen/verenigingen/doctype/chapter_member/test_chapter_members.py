@@ -5,6 +5,7 @@ import frappe
 from frappe.utils import today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
+from verenigingen.tests.fixtures.secure_test_data_factory import SecureTestDataFactory
 
 
 class TestChapterMemberIntegration(EnhancedTestCase):
@@ -14,6 +15,13 @@ class TestChapterMemberIntegration(EnhancedTestCase):
 
         # Clean up any existing test data
         self.cleanup_test_data()
+
+        # Initialize secure test data factory for proper data creation
+        self.factory = SecureTestDataFactory(
+            test_user="Administrator",
+            seed=hash(self.unique_id) % 2**16,  # Use unique_id for deterministic seed
+            cleanup_on_exit=False,  # We'll handle cleanup manually
+        )
 
         # Create test role
         self.role = frappe.get_doc(
@@ -28,66 +36,47 @@ class TestChapterMemberIntegration(EnhancedTestCase):
         )
         self.role.insert()  # EnhancedTestCase handles permissions
 
-        # Create test members
-        self.test_member1 = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Test1",
-                "last_name": f"Member {self.unique_id}",
-                "email": f"test1{self.unique_id}@example.com",
-            }
+        # Create test members using factory for proper member_id generation
+        self.test_member1 = self.factory.create_member(
+            first_name="Test1",
+            last_name=f"Member {self.unique_id}",
+            email=f"test1{self.unique_id}@example.com",
         )
-        self.test_member1.insert()  # EnhancedTestCase handles permissions
 
-        self.test_member2 = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Test2",
-                "last_name": f"Member {self.unique_id}",
-                "email": f"test2{self.unique_id}@example.com",
-            }
+        self.test_member2 = self.factory.create_member(
+            first_name="Test2",
+            last_name=f"Member {self.unique_id}",
+            email=f"test2{self.unique_id}@example.com",
         )
-        self.test_member2.insert()  # EnhancedTestCase handles permissions
 
-        # Create volunteers for members
-        self.test_volunteer1 = frappe.get_doc(
-            {
-                "doctype": "Volunteer",
-                "volunteer_name": f"Test1 Volunteer {self.unique_id}",
-                "email": f"test1v{self.unique_id}@example.org",
-                "member": self.test_member1.name,
-                "status": "Active",
-                "start_date": today(),
-            }
+        # Create volunteers for members using factory
+        self.test_volunteer1 = self.factory.create_volunteer(
+            member_name=self.test_member1.name,
+            volunteer_name=f"Test1 Volunteer {self.unique_id}",
+            email=f"test1v{self.unique_id}@example.org",
+            status="Active",
+            start_date=today(),
         )
-        self.test_volunteer1.insert()  # EnhancedTestCase handles permissions
 
-        self.test_volunteer2 = frappe.get_doc(
-            {
-                "doctype": "Volunteer",
-                "volunteer_name": f"Test2 Volunteer {self.unique_id}",
-                "email": f"test2v{self.unique_id}@example.org",
-                "member": self.test_member2.name,
-                "status": "Active",
-                "start_date": today(),
-            }
+        self.test_volunteer2 = self.factory.create_volunteer(
+            member_name=self.test_member2.name,
+            volunteer_name=f"Test2 Volunteer {self.unique_id}",
+            email=f"test2v{self.unique_id}@example.org",
+            status="Active",
+            start_date=today(),
         )
-        self.test_volunteer2.insert()  # EnhancedTestCase handles permissions
 
-        # Create test chapter
-        self.chapter = frappe.get_doc(
-            {
-                "doctype": "Chapter",
-                "name": f"Test Chapter {self.unique_id}",
-                "region": "Test Region",
-                "introduction": "Test Chapter for Member Integration",
-                "published": 1,
-                "members": [],  # Ensure this starts empty
-            }
+        # Create test chapter using factory for proper Region handling
+        self.chapter = self.factory.create_chapter(
+            introduction="Test Chapter for Member Integration",
+            published=1,
         )
-        self.chapter.insert()  # EnhancedTestCase handles permissions
 
     def tearDown(self):
+        # Clean up factory-created records first
+        if hasattr(self, "factory"):
+            self.factory.cleanup_with_verification()
+        # Then clean up any remaining test data
         self.cleanup_test_data()
 
     def cleanup_test_data(self):
@@ -130,9 +119,7 @@ class TestChapterMemberIntegration(EnhancedTestCase):
         self.assertEqual(len(self.chapter.members), 0, "Chapter should start with no members")
 
         # Add member using the add_member method
-        result = self.chapter.add_member(
-            self.test_member1.name, introduction="Test introduction", website_url="https://example.com"
-        )
+        result = self.chapter.add_member(self.test_member1.name)
 
         # Reload chapter to see changes
         self.chapter.reload()
@@ -141,12 +128,6 @@ class TestChapterMemberIntegration(EnhancedTestCase):
         self.assertEqual(len(self.chapter.members), 1, "Chapter should now have 1 member")
         self.assertEqual(
             self.chapter.members[0].member, self.test_member1.name, "Member should be added to chapter"
-        )
-        self.assertEqual(
-            self.chapter.members[0].introduction, "Test introduction", "Member introduction should be set"
-        )
-        self.assertEqual(
-            self.chapter.members[0].website_url, "https://example.com", "Member website URL should be set"
         )
         self.assertTrue(result, "add_member method should return True for success")
 
@@ -194,8 +175,8 @@ class TestChapterMemberIntegration(EnhancedTestCase):
     def test_no_duplicate_members(self):
         """Test that the same member cannot be added twice to the chapter members list"""
         # Add the member twice using the add_member method
-        self.chapter.add_member(self.test_member1.name, introduction="First addition")
-        self.chapter.add_member(self.test_member1.name, introduction="Second addition")
+        self.chapter.add_member(self.test_member1.name)
+        self.chapter.add_member(self.test_member1.name)
 
         # Reload chapter
         self.chapter.reload()

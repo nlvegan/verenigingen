@@ -4,6 +4,8 @@ from typing import Dict
 import frappe
 from frappe.utils import now
 
+from verenigingen.utils.secure_operations import secure_document_operation
+
 
 class ChapterMembershipHistoryManager:
     """
@@ -79,7 +81,20 @@ class ChapterMembershipHistoryManager:
                 },
             )
 
-            member.save(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            save_result = secure_document_operation(
+                operation="save",
+                doc=member,
+                justification=f"Add membership history for member {member_id} joining {chapter_name} as {assignment_type}",
+                required_permissions=["Member:write"],
+            )
+
+            if not save_result.success:
+                frappe.log_error(
+                    f"Failed to save membership history for member {member_id}: {'; '.join(save_result.errors)}",
+                    "Chapter Membership History Security Error",
+                )
+                return False
 
             print(f"Added membership history for member {member_id}: {assignment_type} at {chapter_name}")
             return True
@@ -181,7 +196,21 @@ class ChapterMembershipHistoryManager:
                         f"Created new completed membership history for member {member_id}: {assignment_type} at {chapter_name}"
                     )
 
-            member.save(ignore_permissions=True)
+            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+            save_result = secure_document_operation(
+                operation="save",
+                doc=member,
+                justification=f"Complete membership history for member {member_id} leaving {chapter_name} as {assignment_type}",
+                required_permissions=["Member:write"],
+            )
+
+            if not save_result.success:
+                frappe.log_error(
+                    f"Failed to save membership completion for member {member_id}: {'; '.join(save_result.errors)}",
+                    "Chapter Membership History Security Error",
+                )
+                return False
+
             return True
 
         except Exception as e:
@@ -258,7 +287,21 @@ class ChapterMembershipHistoryManager:
 
             if membership_to_remove:
                 member.chapter_membership_history.remove(membership_to_remove)
-                member.save(ignore_permissions=True)
+
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                save_result = secure_document_operation(
+                    operation="save",
+                    doc=member,
+                    justification=f"Remove membership history for member {member_id} from {chapter_name} as {assignment_type}",
+                    required_permissions=["Member:write"],
+                )
+
+                if not save_result.success:
+                    frappe.log_error(
+                        f"Failed to save membership history removal for member {member_id}: {'; '.join(save_result.errors)}",
+                        "Chapter Membership History Security Error",
+                    )
+                    return False
 
                 frappe.logger().info(
                     f"Removed membership history for member {member_id}: {assignment_type} at {chapter_name}"
@@ -313,7 +356,20 @@ class ChapterMembershipHistoryManager:
                 target_membership.status = "Terminated"
                 target_membership.reason = reason
 
-                member.save(ignore_permissions=True)
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                save_result = secure_document_operation(
+                    operation="save",
+                    doc=member,
+                    justification=f"Terminate membership history for member {member_id} leaving {chapter_name} as {assignment_type}",
+                    required_permissions=["Member:write"],
+                )
+
+                if not save_result.success:
+                    frappe.log_error(
+                        f"Failed to save membership termination for member {member_id}: {'; '.join(save_result.errors)}",
+                        "Chapter Membership History Security Error",
+                    )
+                    return False
 
                 frappe.logger().info(
                     f"Terminated membership history for member {member_id}: {assignment_type} at {chapter_name}"
@@ -425,7 +481,20 @@ class ChapterMembershipHistoryManager:
                 if reason:
                     target_membership.reason = reason
 
-                member.save(ignore_permissions=True)
+                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
+                save_result = secure_document_operation(
+                    operation="save",
+                    doc=member,
+                    justification=f"Update membership status for member {member_id} in {chapter_name} as {assignment_type} to {new_status}",
+                    required_permissions=["Member:write"],
+                )
+
+                if not save_result.success:
+                    frappe.log_error(
+                        f"Failed to save membership status update for member {member_id}: {'; '.join(save_result.errors)}",
+                        "Chapter Membership History Security Error",
+                    )
+                    return False
 
                 frappe.logger().info(
                     f"Updated membership status for member {member_id}: {assignment_type} at {chapter_name} from Pending to {new_status}"

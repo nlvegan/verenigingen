@@ -225,7 +225,7 @@ def on_chapter_role_on_update(doc, method):
         if doc.has_value_changed("permissions_level") or doc.has_value_changed("is_active"):
             # Get all board members with this chapter role
             board_members = frappe.get_all(
-                "Verenigingen Chapter Board Member",
+                "Chapter Board Member",
                 filters={"chapter_role": doc.name, "is_active": 1},
                 fields=["volunteer"],
             )

@@ -163,7 +163,10 @@ class SecureTestDataFactory:
             "last_name": f"Generated-{self.test_run_id[:8]}",
             "email": f"testmember{self.get_next_sequence('email')}_{self.test_run_id}@test.example",
             "birth_date": add_days(getdate(), -9000),  # ~25 years old
-            "status": "Active"
+            "status": "Active",
+            # FIX: Explicitly set unique member_id to avoid constraint violations
+            # This works around member_id generation issues due to recent security changes
+            "member_id": str(int(self.test_run_id.split('-')[-1]) * 1000 + self.get_next_sequence('member_id'))
         }
         
         # Merge with provided kwargs
@@ -207,7 +210,7 @@ class SecureTestDataFactory:
         }
         
         data = {**defaults, **kwargs}
-        data = self.validate_required_fields("Verenigingen Volunteer", data)
+        data = self.validate_required_fields("Volunteer", data)
         
         try:
             volunteer = frappe.get_doc({
@@ -216,7 +219,7 @@ class SecureTestDataFactory:
             })
             
             volunteer.insert()
-            self.track_record("Verenigingen Volunteer", volunteer.name)
+            self.track_record("Volunteer", volunteer.name)
             
             return volunteer
         except Exception as e:
@@ -228,11 +231,23 @@ class SecureTestDataFactory:
             self.validate_field_exists("Chapter", field)
             
         defaults = {
-            "name": f"TestChapter-{self.get_next_sequence('chapter')}-{self.test_run_id[:8]}",
             "region": f"TestRegion-{self.get_next_sequence('region')}",
             "postal_codes": f"{1000 + self.get_next_sequence('postal'):04d}",
             "introduction": f"Test chapter created by SecureTestDataFactory - {self.test_run_id}"
         }
+
+        # Ensure Region exists before creating Chapter
+        region_name = defaults["region"]
+        if not frappe.db.exists("Region", region_name):
+            region = frappe.get_doc({
+                "doctype": "Region",
+                "region_name": region_name,
+                "region_code": f"TR{self.get_next_sequence('region_code'):03d}",  # Test Region code
+                "country": "Netherlands",
+                "is_active": 1
+            })
+            region.insert()
+            self.track_record("Region", region.name)
         
         data = {**defaults, **kwargs}
         data = self.validate_required_fields("Chapter", data)
@@ -240,9 +255,10 @@ class SecureTestDataFactory:
         try:
             chapter = frappe.get_doc({
                 "doctype": "Chapter",
+                "name": f"TestChapter-{self.get_next_sequence('chapter')}-{self.test_run_id[:8]}",
                 **data
             })
-            
+
             chapter.insert()
             self.track_record("Chapter", chapter.name)
             
@@ -272,17 +288,18 @@ class SecureTestDataFactory:
         data = self.validate_required_fields("Volunteer Skill", data)
         
         try:
-            skill = frappe.get_doc({
-                "doctype": "Volunteer Skill",
-                "parent": volunteer_name,
-                "parenttype": "Verenigingen Volunteer",
-                "parentfield": "skills_and_qualifications",
-                **data
-            })
-            
-            skill.insert()
+            # Load the parent volunteer document
+            volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
+
+            # Append child record using proper parent-child relationship
+            skill = volunteer_doc.append("skills_and_qualifications", data)
+
+            # Save the parent document to persist the child table entry
+            volunteer_doc.save()
+
+            # Track the child record (using the row name from the table)
             self.track_record("Volunteer Skill", skill.name)
-            
+
             return skill
         except Exception as e:
             raise Exception(f"Failed to create volunteer skill: {e}")

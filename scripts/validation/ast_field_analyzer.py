@@ -90,7 +90,9 @@ class ASTFieldAnalyzer(OriginalAnalyzer):
                         
                         # Check if it's a common framework field
                         common_fields = {'name', 'creation', 'modified', 'owner', 'docstatus'}
-                        if field_name in common_fields:
+                        # Also check for common non-field attributes
+                        common_non_field_attributes = {'errors', 'success', 'result', 'status', 'message'}
+                        if field_name in common_fields or field_name in common_non_field_attributes:
                             return inferred_doctype, "file_path_inference"
         
         # Fall back to original detection logic

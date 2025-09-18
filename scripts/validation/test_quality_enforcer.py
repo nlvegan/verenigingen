@@ -323,8 +323,9 @@ class TestQualityEnforcer:
         
         # Look for obvious field reference errors
         problematic_patterns = [
-            r'member_name.*=.*member\.name',  # Common error: using member_name instead of source_record
-            r'source_record.*=.*member_name', # Opposite error
+            # Note: member_name = member.name is actually CORRECT (getting document ID)
+            # Removed overly broad pattern that flagged legitimate .name field usage
+            r'source_record.*=.*member_name', # Opposite error: assigning string to doc variable
             r'\.non_existent_field',          # Obviously wrong field name
             r'\.fake_field',                  # Test field that doesn't exist
             r'\.test_field_123'               # Clearly made up field names

@@ -22,3 +22,7 @@ verenigingen.patches.v2_0.add_donor_auto_creation_fields
 verenigingen.patches.v2_0.migrate_team_role_integration
 verenigingen.patches.v2_1.cleanup_duplicate_dues_schedule_templates
 verenigingen.patches.v2_1.configure_age_validation_settings
+verenigingen.patches.v15_0.add_chapter_performance_indexes
+verenigingen.patches.v15_0.add_member_performance_indexes
+verenigingen.patches.v15_0.add_volunteer_performance_indexes
+verenigingen.patches.v15_0.add_team_performance_indexes

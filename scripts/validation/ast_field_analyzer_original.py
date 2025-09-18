@@ -279,7 +279,7 @@ class ASTFieldAnalyzer:
             # Common non-field attributes
             'common_attributes': {
                 'type', 'value', 'id', 'class', 'style', 'data', 'result', 'fields',
-                'response', 'request', 'status', 'code', 'message', 'error', 'success',
+                'response', 'request', 'status', 'code', 'message', 'error', 'errors', 'success',
                 'info', 'debug', 'warning', 'critical', 'exception', 'args', 'kwargs',
                 'self', 'cls', 'super', 'property', 'staticmethod', 'classmethod',
                 'abstractmethod', 'cached_property', 'enabled', 'template', 'baseline_file',
