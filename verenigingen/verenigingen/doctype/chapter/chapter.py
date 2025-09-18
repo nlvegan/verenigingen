@@ -60,6 +60,11 @@ from frappe.query_builder import DocType
 from frappe.utils import getdate, now, today
 from frappe.website.website_generator import WebsiteGenerator
 
+from verenigingen.events.chapter_events import (
+    emit_chapter_board_changed,
+    emit_chapter_membership_changed,
+    emit_chapter_settings_changed,
+)
 from verenigingen.utils.error_handling import handle_api_error, log_error
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -160,8 +165,13 @@ class Chapter(WebsiteGenerator):
             # Don't block save for manager operation errors, just log them
 
     def on_update(self):
-        """On update hook"""
+        """On update hook with event emission for background processing"""
         self._clear_manager_caches()
+
+        # Emit events for significant changes to trigger background operations
+        old_doc = self.get_doc_before_save()
+        if old_doc:
+            self._emit_chapter_change_events(old_doc)
 
     # ========================================================================
     # MANAGER PROPERTIES (Lazy Loading)
@@ -634,6 +644,120 @@ class Chapter(WebsiteGenerator):
         for manager in self._managers.values():
             if hasattr(manager, "clear_cache"):
                 manager.clear_cache()
+
+    def _emit_chapter_change_events(self, old_doc):
+        """Emit events for significant chapter changes to trigger background processing"""
+        try:
+            # Detect board member changes
+            self._detect_and_emit_board_changes(old_doc)
+
+            # Detect member changes
+            self._detect_and_emit_membership_changes(old_doc)
+
+            # Detect settings changes
+            self._detect_and_emit_settings_changes(old_doc)
+
+        except Exception as e:
+            frappe.log_error(
+                f"Failed to emit chapter change events for {self.name}: {str(e)}",
+                "Chapter Event Emission Error",
+            )
+
+    def _detect_and_emit_board_changes(self, old_doc):
+        """Detect and emit board member changes"""
+        old_board = {(bm.volunteer, bm.chapter_role) for bm in (old_doc.board_members or [])}
+        new_board = {(bm.volunteer, bm.chapter_role) for bm in (self.board_members or [])}
+
+        # Find added board members
+        for volunteer, role in new_board - old_board:
+            # Check if it's a new member or role change
+            old_volunteer_roles = {
+                bm.chapter_role for bm in (old_doc.board_members or []) if bm.volunteer == volunteer
+            }
+
+            if not old_volunteer_roles:
+                # New board member
+                emit_chapter_board_changed(
+                    self.name,
+                    {
+                        "volunteer": volunteer,
+                        "action": "added",
+                        "role": role,
+                        "changed_by": frappe.session.user,
+                    },
+                )
+            else:
+                # Role change
+                old_role = list(old_volunteer_roles)[0]  # Assume one role per volunteer
+                emit_chapter_board_changed(
+                    self.name,
+                    {
+                        "volunteer": volunteer,
+                        "action": "role_changed",
+                        "role": role,
+                        "old_role": old_role,
+                        "changed_by": frappe.session.user,
+                    },
+                )
+
+        # Find removed board members
+        for volunteer, role in old_board - new_board:
+            # Check if completely removed or just role changed
+            new_volunteer_roles = {
+                bm.chapter_role for bm in (self.board_members or []) if bm.volunteer == volunteer
+            }
+
+            if not new_volunteer_roles:
+                # Completely removed
+                emit_chapter_board_changed(
+                    self.name,
+                    {
+                        "volunteer": volunteer,
+                        "action": "removed",
+                        "old_role": role,
+                        "changed_by": frappe.session.user,
+                    },
+                )
+
+    def _detect_and_emit_membership_changes(self, old_doc):
+        """Detect and emit chapter membership changes"""
+        old_members = {cm.member for cm in (old_doc.members or [])}
+        new_members = {cm.member for cm in (self.members or [])}
+
+        # Find new members
+        for member in new_members - old_members:
+            emit_chapter_membership_changed(
+                self.name, {"member": member, "action": "joined", "changed_by": frappe.session.user}
+            )
+
+        # Find removed members
+        for member in old_members - new_members:
+            emit_chapter_membership_changed(
+                self.name, {"member": member, "action": "left", "changed_by": frappe.session.user}
+            )
+
+    def _detect_and_emit_settings_changes(self, old_doc):
+        """Detect and emit chapter settings changes"""
+        # Important fields that trigger settings change events
+        important_fields = [
+            "published",
+            "enable_board_role_specific_profiles",
+            "default_board_role_profile",
+            "introduction",
+            "image",
+            "postal_codes",
+            "region",
+        ]
+
+        changed_fields = []
+        for field in important_fields:
+            if self.has_value_changed(field):
+                changed_fields.append(field)
+
+        if changed_fields:
+            emit_chapter_settings_changed(
+                self.name, {"changed_fields": changed_fields, "changed_by": frappe.session.user}
+            )
 
     # ========================================================================
     # BACKWARD COMPATIBILITY METHODS

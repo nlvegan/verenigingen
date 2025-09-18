@@ -6,6 +6,11 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.query_builder import DocType
 
+from verenigingen.events.team_events import (
+    emit_team_leadership_changed,
+    emit_team_membership_changed,
+    emit_team_settings_changed,
+)
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
     critical_api,
@@ -43,13 +48,20 @@ class Team(Document):
             self._original_members = self._get_member_snapshot()
 
     def on_update(self):
-        """Handle team member changes after save with atomic transaction management"""
+        """Handle team member changes with event emission for background processing"""
         if hasattr(self, "_team_member_changes_processed"):
             return  # Prevent recursive calls
 
         try:
             self._team_member_changes_processed = True
-            self._handle_team_member_changes_atomic()
+
+            # Emit events for significant changes to trigger background operations
+            if hasattr(self, "_doc_before_save") and self._doc_before_save:
+                self._emit_team_change_events(self._doc_before_save)
+
+            # Keep the lightweight immediate operations only
+            self._handle_immediate_team_changes()
+
         finally:
             if hasattr(self, "_team_member_changes_processed"):
                 delattr(self, "_team_member_changes_processed")
@@ -370,6 +382,125 @@ class Team(Document):
                 f"Consider running team data validation or contact administrator."
             )
             frappe.log_error(error_msg, "Team Assignment History Validation Error")
+
+    def _emit_team_change_events(self, old_doc):
+        """Emit events for significant team changes to trigger background processing"""
+        try:
+            # Detect team membership changes
+            self._detect_and_emit_membership_changes(old_doc)
+
+            # Detect settings changes
+            self._detect_and_emit_settings_changes(old_doc)
+
+            # Detect leadership changes
+            self._detect_and_emit_leadership_changes(old_doc)
+
+        except Exception as e:
+            frappe.log_error(
+                f"Failed to emit team change events for {self.name}: {str(e)}", "Team Event Emission Error"
+            )
+
+    def _detect_and_emit_membership_changes(self, old_doc):
+        """Detect and emit team membership changes"""
+        old_members = {(m.volunteer, m.from_date, m.team_role) for m in (old_doc.team_members or [])}
+        new_members = {(m.volunteer, m.from_date, m.team_role) for m in (self.team_members or [])}
+
+        # Group by volunteer to detect changes
+        old_by_volunteer = {}
+        for m in old_doc.team_members or []:
+            if m.volunteer:
+                key = (m.volunteer, m.from_date)
+                old_by_volunteer[key] = m
+
+        new_by_volunteer = {}
+        for m in self.team_members or []:
+            if m.volunteer:
+                key = (m.volunteer, m.from_date)
+                new_by_volunteer[key] = m
+
+        # Find added members
+        for key, member in new_by_volunteer.items():
+            if key not in old_by_volunteer and member.is_active:
+                emit_team_membership_changed(
+                    self.name,
+                    {
+                        "volunteer": member.volunteer,
+                        "action": "added",
+                        "role": member.team_role,
+                        "from_date": member.from_date,
+                        "changed_by": frappe.session.user,
+                    },
+                )
+
+        # Find removed members
+        for key, old_member in old_by_volunteer.items():
+            if key not in new_by_volunteer and old_member.is_active:
+                emit_team_membership_changed(
+                    self.name,
+                    {
+                        "volunteer": old_member.volunteer,
+                        "action": "removed",
+                        "old_role": old_member.team_role,
+                        "from_date": old_member.from_date,
+                        "to_date": frappe.utils.today(),
+                        "changed_by": frappe.session.user,
+                    },
+                )
+
+        # Find role changes
+        for key, member in new_by_volunteer.items():
+            if key in old_by_volunteer:
+                old_member = old_by_volunteer[key]
+                if old_member.team_role != member.team_role and old_member.is_active and member.is_active:
+                    emit_team_membership_changed(
+                        self.name,
+                        {
+                            "volunteer": member.volunteer,
+                            "action": "role_changed",
+                            "role": member.team_role,
+                            "old_role": old_member.team_role,
+                            "from_date": member.from_date,
+                            "changed_by": frappe.session.user,
+                        },
+                    )
+
+    def _detect_and_emit_settings_changes(self, old_doc):
+        """Detect and emit team settings changes"""
+        important_fields = [
+            "enable_role_profiles",
+            "default_role_profile",
+            "is_active",
+            "team_description",
+            "team_type",
+        ]
+
+        changed_fields = []
+        for field in important_fields:
+            if self.has_value_changed(field):
+                changed_fields.append(field)
+
+        if changed_fields:
+            emit_team_settings_changed(
+                self.name, {"changed_fields": changed_fields, "changed_by": frappe.session.user}
+            )
+
+    def _detect_and_emit_leadership_changes(self, old_doc):
+        """Detect and emit team leadership changes"""
+        if self.has_value_changed("team_lead"):
+            emit_team_leadership_changed(
+                self.name,
+                {
+                    "old_lead": old_doc.team_lead,
+                    "new_lead": self.team_lead,
+                    "changed_by": frappe.session.user,
+                },
+            )
+
+    def _handle_immediate_team_changes(self):
+        """Handle only immediate, lightweight team changes"""
+        # Keep only the essential immediate operations
+        # Heavy operations like assignment history are now handled via events
+        pass
 
 
 # Backward compatibility API wrappers

@@ -735,6 +735,53 @@ class Member(
         self.handle_fee_override_changes()
         self.sync_status_fields()
 
+    def on_update(self):
+        """Emit events for status changes to trigger background operations"""
+        try:
+            # Skip event emission during bulk operations or tests
+            if getattr(frappe.flags, "bulk_member_operations", False) or getattr(
+                frappe.flags, "in_test", False
+            ):
+                return
+
+            # Import here to avoid circular dependencies
+            from verenigingen.events.member_events import (
+                emit_member_lifecycle_changed,
+                emit_member_status_changed,
+            )
+
+            # Track application status changes (Pending -> Approved workflow)
+            if self.has_value_changed("application_status"):
+                old_status = self.get_db_value("application_status")
+                new_status = self.application_status
+
+                frappe.logger().info(
+                    f"Member {self.name} application status changed: {old_status} -> {new_status}"
+                )
+
+                emit_member_status_changed(
+                    self.name,
+                    {"old_status": old_status, "new_status": new_status, "status_type": "application"},
+                )
+
+            # Track general member status changes (Active, Suspended, Terminated)
+            if self.has_value_changed("status"):
+                old_status = self.get_db_value("status")
+                new_status = self.status
+
+                frappe.logger().info(f"Member {self.name} status changed: {old_status} -> {new_status}")
+
+                emit_member_lifecycle_changed(
+                    self.name,
+                    {"old_status": old_status, "new_status": new_status, "status_type": "membership"},
+                )
+
+        except Exception as e:
+            # Event emission should never block member updates
+            frappe.log_error(
+                f"Failed to emit member events for {self.name}: {str(e)}", "Member Event Emission Error"
+            )
+
     def set_application_status_defaults(self):
         """Set appropriate defaults for application_status based on member type"""
         # Use lifecycle service for setting application status defaults
