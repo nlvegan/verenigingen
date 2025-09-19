@@ -49,6 +49,30 @@ def get_context(context):
     context.show_sidebar = False
     context.title = _("Make a Donation")
 
+    # Check if returning from payment (donation_id parameter)
+    donation_id = frappe.form_dict.get("donation_id")
+    if donation_id:
+        try:
+            donation = frappe.get_doc("Donation", donation_id)
+            context.donation_result = donation
+
+            # Determine payment status for display
+            if donation.paid:
+                context.payment_status = "success"
+                context.title = _("Donation Successful")
+            else:
+                # Check if payment is still pending or failed
+                if donation.payment_id:
+                    context.payment_status = "failed"
+                    context.title = _("Payment Failed")
+                else:
+                    context.payment_status = "pending"
+                    context.title = _("Payment Pending")
+
+        except frappe.DoesNotExistError:
+            frappe.log_error(f"Donation {donation_id} not found on return from payment")
+            context.payment_status = "error"
+
     # Get verenigingen settings
     from verenigingen.utils.settings_utils import get_verenigingen_settings
 
@@ -572,9 +596,9 @@ def process_sepa_direct_debit(donation, form_data):
 
 
 def process_mollie_payment(donation, form_data):
-    """Handle Mollie payment using the new payment-first architecture"""
+    """Handle Mollie payment using the enhanced service layer architecture"""
     try:
-        from verenigingen.utils.payment_services import MolliePaymentService
+        from verenigingen.integrations.mollie.services.complete_payment_service import CompletePaymentService
 
         # Set payment method using secure operation
         donation.mode_of_payment = "Mollie"
@@ -597,25 +621,53 @@ def process_mollie_payment(donation, form_data):
                 "info": _("Please try again or contact support"),
             }
 
-        # Initialize payment service
-        payment_service = MolliePaymentService()
+        # Initialize enhanced payment service
+        payment_service = CompletePaymentService()
+
+        # Prepare form data for the new service
+        payment_form_data = {
+            "amount": str(donation.amount),
+            "currency": "EUR",
+            "return_url": f"{frappe.utils.get_url()}/donate?donation_id={donation.name}",
+            "description": f"Donation to {frappe.get_value('Company', donation.company, 'company_name')}",
+        }
+
+        # Add payment method preference if specified
+        if form_data.get("payment_method_preference"):
+            payment_form_data["method"] = form_data["payment_method_preference"]
 
         # Check if this is a recurring donation (subscription)
         is_recurring = form_data.get("donation_status") == "Recurring"
 
         if is_recurring:
-            # Create first payment for recurring donation (establishes mandate)
-            result = payment_service.create_recurring_first_payment(donation, form_data)
+            # For recurring donations, create first payment with sequenceType to establish mandate
+            # The subscription will be created by the webhook after successful first payment
+            payment_form_data["sequenceType"] = "first"
+            payment_form_data[
+                "description"
+            ] = f"First payment for recurring donation to {frappe.get_value('Company', donation.company, 'company_name')}"
+
+            # Store subscription details in metadata for webhook processing
+            payment_form_data.setdefault("metadata", {}).update(
+                {
+                    "is_recurring": "true",
+                    "subscription_interval": form_data.get("recurring_interval", "1 month"),
+                    "subscription_amount": f"{float(donation.amount):.2f}",
+                }
+            )
+
+            # Create the first payment (mandate creation will happen automatically)
+            result = payment_service.create_donation_payment(donation, payment_form_data)
         else:
-            # Create single payment
-            result = payment_service.create_single_payment(donation, form_data)
+            # Create single payment using enhanced service
+            result = payment_service.create_donation_payment(donation, payment_form_data)
 
         return result
 
     except Exception as e:
         frappe.log_error(
-            f"Mollie payment processing error for donation {donation.name}: {str(e)}\nFull traceback: {frappe.get_traceback()}",
-            "Mollie Payment Error",
+            f"Enhanced Mollie payment processing error for donation {donation.name}: {str(e)}\nFull traceback: {frappe.get_traceback()}",
+            "Enhanced Mollie Payment Error",
         )
         return {
             "status": "error",
@@ -1411,6 +1463,61 @@ def test_workspace_links():
         results["tests"].append(test_result)
 
     return results
+
+
+@frappe.whitelist(allow_guest=True)
+@public_api(operation_type=OperationType.FINANCIAL)
+def retry_payment(donation_id):
+    """Retry payment for a failed donation by redirecting to Mollie payment page"""
+    try:
+        if not donation_id:
+            frappe.throw(_("Donation ID is required"))
+
+        # Get the donation record
+        donation = frappe.get_doc("Donation", donation_id)
+
+        # Check if donation exists and belongs to current user (or allow public retry)
+        if not donation:
+            frappe.throw(_("Donation not found"))
+
+        # Only allow retry for unpaid donations with payment method Mollie
+        if donation.paid:
+            frappe.throw(_("This donation has already been paid"))
+
+        if donation.mode_of_payment != "Mollie":
+            frappe.throw(_("Payment retry is only available for Mollie payments"))
+
+        # Get the donor information for payment retry
+        donor = frappe.get_doc("Donor", donation.donor)
+
+        # Prepare form data for retry (similar to original payment creation)
+        form_data = {
+            "amount": str(donation.amount),
+            "currency": "EUR",
+            "return_url": f"{frappe.utils.get_url()}/donate?donation_id={donation.name}",
+            "donor_name": donor.donor_name,
+            "donor_email": donor.donor_email,
+            "payment_method": "Mollie",
+            "donation_status": donation.status,
+        }
+
+        # Process the retry payment using the same method as original submission
+        payment_result = process_mollie_payment(donation, form_data)
+
+        # If successful, redirect to payment URL
+        if payment_result.get("status") == "redirect_required":
+            payment_url = payment_result.get("payment_url") or payment_result.get("checkout_url")
+            if payment_url:
+                frappe.local.response["type"] = "redirect"
+                frappe.local.response["location"] = payment_url
+                return
+
+        # If redirect failed, return error
+        frappe.throw(_("Failed to create retry payment. Please try again or contact support."))
+
+    except Exception as e:
+        frappe.log_error(f"Payment retry error for donation {donation_id}: {str(e)}", "Payment Retry Error")
+        frappe.throw(_("Unable to retry payment. Please try again or contact support."))
 
 
 @frappe.whitelist()

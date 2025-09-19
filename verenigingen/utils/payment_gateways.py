@@ -7,7 +7,7 @@ The old complex webhook handler has been archived due to broken donation creatio
 
 import frappe
 
-from verenigingen.api.simple_donation_webhook import handle_payment_first_donation
+from verenigingen.integrations.mollie.api.simple_donation_webhook import handle_payment_first_donation
 
 
 @frappe.whitelist(allow_guest=True)

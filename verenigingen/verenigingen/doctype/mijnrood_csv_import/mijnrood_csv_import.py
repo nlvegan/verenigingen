@@ -1288,7 +1288,7 @@ class MijnroodCSVImport(Document):
         """Update the Customer record with Mollie subscription data."""
         try:
             # Validate Mollie data before processing
-            from verenigingen.utils.mollie_data_validator import get_mollie_validator
+            from verenigingen.integrations.mollie.utils.data_validator import get_mollie_validator
 
             validator = get_mollie_validator()
             is_valid, errors, warnings = validator.validate_customer_data(mollie_data)

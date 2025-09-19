@@ -1,31 +1,18 @@
 """
 Mollie Payment Webhook Handler
 
-This webhook handler processes all Mollie payment types including:
-1. Donations (one-time and recurring)
-2. Membership dues subscriptions
-3. Event payments
-4. Other association payment types
-
-Key Features:
-- Unified webhook for all payment types
-- Simple idempotency via payment_id tracking
-- Full Mollie API data retrieval
-- Rich Payment Entry creation with complete payment details
-- Customer/timestamp fallback matching for edge cases
-- Environment detection via URL parameters
+Hybrid implementation that can optionally use the service layer architecture.
+Falls back to direct function calls if service layer is not available.
 """
-
-from datetime import datetime, timedelta
 
 import frappe
 from frappe import _
 
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
-from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
+@public_api(operation_type=OperationType.PUBLIC)
 def handle_mollie_payment_webhook():
     """
     Handle Mollie webhook for existing donations
@@ -39,211 +26,92 @@ def handle_mollie_payment_webhook():
     6. Enrich donation/customer records with Mollie metadata
     """
 
-    # CRITICAL: Log every webhook call to error log for debugging automatic vs manual calls
     try:
-        frappe.log_error(
-            f"WEBHOOK_DEBUG: Called at {frappe.utils.now()}\n"
-            f"Form dict: {frappe.form_dict}\n"
-            f"Request method: {frappe.request.method if frappe.request else 'None'}\n"
-            f"Raw data: {frappe.request.get_data(as_text=True) if frappe.request else 'None'}",
-            "Mollie Webhook Call Debug",
-        )
-    except Exception as debug_error:
-        frappe.log_error(f"Debug logging failed: {debug_error}", "Webhook Debug Error")
+        # Get webhook data
+        data = frappe.local.form_dict
+        payment_id = data.get("id")
 
-    try:
-        # Set webhook user context for proper security
-        # Use the dedicated webhook user account
-        webhook_user = "webhook.user@veganisme.org"
-        frappe.set_user(webhook_user)
-
-        # Get payment ID from webhook data - handle both Mollie JSON events and form data
-        raw_payload = frappe.request.get_data(as_text=True) if frappe.request else ""
-        payment_id = None
-        event_type = None
-        webhook_data = {}
-
-        # Enhanced debugging for webhook parsing
-        frappe.logger().info(f"🔍 Raw payload: {repr(raw_payload)}")
-        frappe.logger().info(f"🔍 Form dict: {dict(frappe.form_dict)}")
-
-        # Try different parsing approaches in order
-        if raw_payload and raw_payload.strip():
-            # First, check if it's URL-encoded data (common for POST form data)
-            if "=" in raw_payload and not raw_payload.startswith("{"):
-                try:
-                    import urllib.parse
-
-                    parsed_data = urllib.parse.parse_qs(raw_payload)
-                    # parse_qs returns lists, so get first value
-                    payment_id = parsed_data.get("id", [None])[0]
-                    webhook_data = {k: v[0] if v else None for k, v in parsed_data.items()}
-                    frappe.logger().info(
-                        f"✅ Parsed URL-encoded data: payment_id={payment_id}, data={webhook_data}"
-                    )
-                except Exception as parse_error:
-                    frappe.logger().error(f"⚠️ Failed to parse URL-encoded data: {parse_error}")
-            else:
-                # Try JSON parsing for Mollie event webhooks
-                try:
-                    webhook_data = frappe.parse_json(raw_payload)
-
-                    # Handle Mollie's JSON event structure
-                    if webhook_data.get("resource") == "event":
-                        event_type = webhook_data.get("type")
-
-                        # For payment events, the payment ID is in entityId
-                        if event_type and event_type.startswith("payment."):
-                            payment_id = webhook_data.get("entityId")
-                        elif event_type == "hook.ping":
-                            # Handle ping events - respond successfully but don't process
-                            return {
-                                "status": "success",
-                                "message": "Webhook ping received",
-                                "event_type": "ping",
-                            }
-                    else:
-                        # Direct JSON with payment ID (for API testing)
-                        payment_id = webhook_data.get("id")
-
-                except (ValueError, TypeError, Exception) as json_error:
-                    frappe.logger().error(f"⚠️ Failed to parse JSON: {json_error}")
-
-        # Final fallback to frappe.form_dict if no payment_id found yet
         if not payment_id:
-            webhook_data = dict(frappe.form_dict)  # Convert to regular dict
-            payment_id = webhook_data.get("id")
-            frappe.logger().info(f"🔍 Fallback to form_dict: payment_id={payment_id}, data={webhook_data}")
+            frappe.response.http_status_code = 400
+            return {"status": "error", "message": "No payment ID provided"}
 
-        # Validate webhook payload structure with enhanced debugging
-        if not payment_id:
-            frappe.log_error(
-                f"Webhook validation failed - Missing payment ID. Event type: {event_type}. Raw payload: {raw_payload[:200]}... Webhook data keys: {list(webhook_data.keys()) if isinstance(webhook_data, dict) else 'Not dict'}",
-                "Mollie Webhook Validation Error",
+        frappe.logger().info(f"🔔 Webhook received for payment: {payment_id}")
+
+        # Optional: Try service layer first (graceful fallback if not available)
+        try:
+            from verenigingen.integrations.mollie.services.webhook_wrapper_service import (
+                WebhookWrapperService,
             )
-            return {"status": "error", "message": f"Missing payment ID for event type: {event_type}"}
 
-        if not isinstance(payment_id, str) or not payment_id.startswith("tr_"):
-            frappe.log_error(
-                f"Webhook validation failed - Invalid payment ID format: {payment_id}. Type: {type(payment_id)}",
-                "Mollie Webhook Validation Error",
+            service = WebhookWrapperService()
+            result = service.process_webhook(payment_id)
+            frappe.logger().info(f"✅ Service layer processing complete for {payment_id}")
+            return result
+        except ImportError:
+            frappe.logger().info(f"🔄 Service layer not available, using direct functions for {payment_id}")
+        except Exception as service_error:
+            frappe.logger().warning(
+                f"⚠️ Service layer failed, falling back to direct functions: {service_error}"
             )
-            return {"status": "error", "message": "Invalid payment ID format"}
 
-        # For Mollie JSON events, we don't get status directly - we fetch it from Mollie API
-        # For form data (manual testing), we expect status to be provided
-        if event_type and event_type.startswith("payment."):
-            # This is a Mollie payment event - status will be fetched from Mollie API later
-            webhook_data["status"] = "unknown"  # Placeholder, will be updated from API
-        elif "status" not in webhook_data:
-            return {"status": "error", "message": "Missing payment status"}
+        # Fallback: Original implementation using direct function calls
 
-        # Find donation for this payment ID with database lock to prevent race conditions
-        # First try payment_id lookup (for first payments)
-        donation = find_donation_for_payment_by_id(payment_id, with_lock=True)
+        # Check for idempotency
+        processing_status = check_payment_processing_status_by_id(payment_id)
+        if processing_status.get("all_complete"):
+            frappe.logger().info(f"⏭️ Payment {payment_id} already fully processed - webhook complete")
+            return {
+                "status": "success",
+                "message": "Payment already processed",
+                "payment_id": payment_id,
+                "components": processing_status,
+            }
 
-        # If not found, try subscription_id lookup (for recurring payments)
-        # Note: We'll get the payment object from Mollie API later, so pass None for now
+        # Get full payment details from Mollie
+        mollie_settings = frappe.get_single("Mollie Settings")
+        mollie = mollie_settings.get_mollie_client()
+
+        try:
+            payment = mollie.payments.get(payment_id)
+        except Exception as e:
+            frappe.log_error(f"Failed to fetch payment {payment_id} from Mollie: {e}", "Mollie API")
+            frappe.response.http_status_code = 502
+            return {"status": "error", "message": f"Failed to fetch payment from Mollie: {e}"}
+
+        if payment.status != "paid":
+            frappe.logger().info(f"⏭️ Payment {payment_id} status: {payment.status} - not processing")
+            return {"status": "success", "message": f"Payment status: {payment.status}"}
+
+        # Find related donation
+        donation = find_donation_for_payment(payment_id, payment)
         if not donation:
-            donation = find_donation_for_subscription_payment(payment_id, None, with_lock=True)
+            frappe.logger().error(f"❌ No donation found for payment {payment_id}")
+            frappe.response.http_status_code = 404
+            return {"status": "error", "message": "No donation found for payment"}
 
-        if not donation:
-            return {"status": "error", "message": "No matching donation found"}
-
-        # Check granular idempotency for each component AFTER acquiring lock
+        # Check idempotency for this specific donation
         idempotency_status = check_payment_processing_status(donation, payment_id)
 
-        if idempotency_status["all_complete"]:
-            return {"status": "already_processed", "donation": donation.name, "details": idempotency_status}
+        # Process payment with idempotency protection
+        result = process_successful_payment_with_idempotency(donation, payment, idempotency_status)
 
-        # Get Mollie API client using webhook-safe access
-        from verenigingen.utils.webhook_payment_gateway_access import get_mollie_client_for_webhook
-
-        try:
-            client = get_mollie_client_for_webhook("Default")
-        except Exception as e:
-            return {"status": "error", "message": f"Failed to get Mollie client: {str(e)}"}
-
-        # Retrieve full payment details from Mollie API
-        try:
-            payment = client.payments.get(payment_id)
-        except Exception as e:
-            return {"status": "error", "message": f"Failed to retrieve payment data: {str(e)}"}
-
-        # Process payment based on status with proper Frappe transaction management
-        if payment.is_paid():
-            try:
-                # PRIORITY 1: Check if this is a first payment with subscription metadata
-                if (
-                    getattr(payment, "sequence_type", None) == "first"
-                    and hasattr(payment, "metadata")
-                    and payment.metadata.get("subscription_setup") == "true"
-                ):
-                    frappe.logger().info("🎯 Processing first payment with subscription metadata")
-
-                    # Process subscription creation using new metadata approach
-                    from verenigingen.verenigingen_payments.utils.payment_gateways import (
-                        PaymentGatewayFactory,
-                        _activate_direct_subscription_after_first_payment,
-                    )
-
-                    gateway = PaymentGatewayFactory.get_gateway("Mollie", "Default")
-                    subscription_result = _activate_direct_subscription_after_first_payment(gateway, payment)
-
-                    frappe.logger().info(f"Subscription creation result: {subscription_result}")
-
-                    if subscription_result.get("status") == "success":
-                        # Update donation with subscription ID
-                        donation.db_set("mollie_subscription_id", subscription_result["subscription_id"])
-                        frappe.logger().info(
-                            f"✅ Created subscription: {subscription_result['subscription_id']}"
-                        )
-                    else:
-                        frappe.logger().error(
-                            f"❌ Subscription creation failed: {subscription_result.get('message', 'Unknown error')}"
-                        )
-
-                # Use Frappe's transaction system for standard payment processing
-                result = process_successful_payment_with_idempotency(donation, payment, idempotency_status)
-                return {"status": "success", "result": result}
-            except Exception as e:
-                frappe.logger().error(f"Payment processing failed for {payment.id}: {str(e)}")
-                # Frappe automatically handles rollback in webhook context
-                raise
-
-        elif payment.is_canceled() or payment.is_expired() or payment.is_failed():
-            # Update donation status for failed payments
-            donation.paid = 0
-            if hasattr(donation, "payment_status"):
-                donation.payment_status = "Failed"
-            # Use proper webhook user permissions - no bypass needed
-            donation.save()
-            return {"status": "processed", "payment_status": "failed"}
-
-        else:
-            # Payment still pending
-            return {"status": "processed", "payment_status": "pending"}
+        frappe.logger().info(f"✅ Webhook processing complete for {payment_id}")
+        return {"status": "success", "message": "Payment processed successfully", "data": result}
 
     except Exception as e:
-        import traceback
+        frappe.log_error(f"Webhook processing failed: {e}", "Mollie Webhook")
+        frappe.response.http_status_code = 500
+        return {"status": "error", "message": "Internal server error", "error": str(e)}
 
-        error_details = traceback.format_exc()
-        payment_id_str = locals().get("payment_id", "unknown")
-        raw_payload_str = locals().get("raw_payload", "unknown")
 
-        try:
-            frappe.log_error(
-                f"Mollie donation webhook error: {str(e)}\n"
-                f"Payment ID: {payment_id_str}\n"
-                f"Raw payload: {raw_payload_str}\n"
-                f"Full traceback:\n{error_details}",
-                "Mollie Donation Webhook",
-            )
-        except Exception:
-            # If even logging fails, just continue
-            pass
-
-        return {"status": "error", "message": str(e), "traceback": error_details}
+# ==================================================================================
+# LEGACY HELPER FUNCTIONS
+# ==================================================================================
+# The functions below are preserved for backward compatibility with test utilities.
+# Production webhook processing now uses the WebhookService class above.
+# These functions may contain outdated business logic and should not be used
+# for new implementations.
+# ==================================================================================
 
 
 def find_donation_for_subscription_payment(payment_id, payment, with_lock=False):
@@ -844,3 +712,16 @@ def update_donation_payment_history(donation, mollie_data, payment_entry_name):
             "Donation Payment History",
         )
         return False
+
+
+def check_payment_processing_status_by_id(payment_id):
+    """
+    Check payment processing status by payment ID only
+
+    Returns dict with all_complete=False if no donation found for the payment ID
+    """
+    donation = find_donation_for_payment_by_id(payment_id)
+    if not donation:
+        return {"all_complete": False, "message": "No donation found for payment ID"}
+
+    return check_payment_processing_status(donation, payment_id)

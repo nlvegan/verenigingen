@@ -281,10 +281,74 @@
 
 {% block page_content %}
 <div class="donation-form">
-    <div class="page-header text-center">
-        <h1>{{ _("Support Our Mission") }}</h1>
-        <p class="lead">{{ _("Your donation helps us make a positive impact in our community") }}</p>
-    </div>
+
+    {% if payment_status == "success" %}
+        <!-- Payment Success Screen -->
+        <div class="payment-result success text-center">
+            <div class="success-icon mb-4">
+                <svg class="w-16 h-16 text-green-500 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+            </div>
+            <h1 class="text-3xl font-bold text-green-600 mb-4">{{ _("Thank You!") }}</h1>
+            <p class="text-xl mb-4">{{ _("Your donation of €{0} has been successfully processed.").format(donation_result.amount) }}</p>
+            <div class="donation-details bg-gray-50 p-4 rounded-lg mb-6">
+                <h3 class="font-semibold mb-2">{{ _("Donation Details") }}:</h3>
+                <p><strong>{{ _("Donation ID") }}:</strong> {{ donation_result.name }}</p>
+                <p><strong>{{ _("Amount") }}:</strong> €{{ donation_result.amount }}</p>
+                <p><strong>{{ _("Date") }}:</strong> {{ donation_result.donation_date.strftime('%d %B %Y') }}</p>
+                {% if donation_result.donation_purpose %}
+                    <p><strong>{{ _("Purpose") }}:</strong> {{ donation_result.donation_purpose }}</p>
+                {% endif %}
+            </div>
+            <div class="action-buttons">
+                <a href="/donate" class="btn btn-primary mr-3">{{ _("Make Another Donation") }}</a>
+                <button type="button" class="btn btn-secondary" onclick="window.print()">{{ _("Print Receipt") }}</button>
+            </div>
+        </div>
+
+    {% elif payment_status == "failed" %}
+        <!-- Payment Failed Screen -->
+        <div class="payment-result failed text-center">
+            <div class="error-icon mb-4">
+                <svg class="w-16 h-16 text-red-500 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+            </div>
+            <h1 class="text-3xl font-bold text-red-600 mb-4">{{ _("Payment Failed") }}</h1>
+            <p class="text-xl mb-4">{{ _("Unfortunately, your payment could not be processed.") }}</p>
+            <div class="donation-details bg-gray-50 p-4 rounded-lg mb-6">
+                <h3 class="font-semibold mb-2">{{ _("Attempted Donation") }}:</h3>
+                <p><strong>{{ _("Amount") }}:</strong> €{{ donation_result.amount }}</p>
+                <p><strong>{{ _("Donation ID") }}:</strong> {{ donation_result.name }}</p>
+            </div>
+            <div class="action-buttons">
+                <button type="button" class="btn btn-primary mr-3" onclick="retryPayment('{{ donation_result.name }}')">{{ _("Try Payment Again") }}</button>
+                <a href="/donate" class="btn btn-secondary">{{ _("Start New Donation") }}</a>
+            </div>
+        </div>
+
+    {% elif payment_status == "pending" %}
+        <!-- Payment Pending Screen -->
+        <div class="payment-result pending text-center">
+            <div class="pending-icon mb-4">
+                <svg class="w-16 h-16 text-yellow-500 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+            </div>
+            <h1 class="text-3xl font-bold text-yellow-600 mb-4">{{ _("Payment Pending") }}</h1>
+            <p class="text-xl mb-4">{{ _("Your payment is being processed. This may take a few minutes.") }}</p>
+            <div class="action-buttons">
+                <button type="button" class="btn btn-primary" onclick="window.location.reload()">{{ _("Refresh Status") }}</button>
+            </div>
+        </div>
+
+    {% else %}
+        <!-- Normal Donation Form -->
+        <div class="page-header text-center">
+            <h1>{{ _("Support Our Mission") }}</h1>
+            <p class="lead">{{ _("Your donation helps us make a positive impact in our community") }}</p>
+        </div>
 
     <!-- Progress Bar -->
     <div class="progress-container">
@@ -630,10 +694,15 @@
             </div>
         </div>
     </form>
+{% endif %}
 </div>
 
 <script>
-// JavaScript will be added in the next step
+// Retry payment function
+function retryPayment(donationId) {
+    // Redirect to Mollie payment page for retry
+    window.location.href = `/api/method/vereinigingen.templates.pages.donate.retry_payment?donation_id=${donationId}`;
+}
 </script>
 {% endblock %}
 

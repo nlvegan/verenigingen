@@ -417,7 +417,7 @@ doc_events = {
         "on_update": "verenigingen.utils.donor_customer_sync.sync_donor_to_customer",
     },
     "Customer": {
-        "validate": "verenigingen.utils.mollie_data_validator.validate_mollie_customer_data",
+        "validate": "verenigingen.integrations.mollie.utils.data_validator.validate_mollie_customer_data",
         "after_save": [
             "verenigingen.utils.donor_customer_sync.sync_customer_to_donor",
             "verenigingen.utils.cache_invalidation.on_document_update",  # Cache invalidation

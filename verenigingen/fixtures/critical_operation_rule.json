@@ -39180,5 +39180,53 @@
     "rate_limit_scope": "user",
     "audit_level": "standard",
     "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "get_application_form_data",
+    "operation_name": "get_application_form_data",
+    "operation_type": "READ",
+    "description": "Get data needed for membership application form",
+    "enabled": 1,
+    "security_level": "low",
+    "business_context": "Public API endpoint providing form data for membership applications",
+    "required_roles": "Guest\nSystem Manager\nVerenigingen Manager\nVerenigingen Staff\nVerenigingen Member",
+    "rate_limit_calls": 100,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "user",
+    "audit_level": "minimal",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "membership_application_get_application_form_data",
+    "operation_name": "membership_application_get_application_form_data",
+    "operation_type": "READ",
+    "description": "Membership application utility to get form data",
+    "enabled": 1,
+    "security_level": "low",
+    "business_context": "Internal utility function for membership application form data",
+    "required_roles": "Guest\nSystem Manager\nVerenigingen Manager\nVerenigingen Staff\nVerenigingen Member",
+    "rate_limit_calls": 100,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "user",
+    "audit_level": "minimal",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "api_get_application_form_data",
+    "operation_name": "api_get_application_form_data",
+    "operation_type": "READ",
+    "description": "API endpoint for membership application form data",
+    "enabled": 1,
+    "security_level": "medium",
+    "business_context": "External API access for membership application form configuration",
+    "required_roles": "Guest\nSystem Manager\nVerenigingen Manager\nVerenigingen Staff\nVerenigingen Member",
+    "rate_limit_calls": 50,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "user",
+    "audit_level": "standard",
+    "alert_on_execution": 0
   }
 ]

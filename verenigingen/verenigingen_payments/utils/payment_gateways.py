@@ -1335,7 +1335,7 @@ def mollie_webhook():
     """
     frappe.logger().info("🔄 Main Mollie webhook redirecting to service handler")
 
-    from verenigingen.api.mollie_donation_webhook import handle_mollie_payment_webhook
+    from verenigingen.integrations.mollie.api.payment_webhook import handle_mollie_payment_webhook
 
     return handle_mollie_payment_webhook()
 

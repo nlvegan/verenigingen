@@ -16,14 +16,15 @@ Critical business processes tested:
 @version 1.0.0
 """
 
-import frappe
-from frappe.utils import today, add_months, flt, nowdate, now_datetime
-from decimal import Decimal
-import json
-import requests_mock
-from unittest.mock import patch, MagicMock
 import hashlib
 import hmac
+import json
+from decimal import Decimal
+from unittest.mock import MagicMock, patch
+
+import frappe
+import requests_mock
+from frappe.utils import add_months, flt, now_datetime, nowdate, today
 
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -44,9 +45,7 @@ class TestMollieSubscriptionLifecycle(EnhancedTestCase):
 
         # Create test member with complete setup
         self.test_member = self.create_test_member(
-            first_name="Mollie",
-            last_name="Integration Test",
-            email="mollie.test@verenigingen.nl"
+            first_name="Mollie", last_name="Integration Test", email="mollie.test@verenigingen.nl"
         )
 
     def create_test_mollie_settings(self):
@@ -59,13 +58,15 @@ class TestMollieSubscriptionLifecycle(EnhancedTestCase):
             settings = frappe.new_doc("Mollie Settings")
             settings.name = "Mollie Settings"
 
-        settings.update({
-            "api_key": "test_mollie_api_key_12345",
-            "webhook_url": "https://dev.veganisme.net/api/method/verenigingen.utils.payment_gateways.mollie_subscription_webhook",
-            "enabled": 1,
-            "test_mode": 1,
-            "default_currency": "EUR"
-        })
+        settings.update(
+            {
+                "api_key": "test_mollie_api_key_12345",
+                "webhook_url": "https://dev.veganisme.net/api/method/verenigingen.utils.payment_gateways.mollie_subscription_webhook",
+                "enabled": 1,
+                "test_mode": 1,
+                "default_currency": "EUR",
+            }
+        )
 
         if existing:
             settings.save()
@@ -81,35 +82,40 @@ class TestMollieSubscriptionLifecycle(EnhancedTestCase):
         """
         with requests_mock.Mocker() as m:
             # Mock Mollie customer creation API call
-            m.post("https://api.mollie.com/v2/customers",
-                   json={
-                       "id": "cst_test_member_12345",
-                       "name": self.test_member.full_name,
-                       "email": self.test_member.email,
-                       "metadata": {"member_id": self.test_member.name}
-                   })
+            m.post(
+                "https://api.mollie.com/v2/customers",
+                json={
+                    "id": "cst_test_member_12345",
+                    "name": self.test_member.full_name,
+                    "email": self.test_member.email,
+                    "metadata": {"member_id": self.test_member.name},
+                },
+            )
 
             # Mock Mollie subscription creation API call
-            m.post("https://api.mollie.com/v2/customers/cst_test_member_12345/subscriptions",
-                   json={
-                       "id": "sub_test_subscription_67890",
-                       "status": "active",
-                       "amount": {"value": "25.00", "currency": "EUR"},
-                       "interval": "1 month",
-                       "description": f"Membership dues for {self.test_member.full_name}",
-                       "method": "directdebit",
-                       "nextPaymentDate": "2024-12-01",
-                       "createdAt": "2024-11-01T10:00:00+00:00"
-                   })
+            m.post(
+                "https://api.mollie.com/v2/customers/cst_test_member_12345/subscriptions",
+                json={
+                    "id": "sub_test_subscription_67890",
+                    "status": "active",
+                    "amount": {"value": "25.00", "currency": "EUR"},
+                    "interval": "1 month",
+                    "description": f"Membership dues for {self.test_member.full_name}",
+                    "method": "directdebit",
+                    "nextPaymentDate": "2024-12-01",
+                    "createdAt": "2024-11-01T10:00:00+00:00",
+                },
+            )
 
             # Test subscription creation
             from verenigingen.utils.payment_services.mollie_payment_service import MolliePaymentService
+
             service = MolliePaymentService()
             result = service.create_subscription(
                 member=self.test_member,
                 amount=25.00,
                 interval="1 month",
-                description="Monthly membership dues"
+                description="Monthly membership dues",
             )
 
             # Verify subscription creation success
@@ -135,16 +141,19 @@ class TestMollieSubscriptionLifecycle(EnhancedTestCase):
 
         with requests_mock.Mocker() as m:
             # Mock subscription update API call
-            m.patch("https://api.mollie.com/v2/customers/cst_existing_customer/subscriptions/sub_existing_subscription",
-                    json={
-                        "id": "sub_existing_subscription",
-                        "status": "active",
-                        "amount": {"value": "30.00", "currency": "EUR"},
-                        "interval": "1 month"
-                    })
+            m.patch(
+                "https://api.mollie.com/v2/customers/cst_existing_customer/subscriptions/sub_existing_subscription",
+                json={
+                    "id": "sub_existing_subscription",
+                    "status": "active",
+                    "amount": {"value": "30.00", "currency": "EUR"},
+                    "interval": "1 month",
+                },
+            )
 
             # Update subscription amount
             from verenigingen.utils.payment_services.mollie_payment_service import MolliePaymentService
+
             service = MolliePaymentService()
             result = service.update_subscription_amount(self.test_member, 30.00)
 
@@ -163,11 +172,14 @@ class TestMollieSubscriptionLifecycle(EnhancedTestCase):
 
         with requests_mock.Mocker() as m:
             # Mock subscription cancellation API call
-            m.delete("https://api.mollie.com/v2/customers/cst_test/subscriptions/sub_to_cancel",
-                     json={"id": "sub_to_cancel", "status": "canceled"})
+            m.delete(
+                "https://api.mollie.com/v2/customers/cst_test/subscriptions/sub_to_cancel",
+                json={"id": "sub_to_cancel", "status": "canceled"},
+            )
 
             # Cancel subscription
             from verenigingen.utils.payment_services.mollie_payment_service import MolliePaymentService
+
             service = MolliePaymentService()
             result = service.cancel_subscription(self.test_member)
 
@@ -196,9 +208,7 @@ class TestMollieWebhookProcessing(EnhancedTestCase):
 
         # Create unpaid invoice for reconciliation testing
         self.test_invoice = self.create_test_sales_invoice(
-            customer=self.test_member.customer,
-            grand_total=25.00,
-            submit=True
+            customer=self.test_member.customer, grand_total=25.00, submit=True
         )
 
     def test_successful_payment_webhook_processing(self):
@@ -215,20 +225,17 @@ class TestMollieWebhookProcessing(EnhancedTestCase):
             "paidAt": "2024-11-01T14:30:00+00:00",
             "method": "directdebit",
             "subscriptionId": "sub_webhook_test",
-            "metadata": {
-                "member_id": self.test_member.name,
-                "invoice_id": self.test_invoice.name
-            },
-            "description": f"Membership dues for {self.test_member.full_name}"
+            "metadata": {"member_id": self.test_member.name, "invoice_id": self.test_invoice.name},
+            "description": f"Membership dues for {self.test_member.full_name}",
         }
 
         with requests_mock.Mocker() as m:
             # Mock Mollie payment verification API call
-            m.get("https://api.mollie.com/v2/payments/tr_test_payment_success",
-                  json=webhook_payload)
+            m.get("https://api.mollie.com/v2/payments/tr_test_payment_success", json=webhook_payload)
 
             # Process webhook
             from verenigingen.utils.payment_gateways import mollie_subscription_webhook
+
             result = mollie_subscription_webhook()
 
             # Verify webhook processing success
@@ -239,7 +246,7 @@ class TestMollieWebhookProcessing(EnhancedTestCase):
             payment_entries = frappe.get_all(
                 "Payment Entry",
                 filters={"custom_mollie_payment_id": "tr_test_payment_success"},
-                fields=["name", "paid_amount", "payment_type", "party"]
+                fields=["name", "paid_amount", "payment_type", "party"],
             )
             self.assertEqual(len(payment_entries), 1)
 
@@ -257,7 +264,7 @@ class TestMollieWebhookProcessing(EnhancedTestCase):
             payment_history = frappe.get_all(
                 "Member Payment History",
                 filters={"member": self.test_member.name, "mollie_payment_id": "tr_test_payment_success"},
-                fields=["status", "amount", "payment_date"]
+                fields=["status", "amount", "payment_date"],
             )
             self.assertEqual(len(payment_history), 1)
             self.assertEqual(payment_history[0].status, "Completed")
@@ -275,16 +282,16 @@ class TestMollieWebhookProcessing(EnhancedTestCase):
             "subscriptionId": "sub_webhook_test",
             "failureReason": "insufficient_funds",
             "amount": {"value": "25.00", "currency": "EUR"},
-            "metadata": {"member_id": self.test_member.name}
+            "metadata": {"member_id": self.test_member.name},
         }
 
         with requests_mock.Mocker() as m:
             # Mock Mollie payment verification
-            m.get("https://api.mollie.com/v2/payments/tr_test_payment_failed",
-                  json=webhook_payload)
+            m.get("https://api.mollie.com/v2/payments/tr_test_payment_failed", json=webhook_payload)
 
             # Process failed payment webhook
             from verenigingen.utils.payment_gateways import mollie_subscription_webhook
+
             result = mollie_subscription_webhook()
 
             # Verify failed payment handling
@@ -296,7 +303,7 @@ class TestMollieWebhookProcessing(EnhancedTestCase):
             payment_history = frappe.get_all(
                 "Member Payment History",
                 filters={"member": self.test_member.name, "mollie_payment_id": "tr_test_payment_failed"},
-                fields=["status", "failure_reason"]
+                fields=["status", "failure_reason"],
             )
             self.assertEqual(len(payment_history), 1)
             self.assertEqual(payment_history[0].status, "Failed")
@@ -313,24 +320,21 @@ class TestMollieWebhookProcessing(EnhancedTestCase):
 
         # Generate valid signature
         secret = "webhook_secret_key"
-        signature = hmac.new(
-            secret.encode('utf-8'),
-            webhook_body.encode('utf-8'),
-            hashlib.sha256
-        ).hexdigest()
+        signature = hmac.new(secret.encode("utf-8"), webhook_body.encode("utf-8"), hashlib.sha256).hexdigest()
 
         # Test with valid signature
-        with patch('verenigingen.utils.webhook_security.verify_mollie_signature') as mock_verify:
+        with patch("verenigingen.utils.webhook_security.verify_mollie_signature") as mock_verify:
             mock_verify.return_value = True
 
             from verenigingen.utils.webhook_security import validate_mollie_webhook
+
             result = validate_mollie_webhook(webhook_body, signature)
 
             self.assertTrue(result["valid"])
             mock_verify.assert_called_once()
 
         # Test with invalid signature
-        with patch('verenigingen.utils.webhook_security.verify_mollie_signature') as mock_verify:
+        with patch("verenigingen.utils.webhook_security.verify_mollie_signature") as mock_verify:
             mock_verify.return_value = False
 
             result = validate_mollie_webhook(webhook_body, "invalid_signature")
@@ -344,18 +348,14 @@ class TestMollieWebhookProcessing(EnhancedTestCase):
 
         Prevents double-payment scenarios
         """
-        webhook_payload = {
-            "id": "tr_duplicate_test",
-            "status": "paid",
-            "subscriptionId": "sub_webhook_test"
-        }
+        webhook_payload = {"id": "tr_duplicate_test", "status": "paid", "subscriptionId": "sub_webhook_test"}
 
         # Process webhook first time
         with requests_mock.Mocker() as m:
-            m.get("https://api.mollie.com/v2/payments/tr_duplicate_test",
-                  json=webhook_payload)
+            m.get("https://api.mollie.com/v2/payments/tr_duplicate_test", json=webhook_payload)
 
             from verenigingen.utils.payment_gateways import mollie_subscription_webhook
+
             result1 = mollie_subscription_webhook()
             self.assertTrue(result1["success"])
 
@@ -366,8 +366,7 @@ class TestMollieWebhookProcessing(EnhancedTestCase):
 
             # Verify only one Payment Entry created
             payment_entries = frappe.get_all(
-                "Payment Entry",
-                filters={"custom_mollie_payment_id": "tr_duplicate_test"}
+                "Payment Entry", filters={"custom_mollie_payment_id": "tr_duplicate_test"}
             )
             self.assertEqual(len(payment_entries), 1)
 
@@ -385,16 +384,12 @@ class TestMollieChargebackHandling(EnhancedTestCase):
 
         # Create member with successful payment history
         self.test_member = self.create_test_member(
-            first_name="Chargeback",
-            last_name="Test Member",
-            email="chargeback.test@verenigingen.nl"
+            first_name="Chargeback", last_name="Test Member", email="chargeback.test@verenigingen.nl"
         )
 
         # Create paid invoice that will be subject to chargeback
         self.paid_invoice = self.create_test_sales_invoice(
-            customer=self.test_member.customer,
-            grand_total=50.00,
-            submit=True
+            customer=self.test_member.customer, grand_total=50.00, submit=True
         )
 
         # Create payment entry for the invoice
@@ -403,7 +398,7 @@ class TestMollieChargebackHandling(EnhancedTestCase):
             party=self.test_member.customer,
             paid_amount=50.00,
             reference_doctype="Sales Invoice",
-            reference_name=self.paid_invoice.name
+            reference_name=self.paid_invoice.name,
         )
 
         # Mark invoice as paid
@@ -425,19 +420,19 @@ class TestMollieChargebackHandling(EnhancedTestCase):
             "reasonCode": "duplicate",
             "reversedAt": "2024-11-02T10:30:00+00:00",
             "createdAt": "2024-11-02T10:00:00+00:00",
-            "metadata": {
-                "member_id": self.test_member.name,
-                "invoice_id": self.paid_invoice.name
-            }
+            "metadata": {"member_id": self.test_member.name, "invoice_id": self.paid_invoice.name},
         }
 
         with requests_mock.Mocker() as m:
             # Mock Mollie chargeback verification API
-            m.get("https://api.mollie.com/v2/payments/tr_original_payment_67890/chargebacks/chb_test_chargeback_12345",
-                  json=chargeback_payload)
+            m.get(
+                "https://api.mollie.com/v2/payments/tr_original_payment_67890/chargebacks/chb_test_chargeback_12345",
+                json=chargeback_payload,
+            )
 
             # Process chargeback webhook
             from verenigingen.utils.payment_gateways import mollie_chargeback_webhook
+
             result = mollie_chargeback_webhook(chargeback_payload)
 
             # Verify chargeback processing success
@@ -450,9 +445,9 @@ class TestMollieChargebackHandling(EnhancedTestCase):
                 "Payment Entry",
                 filters={
                     "custom_mollie_chargeback_id": "chb_test_chargeback_12345",
-                    "payment_type": "Pay"  # Reversal entry
+                    "payment_type": "Pay",  # Reversal entry
                 },
-                fields=["name", "paid_amount", "party"]
+                fields=["name", "paid_amount", "party"],
             )
             self.assertEqual(len(reversal_entries), 1)
             reversal = reversal_entries[0]
@@ -469,9 +464,9 @@ class TestMollieChargebackHandling(EnhancedTestCase):
                 "Member Payment History",
                 filters={
                     "member": self.test_member.name,
-                    "mollie_chargeback_id": "chb_test_chargeback_12345"
+                    "mollie_chargeback_id": "chb_test_chargeback_12345",
                 },
-                fields=["status", "chargeback_reason", "amount"]
+                fields=["status", "chargeback_reason", "amount"],
             )
             self.assertEqual(len(payment_history), 1)
             history = payment_history[0]
@@ -489,26 +484,26 @@ class TestMollieChargebackHandling(EnhancedTestCase):
                 "reason": "fraud",
                 "reasonCode": "fraud",
                 "expected_action": "fraud_protection",
-                "member_action": "suspend_account"
+                "member_action": "suspend_account",
             },
             {
                 "reason": "duplicate",
                 "reasonCode": "duplicate",
                 "expected_action": "investigate_duplicate",
-                "member_action": "review_billing"
+                "member_action": "review_billing",
             },
             {
                 "reason": "unrecognized",
                 "reasonCode": "unrecognized",
                 "expected_action": "member_contact",
-                "member_action": "send_notification"
+                "member_action": "send_notification",
             },
             {
                 "reason": "subscription",
                 "reasonCode": "subscription",
                 "expected_action": "cancel_subscription",
-                "member_action": "update_subscription_status"
-            }
+                "member_action": "update_subscription_status",
+            },
         ]
 
         for scenario in chargeback_scenarios:
@@ -519,15 +514,18 @@ class TestMollieChargebackHandling(EnhancedTestCase):
                     "amount": {"value": "25.00", "currency": "EUR"},
                     "reason": scenario["reason"],
                     "reasonCode": scenario["reasonCode"],
-                    "metadata": {"member_id": self.test_member.name}
+                    "metadata": {"member_id": self.test_member.name},
                 }
 
                 with requests_mock.Mocker() as m:
-                    m.get(f"https://api.mollie.com/v2/payments/tr_test_payment/chargebacks/chb_{scenario['reason']}_test",
-                          json=chargeback_payload)
+                    m.get(
+                        f"https://api.mollie.com/v2/payments/tr_test_payment/chargebacks/chb_{scenario['reason']}_test",
+                        json=chargeback_payload,
+                    )
 
                     # Process chargeback
                     from verenigingen.utils.payment_gateways import mollie_chargeback_webhook
+
                     result = mollie_chargeback_webhook(chargeback_payload)
 
                     # Verify appropriate action taken
@@ -552,16 +550,19 @@ class TestMollieChargebackHandling(EnhancedTestCase):
             "metadata": {
                 "member_id": self.test_member.name,
                 "service_provided": True,
-                "has_member_confirmation": True
-            }
+                "has_member_confirmation": True,
+            },
         }
 
         with requests_mock.Mocker() as m:
-            m.get("https://api.mollie.com/v2/payments/tr_dispute_payment/chargebacks/chb_contestable_12345",
-                  json=contestable_chargeback)
+            m.get(
+                "https://api.mollie.com/v2/payments/tr_dispute_payment/chargebacks/chb_contestable_12345",
+                json=contestable_chargeback,
+            )
 
             # Process contestable chargeback
             from verenigingen.utils.payment_gateways import mollie_chargeback_webhook
+
             result = mollie_chargeback_webhook(contestable_chargeback)
 
             # Verify dispute workflow initiated
@@ -573,7 +574,7 @@ class TestMollieChargebackHandling(EnhancedTestCase):
             dispute_records = frappe.get_all(
                 "Chargeback Dispute",
                 filters={"mollie_chargeback_id": "chb_contestable_12345"},
-                fields=["status", "dispute_deadline", "evidence_required"]
+                fields=["status", "dispute_deadline", "evidence_required"],
             )
             self.assertEqual(len(dispute_records), 1)
             dispute = dispute_records[0]
@@ -592,19 +593,22 @@ class TestMollieChargebackHandling(EnhancedTestCase):
             "amount": {"value": "500.00", "currency": "EUR"},
             "reason": "fraud",
             "reasonCode": "fraud",
-            "metadata": {"member_id": self.test_member.name}
+            "metadata": {"member_id": self.test_member.name},
         }
 
         with requests_mock.Mocker() as m:
-            m.get("https://api.mollie.com/v2/payments/tr_high_value_payment/chargebacks/chb_high_value_999",
-                  json=high_value_chargeback)
+            m.get(
+                "https://api.mollie.com/v2/payments/tr_high_value_payment/chargebacks/chb_high_value_999",
+                json=high_value_chargeback,
+            )
 
             # Mock email notification system
-            with patch('verenigingen.utils.chargeback_notifications.send_chargeback_alert') as mock_email:
+            with patch("verenigingen.utils.chargeback_notifications.send_chargeback_alert") as mock_email:
                 mock_email.return_value = {"success": True, "notification_sent": True}
 
                 # Process high-value chargeback
                 from verenigingen.utils.payment_gateways import mollie_chargeback_webhook
+
                 result = mollie_chargeback_webhook(high_value_chargeback)
 
                 # Verify escalation triggered
@@ -616,7 +620,7 @@ class TestMollieChargebackHandling(EnhancedTestCase):
                 mock_email.assert_called_once()
                 call_args = mock_email.call_args[0]
                 self.assertIn("high_value", call_args[0])  # Alert type
-                self.assertEqual(call_args[1], 500.00)     # Amount
+                self.assertEqual(call_args[1], 500.00)  # Amount
 
     def test_chargeback_prevention_member_flagging(self):
         """
@@ -634,15 +638,18 @@ class TestMollieChargebackHandling(EnhancedTestCase):
             "amount": {"value": "30.00", "currency": "EUR"},
             "reason": "fraud",
             "reasonCode": "fraud",
-            "metadata": {"member_id": self.test_member.name}
+            "metadata": {"member_id": self.test_member.name},
         }
 
         with requests_mock.Mocker() as m:
-            m.get("https://api.mollie.com/v2/payments/tr_repeat_payment/chargebacks/chb_repeat_offender_123",
-                  json=repeat_chargeback)
+            m.get(
+                "https://api.mollie.com/v2/payments/tr_repeat_payment/chargebacks/chb_repeat_offender_123",
+                json=repeat_chargeback,
+            )
 
             # Process repeat chargeback
             from verenigingen.utils.payment_gateways import mollie_chargeback_webhook
+
             result = mollie_chargeback_webhook(repeat_chargeback)
 
             # Verify member risk level updated
@@ -671,11 +678,13 @@ class TestMollieErrorHandlingAndRecovery(EnhancedTestCase):
         with requests_mock.Mocker() as m:
             # Mock API timeout
             from requests.exceptions import Timeout
+
             m.post("https://api.mollie.com/v2/customers", exc=Timeout)
 
             member = self.create_test_member()
 
             from verenigingen.utils.payment_services.mollie_payment_service import MolliePaymentService
+
             service = MolliePaymentService()
             result = service.create_subscription(member, 25.00, "1 month")
 
@@ -690,13 +699,12 @@ class TestMollieErrorHandlingAndRecovery(EnhancedTestCase):
         """
         with requests_mock.Mocker() as m:
             # Mock rate limit response
-            m.post("https://api.mollie.com/v2/customers",
-                   status_code=429,
-                   headers={"Retry-After": "60"})
+            m.post("https://api.mollie.com/v2/customers", status_code=429, headers={"Retry-After": "60"})
 
             member = self.create_test_member()
 
             from verenigingen.utils.payment_services.mollie_payment_service import MolliePaymentService
+
             service = MolliePaymentService()
             result = service.create_subscription(member, 25.00, "1 month")
 
@@ -711,14 +719,15 @@ class TestMollieErrorHandlingAndRecovery(EnhancedTestCase):
         """
         malformed_payloads = [
             {},  # Empty payload
-            {"id": ""}, # Missing required fields
+            {"id": ""},  # Missing required fields
             {"id": "tr_test", "amount": "invalid"},  # Invalid amount format
-            {"id": "tr_test", "status": "unknown_status"}  # Invalid status
+            {"id": "tr_test", "status": "unknown_status"},  # Invalid status
         ]
 
         for payload in malformed_payloads:
             with self.subTest(payload=payload):
                 from verenigingen.utils.payment_gateways import mollie_subscription_webhook
+
                 result = mollie_subscription_webhook()
 
                 self.assertFalse(result["success"])
@@ -737,7 +746,7 @@ class TestMollieErrorHandlingAndRecovery(EnhancedTestCase):
             "paid_amount": 25.00,
             "received_amount": 25.00,
             "source_exchange_rate": 1,
-            "target_exchange_rate": 1
+            "target_exchange_rate": 1,
         }
         defaults.update(kwargs)
 
@@ -745,11 +754,14 @@ class TestMollieErrorHandlingAndRecovery(EnhancedTestCase):
 
         # Add reference if provided
         if defaults.get("reference_doctype") and defaults.get("reference_name"):
-            payment_entry.append("references", {
-                "reference_doctype": defaults["reference_doctype"],
-                "reference_name": defaults["reference_name"],
-                "allocated_amount": defaults.get("paid_amount", 25.00)
-            })
+            payment_entry.append(
+                "references",
+                {
+                    "reference_doctype": defaults["reference_doctype"],
+                    "reference_name": defaults["reference_name"],
+                    "allocated_amount": defaults.get("paid_amount", 25.00),
+                },
+            )
 
         payment_entry.insert()
         payment_entry.submit()
@@ -765,5 +777,5 @@ class TestMollieErrorHandlingAndRecovery(EnhancedTestCase):
             "paidAt": now_datetime().isoformat() if status == "paid" else None,
             "failedAt": now_datetime().isoformat() if status == "failed" else None,
             "subscriptionId": "sub_test_subscription",
-            "metadata": {"member_id": self.test_member.name}
+            "metadata": {"member_id": self.test_member.name},
         }

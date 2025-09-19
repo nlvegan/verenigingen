@@ -20,14 +20,17 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
-from verenigingen.utils.mollie_relationship_manager import MollieRelationshipManager, MollieWebhookQueue
-from verenigingen.utils.security.api_security_framework import OperationType, public_api
-from verenigingen.utils.transaction_manager import (
+from verenigingen.integrations.mollie.utils.legacy_transaction_manager import (
     MollieOperationManager,
     MollieTransactionManager,
     atomic_mollie_operation,
 )
-from verenigingen.utils.webhook_security import authenticate_mollie_webhook
+from verenigingen.integrations.mollie.utils.relationship_manager import (
+    MollieRelationshipManager,
+    MollieWebhookQueue,
+)
+from verenigingen.integrations.mollie.utils.webhook_security import authenticate_mollie_webhook
+from verenigingen.utils.security.api_security_framework import OperationType, public_api
 
 
 class EnhancedMollieIntegration:
@@ -115,7 +118,7 @@ class EnhancedMollieIntegration:
                 "sequenceType": "first",  # Critical for subscription setup
                 "redirectUrl": frappe.utils.get_url("/payment-success"),
                 "webhookUrl": frappe.utils.get_url(
-                    "/api/method/verenigingen.utils.mollie_integration.mollie_webhook_handler"
+                    "/api/method/verenigingen.integrations.mollie.api.payment_webhook.handle_mollie_payment_webhook"
                 ),
                 "metadata": {
                     "agreement_id": agreement.name,
