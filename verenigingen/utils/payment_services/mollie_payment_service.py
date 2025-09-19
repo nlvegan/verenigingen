@@ -28,7 +28,28 @@ class MolliePaymentService:
         from verenigingen.verenigingen_payments.utils.payment_gateways import PaymentGatewayFactory
 
         self.gateway = PaymentGatewayFactory.get_gateway("Mollie", "Default")
+        self._validate_configuration()
         self._validate_donor_fields()
+
+    def _validate_configuration(self):
+        """Validate that required configuration is available for Mollie integration."""
+        if not self.gateway:
+            frappe.throw(frappe._("Mollie payment gateway not configured. Please check Mollie Settings."))
+
+        # Validate API key is configured
+        if not hasattr(self.gateway, "client") or not self.gateway.client:
+            frappe.throw(
+                frappe._("Mollie API client not initialized. Please configure API key in Mollie Settings.")
+            )
+
+        # Check if we can determine environment (test vs live)
+        try:
+            is_test_mode = self._is_test_mode()
+            frappe.logger().info(f"Mollie service initialized in {'test' if is_test_mode else 'live'} mode")
+        except Exception as e:
+            frappe.log_error(
+                f"Could not determine Mollie environment: {str(e)}", "Mollie Configuration Warning"
+            )
 
     def _validate_donor_fields(self):
         """Validate that Donor DocType has required Mollie fields."""
@@ -269,12 +290,12 @@ class MolliePaymentService:
                 return {"status": "created", "customer_id": customer.id}
             else:
                 frappe.logger().debug("Customer creation returned no valid response")
-                return {"status": "error", "message": "Customer creation returned invalid response"}
+                return {"success": False, "error": "Customer creation returned invalid response"}
 
         except Exception as e:
             frappe.logger().debug(f"Overall customer creation error: {str(e)}")
             frappe.log_error(f"Mollie customer creation error: {str(e)}", "Mollie Customer Error")
-            return {"status": "error", "message": "Customer creation failed"}
+            return {"success": False, "error": "Customer creation failed"}
 
     def _get_redirect_url(self, donation_id: str, result_type: str) -> str:
         """Get redirect URL for after payment completion."""
@@ -322,7 +343,7 @@ class MolliePaymentService:
         try:
             # Validate inputs
             if not payment_id:
-                return {"status": "error", "message": _("Payment ID is required for refunds")}
+                return {"success": False, "error": _("Payment ID is required for refunds")}
 
             # Build refund data
             refund_data = {}
@@ -331,7 +352,7 @@ class MolliePaymentService:
                 # Convert amount to Decimal for precise monetary calculations
                 amount_decimal = Decimal(str(amount))
                 if amount_decimal <= 0:
-                    return {"status": "error", "message": _("Refund amount must be positive")}
+                    return {"success": False, "error": _("Refund amount must be positive")}
                 refund_data["amount"] = {"currency": "EUR", "value": f"{amount_decimal:.2f}"}
 
             if description:
@@ -353,29 +374,29 @@ class MolliePaymentService:
                         "message": _("Refund created successfully"),
                     }
                 else:
-                    return {"status": "error", "message": _("Refund creation returned invalid response")}
+                    return {"success": False, "error": _("Refund creation returned invalid response")}
 
             except Exception as api_error:
                 # Handle specific Mollie API errors
                 error_message = str(api_error)
                 if "payment is not paid" in error_message.lower():
-                    return {"status": "error", "message": _("Cannot refund unpaid payment")}
+                    return {"success": False, "error": _("Cannot refund unpaid payment")}
                 elif "insufficient" in error_message.lower():
-                    return {"status": "error", "message": _("Insufficient funds available for refund")}
+                    return {"success": False, "error": _("Insufficient funds available for refund")}
                 elif "already refunded" in error_message.lower():
-                    return {"status": "error", "message": _("Payment has already been fully refunded")}
+                    return {"success": False, "error": _("Payment has already been fully refunded")}
                 else:
                     frappe.log_error(
                         f"Mollie refund API error for payment {payment_id}: {error_message}",
                         "Mollie Refund API Error",
                     )
-                    return {"status": "error", "message": _("Refund request failed - please try again")}
+                    return {"success": False, "error": _("Refund request failed - please try again")}
 
         except Exception as e:
             frappe.log_error(
                 f"Refund creation error for payment {payment_id}: {str(e)}", "Mollie Refund Error"
             )
-            return {"status": "error", "message": _("Refund processing temporarily unavailable")}
+            return {"success": False, "error": _("Refund processing temporarily unavailable")}
 
     def create_subscription(self, member, amount, interval, description=None):
         """
@@ -472,9 +493,9 @@ class MolliePaymentService:
             subscription_id = member.mollie_subscription_id
 
             # Update subscription amount via Mollie API
-            self.gateway.client.customer_subscriptions.with_parent_id(
-                member.mollie_customer_id
-            ).update(subscription_id, {"amount": {"currency": "EUR", "value": f"{float(new_amount):.2f}"}})
+            self.gateway.client.customer_subscriptions.with_parent_id(member.mollie_customer_id).update(
+                subscription_id, {"amount": {"currency": "EUR", "value": f"{float(new_amount):.2f}"}}
+            )
 
             # Log the successful update
             frappe.logger().info(
@@ -522,14 +543,13 @@ class MolliePaymentService:
             frappe.logger().info(f"Cancelling subscription {subscription_id} for member {member.name}")
 
             # Cancel subscription via Mollie API
-            self.gateway.client.customer_subscriptions.with_parent_id(
-                member.mollie_customer_id
-            ).delete(subscription_id)
+            self.gateway.client.customer_subscriptions.with_parent_id(member.mollie_customer_id).delete(
+                subscription_id
+            )
 
             # Update member record
             old_status = member.subscription_status
             member.subscription_status = "cancelled"
-            member.subscription_cancelled_at = frappe.utils.now()
             member.next_payment_date = None
             member.save()
 
@@ -542,7 +562,7 @@ class MolliePaymentService:
                 "subscription_id": subscription_id,
                 "old_status": old_status,
                 "new_status": "cancelled",
-                "cancelled_at": member.subscription_cancelled_at,
+                "cancelled_at": frappe.utils.now(),
                 "member_name": member.name,
             }
 
