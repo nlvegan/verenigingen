@@ -1,6 +1,7 @@
 # DevOps-Focused Approach for Phase 3: Analytics and Optimization
 
 ## Context
+
 Given the association's limited BI resources but availability of a Senior DevOps Engineer, here's a revised approach for Phase 3 that focuses on maintainable, DevOps-friendly solutions.
 
 ## Revised Phase 3: Analytics and Optimization (Weeks 13-16)
@@ -8,12 +9,14 @@ Given the association's limited BI resources but availability of a Senior DevOps
 ### Week 13-14: Operational Monitoring (DevOps-Led)
 
 #### Day 61-65: Infrastructure-Based Dashboards
+
 **Owner:** Senior DevOps Engineer + Senior Developer
 **Effort:** 20 hours
 
 **Tasks:**
 
 1. **Leverage Existing DevOps Tools**
+
    ```yaml
    # Use familiar tools that DevOps already knows
    monitoring_stack:
@@ -24,6 +27,7 @@ Given the association's limited BI resources but availability of a Senior DevOps
    ```
 
 2. **Create Simple Monitoring Endpoints**
+
    ```python
    # verenigingen/api/monitoring.py
 
@@ -65,6 +69,7 @@ Given the association's limited BI resources but availability of a Senior DevOps
    ```
 
 3. **Implement Grafana Dashboards**
+
    ```json
    // grafana/dashboards/verenigingen-operational.json
    {
@@ -73,21 +78,27 @@ Given the association's limited BI resources but availability of a Senior DevOps
        "panels": [
          {
            "title": "Error Rate",
-           "targets": [{
-             "expr": "rate(verenigingen_errors_24h[5m])"
-           }]
+           "targets": [
+             {
+               "expr": "rate(verenigingen_errors_24h[5m])"
+             }
+           ]
          },
          {
            "title": "Active Users",
-           "targets": [{
-             "expr": "verenigingen_active_users_24h"
-           }]
+           "targets": [
+             {
+               "expr": "verenigingen_active_users_24h"
+             }
+           ]
          },
          {
            "title": "SEPA Processing",
-           "targets": [{
-             "expr": "verenigingen_sepa_failed_batches_7d"
-           }]
+           "targets": [
+             {
+               "expr": "verenigingen_sepa_failed_batches_7d"
+             }
+           ]
          }
        ]
      }
@@ -95,6 +106,7 @@ Given the association's limited BI resources but availability of a Senior DevOps
    ```
 
 4. **Create Simple Status Page**
+
    ```html
    <!-- templates/pages/system_status.html -->
    <div class="status-dashboard">
@@ -112,24 +124,27 @@ Given the association's limited BI resources but availability of a Senior DevOps
    </div>
 
    <script>
-   // Simple auto-refresh every 60 seconds
-   setInterval(refreshDashboard, 60000);
+     // Simple auto-refresh every 60 seconds
+     setInterval(refreshDashboard, 60000);
    </script>
    ```
 
 **Deliverables:**
+
 - [ ] Monitoring endpoints implemented
 - [ ] Grafana dashboards configured
 - [ ] Status page deployed
 - [ ] Alert rules configured
 
 #### Day 66-70: Automated Alerting and Reporting
+
 **Owner:** Senior DevOps Engineer
 **Effort:** 20 hours
 
 **Tasks:**
 
 1. **Implement Alert Rules**
+
    ```python
    # verenigingen/monitoring/alerts.py
 
@@ -165,6 +180,7 @@ Given the association's limited BI resources but availability of a Senior DevOps
    ```
 
 2. **Create Daily Reports Script**
+
    ```bash
    #!/bin/bash
    # scripts/daily_report.sh
@@ -190,6 +206,7 @@ Given the association's limited BI resources but availability of a Senior DevOps
    ```
 
 3. **Implement Slack/Webhook Notifications**
+
    ```python
    # verenigingen/monitoring/notifications.py
 
@@ -217,6 +234,7 @@ Given the association's limited BI resources but availability of a Senior DevOps
    ```
 
 **Deliverables:**
+
 - [ ] Alert rules implemented
 - [ ] Daily report script deployed
 - [ ] Notification channels configured
@@ -225,16 +243,19 @@ Given the association's limited BI resources but availability of a Senior DevOps
 ### Week 15-16: Documentation and Handover
 
 #### Day 71-75: Create Maintainable Documentation
+
 **Owner:** Senior DevOps Engineer + Technical Lead
 **Effort:** 15 hours
 
 **Tasks:**
 
 1. **Create Operations Runbook**
+
    ```markdown
    # Verenigingen Operations Runbook
 
    ## Daily Checks
+
    1. Check system status page: https://app.verenigingen.nl/system-status
    2. Review Grafana dashboard for anomalies
    3. Check email for overnight alerts
@@ -242,6 +263,7 @@ Given the association's limited BI resources but availability of a Senior DevOps
    ## Common Issues and Solutions
 
    ### High Error Rate
+
    1. Check Error Log: `SELECT * FROM tabError Log ORDER BY creation DESC LIMIT 20`
    2. Common causes:
       - SEPA processing failures
@@ -253,6 +275,7 @@ Given the association's limited BI resources but availability of a Senior DevOps
       - Review recent deployments
 
    ### SEPA Batch Failures
+
    1. Check batch status: `SELECT * FROM tabDirect Debit Batch WHERE status = 'Failed'`
    2. Review bank response files
    3. Contact finance team if manual intervention needed
@@ -260,6 +283,7 @@ Given the association's limited BI resources but availability of a Senior DevOps
    ## Monitoring Queries
 
    All monitoring queries are maintained in:
+
    - `/apps/verenigingen/monitoring/queries.sql`
    - Grafana dashboard JSON files
    - Monitoring API endpoints
@@ -278,6 +302,7 @@ Given the association's limited BI resources but availability of a Senior DevOps
    - Maintenance procedures
 
 **Deliverables:**
+
 - [ ] Operations runbook completed
 - [ ] Troubleshooting guide published
 - [ ] Infrastructure documentation
@@ -309,6 +334,7 @@ Given the association's limited BI resources but availability of a Senior DevOps
 ## Migration Path
 
 If the association later hires BI specialists, this foundation can be extended:
+
 - Monitoring endpoints can feed into BI tools
 - SQL queries can be converted to BI tool queries
 - Grafana dashboards can be recreated in specialized tools
@@ -317,6 +343,7 @@ If the association later hires BI specialists, this foundation can be extended:
 ## Summary
 
 This DevOps-focused approach provides:
+
 - Immediate operational visibility
 - Maintainable monitoring infrastructure
 - Clear escalation paths

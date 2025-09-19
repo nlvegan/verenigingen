@@ -895,36 +895,42 @@ def some_new_financial_function():  # No corresponding rule
 ## Security Review Checklist
 
 ### Security Implementation
+
 - [ ] Appropriate security decorator applied
 - [ ] Security level matches operation risk
 - [ ] Critical Operation Rule exists (for critical/high operations)
 - [ ] Operation type correctly specified
 
 ### Input Validation
+
 - [ ] All inputs validated before processing
 - [ ] Proper data type validation
 - [ ] Business rule validation implemented
 - [ ] SQL injection prevention
 
 ### Error Handling
+
 - [ ] Secure error messages (no internal details exposed)
 - [ ] Proper exception handling
 - [ ] Error logging for debugging
 - [ ] Graceful degradation
 
 ### Performance
+
 - [ ] Security overhead is acceptable
 - [ ] No unnecessary security checks
 - [ ] Proper caching where applicable
 - [ ] Rate limits are reasonable
 
 ### Testing
+
 - [ ] Security tests included
 - [ ] Edge cases covered
 - [ ] Permission tests included
 - [ ] Integration tests pass
 
 ### Documentation
+
 - [ ] Security requirements documented
 - [ ] Usage examples provided
 - [ ] Error conditions documented
@@ -1093,6 +1099,7 @@ configure_environment_security()
 **Symptoms**: API function accessible without proper security checks
 
 **Diagnosis**:
+
 ```python
 # Check if decorator is applied
 func = frappe.get_attr("verenigingen.api.module.function_name")
@@ -1102,6 +1109,7 @@ print(f"Whitelisted: {getattr(func, '__func_is_whitelisted__', False)}")
 ```
 
 **Solutions**:
+
 1. Ensure `@frappe.whitelist()` comes first
 2. Import security decorators correctly
 3. Restart bench after changes
@@ -1112,6 +1120,7 @@ print(f"Whitelisted: {getattr(func, '__func_is_whitelisted__', False)}")
 **Symptoms**: Rule exists in database but not being applied
 
 **Diagnosis**:
+
 ```python
 # Check rule exists and is enabled
 rule = frappe.get_doc("Critical Operation Rule", "operation_name")
@@ -1130,6 +1139,7 @@ print(f"Cached: {cached is not None}")
 ```
 
 **Solutions**:
+
 1. Verify rule is enabled
 2. Clear cache: `frappe.cache().delete_value("critical_operation_rules")`
 3. Check operation name matches exactly
@@ -1140,6 +1150,7 @@ print(f"Cached: {cached is not None}")
 **Symptoms**: Users getting blocked unexpectedly
 
 **Diagnosis**:
+
 ```python
 # Check current rate limit status
 from verenigingen.utils.security.rate_limiting import get_rate_limiter
@@ -1156,6 +1167,7 @@ print(f"Scope: {rule.rate_limit_scope}")
 ```
 
 **Solutions**:
+
 1. Increase rate limit calls in rule
 2. Adjust rate limit period
 3. Change scope from per_user to per_ip if appropriate
@@ -1166,6 +1178,7 @@ print(f"Scope: {rule.rate_limit_scope}")
 **Symptoms**: Valid operations rejected by business rules
 
 **Diagnosis**:
+
 ```python
 # Test business rule validation
 from verenigingen.utils.secure_operations import get_critical_operations_registry
@@ -1183,6 +1196,7 @@ print(f"Business validation enabled: {rule.enable_business_validation}")
 ```
 
 **Solutions**:
+
 1. Adjust amount thresholds in rule
 2. Check data format matches expected format
 3. Verify business rule logic
@@ -1193,6 +1207,7 @@ print(f"Business validation enabled: {rule.enable_business_validation}")
 **Symptoms**: Functions not available in expected environment
 
 **Diagnosis**:
+
 ```python
 # Check environment detection
 from verenigingen.utils.security.api_security_framework import get_security_framework
@@ -1206,6 +1221,7 @@ print(f"Config sources: {env_info['config_sources']}")
 ```
 
 **Solutions**:
+
 1. Set explicit environment in site_config.json
 2. Check developer_mode setting
 3. Verify deployment_environment configuration

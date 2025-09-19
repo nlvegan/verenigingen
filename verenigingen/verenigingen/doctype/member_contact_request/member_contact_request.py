@@ -29,7 +29,7 @@ class MemberContactRequest(Document):
             self.email = member_doc.email
             self.phone = member_doc.contact_number
             # Note: Member DocType doesn't have organization field - leaving blank
-            if hasattr(member_doc, 'organization'):
+            if hasattr(member_doc, "organization"):
                 self.organization = member_doc.organization
 
     def validate_contact_preferences(self):

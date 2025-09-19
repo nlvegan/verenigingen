@@ -7,6 +7,7 @@ The Verenigingen codebase has evolved to include multiple workspace validation t
 ## 🏗️ **Existing Tools (Pre-existing)**
 
 ### 1. **Enhanced Workspace Validator** (`api/workspace_validator_enhanced.py`)
+
 - **Purpose**: Comprehensive validation of fixtures vs database
 - **Scope**: All workspaces, fixtures file comparison
 - **Features**:
@@ -17,6 +18,7 @@ The Verenigingen codebase has evolved to include multiple workspace validation t
 - **Integration**: Security framework, API endpoints
 
 ### 2. **Core Workspace Validator** (`api/workspace_validator.py`)
+
 - **Purpose**: Administrative workspace integrity validation
 - **Scope**: Broad workspace configuration validation
 - **Features**:
@@ -29,6 +31,7 @@ The Verenigingen codebase has evolved to include multiple workspace validation t
 - **Integration**: High-security API, audit logging
 
 ### 3. **Scripts Workspace Validator** (`scripts/validation/workspace_validator.py`)
+
 - **Purpose**: Pre-commit hook workspace validation
 - **Scope**: Single workspace validation for development
 - **Features**:
@@ -42,6 +45,7 @@ The Verenigingen codebase has evolved to include multiple workspace validation t
 ## 🆕 **New Tools (Recently Created)**
 
 ### 4. **Workspace Link Validator** (`utils/workspace_link_validator.py`)
+
 - **Purpose**: **Specialized link target validation**
 - **Scope**: **Validates that workspace links point to existing DocTypes/Reports/Dashboards**
 - **Key Difference**: **Deep validation of link targets with detailed error reporting**
@@ -55,6 +59,7 @@ The Verenigingen codebase has evolved to include multiple workspace validation t
 - **Usage**: **Debugging specific "link not found" issues**
 
 ### 5. **Workspace Analyzer** (`utils/workspace_analyzer.py`)
+
 - **Purpose**: **Content field vs database structure analysis**
 - **Scope**: **Analyzes the specific mismatch between content cards and Card Break structure**
 - **Key Difference**: **Solves the "empty cards" problem by detecting content/database sync issues**
@@ -67,6 +72,7 @@ The Verenigingen codebase has evolved to include multiple workspace validation t
 - **Usage**: **Debugging why workspace cards appear empty**
 
 ### 6. **Workspace Content Fixer** (`utils/workspace_content_fixer.py`)
+
 - **Purpose**: **Automated fixing of content field synchronization issues**
 - **Scope**: **Fixes the specific content vs database mismatch problem**
 - **Key Difference**: **Actually fixes the issues that Analyzer identifies**
@@ -79,6 +85,7 @@ The Verenigingen codebase has evolved to include multiple workspace validation t
 - **Usage**: **Actually fixing workspace rendering issues**
 
 ### 7. **🆕 Unified Workspace Command Runner** (`commands/workspace.py`) **[NEWLY ADDED]**
+
 - **Purpose**: **Single interface for all workspace operations**
 - **Scope**: **Consolidates all workspace validation, analysis, and fixing under unified CLI**
 - **Key Difference**: **Provides coherent command interface that groups all workspace tools**
@@ -94,27 +101,29 @@ The Verenigingen codebase has evolved to include multiple workspace validation t
 
 ## 🎯 **Problem-Specific Tool Matrix**
 
-| **Problem** | **Recommended Tool** | **Why** |
-|-------------|---------------------|---------|
-| "Workspace cards are empty" | **Unified Command Runner** → analyze | Single interface, integrates analyzer |
-| "Links point to wrong targets" | **Unified Command Runner** → validate | Comprehensive link validation |
-| "Need to fix empty cards" | **Unified Command Runner** → fix | Safe automated fixing with backups |
-| "General workspace debugging" | **Unified Command Runner** → diagnose | Complete diagnostic workflow |
-| "Quick workspace health check" | **Unified Command Runner** → list --health-check | Fast overview of all workspaces |
-| "Pre-commit validation" | Scripts Workspace Validator | Development workflow integration |
-| "System-wide validation" | Enhanced Workspace Validator | Comprehensive fixtures validation |
-| "Administrative validation" | Core Workspace Validator | High-security comprehensive checks |
-| "Legacy/Direct tool access" | Individual tools (analyzer, validator, fixer) | Direct API access when needed |
+| **Problem**                    | **Recommended Tool**                             | **Why**                               |
+| ------------------------------ | ------------------------------------------------ | ------------------------------------- |
+| "Workspace cards are empty"    | **Unified Command Runner** → analyze             | Single interface, integrates analyzer |
+| "Links point to wrong targets" | **Unified Command Runner** → validate            | Comprehensive link validation         |
+| "Need to fix empty cards"      | **Unified Command Runner** → fix                 | Safe automated fixing with backups    |
+| "General workspace debugging"  | **Unified Command Runner** → diagnose            | Complete diagnostic workflow          |
+| "Quick workspace health check" | **Unified Command Runner** → list --health-check | Fast overview of all workspaces       |
+| "Pre-commit validation"        | Scripts Workspace Validator                      | Development workflow integration      |
+| "System-wide validation"       | Enhanced Workspace Validator                     | Comprehensive fixtures validation     |
+| "Administrative validation"    | Core Workspace Validator                         | High-security comprehensive checks    |
+| "Legacy/Direct tool access"    | Individual tools (analyzer, validator, fixer)    | Direct API access when needed         |
 
 ## 🔍 **Key Differences**
 
 ### **Existing Tools Focus On:**
+
 - **Broad validation** (permissions, security, schema)
 - **Fixtures vs database** synchronization
 - **Development workflow** integration
 - **Administrative operations**
 
 ### **New Tools Focus On:**
+
 - **Specific rendering issues** (empty cards problem)
 - **Content field structure** analysis and fixing
 - **Link target validation** with detailed error reporting
@@ -134,6 +143,7 @@ The tools are **complementary, not competing**:
 ## 📋 **Usage Recommendations**
 
 ### **🆕 Primary Interface (Recommended):**
+
 ```bash
 # Unified workspace operations (NEW)
 bench --site [site] execute "verenigingen.utils.workspace_analyzer.analyze_workspace" --args "[workspace]"
@@ -142,6 +152,7 @@ bench --site [site] execute "verenigingen.utils.workspace_content_fixer.fix_work
 ```
 
 ### **For Developers:**
+
 ```bash
 # Pre-commit validation (existing)
 scripts/validation/workspace_validator.py
@@ -154,6 +165,7 @@ verenigingen.utils.workspace_analyzer.print_analysis
 ```
 
 ### **For System Administrators:**
+
 ```bash
 # Comprehensive system validation (existing)
 verenigingen.api.workspace_validator_enhanced.validate_all_workspaces
@@ -173,6 +185,7 @@ verenigingen.utils.workspace_content_fixer.fix_workspace_content
 ```
 
 ### **For Debugging:**
+
 ```bash
 # 🆕 Complete diagnostic workflow (NEW - recommended)
 bench --site [site] execute "verenigingen.utils.workspace_analyzer.analyze_workspace" --args "[workspace]"
@@ -200,6 +213,7 @@ The **workspace validation ecosystem is now complete**:
 - **🆕 Unified Command Runner**: Single interface that consolidates all operations
 
 ### **Current State (Post-Integration)**
+
 ✅ **Complete Solution**: From analysis → validation → fixing, all accessible via unified interface
 ✅ **Backward Compatibility**: All existing tools remain functional and accessible
 ✅ **Enhanced Usability**: Single command interface reduces complexity for common operations

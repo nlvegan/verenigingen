@@ -7,6 +7,7 @@ This document provides real-world error scenarios with actual error messages and
 ### Example 1: SEPA Direct Debit Rejection
 
 **Error Message:**
+
 ```
 SEPA Payment Failed: AM04 - Insufficient Funds
 Member: Jan de Vries (M-2025-0142)
@@ -15,7 +16,9 @@ IBAN: NL91ABNA0417164300
 ```
 
 **Immediate Actions:**
+
 1. **Document the failure**:
+
    ```bash
    bench --site dev.veganisme.net mariadb -e "
    SELECT * FROM \`tabDirect Debit Batch\`
@@ -24,6 +27,7 @@ IBAN: NL91ABNA0417164300
    ```
 
 2. **Check member's mandate status**:
+
    ```bash
    bench --site dev.veganisme.net console
    >>> import frappe
@@ -34,6 +38,7 @@ IBAN: NL91ABNA0417164300
    ```
 
 3. **Create manual invoice and notify member**:
+
    ```bash
    bench --site dev.veganisme.net execute verenigingen.utils.invoice_management.create_manual_invoice --args "['M-2025-0142', 25.00, 'SEPA payment failed - insufficient funds']"
    ```
@@ -44,6 +49,7 @@ IBAN: NL91ABNA0417164300
    ```
 
 **Follow-up Actions:**
+
 - Schedule retry in 7 days
 - Update member about bank account requirements
 - Consider payment plan options
@@ -53,6 +59,7 @@ IBAN: NL91ABNA0417164300
 ### Example 2: Mandate Creation Validation Error
 
 **Error Message:**
+
 ```
 ValidationError: Invalid IBAN format
 Field: iban
@@ -63,11 +70,13 @@ Expected format: NL followed by 2 digits and 18 characters
 **Recovery Steps:**
 
 1. **Validate IBAN manually**:
+
    ```bash
    bench --site dev.veganisme.net execute verenigingen.utils.sepa_input_validation.validate_iban --args "['NL91ABNA041716430']"
    ```
 
 2. **Check IBAN format requirements**:
+
    ```bash
    bench --site dev.veganisme.net console
    >>> from verenigingen.utils.iban_validator import validate_iban, format_iban
@@ -98,6 +107,7 @@ Expected format: NL followed by 2 digits and 18 characters
 ### Example 3: Login Failure After Password Reset
 
 **Error Message:**
+
 ```
 Authentication Failed: User account is disabled
 User: member@veganisme.org
@@ -105,6 +115,7 @@ Last login attempt: 2025-08-06 14:30:22
 ```
 
 **Diagnostic Steps:**
+
 ```bash
 # Check user account status
 bench --site dev.veganisme.net mariadb -e "
@@ -114,6 +125,7 @@ WHERE name = 'member@veganisme.org';"
 ```
 
 **Expected Output:**
+
 ```
 +------------------------+---------+-------------+---------------------+---------------------+
 | name                   | enabled | last_login  | login_after         | creation            |
@@ -123,6 +135,7 @@ WHERE name = 'member@veganisme.org';"
 ```
 
 **Recovery Steps:**
+
 ```bash
 # Enable account and clear login restrictions
 bench --site dev.veganisme.net console
@@ -140,6 +153,7 @@ bench --site dev.veganisme.net console
 ```
 
 **Verification:**
+
 ```bash
 bench --site dev.veganisme.net mariadb -e "
 SELECT name, enabled, login_after
@@ -152,6 +166,7 @@ WHERE name = 'member@veganisme.org';"
 ### Example 4: Permission Denied on Member Dashboard
 
 **Error Message:**
+
 ```
 PermissionError: You don't have permission to access Member records
 User: volunteer@chapter-amsterdam.nl
@@ -160,6 +175,7 @@ Requested: Read access to Member
 ```
 
 **Diagnostic Commands:**
+
 ```bash
 # Check user's roles
 bench --site dev.veganisme.net console
@@ -174,11 +190,13 @@ bench --site dev.veganisme.net console
 ```
 
 **Expected Issues:**
+
 - Missing "Verenigingen Member" role
 - Incorrect role profile assignment
 - Chapter-based access restrictions
 
 **Resolution:**
+
 ```bash
 # Add required role
 bench --site dev.veganisme.net console
@@ -202,6 +220,7 @@ bench --site dev.veganisme.net console
 ### Example 5: Member Import Validation Failure
 
 **Error Message:**
+
 ```
 ImportError: Row 15: Missing required field 'email'
 ImportError: Row 23: Invalid phone number format '+31-6-12345678'
@@ -212,11 +231,13 @@ File: member_import_2025-08-06.csv
 **Step-by-Step Recovery:**
 
 1. **Analyze import file**:
+
    ```bash
    bench --site dev.veganisme.net execute verenigingen.utils.data_quality_utils.analyze_import_file --args "['/path/to/member_import_2025-08-06.csv']"
    ```
 
 2. **Fix validation issues manually**:
+
    ```bash
    bench --site dev.veganisme.net console
    >>> import frappe
@@ -239,6 +260,7 @@ File: member_import_2025-08-06.csv
    ```
 
 3. **Create corrected import file**:
+
    ```bash
    # Fix issues in CSV file manually or programmatically
    bench --site dev.veganisme.net execute verenigingen.utils.data_quality_utils.create_corrected_import --args "['/path/to/member_import_2025-08-06.csv', '/path/to/member_import_corrected.csv']"
@@ -256,6 +278,7 @@ File: member_import_2025-08-06.csv
 ### Example 6: eBoekhouden API Connection Timeout
 
 **Error Message:**
+
 ```
 ConnectionTimeout: Request to eBoekhouden API timed out after 30 seconds
 Endpoint: https://api.e-boekhouden.nl/v1/mutations
@@ -264,6 +287,7 @@ Last successful connection: 2025-08-06 12:15:33
 ```
 
 **Diagnostic Steps:**
+
 ```bash
 # Test basic connectivity
 curl -I https://api.e-boekhouden.nl/v1/status
@@ -273,6 +297,7 @@ bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.eboekhoud
 ```
 
 **Recovery Actions:**
+
 ```bash
 # Check API rate limits
 bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.eboekhouden_api.check_rate_limits
@@ -289,6 +314,7 @@ bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.eboekhoud
 ### Example 7: Background Job Stuck in Queue
 
 **Error Message:**
+
 ```
 Job Status: STUCK
 Job Name: verenigingen.utils.sepa_xml_enhanced_generator.generate_batch
@@ -301,6 +327,7 @@ Error: Worker process killed unexpectedly
 **Recovery Process:**
 
 1. **Check job details**:
+
    ```bash
    bench --site dev.veganisme.net console
    >>> import frappe
@@ -310,6 +337,7 @@ Error: Worker process killed unexpectedly
    ```
 
 2. **Clear stuck job**:
+
    ```bash
    bench --site dev.veganisme.net console
    >>> import frappe
@@ -319,6 +347,7 @@ Error: Worker process killed unexpectedly
    ```
 
 3. **Restart workers**:
+
    ```bash
    bench restart
 
@@ -338,6 +367,7 @@ Error: Worker process killed unexpectedly
 ### Example 8: Database Connection Pool Exhausted
 
 **Error Message:**
+
 ```
 DatabaseError: (1040, 'Too many connections')
 Connection pool: 50/50 active connections
@@ -346,6 +376,7 @@ Time: 2025-08-06 15:45:22
 ```
 
 **Immediate Response:**
+
 ```bash
 # Check current connections
 bench --site dev.veganisme.net mariadb -e "SHOW STATUS LIKE 'Threads_%';"
@@ -353,6 +384,7 @@ bench --site dev.veganisme.net mariadb -e "SHOW PROCESSLIST;"
 ```
 
 **Kill long-running queries**:
+
 ```bash
 bench --site dev.veganisme.net mariadb -e "
 SELECT CONCAT('KILL ', id, ';') as kill_command
@@ -362,6 +394,7 @@ AND info IS NOT NULL;"
 ```
 
 **Execute the kill commands manually, then**:
+
 ```bash
 # Restart services
 sudo systemctl restart mariadb
@@ -372,6 +405,7 @@ bench --site dev.veganisme.net mariadb -e "SHOW STATUS LIKE 'Max_used_connection
 ```
 
 **Long-term Fix:**
+
 ```bash
 # Increase connection limits in MariaDB configuration
 sudo nano /etc/mysql/mariadb.conf.d/50-server.cnf
@@ -387,11 +421,13 @@ sudo systemctl restart mariadb
 ### Example 9: Member Portal Extremely Slow
 
 **Symptoms:**
+
 - Page load times > 30 seconds
 - Timeouts on member dashboard
 - Browser shows "Page unresponsive"
 
 **Performance Diagnosis:**
+
 ```bash
 # Check server resources
 top -n 1 | head -10
@@ -409,6 +445,7 @@ sudo tail -50 /var/log/mysql/slow.log
 ```
 
 **Immediate Actions:**
+
 ```bash
 # Clear all caches
 bench --site dev.veganisme.net clear-cache
@@ -421,6 +458,7 @@ bench --site dev.veganisme.net mariadb -e "OPTIMIZE TABLE \`tabPayment Entry\`;"
 ```
 
 **Performance Monitoring:**
+
 ```bash
 # Enable performance monitoring
 bench --site dev.veganisme.net execute verenigingen.utils.performance_monitoring.enable_detailed_logging

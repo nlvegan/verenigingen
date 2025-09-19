@@ -14,6 +14,7 @@ Based on actual API verification of mutations 7833, 5473, and 6217, we've confir
    - Single invoice payments use simple string: `"invoiceNumber": "INV-001"`
 
 2. **Payment Structure Pattern**
+
    ```javascript
    {
      "id": 5473,
@@ -451,24 +452,28 @@ class TestMultiInvoicePayments(FrappeTestCase):
 ## Implementation Phases
 
 ### Phase 1: Core Implementation (Days 1-2)
+
 1. Implement `PaymentEntryHandler` class
 2. Add invoice parsing and allocation logic
 3. Integrate with existing migration system
 4. Create comprehensive test suite
 
 ### Phase 2: Bank Account Mapping (Days 3-4)
+
 1. Enhance ledger-to-bank mapping
 2. Add fallback strategies
 3. Create configuration UI
 4. Test with real ledger data
 
 ### Phase 3: Testing & Validation (Days 5-6)
+
 1. Test with actual E-Boekhouden data
 2. Validate multi-invoice allocations
 3. Performance testing
 4. Edge case handling
 
 ### Phase 4: Migration & Cleanup (Day 7)
+
 1. Update existing payment processing
 2. Remove hardcoded logic
 3. Update documentation
@@ -493,6 +498,7 @@ class TestMultiInvoicePayments(FrappeTestCase):
 ## Conclusion
 
 This verified implementation plan addresses all discovered API capabilities:
+
 - Comma-separated invoice support
 - Row-based invoice allocation
 - Proper bank account mapping

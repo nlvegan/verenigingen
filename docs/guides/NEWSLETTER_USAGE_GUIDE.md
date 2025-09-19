@@ -1,23 +1,29 @@
 # Newsletter & Communication System Usage Guide
 
 ## Overview
+
 The Verenigingen app now includes a comprehensive newsletter and communication system that respects member preferences while ensuring compliance with legal requirements for statutory communications.
 
 ## Quick Start
 
 ### 1. Access Newsletter Functions
+
 Navigate to the **Verenigingen** workspace and look for the **"Communication & Newsletters"** section:
+
 - **Newsletter** - Create and send newsletters
 - **Email Group** - Manage recipient lists
 - **Communication** - View communication history
 - **Email Template** - Manage templates
 
 Direct URLs:
+
 - Newsletter: `https://dev.veganisme.net/app/newsletter`
 - Email Groups: `https://dev.veganisme.net/app/email-group`
 
 ### 2. Email Groups Setup
+
 We've created the following default email groups:
+
 - **All Active Members** - All members with email addresses (313 members)
 - **Newsletter Subscribers** - Members who haven't opted out (313 members)
 - **Board Members** - Current board members
@@ -83,6 +89,7 @@ result = chapter.communication_manager.send_statutory_communication(
    - Statutory communications ignore opt-out preferences
 
 ### Current Statistics
+
 ```
 Total Active Members: 313
 Members with Email: 313
@@ -93,6 +100,7 @@ Newsletter Subscribers: 313
 ## Sample Newsletter Template
 
 We've created a sample newsletter template called "Monthly Member Update" that includes:
+
 - Personalized greeting using `{{ first_name }}`
 - Sections for events, highlights, and announcements
 - Legal disclaimer about opt-out preferences
@@ -101,6 +109,7 @@ We've created a sample newsletter template called "Monthly Member Update" that i
 ## API Functions Available
 
 ### Setup Functions
+
 ```python
 # Set up default email groups
 from verenigingen.api.newsletter_demo import setup_email_groups
@@ -116,6 +125,7 @@ stats = get_newsletter_statistics()
 ```
 
 ### Communication Manager Methods
+
 ```python
 # Get chapter
 chapter = frappe.get_doc("Chapter", "Amsterdam")
@@ -141,17 +151,20 @@ history = chapter.get_communication_history(limit=50)
 ## Best Practices
 
 ### 1. Content Guidelines
+
 - Keep newsletters concise and relevant
 - Use personalization tokens: `{{ first_name }}`, `{{ last_name }}`
 - Include unsubscribe information for optional communications
 - Clearly mark statutory communications
 
 ### 2. Frequency Recommendations
+
 - Monthly newsletters for general updates
 - Quarterly for major announcements
 - Immediate for urgent/statutory notices
 
 ### 3. Legal Compliance
+
 - **Always use `send_statutory_communication()`** for:
   - AGM/EGM notices
   - Voting announcements
@@ -161,6 +174,7 @@ history = chapter.get_communication_history(limit=50)
 - Maintain audit trail through Communication records
 
 ### 4. Performance Tips
+
 - Send newsletters in batches (automatic with bulk_notification)
 - Schedule during off-peak hours
 - Monitor email bounce rates
@@ -168,18 +182,21 @@ history = chapter.get_communication_history(limit=50)
 ## Troubleshooting
 
 ### Newsletter Not Sending
+
 1. Check if Email Account is configured
 2. Verify SMTP settings in Email Account
 3. Check recipient email addresses are valid
 4. Review error logs in Communication record
 
 ### Members Not Receiving Emails
+
 1. Check if member has valid email address
 2. Verify member is in correct email group
 3. Check opt-out status for optional emails
 4. Review spam/junk folders
 
 ### Email Groups Not Updating
+
 1. Run `populate_email_groups()` to refresh
 2. Check member status (must be "Active")
 3. Verify chapter assignments
@@ -187,12 +204,15 @@ history = chapter.get_communication_history(limit=50)
 ## Integration with Existing Systems
 
 ### Member Portal
+
 Members can update their communication preferences through their profile (if implemented).
 
 ### Chapter Management
+
 Chapter administrators can send targeted communications to their chapter members.
 
 ### Reporting
+
 - View newsletter open rates (if tracking enabled)
 - Monitor opt-out trends
 - Track communication history per member
@@ -207,6 +227,7 @@ Chapter administrators can send targeted communications to their chapter members
 ## Future Enhancements
 
 Consider implementing:
+
 1. Automated welcome emails for new members
 2. Birthday greetings
 3. Membership renewal reminders
@@ -217,6 +238,7 @@ Consider implementing:
 ## Support
 
 For issues or questions:
+
 1. Check Communication logs for errors
 2. Review Email Account configuration
 3. Verify permission settings
@@ -224,5 +246,5 @@ For issues or questions:
 
 ---
 
-*Last Updated: December 2024*
-*System Version: Verenigingen 1.0*
+_Last Updated: December 2024_
+_System Version: Verenigingen 1.0_

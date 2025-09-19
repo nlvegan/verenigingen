@@ -5,6 +5,7 @@
 ### Sales Invoice - Current vs Proper Mapping
 
 #### Currently Mapped (POORLY):
+
 ```python
 si.posting_date = mutation.get("date")           # ✓ Correct
 si.customer = relation_id or "Guest Customer"    # ❌ Using ID instead of name
@@ -13,6 +14,7 @@ si.name = invoice_number                         # ❌ WRONG! Overriding system 
 ```
 
 #### Missing Critical Fields:
+
 ```python
 # NOT MAPPED but should be:
 si.due_date = None                               # Calculate from date + payment terms
@@ -85,6 +87,7 @@ def create_sales_invoice_properly(mutation_detail, company):
 ### Purchase Invoice - Current vs Proper Mapping
 
 #### Currently Mapped (POORLY):
+
 ```python
 pi.posting_date = mutation.get("date")           # ✓ Correct
 pi.supplier = relation_id or "Default Supplier"  # ❌ Using ID instead of name
@@ -93,6 +96,7 @@ pi.eboekhouden_mutation_nr = str(mutation_id)    # ✓ Custom field
 ```
 
 #### Missing Critical Fields:
+
 ```python
 # NOT MAPPED but should be:
 pi.bill_date = None                              # Invoice date from supplier
@@ -162,6 +166,7 @@ def create_purchase_invoice_properly(mutation_detail, company):
 ### Payment Entry - Current vs Proper Mapping
 
 #### Currently Mapped (POORLY):
+
 ```python
 pe.posting_date = mutation.get("date")           # ✓ Correct
 pe.paid_to = "10000 - Kas - NVV"                # ❌ Hardcoded account!
@@ -170,6 +175,7 @@ pe.reference_no = invoice_number or "EB-{id}"   # ⚠️ f-string not used
 ```
 
 #### Missing Fields:
+
 ```python
 # NOT MAPPED:
 pe.reference_date = None                         # Available
@@ -181,6 +187,7 @@ pe.remarks = None                                # Description
 ### Line Item Mapping
 
 #### Current (TERRIBLE):
+
 ```python
 # Everything becomes "Service Item" with no details!
 {
@@ -192,6 +199,7 @@ pe.remarks = None                                # Description
 ```
 
 #### Proper Line Item Mapping:
+
 ```python
 def map_line_item(regel, transaction_type):
     """Map e-boekhouden line item to ERPNext format"""

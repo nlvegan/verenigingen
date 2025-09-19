@@ -43,22 +43,25 @@
 // Chapter Membership History utility functions for Member doctype
 
 function setup_chapter_history_display(frm) {
-	if (!frm.doc.name || frm.doc.__islocal) { return; }
+	if (!frm.doc.name || frm.doc.__islocal) {
+		return;
+	}
 
 	// Enhance the chapter membership history table display
 	enhance_chapter_history_table(frm);
 }
 
-
 function enhance_chapter_history_table(frm) {
-	if (!frm.fields_dict.chapter_membership_history) { return; }
+	if (!frm.fields_dict.chapter_membership_history) {
+		return;
+	}
 
 	// Add custom styling and functionality to the chapter membership history table
-	frm.fields_dict.chapter_membership_history.grid.get_field('status').get_query = function () {
+	frm.fields_dict.chapter_membership_history.grid.get_field(
+		'status'
+	).get_query = function () {
 		return {
-			filters: [
-				['name', 'in', ['Active', 'Completed', 'Terminated']]
-			]
+			filters: [['name', 'in', ['Active', 'Completed', 'Terminated']]]
 		};
 	};
 
@@ -82,17 +85,28 @@ function enhance_chapter_history_table(frm) {
 }
 
 function add_chapter_history_insights(frm) {
-	if (!frm.doc.chapter_membership_history || frm.doc.chapter_membership_history.length === 0) {
+	if (
+		!frm.doc.chapter_membership_history
+    || frm.doc.chapter_membership_history.length === 0
+	) {
 		return;
 	}
 
 	// Count active vs completed memberships
-	const active_count = frm.doc.chapter_membership_history.filter(h => h.status === 'Active').length;
-	const completed_count = frm.doc.chapter_membership_history.filter(h => h.status === 'Completed').length;
-	const terminated_count = frm.doc.chapter_membership_history.filter(h => h.status === 'Terminated').length;
+	const active_count = frm.doc.chapter_membership_history.filter(
+		(h) => h.status === 'Active'
+	).length;
+	const completed_count = frm.doc.chapter_membership_history.filter(
+		(h) => h.status === 'Completed'
+	).length;
+	const terminated_count = frm.doc.chapter_membership_history.filter(
+		(h) => h.status === 'Terminated'
+	).length;
 
 	// Get unique chapters
-	const chapters = [...new Set(frm.doc.chapter_membership_history.map(h => h.chapter_name))];
+	const chapters = [
+		...new Set(frm.doc.chapter_membership_history.map((h) => h.chapter_name))
+	];
 
 	// Add insights HTML after the chapter membership history section
 	const insights_html = `

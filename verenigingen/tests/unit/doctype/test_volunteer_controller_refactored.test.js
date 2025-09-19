@@ -13,7 +13,9 @@
 /* global describe, it, expect, jest, beforeEach, afterEach, beforeAll */
 
 // Import centralized test infrastructure
-const { createControllerTestSuite } = require('../../setup/controller-test-base');
+const {
+	createControllerTestSuite
+} = require('../../setup/controller-test-base');
 const { createDomainTestBuilder } = require('../../setup/domain-test-builders');
 
 // Initialize test environment
@@ -37,7 +39,8 @@ global.$ = jest.fn((selector) => ({
 // Controller configuration
 const volunteerConfig = {
 	doctype: 'Volunteer',
-	controllerPath: '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/volunteer/volunteer.js',
+	controllerPath:
+    '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/volunteer/volunteer.js',
 	expectedHandlers: ['refresh', 'member', 'availability'],
 	defaultDoc: {
 		member: 'MEM-2024-001',
@@ -118,7 +121,7 @@ const customVolunteerTests = {
 				{ birth_date: '1990-01-15', valid: true } // Adult
 			];
 
-			testDates.forEach(test => {
+			testDates.forEach((test) => {
 				getControllerTest().mockForm.doc.birth_date = test.birth_date;
 				expect(() => {
 					getControllerTest().testEvent('refresh');
@@ -127,9 +130,14 @@ const customVolunteerTests = {
 		});
 
 		it('should handle volunteer availability updates', () => {
-			const availabilityOptions = ['Weekdays', 'Weekends', 'Evenings', 'Flexible'];
+			const availabilityOptions = [
+				'Weekdays',
+				'Weekends',
+				'Evenings',
+				'Flexible'
+			];
 
-			availabilityOptions.forEach(availability => {
+			availabilityOptions.forEach((availability) => {
 				getControllerTest().mockForm.doc.availability = availability;
 
 				if (getControllerTest().handlers.availability) {
@@ -150,7 +158,7 @@ const customVolunteerTests = {
 				'Financial Management, Accounting'
 			];
 
-			skillSets.forEach(skills => {
+			skillSets.forEach((skills) => {
 				getControllerTest().mockForm.doc.skills = skills;
 				expect(() => {
 					getControllerTest().testEvent('refresh');
@@ -159,9 +167,14 @@ const customVolunteerTests = {
 		});
 
 		it('should track volunteer experience levels', () => {
-			const experienceLevels = ['Beginner', 'Intermediate', 'Advanced', 'Expert'];
+			const experienceLevels = [
+				'Beginner',
+				'Intermediate',
+				'Advanced',
+				'Expert'
+			];
 
-			experienceLevels.forEach(level => {
+			experienceLevels.forEach((level) => {
 				getControllerTest().mockForm.doc.experience_level = level;
 				expect(() => {
 					getControllerTest().testEvent('refresh');
@@ -243,7 +256,7 @@ const customVolunteerTests = {
 				{ type: 'Training Completed', date: '2024-02-01' }
 			];
 
-			milestones.forEach(milestone => {
+			milestones.forEach((milestone) => {
 				getControllerTest().mockForm.doc.last_milestone = milestone.type;
 				getControllerTest().mockForm.doc.last_milestone_date = milestone.date;
 
@@ -263,7 +276,7 @@ const customVolunteerTests = {
 				{ from: 'Active', to: 'Inactive' }
 			];
 
-			statusTransitions.forEach(transition => {
+			statusTransitions.forEach((transition) => {
 				getControllerTest().mockForm.doc.status = transition.from;
 				expect(() => {
 					getControllerTest().testEvent('refresh');
@@ -284,7 +297,10 @@ const customVolunteerTests = {
 };
 
 // Create and export the test suite
-describe('Volunteer Controller (Refactored)', createControllerTestSuite(volunteerConfig, customVolunteerTests));
+describe(
+	'Volunteer Controller (Refactored)',
+	createControllerTestSuite(volunteerConfig, customVolunteerTests)
+);
 
 // Export test utilities for reuse
 module.exports = {

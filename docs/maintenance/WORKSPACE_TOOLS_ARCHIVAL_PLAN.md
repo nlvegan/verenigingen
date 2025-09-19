@@ -55,6 +55,7 @@ mv scripts/workspace_reorganization.py staged_for_archival/
 ```
 
 **Validation Process**:
+
 1. Monitor system logs for any imports/calls to these files
 2. Check command history for manual usage
 3. Validate no breaking changes in workspace functionality
@@ -150,12 +151,14 @@ mv scripts/validation/workspace_integrity_validator.py verenigingen/archived/wor
 ### Success Metrics
 
 **Technical Metrics**:
+
 - Zero imports/calls to archived files in logs
 - Migration process completes successfully
 - Workspace health checks pass consistently
 - No performance regressions
 
 **User Experience Metrics**:
+
 - Zero workspace corruption reports
 - No support requests for "empty workspaces"
 - Command-line tools handle all previous use cases
@@ -181,17 +184,20 @@ If issues arise requiring archived tools:
 ## Risk Assessment
 
 ### Low Risk (Phase 1 - Immediate Archival)
+
 - Files have direct functional replacements
 - No unique business logic identified
 - Unified tool provides superior capabilities
 - Easy rollback if needed
 
 ### Medium Risk (Phase 2 - 30-day Observation)
+
 - Some files may have specialized logic not immediately obvious
 - E-Boekhouden specific tools may have integration dependencies
 - Reorganization scripts may be used in deployment processes
 
 ### High Risk (Never Archive)
+
 - Migration patches contain historical debugging information
 - Documentation explains design decisions and troubleshooting
 - Setup scripts may be referenced in deployment documentation
@@ -199,12 +205,14 @@ If issues arise requiring archived tools:
 ## Expected Benefits
 
 ### Immediate Benefits
+
 - **Reduced codebase complexity**: ~50% reduction in workspace-related files
 - **Improved maintainability**: Single tool to update vs. 32 scattered files
 - **Better user experience**: Consistent interface and reliable fixes
 - **Enhanced safety**: Built-in backups and verification
 
 ### Long-term Benefits
+
 - **Lower support burden**: Automated workspace health prevents user issues
 - **Faster development**: No need to update multiple debugging tools
 - **Improved system reliability**: Migration-integrated prevention vs. reactive fixes
@@ -215,6 +223,7 @@ If issues arise requiring archived tools:
 This archival plan safely reduces technical debt while ensuring system reliability. The phased approach allows for careful validation while quickly eliminating obviously obsolete code.
 
 **Total Impact**:
+
 - **Files to Archive**: 15+ obsolete debugging tools
 - **Code Reduction**: ~2000 lines of technical debt
 - **Functional Improvement**: 32 reactive tools → 1 proactive system

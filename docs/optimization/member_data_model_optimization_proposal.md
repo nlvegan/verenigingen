@@ -11,6 +11,7 @@ Comprehensive analysis of the Member DocType reveals **critical performance bott
 ### 1. Critical Missing Indexes - Member Table
 
 **Primary Member Fields:**
+
 - `status` field - No index despite being heavily filtered (Active/Pending/Terminated/etc.)
 - `member_id` field - Marked unique but lacks dedicated search index
 - `email` field - Frequently searched for member lookup, no index
@@ -18,12 +19,14 @@ Comprehensive analysis of the Member DocType reveals **critical performance bott
 - `payment_method` field - Essential for Mollie/SEPA filtering, no index
 
 **Date-based Query Fields:**
+
 - `member_since` field - Member analytics and reporting queries, no index
 - `birth_date` field - Age-based filtering and analytics, no index
 - `next_payment_date` field - Payment processing workflows, no index
 - `application_date` field - Application workflow queries, no index
 
 **Integration Fields:**
+
 - `mollie_customer_id` field - Webhook processing lookups, no index
 - `mollie_subscription_id` field - Subscription management, no index
 - `subscription_status` field - Active subscription filtering, no index
@@ -47,6 +50,7 @@ The Member schema contains **5 fetch_from fields** that create cascading query p
 ### 3. Child Table Performance Crisis
 
 **Member Payment History Table:**
+
 - `invoice` field - Invoice lookups, no index
 - `payment_status` field - Payment filtering, no index
 - `posting_date` field - Chronological queries, no index
@@ -54,11 +58,13 @@ The Member schema contains **5 fetch_from fields** that create cascading query p
 - `sepa_mandate` field - SEPA processing, no index
 
 **Member SEPA Mandate Link Table:**
+
 - `sepa_mandate` field - Primary relationship, no index
 - `is_current` field - Current mandate filtering, no index
 - **4 additional fetch_from fields** creating N+1 patterns
 
 **Additional Child Tables (similar issues):**
+
 - Member IBAN History (2 missing indexes)
 - Member Fee Change History (3 missing indexes)
 - Chapter Membership History (4 missing indexes)
@@ -67,6 +73,7 @@ The Member schema contains **5 fetch_from fields** that create cascading query p
 ### 4. Search Performance Issues
 
 The Member table uses:
+
 ```json
 "search_fields": "full_name,email,contact_number"
 ```
@@ -134,6 +141,7 @@ ALTER TABLE `tabMember Fee Change History` ADD INDEX `idx_change_type` (`change_
 **Solution:** Replace with optimized JOIN queries
 
 **Before (N+1 pattern):**
+
 ```python
 # Current: 1 + N queries for member list
 members = frappe.get_all('Member', fields=['*'])  # 1 query
@@ -141,6 +149,7 @@ members = frappe.get_all('Member', fields=['*'])  # 1 query
 ```
 
 **After (Optimized JOINs):**
+
 ```python
 # Optimized: Single query with JOINs
 members = frappe.db.sql("""
@@ -163,6 +172,7 @@ members = frappe.db.sql("""
 ## Expected Performance Improvements
 
 ### Query Performance Gains:
+
 - **Member list filtering:** 80-95% faster with status/email indexes
 - **Payment processing:** 85-90% faster with payment history indexes
 - **SEPA operations:** 90-95% faster with mandate indexes
@@ -170,6 +180,7 @@ members = frappe.db.sql("""
 - **Child table queries:** 85-95% faster with relationship indexes
 
 ### System Scalability Impact:
+
 - **Member list views:** From 5-10 queries per row to 1 optimized query
 - **Payment webhooks:** From table scans to indexed lookups
 - **Application workflows:** From sequential scans to index seeks
@@ -178,16 +189,19 @@ members = frappe.db.sql("""
 ## Risk Assessment and Mitigation
 
 ### Implementation Risks: **LOW**
+
 - All indexes are non-breaking additions
 - No existing functionality affected
 - Gradual performance improvement as indexes are utilized
 
 ### Rollback Strategy:
+
 - Individual indexes can be dropped without data loss
 - Original query patterns remain functional during transition
 - Performance monitoring available through database metrics
 
 ### Resource Requirements:
+
 - **Disk Space:** ~5-10% increase for index storage
 - **Memory Usage:** ~10-15% increase for index caching
 - **Implementation Time:** 2-3 hours for full optimization
@@ -195,16 +209,19 @@ members = frappe.db.sql("""
 ## Implementation Timeline
 
 ### Phase 1: Critical Indexes (Priority 1) - 1 day
+
 - Member table status, email, and identification indexes
 - Payment method and application workflow indexes
 - Immediate impact on most common queries
 
 ### Phase 2: Child Table Optimization (Priority 2) - 1 day
+
 - Payment history and SEPA mandate indexes
 - IBAN and fee change history indexes
 - Significant impact on financial operations
 
 ### Phase 3: Advanced Optimization (Priority 3) - 2-3 days
+
 - Query pattern refactoring to eliminate N+1 problems
 - Custom JOIN implementations for critical workflows
 - Performance monitoring and fine-tuning
@@ -214,6 +231,7 @@ members = frappe.db.sql("""
 ## Success Metrics
 
 **Before/After Benchmarks:**
+
 1. Member list view load time (target: <500ms for 100 members)
 2. Member search response time (target: <100ms)
 3. Payment processing webhook speed (target: <50ms)
@@ -221,6 +239,7 @@ members = frappe.db.sql("""
 5. Application workflow queries (target: <200ms)
 
 **Database Metrics:**
+
 - Query execution time reduction: 80-95%
 - Index utilization rate: >90%
 - Slow query log entries: <5% of current volume

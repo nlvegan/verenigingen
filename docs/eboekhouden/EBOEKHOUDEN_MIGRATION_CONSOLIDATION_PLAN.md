@@ -3,7 +3,9 @@
 ## Current State (After Fixes)
 
 ### ✅ **Enhanced Migration** (FIXED)
+
 **File**: `eboekhouden_enhanced_migration.py`
+
 - **Status**: ✅ Now uses proper SSoT approach
 - **Implementation**: Delegates to main migration functions for invoice creation
 - **Features**:
@@ -15,7 +17,9 @@
 - **Usage**: Currently preferred system, enabled by default
 
 ### ✅ **Main Migration** (WORKING)
+
 **File**: `eboekhouden_rest_full_migration.py`
+
 - **Status**: ✅ Core SSoT implementation is correct
 - **Implementation**: Direct approach with proven logic
 - **Features**:
@@ -27,6 +31,7 @@
 - **Usage**: Fallback system, directly called by enhanced migration
 
 ### ❌ **Unified Processor** (REMOVED)
+
 **Status**: ✅ Moved to `archived_unused/` due to SSoT violations
 
 ## Consolidation Strategy
@@ -34,12 +39,14 @@
 ### **Option A: Keep Enhanced Migration as Primary (RECOMMENDED)**
 
 **Rationale**:
+
 - Enhanced migration now has all the SSoT correctness of the main migration
 - Provides superior enterprise features (audit trails, error recovery, performance)
 - Already preferred by users
 - Main migration becomes a "core engine" library
 
 **Implementation**:
+
 1. **Keep both files** but clarify their roles:
    - **Enhanced Migration**: Public API with enterprise features
    - **Main Migration**: Core engine with proven transaction logic
@@ -51,10 +58,12 @@
 ### **Option B: Merge Everything into One File**
 
 **Rationale**:
+
 - Eliminates confusion about which system to use
 - Single codebase to maintain
 
 **Challenges**:
+
 - Main migration file is already large (3000+ lines)
 - Would lose the modular architecture benefits
 - Risk of introducing regressions during merge
@@ -62,9 +71,11 @@
 ### **Option C: Deprecate Enhanced Migration**
 
 **Rationale**:
+
 - Simpler to have one system
 
 **Challenges**:
+
 - Lose enterprise features that users value
 - Main migration lacks audit trails, error recovery, batch processing
 
@@ -172,11 +183,11 @@ eboekhouden/
 
 ## **Risks and Mitigations**
 
-| Risk | Mitigation |
-|------|-----------|
+| Risk                             | Mitigation                          |
+| -------------------------------- | ----------------------------------- |
 | Regression in enhanced migration | Comprehensive testing of delegation |
-| Performance impact of delegation | Minimal - just function calls |
-| Confusion about architecture | Clear documentation and comments |
+| Performance impact of delegation | Minimal - just function calls       |
+| Confusion about architecture     | Clear documentation and comments    |
 
 ## **Success Criteria**
 

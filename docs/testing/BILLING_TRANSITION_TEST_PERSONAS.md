@@ -7,6 +7,7 @@ This document describes the comprehensive test personas created to validate bill
 ## Problem Statement
 
 When members change billing frequencies, there's a risk of:
+
 - **Duplicate billing** for overlapping periods
 - **Billing gaps** where members aren't charged
 - **Incorrect proration** of unused billing periods
@@ -15,15 +16,18 @@ When members change billing frequencies, there's a risk of:
 ## Test Personas
 
 ### 1. Monthly to Annual Mike 🔄
+
 **Scenario**: Switches from €20/month to €200/year mid-month
 
 **Test Validation**:
+
 - ✅ No duplicate billing for transition period
 - ✅ Proper credit calculation (€10 for half-month remaining)
 - ✅ New annual schedule starts immediately
 - ✅ Old monthly schedule becomes inactive
 
 **Key Fields**:
+
 - Current: €20/month, next bill in 15 days
 - Requested: €200/year
 - Expected Credit: €10.00 (half month unused)
@@ -35,15 +39,18 @@ mike = BillingTransitionPersonas.create_monthly_to_annual_mike()
 ```
 
 ### 2. Annual to Quarterly Anna 📅
+
 **Scenario**: Paid €240/year upfront, switches to €80/quarter after 3 months
 
 **Test Validation**:
+
 - ✅ Large credit calculation (€180 for 9 months unused)
 - ✅ Quarterly billing delayed by credit amount
 - ✅ No immediate charge for first 2+ quarters
 - ✅ Proper credit carryover to new schedule
 
 **Key Fields**:
+
 - Current: €240/year paid 3 months ago
 - Requested: €80/quarter
 - Expected Credit: €180.00 (9/12 months unused)
@@ -55,15 +62,18 @@ anna = BillingTransitionPersonas.create_annual_to_quarterly_anna()
 ```
 
 ### 3. Quarterly to Monthly Quinn 📊
+
 **Scenario**: Pays €75/quarter, switches to €30/month mid-quarter
 
 **Test Validation**:
+
 - ✅ Mid-cycle transition handling
 - ✅ Credit for remaining quarter portion (€50)
 - ✅ Monthly billing starts immediately
 - ✅ Proper quarterly period termination
 
 **Key Fields**:
+
 - Current: €75/quarter, paid 1 month ago (2 months remaining)
 - Requested: €30/month
 - Expected Credit: €50.00 (2/3 quarter unused)
@@ -75,15 +85,18 @@ quinn = BillingTransitionPersonas.create_quarterly_to_monthly_quinn()
 ```
 
 ### 4. Daily to Annual Diana ⚡
+
 **Scenario**: Extreme case - €1/day to €300/year
 
 **Test Validation**:
+
 - ✅ Complex frequent billing transition
 - ✅ No billing gaps between daily and annual
 - ✅ Proper transition timing
 - ✅ Handle high-frequency billing data
 
 **Key Fields**:
+
 - Current: €1/day, paid daily for 30 days
 - Requested: €300/year
 - Expected Credit: €0.00 (daily billing current)
@@ -95,15 +108,18 @@ diana = BillingTransitionPersonas.create_daily_to_annual_diana()
 ```
 
 ### 5. Mid-Period Switch Sam 🔄🔄
+
 **Scenario**: Multiple transitions - Monthly → Quarterly → Annual in 6 months
 
 **Test Validation**:
+
 - ✅ Multiple sequential transitions
 - ✅ Credit accumulation across transitions
 - ✅ No duplicate billing through multiple changes
 - ✅ Proper transition history tracking
 
 **Key Fields**:
+
 - Transition 1: Monthly (€25) → Quarterly (€70), Credit: €15
 - Transition 2: Quarterly → Annual (€250), Additional Credit: €23.33
 - Total Accumulated Credit: €38.33
@@ -115,15 +131,18 @@ sam = BillingTransitionPersonas.create_mid_period_switch_sam()
 ```
 
 ### 6. Backdated Change Betty ⏰
+
 **Scenario**: Requests Annual → Monthly change backdated 2 months
 
 **Test Validation**:
+
 - ✅ Retroactive billing adjustments
 - ✅ Approval workflow for backdated changes
 - ✅ Proper retroactive credit and charge calculations
 - ✅ Historical billing correction
 
 **Key Fields**:
+
 - Current: €240/year paid 100 days ago
 - Requested: €20/month, effective 60 days ago
 - Net Calculation: €180 credit - €40 retroactive charges = €140 net credit
@@ -174,6 +193,7 @@ validation = BillingTransitionPersonas.validate_no_duplicate_billing(
 ## Running Tests
 
 ### Individual Test Execution
+
 ```bash
 # Run all billing transition tests
 python scripts/testing/runners/billing_transition_test_runner.py --type all
@@ -192,6 +212,7 @@ python scripts/testing/runners/billing_transition_test_runner.py --scenarios
 ```
 
 ### Frappe Test Integration
+
 ```bash
 # Run via Frappe's test system
 bench --site dev.veganisme.net run-tests --module verenigingen.tests.test_billing_transitions
@@ -203,6 +224,7 @@ python scripts/testing/runners/billing_transition_test_runner.py --verbose
 ## Key Test Cases
 
 ### Critical Validations
+
 1. **No Overlap Detection**: Ensure billing periods never overlap
 2. **No Gap Detection**: Ensure no billing gaps during transitions
 3. **Credit Calculation**: Verify accurate unused period calculations
@@ -211,6 +233,7 @@ python scripts/testing/runners/billing_transition_test_runner.py --verbose
 6. **Edge Cases**: Daily billing, large credits, complex scenarios
 
 ### Expected Results
+
 - ✅ All transitions complete without duplicate billing
 - ✅ Credits are calculated and applied correctly
 - ✅ Billing schedules are properly activated/deactivated
@@ -220,6 +243,7 @@ python scripts/testing/runners/billing_transition_test_runner.py --verbose
 ## Business Rules Tested
 
 ### Transition Rules
+
 1. **Immediate Effect**: Transitions take effect on specified date
 2. **Credit Carryover**: Unused billing periods become credits
 3. **Approval Required**: Backdated changes need approval
@@ -227,6 +251,7 @@ python scripts/testing/runners/billing_transition_test_runner.py --verbose
 5. **Schedule Management**: Only one active schedule per member
 
 ### Financial Rules
+
 1. **No Double Billing**: Members never charged twice for same period
 2. **Proportional Credits**: Unused periods calculated accurately
 3. **Credit Application**: Credits reduce future billing automatically
@@ -235,6 +260,7 @@ python scripts/testing/runners/billing_transition_test_runner.py --verbose
 ## Error Scenarios Tested
 
 ### Common Failure Cases
+
 - Overlapping invoice periods
 - Missing proration calculations
 - Credit calculation errors
@@ -242,6 +268,7 @@ python scripts/testing/runners/billing_transition_test_runner.py --verbose
 - Transition approval bypasses
 
 ### Edge Case Coverage
+
 - Same-day transitions
 - Multiple rapid transitions
 - Large credit amounts (> 1 year)
@@ -260,6 +287,7 @@ These billing transition personas complement existing test infrastructure:
 ## Continuous Validation
 
 The personas support ongoing validation through:
+
 - Automated regression testing
 - Billing system health checks
 - Production deployment validation

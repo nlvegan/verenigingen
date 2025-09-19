@@ -31,18 +31,19 @@ verenigingen/scripts/
 
 ### Test Categories
 
-| Category | Files | Focus | Test Count |
-|----------|-------|--------|------------|
-| **Realistic Scenarios** | `test_*_realistic_scenarios.py` | Production failure patterns | 8+ scenarios |
-| **Advanced Edge Cases** | `test_*_edge_cases.py` | Boundary conditions & anomalies | 10+ scenarios |
-| **System Integration** | Both files | Actual Redis/DB interaction | 3+ scenarios |
-| **Recovery Validation** | `test_*_edge_cases.py` | Recovery mechanism testing | 3+ scenarios |
+| Category                | Files                           | Focus                           | Test Count    |
+| ----------------------- | ------------------------------- | ------------------------------- | ------------- |
+| **Realistic Scenarios** | `test_*_realistic_scenarios.py` | Production failure patterns     | 8+ scenarios  |
+| **Advanced Edge Cases** | `test_*_edge_cases.py`          | Boundary conditions & anomalies | 10+ scenarios |
+| **System Integration**  | Both files                      | Actual Redis/DB interaction     | 3+ scenarios  |
+| **Recovery Validation** | `test_*_edge_cases.py`          | Recovery mechanism testing      | 3+ scenarios  |
 
 ## Real-World Failure Patterns Covered
 
 ### 1. Resource Contention Scenarios
 
 **Memory Exhaustion Patterns**
+
 ```python
 # Test gradual memory consumption affecting monitoring
 job_state = generator.generate_realistic_job_state(
@@ -53,6 +54,7 @@ job_state = generator.generate_realistic_job_state(
 ```
 
 **Database Lock Competition**
+
 ```python
 # Multiple jobs competing for same database resources
 competing_jobs = [
@@ -62,6 +64,7 @@ competing_jobs = [
 ```
 
 **File System Lock Conflicts**
+
 - Jobs accessing shared file resources
 - Recovery from lock contention
 - Cleanup after failed operations
@@ -69,6 +72,7 @@ competing_jobs = [
 ### 2. Timing and Clock Issues
 
 **NTP Clock Adjustments**
+
 ```python
 # System clock adjusted backwards during job execution
 anomaly_jobs = generator.generate_timing_anomaly_scenario(
@@ -77,17 +81,20 @@ anomaly_jobs = generator.generate_timing_anomaly_scenario(
 ```
 
 **Hibernation/Resume Scenarios**
+
 - System sleep/wake cycles during job execution
 - Large time gaps in job runtime calculations
 - Recovery from hibernation-induced timing anomalies
 
 **Timezone Changes**
+
 - System timezone changes during monitoring
 - Impact on job scheduling and timeout calculations
 
 ### 3. Network and Infrastructure
 
 **Redis Connection Instability**
+
 ```python
 def flaky_redis_connection(*args, **kwargs):
     # Simulate intermittent connection failures
@@ -97,6 +104,7 @@ def flaky_redis_connection(*args, **kwargs):
 ```
 
 **Database Connection Pool Exhaustion**
+
 - Connection pool depletion scenarios
 - Recovery mechanisms for DB connectivity
 - Graceful degradation under connection pressure
@@ -104,6 +112,7 @@ def flaky_redis_connection(*args, **kwargs):
 ### 4. Application-Level Edge Cases
 
 **Configuration Changes During Monitoring**
+
 ```python
 def dynamic_config_get(key, default=None):
     # Configuration changes mid-monitoring cycle
@@ -112,6 +121,7 @@ def dynamic_config_get(key, default=None):
 ```
 
 **Rapid Job State Changes**
+
 - Jobs completing/failing during analysis
 - State consistency across monitoring cycles
 - Handling of disappeared jobs
@@ -120,21 +130,21 @@ def dynamic_config_get(key, default=None):
 
 ### Timing Anomalies
 
-| Anomaly Type | Description | Impact | Test Coverage |
-|-------------|-------------|--------|---------------|
-| **NTP Adjustment** | Clock moved backwards 5+ minutes | False runtime calculation | ✅ Covered |
-| **Leap Second** | 1-second time insertion | Cycle timing disruption | ✅ Covered |
-| **Hibernation** | 8+ hour system sleep | Massive apparent runtime | ✅ Covered |
-| **Timezone Change** | 2+ hour timezone shift | Scheduling confusion | ✅ Covered |
+| Anomaly Type        | Description                      | Impact                    | Test Coverage |
+| ------------------- | -------------------------------- | ------------------------- | ------------- |
+| **NTP Adjustment**  | Clock moved backwards 5+ minutes | False runtime calculation | ✅ Covered    |
+| **Leap Second**     | 1-second time insertion          | Cycle timing disruption   | ✅ Covered    |
+| **Hibernation**     | 8+ hour system sleep             | Massive apparent runtime  | ✅ Covered    |
+| **Timezone Change** | 2+ hour timezone shift           | Scheduling confusion      | ✅ Covered    |
 
 ### Resource Exhaustion
 
-| Resource Type | Critical Threshold | Monitoring Impact | Test Approach |
-|---------------|-------------------|-------------------|---------------|
-| **Memory** | >85% usage | Slower monitoring cycles | Simulated pressure |
-| **File Descriptors** | >1024 open files | Redis connection failures | Leak simulation |
-| **DB Connections** | Pool exhaustion | Query timeouts | Connection flooding |
-| **Disk Space** | >95% full | Log write failures | Space limitation |
+| Resource Type        | Critical Threshold | Monitoring Impact         | Test Approach       |
+| -------------------- | ------------------ | ------------------------- | ------------------- |
+| **Memory**           | >85% usage         | Slower monitoring cycles  | Simulated pressure  |
+| **File Descriptors** | >1024 open files   | Redis connection failures | Leak simulation     |
+| **DB Connections**   | Pool exhaustion    | Query timeouts            | Connection flooding |
+| **Disk Space**       | >95% full          | Log write failures        | Space limitation    |
 
 ### Concurrency Conflicts
 
@@ -422,12 +432,12 @@ bench --site dev.veganisme.net run-tests --module verenigingen.tests.test_schedu
 
 ### Success Metrics
 
-| Metric | Target | Interpretation |
-|--------|--------|----------------|
-| **Success Rate** | ≥95% | Production ready |
-| **Average Test Duration** | <2s per test | Good performance |
-| **Coverage Areas** | 7/7 (100%) | Comprehensive coverage |
-| **Edge Case Handling** | ≥90% pass | Robust error handling |
+| Metric                    | Target       | Interpretation         |
+| ------------------------- | ------------ | ---------------------- |
+| **Success Rate**          | ≥95%         | Production ready       |
+| **Average Test Duration** | <2s per test | Good performance       |
+| **Coverage Areas**        | 7/7 (100%)   | Comprehensive coverage |
+| **Edge Case Handling**    | ≥90% pass    | Robust error handling  |
 
 ### Performance Benchmarks
 
@@ -554,12 +564,14 @@ def test_extreme_load_scenario(self):
 ### Common Test Issues
 
 **Import Errors**
+
 ```bash
 # Ensure proper Python path setup
 export PYTHONPATH=/home/frappe/frappe-bench/apps/vereiningingen:$PYTHONPATH
 ```
 
 **Redis Connection Issues**
+
 ```python
 # Check Redis connectivity in tests
 try:
@@ -570,6 +582,7 @@ except Exception as e:
 ```
 
 **Database Lock Timeouts**
+
 ```python
 # Use shorter timeouts in tests
 with patch('frappe.db.sql_timeout', 10):
@@ -577,6 +590,7 @@ with patch('frappe.db.sql_timeout', 10):
 ```
 
 **Memory Pressure in Tests**
+
 ```python
 # Clean up after memory-intensive tests
 def tearDown(self):

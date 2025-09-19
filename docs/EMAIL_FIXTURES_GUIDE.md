@@ -19,32 +19,42 @@ verenigingen/
 ## Email Categories
 
 ### 1. Production Emails
+
 Real email addresses for production use:
+
 - `app_contact`: "info@verenigingen.org"
 - `member_administration`: "ledenadministratie@veganisme.org"
 - `general_support`: "info@vereniging.nl"
 - `admin_notifications`: "admin@veganisme.net"
 
 ### 2. Test Emails
+
 Safe email addresses for testing:
+
 - `generic_test`: "test@example.com"
 - `admin_test`: "test_admin@example.com"
 - `member_test`: "test_member@example.com"
 - `volunteer_test`: "test.volunteer.js@example.org"
 
 ### 3. Development Emails
+
 User-specific development emails:
+
 - `foppe`: "foppe@veganisme.org"
 - `fjdh_leden`: "fjdh@leden.socialisten.org"
 
 ### 4. Placeholder Emails
+
 For forms and documentation:
+
 - `example_personal`: "your.email@example.com"
 - `example_support`: "support@example.com"
 - `example_complex`: "test.email+tag@example.co.uk"
 
 ### 5. Security Test Emails
+
 For security testing scenarios:
+
 - `xss_test`: "test@example.com"
 - `sql_injection_test`: "hacked@evil.com"
 - `header_injection_test`: "test@example.com\\nBcc: hacker@evil.com"
@@ -120,6 +130,7 @@ if is_dev_email(email):
 ## Migration from Hardcoded Emails
 
 ### Before (Hardcoded)
+
 ```python
 # ❌ Bad - hardcoded
 context.support_email = "support@example.com"
@@ -132,6 +143,7 @@ member_contact_email = (
 ```
 
 ### After (Fixtures)
+
 ```python
 # ✅ Good - uses fixtures
 from verenigingen.utils.email_utils import get_support_contact_email
@@ -145,6 +157,7 @@ member_contact_email = get_member_contact_email()
 ## Template Usage
 
 ### HTML Templates
+
 ```html
 <!-- Use template variables -->
 <a href="mailto:{{ member_contact_email }}">Contact Us</a>
@@ -154,6 +167,7 @@ member_contact_email = get_member_contact_email()
 ```
 
 ### Template Context Setup
+
 ```python
 def get_context(context):
     from verenigingen.utils.email_utils import get_template_email_context
@@ -173,6 +187,7 @@ The system automatically detects the environment and provides appropriate emails
 - **Testing Environment**: Uses test emails
 
 Environment detection checks:
+
 - `FRAPPE_ENV=development`
 - `ENVIRONMENT=development`
 - `SITE_NAME` contains "dev.veganisme.net"
@@ -188,26 +203,31 @@ python scripts/testing/test_email_fixtures.py
 ## Benefits
 
 ### 1. Centralized Management
+
 - All email addresses defined in one place
 - Easy to update across entire codebase
 - No duplicate hardcoded emails
 
 ### 2. Environment-Aware
+
 - Automatically uses appropriate emails for each environment
 - Prevents test emails in production
 - Supports development-specific emails
 
 ### 3. Type Safety
+
 - Clear categorization of email types
 - Validation functions to check email appropriateness
 - Fallback mechanisms for missing emails
 
 ### 4. Easy Testing
+
 - Dedicated test email addresses
 - Functions to create unique test emails
 - Email sanitization for testing
 
 ### 5. Template Integration
+
 - Easy template context integration
 - Proper fallback handling in templates
 - Consistent email usage across templates
@@ -215,6 +235,7 @@ python scripts/testing/test_email_fixtures.py
 ## Best Practices
 
 ### 1. Always Use Utilities
+
 ```python
 # ✅ Good
 from verenigingen.utils.email_utils import get_member_contact_email
@@ -225,6 +246,7 @@ email = "ledenadministratie@veganisme.org"
 ```
 
 ### 2. Environment-Appropriate Emails
+
 ```python
 # ✅ Good - environment aware
 from verenigingen.fixtures.email_addresses import get_environment_email
@@ -235,6 +257,7 @@ email = get_email("production", "member_administration")
 ```
 
 ### 3. Test Email Cleanup
+
 ```python
 # ✅ Good - clean up test data
 from verenigingen.fixtures.email_addresses import get_emails_for_cleanup
@@ -246,6 +269,7 @@ for email in test_emails:
 ```
 
 ### 4. Email Validation in Production
+
 ```python
 # ✅ Good - validate email usage
 from verenigingen.utils.email_utils import validate_email_usage
@@ -258,6 +282,7 @@ if result["warnings"]:
 ## Adding New Email Addresses
 
 ### 1. Add to Fixtures
+
 Edit `verenigingen/fixtures/email_addresses.py`:
 
 ```python
@@ -268,6 +293,7 @@ PRODUCTION_EMAILS = {
 ```
 
 ### 2. Add Utility Function (Optional)
+
 Edit `verenigingen/utils/email_utils.py`:
 
 ```python
@@ -277,27 +303,33 @@ def get_new_category_email() -> str:
 ```
 
 ### 3. Update Tests
+
 Edit `scripts/testing/test_email_fixtures.py` to include tests for the new email.
 
 ### 4. Update Documentation
+
 Add the new email to this guide and any relevant code documentation.
 
 ## Troubleshooting
 
 ### Issue: Email not found
+
 **Error**: `KeyError: Email key 'xyz' not found in category 'production'`
 
 **Solution**: Check that the email key exists in the specified category in `email_addresses.py`.
 
 ### Issue: Wrong email in production
+
 **Problem**: Test emails appearing in production environment.
 
 **Solution**: Use `get_environment_email()` or the utility functions which handle environment detection.
 
 ### Issue: Template email not working
+
 **Problem**: Email not appearing in template context.
 
 **Solution**: Ensure the template context is updated with email utilities:
+
 ```python
 context = update_template_context_with_emails(context)
 ```
@@ -318,6 +350,7 @@ When migrating from hardcoded emails:
 ## Future Enhancements
 
 Potential future improvements:
+
 - Integration with Frappe's Email Account doctype
 - Dynamic email configuration from database
 - Email template management

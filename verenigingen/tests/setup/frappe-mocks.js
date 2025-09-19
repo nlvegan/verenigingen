@@ -73,7 +73,7 @@ function createMockForm(overrides = {}) {
 			};
 
 			return {
-				...mockForm.fields_dict[field] || { df: { fieldtype: 'Data' } },
+				...(mockForm.fields_dict[field] || { df: { fieldtype: 'Data' } }),
 				$wrapper: jqueryMock,
 				wrapper: jqueryMock
 			};
@@ -208,11 +208,15 @@ function createFrappeMock() {
 			throw new Error(message);
 		}),
 		confirm: jest.fn((message, callback) => {
-			if (callback) { callback(); }
+			if (callback) {
+				callback();
+			}
 			return Promise.resolve(true);
 		}),
 		prompt: jest.fn((fields, callback) => {
-			if (callback) { callback({ test_field: 'test_value' }); }
+			if (callback) {
+				callback({ test_field: 'test_value' });
+			}
 			return Promise.resolve({ test_field: 'test_value' });
 		}),
 
@@ -245,15 +249,15 @@ function createFrappeMock() {
 				d.setDate(d.getDate() + days);
 				return d.toISOString().split('T')[0];
 			}),
-			format_date: jest.fn(date => date),
+			format_date: jest.fn((date) => date),
 			get_datetime_str: jest.fn(() => '2024-01-15 10:00:00'),
 			nowdate: jest.fn(() => '2024-01-15'),
-			validate_email: jest.fn(email => email.includes('@')),
-			flt: jest.fn(val => parseFloat(val) || 0),
-			cint: jest.fn(val => parseInt(val) || 0),
-			cstr: jest.fn(val => String(val || '')),
+			validate_email: jest.fn((email) => email.includes('@')),
+			flt: jest.fn((val) => parseFloat(val) || 0),
+			cint: jest.fn((val) => parseInt(val) || 0),
+			cstr: jest.fn((val) => String(val || '')),
 			format_currency: jest.fn((amount, currency) => `${currency} ${amount}`),
-			get_url: jest.fn(path => `https://test.example.com${path}`)
+			get_url: jest.fn((path) => `https://test.example.com${path}`)
 		},
 
 		// Date and time
@@ -267,13 +271,19 @@ function createFrappeMock() {
 			}),
 			add_to_date: jest.fn((date, obj) => {
 				const d = new Date(date);
-				if (obj.days) { d.setDate(d.getDate() + obj.days); }
-				if (obj.months) { d.setMonth(d.getMonth() + obj.months); }
-				if (obj.years) { d.setFullYear(d.getFullYear() + obj.years); }
+				if (obj.days) {
+					d.setDate(d.getDate() + obj.days);
+				}
+				if (obj.months) {
+					d.setMonth(d.getMonth() + obj.months);
+				}
+				if (obj.years) {
+					d.setFullYear(d.getFullYear() + obj.years);
+				}
 				return d.toISOString().split('T')[0];
 			}),
-			str_to_obj: jest.fn(dateStr => new Date(dateStr)),
-			obj_to_str: jest.fn(dateObj => dateObj.toISOString().split('T')[0])
+			str_to_obj: jest.fn((dateStr) => new Date(dateStr)),
+			obj_to_str: jest.fn((dateObj) => dateObj.toISOString().split('T')[0])
 		},
 
 		// UI form events
@@ -331,7 +341,7 @@ function createFrappeMock() {
 		},
 
 		// Internationalization
-		_: jest.fn(text => text),
+		_: jest.fn((text) => text),
 
 		// Configuration
 		boot: {
@@ -418,9 +428,7 @@ const dutchTestData = {
 		'NL02 RABO 0123 4567 89' // Valid Dutch IBAN
 	],
 
-	postal_codes: [
-		'1012 AB', '2011 CD', '3011 EF', '4011 GH', '5011 IJ'
-	]
+	postal_codes: ['1012 AB', '2011 CD', '3011 EF', '4011 GH', '5011 IJ']
 };
 
 /**
@@ -431,7 +439,7 @@ function setupTestMocks() {
 	global.frappe = createFrappeMock();
 
 	// Setup global functions
-	global.__ = jest.fn(text => text);
+	global.__ = jest.fn((text) => text);
 	global.cur_frm = null; // Will be set by individual tests
 
 	// Setup global constants
@@ -545,13 +553,20 @@ function cleanupTestMocks() {
 
 	// Clear global helper functions
 	const globalHelperFunctions = [
-		'set_status_indicator', 'add_action_buttons', 'toggle_disciplinary_fields',
-		'set_secondary_approver_filter', 'set_approval_requirements', 'set_default_dates',
-		'validate_required_fields', 'submit_for_approval', 'can_approve_request',
-		'approve_request', 'execute_termination'
+		'set_status_indicator',
+		'add_action_buttons',
+		'toggle_disciplinary_fields',
+		'set_secondary_approver_filter',
+		'set_approval_requirements',
+		'set_default_dates',
+		'validate_required_fields',
+		'submit_for_approval',
+		'can_approve_request',
+		'approve_request',
+		'execute_termination'
 	];
 
-	globalHelperFunctions.forEach(funcName => {
+	globalHelperFunctions.forEach((funcName) => {
 		if (global[funcName] && global[funcName].mockClear) {
 			global[funcName].mockClear();
 		}
@@ -559,7 +574,7 @@ function cleanupTestMocks() {
 
 	if (global.frappe) {
 		// Reset call counts and mock implementations
-		Object.values(global.frappe).forEach(method => {
+		Object.values(global.frappe).forEach((method) => {
 			if (typeof method === 'function' && method.mockClear) {
 				method.mockClear();
 			}

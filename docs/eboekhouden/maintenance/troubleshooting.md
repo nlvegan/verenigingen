@@ -7,12 +7,14 @@ This guide provides solutions to common issues encountered during eBoekhouden in
 ## Quick Diagnostic Tools
 
 ### System Health Check
+
 ```python
 # Run in ERPNext console
 frappe.call('verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator.test_rest_iterator')
 ```
 
 ### Migration Status Check
+
 ```python
 # Check current migration status
 frappe.call('verenigingen.e_boekhouden.utils.migration_api.get_migration_status')
@@ -23,12 +25,15 @@ frappe.call('verenigingen.e_boekhouden.utils.migration_api.get_migration_status'
 ### API Connection Failures
 
 #### Problem: "Connection test failed"
+
 **Symptoms**:
+
 - Red error message during connection test
 - Unable to preview chart of accounts
 - Migration fails to start
 
 **Diagnosis**:
+
 1. Check API token validity
 2. Verify internet connectivity
 3. Confirm eBoekhouden API status
@@ -36,6 +41,7 @@ frappe.call('verenigingen.e_boekhouden.utils.migration_api.get_migration_status'
 **Solutions**:
 
 **Solution 1: API Token Issues**
+
 ```python
 # Verify token in E-Boekhouden Settings
 settings = frappe.get_single("E-Boekhouden Settings")
@@ -44,35 +50,43 @@ print(f"Token configured: {bool(token)}")
 ```
 
 **Solution 2: Network Connectivity**
+
 ```bash
 # Test connectivity to eBoekhouden API
 curl -H "Authorization: Bearer YOUR_TOKEN" https://api.e-boekhouden.nl/v1/administraties
 ```
 
 **Solution 3: Update API URL**
+
 ```python
 # Ensure modern API endpoint is used
 frappe.call('verenigingen.utils.eboekhouden.eboekhouden_api.update_api_url')
 ```
 
 #### Problem: "Rate limit exceeded"
+
 **Symptoms**:
+
 - Intermittent API failures
 - "Too many requests" errors
 - Slow response times
 
 **Solution**:
 The system includes automatic rate limiting. If issues persist:
+
 1. Wait 60 seconds before retrying
 2. Check for concurrent migrations
 3. Contact eBoekhouden support if limits seem too restrictive
 
 #### Problem: "SSL Certificate verification failed"
+
 **Symptoms**:
+
 - HTTPS connection errors
 - Certificate validation warnings
 
 **Solutions**:
+
 1. Update system certificates: `sudo apt-get update && sudo apt-get install ca-certificates`
 2. Check system date/time is correct
 3. Verify no proxy interference
@@ -82,17 +96,22 @@ The system includes automatic rate limiting. If issues persist:
 ### Migration Startup Problems
 
 #### Problem: "No default company configured"
+
 **Solution**:
+
 1. Go to **E-Boekhouden Settings**
 2. Select your company in **Default Company** field
 3. Save and retry migration
 
 #### Problem: "Migration already in progress"
+
 **Symptoms**:
+
 - Cannot start new migration
 - Previous migration shows as "In Progress" but no activity
 
 **Solution**:
+
 ```python
 # Check for stuck migrations
 from verenigingen.utils.eboekhouden.migration_api import reset_stuck_migration
@@ -100,7 +119,9 @@ reset_stuck_migration()
 ```
 
 #### Problem: "Insufficient permissions"
+
 **Solution**:
+
 1. Ensure user has **eBoekhouden Administrator** role
 2. Check permissions for:
    - Journal Entry (Create/Write)
@@ -111,39 +132,49 @@ reset_stuck_migration()
 ### Data Import Issues
 
 #### Problem: "Opening balance entries do not balance"
+
 **Symptoms**:
+
 - Error during opening balance import
 - Message shows debit/credit difference
 
 **Solution**: ✅ **Automatically handled** (2025 enhancement)
+
 - System automatically creates balancing entries
 - Uses "Temporary" account type for differences
 - Check migration logs for balancing entry details
 
 #### Problem: "Stock account cannot be updated via Journal Entry"
+
 **Symptoms**:
+
 - Import fails with stock account errors
 - ERPNext prevents stock account updates
 
 **Solution**: ✅ **Automatically handled** (2025 enhancement)
+
 - Stock accounts are automatically detected and skipped
 - Opening balances exclude stock accounts
 - Detailed logging shows which accounts were skipped
 
 #### Problem: "Account not found" errors
+
 **Symptoms**:
+
 - Missing accounts during transaction import
 - Grootboek number mapping failures
 
 **Solutions**:
 
 **Solution 1: Import Chart of Accounts First**
+
 ```python
 # Import chart of accounts before transactions
 frappe.call('verenigingen.utils.eboekhouden.eboekhouden_api.preview_chart_of_accounts')
 ```
 
 **Solution 2: Fix Account Mappings**
+
 ```python
 # Fix account type assignments
 frappe.call('verenigingen.utils.eboekhouden.eboekhouden_api.fix_account_types')
@@ -152,7 +183,9 @@ frappe.call('verenigingen.utils.eboekhouden.eboekhouden_api.fix_account_types')
 ### Performance Issues
 
 #### Problem: Slow migration performance
+
 **Symptoms**:
+
 - Migration takes much longer than expected
 - High memory usage
 - System responsiveness issues
@@ -160,12 +193,14 @@ frappe.call('verenigingen.utils.eboekhouden.eboekhouden_api.fix_account_types')
 **Solutions**:
 
 **Solution 1: Optimize Batch Size**
+
 ```python
 # Reduce batch size for large datasets
 # Configure in migration settings or contact administrator
 ```
 
 **Solution 2: Check System Resources**
+
 ```bash
 # Monitor system resources during migration
 htop
@@ -173,6 +208,7 @@ df -h  # Check disk space
 ```
 
 **Solution 3: Database Optimization**
+
 ```sql
 -- Optimize database for large imports
 OPTIMIZE TABLE `tabJournal Entry`;
@@ -180,12 +216,15 @@ OPTIMIZE TABLE `tabGL Entry`;
 ```
 
 #### Problem: Memory errors during large imports
+
 **Symptoms**:
+
 - "Memory allocation" errors
 - Python process crashes
 - System becomes unresponsive
 
 **Solutions**:
+
 1. **Increase system memory** if possible
 2. **Migrate in smaller date ranges**:
    ```python
@@ -202,11 +241,14 @@ OPTIMIZE TABLE `tabGL Entry`;
 ### Account and Party Issues
 
 #### Problem: Duplicate accounts created
+
 **Symptoms**:
+
 - Multiple accounts with similar names
 - Grootboek number conflicts
 
 **Solution**:
+
 ```python
 # Check for duplicate grootboek numbers
 accounts = frappe.get_all('Account',
@@ -223,13 +265,16 @@ for acc in accounts:
 ```
 
 #### Problem: Customer/Supplier creation failures
+
 **Symptoms**:
+
 - "Customer already exists" errors
 - Party information missing
 
 **Solutions**:
 
 **Solution 1: Check Existing Parties**
+
 ```python
 # Find existing parties with eBoekhouden IDs
 customers = frappe.get_all('Customer',
@@ -238,6 +283,7 @@ customers = frappe.get_all('Customer',
 ```
 
 **Solution 2: Clean Party Names**
+
 ```python
 # Clean up party names if they contain invalid characters
 # The system handles this automatically but check for edge cases
@@ -246,17 +292,22 @@ customers = frappe.get_all('Customer',
 ### Transaction Issues
 
 #### Problem: "Service Item not found" errors
+
 **Solution**: ✅ **Automatically handled** (2025 enhancement)
+
 - System now creates intelligent items based on account codes
 - No dependency on hardcoded "Service Item"
 - Items are automatically created with meaningful names
 
 #### Problem: Unlinked transactions
+
 **Symptoms**:
+
 - Journal entries created but not linked to invoices
 - Payment entries missing references
 
 **Solution**:
+
 ```python
 # Validate transaction linking
 def check_transaction_links():
@@ -274,11 +325,14 @@ def check_transaction_links():
 ### Settings and Permissions
 
 #### Problem: E-Boekhouden Settings doctype not found
+
 **Symptoms**:
+
 - Cannot access settings
 - "DocType E-Boekhouden Settings not found"
 
 **Solution**:
+
 ```bash
 # Reinstall the app
 bench migrate
@@ -287,22 +341,28 @@ bench restart
 ```
 
 #### Problem: Custom fields missing
+
 **Symptoms**:
+
 - Fields like "eBoekhouden Grootboek Number" not visible
 - Account mapping failures
 
 **Solution**:
+
 ```python
 # Recreate custom fields
 frappe.call('verenigingen.utils.eboekhouden.create_eboekhouden_custom_fields.create_custom_fields')
 ```
 
 #### Problem: Migration dashboard not loading
+
 **Symptoms**:
+
 - Dashboard shows errors
 - Progress information missing
 
 **Solution**:
+
 ```python
 # Reset dashboard data
 frappe.call('verenigingen.utils.eboekhouden.eboekhouden_api.get_dashboard_data_api')
@@ -313,9 +373,11 @@ frappe.call('verenigingen.utils.eboekhouden.eboekhouden_api.get_dashboard_data_a
 ### Recovering from Failed Migrations
 
 #### Partial Migration Recovery
+
 If migration fails partway through:
 
 1. **Assess the situation**:
+
    ```python
    # Check what was imported
    migration_doc = frappe.get_last_doc('E-Boekhouden Migration')
@@ -324,6 +386,7 @@ If migration fails partway through:
    ```
 
 2. **Clean up partial data** (if needed):
+
    ```python
    # Remove incomplete migration data
    # WARNING: Only do this if migration is definitely failed
@@ -338,9 +401,11 @@ If migration fails partway through:
    ```
 
 #### Database Consistency Issues
+
 If database becomes inconsistent:
 
 1. **Check GL entries**:
+
    ```sql
    -- Find unbalanced GL entries
    SELECT voucher_no, SUM(debit - credit) as imbalance
@@ -362,6 +427,7 @@ If database becomes inconsistent:
 ### Proactive Monitoring
 
 #### Set up regular health checks:
+
 ```python
 # Weekly health check script
 def weekly_health_check():
@@ -382,6 +448,7 @@ def weekly_health_check():
 ```
 
 #### Performance monitoring:
+
 ```python
 # Monitor migration performance
 def track_migration_performance():
@@ -398,6 +465,7 @@ def track_migration_performance():
 ### Backup and Recovery
 
 #### Before major operations:
+
 ```bash
 # Create comprehensive backup
 bench --site your-site backup --with-files
@@ -407,6 +475,7 @@ bench --site your-site export-doc "E-Boekhouden Settings"
 ```
 
 #### Emergency recovery procedures:
+
 1. **Restore from backup** if major data corruption
 2. **Reset migration status** for stuck processes
 3. **Reinitialize settings** if configuration is corrupted
@@ -415,6 +484,7 @@ bench --site your-site export-doc "E-Boekhouden Settings"
 ## Getting Help
 
 ### Information to Collect
+
 When seeking support, gather:
 
 1. **Error messages** (exact text)
@@ -431,12 +501,14 @@ When seeking support, gather:
 5. **Steps to reproduce** the issue
 
 ### Log Locations
+
 - **Migration logs**: E-Boekhouden Migration doctype
 - **System logs**: ERPNext Error Log
 - **API logs**: Check console output during operations
 - **Database logs**: MySQL/MariaDB error logs
 
 ### Support Escalation
+
 1. **Level 1**: Check this troubleshooting guide
 2. **Level 2**: Review system logs and recent changes
 3. **Level 3**: Contact system administrator with detailed information

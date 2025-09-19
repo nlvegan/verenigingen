@@ -58,14 +58,20 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 				status: 'Active'
 			});
 
-			const volunteerData = testFactory.createVolunteerData(eligibleMember.name, {
-				skills: 'Event Planning, Public Speaking',
-				interests: 'Community Outreach, Education',
-				max_hours_per_week: 10
-			});
+			const volunteerData = testFactory.createVolunteerData(
+				eligibleMember.name,
+				{
+					skills: 'Event Planning, Public Speaking',
+					interests: 'Community Outreach, Education',
+					max_hours_per_week: 10
+				}
+			);
 
 			// Act
-			const creation = await createVolunteerProfile(eligibleMember, volunteerData);
+			const creation = await createVolunteerProfile(
+				eligibleMember,
+				volunteerData
+			);
 
 			// Assert
 			expect(creation.success).toBe(true);
@@ -81,8 +87,9 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 			});
 
 			// Act & Assert
-			await expect(createVolunteerProfile(underageMember, {}))
-				.rejects.toThrow('Minimum age requirement not met');
+			await expect(createVolunteerProfile(underageMember, {})).rejects.toThrow(
+				'Minimum age requirement not met'
+			);
 		});
 
 		test('should handle volunteer status transitions correctly', () => {
@@ -142,7 +149,8 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 			});
 
 			// Act
-			const incompleteValidation = validateProfileCompleteness(incompleteProfile);
+			const incompleteValidation
+        = validateProfileCompleteness(incompleteProfile);
 			const completeValidation = validateProfileCompleteness(completeProfile);
 
 			// Assert
@@ -172,11 +180,11 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 			];
 
 			// Act & Assert
-			validSkills.forEach(skill => {
+			validSkills.forEach((skill) => {
 				expect(validateSkill(skill)).toBe(true);
 			});
 
-			invalidSkills.forEach(skill => {
+			invalidSkills.forEach((skill) => {
 				expect(validateSkill(skill)).toBe(false);
 			});
 		});
@@ -346,8 +354,18 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 			];
 
 			const tasks = [
-				{ name: 'Event Setup', required_skill: 'Event Planning', day: 'Saturday', hours: 4 },
-				{ name: 'Office Work', required_skill: 'Administrative', day: 'Monday', hours: 6 }
+				{
+					name: 'Event Setup',
+					required_skill: 'Event Planning',
+					day: 'Saturday',
+					hours: 4
+				},
+				{
+					name: 'Office Work',
+					required_skill: 'Administrative',
+					day: 'Monday',
+					hours: 6
+				}
 			];
 
 			// Act
@@ -364,8 +382,16 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 			// Arrange
 			const volunteer = testFactory.createVolunteerData('Member-001');
 			const unavailabilityPeriods = [
-				{ start_date: '2025-02-01', end_date: '2025-02-15', reason: 'Vacation' },
-				{ start_date: '2025-03-10', end_date: '2025-03-12', reason: 'Conference' }
+				{
+					start_date: '2025-02-01',
+					end_date: '2025-02-15',
+					reason: 'Vacation'
+				},
+				{
+					start_date: '2025-03-10',
+					end_date: '2025-03-12',
+					reason: 'Conference'
+				}
 			];
 
 			const proposedAssignment = {
@@ -374,7 +400,11 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 			};
 
 			// Act
-			const availability = checkVolunteerAvailability(volunteer, unavailabilityPeriods, proposedAssignment);
+			const availability = checkVolunteerAvailability(
+				volunteer,
+				unavailabilityPeriods,
+				proposedAssignment
+			);
 
 			// Assert
 			expect(availability.available).toBe(false);
@@ -401,7 +431,11 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 			};
 
 			// Act
-			const assignment = await assignToBoardPosition(volunteer, chapter, boardRole);
+			const assignment = await assignToBoardPosition(
+				volunteer,
+				chapter,
+				boardRole
+			);
 
 			// Assert
 			expect(assignment.success).toBe(true);
@@ -418,15 +452,19 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 				volunteer_since: '2023-01-01' // 2+ years experience
 			});
 
-			const ineligibleVolunteer = testFactory.createVolunteerData('Member-002', {
-				status: 'On Break',
-				experience_level: 'Beginner',
-				volunteer_since: '2024-12-01' // Recent volunteer
-			});
+			const ineligibleVolunteer = testFactory.createVolunteerData(
+				'Member-002',
+				{
+					status: 'On Break',
+					experience_level: 'Beginner',
+					volunteer_since: '2024-12-01' // Recent volunteer
+				}
+			);
 
 			// Act
 			const eligibleValidation = validateBoardEligibility(eligibleVolunteer);
-			const ineligibleValidation = validateBoardEligibility(ineligibleVolunteer);
+			const ineligibleValidation
+        = validateBoardEligibility(ineligibleVolunteer);
 
 			// Assert
 			expect(eligibleValidation.eligible).toBe(true);
@@ -487,9 +525,24 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 			// Arrange
 			const volunteer = testFactory.createVolunteerData('Member-001');
 			const activities = [
-				{ date: '2025-01-15', hours: 8, project: 'Event Setup', feedback: 'Excellent' },
-				{ date: '2025-01-22', hours: 6, project: 'Office Work', feedback: 'Good' },
-				{ date: '2025-01-29', hours: 4, project: 'Training', feedback: 'Excellent' }
+				{
+					date: '2025-01-15',
+					hours: 8,
+					project: 'Event Setup',
+					feedback: 'Excellent'
+				},
+				{
+					date: '2025-01-22',
+					hours: 6,
+					project: 'Office Work',
+					feedback: 'Good'
+				},
+				{
+					date: '2025-01-29',
+					hours: 4,
+					project: 'Training',
+					feedback: 'Excellent'
+				}
 			];
 
 			// Act
@@ -614,7 +667,10 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 		const birth = new Date(birthDate);
 		let age = today.getFullYear() - birth.getFullYear();
 		const monthDiff = today.getMonth() - birth.getMonth();
-		if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+		if (
+			monthDiff < 0
+      || (monthDiff === 0 && today.getDate() < birth.getDate())
+		) {
 			age--;
 		}
 		return age;
@@ -637,7 +693,7 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 
 	const validateProfileCompleteness = jest.fn((profile) => {
 		const requiredFields = ['skills', 'interests', 'availability'];
-		const missingFields = requiredFields.filter(field => !profile[field]);
+		const missingFields = requiredFields.filter((field) => !profile[field]);
 
 		return {
 			complete: missingFields.length === 0,
@@ -646,46 +702,61 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 	});
 
 	const validateSkill = jest.fn((skill) => {
-		if (!skill.skill || !skill.level) { return false; }
+		if (!skill.skill || !skill.level) {
+			return false;
+		}
 
 		const validLevels = ['Beginner', 'Intermediate', 'Advanced', 'Expert'];
-		if (!validLevels.includes(skill.level)) { return false; }
+		if (!validLevels.includes(skill.level)) {
+			return false;
+		}
 
 		// Check for dangerous content
-		if (/<script|javascript:|on\w+=/i.test(skill.skill)) { return false; }
+		if (/<script|javascript:|on\w+=/i.test(skill.skill)) {
+			return false;
+		}
 
 		return true;
 	});
 
 	const matchVolunteerToOpportunities = jest.fn((volunteer, opportunities) => {
-		const volunteerSkills = volunteer.skills.split(',').map(s => s.trim());
+		const volunteerSkills = volunteer.skills.split(',').map((s) => s.trim());
 
-		return opportunities.map(opp => {
-			const requiredMatches = opp.required_skills.filter(skill =>
-				volunteerSkills.includes(skill)
-			).length;
+		return opportunities
+			.map((opp) => {
+				const requiredMatches = opp.required_skills.filter((skill) =>
+					volunteerSkills.includes(skill)
+				).length;
 
-			const preferredMatches = (opp.preferred_skills || []).filter(skill =>
-				volunteerSkills.includes(skill)
-			).length;
+				const preferredMatches = (opp.preferred_skills || []).filter((skill) =>
+					volunteerSkills.includes(skill)
+				).length;
 
-			const matchScore = (requiredMatches / opp.required_skills.length)
-                        + (preferredMatches / (opp.preferred_skills?.length || 1)) * 0.5;
+				const matchScore
+          = requiredMatches / opp.required_skills.length
+          + (preferredMatches / (opp.preferred_skills?.length || 1)) * 0.5;
 
-			return {
-				role: opp.role,
-				match_score: Math.min(matchScore, 1.0),
-				required_matches: requiredMatches,
-				preferred_matches: preferredMatches
-			};
-		}).filter(match => match.match_score > 0).sort((a, b) => b.match_score - a.match_score);
+				return {
+					role: opp.role,
+					match_score: Math.min(matchScore, 1.0),
+					required_matches: requiredMatches,
+					preferred_matches: preferredMatches
+				};
+			})
+			.filter((match) => match.match_score > 0)
+			.sort((a, b) => b.match_score - a.match_score);
 	});
 
 	const trackSkillDevelopment = jest.fn((volunteer, skillHistory) => {
-		const skillLevels = { Beginner: 1, Intermediate: 2, Advanced: 3, Expert: 4 };
+		const skillLevels = {
+			Beginner: 1,
+			Intermediate: 2,
+			Advanced: 3,
+			Expert: 4
+		};
 
 		const skillProgressions = {};
-		skillHistory.forEach(entry => {
+		skillHistory.forEach((entry) => {
 			if (!skillProgressions[entry.skill]) {
 				skillProgressions[entry.skill] = [];
 			}
@@ -696,9 +767,12 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 		});
 
 		let skillsImproved = 0;
-		Object.values(skillProgressions).forEach(progression => {
+		Object.values(skillProgressions).forEach((progression) => {
 			progression.sort((a, b) => new Date(a.date) - new Date(b.date));
-			if (progression.length > 1 && progression[progression.length - 1].level > progression[0].level) {
+			if (
+				progression.length > 1
+        && progression[progression.length - 1].level > progression[0].level
+			) {
 				skillsImproved++;
 			}
 		});
@@ -712,7 +786,7 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 	});
 
 	const generateSkillAssessment = jest.fn(async (volunteer) => {
-		const skills = volunteer.skills.split(',').map(s => s.trim());
+		const skills = volunteer.skills.split(',').map((s) => s.trim());
 
 		return {
 			total_skills: skills.length,
@@ -728,7 +802,7 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 		let expiredCertifications = 0;
 		const renewalRequired = [];
 
-		certifications.forEach(cert => {
+		certifications.forEach((cert) => {
 			const expiry = new Date(cert.expires);
 			if (expiry > today && cert.verified) {
 				validCertifications++;
@@ -762,27 +836,35 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 	const detectSchedulingConflicts = jest.fn((volunteer, assignments) => {
 		const totalHours = assignments.reduce((sum, a) => sum + a.hours, 0);
 		const dayGroups = assignments.reduce((groups, assignment) => {
-			if (!groups[assignment.day]) { groups[assignment.day] = 0; }
+			if (!groups[assignment.day]) {
+				groups[assignment.day] = 0;
+			}
 			groups[assignment.day]++;
 			return groups;
 		}, {});
 
 		return {
-			has_conflicts: totalHours > volunteer.max_hours_per_week || Object.values(dayGroups).some(count => count > 1),
+			has_conflicts:
+        totalHours > volunteer.max_hours_per_week
+        || Object.values(dayGroups).some((count) => count > 1),
 			total_hours: totalHours,
 			day_conflicts: dayGroups,
-			recommended_action: totalHours > volunteer.max_hours_per_week ? 'reduce assignments' : 'reschedule conflicts'
+			recommended_action:
+        totalHours > volunteer.max_hours_per_week
+        	? 'reduce assignments'
+        	: 'reschedule conflicts'
 		};
 	});
 
 	const optimizeVolunteerSchedule = jest.fn((volunteers, tasks) => {
 		const assignments = [];
 
-		tasks.forEach(task => {
-			const suitableVolunteer = volunteers.find(v =>
-				v.skills.includes(task.required_skill)
-        && v.availability.toLowerCase().includes(task.day.toLowerCase())
-        || v.availability === 'Flexible'
+		tasks.forEach((task) => {
+			const suitableVolunteer = volunteers.find(
+				(v) =>
+					(v.skills.includes(task.required_skill)
+            && v.availability.toLowerCase().includes(task.day.toLowerCase()))
+          || v.availability === 'Flexible'
 			);
 
 			if (suitableVolunteer) {
@@ -801,44 +883,55 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 		};
 	});
 
-	const checkVolunteerAvailability = jest.fn((volunteer, unavailabilityPeriods, assignment) => {
-		const assignmentStart = new Date(assignment.start_date);
-		const assignmentEnd = new Date(assignment.end_date);
+	const checkVolunteerAvailability = jest.fn(
+		(volunteer, unavailabilityPeriods, assignment) => {
+			const assignmentStart = new Date(assignment.start_date);
+			const assignmentEnd = new Date(assignment.end_date);
 
-		const conflict = unavailabilityPeriods.find(period => {
-			const periodStart = new Date(period.start_date);
-			const periodEnd = new Date(period.end_date);
+			const conflict = unavailabilityPeriods.find((period) => {
+				const periodStart = new Date(period.start_date);
+				const periodEnd = new Date(period.end_date);
 
-			return (assignmentStart <= periodEnd && assignmentEnd >= periodStart);
-		});
+				return assignmentStart <= periodEnd && assignmentEnd >= periodStart;
+			});
 
-		return {
-			available: !conflict,
-			conflict_reason: conflict ? conflict.reason : null,
-			alternative_dates: conflict ? [
-				{ start: '2025-02-16', end: '2025-02-21' }
-			] : null
-		};
-	});
+			return {
+				available: !conflict,
+				conflict_reason: conflict ? conflict.reason : null,
+				alternative_dates: conflict
+					? [{ start: '2025-02-16', end: '2025-02-21' }]
+					: null
+			};
+		}
+	);
 
-	const assignToBoardPosition = jest.fn(async (volunteer, chapter, boardRole) => {
-		return {
-			success: true,
-			position: boardRole.position,
-			start_date: new Date().toISOString().split('T')[0],
-			term_length: '1 year'
-		};
-	});
+	const assignToBoardPosition = jest.fn(
+		async (volunteer, chapter, boardRole) => {
+			return {
+				success: true,
+				position: boardRole.position,
+				start_date: new Date().toISOString().split('T')[0],
+				term_length: '1 year'
+			};
+		}
+	);
 
 	const validateBoardEligibility = jest.fn((volunteer) => {
 		const reasons = [];
 
-		if (volunteer.status !== 'Active') { reasons.push('status'); }
-		if (volunteer.experience_level === 'Beginner') { reasons.push('experience'); }
+		if (volunteer.status !== 'Active') {
+			reasons.push('status');
+		}
+		if (volunteer.experience_level === 'Beginner') {
+			reasons.push('experience');
+		}
 
 		const volunteerSince = new Date(volunteer.volunteer_since);
-		const yearsOfExperience = (new Date() - volunteerSince) / (1000 * 60 * 60 * 24 * 365);
-		if (yearsOfExperience < 1) { reasons.push('tenure'); }
+		const yearsOfExperience
+      = (new Date() - volunteerSince) / (1000 * 60 * 60 * 24 * 365);
+		if (yearsOfExperience < 1) {
+			reasons.push('tenure');
+		}
 
 		return {
 			eligible: reasons.length === 0,
@@ -864,15 +957,26 @@ describe('Volunteer DocType - Comprehensive Test Suite', () => {
 	const assignVolunteerToProjects = jest.fn(async (volunteer, projects) => {
 		return {
 			successful_assignments: projects.length,
-			total_estimated_hours: projects.reduce((sum, p) => sum + p.hours_estimate, 0),
+			total_estimated_hours: projects.reduce(
+				(sum, p) => sum + p.hours_estimate,
+				0
+			),
 			scheduling_conflicts: 0
 		};
 	});
 
 	const generatePerformanceReport = jest.fn((volunteer, activities) => {
 		const totalHours = activities.reduce((sum, a) => sum + a.hours, 0);
-		const ratings = { Excellent: 5, Good: 4, Average: 3, Poor: 2, 'Very Poor': 1 };
-		const averageRating = activities.reduce((sum, a) => sum + ratings[a.feedback], 0) / activities.length;
+		const ratings = {
+			Excellent: 5,
+			Good: 4,
+			Average: 3,
+			Poor: 2,
+			'Very Poor': 1
+		};
+		const averageRating
+      = activities.reduce((sum, a) => sum + ratings[a.feedback], 0)
+      / activities.length;
 
 		return {
 			total_hours: totalHours,

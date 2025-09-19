@@ -11,8 +11,17 @@
 /* global describe, it, expect, jest, beforeEach, afterEach */
 
 // Import test setup utilities
-const { setupTestMocks, cleanupTestMocks, createMockForm, dutchTestData } = require('../../setup/frappe-mocks');
-const { validateBSN, validateDutchEmail, validateDutchPostalCode } = require('../../setup/dutch-validators');
+const {
+	setupTestMocks,
+	cleanupTestMocks,
+	createMockForm,
+	dutchTestData
+} = require('../../setup/frappe-mocks');
+const {
+	validateBSN,
+	validateDutchEmail,
+	validateDutchPostalCode
+} = require('../../setup/dutch-validators');
 
 // Initialize test environment
 setupTestMocks();
@@ -20,8 +29,8 @@ setupTestMocks();
 // Test helper functions that mirror the real controller behavior
 const volunteerControllerHelpers = {
 	/**
-     * Simulates the member field change behavior from volunteer.js:148
-     */
+   * Simulates the member field change behavior from volunteer.js:148
+   */
 	handleMemberChange(frm, memberData) {
 		if (memberData) {
 			// Update volunteer name from member
@@ -32,7 +41,9 @@ const volunteerControllerHelpers = {
 			if (memberData.full_name) {
 				nameForEmail = memberData.full_name.replace(/\s+/g, '.').toLowerCase();
 				nameForEmail = nameForEmail.replace(/[^a-z.]/g, '');
-				nameForEmail = nameForEmail.replace(/\.+/g, '.').replace(/^\.+|\.+$/g, '');
+				nameForEmail = nameForEmail
+					.replace(/\.+/g, '.')
+					.replace(/^\.+|\.+$/g, '');
 			}
 
 			const domain = 'example.org'; // Default domain
@@ -45,8 +56,8 @@ const volunteerControllerHelpers = {
 	},
 
 	/**
-     * Validates volunteer data according to business rules
-     */
+   * Validates volunteer data according to business rules
+   */
 	validateVolunteerData(volunteerData) {
 		const errors = [];
 
@@ -73,32 +84,42 @@ const volunteerControllerHelpers = {
 	},
 
 	/**
-     * Simulates skill autocomplete functionality
-     */
+   * Simulates skill autocomplete functionality
+   */
 	getSkillSuggestions(partialSkill, existingSkills = []) {
 		const commonSkills = [
-			'Project Management', 'Event Planning', 'Social Media',
-			'Graphic Design', 'Public Speaking', 'Fundraising',
-			'Administration', 'Customer Service', 'Leadership',
-			'Financial Management', 'Marketing', 'Communication'
+			'Project Management',
+			'Event Planning',
+			'Social Media',
+			'Graphic Design',
+			'Public Speaking',
+			'Fundraising',
+			'Administration',
+			'Customer Service',
+			'Leadership',
+			'Financial Management',
+			'Marketing',
+			'Communication'
 		];
 
 		const allSkills = [...commonSkills, ...existingSkills];
 
-		return allSkills.filter(skill =>
-			skill.toLowerCase().includes(partialSkill.toLowerCase())
-		).slice(0, 5);
+		return allSkills
+			.filter((skill) =>
+				skill.toLowerCase().includes(partialSkill.toLowerCase())
+			)
+			.slice(0, 5);
 	},
 
 	/**
-     * Simulates assignment aggregation logic
-     */
+   * Simulates assignment aggregation logic
+   */
 	aggregateAssignments(assignmentHistory = []) {
-		const activeAssignments = assignmentHistory.filter(assignment =>
-			!assignment.end_date && assignment.status !== 'Cancelled'
+		const activeAssignments = assignmentHistory.filter(
+			(assignment) => !assignment.end_date && assignment.status !== 'Cancelled'
 		);
 
-		return activeAssignments.map(assignment => ({
+		return activeAssignments.map((assignment) => ({
 			...assignment,
 			is_active: true,
 			editable: assignment.source_type === 'Activity'
@@ -148,7 +169,10 @@ describe('Volunteer Controller', () => {
 
 			volunteerControllerHelpers.handleMemberChange(frm, memberData);
 
-			expect(frm.set_value).toHaveBeenCalledWith('volunteer_name', memberData.full_name);
+			expect(frm.set_value).toHaveBeenCalledWith(
+				'volunteer_name',
+				memberData.full_name
+			);
 		});
 
 		it('should generate organization email from member name', () => {
@@ -158,7 +182,10 @@ describe('Volunteer Controller', () => {
 
 			volunteerControllerHelpers.handleMemberChange(frm, memberData);
 
-			expect(frm.set_value).toHaveBeenCalledWith('email', 'jan.van.der.berg@example.org');
+			expect(frm.set_value).toHaveBeenCalledWith(
+				'email',
+				'jan.van.der.berg@example.org'
+			);
 		});
 
 		it('should handle Dutch name particles correctly in email generation', () => {
@@ -168,7 +195,10 @@ describe('Volunteer Controller', () => {
 
 			volunteerControllerHelpers.handleMemberChange(frm, memberData);
 
-			expect(frm.set_value).toHaveBeenCalledWith('email', 'maria.de.jong.van.der.berg@example.org');
+			expect(frm.set_value).toHaveBeenCalledWith(
+				'email',
+				'maria.de.jong.van.der.berg@example.org'
+			);
 		});
 
 		it('should handle special characters in names', () => {
@@ -178,7 +208,10 @@ describe('Volunteer Controller', () => {
 
 			volunteerControllerHelpers.handleMemberChange(frm, memberData);
 
-			expect(frm.set_value).toHaveBeenCalledWith('email', 'andr.van.t.hof@example.org');
+			expect(frm.set_value).toHaveBeenCalledWith(
+				'email',
+				'andr.van.t.hof@example.org'
+			);
 		});
 	});
 
@@ -188,10 +221,13 @@ describe('Volunteer Controller', () => {
 				birth_date: '2010-01-15' // 14 years old
 			};
 
-			const result = volunteerControllerHelpers.validateVolunteerData(underageVolunteer);
+			const result
+        = volunteerControllerHelpers.validateVolunteerData(underageVolunteer);
 
 			expect(result.valid).toBe(false);
-			expect(result.errors).toContain('Volunteers must be at least 16 years old');
+			expect(result.errors).toContain(
+				'Volunteers must be at least 16 years old'
+			);
 		});
 
 		it('should accept volunteers who are 16 or older', () => {
@@ -199,7 +235,8 @@ describe('Volunteer Controller', () => {
 				birth_date: '2000-01-15' // 24 years old
 			};
 
-			const result = volunteerControllerHelpers.validateVolunteerData(validVolunteer);
+			const result
+        = volunteerControllerHelpers.validateVolunteerData(validVolunteer);
 
 			expect(result.valid).toBe(true);
 			expect(result.errors).toHaveLength(0);
@@ -210,10 +247,12 @@ describe('Volunteer Controller', () => {
 				email: 'invalid-email'
 			};
 
-			const result = volunteerControllerHelpers.validateVolunteerData(invalidEmailVolunteer);
+			const result = volunteerControllerHelpers.validateVolunteerData(
+				invalidEmailVolunteer
+			);
 
 			expect(result.valid).toBe(false);
-			expect(result.errors.some(error => error.includes('email'))).toBe(true);
+			expect(result.errors.some((error) => error.includes('email'))).toBe(true);
 		});
 
 		it('should accept valid Dutch email addresses', () => {
@@ -221,7 +260,8 @@ describe('Volunteer Controller', () => {
 				email: 'jan.vandeberg@example.nl'
 			};
 
-			const result = volunteerControllerHelpers.validateVolunteerData(validEmailVolunteer);
+			const result
+        = volunteerControllerHelpers.validateVolunteerData(validEmailVolunteer);
 
 			expect(result.valid).toBe(true);
 		});
@@ -229,14 +269,16 @@ describe('Volunteer Controller', () => {
 
 	describe('Skills Management', () => {
 		it('should provide skill suggestions based on partial input', () => {
-			const suggestions = volunteerControllerHelpers.getSkillSuggestions('project');
+			const suggestions
+        = volunteerControllerHelpers.getSkillSuggestions('project');
 
 			expect(suggestions).toContain('Project Management');
 			expect(suggestions.length).toBeGreaterThan(0);
 		});
 
 		it('should filter skills case-insensitively', () => {
-			const suggestions = volunteerControllerHelpers.getSkillSuggestions('EVENT');
+			const suggestions
+        = volunteerControllerHelpers.getSkillSuggestions('EVENT');
 
 			expect(suggestions).toContain('Event Planning');
 		});
@@ -249,7 +291,10 @@ describe('Volunteer Controller', () => {
 
 		it('should include existing skills in suggestions', () => {
 			const existingSkills = ['Advanced Python Programming'];
-			const suggestions = volunteerControllerHelpers.getSkillSuggestions('python', existingSkills);
+			const suggestions = volunteerControllerHelpers.getSkillSuggestions(
+				'python',
+				existingSkills
+			);
 
 			expect(suggestions).toContain('Advanced Python Programming');
 		});
@@ -274,7 +319,8 @@ describe('Volunteer Controller', () => {
 				}
 			];
 
-			const activeAssignments = volunteerControllerHelpers.aggregateAssignments(assignmentHistory);
+			const activeAssignments
+        = volunteerControllerHelpers.aggregateAssignments(assignmentHistory);
 
 			expect(activeAssignments).toHaveLength(1);
 			expect(activeAssignments[0].role).toBe('Event Coordinator');
@@ -299,10 +345,15 @@ describe('Volunteer Controller', () => {
 				}
 			];
 
-			const activeAssignments = volunteerControllerHelpers.aggregateAssignments(assignmentHistory);
+			const activeAssignments
+        = volunteerControllerHelpers.aggregateAssignments(assignmentHistory);
 
-			const activityAssignment = activeAssignments.find(a => a.source_type === 'Activity');
-			const teamAssignment = activeAssignments.find(a => a.source_type === 'Team');
+			const activityAssignment = activeAssignments.find(
+				(a) => a.source_type === 'Activity'
+			);
+			const teamAssignment = activeAssignments.find(
+				(a) => a.source_type === 'Team'
+			);
 
 			expect(activityAssignment.editable).toBe(true);
 			expect(teamAssignment.editable).toBe(false);
@@ -319,7 +370,8 @@ describe('Volunteer Controller', () => {
 				}
 			];
 
-			const activeAssignments = volunteerControllerHelpers.aggregateAssignments(assignmentHistory);
+			const activeAssignments
+        = volunteerControllerHelpers.aggregateAssignments(assignmentHistory);
 
 			expect(activeAssignments).toHaveLength(0);
 		});
@@ -334,7 +386,9 @@ describe('Volunteer Controller', () => {
 
 		it('should add custom buttons for skills management', () => {
 			// Simulate skills grid setup
-			expect(frm.fields_dict.skills_and_qualifications.grid.add_custom_button).toBeDefined();
+			expect(
+				frm.fields_dict.skills_and_qualifications.grid.add_custom_button
+			).toBeDefined();
 		});
 
 		it('should toggle display for address and contact fields', () => {
@@ -408,8 +462,8 @@ describe('Volunteer Controller', () => {
 
 			// Timeline should show both active and completed assignments
 			expect(timelineData).toHaveLength(2);
-			expect(timelineData.some(item => item.is_active)).toBe(true);
-			expect(timelineData.some(item => !item.is_active)).toBe(true);
+			expect(timelineData.some((item) => item.is_active)).toBe(true);
+			expect(timelineData.some((item) => !item.is_active)).toBe(true);
 		});
 	});
 
@@ -454,7 +508,8 @@ describe('Volunteer Controller', () => {
 				volunteer_name: ''
 			};
 
-			const result = volunteerControllerHelpers.validateVolunteerData(incompleteVolunteer);
+			const result
+        = volunteerControllerHelpers.validateVolunteerData(incompleteVolunteer);
 
 			// Validation should handle empty required fields
 			expect(result).toBeDefined();
@@ -464,7 +519,10 @@ describe('Volunteer Controller', () => {
 	describe('Performance Considerations', () => {
 		it('should batch skill suggestions efficiently', () => {
 			const largSkillSet = Array.from({ length: 100 }, (_, i) => `Skill ${i}`);
-			const suggestions = volunteerControllerHelpers.getSkillSuggestions('skill', largSkillSet);
+			const suggestions = volunteerControllerHelpers.getSkillSuggestions(
+				'skill',
+				largSkillSet
+			);
 
 			// Should limit results even with large datasets
 			expect(suggestions.length).toBeLessThanOrEqual(5);
@@ -479,7 +537,8 @@ describe('Volunteer Controller', () => {
 				status: 'Active'
 			}));
 
-			const activeAssignments = volunteerControllerHelpers.aggregateAssignments(largeHistory);
+			const activeAssignments
+        = volunteerControllerHelpers.aggregateAssignments(largeHistory);
 
 			// Should efficiently filter large datasets
 			expect(activeAssignments.length).toBeLessThan(largeHistory.length);

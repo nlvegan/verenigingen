@@ -244,7 +244,14 @@ const mollieContracts = {
 						},
 						interval: {
 							type: 'string',
-							enum: ['1 week', '2 weeks', '1 month', '3 months', '6 months', '12 months']
+							enum: [
+								'1 week',
+								'2 weeks',
+								'1 month',
+								'3 months',
+								'6 months',
+								'12 months'
+							]
 						},
 						description: {
 							type: 'string',
@@ -330,7 +337,13 @@ const mollieContracts = {
 						},
 						method: {
 							type: 'string',
-							enum: ['directdebit', 'creditcard', 'banktransfer', 'ideal', 'paypal']
+							enum: [
+								'directdebit',
+								'creditcard',
+								'banktransfer',
+								'ideal',
+								'paypal'
+							]
 						},
 						customer_id: {
 							type: 'string',
@@ -359,7 +372,15 @@ const mollieContracts = {
 				},
 				status: {
 					type: 'string',
-					enum: ['open', 'pending', 'authorized', 'expired', 'failed', 'canceled', 'paid']
+					enum: [
+						'open',
+						'pending',
+						'authorized',
+						'expired',
+						'failed',
+						'canceled',
+						'paid'
+					]
 				},
 				checkout_url: {
 					type: 'string',
@@ -428,8 +449,8 @@ class ExternalAPIContractTester {
 	}
 
 	/**
-     * Validate API call arguments
-     */
+   * Validate API call arguments
+   */
 	validateArgs(method, args) {
 		if (!this.compiledSchemas[method]) {
 			return {
@@ -443,17 +464,19 @@ class ExternalAPIContractTester {
 
 		return {
 			valid,
-			errors: valid ? [] : validate.errors.map(err => ({
-				field: err.instancePath || err.dataPath,
-				message: err.message,
-				value: err.data
-			}))
+			errors: valid
+				? []
+				: validate.errors.map((err) => ({
+					field: err.instancePath || err.dataPath,
+					message: err.message,
+					value: err.data
+				}))
 		};
 	}
 
 	/**
-     * Validate API response
-     */
+   * Validate API response
+   */
 	validateResponse(method, response) {
 		if (!this.compiledSchemas[method]) {
 			return {
@@ -467,31 +490,33 @@ class ExternalAPIContractTester {
 
 		return {
 			valid,
-			errors: valid ? [] : validate.errors.map(err => ({
-				field: err.instancePath || err.dataPath,
-				message: err.message,
-				value: err.data
-			}))
+			errors: valid
+				? []
+				: validate.errors.map((err) => ({
+					field: err.instancePath || err.dataPath,
+					message: err.message,
+					value: err.data
+				}))
 		};
 	}
 
 	/**
-     * Get all available API methods
-     */
+   * Get all available API methods
+   */
 	getAvailableMethods() {
 		return Object.keys(this.contracts);
 	}
 
 	/**
-     * Get contract schema for specific method
-     */
+   * Get contract schema for specific method
+   */
 	getMethodSchema(method) {
 		return this.contracts[method];
 	}
 
 	/**
-     * Generate valid test data for a method
-     */
+   * Generate valid test data for a method
+   */
 	generateValidTestData(method) {
 		const testDataGenerators = {
 			// eBoekhouden test data
@@ -516,20 +541,22 @@ class ExternalAPIContractTester {
 					Factuurnummer: 'INV2024001',
 					Betreft: 'Lidmaatschap contributie',
 					Boekingsperiode: '202407',
-					Regels: [{
-						Omschrijving: 'Jaarbijdrage 2024',
-						Aantal: 1,
-						Prijs: 25.00,
-						BTWPercentage: 21,
-						Grootboekrekening: '8000'
-					}]
+					Regels: [
+						{
+							Omschrijving: 'Jaarbijdrage 2024',
+							Aantal: 1,
+							Prijs: 25.0,
+							BTWPercentage: 21,
+							Grootboekrekening: '8000'
+						}
+					]
 				}
 			}),
 
 			'verenigingen.e_boekhouden.api.process_payment': () => ({
 				payment_data: {
 					Datum: '2024-07-15',
-					Bedrag: 25.00,
+					Bedrag: 25.0,
 					Rekening: 'NL91ABNA0417164300',
 					Omschrijving: 'Lidmaatschap betaling',
 					TegenRekening: 'NL20INGB0001234567',
@@ -560,7 +587,8 @@ class ExternalAPIContractTester {
 					interval: '1 month',
 					description: 'Monthly membership fee',
 					method: ['directdebit'],
-					webhookUrl: 'https://dev.veganisme.net/api/method/verenigingen.mollie_integration.process_webhook',
+					webhookUrl:
+            'https://dev.veganisme.net/api/method/verenigingen.mollie_integration.process_webhook',
 					metadata: {
 						member_id: 'ASSOC-MEMBER-2025-001'
 					}
@@ -575,7 +603,8 @@ class ExternalAPIContractTester {
 					},
 					description: 'One-time donation',
 					redirectUrl: 'https://dev.veganisme.net/donation/success',
-					webhookUrl: 'https://dev.veganisme.net/api/method/verenigingen.mollie_integration.process_webhook',
+					webhookUrl:
+            'https://dev.veganisme.net/api/method/verenigingen.mollie_integration.process_webhook',
 					method: 'ideal',
 					locale: 'nl_NL',
 					metadata: {
@@ -601,12 +630,12 @@ class ExternalAPIContractTester {
 	}
 
 	/**
-     * Run comprehensive validation for all methods
-     */
+   * Run comprehensive validation for all methods
+   */
 	validateAllMethods() {
 		const results = {};
 
-		this.getAvailableMethods().forEach(method => {
+		this.getAvailableMethods().forEach((method) => {
 			try {
 				const testData = this.generateValidTestData(method);
 				const validation = this.validateArgs(method, testData);

@@ -9,11 +9,13 @@ This document describes the comprehensive authentication integration test suite 
 The authentication integration tests are organized into four specialized test modules, each focusing on a specific aspect of the authentication architecture:
 
 ### 1. Member Authentication Flow Tests
+
 **File**: `test_authentication_flows_comprehensive.py`
 
 Tests the complete member authentication flow from user login to permissions verification.
 
 **Key Test Areas**:
+
 - User session establishment and validation
 - Member record lookup by user email (primary and fallback mechanisms)
 - Role-based access control enforcement
@@ -23,6 +25,7 @@ Tests the complete member authentication flow from user login to permissions ver
 - Error handling and graceful degradation
 
 **Critical Scenarios**:
+
 - ✅ Successful member authentication: login → lookup → permissions
 - ✅ Orphaned users (have role but no member record)
 - ✅ Cross-member access prevention
@@ -31,11 +34,13 @@ Tests the complete member authentication flow from user login to permissions ver
 - ✅ Database error handling
 
 ### 2. Portal Authentication Security Tests
+
 **File**: `test_portal_authentication_security.py`
 
 Tests web portal authentication security including page access controls and session management.
 
 **Key Test Areas**:
+
 - Portal page access control validation
 - CSRF token generation and validation
 - Secure context generation for portal pages
@@ -44,6 +49,7 @@ Tests web portal authentication security including page access controls and sess
 - Payment dashboard access controls
 
 **Critical Scenarios**:
+
 - ✅ Bank details portal access authentication
 - ✅ Payment dashboard permission validation
 - ✅ CSRF protection integration
@@ -52,11 +58,13 @@ Tests web portal authentication security including page access controls and sess
 - ✅ Context security with member data
 
 ### 3. API Authentication with Security Decorators Tests
+
 **File**: `test_api_authentication_decorators_integration.py`
 
 Tests integration of API security decorators with the member authentication system.
 
 **Key Test Areas**:
+
 - Security decorator integration with member lookup utilities
 - Role-based API access control matrix
 - Member ownership validation in API endpoints
@@ -65,6 +73,7 @@ Tests integration of API security decorators with the member authentication syst
 - Rate limiting integration with authentication
 
 **Critical Scenarios**:
+
 - ✅ Public API access (no authentication required)
 - ✅ Member data API with ownership validation
 - ✅ Financial operation APIs with administrative access
@@ -73,11 +82,13 @@ Tests integration of API security decorators with the member authentication syst
 - ✅ API parameter injection prevention
 
 ### 4. SEPA Mandate Authentication Security Tests
+
 **File**: `test_sepa_mandate_authentication_security.py`
 
 Tests financial data access controls specifically around SEPA direct debit mandates.
 
 **Key Test Areas**:
+
 - SEPA mandate access control and ownership validation
 - Banking data security (IBAN, BIC, account details)
 - Financial operation authentication (PCI DSS, PSD2 compliance)
@@ -86,6 +97,7 @@ Tests financial data access controls specifically around SEPA direct debit manda
 - Payment processing authorization
 
 **Critical Scenarios**:
+
 - ✅ Member access to own SEPA mandate data
 - ✅ Cross-member mandate access prevention
 - ✅ Administrative mandate management authentication
@@ -96,6 +108,7 @@ Tests financial data access controls specifically around SEPA direct debit manda
 ## Key Security Patterns Tested
 
 ### 1. Member Lookup and Validation
+
 ```python
 # Primary lookup pattern
 member_name = get_member_name_for_user(user_email)
@@ -107,6 +120,7 @@ member_name = get_member_name_for_user(user_email)
 ```
 
 ### 2. Ownership Validation
+
 ```python
 # Member ownership validation
 validate_member_ownership(member_id)
@@ -116,6 +130,7 @@ validate_member_ownership(member_id)
 ```
 
 ### 3. Security Decorator Integration
+
 ```python
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def secure_member_operation():
@@ -127,6 +142,7 @@ def secure_member_operation():
 ```
 
 ### 4. Financial Data Protection
+
 ```python
 # SEPA mandate access with proper security
 mandate = get_member_sepa_mandate(member_name, active_only=True)
@@ -140,6 +156,7 @@ mandate = get_member_sepa_mandate(member_name, active_only=True)
 The test suite uses the Enhanced Test Factory to generate realistic test data that mirrors production scenarios:
 
 ### User-Member Relationships
+
 - **Full Profile Members**: Complete member records with all data
 - **Financial Members**: Members with SEPA mandates and payment setup
 - **Limited Members**: Basic member records with minimal data
@@ -148,6 +165,7 @@ The test suite uses the Enhanced Test Factory to generate realistic test data th
 - **Orphaned Users**: Users with roles but no member records
 
 ### Financial Test Data
+
 - **Active SEPA Mandates**: Valid direct debit authorizations
 - **Inactive SEPA Mandates**: Deactivated or expired mandates
 - **Pending SEPA Mandates**: Recently created mandates awaiting activation
@@ -155,6 +173,7 @@ The test suite uses the Enhanced Test Factory to generate realistic test data th
 - **Customer Relationships**: Proper billing entity linkage
 
 ### Security Test Scenarios
+
 - **Valid Ownership**: Users accessing their own data
 - **Invalid Ownership**: Cross-member access attempts
 - **Role Escalation**: Attempts to access higher privilege operations
@@ -164,6 +183,7 @@ The test suite uses the Enhanced Test Factory to generate realistic test data th
 ## Test Execution
 
 ### Running the Complete Test Suite
+
 ```bash
 # Run all authentication integration tests
 python /path/to/run_authentication_test_suite.py
@@ -173,6 +193,7 @@ make test-authentication
 ```
 
 ### Running Individual Test Modules
+
 ```bash
 # Member authentication flows
 python run_authentication_test_suite.py comprehensive
@@ -188,6 +209,7 @@ python run_authentication_test_suite.py sepa
 ```
 
 ### Integration with Existing Test Infrastructure
+
 ```bash
 # Run via bench (Frappe framework)
 bench --site dev.veganisme.net run-tests --module verenigingen.tests.integration.test_authentication_flows_comprehensive
@@ -199,12 +221,14 @@ bench --site dev.veganisme.net run-tests --module verenigingen.tests.integration
 ## Performance and Security Metrics
 
 ### Test Performance Expectations
+
 - **Individual Test Module**: 2-10 seconds per module
 - **Complete Test Suite**: 30-60 seconds total execution
 - **Concurrent Operations**: 3-5 parallel authentication operations tested
 - **Error Recovery**: All error scenarios handle gracefully within 1 second
 
 ### Security Validation Coverage
+
 - ✅ **Authentication**: User identity verification
 - ✅ **Authorization**: Role-based access control
 - ✅ **Ownership**: Member data access validation
@@ -215,21 +239,27 @@ bench --site dev.veganisme.net run-tests --module verenigingen.tests.integration
 ## Integration with Existing Systems
 
 ### Enhanced Test Factory Integration
+
 The authentication tests leverage the Enhanced Test Factory for:
+
 - **Realistic Data Generation**: Dutch names, postal codes, IBANs
 - **Business Rule Validation**: Age requirements, volunteer eligibility
 - **Field Safety**: Validation against actual DocType schemas
 - **Automatic Cleanup**: Database rollback after test completion
 
 ### Security Framework Integration
+
 Tests validate integration with:
+
 - **API Security Framework**: Decorator-based security enforcement
 - **Member Utilities**: Standardized member lookup and validation
 - **CSRF Protection**: Cross-site request forgery prevention
 - **Rate Limiting**: API abuse prevention mechanisms
 
 ### Frappe Framework Integration
+
 Built on Frappe's testing infrastructure:
+
 - **FrappeTestCase**: Automatic database rollback and isolation
 - **User Context Management**: Session switching and permission testing
 - **DocType Validation**: Schema compliance and field existence checking
@@ -238,12 +268,14 @@ Built on Frappe's testing infrastructure:
 ## Security Compliance
 
 ### Regulatory Compliance Testing
+
 - **PCI DSS**: Payment card industry data security standards
 - **PSD2**: European payment services directive compliance
 - **GDPR**: General data protection regulation compliance
 - **Dutch Banking**: Specific Netherlands banking regulations
 
 ### Security Standards Validation
+
 - **Authentication Standards**: Multi-factor and role-based authentication
 - **Authorization Standards**: Principle of least privilege enforcement
 - **Data Protection**: Encryption and access control validation
@@ -252,6 +284,7 @@ Built on Frappe's testing infrastructure:
 ## Maintenance and Extension
 
 ### Adding New Authentication Tests
+
 1. **Identify Security Pattern**: Determine which authentication flow to test
 2. **Choose Test Module**: Select appropriate test file based on security level
 3. **Create Test Scenarios**: Include both success and failure cases
@@ -259,12 +292,14 @@ Built on Frappe's testing infrastructure:
 5. **Validate Security Boundaries**: Ensure unauthorized access is prevented
 
 ### Extending Existing Tests
+
 1. **Review Current Coverage**: Analyze existing test scenarios
 2. **Identify Gaps**: Find missing edge cases or security scenarios
 3. **Add Test Methods**: Create new test methods within existing classes
 4. **Update Documentation**: Document new test scenarios and expectations
 
 ### Performance Monitoring
+
 - **Execution Time Tracking**: Monitor test execution duration trends
 - **Memory Usage**: Validate test memory consumption remains reasonable
 - **Database Impact**: Ensure tests don't create excessive database load
@@ -273,6 +308,7 @@ Built on Frappe's testing infrastructure:
 ## Common Issues and Solutions
 
 ### Test Execution Issues
+
 **Issue**: Tests fail with permission errors
 **Solution**: Verify Enhanced Test Factory user creation and role assignment
 
@@ -283,6 +319,7 @@ Built on Frappe's testing infrastructure:
 **Solution**: Review session management and user context switching
 
 ### Authentication Test Failures
+
 **Issue**: Member lookup failures
 **Solution**: Verify member records are properly created and linked to users
 
@@ -295,12 +332,14 @@ Built on Frappe's testing infrastructure:
 ## Future Enhancements
 
 ### Planned Test Additions
+
 - **Two-Factor Authentication**: When 2FA is implemented
 - **OAuth Integration**: External authentication provider testing
 - **API Key Authentication**: Programmatic access testing
 - **Mobile App Authentication**: Mobile-specific authentication flows
 
 ### Security Testing Improvements
+
 - **Penetration Testing Integration**: Automated security vulnerability scanning
 - **Load Testing**: Authentication performance under high load
 - **Security Metrics**: Comprehensive security posture measurement

@@ -1,4 +1,5 @@
 # Comprehensive Architectural Refactoring Plan (Revised)
+
 ## Verenigingen Association Management System
 
 **Document Version**: 2.0
@@ -9,6 +10,7 @@
 ## REVISION SUMMARY
 
 This v2.0 plan incorporates critical insights from comprehensive code review analysis, including:
+
 - **Realistic resource estimates** (12-16 weeks instead of 8 weeks)
 - **Current state corrections** (425 test files, not 268; 55 @critical_api decorators already implemented)
 - **Enhanced risk mitigation** with incremental approach and safety nets
@@ -20,17 +22,20 @@ This v2.0 plan incorporates critical insights from comprehensive code review ana
 ## CURRENT STATE BASELINE (Corrected)
 
 ### Security Framework Status
+
 - **✅ Already Implemented**: 55 `@critical_api` decorators across 23 files
 - **📊 Scope Reality**: 418 `@frappe.whitelist()` endpoints across 91 files
 - **⚠️ Mixed Patterns**: Security migration is partially complete, not starting from zero
 
 ### Testing Infrastructure Reality
+
 - **📊 Actual Count**: 425 test files (not 268 as originally stated)
 - **📊 Test Ratio**: 30% test ratio (425/1,396 files - extremely high)
 - **✅ Existing Framework**: `VereningingenTestCase` base class already sophisticated
 - **⚠️ Over-Engineering**: Multiple overlapping test frameworks causing complexity
 
 ### Performance Current State
+
 - **✅ Existing Background Processing**: 19 `frappe.enqueue()` calls across 11 files
 - **✅ Event-Driven Architecture**: Already partially implemented in `invoice_events.py`, `expense_events.py`
 - **⚠️ N+1 Query Issues**: PaymentMixin is 1,126 lines with confirmed performance issues
@@ -47,6 +52,7 @@ This plan addresses critical architectural issues through a **4-phase incrementa
 ---
 
 ## PHASE 1: INCREMENTAL SECURITY HARDENING
+
 **Timeline**: Weeks 1-4 | **Effort**: 60-80 hours | **Priority**: CRITICAL
 
 ### Revised Approach: Target High-Risk APIs First
@@ -54,10 +60,13 @@ This plan addresses critical architectural issues through a **4-phase incrementa
 Instead of mass API migration, focus on **highest-risk endpoints** with comprehensive validation.
 
 ### Phase 1.1: Current State Security Assessment
+
 **Duration**: 3 days
 
 **Actions**:
+
 1. **Comprehensive Security State Audit**:
+
    ```bash
    # Document current @critical_api implementation
    grep -r "@critical_api" verenigingen/ --include="*.py" -A 2 -B 2
@@ -81,15 +90,19 @@ Instead of mass API migration, focus on **highest-risk endpoints** with comprehe
    ```
 
 **Deliverables**:
+
 - Current security implementation map
 - Risk-prioritized API migration list (top 10 highest-risk)
 - Security coverage gaps analysis
 
 ### Phase 1.2: High-Risk API Security Implementation
+
 **Duration**: 8 days (2 days per high-risk API group)
 
 **Actions**:
+
 1. **Incremental API Security with Validation**:
+
    ```python
    # Enhanced security pattern with error handling
    @frappe.whitelist()
@@ -108,6 +121,7 @@ Instead of mass API migration, focus on **highest-risk endpoints** with comprehe
    ```
 
 2. **Per-API Validation Protocol**:
+
    ```bash
    # For each high-risk API:
    # 1. Apply security framework
@@ -120,16 +134,20 @@ Instead of mass API migration, focus on **highest-risk endpoints** with comprehe
    ```
 
 **Success Criteria per API**:
+
 - API requires proper authorization for all operations
 - All role combinations tested and working
 - No functionality regressions
 - 24-hour monitoring shows no issues
 
 ### Phase 1.3: API Security Matrix Testing
+
 **Duration**: 4 days
 
 **Actions**:
+
 1. **Comprehensive Role-Based Testing**:
+
    ```python
    # New file: verenigingen/tests/test_api_security_matrix.py
    class TestAPISecurityMatrix(VereningingenTestCase):
@@ -156,6 +174,7 @@ Instead of mass API migration, focus on **highest-risk endpoints** with comprehe
    ```
 
 **Success Criteria**:
+
 - All role/API combinations tested
 - Data isolation verified for all financial operations
 - Security regression tests integrated into CI/CD
@@ -163,6 +182,7 @@ Instead of mass API migration, focus on **highest-risk endpoints** with comprehe
 ---
 
 ## PHASE 2: SELECTIVE PERFORMANCE OPTIMIZATION
+
 **Timeline**: Weeks 5-8 | **Effort**: 80-120 hours | **Priority**: HIGH
 
 ### Revised Approach: Profile-Driven Optimization
@@ -170,10 +190,13 @@ Instead of mass API migration, focus on **highest-risk endpoints** with comprehe
 Instead of assuming bottlenecks, profile actual performance issues and implement targeted fixes.
 
 ### Phase 2.1: Performance Profiling & Baseline
+
 **Duration**: 3 days
 
 **Actions**:
+
 1. **Comprehensive Performance Profiling**:
+
    ```python
    # New file: scripts/performance/performance_profiler.py
    def profile_payment_operations():
@@ -197,15 +220,19 @@ Instead of assuming bottlenecks, profile actual performance issues and implement
    ```
 
 **Deliverables**:
+
 - Performance profiling report with actual bottlenecks
 - Baseline performance metrics file
 - Priority list of optimization targets
 
 ### Phase 2.2: Targeted Event Handler Optimization
+
 **Duration**: 5 days
 
 **Actions**:
+
 1. **Smart Background Job Implementation**:
+
    ```python
    # Enhanced background job pattern with business logic preservation
    def on_payment_entry_submit(doc, method):
@@ -239,6 +266,7 @@ Instead of assuming bottlenecks, profile actual performance issues and implement
    ```
 
 2. **Job Status Tracking & User Notifications**:
+
    ```python
    # New file: verenigingen/utils/background_jobs.py
    class BackgroundJobManager:
@@ -252,15 +280,19 @@ Instead of assuming bottlenecks, profile actual performance issues and implement
    ```
 
 **Files to Modify**:
+
 - `verenigingen/hooks.py` - Convert only profiled heavy handlers
 - `verenigingen/utils/background_jobs.py` - New job management
 - `verenigingen/api/job_status.py` - User-facing job status API
 
 ### Phase 2.3: Payment History Query Optimization
+
 **Duration**: 6 days
 
 **Actions**:
+
 1. **N+1 Query Elimination with Caching**:
+
    ```python
    # Optimized payment_mixin.py with intelligent caching
    class PaymentMixin:
@@ -295,6 +327,7 @@ Instead of assuming bottlenecks, profile actual performance issues and implement
    ```
 
 2. **Incremental Update Implementation**:
+
    ```python
    def refresh_payment_entry(self, payment_entry_name):
        """Update history for single payment entry instead of full rebuild"""
@@ -307,10 +340,13 @@ Instead of assuming bottlenecks, profile actual performance issues and implement
    ```
 
 ### Phase 2.4: Database Index Implementation with Safety
+
 **Duration**: 3 days
 
 **Actions**:
+
 1. **Safe Index Addition**:
+
    ```sql
    -- Add indexes during maintenance window with online algorithm
    ALTER TABLE `tabSales Invoice`
@@ -333,10 +369,13 @@ Instead of assuming bottlenecks, profile actual performance issues and implement
    ```
 
 ### Phase 2.5: Performance Validation
+
 **Duration**: 2 days
 
 **Actions**:
+
 1. **Automated Performance Testing**:
+
    ```python
    def test_payment_processing_performance():
        """Automated performance validation"""
@@ -353,6 +392,7 @@ Instead of assuming bottlenecks, profile actual performance issues and implement
    ```
 
 **Success Criteria**:
+
 - 3x improvement in payment operation response times (measured)
 - 50% reduction in database query count (measured)
 - Background jobs process without UI blocking
@@ -361,6 +401,7 @@ Instead of assuming bottlenecks, profile actual performance issues and implement
 ---
 
 ## PHASE 3: EVOLUTIONARY ARCHITECTURE IMPROVEMENTS
+
 **Timeline**: Weeks 9-12 | **Effort**: 100-140 hours | **Priority**: MEDIUM-HIGH
 
 ### Revised Approach: Evolutionary Rather Than Revolutionary
@@ -368,10 +409,13 @@ Instead of assuming bottlenecks, profile actual performance issues and implement
 Keep existing patterns working while gradually improving architecture.
 
 ### Phase 3.1: Data Access Pattern Assessment
+
 **Duration**: 4 days
 
 **Actions**:
+
 1. **SQL Usage Categorization**:
+
    ```bash
    # Analyze all raw SQL usage for migration feasibility
    python scripts/analysis/categorize_sql_usage.py
@@ -388,10 +432,13 @@ Keep existing patterns working while gradually improving architecture.
    ```
 
 ### Phase 3.2: Selective SQL to ORM Migration
+
 **Duration**: 8 days
 
 **Actions**:
+
 1. **Prioritize Unsafe SQL Migration**:
+
    ```python
    # Focus on security-critical migrations first
    def migrate_unsafe_sql_queries():
@@ -406,6 +453,7 @@ Keep existing patterns working while gradually improving architecture.
    ```
 
 2. **Preserve Performance-Critical SQL**:
+
    ```python
    # Keep complex SQL but make it safer
    def get_member_payment_summary_optimized():
@@ -437,10 +485,13 @@ Keep existing patterns working while gradually improving architecture.
    ```
 
 ### Phase 3.3: Mixin Simplification (Gradual)
+
 **Duration**: 8 days
 
 **Actions**:
+
 1. **Introduce Service Layer Alongside Existing Mixins**:
+
    ```python
    # New file: verenigingen/utils/services/sepa_service.py
    class SEPAService:
@@ -465,6 +516,7 @@ Keep existing patterns working while gradually improving architecture.
    ```
 
 **Success Criteria**:
+
 - Service layer introduced without breaking changes
 - Existing mixin methods still functional
 - New code uses service layer patterns
@@ -473,6 +525,7 @@ Keep existing patterns working while gradually improving architecture.
 ---
 
 ## PHASE 4: TESTING INFRASTRUCTURE OPTIMIZATION
+
 **Timeline**: Weeks 13-16 | **Effort**: 40-60 hours | **Priority**: MEDIUM
 
 ### Revised Approach: Improve Rather Than Replace
@@ -480,10 +533,13 @@ Keep existing patterns working while gradually improving architecture.
 Optimize existing testing infrastructure rather than wholesale replacement.
 
 ### Phase 4.1: Test Infrastructure Analysis
+
 **Duration**: 3 days
 
 **Actions**:
+
 1. **Test File Categorization**:
+
    ```bash
    # Analyze actual 425 test files
    python scripts/testing/analyze_test_infrastructure.py
@@ -501,16 +557,20 @@ Optimize existing testing infrastructure rather than wholesale replacement.
    ```
 
 ### Phase 4.2: Selective Test Consolidation
+
 **Duration**: 6 days
 
 **Actions**:
+
 1. **Remove Debug and Temporary Tests**:
+
    ```bash
    # Identify and remove temporary debug tests
    python scripts/testing/identify_debug_tests.py --remove
    ```
 
 2. **Consolidate Similar Test Files**:
+
    ```python
    # Example consolidation
    # Before: test_member_creation.py, test_member_validation.py, test_member_updates.py
@@ -528,10 +588,13 @@ Optimize existing testing infrastructure rather than wholesale replacement.
    ```
 
 ### Phase 4.3: Factory Method Streamlining
+
 **Duration**: 3 days
 
 **Actions**:
+
 1. **Optimize Core Factory Methods**:
+
    ```python
    # Enhanced factory methods with intelligent defaults
    def create_test_member(self, **kwargs):
@@ -555,6 +618,7 @@ Optimize existing testing infrastructure rather than wholesale replacement.
    ```
 
 **Success Criteria**:
+
 - Test count reduced to ~300 files (from 425)
 - Faster test execution (25% improvement)
 - Maintained comprehensive test coverage
@@ -567,6 +631,7 @@ Optimize existing testing infrastructure rather than wholesale replacement.
 ### Pre-Implementation Requirements
 
 1. **Comprehensive Health Checks**:
+
    ```python
    def pre_phase_health_check():
        """Comprehensive system health verification"""
@@ -587,6 +652,7 @@ Optimize existing testing infrastructure rather than wholesale replacement.
    ```
 
 2. **Feature Flags for All Changes**:
+
    ```python
    # Enable/disable new features without code deployment
    if frappe.get_conf().get('enable_enhanced_security_framework'):
@@ -608,12 +674,14 @@ Optimize existing testing infrastructure rather than wholesale replacement.
 ### Rollback Procedures
 
 1. **Automated Rollback Testing**:
+
    ```bash
    # Test rollback procedures before implementation
    python scripts/testing/test_rollback_procedures.py --phase 1
    ```
 
 2. **Database Migration Rollbacks**:
+
    ```sql
    -- Every schema change must have rollback script
    -- Forward migration: Add index
@@ -634,6 +702,7 @@ Optimize existing testing infrastructure rather than wholesale replacement.
 **Revised Timeline**: 12-16 weeks (realistic implementation timeline)
 
 **Team Requirements**:
+
 - **Lead Developer**: All phases (familiar with Frappe patterns)
 - **Security Specialist**: Phase 1 (validate security implementations)
 - **Performance Engineer**: Phase 2 (validate performance improvements)
@@ -646,24 +715,28 @@ Optimize existing testing infrastructure rather than wholesale replacement.
 ## MISSING CONSIDERATIONS ADDRESSED
 
 ### Business Continuity Planning
+
 - **Maintenance Windows**: Schedule index additions during low-usage periods
 - **User Communication**: Notify users of planned improvements and potential impacts
 - **Training Materials**: Update user guides for security changes
 - **Support Documentation**: Prepare troubleshooting guides for new features
 
 ### Monitoring and Observability
+
 - **Application Performance Monitoring (APM)**: Implement before changes to track impact
 - **Error Tracking**: Enhanced error logging for all modified components
 - **Business Metrics Preservation**: Ensure reporting and analytics continue working
 - **Real-time Dashboards**: Monitor system health during implementation
 
 ### Security Audit Requirements
+
 - **Third-party Security Review**: External security assessment after Phase 1
 - **Penetration Testing**: Test new security implementations
 - **Compliance Verification**: Ensure changes don't impact regulatory compliance
 - **Security Training**: Update developer security guidelines
 
 ### Database Administration
+
 - **Storage Growth Analysis**: Monitor index impact on disk usage
 - **Backup Strategy Updates**: Ensure backups work with new schema
 - **Query Performance Monitoring**: Track query performance before/after changes
@@ -676,6 +749,7 @@ Optimize existing testing infrastructure rather than wholesale replacement.
 This revised plan provides a much more realistic and risk-aware approach to addressing the architectural issues. The incremental methodology, enhanced safety measures, and comprehensive validation procedures significantly reduce implementation risk while ensuring measurable improvements.
 
 **Key Improvements in v2.0**:
+
 - Realistic timeline (12-16 weeks vs 8 weeks)
 - Incremental approach reduces risk
 - Current state accurately assessed
@@ -684,6 +758,7 @@ This revised plan provides a much more realistic and risk-aware approach to addr
 - Monitoring and observability integrated
 
 **Next Steps**:
+
 1. Approve this revised implementation plan
 2. Set up monitoring and safety infrastructure
 3. Begin Phase 1 with highest-risk security APIs only

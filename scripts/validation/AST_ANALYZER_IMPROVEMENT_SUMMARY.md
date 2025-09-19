@@ -1,12 +1,15 @@
 # AST Field Analyzer Improvement Summary
 
 ## Problem Statement
+
 The AST Field Analyzer was generating **8 false positive warnings** in `membership_dues_schedule_hooks.py`, incorrectly reporting that fields like `is_template` and `member` don't exist on the Member DocType. The analyzer failed to recognize that in hook functions, the `doc` parameter represents the DocType associated with the hook file, not necessarily a Member object.
 
 ## Root Cause
+
 The analyzer lacked file path-based DocType inference for hook files. When analyzing `membership_dues_schedule_hooks.py`, it couldn't determine that `doc` represents a `MembershipDuesSchedule` object, not a `Member` object.
 
 ## Solution Implemented
+
 Added **file path-based DocType inference** as the highest priority detection strategy for hook files:
 
 1. **Pattern Recognition**: Files matching `<doctype_name>_hooks.py` pattern
@@ -29,6 +32,7 @@ def _infer_doctype_from_hook_file(self, file_path: Path) -> str:
 ```
 
 ### Detection Priority (for hook files):
+
 1. **File path inference** (NEW - highest priority)
 2. Explicit type checks in code
 3. Hooks registry analysis
@@ -38,11 +42,13 @@ def _infer_doctype_from_hook_file(self, file_path: Path) -> str:
 ## Test Results
 
 ### Before (Original Analyzer):
+
 - **117 total issues** (medium+ confidence)
 - **8 false positives** in membership_dues_schedule_hooks.py
 - Lines affected: 14, 20, 26, 36, 40, 59, 83, 86
 
 ### After (Patched Analyzer):
+
 - **109 total issues** (medium+ confidence)
 - **0 false positives** in membership_dues_schedule_hooks.py
 - **8 issues eliminated** (6.8% reduction)
@@ -51,6 +57,7 @@ def _infer_doctype_from_hook_file(self, file_path: Path) -> str:
 ## Specific Issues Resolved
 
 All 8 false positives were eliminated:
+
 1. Line 14: `doc.is_template` - Now correctly recognized as MembershipDuesSchedule field
 2. Line 14: `doc.member` - Now correctly recognized as Link field to Member
 3. Lines 20, 26, 36, 40, 59, 83: Similar `doc.member` references correctly validated
@@ -73,6 +80,7 @@ All 8 false positives were eliminated:
 ## Recommendation
 
 Deploy the patched analyzer (`ast_field_analyzer_patched.py`) as it:
+
 - Eliminates known false positives in hook files
 - Maintains all legitimate error detection
 - Adds minimal complexity to the codebase
@@ -81,6 +89,7 @@ Deploy the patched analyzer (`ast_field_analyzer_patched.py`) as it:
 ## Future Enhancements
 
 Consider adding:
+
 1. Link field metadata loading from DocType JSON files
 2. Expanded pattern recognition for other file types
 3. Configuration file for custom inference patterns

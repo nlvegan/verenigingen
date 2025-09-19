@@ -41,23 +41,35 @@ frappe.ui.form.on('Customer', {
 		if (!frm.is_new()) {
 			// Add Member navigation button
 			frappe.call({
-				method: 'verenigingen.api.customer_member_link.get_member_from_customer',
+				method:
+          'verenigingen.api.customer_member_link.get_member_from_customer',
 				args: {
 					customer: frm.doc.name
 				},
 				callback(r) {
 					if (r.message) {
 						// Add button to navigate to Member
-						frm.add_custom_button(__('View Member'), () => {
-							frappe.set_route('Form', 'Member', r.message.name);
-						}, __('Links'));
+						frm.add_custom_button(
+							__('View Member'),
+							() => {
+								frappe.set_route('Form', 'Member', r.message.name);
+							},
+							__('Links')
+						);
 
 						// Show member info in dashboard
-						const status_color = r.message.status === 'Active' ? 'green'
-							: r.message.status === 'Terminated' ? 'red' : 'orange';
+						const status_color
+              = r.message.status === 'Active'
+              	? 'green'
+              	: r.message.status === 'Terminated'
+              		? 'red'
+              		: 'orange';
 
 						frm.dashboard.add_indicator(
-							__('Member: {0} ({1})', [r.message.full_name, __(r.message.status)]),
+							__('Member: {0} ({1})', [
+								r.message.full_name,
+								__(r.message.status)
+							]),
 							status_color
 						);
 

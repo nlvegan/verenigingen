@@ -88,39 +88,63 @@ function add_amendment_buttons(frm) {
 	if (frm.doc.status === 'Pending Approval') {
 		// Add approval buttons for authorized users
 		if (frappe.user.has_role(['System Manager', 'Verenigingen Manager'])) {
-			frm.add_custom_button(__('Approve'), () => {
-				approve_amendment(frm);
-			}, __('Actions')).addClass('btn-success');
+			frm
+				.add_custom_button(
+					__('Approve'),
+					() => {
+						approve_amendment(frm);
+					},
+					__('Actions')
+				)
+				.addClass('btn-success');
 
-			frm.add_custom_button(__('Reject'), () => {
-				reject_amendment(frm);
-			}, __('Actions')).addClass('btn-danger');
+			frm
+				.add_custom_button(
+					__('Reject'),
+					() => {
+						reject_amendment(frm);
+					},
+					__('Actions')
+				)
+				.addClass('btn-danger');
 		}
 	}
 
 	if (frm.doc.status === 'Approved') {
 		// Add apply button for system managers
 		if (frappe.user.has_role(['System Manager', 'Verenigingen Manager'])) {
-			frm.add_custom_button(__('Apply Amendment'), () => {
-				apply_amendment(frm);
-			}).addClass('btn-primary');
+			frm
+				.add_custom_button(__('Apply Amendment'), () => {
+					apply_amendment(frm);
+				})
+				.addClass('btn-primary');
 		}
 
 		// Show apply info
 		if (frm.doc.effective_date) {
 			const today = frappe.datetime.get_today();
 			if (frm.doc.effective_date <= today) {
-				frm.dashboard.add_comment(__('This amendment is ready to be applied'), 'blue');
+				frm.dashboard.add_comment(
+					__('This amendment is ready to be applied'),
+					'blue'
+				);
 			} else {
-				frm.dashboard.add_comment(__('This amendment will be applied on {0}', [frappe.datetime.str_to_user(frm.doc.effective_date)]), 'orange');
+				frm.dashboard.add_comment(
+					__('This amendment will be applied on {0}', [
+						frappe.datetime.str_to_user(frm.doc.effective_date)
+					]),
+					'orange'
+				);
 			}
 		}
 	}
 
 	if (frm.doc.status === 'Draft') {
-		frm.add_custom_button(__('Submit for Approval'), () => {
-			submit_for_approval(frm);
-		}).addClass('btn-warning');
+		frm
+			.add_custom_button(__('Submit for Approval'), () => {
+				submit_for_approval(frm);
+			})
+			.addClass('btn-warning');
 
 		frm.add_custom_button(__('Preview Impact'), () => {
 			preview_amendment_impact(frm);
@@ -131,7 +155,8 @@ function add_amendment_buttons(frm) {
 function set_field_visibility(frm) {
 	// Show/hide fields based on amendment type
 	const is_fee_change = frm.doc.amendment_type === 'Fee Change';
-	const is_billing_change = frm.doc.amendment_type === 'Billing Interval Change';
+	const is_billing_change
+    = frm.doc.amendment_type === 'Billing Interval Change';
 
 	frm.toggle_display('requested_amount', is_fee_change);
 	frm.toggle_display('new_billing_interval', is_billing_change);
@@ -139,7 +164,9 @@ function set_field_visibility(frm) {
 }
 
 function load_membership_details(frm) {
-	if (!frm.doc.membership) { return; }
+	if (!frm.doc.membership) {
+		return;
+	}
 
 	frappe.call({
 		method: 'frappe.client.get',
@@ -190,57 +217,69 @@ function load_impact_preview(frm) {
 }
 
 function approve_amendment(frm) {
-	frappe.prompt([
-		{
-			label: __('Approval Notes'),
-			fieldname: 'approval_notes',
-			fieldtype: 'Small Text',
-			description: __('Optional notes about the approval')
-		}
-	], (values) => {
-		frappe.call({
-			method: 'approve_amendment',
-			doc: frm.doc,
-			args: {
-				approval_notes: values.approval_notes
-			},
-			callback(r) {
-				if (!r.exc) {
-					frm.reload_doc();
-				}
+	frappe.prompt(
+		[
+			{
+				label: __('Approval Notes'),
+				fieldname: 'approval_notes',
+				fieldtype: 'Small Text',
+				description: __('Optional notes about the approval')
 			}
-		});
-	}, __('Approve Amendment'), __('Approve'));
+		],
+		(values) => {
+			frappe.call({
+				method: 'approve_amendment',
+				doc: frm.doc,
+				args: {
+					approval_notes: values.approval_notes
+				},
+				callback(r) {
+					if (!r.exc) {
+						frm.reload_doc();
+					}
+				}
+			});
+		},
+		__('Approve Amendment'),
+		__('Approve')
+	);
 }
 
 function reject_amendment(frm) {
-	frappe.prompt([
-		{
-			label: __('Rejection Reason'),
-			fieldname: 'rejection_reason',
-			fieldtype: 'Small Text',
-			reqd: 1,
-			description: __('Please provide a reason for rejection')
-		}
-	], (values) => {
-		frappe.call({
-			method: 'reject_amendment',
-			doc: frm.doc,
-			args: {
-				rejection_reason: values.rejection_reason
-			},
-			callback(r) {
-				if (!r.exc) {
-					frm.reload_doc();
-				}
+	frappe.prompt(
+		[
+			{
+				label: __('Rejection Reason'),
+				fieldname: 'rejection_reason',
+				fieldtype: 'Small Text',
+				reqd: 1,
+				description: __('Please provide a reason for rejection')
 			}
-		});
-	}, __('Reject Amendment'), __('Reject'));
+		],
+		(values) => {
+			frappe.call({
+				method: 'reject_amendment',
+				doc: frm.doc,
+				args: {
+					rejection_reason: values.rejection_reason
+				},
+				callback(r) {
+					if (!r.exc) {
+						frm.reload_doc();
+					}
+				}
+			});
+		},
+		__('Reject Amendment'),
+		__('Reject')
+	);
 }
 
 function apply_amendment(frm) {
 	frappe.confirm(
-		__('Are you sure you want to apply this amendment? This action cannot be undone.'),
+		__(
+			'Are you sure you want to apply this amendment? This action cannot be undone.'
+		),
 		() => {
 			frappe.call({
 				method: 'apply_amendment',
@@ -296,13 +335,10 @@ function submit_for_approval(frm) {
 		return;
 	}
 
-	frappe.confirm(
-		__('Submit this amendment for approval?'),
-		() => {
-			frm.set_value('status', 'Pending Approval');
-			frm.save();
-		}
-	);
+	frappe.confirm(__('Submit this amendment for approval?'), () => {
+		frm.set_value('status', 'Pending Approval');
+		frm.save();
+	});
 }
 
 function preview_amendment_impact(frm) {

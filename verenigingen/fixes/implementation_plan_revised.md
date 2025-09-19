@@ -7,6 +7,7 @@ The current implementation wastes ~80% of available data from the e-boekhouden R
 ## Current State Analysis
 
 ### What's Currently Happening:
+
 1. **Only fetching summary data** - Not calling `fetch_mutation_detail()` for full data
 2. **No VAT/BTW handling** - Completely ignoring tax information
 3. **Single generic line item** - Everything becomes "Service Item"
@@ -14,6 +15,7 @@ The current implementation wastes ~80% of available data from the e-boekhouden R
 5. **Missing metadata** - No payment terms, due dates, or references
 
 ### Available Data Being Ignored:
+
 - `Regels` array with line items including BTW codes
 - `Betalingstermijn` (payment terms in days)
 - `Referentie` (reference numbers)
@@ -289,6 +291,7 @@ def create_provisional_customer(relation_id):
 ### 4.1 Account Mapping Enhancement
 
 **New DocType:** `E-Boekhouden Account Map`
+
 - `eboekhouden_grootboek` (Data)
 - `erpnext_account` (Link to Account)
 - `account_type` (Select: Income/Expense/Asset/Liability)
@@ -380,6 +383,7 @@ def enrich_existing_invoices():
 ### 5.2 Data Quality Dashboard
 
 **New Page:** `e-boekhouden-import-quality`
+
 - Shows percentage of invoices with complete data
 - Lists provisional parties needing enrichment
 - Displays unmapped GL accounts
@@ -388,6 +392,7 @@ def enrich_existing_invoices():
 ## Implementation Checklist
 
 ### Week 1-2: Core Data Capture
+
 - [ ] Update `_create_sales_invoice()` to fetch full mutation details
 - [ ] Update `_create_purchase_invoice()` to fetch full mutation details
 - [ ] Create field mapping configuration
@@ -395,6 +400,7 @@ def enrich_existing_invoices():
 - [ ] Test with sample invoices
 
 ### Week 2-3: VAT Implementation
+
 - [ ] Implement line item processing
 - [ ] Create BTW code mapping
 - [ ] Add tax line creation
@@ -402,18 +408,21 @@ def enrich_existing_invoices():
 - [ ] Test VAT calculations
 
 ### Week 3: Party Management
+
 - [ ] Implement party resolver
 - [ ] Create provisional party system
 - [ ] Add enrichment queue
 - [ ] Test party deduplication
 
 ### Week 4: Supporting Infrastructure
+
 - [ ] Create account mapping DocType
 - [ ] Implement payment terms creation
 - [ ] Enhance item creation logic
 - [ ] Add unit of measure mapping
 
 ### Week 5: Migration and Cleanup
+
 - [ ] Create enrichment script
 - [ ] Build data quality dashboard
 - [ ] Run enrichment on existing data

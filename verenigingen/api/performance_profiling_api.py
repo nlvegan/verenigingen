@@ -304,11 +304,9 @@ def assess_optimization_risks(recommendations):
             [r for r in recommendations if "cache" in r.get("safe_approach", "").lower()]
         ),
         "risky_recommendations": risk_levels["high"],
-        "overall_risk_assessment": "low"
-        if risk_levels["high"] == 0
-        else "medium"
-        if risk_levels["high"] < 3
-        else "high",
+        "overall_risk_assessment": (
+            "low" if risk_levels["high"] == 0 else "medium" if risk_levels["high"] < 3 else "high"
+        ),
     }
 
 

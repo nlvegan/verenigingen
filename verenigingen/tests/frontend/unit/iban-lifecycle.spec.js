@@ -28,7 +28,9 @@ describe('IBAN Lifecycle Management', () => {
 
 	describe('IBAN Validation', () => {
 		const validateIBAN = (iban) => {
-			if (!iban) { return { valid: false, error: 'IBAN is required' }; }
+			if (!iban) {
+				return { valid: false, error: 'IBAN is required' };
+			}
 
 			// Remove spaces and convert to uppercase
 			const cleanIBAN = iban.replace(/\s/g, '').toUpperCase();
@@ -52,12 +54,18 @@ describe('IBAN Lifecycle Management', () => {
 			const expectedLength = ibanLengths[countryCode];
 
 			if (expectedLength && cleanIBAN.length !== expectedLength) {
-				return { valid: false, error: `IBAN for ${countryCode} should be ${expectedLength} characters` };
+				return {
+					valid: false,
+					error: `IBAN for ${countryCode} should be ${expectedLength} characters`
+				};
 			}
 
 			// Mod-97 validation
 			const rearranged = cleanIBAN.substring(4) + cleanIBAN.substring(0, 4);
-			const numeric = rearranged.replace(/[A-Z]/g, char => char.charCodeAt(0) - 55);
+			const numeric = rearranged.replace(
+				/[A-Z]/g,
+				(char) => char.charCodeAt(0) - 55
+			);
 			const remainder = numeric.match(/.{1,9}/g).reduce((acc, chunk) => {
 				return (parseInt(acc + chunk) % 97).toString();
 			}, '');
@@ -167,12 +175,14 @@ describe('IBAN Lifecycle Management', () => {
 			},
 
 			getMemberHistory(memberName) {
-				return this.history.filter(entry => entry.member === memberName);
+				return this.history.filter((entry) => entry.member === memberName);
 			},
 
 			getLatestIBAN(memberName) {
 				const memberHistory = this.getMemberHistory(memberName);
-				if (memberHistory.length === 0) { return null; }
+				if (memberHistory.length === 0) {
+					return null;
+				}
 				return memberHistory[memberHistory.length - 1].new_iban;
 			}
 		};
@@ -192,16 +202,30 @@ describe('IBAN Lifecycle Management', () => {
 		});
 
 		it('should retrieve latest IBAN', () => {
-			IBANHistoryTracker.addEntry('MEM-002', null, 'NL91ABNA0417164300', 'Initial IBAN');
-			IBANHistoryTracker.addEntry('MEM-002', 'NL91ABNA0417164300', 'NL44RABO0123456789', 'Changed bank');
+			IBANHistoryTracker.addEntry(
+				'MEM-002',
+				null,
+				'NL91ABNA0417164300',
+				'Initial IBAN'
+			);
+			IBANHistoryTracker.addEntry(
+				'MEM-002',
+				'NL91ABNA0417164300',
+				'NL44RABO0123456789',
+				'Changed bank'
+			);
 
-			expect(IBANHistoryTracker.getLatestIBAN('MEM-002')).toBe('NL44RABO0123456789');
+			expect(IBANHistoryTracker.getLatestIBAN('MEM-002')).toBe(
+				'NL44RABO0123456789'
+			);
 		});
 
 		it('should handle validation during IBAN change', () => {
 			// Define validateIBAN within the test scope
 			const validateIBAN = (iban) => {
-				if (!iban) { return { valid: false, error: 'IBAN is required' }; }
+				if (!iban) {
+					return { valid: false, error: 'IBAN is required' };
+				}
 				const cleanIBAN = iban.replace(/\s/g, '').toUpperCase();
 				if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]+$/.test(cleanIBAN)) {
 					return { valid: false, error: 'Invalid IBAN format' };
@@ -268,16 +292,20 @@ describe('IBAN Lifecycle Management', () => {
 			generateMandateId(memberName) {
 				const date = new Date();
 				const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '');
-				const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+				const random = Math.floor(Math.random() * 1000)
+					.toString()
+					.padStart(3, '0');
 				return `M-${memberName}-${dateStr}-${random}`;
 			},
 
 			getActiveMandate(memberName) {
-				return this.mandates.find(m => m.member === memberName && m.status === 'Active');
+				return this.mandates.find(
+					(m) => m.member === memberName && m.status === 'Active'
+				);
 			},
 
 			cancelMandate(mandateId, reason) {
-				const mandate = this.mandates.find(m => m.mandate_id === mandateId);
+				const mandate = this.mandates.find((m) => m.mandate_id === mandateId);
 				if (mandate) {
 					mandate.status = 'Cancelled';
 					mandate.cancellation_date = frappe.datetime.nowdate();
@@ -290,7 +318,10 @@ describe('IBAN Lifecycle Management', () => {
 			updateMandateForIBANChange(memberName, oldIBAN, newIBAN, newBIC) {
 				// Cancel old mandate
 				const oldMandate = this.mandates.find(
-					m => m.member === memberName && m.iban === oldIBAN && m.status === 'Active'
+					(m) =>
+						m.member === memberName
+            && m.iban === oldIBAN
+            && m.status === 'Active'
 				);
 
 				if (oldMandate) {
@@ -321,10 +352,15 @@ describe('IBAN Lifecycle Management', () => {
 				'ABNANL2A'
 			);
 
-			const cancelled = SEPAMandateManager.cancelMandate(mandate.mandate_id, 'Member request');
+			const cancelled = SEPAMandateManager.cancelMandate(
+				mandate.mandate_id,
+				'Member request'
+			);
 			expect(cancelled).toBe(true);
 
-			const updatedMandate = SEPAMandateManager.mandates.find(m => m.mandate_id === mandate.mandate_id);
+			const updatedMandate = SEPAMandateManager.mandates.find(
+				(m) => m.mandate_id === mandate.mandate_id
+			);
 			expect(updatedMandate.status).toBe('Cancelled');
 			expect(updatedMandate.cancellation_reason).toBe('Member request');
 		});
@@ -347,7 +383,7 @@ describe('IBAN Lifecycle Management', () => {
 
 			// Verify old mandate cancelled
 			const oldMandateStatus = SEPAMandateManager.mandates.find(
-				m => m.mandate_id === oldMandate.mandate_id
+				(m) => m.mandate_id === oldMandate.mandate_id
 			).status;
 			expect(oldMandateStatus).toBe('Cancelled');
 
@@ -358,7 +394,9 @@ describe('IBAN Lifecycle Management', () => {
 
 		it('should track mandate usage', () => {
 			const trackMandateUsage = (mandateId, amount) => {
-				const mandate = SEPAMandateManager.mandates.find(m => m.mandate_id === mandateId);
+				const mandate = SEPAMandateManager.mandates.find(
+					(m) => m.mandate_id === mandateId
+				);
 				if (!mandate || mandate.status !== 'Active') {
 					return { success: false, error: 'Invalid or inactive mandate' };
 				}
@@ -374,18 +412,22 @@ describe('IBAN Lifecycle Management', () => {
 				return { success: true, collection_count: mandate.collection_count };
 			};
 
-			const mandate = SEPAMandateManager.createMandate('MEM-004', 'NL91ABNA0417164300', 'ABNANL2A');
+			const mandate = SEPAMandateManager.createMandate(
+				'MEM-004',
+				'NL91ABNA0417164300',
+				'ABNANL2A'
+			);
 
-			const result1 = trackMandateUsage(mandate.mandate_id, 50.00);
+			const result1 = trackMandateUsage(mandate.mandate_id, 50.0);
 			expect(result1.success).toBe(true);
 			expect(result1.collection_count).toBe(1);
 
-			const result2 = trackMandateUsage(mandate.mandate_id, 50.00);
+			const result2 = trackMandateUsage(mandate.mandate_id, 50.0);
 			expect(result2.collection_count).toBe(2);
 
 			const updatedMandate = SEPAMandateManager.getActiveMandate('MEM-004');
 			expect(updatedMandate.first_collection_date).toBe('2025-01-05');
-			expect(updatedMandate.last_collection_amount).toBe(50.00);
+			expect(updatedMandate.last_collection_amount).toBe(50.0);
 		});
 	});
 
@@ -408,7 +450,9 @@ describe('IBAN Lifecycle Management', () => {
 			},
 
 			getActiveMandate(memberName) {
-				return this.mandates.find(m => m.member === memberName && m.status === 'Active');
+				return this.mandates.find(
+					(m) => m.member === memberName && m.status === 'Active'
+				);
 			}
 		};
 

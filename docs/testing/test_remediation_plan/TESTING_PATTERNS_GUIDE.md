@@ -1,6 +1,7 @@
 # Testing Patterns Guide: Mock Elimination & Integration Testing
 
 ## Overview
+
 This guide documents the patterns established during Phase 4 Weeks 1-2 that achieved A+ quality grade. Use these patterns when converting mock-heavy tests to real integration tests.
 
 ---
@@ -8,6 +9,7 @@ This guide documents the patterns established during Phase 4 Weeks 1-2 that achi
 ## Core Pattern: Enhanced Test Factory
 
 ### Basic Setup
+
 ```python
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -22,6 +24,7 @@ class TestYourFeature(EnhancedTestCase):
 ```
 
 ### Advanced Pattern: HTTP Integration Testing (Phase 4 Week 3)
+
 For testing APIs with security frameworks, use HTTP integration testing to validate the complete production workflow:
 
 ```python
@@ -81,6 +84,7 @@ class HTTPIntegrationTest(EnhancedTestCase):
 ```
 
 ### Advanced Pattern: Real Workflow Integration Test
+
 For complex multi-step workflows without HTTP requirements:
 
 ```python
@@ -101,6 +105,7 @@ class RealWorkflowIntegrationTest(EnhancedTestCase):
 ```
 
 ### Key Features of EnhancedTestCase
+
 1. **Automatic database rollback** between tests
 2. **Business rule validation** (e.g., volunteers must be 16+)
 3. **Field existence validation** before use
@@ -112,6 +117,7 @@ class RealWorkflowIntegrationTest(EnhancedTestCase):
 ## Pattern 1: Member Creation with Dutch Validation
 
 ### ❌ OLD (with mocks)
+
 ```python
 @patch('frappe.db.get_value')
 @patch('member.validate_postal_code')
@@ -122,6 +128,7 @@ def test_member_creation(self, mock_validate, mock_db):
 ```
 
 ### ✅ NEW (integration test)
+
 ```python
 class TestMemberIntegration(EnhancedTestCase):
     def test_member_creation_dutch_validation(self):
@@ -148,9 +155,11 @@ class TestMemberIntegration(EnhancedTestCase):
 ## Pattern 2: SEPA Mandate Testing
 
 ### Key Test Data
+
 Always use validated test IBAN: `NL91ABNA0417164300`
 
 ### ✅ SEPA Integration Pattern
+
 ```python
 def test_sepa_mandate_lifecycle(self):
     # 1. Create member with valid Dutch data
@@ -176,6 +185,7 @@ def test_sepa_mandate_lifecycle(self):
 ## Pattern 3: API Testing Without Mocks
 
 ### ❌ OLD (mocked API)
+
 ```python
 @patch('api.approve_membership')
 def test_approval(self, mock_approve):
@@ -184,6 +194,7 @@ def test_approval(self, mock_approve):
 ```
 
 ### ✅ NEW (real API call)
+
 ```python
 def test_membership_approval_api_real(self):
     # 1. Create real test data
@@ -215,6 +226,7 @@ def test_membership_approval_api_real(self):
 ## Pattern 4: Performance Benchmarking
 
 ### Query Count Monitoring
+
 ```python
 def test_performance_baseline(self):
     # Set realistic baselines based on actual measurements
@@ -229,6 +241,7 @@ def test_performance_baseline(self):
 ```
 
 ### Performance Categories
+
 - **Excellent**: <1s execution time
 - **Good**: 1-3s execution time
 - **Concern**: >3s execution time
@@ -238,6 +251,7 @@ def test_performance_baseline(self):
 ## Pattern 5: Error Message Validation
 
 ### Standardized Error Testing
+
 ```python
 def test_dutch_iban_error_standardized(self):
     with self.assertRaises(frappe.ValidationError) as context:
@@ -258,6 +272,7 @@ def test_dutch_iban_error_standardized(self):
 ## Pattern 6: Complex Workflow Testing
 
 ### End-to-End Business Process
+
 ```python
 def test_complete_member_lifecycle(self):
     # 1. Application Phase
@@ -289,6 +304,7 @@ def test_complete_member_lifecycle(self):
 Based on Phase 4 systematic analysis, mocks are classified into legitimate vs prohibited categories:
 
 ### ✅ LEGITIMATE_MOCKS (Keep These)
+
 ```python
 LEGITIMATE_MOCKS = [
     'frappe.sendmail',           # Email service
@@ -308,7 +324,9 @@ def test_payment_with_email(self, mock_mollie, mock_email):
 ```
 
 ### 🔄 HTTP Integration Testing (Phase 4 Week 3 Addition)
+
 **For APIs with Security Frameworks:**
+
 ```python
 class HTTPIntegrationTest(EnhancedTestCase):
     """Test APIs through complete HTTP stack including security validation"""
@@ -326,6 +344,7 @@ class HTTPIntegrationTest(EnhancedTestCase):
 ```
 
 **Key Principles:**
+
 - ✅ Use real HTTP requests to test complete production workflow
 - ✅ Test CSRF validation, authentication, role-based access control
 - ✅ Mock only external services within the API (SMTP, payment gateways)
@@ -340,6 +359,7 @@ class HTTPIntegrationTest(EnhancedTestCase):
 **Solution**: Analyze function contents and mock only infrastructure, test business logic.
 
 **Example - Email Processing Function Analysis:**
+
 ```python
 def send_payment_reminder_email(member, reminder_type, payment_info):
     # BUSINESS LOGIC - should be tested:
@@ -359,6 +379,7 @@ def send_payment_reminder_email(member, reminder_type, payment_info):
 ```
 
 **❌ WRONG Pattern - Mock the whole function:**
+
 ```python
 @patch('send_payment_reminder_email')
 def test_payment_reminders(self, mock_send_email):
@@ -367,6 +388,7 @@ def test_payment_reminders(self, mock_send_email):
 ```
 
 **✅ CORRECT Pattern - Mock only infrastructure:**
+
 ```python
 @patch('frappe.sendmail')  # Mock only infrastructure
 def test_payment_reminders(self, mock_sendmail):
@@ -381,12 +403,14 @@ def test_payment_reminders(self, mock_sendmail):
 ```
 
 **Pattern Decision Framework:**
+
 1. **Read the function source code**
 2. **Identify business logic** (calculations, validations, data transformations)
 3. **Identify infrastructure** (sendmail, file operations, external APIs)
 4. **Mock infrastructure, test business logic**
 
 ### ❌ PROHIBITED_MOCKS (Eliminate These)
+
 ```python
 PROHIBITED_MOCKS = [
     'frappe.db.get_value',       # Database operations
@@ -414,6 +438,7 @@ def test_bad_example(self, mock_db):
 ## Automated Mock Prevention
 
 ### Pre-commit Hook Strategy
+
 To prevent new inappropriate mocks from being introduced:
 
 ```yaml
@@ -425,11 +450,13 @@ To prevent new inappropriate mocks from being introduced:
       entry: scripts/validation/block_database_mocks.py
       language: python
       files: '^.*test.*\.py$'
-      args: ['--fail-on-prohibited-mocks']
+      args: ["--fail-on-prohibited-mocks"]
 ```
 
 ### Implementation Script
+
 Create `scripts/validation/block_database_mocks.py`:
+
 ```python
 #!/usr/bin/env python3
 """
@@ -470,6 +497,7 @@ if __name__ == "__main__":
 ## Performance Requirements
 
 ### Test Execution Targets
+
 Based on Phase 4 analysis:
 
 - **Individual Test**: <30 seconds per workflow test
@@ -477,6 +505,7 @@ Based on Phase 4 analysis:
 - **Integration Tests**: <60 seconds for complex business logic
 
 ### Query Count Guidelines
+
 ```python
 # Realistic baselines established from A+ testing:
 PERFORMANCE_BASELINES = {
@@ -489,6 +518,7 @@ PERFORMANCE_BASELINES = {
 ```
 
 ### Performance Monitoring Pattern
+
 ```python
 def test_with_performance_monitoring(self):
     import time
@@ -552,6 +582,7 @@ When converting a mock-heavy test to integration test:
 When HTTP integration tests fail with confusing errors, follow this evidence-based approach:
 
 #### 1. **Infrastructure First Analysis**
+
 ```bash
 # Check if URLs redirect (301/302 can convert POST → GET)
 curl -v https://dev.veganisme.net/api/method/your.api.method
@@ -561,6 +592,7 @@ echo $FRAPPE_SITE_URL  # Should match test URLs
 ```
 
 #### 2. **Request Format Investigation**
+
 ```python
 # Debug request headers and content type
 print(f"Request URL: {url}")
@@ -577,6 +609,7 @@ response = requests.post(url, json=data, headers={'Authorization': 'token key:se
 ```
 
 #### 3. **Framework Log Analysis**
+
 ```python
 # Check API security framework logs
 tail -f /home/frappe/frappe-bench/logs/sepa_audit.log
@@ -589,6 +622,7 @@ tail -f /home/frappe/frappe-bench/sites/dev.veganisme.net/logs/verenigingen.api.
 ```
 
 #### 4. **Error Message Tracing**
+
 ```python
 # Trace error to actual source, not symptoms
 # Example: "Method GET not allowed" might actually be:
@@ -603,6 +637,7 @@ print(f"Response text: {response.text[:500]}")
 ```
 
 #### 5. **Success Criteria Validation**
+
 ```python
 def validate_http_integration_response(response):
     """Proper success criteria for HTTP integration tests"""
@@ -628,18 +663,22 @@ def validate_http_integration_response(response):
 ### Common HTTP Integration Issues & Solutions
 
 #### Issue 1: HTTP 417 "Expectation Failed"
+
 **Symptoms**: POST requests failing with method validation errors
 **Root Cause**: Request format incompatibility with Frappe API parsing
 **Solution**:
+
 ```python
 # Use proper JSON format for Frappe APIs
 response = requests.post(url, json=data, headers={'Authorization': f'token {key}:{secret}'})
 ```
 
 #### Issue 2: Authentication Failures
+
 **Symptoms**: 401 Unauthorized despite correct credentials
 **Root Cause**: API key vs session auth confusion, missing CSRF tokens
 **Solution**:
+
 ```python
 # For API key auth (recommended)
 headers = {'Authorization': f'token {api_key}:{api_secret}'}
@@ -651,9 +690,11 @@ session.headers.update({'X-Frappe-CSRF-Token': csrf_token})
 ```
 
 #### Issue 3: Parameter Not Reaching API Functions
+
 **Symptoms**: API functions receive empty parameters (`args_count: 0` in logs)
 **Root Cause**: Content-Type mismatch causing parameter parsing failure
 **Solution**:
+
 ```python
 # Ensure proper Content-Type for Frappe API parsing
 # Either use form data:
@@ -664,9 +705,11 @@ response = requests.post(url, json=params, headers={'Authorization': auth})
 ```
 
 #### Issue 4: Security Responses Treated as Failures
+
 **Symptoms**: Tests failing on 401/403 responses
 **Root Cause**: Misunderstanding that security responses validate framework functionality
 **Solution**:
+
 ```python
 # Treat security responses as validation success
 if response.status_code in [200, 401, 403]:
@@ -680,24 +723,31 @@ else:
 ## Common Pitfalls & Solutions
 
 ### Pitfall 1: Tests Failing Due to Permissions
+
 **Solution**: EnhancedTestCase sets up proper test user with permissions
 
 ### Pitfall 2: Field Reference Errors
+
 **Solution**: Always check DocType JSON first:
+
 ```python
 # Read DocType structure before using fields
 verenigingen/doctype/member/member.json
 ```
 
 ### Pitfall 3: Test Data Conflicts
+
 **Solution**: EnhancedTestCase provides automatic cleanup via transaction rollback
 
 ### Pitfall 4: Slow Test Execution
+
 **Solution**: Set realistic query baselines, not artificially low ones:
+
 - Member creation: ~1000 queries is normal
 - Complete workflows: ~1500 queries is acceptable
 
 ### Pitfall 5: Inconsistent Test Data
+
 **Solution**: Use deterministic seeds in Enhanced Test Factory
 
 ---
@@ -705,18 +755,22 @@ verenigingen/doctype/member/member.json
 ## Dutch Business Logic Specifics
 
 ### Postal Codes
+
 - Valid format: "1234 AB" (4 digits, space, 2 letters)
 - Test with both spaced and unspaced variants
 
 ### IBAN Validation
+
 - Always use: `NL91ABNA0417164300` for testing
 - This has valid checksum and bank code
 
 ### Name Handling (Tussenvoegsel)
+
 - Test particles: "van", "de", "der", "van der", "van den"
 - Expected: "Jan van der Berg" → "Berg, Jan van der" (sorted)
 
 ### Age Requirements
+
 - Volunteers must be 16+
 - Use birth dates that create valid ages
 
@@ -725,6 +779,7 @@ verenigingen/doctype/member/member.json
 ## Quality Standards
 
 ### A+ Grade Requirements (All Must Pass)
+
 1. **Zero inappropriate mocks** in business logic
 2. **100% test success rate**
 3. **Performance within baselines**
@@ -732,6 +787,7 @@ verenigingen/doctype/member/member.json
 5. **Complete workflow coverage**
 
 ### Code Review Checklist
+
 - [ ] No `ignore_permissions=True` in tests
 - [ ] No database operation mocks
 - [ ] Real Dutch data validation
@@ -745,6 +801,7 @@ verenigingen/doctype/member/member.json
 HTTP Integration Testing methodology successfully proven and implemented:
 
 ### **Completed APIs** ✅
+
 1. **Payment Processing APIs** (12+ inappropriate mocks eliminated)
    - `send_overdue_payment_reminders` - Real email generation
    - `export_overdue_payments` - Real database queries
@@ -758,12 +815,14 @@ HTTP Integration Testing methodology successfully proven and implemented:
    - `bulk_suspend_members` - Real batch processing
 
 ### **HTTP Integration Breakthrough** 🚀
+
 - ✅ **Security Framework Integration**: CSRF validation, authentication, RBAC
 - ✅ **Complete Production Workflow**: Tests entire HTTP request lifecycle
 - ✅ **403/401 Responses as Success**: Security validation proves framework working
 - ✅ **Zero Inappropriate Mocks**: All business logic tested through real operations
 
 ### **Quality Achievement** 📊
+
 - **Mock Elimination**: 50+ inappropriate business logic mocks converted
 - **Test Success Rate**: 100% (14/14 HTTP integration tests passing)
 - **Security Validation**: Complete API decorator testing (@critical_api, @high_security_api)
@@ -773,6 +832,7 @@ HTTP Integration Testing methodology successfully proven and implemented:
 **Core Discovery**: The most effective mock elimination approach is analyzing function contents and mocking only infrastructure while testing business logic.
 
 **Applied Example**: `test_payment_processing_api.py`
+
 - **Eliminated**: `@patch('send_payment_reminder_email')` (3 instances)
 - **Replaced With**: `@patch('frappe.sendmail')` infrastructure mocking
 - **Result**: Email template selection, context generation, audit logging now tested
@@ -780,6 +840,7 @@ HTTP Integration Testing methodology successfully proven and implemented:
 **Pattern Validation**: Test results prove real business logic executes while infrastructure is safely mocked.
 
 **Future Application**: This pattern can be applied to any function containing business logic + infrastructure:
+
 - File processing functions (mock file operations, test processing logic)
 - API integration functions (mock HTTP calls, test data transformation)
 - Report generation functions (mock file creation, test report logic)
@@ -801,6 +862,7 @@ HTTP Integration Testing methodology successfully proven and implemented:
 ### **Major Achievement: HTTP Integration Debugging Success**
 
 **Infrastructure Problem Resolved** (August 29, 2025):
+
 - ✅ **HTTP 417 "Expectation Failed" Error**: Fixed request format incompatibility causing API integration failures
 - ✅ **Success Criteria Confusion**: Corrected tests to treat security responses (401/403) as validation success
 - ✅ **Evidence-Based Debugging**: Used systematic root cause analysis instead of random attempts
@@ -811,12 +873,14 @@ HTTP Integration Testing methodology successfully proven and implemented:
 **Problem**: HTTP integration tests failing with confusing error messages despite correct setup
 
 **Systematic Debugging Approach**:
+
 1. **Infrastructure First**: Check HTTP redirect behavior, URL formats
 2. **Request Format Analysis**: Inspect Content-Type headers and parameter passing
 3. **Log File Investigation**: Analyze framework logs (sepa_audit.log, API logs)
 4. **Evidence-Based Root Cause**: Trace error to actual source, not symptoms
 
 **Key Technical Fix**:
+
 ```python
 # BEFORE: Request format incompatibility
 response = requests.post(url, json=api_data, headers={'Content-Type': 'application/json'})
@@ -828,6 +892,7 @@ response = requests.post(url, json=api_data, headers={'Authorization': f'token {
 ```
 
 **Success Criteria Logic Fixed**:
+
 ```python
 # BEFORE: Treating security responses as failures
 elif response.status_code in [401, 403]:
@@ -840,12 +905,14 @@ elif response.status_code in [401, 403]:
 ```
 
 ### **HTTP Integration Testing Framework Validated** 🚀
+
 - ✅ **Complete Security Stack**: CSRF tokens, rate limiting, XSS protection verified
 - ✅ **Real Business Logic Execution**: 100 payment reminders processed successfully
 - ✅ **Performance Monitoring**: @performance_monitor decorator working (21.4s execution)
 - ✅ **Authentication Systems**: Both API key and session-based auth working
 
 ### **Quality Standards Achieved**
+
 - **QCE Grade: 8.5/10** - Excellent technical implementation with production readiness
 - **Evidence-Based Methodology**: Systematic debugging beats random attempts
 - **Infrastructure Problem Resolution**: Complete and technically sound
@@ -853,4 +920,4 @@ elif response.status_code in [401, 403]:
 
 ---
 
-*This guide documents the systematic mock elimination strategy achieving A+ quality.*
+_This guide documents the systematic mock elimination strategy achieving A+ quality._

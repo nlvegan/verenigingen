@@ -136,15 +136,15 @@ class DuesScheduleCalendar {
 		const monthData = this.getMonthData();
 
 		let html = '<div class="calendar-header">';
-		dayNames.forEach(day => {
+		dayNames.forEach((day) => {
 			html += `<div class="day-header">${day}</div>`;
 		});
 		html += '</div>';
 
 		html += '<div class="calendar-body">';
-		monthData.weeks.forEach(week => {
+		monthData.weeks.forEach((week) => {
 			html += '<div class="calendar-week">';
-			week.forEach(day => {
+			week.forEach((day) => {
 				const dayClass = this.getDayClass(day);
 				const paymentInfo = this.getPaymentInfo(day.date);
 
@@ -249,7 +249,7 @@ class DuesScheduleCalendar {
 	}
 
 	getPaymentForDate(dateString) {
-		return this.options.paymentData.find(p => p.date === dateString);
+		return this.options.paymentData.find((p) => p.date === dateString);
 	}
 
 	formatDate(date) {
@@ -312,7 +312,7 @@ class DuesScheduleCalendar {
 		const payment = this.getPaymentForDate(dateString);
 
 		// Update selected date
-		this.container.querySelectorAll('.calendar-day.selected').forEach(el => {
+		this.container.querySelectorAll('.calendar-day.selected').forEach((el) => {
 			el.classList.remove('selected');
 		});
 		dayElement.classList.add('selected');
@@ -363,7 +363,9 @@ class DuesScheduleCalendar {
 
 			// Focus on new date
 			const newDateString = this.formatDate(newDate);
-			const newDayElement = this.container.querySelector(`[data-date="${newDateString}"]`);
+			const newDayElement = this.container.querySelector(
+				`[data-date="${newDateString}"]`
+			);
 			if (newDayElement) {
 				newDayElement.focus();
 			}
@@ -402,17 +404,29 @@ class DuesScheduleCalendar {
 
 	getMonthNames() {
 		return [
-			this.translate('January'), this.translate('February'), this.translate('March'),
-			this.translate('April'), this.translate('May'), this.translate('June'),
-			this.translate('July'), this.translate('August'), this.translate('September'),
-			this.translate('October'), this.translate('November'), this.translate('December')
+			this.translate('January'),
+			this.translate('February'),
+			this.translate('March'),
+			this.translate('April'),
+			this.translate('May'),
+			this.translate('June'),
+			this.translate('July'),
+			this.translate('August'),
+			this.translate('September'),
+			this.translate('October'),
+			this.translate('November'),
+			this.translate('December')
 		];
 	}
 
 	getDayNames() {
 		return [
-			this.translate('Sun'), this.translate('Mon'), this.translate('Tue'),
-			this.translate('Wed'), this.translate('Thu'), this.translate('Fri'),
+			this.translate('Sun'),
+			this.translate('Mon'),
+			this.translate('Tue'),
+			this.translate('Wed'),
+			this.translate('Thu'),
+			this.translate('Fri'),
 			this.translate('Sat')
 		];
 	}

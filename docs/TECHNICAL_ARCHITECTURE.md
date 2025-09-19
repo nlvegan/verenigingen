@@ -7,6 +7,7 @@ Verenigingen is a comprehensive association management system built on the Frapp
 ## System Architecture
 
 ### Core Framework
+
 - **Frappe Framework v15+**: Modern Python-based web framework
 - **ERPNext Integration**: Financial modules, customer management, and invoicing
 - **MariaDB/MySQL**: Primary database with optimized queries and indexing
@@ -32,6 +33,7 @@ verenigingen/
 ## Enhanced Testing Framework
 
 ### VereningingenTestCase (New Standard)
+
 All tests should inherit from `VereningingenTestCase` which provides:
 
 ```python
@@ -53,6 +55,7 @@ class TestMyFeature(VereningingenTestCase):
 ```
 
 #### Key Features:
+
 - **Automatic Document Cleanup**: All created documents tracked and cleaned up automatically
 - **Customer Cleanup**: Automatic customer record cleanup for member-related tests
 - **Factory Methods**: Consistent test data generation with proper relationships
@@ -61,6 +64,7 @@ class TestMyFeature(VereningingenTestCase):
 - **Enhanced Assertions**: Domain-specific assertions for common test patterns
 
 #### Factory Methods Available:
+
 ```python
 # Core entities
 member = self.create_test_member(first_name="John", email="john@example.com")
@@ -76,6 +80,7 @@ iban = self.factory.generate_test_iban("TEST")  # Valid test IBAN with checksum
 ### Test Organization (2025 Reorganization)
 
 #### Test Categories:
+
 - **`backend/business_logic/`**: Core business logic and critical functionality
 - **`backend/components/`**: Individual component and feature tests
 - **`backend/integration/`**: Cross-system integration tests
@@ -84,12 +89,14 @@ iban = self.factory.generate_test_iban("TEST")  # Valid test IBAN with checksum
 - **`frontend/`**: JavaScript and UI component tests
 
 #### Migration Status:
+
 - ✅ **Phase 1 Complete**: Critical business logic tests migrated to VereningingenTestCase
 - ✅ **Phase 2 Complete**: Core component tests migrated with factory methods
 - ✅ **Phase 3 Complete**: Workflow and integration tests migrated
 - 🚧 **Ongoing**: Permission violation cleanup across remaining test files
 
 ### Mock Bank Testing Support
+
 Enhanced testing with realistic but clearly marked test data:
 
 ```python
@@ -106,26 +113,31 @@ demo_iban = generate_test_iban("DEMO")  # NL93DEMO0123456789
 ### Key Document Types
 
 #### Member Management:
+
 - **Member**: Core member records with mixin pattern for specialized functionality
 - **Membership**: Lifecycle management with custom subscription overrides
 - **Membership Application**: Review workflow with geographic assignment
 
 #### Financial Integration:
+
 - **SEPA Mandate**: Direct debit authorization with enhanced validation
 - **Direct Debit Batch**: SEPA file generation and processing
 - **Payment Entry**: ERPNext integration for payment tracking
 
 #### eBoekhouden Integration:
+
 - **E-Boekhouden Settings**: Configuration management for API connections and mapping
 - **EBoekhouden Cost Center Mapping**: Child table for intelligent cost center configuration
 - **E-Boekhouden Account Mapping**: Chart of accounts synchronization and mapping
 
 #### Organizational Structure:
+
 - **Chapter**: Geographic organization with postal code validation
 - **Team**: Project-based volunteer organization
 - **Volunteer**: Assignment tracking and expense management
 
 ### Mixin Pattern Implementation
+
 Key doctypes use specialized mixins for enhanced functionality:
 
 ```python
@@ -140,15 +152,18 @@ class Member:
 ## Integration Architecture
 
 ### eBoekhouden Integration (Production Ready)
+
 Comprehensive accounting system integration with REST API architecture:
 
 #### REST API (Primary - Recommended):
+
 - **Unlimited History**: Complete transaction and master data access
 - **Enhanced Performance**: Modern JSON-based communication
 - **Better Error Handling**: Detailed error responses and retry mechanisms
 - **Future-Proof**: Actively maintained and enhanced
 
 #### Features:
+
 - **Complete Chart of Accounts**: Intelligent mapping with Dutch accounting standards
 - **Opening Balance Import**: Comprehensive opening balance handling with validation
 - **Multi-Account Support**: Receivable, Payable, Stock, and Cash accounts
@@ -157,17 +172,20 @@ Comprehensive accounting system integration with REST API architecture:
 - **Smart Document Naming**: Meaningful names like `EBH-Payment-1234`, `EBH-Memoriaal-5678`
 
 #### Enhanced Cost Center Integration (New):
+
 **Intelligent Cost Center Creation from eBoekhouden Account Groups**
 
 The system now provides intelligent cost center mapping that converts eBoekhouden rekeninggroepen (account groups) into ERPNext cost centers for advanced departmental and project tracking:
 
 **Key Features:**
+
 - **Backward Compatible**: Preserves existing text-based account group input workflow
 - **Intelligent Analysis**: Dutch accounting logic automatically identifies suitable cost centers
 - **Smart Suggestions**: Analyzes account codes and names using RGS (Reference Code System) patterns
 - **User Control**: Toggle suggestions on/off with clear reasoning for each recommendation
 
 **Business Logic:**
+
 ```python
 # Expense groups (codes 5*, 6*) - Personnel costs, other expenses
 if code.startswith(('5', '6')):
@@ -185,11 +203,13 @@ if 'afdeling' or 'team' or 'project' in name:
 ```
 
 **DocType Architecture:**
+
 - **EBoekhouden Cost Center Mapping**: Child table with configurable mappings
 - **Fields**: `group_code`, `group_name`, `create_cost_center`, `cost_center_name`, `is_group`, `suggestion_reason`
 - **Workflow**: Parse → Analyze → Suggest → Configure → Create (Phase 2)
 
 **User Experience:**
+
 1. **Input**: Users continue pasting account groups exactly as before
 2. **Parse**: Click "Parse Groups & Configure Cost Centers" button
 3. **Review**: Intelligent suggestions with toggle controls and reasoning
@@ -197,29 +217,34 @@ if 'afdeling' or 'team' or 'project' in name:
 5. **Deploy**: Future enhancement will create actual ERPNext cost centers
 
 **Technical Implementation:**
+
 - **Parser**: Text-to-structured data with robust error handling
 - **Analyzer**: Dutch accounting intelligence using keyword matching
 - **UI Integration**: JavaScript handlers with real-time feedback
 - **API Design**: RESTful endpoints with comprehensive validation
 
-
 ### ERPNext Integration
+
 Deep integration with ERPNext modules:
 
 #### Financial Modules:
+
 - **Accounts**: Customer/supplier management and invoice processing
 - **Payments**: Payment entry creation and bank reconciliation
 - **Subscriptions**: Automated recurring billing with custom overrides
 
 #### CRM Integration:
+
 - **Customer Records**: Automatic creation from membership applications
 - **Sales Invoices**: Membership fee and donation invoicing
 - **Payment Tracking**: Complete payment history and reconciliation
 
 ### SEPA Direct Debit Processing
+
 EU-compliant payment processing:
 
 #### Features:
+
 - **Mandate Management**: Electronic mandate creation and validation
 - **Batch Processing**: Automated SEPA file generation
 - **Bank Integration**: MT940 import and reconciliation
@@ -228,6 +253,7 @@ EU-compliant payment processing:
 ## API Architecture
 
 ### RESTful APIs
+
 Comprehensive API layer with `@frappe.whitelist()` decorators:
 
 ```python
@@ -240,21 +266,26 @@ def get_member_details(member_id):
 ```
 
 #### API Categories:
+
 - **Member Management**: CRUD operations and lifecycle management
 - **Financial Operations**: Payment processing and invoice generation
 - **Volunteer Coordination**: Assignment management and expense processing
 - **Analytics**: Real-time KPI and reporting APIs
 
 ### JavaScript Integration
+
 Modern JavaScript with ES6+ features:
 
 #### Key Libraries:
+
 - **IBAN Validation**: Client-side validation with MOD-97 checksum
 - **SEPA Utilities**: Mandate creation and BIC derivation
 - **Form Enhancements**: Dynamic field validation and UI improvements
 
 #### Advanced Form Controllers:
+
 **E-Boekhouden Settings Controller** (`e_boekhouden_settings.js`):
+
 - **Real-time API Testing**: Connection validation with status feedback
 - **Chart of Accounts Preview**: Live data preview with formatted display
 - **Cost Center Parsing**: Intelligent account group analysis with UI integration
@@ -289,6 +320,7 @@ parse_groups_button(frm) {
 ### Code Quality Standards
 
 #### Frappe ORM Compliance:
+
 ```python
 # ✅ Correct: Use Frappe ORM
 doc = frappe.new_doc("DocType")
@@ -300,6 +332,7 @@ frappe.db.sql("INSERT INTO ...")  # Bypasses validation
 ```
 
 #### Permission Compliance:
+
 ```python
 # ✅ Correct: Use proper permissions
 doc.insert()  # Respects role permissions
@@ -309,6 +342,7 @@ doc.insert(ignore_permissions=True)  # Only for test setup
 ```
 
 #### Field Reference Validation:
+
 ```python
 # ✅ Always read DocType JSON first
 # Check required fields: "reqd": 1
@@ -319,6 +353,7 @@ doc.insert(ignore_permissions=True)  # Only for test setup
 ### Testing Requirements
 
 #### Mandatory Test Patterns:
+
 1. **Use VereningingenTestCase**: All new tests must inherit from enhanced base class
 2. **Factory Methods**: Use provided factory methods for consistent test data
 3. **Document Tracking**: Use `self.track_doc()` for automatic cleanup
@@ -326,6 +361,7 @@ doc.insert(ignore_permissions=True)  # Only for test setup
 5. **DocType Validation**: Read JSON files before writing tests that create documents
 
 #### Test Execution:
+
 ```bash
 # Use Frappe test runner
 bench --site dev.veganisme.net run-tests --app verenigingen --module test_module
@@ -337,11 +373,13 @@ python test_file.py  # ❌ Fails with "ModuleNotFoundError: No module named 'fra
 ## Performance Optimizations
 
 ### Database Optimization:
+
 - **Query Optimization**: Efficient database queries with proper indexing
 - **Bulk Operations**: Batch processing for large data operations
 - **Caching**: Redis-based caching for frequently accessed data
 
 ### API Performance:
+
 - **Response Caching**: 1-hour CSS caching for brand management
 - **Query Count Monitoring**: Built-in test framework monitoring
 - **Background Jobs**: Async processing for heavy operations
@@ -349,11 +387,13 @@ python test_file.py  # ❌ Fails with "ModuleNotFoundError: No module named 'fra
 ## Security Features
 
 ### Access Control:
+
 - **Role-Based Permissions**: Fine-grained access control
 - **Document-Level Security**: Permission queries for data isolation
 - **Field-Level Permissions**: Permlevel system for sensitive fields
 
 ### Data Protection:
+
 - **GDPR Compliance**: Built-in privacy features
 - **Audit Trails**: Complete change tracking
 - **Secure Storage**: Encrypted sensitive data
@@ -361,6 +401,7 @@ python test_file.py  # ❌ Fails with "ModuleNotFoundError: No module named 'fra
 ## Deployment Architecture
 
 ### Requirements:
+
 - **Python 3.10+**: Modern Python features
 - **Frappe v15+**: Latest framework features
 - **MariaDB/MySQL**: Optimized database configuration
@@ -368,6 +409,7 @@ python test_file.py  # ❌ Fails with "ModuleNotFoundError: No module named 'fra
 - **Required Apps**: ERPNext, Payments, HRMS, CRM
 
 ### Environment Configuration:
+
 - **Development**: Full debug logging and test data
 - **Production**: Optimized performance and monitoring
 - **Cloud Deployment**: Scalable infrastructure support
@@ -375,11 +417,13 @@ python test_file.py  # ❌ Fails with "ModuleNotFoundError: No module named 'fra
 ## Monitoring and Maintenance
 
 ### Health Monitoring:
+
 - **System Health Dashboard**: Real-time system status
 - **Performance Metrics**: Query count and execution time tracking
 - **Error Tracking**: Comprehensive error logging and alerting
 
 ### Maintenance Tasks:
+
 - **Database Cleanup**: Automated cleanup of test and temporary data
 - **Log Rotation**: Managed log file rotation and archival
 - **Backup Management**: Automated backup and recovery procedures
@@ -387,13 +431,16 @@ python test_file.py  # ❌ Fails with "ModuleNotFoundError: No module named 'fra
 ## Future Enhancements
 
 ### Planned Features:
+
 - **Enhanced Analytics**: Advanced business intelligence and predictive analytics
 - **Mobile Apps**: Native mobile applications for members and volunteers
 - **API Extensions**: Extended API capabilities for third-party integrations
 - **Multi-Language Support**: Internationalization for non-Dutch organizations
 
 ### eBoekhouden Integration Roadmap:
+
 **Phase 2: Cost Center Creation Engine** ✅ **COMPLETE**
+
 - ✅ **Automatic Cost Center Creation**: Convert configured mappings into actual ERPNext cost centers
 - ✅ **Hierarchical Structure**: Support parent-child cost center relationships
 - ✅ **Validation Engine**: Prevent duplicate creation and naming conflicts
@@ -403,6 +450,7 @@ python test_file.py  # ❌ Fails with "ModuleNotFoundError: No module named 'fra
 - ✅ **Comprehensive Reporting**: Detailed success/skip/failure reporting with UI integration
 
 **Phase 3: Advanced Cost Center Features** 🔄 **PLANNED**
+
 - **Budget Integration**: Link cost centers to ERPNext budgeting system
 - **Reporting Enhancement**: Cost center-based financial reports and dashboards
 - **Multi-Company Support**: Cost center mapping across multiple ERPNext companies
@@ -411,6 +459,7 @@ python test_file.py  # ❌ Fails with "ModuleNotFoundError: No module named 'fra
 - **Automated Reconciliation**: Sync cost center usage with eBoekhouden transactions
 
 ### Technical Roadmap:
+
 - **Microservices Architecture**: Gradual migration to microservices
 - **Real-Time Features**: WebSocket integration for live updates
 - **Advanced Security**: Enhanced security features and compliance tools

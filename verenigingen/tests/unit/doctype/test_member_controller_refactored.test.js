@@ -13,7 +13,9 @@
 /* global describe, it, expect, jest, beforeEach, afterEach, beforeAll */
 
 // Import centralized test infrastructure
-const { createControllerTestSuite } = require('../../setup/controller-test-base');
+const {
+	createControllerTestSuite
+} = require('../../setup/controller-test-base');
 const { createDomainTestBuilder } = require('../../setup/domain-test-builders');
 
 // Initialize test environment
@@ -37,8 +39,15 @@ global.$ = jest.fn((selector) => ({
 // Controller configuration
 const memberConfig = {
 	doctype: 'Member',
-	controllerPath: '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/member/member.js',
-	expectedHandlers: ['refresh', 'first_name', 'last_name', 'email', 'membership_type'],
+	controllerPath:
+    '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/member/member.js',
+	expectedHandlers: [
+		'refresh',
+		'first_name',
+		'last_name',
+		'email',
+		'membership_type'
+	],
 	defaultDoc: {
 		first_name: 'Jan',
 		last_name: 'Berg',
@@ -132,7 +141,10 @@ const customMemberTests = {
 		});
 
 		it('should handle names without tussenvoegsel', () => {
-			const associationBuilder = createDomainTestBuilder(getControllerTest(), 'association');
+			const associationBuilder = createDomainTestBuilder(
+				getControllerTest(),
+				'association'
+			);
 			const dutchTests = associationBuilder.createDutchValidationTests();
 			dutchTests['should handle Dutch name components']();
 		});
@@ -155,7 +167,10 @@ const customMemberTests = {
 		});
 
 		it('should validate IBAN format', () => {
-			const financialBuilder = createDomainTestBuilder(getControllerTest(), 'financial');
+			const financialBuilder = createDomainTestBuilder(
+				getControllerTest(),
+				'financial'
+			);
 			const sepaTests = financialBuilder.createSEPATests();
 			sepaTests['should validate Dutch IBAN correctly']();
 		});
@@ -170,7 +185,10 @@ const customMemberTests = {
 		});
 
 		it('should handle payment method configuration', () => {
-			const financialBuilder = createDomainTestBuilder(getControllerTest(), 'financial');
+			const financialBuilder = createDomainTestBuilder(
+				getControllerTest(),
+				'financial'
+			);
 			const paymentTests = financialBuilder.createPaymentTests();
 			paymentTests['should handle payment method configuration']();
 		});
@@ -201,7 +219,10 @@ const customMemberTests = {
 		});
 
 		it('should validate Dutch postal codes', () => {
-			const associationBuilder = createDomainTestBuilder(getControllerTest(), 'association');
+			const associationBuilder = createDomainTestBuilder(
+				getControllerTest(),
+				'association'
+			);
 			const dutchTests = associationBuilder.createDutchValidationTests();
 			dutchTests['should validate Dutch postal codes']();
 		});
@@ -209,19 +230,28 @@ const customMemberTests = {
 
 	'Member Status Management': (getControllerTest) => {
 		it('should handle membership status transitions', () => {
-			const associationBuilder = createDomainTestBuilder(getControllerTest(), 'association');
+			const associationBuilder = createDomainTestBuilder(
+				getControllerTest(),
+				'association'
+			);
 			const membershipTests = associationBuilder.createMembershipTests();
 			membershipTests['should handle membership status transitions']();
 		});
 
 		it('should handle membership types', () => {
-			const associationBuilder = createDomainTestBuilder(getControllerTest(), 'association');
+			const associationBuilder = createDomainTestBuilder(
+				getControllerTest(),
+				'association'
+			);
 			const membershipTests = associationBuilder.createMembershipTests();
 			membershipTests['should handle membership types']();
 		});
 
 		it('should validate required fields for active members', () => {
-			const associationBuilder = createDomainTestBuilder(getControllerTest(), 'association');
+			const associationBuilder = createDomainTestBuilder(
+				getControllerTest(),
+				'association'
+			);
 			const membershipTests = associationBuilder.createMembershipTests();
 			membershipTests['should validate required fields for active members']();
 		});
@@ -256,19 +286,22 @@ const customMemberTests = {
 		});
 
 		it('should link to current membership record', () => {
-			getControllerTest().mockForm.doc.current_membership = 'MEMBERSHIP-2024-001';
+			getControllerTest().mockForm.doc.current_membership
+        = 'MEMBERSHIP-2024-001';
 			getControllerTest().mockForm.doc.__islocal = 0;
 
 			getControllerTest().testEvent('refresh');
 
 			// Should maintain membership reference
-			expect(getControllerTest().mockForm.doc.current_membership).toBe('MEMBERSHIP-2024-001');
+			expect(getControllerTest().mockForm.doc.current_membership).toBe(
+				'MEMBERSHIP-2024-001'
+			);
 		});
 
 		it('should handle membership type changes', () => {
 			const membershipTypes = ['Regular', 'Student', 'Senior', 'Family'];
 
-			membershipTypes.forEach(type => {
+			membershipTypes.forEach((type) => {
 				getControllerTest().mockForm.doc.membership_type = type;
 
 				// Test membership_type handler if it exists
@@ -283,7 +316,10 @@ const customMemberTests = {
 
 	'Email and Communication': (getControllerTest) => {
 		it('should validate email format', () => {
-			const associationBuilder = createDomainTestBuilder(getControllerTest(), 'association');
+			const associationBuilder = createDomainTestBuilder(
+				getControllerTest(),
+				'association'
+			);
 			const dutchTests = associationBuilder.createDutchValidationTests();
 			dutchTests['should validate Dutch email format']();
 		});
@@ -298,7 +334,9 @@ const customMemberTests = {
 				}).not.toThrow();
 			}
 
-			expect(getControllerTest().mockForm.doc.email).toBe('newemail@example.org');
+			expect(getControllerTest().mockForm.doc.email).toBe(
+				'newemail@example.org'
+			);
 		});
 	},
 
@@ -322,7 +360,10 @@ const customMemberTests = {
 		});
 
 		it('should handle chapter membership', () => {
-			const associationBuilder = createDomainTestBuilder(getControllerTest(), 'association');
+			const associationBuilder = createDomainTestBuilder(
+				getControllerTest(),
+				'association'
+			);
 			const geoTests = associationBuilder.createGeographicalTests();
 			geoTests['should handle chapter assignment']();
 		});
@@ -351,13 +392,18 @@ const customMemberTests = {
 				getControllerTest().testEvent('refresh');
 			}).not.toThrow();
 
-			expect(getControllerTest().mockForm.doc.member_number).toBe('MEM-2024-001');
+			expect(getControllerTest().mockForm.doc.member_number).toBe(
+				'MEM-2024-001'
+			);
 		});
 	}
 };
 
 // Create and export the test suite
-describe('Member Controller (Refactored)', createControllerTestSuite(memberConfig, customMemberTests));
+describe(
+	'Member Controller (Refactored)',
+	createControllerTestSuite(memberConfig, customMemberTests)
+);
 
 // Export test utilities for reuse
 module.exports = {

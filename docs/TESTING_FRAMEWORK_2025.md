@@ -17,9 +17,11 @@ The Verenigingen testing infrastructure features a **dual framework architecture
 Verenigingen uses **two complementary test frameworks** optimized for different testing scenarios:
 
 #### 🔧 VereningingenTestCase - Operational Testing Framework
+
 **Use for**: Integration tests, UI testing, workflow testing, mocking external services
 
 #### 🔍 EnhancedTestCase - Business Logic Validation Framework
+
 **Use for**: Business rule testing, production issue discovery, field validation
 
 ### Framework Selection Decision Tree
@@ -43,6 +45,7 @@ Are you testing business logic that should catch production issues?
 VereningingenTestCase provides:
 
 #### 🔄 Automatic Document Cleanup
+
 - **Complete Tracking**: Every document created is automatically tracked
 - **Reverse Dependency Cleanup**: Documents cleaned up in proper order
 - **Customer Cleanup**: Automatic customer record cleanup for member-related tests
@@ -50,6 +53,7 @@ VereningingenTestCase provides:
 - **Zero Manual Work**: No `tearDown()` methods needed
 
 #### 🏭 Factory Methods
+
 Consistent test data generation with all required fields:
 
 ```python
@@ -76,6 +80,7 @@ chapter = self.create_test_chapter(
 ```
 
 #### 🏦 Mock Banking System
+
 Production-quality test banking with full validation:
 
 ```python
@@ -95,6 +100,7 @@ mandate = self.create_sepa_mandate(
 ```
 
 #### 📊 Performance Monitoring
+
 Built-in performance tracking and optimization:
 
 ```python
@@ -114,12 +120,14 @@ def test_performance_critical_operation(self):
 EnhancedTestCase provides production issue discovery through real database testing:
 
 #### 🔍 Field Validation & Production Issue Discovery
+
 - **Schema Validation**: Validates all field references against DocType schemas
 - **Business Rule Enforcement**: Prevents impossible test scenarios (e.g., volunteers under 16)
 - **Real Database Testing**: No inappropriate business logic mocks
 - **Production Bug Discovery**: Discovered 18+ real issues in Phase 5.1
 
 #### 🎯 Clean Factory Methods API
+
 ```python
 # Business logic validation with both API styles
 member = self.create_member(
@@ -133,6 +141,7 @@ chapter = self.create_test_chapter(region="Noord-Holland")
 ```
 
 #### 🛡️ Business Rule Validation Examples
+
 ```python
 # Enforces real business rules during test data creation
 volunteer = self.create_test_volunteer(
@@ -147,7 +156,9 @@ member = self.create_test_member(
 ```
 
 #### 🔎 Phase 5.1 Production Issue Discovery
+
 **Key Achievement**: EnhancedTestCase discovered 18+ production issues across:
+
 - **SEPA Operations**: Invalid API parameters, audit context failures
 - **Member Lifecycle**: Invalid status values, address relationship bugs
 - **Financial Operations**: Payment processing gaps, currency validation
@@ -204,49 +215,58 @@ class TestIntegration(VereningingenTestCase):
 
 Both frameworks support compatible methods with automatic bridging:
 
-| Purpose | VereningingenTestCase | EnhancedTestCase | Status |
-|---------|----------------------|------------------|--------|
-| Member Creation | `create_test_member()` | `create_test_member()` ✅ | Compatible |
-| Chapter Creation | `create_test_chapter()` | `create_test_chapter()` ✅ | **BRIDGED** |
-| Chapter Creation Alt | `create_test_chapter()` | `create_chapter()` ✅ | Both APIs Work |
-| Membership | `create_test_membership()` | `create_test_membership()` ✅ | Compatible |
+| Purpose              | VereningingenTestCase      | EnhancedTestCase              | Status         |
+| -------------------- | -------------------------- | ----------------------------- | -------------- |
+| Member Creation      | `create_test_member()`     | `create_test_member()` ✅     | Compatible     |
+| Chapter Creation     | `create_test_chapter()`    | `create_test_chapter()` ✅    | **BRIDGED**    |
+| Chapter Creation Alt | `create_test_chapter()`    | `create_chapter()` ✅         | Both APIs Work |
+| Membership           | `create_test_membership()` | `create_test_membership()` ✅ | Compatible     |
 
 **✅ API Compatibility Achieved**: Added bridge method to EnhancedTestCase so both `create_test_chapter()` and `create_chapter()` work in both frameworks.
 
 ## Migration Success Story
 
 ### Phase 1: Critical Business Logic ✅ COMPLETED
+
 **Files Migrated**: 3 critical test files
+
 - `test_critical_business_logic.py`
 - `test_fee_functionality.py`
 - `test_application_submission.py`
 
 **Results**:
+
 - ✅ All permission violations removed
 - ✅ Factory methods implemented
 - ✅ Automatic cleanup working
 - ✅ Tests passing and stable
 
 ### Phase 2: Core Components ✅ COMPLETED
+
 **Files Migrated**: 20+ component test files
+
 - Member portal integration tests
 - SEPA mandate creation tests
 - Payment processing tests
 - Chapter assignment tests
 
 **Results**:
+
 - ✅ Comprehensive factory method coverage
 - ✅ Enhanced error handling
 - ✅ Performance monitoring integrated
 - ✅ Cross-component relationship testing
 
 ### Phase 3: Workflows & Integration ✅ COMPLETED
+
 **Files Migrated**: Complex workflow and integration tests
 
 ### Phase 4: Enhanced Testing Infrastructure ✅ COMPLETED (January 2025)
+
 **Major Improvements**: Testing infrastructure and reliability enhancements
 
 #### Testing Infrastructure Enhancements:
+
 1. **Coverage Reporter with HTML Dashboard**
    - Enhanced coverage reporting with visual HTML dashboard
    - Integration with existing test runners
@@ -268,6 +288,7 @@ Both frameworks support compatible methods with automatic bridging:
    - Enhanced validation layers for better error detection
 
 #### Successful Examples:
+
 1. **`test_member_lifecycle_simple.py`** ✅ **FULLY WORKING**
    - 10-stage complete member lifecycle test
    - Application → Approval → User Creation → Membership → Volunteer → Activities → Renewal → Suspension → Termination
@@ -281,6 +302,7 @@ Both frameworks support compatible methods with automatic bridging:
    - Team membership suspension handling
 
 #### Pending Issues (Low Priority):
+
 - **`test_member_contact_request_integration.py`**: Missing `Member Contact Request` doctype
 - **`test_volunteer_journey.py`**: Missing advanced workflow framework methods
 
@@ -289,6 +311,7 @@ Both frameworks support compatible methods with automatic bridging:
 ### Mandatory Patterns
 
 #### 1. VereningingenTestCase Inheritance
+
 ```python
 # ✅ REQUIRED - Enhanced base class
 from verenigingen.tests.utils.base import VereningingenTestCase
@@ -303,6 +326,7 @@ class TestMyFeature(FrappeTestCase):       # No factory methods
 ```
 
 #### 2. Factory Method Usage
+
 ```python
 # ✅ REQUIRED - Use factory methods
 member = self.create_test_member(
@@ -316,6 +340,7 @@ member.insert(ignore_permissions=True)  # Permission violation
 ```
 
 #### 3. DocType JSON Validation
+
 **CRITICAL PROCESS**: Always read DocType JSON before writing tests
 
 ```bash
@@ -326,6 +351,7 @@ member.insert(ignore_permissions=True)  # Permission violation
 ```
 
 #### 4. Permission Compliance
+
 ```python
 # ✅ REQUIRED - Respect Frappe permissions
 doc.save()  # Let Frappe validate and check permissions
@@ -339,6 +365,7 @@ frappe.db.sql(\"INSERT INTO ...\")        # Bypasses ORM entirely
 ### Test Execution Requirements
 
 #### Use Frappe Test Runner (MANDATORY)
+
 ```bash
 # ✅ REQUIRED - Frappe test runner
 bench --site dev.veganisme.net run-tests --app verenigingen --module test_module
@@ -348,6 +375,7 @@ python test_file.py  # Fails with \"ModuleNotFoundError: No module named 'frappe
 ```
 
 #### Working Test Commands
+
 ```bash
 # Quick validation (30 seconds)
 bench --site dev.veganisme.net run-tests --app verenigingen --module verenigingen.tests.test_validation_regression
@@ -363,6 +391,7 @@ bench --site dev.veganisme.net run-tests --app verenigingen --module vereniginge
 ```
 
 #### Enhanced Test Infrastructure Commands (NEW - January 2025)
+
 ```bash
 # Coverage Reporter with HTML Dashboard
 python scripts/coverage_report.py                    # Basic coverage report
@@ -391,6 +420,7 @@ python scripts/validation/hooks_event_validator.py  # Validate event handlers
 ## Test Organization (July 2025 Structure)
 
 ### Directory Structure
+
 ```
 verenigingen/tests/
 ├── backend/
@@ -408,6 +438,7 @@ verenigingen/tests/
 ```
 
 ### Migration Statistics
+
 - **Total Test Files**: 186+ files across all categories
 - **Files Migrated**: 25+ files successfully migrated to VereningingenTestCase
 - **Permission Violations Fixed**: 50+ `ignore_permissions=True` violations removed
@@ -417,6 +448,7 @@ verenigingen/tests/
 ## Best Practices and Examples
 
 ### Test Template
+
 ```python
 from verenigingen.tests.utils.base import VereningingenTestCase
 
@@ -462,6 +494,7 @@ class TestMyFeature(VereningingenTestCase):
 ```
 
 ### Performance Testing
+
 ```python
 def test_bulk_operation_performance(self):
     \"\"\"Test that bulk operations scale efficiently\"\"\"
@@ -484,6 +517,7 @@ def test_bulk_operation_performance(self):
 ```
 
 ### Integration Testing
+
 ```python
 def test_complete_workflow_integration(self):
     \"\"\"Test end-to-end workflow integration\"\"\"
@@ -508,6 +542,7 @@ def test_complete_workflow_integration(self):
 ## Quality Assurance
 
 ### Automated Quality Checks
+
 - **Permission Compliance**: No `ignore_permissions=True` in production tests
 - **Field Validation**: All required fields provided based on DocType JSON
 - **Cleanup Verification**: All test documents properly tracked and cleaned up
@@ -517,26 +552,33 @@ def test_complete_workflow_integration(self):
 ### Common Issues and Solutions
 
 #### Issue: Validation Errors
+
 ```
 frappe.exceptions.ValidationError: Missing required field 'birth_date'
 ```
+
 **Solution**: Read DocType JSON and provide all required fields
 
 #### Issue: Permission Errors
+
 ```
 frappe.exceptions.PermissionError: Not permitted to create Member
 ```
+
 **Solution**: Use factory methods which handle permissions properly
 
 #### Issue: Test Pollution
+
 ```
 Tests interfering with each other due to leftover data
 ```
+
 **Solution**: VereningingenTestCase automatic cleanup prevents this
 
 ## Future Enhancements
 
 ### Planned Improvements
+
 - **Advanced Workflow Framework**: Enhanced workflow testing capabilities
 - **Real-time Performance Monitoring**: Live performance tracking during test execution
 - **Cross-Browser JavaScript Testing**: Extended frontend test coverage
@@ -544,6 +586,7 @@ Tests interfering with each other due to leftover data
 - **Load Testing Framework**: Performance testing under load
 
 ### Migration Roadmap
+
 - **Remaining Files**: Continue migrating legacy test files to new framework
 - **JavaScript Tests**: Modernize frontend testing with Jest/Cypress
 - **Integration Tests**: Expand integration test coverage
@@ -552,6 +595,7 @@ Tests interfering with each other due to leftover data
 ## Phase 5.1 Database Mock Elimination Framework (Complete)
 
 ### Overview
+
 **Status**: ✅ **COMPLETE** - All Tier 1 business areas successfully converted to real database testing
 
 Phase 5.1 established proven methodology for eliminating inappropriate database mocks that hide real production issues. This approach significantly improves production system reliability by testing authentic business logic rather than artificial mock behaviors.
@@ -559,6 +603,7 @@ Phase 5.1 established proven methodology for eliminating inappropriate database 
 ### Proven Methodology
 
 #### Step 1: Identify Inappropriate Database Mocks
+
 ```python
 # ❌ INAPPROPRIATE - Hides real business logic issues
 @patch("frappe.get_doc")
@@ -570,6 +615,7 @@ def test_member_workflow(self, mock_get_value, mock_get_doc):
 ```
 
 #### Step 2: Replace with Real Database Operations
+
 ```python
 # ✅ CORRECT - Tests real business logic
 def test_member_workflow_real(self):
@@ -591,21 +637,25 @@ def test_member_workflow_real(self):
 ### Business Areas Completed (18+ Production Issues Discovered)
 
 #### 1. SEPA Operations ✅
+
 - **File**: `test_sepa_notifications.py` → Real database testing
 - **Issues Found**: 6 critical problems (API parameters, validation logic, audit contexts)
 - **Impact**: Real banking integration failures prevented
 
 #### 2. Member Lifecycle ✅
+
 - **File**: `test_member_lifecycle_mock_elimination.py` → Real business logic testing
 - **Issues Found**: 6 critical problems (status validation, address relationships, API design)
 - **Impact**: Real user workflow failures prevented
 
 #### 3. Financial Operations ✅
+
 - **File**: `test_donation_agreement_integration.py` → Real payment testing
 - **Issues Found**: 4 critical problems (payment processing, invoice logic, currency validation)
 - **Impact**: Real financial transaction failures prevented
 
 #### 4. Donation Agreement Workflows ✅
+
 - **File**: `test_periodic_donation_agreement.py` → Real scheduling testing
 - **Issues Found**: 2 critical problems (recurring scheduling, payment gateway integration)
 - **Impact**: Real donation processing failures prevented
@@ -613,6 +663,7 @@ def test_member_workflow_real(self):
 ### Key Success Patterns
 
 #### Pattern 1: Enhanced Test Factory Integration
+
 ```python
 class TestBusinessLogicReal(EnhancedTestCase):  # Use EnhancedTestCase
     def setUp(self):
@@ -627,6 +678,7 @@ class TestBusinessLogicReal(EnhancedTestCase):  # Use EnhancedTestCase
 ```
 
 #### Pattern 2: Real Database Verification
+
 ```python
 def test_workflow_real_validation(self):
     # Execute real business logic
@@ -641,6 +693,7 @@ def test_workflow_real_validation(self):
 ```
 
 #### Pattern 3: Production Issue Discovery
+
 ```python
 def test_discovers_real_production_issue(self):
     # Real testing immediately discovers production problems
@@ -657,17 +710,18 @@ def test_discovers_real_production_issue(self):
 
 **100% Success Rate**: Every business area tested revealed previously unknown production issues
 
-| Business Area | Production Issues Found | Mock Elimination Success |
-|---------------|------------------------|-------------------------|
-| SEPA Operations | 6 critical issues | ✅ Complete |
-| Member Lifecycle | 6 critical issues | ✅ Complete |
-| Financial Operations | 4 critical issues | ✅ Complete |
-| Donation Agreements | 2 critical issues | ✅ Complete |
-| **TOTAL** | **18+ critical issues** | **✅ 100% Success** |
+| Business Area        | Production Issues Found | Mock Elimination Success |
+| -------------------- | ----------------------- | ------------------------ |
+| SEPA Operations      | 6 critical issues       | ✅ Complete              |
+| Member Lifecycle     | 6 critical issues       | ✅ Complete              |
+| Financial Operations | 4 critical issues       | ✅ Complete              |
+| Donation Agreements  | 2 critical issues       | ✅ Complete              |
+| **TOTAL**            | **18+ critical issues** | **✅ 100% Success**      |
 
 ### When to Use Phase 5.1 Patterns
 
 #### Use Real Database Testing When:
+
 - Testing core business logic workflows
 - Validating data relationships and constraints
 - Testing status transitions and business rules
@@ -675,6 +729,7 @@ def test_discovers_real_production_issue(self):
 - Any test that should catch real production issues
 
 #### Keep Mocks Only For:
+
 - External service integrations (email, payment gateways)
 - File system operations
 - Network requests to third-party APIs
@@ -683,6 +738,7 @@ def test_discovers_real_production_issue(self):
 ### Implementation Guide
 
 #### Starting a New Mock Elimination
+
 1. **Identify Target File**: Look for excessive `@patch("frappe.db.*")` decorators
 2. **Create Elimination File**: `test_[area]_mock_elimination.py`
 3. **Use Enhanced Test Factory**: Real data creation with business rules
@@ -690,6 +746,7 @@ def test_discovers_real_production_issue(self):
 5. **Document Issues Found**: Every issue discovered has production value
 
 #### Expected Results
+
 - **Immediate Issue Discovery**: Production problems found on first test run
 - **Higher Test Confidence**: Tests validate real system behavior
 - **Production Issue Prevention**: Catches problems before user impact
@@ -701,12 +758,14 @@ def test_discovers_real_production_issue(self):
 What initially appeared to be competing frameworks turned out to be **complementary systems** serving different critical purposes:
 
 #### 🔧 VereningingenTestCase: Operational Excellence
+
 - **31 factory methods** for comprehensive operational testing
 - **Extensive mocking capabilities** for external service integration
 - **CSRF and UI testing support** for workflow validation
 - **116 test files** actively using this framework
 
 #### 🔍 EnhancedTestCase: Production Quality Assurance
+
 - **Field validation system** that caught 18+ production issues
 - **Business rule enforcement** preventing invalid test scenarios
 - **Real database testing** without inappropriate mocks

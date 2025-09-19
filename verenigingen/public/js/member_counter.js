@@ -123,15 +123,25 @@ frappe.ui.form.on('Member', {
 
 			// Show warning for unusual ages
 			if (age < 12) {
-				frappe.show_alert({
-					message: __('Applicant is under 12 years old - may require special handling'),
-					indicator: 'orange'
-				}, 8);
+				frappe.show_alert(
+					{
+						message: __(
+							'Applicant is under 12 years old - may require special handling'
+						),
+						indicator: 'orange'
+					},
+					8
+				);
 			} else if (age > 100) {
-				frappe.show_alert({
-					message: __('Please verify birth date - applicant would be over 100 years old'),
-					indicator: 'yellow'
-				}, 8);
+				frappe.show_alert(
+					{
+						message: __(
+							'Please verify birth date - applicant would be over 100 years old'
+						),
+						indicator: 'yellow'
+					},
+					8
+				);
 			}
 		}
 	}
@@ -141,19 +151,28 @@ function setup_member_counter_section(frm) {
 	// Add custom buttons for counter management
 	// Counter Statistics button removed as requested
 
-	frm.add_custom_button(__('Reset Counter'), () => {
-		show_counter_reset_dialog(frm);
-	}, __('Member ID Management'));
+	frm.add_custom_button(
+		__('Reset Counter'),
+		() => {
+			show_counter_reset_dialog(frm);
+		},
+		__('Member ID Management')
+	);
 
-	frm.add_custom_button(__('Migration Tools'), () => {
-		show_migration_tools_dialog();
-	}, __('Member ID Management'));
+	frm.add_custom_button(
+		__('Migration Tools'),
+		() => {
+			show_migration_tools_dialog();
+		},
+		__('Member ID Management')
+	);
 }
 
 function load_counter_statistics(frm) {
 	// Load and display current counter statistics
 	frappe.call({
-		method: 'verenigingen.verenigingen.doctype.member.member_id_manager.get_member_id_statistics',
+		method:
+      'verenigingen.verenigingen.doctype.member.member_id_manager.get_member_id_statistics',
 		callback(r) {
 			if (r.message) {
 				update_counter_display(frm, r.message);
@@ -164,20 +183,30 @@ function load_counter_statistics(frm) {
 
 function update_counter_display(frm, stats) {
 	// Update the next_member_id field display
-	if (frm.doc.name === 'MEMBER-COUNTER-SYSTEM' || frappe.user.has_role('System Manager')) {
-		frm.set_df_property('next_member_id', 'description',
-			`Next ID: ${stats.next_id} | Highest Assigned: ${stats.highest_assigned} | Gaps: ${stats.gap_count}`);
+	if (
+		frm.doc.name === 'MEMBER-COUNTER-SYSTEM'
+    || frappe.user.has_role('System Manager')
+	) {
+		frm.set_df_property(
+			'next_member_id',
+			'description',
+			`Next ID: ${stats.next_id} | Highest Assigned: ${stats.highest_assigned} | Gaps: ${stats.gap_count}`
+		);
 	}
 }
 
 function show_member_id_preview(frm) {
 	// Show preview of next member ID for new members
 	frappe.call({
-		method: 'verenigingen.verenigingen.doctype.member.member_id_manager.get_next_member_id_preview',
+		method:
+      'verenigingen.verenigingen.doctype.member.member_id_manager.get_next_member_id_preview',
 		callback(r) {
 			if (r.message) {
-				frm.set_df_property('member_id', 'description',
-					`Will be assigned: ${r.message.next_id}`);
+				frm.set_df_property(
+					'member_id',
+					'description',
+					`Will be assigned: ${r.message.next_id}`
+				);
 			}
 		}
 	});
@@ -191,10 +220,14 @@ function handle_counter_reset(frm) {
 	}
 
 	frappe.confirm(
-		__('Are you sure you want to reset the member ID counter to {0}? This action cannot be undone.', [frm.doc.reset_counter_to]),
+		__(
+			'Are you sure you want to reset the member ID counter to {0}? This action cannot be undone.',
+			[frm.doc.reset_counter_to]
+		),
 		() => {
 			frappe.call({
-				method: 'verenigingen.verenigingen.doctype.member.member_id_manager.reset_member_id_counter',
+				method:
+          'verenigingen.verenigingen.doctype.member.member_id_manager.reset_member_id_counter',
 				args: {
 					counter_value: frm.doc.reset_counter_to
 				},
@@ -202,10 +235,13 @@ function handle_counter_reset(frm) {
 				freeze_message: __('Resetting counter...'),
 				callback(r) {
 					if (r.message && r.message.success) {
-						frappe.show_alert({
-							message: r.message.message,
-							indicator: 'green'
-						}, 5);
+						frappe.show_alert(
+							{
+								message: r.message.message,
+								indicator: 'green'
+							},
+							5
+						);
 
 						// Clear the input field
 						frm.set_value('reset_counter_to', '');
@@ -222,7 +258,8 @@ function handle_counter_reset(frm) {
 function _show_counter_statistics_dialog() {
 	// Show detailed counter statistics
 	frappe.call({
-		method: 'verenigingen.verenigingen.doctype.member.member_id_manager.get_member_id_statistics',
+		method:
+      'verenigingen.verenigingen.doctype.member.member_id_manager.get_member_id_statistics',
 		callback(r) {
 			if (r.message) {
 				const stats = r.message;
@@ -268,7 +305,9 @@ function show_counter_reset_dialog(frm) {
 				fieldtype: 'Int',
 				label: __('New Counter Value'),
 				reqd: 1,
-				description: __('Enter the new counter value. Must be greater than current highest assigned ID.')
+				description: __(
+					'Enter the new counter value. Must be greater than current highest assigned ID.'
+				)
 			},
 			{
 				fieldname: 'confirm_reset',
@@ -280,12 +319,15 @@ function show_counter_reset_dialog(frm) {
 		primary_action_label: __('Reset Counter'),
 		primary_action(values) {
 			if (!values.confirm_reset) {
-				frappe.msgprint(__('Please confirm you understand this action cannot be undone'));
+				frappe.msgprint(
+					__('Please confirm you understand this action cannot be undone')
+				);
 				return;
 			}
 
 			frappe.call({
-				method: 'verenigingen.verenigingen.doctype.member.member_id_manager.reset_member_id_counter',
+				method:
+          'verenigingen.verenigingen.doctype.member.member_id_manager.reset_member_id_counter',
 				args: {
 					counter_value: values.new_counter_value
 				},
@@ -293,10 +335,13 @@ function show_counter_reset_dialog(frm) {
 				freeze_message: __('Resetting counter...'),
 				callback(r) {
 					if (r.message && r.message.success) {
-						frappe.show_alert({
-							message: r.message.message,
-							indicator: 'green'
-						}, 5);
+						frappe.show_alert(
+							{
+								message: r.message.message,
+								indicator: 'green'
+							},
+							5
+						);
 
 						d.hide();
 						load_counter_statistics(frm);
@@ -329,21 +374,29 @@ function show_migration_tools_dialog() {
 		primary_action_label: __('Run Migration'),
 		primary_action() {
 			frappe.confirm(
-				__('Run member ID counter migration? This should only be done once during system upgrade.'),
+				__(
+					'Run member ID counter migration? This should only be done once during system upgrade.'
+				),
 				() => {
 					frappe.call({
-						method: 'verenigingen.verenigingen.doctype.member.member.migrate_member_id_counter',
+						method:
+              'verenigingen.verenigingen.doctype.member.member.migrate_member_id_counter',
 						freeze: true,
 						freeze_message: __('Running migration...'),
 						callback(r) {
 							if (r.message) {
 								if (r.message.success) {
-									frappe.show_alert({
-										message: r.message.message,
-										indicator: 'green'
-									}, 8);
+									frappe.show_alert(
+										{
+											message: r.message.message,
+											indicator: 'green'
+										},
+										8
+									);
 								} else {
-									frappe.msgprint(__('Migration failed: {0}', [r.message.error]));
+									frappe.msgprint(
+										__('Migration failed: {0}', [r.message.error])
+									);
 								}
 							}
 							d.hide();
@@ -359,18 +412,24 @@ function show_migration_tools_dialog() {
 
 function calculate_age(birth_date) {
 	// Calculate age from birth date
-	if (!birth_date) { return null; }
+	if (!birth_date) {
+		return null;
+	}
 
 	const birth = new Date(birth_date);
 	const today = new Date();
 
-	if (isNaN(birth.getTime())) { return null; }
+	if (isNaN(birth.getTime())) {
+		return null;
+	}
 
 	let age = today.getFullYear() - birth.getFullYear();
 
 	// Adjust if birthday hasn't occurred this year
-	if (today.getMonth() < birth.getMonth()
-        || (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())) {
+	if (
+		today.getMonth() < birth.getMonth()
+    || (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())
+	) {
 		age--;
 	}
 
@@ -388,24 +447,30 @@ frappe.ui.form.on('Verenigingen Settings', {
 	member_id_start(frm) {
 		// Show warning when changing the start value
 		if (frm.doc.member_id_start) {
-			frm.set_df_property('member_id_start', 'description',
-				'Changes to this value will update the member ID counter if the new value is higher than the current counter.');
+			frm.set_df_property(
+				'member_id_start',
+				'description',
+				'Changes to this value will update the member ID counter if the new value is higher than the current counter.'
+			);
 		}
 	}
 });
 
 function setup_settings_counter_section(frm) {
 	// Add button to view current counter status
-	frm.add_custom_button(__('View Member ID Status'), () => {
-		frappe.call({
-			method: 'verenigingen.verenigingen.doctype.member.member_id_manager.get_member_id_statistics',
-			callback(r) {
-				if (r.message) {
-					const stats = r.message;
+	frm.add_custom_button(
+		__('View Member ID Status'),
+		() => {
+			frappe.call({
+				method:
+          'verenigingen.verenigingen.doctype.member.member_id_manager.get_member_id_statistics',
+				callback(r) {
+					if (r.message) {
+						const stats = r.message;
 
-					frappe.msgprint({
-						title: __('Current Member ID Status'),
-						message: `
+						frappe.msgprint({
+							title: __('Current Member ID Status'),
+							message: `
                             <table class="table">
                                 <tr><td><strong>Current Counter:</strong></td><td>${stats.current_counter}</td></tr>
                                 <tr><td><strong>Next ID:</strong></td><td>${stats.next_id}</td></tr>
@@ -414,12 +479,14 @@ function setup_settings_counter_section(frm) {
                             </table>
                             <p class="text-muted">The counter will only be updated if you set the start value higher than the current counter.</p>
                         `,
-						wide: true
-					});
+							wide: true
+						});
+					}
 				}
-			}
-		});
-	}, __('Member ID Management'));
+			});
+		},
+		__('Member ID Management')
+	);
 }
 
 /**
@@ -432,15 +499,19 @@ function migrate_member_id_system() {
 	console.log('Starting member ID system migration...');
 
 	frappe.call({
-		method: 'verenigingen.verenigingen.doctype.member.member.migrate_member_id_counter',
+		method:
+      'verenigingen.verenigingen.doctype.member.member.migrate_member_id_counter',
 		callback(r) {
 			if (r.message) {
 				if (r.message.success) {
 					console.log('✓ Migration successful:', r.message.message);
-					frappe.show_alert({
-						message: 'Member ID system migration completed successfully',
-						indicator: 'green'
-					}, 8);
+					frappe.show_alert(
+						{
+							message: 'Member ID system migration completed successfully',
+							indicator: 'green'
+						},
+						8
+					);
 				} else {
 					console.error('✗ Migration failed:', r.message.error);
 					frappe.msgprint(`Migration failed: ${r.message.error}`);
@@ -459,9 +530,13 @@ window.migrate_member_id_system = migrate_member_id_system;
 
 // Auto-run migration check on page load for System Managers
 $(document).ready(() => {
-	if (frappe.user.has_role('System Manager')
-        && (frappe.get_route()[0] === 'List' && frappe.get_route()[1] === 'Member')
-        || (frappe.get_route()[0] === 'Form' && frappe.get_route()[1] === 'Verenigingen Settings')) {
+	if (
+		(frappe.user.has_role('System Manager')
+      && frappe.get_route()[0] === 'List'
+      && frappe.get_route()[1] === 'Member')
+    || (frappe.get_route()[0] === 'Form'
+      && frappe.get_route()[1] === 'Verenigingen Settings')
+	) {
 		// Check if migration might be needed
 		frappe.call({
 			method: 'frappe.client.get_single_value',
@@ -472,10 +547,15 @@ $(document).ready(() => {
 			callback(r) {
 				if (r.message && parseInt(r.message, 10) > 0) {
 					// Old system detected, suggest migration
-					frappe.show_alert({
-						message: __('Old member ID system detected. Consider running migration. Type migrate_member_id_system() in console.'),
-						indicator: 'orange'
-					}, 10);
+					frappe.show_alert(
+						{
+							message: __(
+								'Old member ID system detected. Consider running migration. Type migrate_member_id_system() in console.'
+							),
+							indicator: 'orange'
+						},
+						10
+					);
 				}
 			}
 		});

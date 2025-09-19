@@ -25,14 +25,18 @@ verenigingen/
 ### Key Components
 
 #### 1. PaymentHistoryScalabilityTest
+
 Main test class that extends `VereningingenTestCase` and provides:
+
 - Progressive scaling tests (100 → 5000 members)
 - Performance metrics collection
 - Resource monitoring
 - Automatic cleanup and tracking
 
 #### 2. PerformanceMetricsCollector
+
 Comprehensive metrics collection including:
+
 - **Timing metrics**: Execution time, load time, cleanup time
 - **Throughput metrics**: Members/second, invoices/second, payments/second
 - **Memory metrics**: Start, peak, end, and delta usage
@@ -40,7 +44,9 @@ Comprehensive metrics collection including:
 - **Background job metrics**: Queue times, completion rates
 
 #### 3. PaymentHistoryTestDataGenerator
+
 Specialized data generator that creates:
+
 - Realistic payment histories with configurable patterns
 - Various payment frequencies (Monthly, Quarterly, Annual)
 - Payment failure scenarios with retry logic
@@ -48,14 +54,18 @@ Specialized data generator that creates:
 - Edge cases and stress scenarios
 
 #### 4. BackgroundJobScalabilityTest
+
 Tests background job processing scalability:
+
 - Queue processing with realistic monitoring
 - Job completion tracking
 - Failure handling and retry logic
 - Concurrent job execution
 
 #### 5. EdgeCaseScalabilityTest
+
 Tests system robustness with:
+
 - Missing customer records
 - Corrupted payment data
 - Concurrent access scenarios
@@ -64,30 +74,35 @@ Tests system robustness with:
 ## Test Scales
 
 ### Smoke Tests (100 members)
+
 - **Purpose**: Quick verification of basic functionality
 - **Duration**: ~30 seconds
 - **Memory**: <200MB
 - **Use case**: Development, CI/CD pipelines
 
 ### Integration Tests (500 members)
+
 - **Purpose**: Integration testing with moderate scale
 - **Duration**: ~2 minutes
 - **Memory**: <500MB
 - **Use case**: Pre-deployment validation
 
 ### Performance Tests (1000 members)
+
 - **Purpose**: Performance testing at realistic production scale
 - **Duration**: ~5 minutes
 - **Memory**: <1GB
 - **Use case**: Performance regression testing
 
 ### Stress Tests (2500+ members)
+
 - **Purpose**: Stress testing with high scale
 - **Duration**: ~10 minutes
 - **Memory**: <2GB
 - **Use case**: Capacity planning, system limits testing
 
 ### Maximum Tests (5000 members)
+
 - **Purpose**: Maximum scale testing
 - **Duration**: ~20 minutes
 - **Memory**: <4GB
@@ -154,12 +169,12 @@ test_suite.test_payment_history_scale_1000_members()
 
 ### Performance Thresholds
 
-| Scale | Max Time | Min Throughput | Max Memory |
-|-------|----------|----------------|------------|
-| Smoke | 30s | 5 members/s | 200MB |
-| Integration | 120s | 3 members/s | 500MB |
-| Performance | 300s | 2 members/s | 1GB |
-| Stress | 600s | 1 member/s | 2GB |
+| Scale       | Max Time | Min Throughput | Max Memory |
+| ----------- | -------- | -------------- | ---------- |
+| Smoke       | 30s      | 5 members/s    | 200MB      |
+| Integration | 120s     | 3 members/s    | 500MB      |
+| Performance | 300s     | 2 members/s    | 1GB        |
+| Stress      | 600s     | 1 member/s     | 2GB        |
 
 ### Sample Performance Report
 
@@ -208,16 +223,19 @@ test_suite.test_payment_history_scale_1000_members()
 ## Integration with Existing Infrastructure
 
 ### Test Base Classes
+
 - Extends `VereningingenTestCase` for automatic cleanup
 - Uses `StreamlinedTestDataFactory` for efficient data generation
 - Integrates with existing test runners and infrastructure
 
 ### Background Job Integration
+
 - Uses `BackgroundJobManager` for realistic job testing
 - Tests actual background job queue processing
 - Monitors job completion and failure rates
 
 ### Database Integration
+
 - Uses real Frappe ORM operations (no mocking)
 - Tests actual payment history loading logic
 - Validates database performance under load
@@ -254,18 +272,21 @@ if not validation["overall_passed"]:
 ## Monitoring and Reporting
 
 ### Resource Monitoring
+
 - **Memory Usage**: Real-time sampling every 5 seconds
 - **CPU Usage**: Peak and average CPU utilization
 - **Database Queries**: Count, timing, slow query detection
 - **Background Jobs**: Queue times and completion rates
 
 ### Report Generation
+
 - **JSON Reports**: Detailed metrics and results
 - **HTML Reports**: Visual dashboards with charts
 - **Performance Summaries**: Key metrics and thresholds
 - **CI/CD Integration**: JUnit XML and artifacts
 
 ### Sample HTML Report Features
+
 - Test execution summary with pass/fail status
 - Performance metrics with trend visualization
 - Resource usage charts (memory, CPU)
@@ -294,6 +315,7 @@ if not validation["overall_passed"]:
 ```
 
 ### Performance Gate Integration
+
 - Automatic failure on performance threshold violations
 - Configurable thresholds per environment
 - Trend analysis and regression detection
@@ -303,29 +325,37 @@ if not validation["overall_passed"]:
 ### Common Issues
 
 #### 1. Memory Exhaustion
+
 **Symptoms**: Tests fail with memory errors
 **Solutions**:
+
 - Reduce test scale or split into smaller batches
 - Check for memory leaks in test cleanup
 - Increase system memory or use distributed testing
 
 #### 2. Slow Database Performance
+
 **Symptoms**: Tests timeout or exceed performance thresholds
 **Solutions**:
+
 - Check database indexes on payment-related tables
 - Monitor slow query log for optimization opportunities
 - Consider read replicas for large-scale testing
 
 #### 3. Background Job Queue Issues
+
 **Symptoms**: Background job tests fail or timeout
 **Solutions**:
+
 - Verify background worker processes are running
 - Check job queue configuration and capacity
 - Monitor for job processing bottlenecks
 
 #### 4. Test Data Generation Failures
+
 **Symptoms**: Tests fail during data generation phase
 **Solutions**:
+
 - Check for missing required DocTypes or configurations
 - Verify database permissions and constraints
 - Review factory method implementations
@@ -341,6 +371,7 @@ if not validation["overall_passed"]:
 ## Best Practices
 
 ### Test Development
+
 1. **Always extend VereningingenTestCase** for proper cleanup
 2. **Use factories for data generation** instead of manual creation
 3. **Track all created documents** for automatic cleanup
@@ -348,6 +379,7 @@ if not validation["overall_passed"]:
 5. **Follow existing test patterns** from the codebase
 
 ### Performance Testing
+
 1. **Start with smoke tests** before running larger scales
 2. **Monitor system resources** during test execution
 3. **Use realistic test data** that matches production patterns
@@ -355,6 +387,7 @@ if not validation["overall_passed"]:
 5. **Validate thresholds** are appropriate for target environment
 
 ### CI/CD Integration
+
 1. **Use environment-specific configurations** for different pipelines
 2. **Set appropriate performance thresholds** for CI environments
 3. **Generate artifacts** for trend analysis and debugging
@@ -364,6 +397,7 @@ if not validation["overall_passed"]:
 ## Future Enhancements
 
 ### Planned Features
+
 1. **Distributed Testing**: Support for running tests across multiple nodes
 2. **Real-time Dashboards**: Live monitoring during test execution
 3. **Trend Analysis**: Historical performance tracking and regression detection
@@ -371,6 +405,7 @@ if not validation["overall_passed"]:
 5. **Database Scaling**: Testing with read replicas and clustering
 
 ### Extension Points
+
 1. **Custom Metrics**: Add domain-specific performance metrics
 2. **Test Scenarios**: Create specialized test scenarios for specific use cases
 3. **Integration Testing**: Extend to test other system components at scale
@@ -379,16 +414,19 @@ if not validation["overall_passed"]:
 ## Support and Maintenance
 
 ### Documentation Updates
+
 - Update performance thresholds based on infrastructure changes
 - Document new test scenarios and their usage
 - Maintain configuration examples for different environments
 
 ### Code Maintenance
+
 - Regularly update test data patterns to match production
 - Optimize test execution performance
 - Update dependencies and framework integration
 
 ### Monitoring and Alerting
+
 - Set up alerts for performance regression in CI/CD
 - Monitor test execution times and resource usage
 - Track success rates and failure patterns

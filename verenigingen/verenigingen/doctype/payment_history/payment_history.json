@@ -1,129 +1,129 @@
 {
- "actions": [],
- "app": "verenigingen",
- "creation": "2025-09-04 15:30:00.000000",
- "doctype": "DocType",
- "engine": "InnoDB",
- "field_order": [
-  "payment_date",
-  "column_break_1",
-  "amount",
-  "column_break_2",
-  "payment_id",
-  "column_break_3",
-  "mollie_payment_id",
-  "column_break_4",
-  "payment_status",
-  "section_break_details",
-  "mollie_customer_id",
-  "column_break_mollie",
-  "payment_method",
-  "column_break_method",
-  "transaction_reference",
-  "section_break_notes",
-  "notes"
- ],
- "fields": [
-  {
-   "fieldname": "payment_date",
-   "fieldtype": "Date",
-   "in_list_view": 1,
-   "label": "Payment Date",
-   "reqd": 1
-  },
-  {
-   "fieldname": "column_break_1",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "amount",
-   "fieldtype": "Currency",
-   "in_list_view": 1,
-   "label": "Amount",
-   "options": "Company:company:default_currency",
-   "reqd": 1
-  },
-  {
-   "fieldname": "column_break_2",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "payment_id",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Payment ID"
-  },
-  {
-   "fieldname": "column_break_3",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "mollie_payment_id",
-   "fieldtype": "Data",
-   "label": "Mollie Payment ID",
-   "description": "Specific Mollie payment transaction ID"
-  },
-  {
-   "fieldname": "column_break_4",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "payment_status",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "Status",
-   "options": "Open\nPending\nCompleted\nCancelled\nError",
-   "reqd": 1
-  },
-  {
-   "fieldname": "section_break_details",
-   "fieldtype": "Section Break",
-   "label": "Payment Details"
-  },
-  {
-   "fieldname": "mollie_customer_id",
-   "fieldtype": "Data",
-   "label": "Mollie Customer ID"
-  },
-  {
-   "fieldname": "column_break_mollie",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "payment_method",
-   "fieldtype": "Data",
-   "label": "Payment Method"
-  },
-  {
-   "fieldname": "column_break_method",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "transaction_reference",
-   "fieldtype": "Data",
-   "label": "Transaction Reference"
-  },
-  {
-   "fieldname": "section_break_notes",
-   "fieldtype": "Section Break",
-   "label": "Notes"
-  },
-  {
-   "fieldname": "notes",
-   "fieldtype": "Small Text",
-   "label": "Notes"
-  }
- ],
- "index_web_pages_for_search": 1,
- "istable": 1,
- "links": [],
- "modified": "2025-09-04 15:30:00.000000",
- "modified_by": "Administrator",
- "module": "Verenigingen",
- "name": "Payment History",
- "owner": "Administrator",
- "permissions": [],
- "sort_field": "modified",
- "sort_order": "DESC",
- "states": []
+  "actions": [],
+  "app": "verenigingen",
+  "creation": "2025-09-04 15:30:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "payment_date",
+    "column_break_1",
+    "amount",
+    "column_break_2",
+    "payment_id",
+    "column_break_3",
+    "mollie_payment_id",
+    "column_break_4",
+    "payment_status",
+    "section_break_details",
+    "mollie_customer_id",
+    "column_break_mollie",
+    "payment_method",
+    "column_break_method",
+    "transaction_reference",
+    "section_break_notes",
+    "notes"
+  ],
+  "fields": [
+    {
+      "fieldname": "payment_date",
+      "fieldtype": "Date",
+      "in_list_view": 1,
+      "label": "Payment Date",
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "amount",
+      "fieldtype": "Currency",
+      "in_list_view": 1,
+      "label": "Amount",
+      "options": "Company:company:default_currency",
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_2",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "payment_id",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Payment ID"
+    },
+    {
+      "fieldname": "column_break_3",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "mollie_payment_id",
+      "fieldtype": "Data",
+      "label": "Mollie Payment ID",
+      "description": "Specific Mollie payment transaction ID"
+    },
+    {
+      "fieldname": "column_break_4",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "payment_status",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "label": "Status",
+      "options": "Open\nPending\nCompleted\nCancelled\nError",
+      "reqd": 1
+    },
+    {
+      "fieldname": "section_break_details",
+      "fieldtype": "Section Break",
+      "label": "Payment Details"
+    },
+    {
+      "fieldname": "mollie_customer_id",
+      "fieldtype": "Data",
+      "label": "Mollie Customer ID"
+    },
+    {
+      "fieldname": "column_break_mollie",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "payment_method",
+      "fieldtype": "Data",
+      "label": "Payment Method"
+    },
+    {
+      "fieldname": "column_break_method",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "transaction_reference",
+      "fieldtype": "Data",
+      "label": "Transaction Reference"
+    },
+    {
+      "fieldname": "section_break_notes",
+      "fieldtype": "Section Break",
+      "label": "Notes"
+    },
+    {
+      "fieldname": "notes",
+      "fieldtype": "Small Text",
+      "label": "Notes"
+    }
+  ],
+  "index_web_pages_for_search": 1,
+  "istable": 1,
+  "links": [],
+  "modified": "2025-09-04 15:30:00.000000",
+  "modified_by": "Administrator",
+  "module": "Verenigingen",
+  "name": "Payment History",
+  "owner": "Administrator",
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": []
 }

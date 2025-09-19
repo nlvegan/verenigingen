@@ -9,6 +9,7 @@
 The Verenigingen Security Framework provides security across all system domains for Dutch association management. This guide covers network security, authentication, data protection, integration security, and operational security measures implemented throughout the system.
 
 **Security Coverage Overview:**
+
 - **Network & Web Security**: CORS, CSP, HTTPS enforcement, rate limiting
 - **Authentication & Authorization**: Session management, role-based access control, permission inheritance
 - **Data Security**: Field-level encryption, audit logging, input validation, GDPR compliance
@@ -35,6 +36,7 @@ The Verenigingen Security Framework provides security across all system domains 
 ### HTTP Security Headers
 
 **Implementation**: Frappe framework with custom enhancements
+
 ```python
 # Custom security headers in verenigingen/hooks.py
 override_whitelisted_methods = {
@@ -50,6 +52,7 @@ override_whitelisted_methods = {
 ```
 
 **Implemented Headers:**
+
 - **X-Content-Type-Options**: `nosniff` - Prevents MIME type sniffing attacks
 - **X-Frame-Options**: `DENY` - Prevents clickjacking attacks
 - **X-XSS-Protection**: `1; mode=block` - Enables browser XSS protection
@@ -59,6 +62,7 @@ override_whitelisted_methods = {
 ### HTTPS Enforcement
 
 **Production Configuration:**
+
 ```nginx
 # Nginx configuration for HTTPS enforcement
 server {
@@ -77,6 +81,7 @@ server {
 ```
 
 **Framework Integration:**
+
 - Automatic HTTPS redirects in production
 - Secure cookie flags enforced
 - TLS 1.2+ requirement for all connections
@@ -85,6 +90,7 @@ server {
 ### CORS Configuration
 
 **File**: `verenigingen/utils/security/cors_handler.py`
+
 ```python
 CORS_SETTINGS = {
     "allowed_origins": [
@@ -102,6 +108,7 @@ CORS_SETTINGS = {
 ```
 
 **Security Features:**
+
 - Whitelist-based origin validation
 - Strict method and header controls
 - Credential handling restrictions
@@ -113,6 +120,7 @@ CORS_SETTINGS = {
 **File**: `verenigingen/utils/security/rate_limiting.py`
 
 **Operation-Specific Limits:**
+
 ```python
 DEFAULT_LIMITS = {
     "sepa_batch_creation": {"requests": 10, "window_seconds": 3600},
@@ -123,12 +131,14 @@ DEFAULT_LIMITS = {
 ```
 
 **Role-Based Multipliers:**
+
 - **System Manager**: 10x base limit
 - **Verenigingen Administrator**: 5x base limit
 - **Verenigingen Manager**: 3x base limit
 - **Standard Users**: 1x base limit
 
 **Features:**
+
 - Sliding window algorithm for accurate rate limiting
 - Per-user and per-IP tracking
 - Redis clustering support for scale
@@ -138,6 +148,7 @@ DEFAULT_LIMITS = {
 ### Content Security Policy (CSP)
 
 **Implementation**: Dynamic CSP generation based on context
+
 ```python
 def generate_csp_header(request_context):
     base_policy = {
@@ -153,6 +164,7 @@ def generate_csp_header(request_context):
 ```
 
 **Context-Aware Policies:**
+
 - **Payment Pages**: Extended to include Mollie payment domains
 - **Admin Pages**: Restricted to internal resources only
 - **Portal Pages**: Limited external integrations allowed
@@ -168,6 +180,7 @@ def generate_csp_header(request_context):
 **File**: `verenigingen/utils/security/session_manager.py`
 
 **Session Security Features:**
+
 ```python
 class SecureSessionManager:
     def __init__(self):
@@ -178,6 +191,7 @@ class SecureSessionManager:
 ```
 
 **Session Controls:**
+
 - **Automatic Timeout**: Role-based session expiration
 - **Session Rotation**: Regular session ID regeneration
 - **Concurrent Session Limits**: Prevents session hijacking
@@ -190,6 +204,7 @@ class SecureSessionManager:
 **Enhanced Security**: Custom multi-factor authentication support
 
 **Login Security Features:**
+
 ```python
 # Login attempt monitoring
 LOGIN_SECURITY = {
@@ -202,6 +217,7 @@ LOGIN_SECURITY = {
 ```
 
 **Account Security:**
+
 - **Password Complexity**: Minimum 12 characters, mixed case, numbers, symbols
 - **Password History**: Last 12 passwords remembered
 - **Account Lockout**: Progressive delays on failed attempts
@@ -214,6 +230,7 @@ LOGIN_SECURITY = {
 **File**: `verenigingen/utils/security/authorization.py`
 
 **Role Hierarchy:**
+
 ```python
 ROLE_HIERARCHY = {
     "System Manager": {
@@ -245,6 +262,7 @@ ROLE_HIERARCHY = {
 ```
 
 **Permission Features:**
+
 - **Fine-Grained Permissions**: Document-level and field-level access control
 - **Dynamic Permission Evaluation**: Context-aware permission checking
 - **Permission Inheritance**: Hierarchical role-based inheritance
@@ -257,6 +275,7 @@ ROLE_HIERARCHY = {
 **File**: `verenigingen/utils/security/api_security_framework.py`
 
 **Security Levels:**
+
 ```python
 @critical_api(operation_type=OperationType.FINANCIAL)
 def process_payment(amount, member_id):
@@ -270,6 +289,7 @@ def update_member_data(member_id, data):
 ```
 
 **Security Classifications:**
+
 - **CRITICAL**: Financial transactions, system administration
 - **HIGH**: Member data access, batch operations
 - **MEDIUM**: Reporting, read-only operations
@@ -277,6 +297,7 @@ def update_member_data(member_id, data):
 - **PUBLIC**: No authentication required
 
 **Validation Features:**
+
 - **Role Validation**: Automatic role requirement checking
 - **Rate Limiting**: Per-operation rate limiting
 - **Audit Logging**: Complete API usage tracking
@@ -293,6 +314,7 @@ def update_member_data(member_id, data):
 **File**: `verenigingen/verenigingen_payments/core/security/encryption_handler.py`
 
 **Encryption Architecture:**
+
 ```python
 class EncryptionHandler:
     """
@@ -309,6 +331,7 @@ class EncryptionHandler:
 ```
 
 **Encryption Features:**
+
 - **Field-Level Encryption**: Automatic encryption for sensitive fields
 - **Format-Preserving Encryption**: Maintains data format for IBANs and card numbers
 - **Key Rotation**: Automated encryption key rotation
@@ -320,6 +343,7 @@ class EncryptionHandler:
 **Implementation**: Multiple layers of database protection
 
 **Access Controls:**
+
 ```sql
 -- Database user restrictions
 GRANT SELECT, INSERT, UPDATE, DELETE ON verenigingen.* TO 'app_user'@'localhost';
@@ -328,6 +352,7 @@ REVOKE ALL ON verenigingen.password_tables FROM 'app_user'@'localhost';
 ```
 
 **Security Features:**
+
 - **Connection Encryption**: TLS-encrypted database connections
 - **User Separation**: Separate database users for different access levels
 - **Query Logging**: Comprehensive query auditing
@@ -340,6 +365,7 @@ REVOKE ALL ON verenigingen.password_tables FROM 'app_user'@'localhost';
 **Files**: `verenigingen/utils/validation/`
 
 **Validation Layers:**
+
 ```python
 class InputValidator:
     def validate_dutch_postal_code(self, postal_code):
@@ -357,6 +383,7 @@ class InputValidator:
 ```
 
 **Validation Types:**
+
 - **Dutch Business Rules**: Postal codes, BSN numbers, IBAN validation
 - **Financial Data**: Amount validation, currency formatting
 - **HTML Sanitization**: XSS prevention for user-generated content
@@ -368,6 +395,7 @@ class InputValidator:
 **Implementation**: Comprehensive privacy protection system
 
 **Data Protection Features:**
+
 ```python
 class GDPRCompliance:
     def __init__(self):
@@ -388,6 +416,7 @@ class GDPRCompliance:
 ```
 
 **GDPR Features:**
+
 - **Data Minimization**: Only collect necessary data
 - **Retention Management**: Automated data deletion after retention periods
 - **Right to Access**: Complete data export capabilities
@@ -402,6 +431,7 @@ class GDPRCompliance:
 **File**: `verenigingen/utils/security/audit_logging.py`
 
 **Audit Categories:**
+
 ```python
 AUDIT_CATEGORIES = {
     "authentication": ["login", "logout", "password_change", "role_change"],
@@ -413,6 +443,7 @@ AUDIT_CATEGORIES = {
 ```
 
 **Audit Features:**
+
 - **Complete Activity Tracking**: All user actions logged
 - **Tamper-Proof Logging**: Cryptographically signed audit logs
 - **Real-Time Monitoring**: Immediate alert on suspicious activities
@@ -429,6 +460,7 @@ AUDIT_CATEGORIES = {
 **File**: `verenigingen/verenigingen_payments/core/security/mollie_security_manager.py`
 
 **API Security Features:**
+
 ```python
 class MollieSecurityManager:
     def __init__(self):
@@ -448,6 +480,7 @@ class MollieSecurityManager:
 ```
 
 **Integration Security:**
+
 - **API Key Rotation**: Automated API key rotation procedures
 - **Webhook Signature Validation**: HMAC-SHA256 signature verification
 - **IP Whitelisting**: Restrict API access to known IP addresses
@@ -460,6 +493,7 @@ class MollieSecurityManager:
 **File**: `verenigingen/e_boekhouden/utils/eboekhouden_rest_client.py`
 
 **Security Features:**
+
 ```python
 class EBoekhoudenSecurityClient:
     def __init__(self):
@@ -477,6 +511,7 @@ class EBoekhoudenSecurityClient:
 ```
 
 **Integration Protections:**
+
 - **OAuth 2.0 with PKCE**: Secure authentication flow
 - **Client Certificate Authentication**: Mutual TLS authentication
 - **Data Encryption in Transit**: All data encrypted during transmission
@@ -489,6 +524,7 @@ class EBoekhoudenSecurityClient:
 **File**: `verenigingen/utils/security/webhook_validator.py`
 
 **Webhook Validation:**
+
 ```python
 class WebhookValidator:
     def validate_webhook_request(self, request):
@@ -509,6 +545,7 @@ class WebhookValidator:
 ```
 
 **Webhook Security:**
+
 - **Signature Verification**: HMAC-SHA256 signature validation
 - **Timestamp Validation**: Prevent replay attacks
 - **IP Whitelisting**: Accept webhooks only from trusted sources
@@ -527,32 +564,33 @@ class WebhookValidator:
 
 ```json
 {
-    "db_host": "localhost",
-    "db_port": 3306,
-    "redis_cache": "redis://redis-cache:6379",
-    "redis_queue": "redis://redis-queue:6379",
-    "redis_socketio": "redis://redis-socketio:6379",
+  "db_host": "localhost",
+  "db_port": 3306,
+  "redis_cache": "redis://redis-cache:6379",
+  "redis_queue": "redis://redis-queue:6379",
+  "redis_socketio": "redis://redis-socketio:6379",
 
-    "security": {
-        "encryption_key_rotation_days": 90,
-        "session_timeout_hours": 1,
-        "max_login_attempts": 5,
-        "password_reset_expiry_hours": 24,
-        "require_https": true,
-        "secure_cookies": true,
-        "csp_enforcement": true
-    },
+  "security": {
+    "encryption_key_rotation_days": 90,
+    "session_timeout_hours": 1,
+    "max_login_attempts": 5,
+    "password_reset_expiry_hours": 24,
+    "require_https": true,
+    "secure_cookies": true,
+    "csp_enforcement": true
+  },
 
-    "monitoring": {
-        "enable_performance_monitoring": true,
-        "enable_security_monitoring": true,
-        "log_level": "INFO",
-        "audit_log_retention_days": 2555
-    }
+  "monitoring": {
+    "enable_performance_monitoring": true,
+    "enable_security_monitoring": true,
+    "log_level": "INFO",
+    "audit_log_retention_days": 2555
+  }
 }
 ```
 
 **Environment-Specific Settings:**
+
 - **Development**: Relaxed security for development efficiency
 - **Staging**: Production-like security for realistic testing
 - **Production**: Maximum security enforcement
@@ -564,6 +602,7 @@ class WebhookValidator:
 **File**: `verenigingen/utils/security/security_monitoring.py`
 
 **Monitoring Categories:**
+
 ```python
 class SecurityMonitor:
     def __init__(self):
@@ -576,6 +615,7 @@ class SecurityMonitor:
 ```
 
 **Security Alerts:**
+
 - **Real-Time Threat Detection**: Immediate alerts for suspicious activities
 - **Anomaly Detection**: Machine learning-based unusual behavior detection
 - **Integration Monitoring**: External API abuse detection
@@ -587,6 +627,7 @@ class SecurityMonitor:
 **Implementation**: Secure backup and recovery procedures
 
 **Backup Security Features:**
+
 ```bash
 #!/bin/bash
 # Secure backup script with encryption
@@ -606,6 +647,7 @@ rm backup_key.txt
 ```
 
 **Backup Security:**
+
 - **Encryption at Rest**: All backups encrypted with AES-256
 - **Key Management**: Secure key storage using HashiCorp Vault
 - **Offsite Storage**: Encrypted backup replication to secure cloud storage
@@ -618,6 +660,7 @@ rm backup_key.txt
 **File**: `docs/security/incident_response_procedures.md`
 
 **Incident Response Workflow:**
+
 ```python
 class IncidentResponse:
     def __init__(self):
@@ -637,6 +680,7 @@ class IncidentResponse:
 ```
 
 **Response Procedures:**
+
 - **Threat Containment**: Immediate threat isolation procedures
 - **Evidence Collection**: Forensic evidence collection and preservation
 - **Stakeholder Notification**: Automated notification of security incidents
@@ -650,6 +694,7 @@ class IncidentResponse:
 ### Defense in Depth
 
 **Security Layer Architecture:**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    Network Security Layer                    │
@@ -672,6 +717,7 @@ class IncidentResponse:
 ### Security Integration Points
 
 **Framework Integration:**
+
 - **Frappe Framework Security**: Enhanced with custom security modules
 - **Database Security**: MariaDB/MySQL security hardening
 - **Web Server Security**: Nginx security configuration
@@ -682,16 +728,16 @@ class IncidentResponse:
 
 **Identified Threats and Mitigations:**
 
-| Threat Category | Risk Level | Mitigation Strategy |
-|----------------|------------|-------------------|
-| SQL Injection | High | Parameterized queries, input validation |
-| XSS Attacks | High | CSP, input sanitization, output encoding |
-| CSRF Attacks | Medium | CSRF tokens, SameSite cookies |
-| Session Hijacking | High | Secure session management, HTTPS |
-| Data Breaches | Critical | Encryption, access controls, monitoring |
-| API Abuse | Medium | Rate limiting, authentication, monitoring |
-| Privilege Escalation | High | Role validation, permission auditing |
-| Man-in-the-Middle | Medium | TLS, certificate pinning |
+| Threat Category      | Risk Level | Mitigation Strategy                       |
+| -------------------- | ---------- | ----------------------------------------- |
+| SQL Injection        | High       | Parameterized queries, input validation   |
+| XSS Attacks          | High       | CSP, input sanitization, output encoding  |
+| CSRF Attacks         | Medium     | CSRF tokens, SameSite cookies             |
+| Session Hijacking    | High       | Secure session management, HTTPS          |
+| Data Breaches        | Critical   | Encryption, access controls, monitoring   |
+| API Abuse            | Medium     | Rate limiting, authentication, monitoring |
+| Privilege Escalation | High       | Role validation, permission auditing      |
+| Man-in-the-Middle    | Medium     | TLS, certificate pinning                  |
 
 ---
 
@@ -701,6 +747,7 @@ class IncidentResponse:
 
 **Implementation Status**: Fully compliant
 **Features**:
+
 - **Data Minimization**: Only necessary data collected
 - **Consent Management**: Granular consent tracking
 - **Right to Access**: Complete data export capabilities
@@ -712,6 +759,7 @@ class IncidentResponse:
 ### Dutch Financial Regulations
 
 **Compliance Areas**:
+
 - **SEPA Compliance**: Full SEPA direct debit compliance
 - **Banking Regulations**: Secure payment processing compliance
 - **Data Retention**: Dutch financial data retention requirements
@@ -720,6 +768,7 @@ class IncidentResponse:
 ### Industry Standards
 
 **Implemented Standards**:
+
 - **ISO 27001**: Information security management system
 - **PCI DSS**: Payment card industry data security standard (for future card payments)
 - **OWASP Top 10**: Web application security best practices
@@ -732,6 +781,7 @@ class IncidentResponse:
 ### Development Security
 
 **Secure Development Practices:**
+
 ```python
 # Security code review checklist
 SECURITY_CHECKLIST = {
@@ -746,6 +796,7 @@ SECURITY_CHECKLIST = {
 ```
 
 **Pre-Commit Security Checks:**
+
 ```yaml
 # .pre-commit-config.yaml
 repos:
@@ -753,7 +804,7 @@ repos:
     rev: 1.7.4
     hooks:
       - id: bandit
-        args: ['-c', '.bandit']
+        args: ["-c", ".bandit"]
 
   - repo: https://github.com/psf/black
     rev: 22.3.0
@@ -771,6 +822,7 @@ repos:
 ### Testing Security
 
 **Security Testing Framework:**
+
 ```python
 class SecurityTestCase(unittest.TestCase):
     def test_sql_injection_protection(self):
@@ -794,6 +846,7 @@ class SecurityTestCase(unittest.TestCase):
 ### Deployment Security
 
 **Secure Deployment Checklist:**
+
 - [ ] TLS certificates installed and configured
 - [ ] Security headers configured
 - [ ] Database access restricted
@@ -810,6 +863,7 @@ class SecurityTestCase(unittest.TestCase):
 ### Security Monitoring Dashboard
 
 **Real-Time Monitoring:**
+
 - **Authentication Events**: Login attempts, failures, lockouts
 - **Authorization Events**: Permission violations, role changes
 - **Data Access**: Sensitive data access, bulk operations
@@ -817,6 +871,7 @@ class SecurityTestCase(unittest.TestCase):
 - **Integration Events**: External API calls, webhook processing
 
 **Monitoring Tools:**
+
 - **Zabbix Integration**: System and application monitoring
 - **Custom Security Dashboard**: Real-time security event monitoring
 - **Log Analysis**: Automated log analysis and alerting
@@ -825,6 +880,7 @@ class SecurityTestCase(unittest.TestCase):
 ### Alert Configuration
 
 **Critical Alerts (Immediate Response):**
+
 - Multiple failed login attempts from single IP
 - Privilege escalation attempts
 - Bulk data export operations
@@ -832,6 +888,7 @@ class SecurityTestCase(unittest.TestCase):
 - System configuration changes
 
 **Warning Alerts (Monitor Closely):**
+
 - Unusual access patterns
 - Off-hours system access
 - Large data operations
@@ -841,6 +898,7 @@ class SecurityTestCase(unittest.TestCase):
 ### Incident Response Procedures
 
 **Incident Classification:**
+
 1. **Security Breach**: Confirmed unauthorized access
 2. **Data Exposure**: Potential data leak or exposure
 3. **System Compromise**: System integrity compromised
@@ -848,6 +906,7 @@ class SecurityTestCase(unittest.TestCase):
 5. **Compliance Violation**: Regulatory compliance issue
 
 **Response Procedures:**
+
 1. **Immediate Containment**: Isolate affected systems
 2. **Assessment**: Determine scope and impact
 3. **Notification**: Inform stakeholders and authorities
@@ -862,24 +921,28 @@ class SecurityTestCase(unittest.TestCase):
 ### Regular Security Tasks
 
 **Daily Tasks:**
+
 - Monitor security alerts and logs
 - Review failed authentication attempts
 - Check system health and performance
 - Validate backup completion
 
 **Weekly Tasks:**
+
 - Review security metrics and trends
 - Update threat intelligence feeds
 - Perform security configuration review
 - Test incident response procedures
 
 **Monthly Tasks:**
+
 - Security patch management
 - Access control review
 - Security awareness training
 - Penetration testing (rotating schedule)
 
 **Quarterly Tasks:**
+
 - security assessment
 - Threat model review and update
 - Disaster recovery testing
@@ -888,6 +951,7 @@ class SecurityTestCase(unittest.TestCase):
 ### Security Updates
 
 **Update Management Process:**
+
 1. **Security Advisory Monitoring**: Track security advisories for all components
 2. **Impact Assessment**: Evaluate security update impact
 3. **Testing**: Test security updates in staging environment
@@ -895,6 +959,7 @@ class SecurityTestCase(unittest.TestCase):
 5. **Verification**: Verify update effectiveness
 
 **Update Categories:**
+
 - **Critical Security Patches**: Immediate deployment required
 - **High Priority Updates**: Deploy within 48 hours
 - **Standard Updates**: Deploy within maintenance window
@@ -907,6 +972,7 @@ class SecurityTestCase(unittest.TestCase):
 The Verenigingen Security Framework provides comprehensive protection across all security domains, implementing defense-in-depth strategies with proper balance between security and usability. Regular monitoring, maintenance, and updates ensure the framework remains effective against evolving threats while maintaining compliance with regulatory requirements.
 
 This comprehensive approach ensures:
+
 - **Complete Security Coverage**: All security domains properly addressed
 - **Balanced Implementation**: Equal attention to all security aspects
 - **Practical Application**: Real-world implementation guidance
@@ -918,6 +984,7 @@ For specific implementation details, refer to the individual security component 
 ---
 
 **Document Revision History:**
+
 - **v3.0** (September 17, 2025): Comprehensive rewrite with balanced coverage across all security domains
 - **v2.x**: API security framework focused documentation
 - **v1.x**: Basic security implementation documentation

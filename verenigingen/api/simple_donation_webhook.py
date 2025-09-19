@@ -263,9 +263,11 @@ def handle_payment_first_donation():
                 "donation_id": donation.name,
                 "amount": donation.amount,
                 "mandate_id": mollie_ids.get("mandate_id"),
-                "payment_entry": payment_entry_result.get("payment_entry")
-                if payment_entry_result and payment_entry_result.get("status") == "success"
-                else None,
+                "payment_entry": (
+                    payment_entry_result.get("payment_entry")
+                    if payment_entry_result and payment_entry_result.get("status") == "success"
+                    else None
+                ),
                 "is_new_donation": is_new_donation,
                 "flow_type": flow_type,
             },

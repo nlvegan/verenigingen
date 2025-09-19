@@ -1,6 +1,7 @@
 # Mollie Backend API Integration - Deployment Guide
 
 ## Table of Contents
+
 1. [Pre-Deployment Checklist](#pre-deployment-checklist)
 2. [Environment Setup](#environment-setup)
 3. [Installation Steps](#installation-steps)
@@ -15,6 +16,7 @@
 ## Pre-Deployment Checklist
 
 ### Requirements Verification
+
 - [ ] Frappe Framework v15+ installed
 - [ ] Python 3.10+ available
 - [ ] Redis server running
@@ -24,6 +26,7 @@
 - [ ] Monitoring infrastructure ready
 
 ### Mollie Account Setup
+
 - [ ] Production API keys obtained
 - [ ] Webhook URLs whitelisted
 - [ ] IP addresses verified
@@ -31,6 +34,7 @@
 - [ ] Settlement accounts configured
 
 ### Team Readiness
+
 - [ ] Operations team trained
 - [ ] Support procedures documented
 - [ ] Escalation paths defined
@@ -73,6 +77,7 @@ FLUSH PRIVILEGES;
 **Production MySQL Configuration**
 
 **For MySQL 8.0+ (`/etc/mysql/mysql.conf.d/mysqld.cnf`):**
+
 ```ini
 [mysqld]
 # Security
@@ -96,6 +101,7 @@ skip-log-bin
 ```
 
 **For MariaDB 10.6+ (`/etc/mysql/mariadb.conf.d/50-server.cnf`):**
+
 ```ini
 [mysqld]
 # Security
@@ -129,6 +135,7 @@ skip-log-bin
 ```
 
 **Apply configuration:**
+
 ```bash
 # Restart MySQL/MariaDB after configuration changes
 sudo systemctl restart mysql     # For MySQL
@@ -449,6 +456,7 @@ location /api/method/verenigingen.utils.payment_gateways.mollie_webhook {
 ```
 
 **Security Implementation**:
+
 - **API Verification**: Each webhook triggers a direct API call to Mollie to verify the payment exists and get current status
 - **Signature Validation**: HMAC-SHA256 signature verification using webhook secret
 - **Replay Protection**: Timestamp validation and duplicate webhook detection
@@ -659,6 +667,7 @@ FROM `tabDispute Case`;
 ### Common Issues
 
 #### API Connection Failures
+
 ```bash
 # Check connectivity
 curl -X GET https://api.mollie.com/v2/balances \
@@ -669,6 +678,7 @@ sudo iptables -L -n | grep 443
 ```
 
 #### Webhook Not Received
+
 ```bash
 # Check nginx logs
 tail -f /var/log/nginx/access.log | grep mollie
@@ -680,6 +690,7 @@ print(settings.webhook_url)
 ```
 
 #### High Memory Usage
+
 ```bash
 # Check memory
 free -h
@@ -694,16 +705,18 @@ bench --site prod.verenigingen.nl clear-cache
 ## Support Contacts
 
 ### Internal Team
+
 - Operations Lead: ops-lead@company.com
 - Database Admin: dba@company.com
 - Security Team: security@company.com
 
 ### External Support
+
 - Mollie Support: support@mollie.com
 - Mollie API Status: https://status.mollie.com
 - Frappe Support: support@frappe.io
 
 ---
 
-*Last Updated: August 2024*
-*Version: 1.0.0*
+_Last Updated: August 2024_
+_Version: 1.0.0_

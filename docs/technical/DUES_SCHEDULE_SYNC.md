@@ -27,19 +27,25 @@ This document describes the synchronization mechanism between Membership Dues Sc
 ## Synchronization Strategy
 
 ### 1. Schedule Creation (after_insert)
+
 When a new Membership Dues Schedule is created:
+
 - If it's Active and there's no current schedule, it becomes current
 - If it's Active and newer than the existing current schedule, it replaces it
 - Uses `FOR UPDATE` lock to prevent race conditions
 
 ### 2. Schedule Status Change (on_update)
+
 When a schedule's status changes:
+
 - If becoming Active: May become the current schedule
 - If becoming Inactive: System finds another active schedule or clears the field
 - Maintains referential integrity automatically
 
 ### 3. Invoice Generation
+
 When an invoice is generated:
+
 1. Invoice is created for the current period
 2. `last_invoice_date` is updated to the actual invoice date
 3. `next_invoice_date` is calculated and set
@@ -51,12 +57,14 @@ When an invoice is generated:
 ### Hook Functions (`membership_dues_schedule_hooks.py`)
 
 #### `update_member_current_dues_schedule(doc, method=None)`
+
 - Called on after_insert and on_update of Membership Dues Schedule
 - Uses atomic SQL with `FOR UPDATE` to prevent race conditions
 - Handles both activation and deactivation scenarios
 - No explicit commits - lets transaction complete normally
 
 #### `check_and_update_all_members_current_schedule(batch_size=100)`
+
 - Utility for bulk synchronization
 - Processes members in batches for performance
 - Includes timing metrics and progress logging
@@ -72,18 +80,21 @@ When an invoice is generated:
 ## Common Scenarios
 
 ### Scenario 1: New Member Signup
+
 1. Member is created
 2. Membership is created
 3. Dues Schedule is created → automatically set as current
 4. Member.next_invoice_date is populated via fetch_from
 
 ### Scenario 2: Fee Amendment
+
 1. New schedule created with different rate
 2. If active, becomes current (newer creation date)
 3. Old schedule may be cancelled
 4. Member fields update automatically
 
 ### Scenario 3: Daily Invoice Generation
+
 1. Scheduled job runs `generate_dues_invoices()`
 2. For each due schedule:
    - Invoice created
@@ -96,6 +107,7 @@ When an invoice is generated:
 ### Issue: Member shows wrong next_invoice_date
 
 **Check:**
+
 1. Is `current_dues_schedule` set correctly?
 2. Does the linked schedule exist and is Active?
 3. Run `check_and_update_all_members_current_schedule()` to fix
@@ -103,6 +115,7 @@ When an invoice is generated:
 ### Issue: Billing period shows current instead of next
 
 **Check:**
+
 1. Verify the `update_schedule_dates()` method is being called
 2. Check that billing period calculation uses `next_invoice_date`
 3. Manually recalculate: `schedule.calculate_billing_period(schedule.next_invoice_date)`
@@ -110,6 +123,7 @@ When an invoice is generated:
 ### Issue: Multiple active schedules for same member
 
 **Resolution:**
+
 - System automatically uses the newest (by creation date)
 - Consider adding validation to prevent multiple active schedules
 - Use the bulk sync function to clean up
@@ -117,6 +131,7 @@ When an invoice is generated:
 ## Testing
 
 Test coverage includes:
+
 - `test_dues_schedule_sync.py` - Comprehensive synchronization tests
 - Tests for race condition prevention
 - Billing period calculation for different frequencies
@@ -125,6 +140,7 @@ Test coverage includes:
 ## Database Queries
 
 ### Find members with sync issues:
+
 ```sql
 SELECT
     m.name,
@@ -139,6 +155,7 @@ WHERE m.status = 'Active'
 ```
 
 ### Find members with multiple active schedules:
+
 ```sql
 SELECT
     member,

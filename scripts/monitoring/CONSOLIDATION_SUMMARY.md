@@ -3,13 +3,16 @@
 ## What Was Done
 
 ### 1. Identified the Problem
+
 - Two separate implementations of Zabbix monitoring existed:
   - `verenigingen/monitoring/zabbix_integration.py` - Main app integration (more complete)
   - `scripts/monitoring/zabbix_integration.py` - Duplicate with fewer features
   - `scripts/monitoring/zabbix_v7_advanced.py` - Advanced features not in production
 
 ### 2. Created Enhanced Consolidated Version
+
 Created `scripts/monitoring/zabbix_integration_enhanced.py` that combines:
+
 - ✅ All metrics from main implementation (including invoices, subscriptions)
 - ✅ Performance percentile metrics (p50, p95, p99)
 - ✅ Error categorization by type
@@ -19,6 +22,7 @@ Created `scripts/monitoring/zabbix_integration_enhanced.py` that combines:
 - ✅ Comprehensive health checks
 
 ### 3. Updated Integration Path
+
 - Main module (`verenigingen/monitoring/zabbix_integration.py`) now imports from enhanced version
 - All API endpoints remain the same for backward compatibility
 - No changes needed in Frappe site configuration or API calls
@@ -26,11 +30,13 @@ Created `scripts/monitoring/zabbix_integration_enhanced.py` that combines:
 ### 4. New Features Available
 
 #### Auto-Remediation (with proper Zabbix alerts)
+
 - Clear cache on high memory usage
 - Clear stuck background jobs
 - Restart Redis (requires sudo setup)
 
 #### Enhanced Metrics
+
 - Response time percentiles for performance monitoring
 - Error breakdown by type (permission, validation, timeout, etc.)
 - Detailed health scoring (0-100%)
@@ -38,6 +44,7 @@ Created `scripts/monitoring/zabbix_integration_enhanced.py` that combines:
 - Financial processing health
 
 #### Zabbix 7.0 Support
+
 - Metadata support for better organization
 - Tag-based alert routing
 - Bulk metric sending
@@ -46,7 +53,9 @@ Created `scripts/monitoring/zabbix_integration_enhanced.py` that combines:
 ## Configuration
 
 ### Enable Advanced Features
+
 Add to site config:
+
 ```json
 {
   "enable_advanced_metrics": true,
@@ -57,6 +66,7 @@ Add to site config:
 ```
 
 ### Update Zabbix Template
+
 Use `zabbix_template_frappe_v7.2_fixed.yaml` for Zabbix 7.2+
 
 ## Directory Structure

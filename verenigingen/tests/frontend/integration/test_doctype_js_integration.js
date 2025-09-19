@@ -15,7 +15,7 @@ describe('Doctype JavaScript Integration Tests', () => {
 
 	beforeEach(() => {
 		// Set up global mocks
-		global.__ = jest.fn(str => str);
+		global.__ = jest.fn((str) => str);
 
 		frappe = {
 			call: jest.fn(),
@@ -31,7 +31,7 @@ describe('Doctype JavaScript Integration Tests', () => {
 			set_route: jest.fn(),
 			route_options: {},
 			datetime: {
-				str_to_user: jest.fn(date => date),
+				str_to_user: jest.fn((date) => date),
 				get_today: jest.fn(() => '2024-01-01'),
 				add_months: jest.fn((date, months) => {
 					const d = new Date(date);
@@ -206,7 +206,11 @@ describe('Doctype JavaScript Integration Tests', () => {
 				message: { name: 'VOL-001' }
 			});
 
-			const result = await syncBoardMemberStatus('CHAP-001', 'MEM-001', 'Chair');
+			const result = await syncBoardMemberStatus(
+				'CHAP-001',
+				'MEM-001',
+				'Chair'
+			);
 			expect(result.boardMember.role).toBe('Chair');
 			expect(result.assignment.role).toBe('Chair');
 		});
@@ -248,16 +252,20 @@ describe('Doctype JavaScript Integration Tests', () => {
 				}
 
 				// Calculate renewal date
-				membership.to_date = membershipType === 'Annual'
-					? frappe.datetime.add_months(membership.from_date, 12)
-					: frappe.datetime.add_months(membership.from_date, 1);
+				membership.to_date
+          = membershipType === 'Annual'
+          	? frappe.datetime.add_months(membership.from_date, 12)
+          	: frappe.datetime.add_months(membership.from_date, 1);
 
 				return membership;
 			};
 
 			frappe.call.mockResolvedValue({ message: null }); // No existing mandate
 
-			const membership = await createMembershipWithSEPA(mockData.member, 'Annual');
+			const membership = await createMembershipWithSEPA(
+				mockData.member,
+				'Annual'
+			);
 			expect(membership.to_date).toBe('2025-01-01');
 			expect(frappe.call).toHaveBeenCalledWith(
 				expect.objectContaining({
@@ -359,10 +367,8 @@ describe('Doctype JavaScript Integration Tests', () => {
 			];
 
 			const canAssignRole = (members, newMember, newRole) => {
-				const existingRole = members.find(m =>
-					m.role === newRole
-                    && m.is_active
-                    && m.member !== newMember
+				const existingRole = members.find(
+					(m) => m.role === newRole && m.is_active && m.member !== newMember
 				);
 				return !existingRole;
 			};

@@ -47,17 +47,29 @@ frappe.ui.form.on('Brand Settings', {
 	refresh(frm) {
 		// Add Owl Theme integration buttons
 		if (frm.doc.name && frm.doc.primary_color) {
-			frm.add_custom_button(__('Sync to Owl Theme'), () => {
-				sync_to_owl_theme(frm);
-			}, __('Owl Theme'));
+			frm.add_custom_button(
+				__('Sync to Owl Theme'),
+				() => {
+					sync_to_owl_theme(frm);
+				},
+				__('Owl Theme')
+			);
 
-			frm.add_custom_button(__('Check Owl Theme Status'), () => {
-				check_owl_theme_status(frm);
-			}, __('Owl Theme'));
+			frm.add_custom_button(
+				__('Check Owl Theme Status'),
+				() => {
+					check_owl_theme_status(frm);
+				},
+				__('Owl Theme')
+			);
 
-			frm.add_custom_button(__('Force Rebuild CSS'), () => {
-				force_rebuild_css(frm);
-			}, __('Debug'));
+			frm.add_custom_button(
+				__('Force Rebuild CSS'),
+				() => {
+					force_rebuild_css(frm);
+				},
+				__('Debug')
+			);
 		}
 
 		// Add color preview
@@ -76,18 +88,30 @@ frappe.ui.form.on('Brand Settings', {
 	// Auto-preview color changes
 	primary_color(frm) {
 		update_color_preview(frm);
-		suggest_button_text_color(frm, 'primary_color', 'primary_button_text_color');
+		suggest_button_text_color(
+			frm,
+			'primary_color',
+			'primary_button_text_color'
+		);
 	},
 	secondary_color(frm) {
 		update_color_preview(frm);
-		suggest_button_text_color(frm, 'secondary_color', 'secondary_button_text_color');
+		suggest_button_text_color(
+			frm,
+			'secondary_color',
+			'secondary_button_text_color'
+		);
 	},
 	accent_color(frm) {
 		update_color_preview(frm);
 		suggest_button_text_color(frm, 'accent_color', 'accent_button_text_color');
 	},
-	background_primary_color(frm) { update_color_preview(frm); },
-	background_secondary_color(frm) { update_color_preview(frm); }
+	background_primary_color(frm) {
+		update_color_preview(frm);
+	},
+	background_secondary_color(frm) {
+		update_color_preview(frm);
+	}
 });
 
 /**
@@ -119,7 +143,8 @@ frappe.ui.form.on('Brand Settings', {
  */
 function sync_to_owl_theme(frm) {
 	frappe.call({
-		method: 'verenigingen.verenigingen.doctype.brand_settings.brand_settings.sync_brand_settings_to_owl_theme',
+		method:
+      'verenigingen.verenigingen.doctype.brand_settings.brand_settings.sync_brand_settings_to_owl_theme',
 		callback(r) {
 			if (r.message && r.message.success) {
 				frappe.msgprint({
@@ -167,17 +192,22 @@ function sync_to_owl_theme(frm) {
  */
 function check_owl_theme_status(frm) {
 	frappe.call({
-		method: 'verenigingen.verenigingen.doctype.brand_settings.brand_settings.check_owl_theme_integration',
+		method:
+      'verenigingen.verenigingen.doctype.brand_settings.brand_settings.check_owl_theme_integration',
 		callback(r) {
 			if (r.message) {
 				const status = r.message;
 				const message = `
 					<div style="font-size: 14px;">
 						<p><strong>Owl Theme Installed:</strong> ${status.installed ? 'Yes' : 'No'}</p>
-						${status.installed ? `
+						${
+	status.installed
+		? `
 							<p><strong>Settings Exist:</strong> ${status.owl_settings_exists ? 'Yes' : 'No'}</p>
 							<p><strong>Active Brand Settings:</strong> ${status.active_brand_settings ? status.active_brand_settings.settings_name : 'None'}</p>
-						` : ''}
+						`
+		: ''
+}
 						<p><strong>Status:</strong> ${status.message}</p>
 						${status.error ? `<p style="color: red;"><strong>Error:</strong> ${status.error}</p>` : ''}
 					</div>
@@ -325,7 +355,8 @@ function update_color_preview(frm) {
  */
 function force_rebuild_css(frm) {
 	frappe.call({
-		method: 'verenigingen.verenigingen.doctype.brand_settings.brand_settings.force_rebuild_css',
+		method:
+      'verenigingen.verenigingen.doctype.brand_settings.brand_settings.force_rebuild_css',
 		callback(r) {
 			if (r.message && r.message.success) {
 				frappe.msgprint({
@@ -376,17 +407,20 @@ function force_rebuild_css(frm) {
  */
 function suggest_button_text_color(frm, backgroundField, textField) {
 	const backgroundColor = frm.doc[backgroundField];
-	if (!backgroundColor) return;
+	if (!backgroundColor) { return; }
 
 	const suggestedColor = get_optimal_text_color(backgroundColor);
-	const contrastRatio = calculate_contrast_ratio(backgroundColor, suggestedColor);
+	const contrastRatio = calculate_contrast_ratio(
+		backgroundColor,
+		suggestedColor
+	);
 
 	// Only update if the suggested color is different from current
 	if (frm.doc[textField] !== suggestedColor) {
 		frappe.confirm(
-			`For better accessibility, we recommend ${suggestedColor === '#ffffff' ? 'white' : 'black'} text on this background.<br>` +
-			`<small>Contrast ratio: ${contrastRatio.toFixed(1)}:1 (${contrastRatio >= 4.5 ? 'WCAG AA compliant' : 'below WCAG AA standard'})</small><br><br>` +
-			`Update the ${__(textField.replace(/_/g, ' '))} to ${suggestedColor}?`,
+			`For better accessibility, we recommend ${suggestedColor === '#ffffff' ? 'white' : 'black'} text on this background.<br>`
+        + `<small>Contrast ratio: ${contrastRatio.toFixed(1)}:1 (${contrastRatio >= 4.5 ? 'WCAG AA compliant' : 'below WCAG AA standard'})</small><br><br>`
+        + `Update the ${__(textField.replace(/_/g, ' '))} to ${suggestedColor}?`,
 			() => {
 				frm.set_value(textField, suggestedColor);
 			},

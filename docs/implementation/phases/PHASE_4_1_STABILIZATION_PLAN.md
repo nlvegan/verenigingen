@@ -1,4 +1,5 @@
 # Phase 4.1 Stabilization Plan (Updated)
+
 ## Testing Infrastructure Quality Recovery
 
 **Document Version**: 1.0
@@ -17,12 +18,15 @@ Based on code review findings (Grade C+) and architectural analysis, Phase 4.1 S
 ## PHASE 4.1 IMPLEMENTATION STAGES
 
 ### **Phase 4.1a: Critical Fixes** (2-3 days)
+
 **Status**: Ready to Start Immediately
 
 **Objective**: Fix the most critical issues preventing test execution
 
 **Specific Actions**:
+
 1. **Type Annotation Error Resolution**:
+
    ```python
    # Fix systematic type annotation issues in:
    # - TestDataFactory methods
@@ -35,6 +39,7 @@ Based on code review findings (Grade C+) and architectural analysis, Phase 4.1 S
    ```
 
 2. **Dutch Regional Data Compliance**:
+
    ```python
    # Fix invalid test data in factory methods
    DUTCH_REGIONS = [
@@ -61,17 +66,21 @@ Based on code review findings (Grade C+) and architectural analysis, Phase 4.1 S
    ```
 
 **Success Criteria**:
+
 - All type annotation errors resolved
 - Dutch regional data consistent with actual geography
 - Automated schema validation framework operational
 
 ### **Phase 4.1b: Quality Infrastructure** (3-5 days)
+
 **Status**: Requires Preparation (specifications needed)
 
 **Objective**: Implement basic quality gates and infrastructure validation
 
 **Required Clarifications Before Implementation**:
+
 1. **Quality Gate Specifications**:
+
    ```yaml
    # NEEDED: Specific definition of "basic quality gates"
    quality_gates:
@@ -98,6 +107,7 @@ Based on code review findings (Grade C+) and architectural analysis, Phase 4.1 S
    ```
 
 **Specific Actions**:
+
 1. **Quality Gates Framework**:
    - Pre-commit hooks for type checking
    - Automated schema validation in CI/CD
@@ -114,12 +124,15 @@ Based on code review findings (Grade C+) and architectural analysis, Phase 4.1 S
    - Schema compliance validation tests
 
 ### **Phase 4.1c: Integration Test Recovery** (3-5 days)
+
 **Status**: Needs Investigation (requires baseline test run)
 
 **Objective**: Systematically identify and fix integration test failures
 
 **Pre-Implementation Requirements**:
+
 1. **Baseline Test Execution**:
+
    ```bash
    # Execute comprehensive test run to identify all failing tests
    bench --site dev.veganisme.net run-tests --app verenigingen --verbose
@@ -141,6 +154,7 @@ Based on code review findings (Grade C+) and architectural analysis, Phase 4.1 S
    ```
 
 **Specific Actions**:
+
 1. **Systematic Test Failure Analysis**:
    - Execute baseline test run
    - Categorize failures by impact and complexity
@@ -161,12 +175,14 @@ Based on code review findings (Grade C+) and architectural analysis, Phase 4.1 S
 ## IMPLEMENTATION SAFEGUARDS
 
 ### **Quality Control Measures**:
+
 1. **Incremental Implementation**: Each phase must pass validation before proceeding
 2. **Regression Testing**: Comprehensive test execution after each major fix
 3. **Documentation**: Detailed logging of all changes for rollback capability
 4. **Code Review**: Each sub-phase requires review before proceeding
 
 ### **Validation Gates**:
+
 ```python
 PHASE_COMPLETION_CRITERIA = {
     '4.1a': {
@@ -188,6 +204,7 @@ PHASE_COMPLETION_CRITERIA = {
 ```
 
 ### **Rollback Procedures**:
+
 - Git commits at each sub-phase completion
 - Automated rollback triggers if regression thresholds exceeded
 - Complete documentation of all changes for manual rollback if needed
@@ -197,11 +214,13 @@ PHASE_COMPLETION_CRITERIA = {
 ## SPECIFIC INFORMATION GAPS TO FILL
 
 ### **Required Before Phase 4.1b**:
+
 1. **Quality Gate Metrics**: Define specific thresholds and tools
 2. **Autoname DocType Inventory**: Complete list of doctypes requiring document names
 3. **Validation Scope**: Which doctypes need factory method schema validation
 
 ### **Required Before Phase 4.1c**:
+
 1. **Baseline Test Results**: Complete inventory of failing integration tests
 2. **Priority Classification**: Which test failures are blocking vs. informational
 3. **Integration Test Dependencies**: Understanding of test interdependencies
@@ -215,6 +234,7 @@ PHASE_COMPLETION_CRITERIA = {
 **Risk Level**: LOW (incremental approach with rollback capabilities)
 
 **Resource Requirements**:
+
 - Implementation: Spec-implementation-coder agent
 - Validation: Code-review-test-runner agent after each phase
 - Architecture Review: Software-architecture-expert for final validation
@@ -224,6 +244,7 @@ PHASE_COMPLETION_CRITERIA = {
 ## SUCCESS METRICS
 
 **Phase 4.1 Success Criteria**:
+
 - All type annotation errors resolved
 - Dutch regional data compliance achieved
 - Quality gates operational
@@ -232,6 +253,7 @@ PHASE_COMPLETION_CRITERIA = {
 - Test infrastructure maintainable and documented
 
 **Final Validation**:
+
 - Complete test suite execution with >95% pass rate
 - Performance benchmarks maintained from Phase 2
 - Security implementations from Phase 1 unaffected

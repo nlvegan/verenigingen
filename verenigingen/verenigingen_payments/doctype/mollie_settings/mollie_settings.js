@@ -12,13 +12,17 @@ frappe.ui.form.on('Mollie Settings', {
 		// Show warning when test mode is enabled
 		if (frm.doc.test_mode) {
 			frm.dashboard.add_comment(
-				__('Test Mode is enabled. Test API key will be used and no real transactions will be processed.'),
+				__(
+					'Test Mode is enabled. Test API key will be used and no real transactions will be processed.'
+				),
 				'orange',
 				true
 			);
 		} else {
 			frm.dashboard.add_comment(
-				__('Live Mode is active. Live API key will be used for real transactions.'),
+				__(
+					'Live Mode is active. Live API key will be used for real transactions.'
+				),
 				'red',
 				true
 			);
@@ -55,25 +59,39 @@ function add_custom_buttons(frm) {
 	frm.clear_custom_buttons();
 
 	// Check if we have the required configuration for current mode
-	const has_required_key = frm.doc.test_mode ? frm.doc.test_secret_key : frm.doc.live_secret_key;
+	const has_required_key = frm.doc.test_mode
+		? frm.doc.test_secret_key
+		: frm.doc.live_secret_key;
 
 	// Add Test Connection button
 	if (frm.doc.name && frm.doc.profile_id && has_required_key) {
-		frm.add_custom_button(__('Test Connection'), () => {
-			test_mollie_connection(frm);
-		}, __('Actions'));
+		frm.add_custom_button(
+			__('Test Connection'),
+			() => {
+				test_mollie_connection(frm);
+			},
+			__('Actions')
+		);
 	}
 
 	// Add View Documentation button
-	frm.add_custom_button(__('Mollie Documentation'), () => {
-		window.open('https://docs.mollie.com/', '_blank');
-	}, __('Help'));
+	frm.add_custom_button(
+		__('Mollie Documentation'),
+		() => {
+			window.open('https://docs.mollie.com/', '_blank');
+		},
+		__('Help')
+	);
 
 	// Add Dashboard button if profile_id exists
 	if (frm.doc.profile_id) {
-		frm.add_custom_button(__('Mollie Dashboard'), () => {
-			window.open('https://www.mollie.com/dashboard', '_blank');
-		}, __('Help'));
+		frm.add_custom_button(
+			__('Mollie Dashboard'),
+			() => {
+				window.open('https://www.mollie.com/dashboard', '_blank');
+			},
+			__('Help')
+		);
 	}
 }
 
@@ -95,7 +113,9 @@ function setup_form_indicators(frm) {
 	}
 
 	// Show configuration status based on current mode
-	const has_required_key = frm.doc.test_mode ? frm.doc.test_secret_key : frm.doc.live_secret_key;
+	const has_required_key = frm.doc.test_mode
+		? frm.doc.test_secret_key
+		: frm.doc.live_secret_key;
 	const mode = frm.doc.test_mode ? 'Test' : 'Live';
 
 	if (frm.doc.name && frm.doc.profile_id && has_required_key) {
@@ -115,7 +135,8 @@ function setup_form_indicators(frm) {
 
 function test_mollie_connection(_frm) {
 	frappe.call({
-		method: 'verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings.test_mollie_connection',
+		method:
+      'verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings.test_mollie_connection',
 		args: {
 			// For singleton, no args needed - method will use frappe.get_single()
 		},
@@ -134,7 +155,8 @@ function test_mollie_connection(_frm) {
 		},
 		error(r) {
 			frappe.show_alert({
-				message: __('Error testing connection: ') + (r.message || 'Unknown error'),
+				message:
+          __('Error testing connection: ') + (r.message || 'Unknown error'),
 				indicator: 'red'
 			});
 		}
@@ -147,19 +169,25 @@ function validate_key_format(frm, key, expected_type) {
 		if (expected_type === 'test' && !key.startsWith('test_')) {
 			frappe.msgprint({
 				title: __('Test Key Warning'),
-				message: __('This appears to be a live key, but it should be a test key (should start with "test_")'),
+				message: __(
+					'This appears to be a live key, but it should be a test key (should start with "test_")'
+				),
 				indicator: 'orange'
 			});
 		} else if (expected_type === 'live' && key.startsWith('test_')) {
 			frappe.msgprint({
 				title: __('Live Key Warning'),
-				message: __('This appears to be a test key, but it should be a live key (should start with "live_")'),
+				message: __(
+					'This appears to be a test key, but it should be a live key (should start with "live_")'
+				),
 				indicator: 'red'
 			});
 		} else if (expected_type === 'live' && !key.startsWith('live_')) {
 			frappe.msgprint({
 				title: __('Live Key Warning'),
-				message: __('Live keys should start with "live_". Please verify this is the correct key.'),
+				message: __(
+					'Live keys should start with "live_". Please verify this is the correct key.'
+				),
 				indicator: 'orange'
 			});
 		}
@@ -173,7 +201,9 @@ function validate_profile_id_format(frm) {
 	if (profile_id && !/^pfl_[a-zA-Z0-9]{10}$/.test(profile_id)) {
 		frappe.msgprint({
 			title: __('Profile ID Format'),
-			message: __('Mollie Profile ID should start with "pfl_" followed by 10 characters (e.g., pfl_v9hTwCuEmJ)'),
+			message: __(
+				'Mollie Profile ID should start with "pfl_" followed by 10 characters (e.g., pfl_v9hTwCuEmJ)'
+			),
 			indicator: 'yellow'
 		});
 	}

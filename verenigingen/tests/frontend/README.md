@@ -11,7 +11,7 @@ The test suite is designed around the principle of **realistic data generation**
 ### Test Categories
 
 1. **DocType Tests** (`/doctypes/`) - Individual DocType functionality
-2. **Integration Tests** (`/integration/`) - Cross-system business workflows  
+2. **Integration Tests** (`/integration/`) - Cross-system business workflows
 3. **Unit Tests** (`/unit/`) - Isolated component testing
 4. **Factories** (`/factories/`) - Test data generation utilities
 
@@ -81,13 +81,15 @@ npm test -- --watch member.test.js
 ### Complete DocType Test Coverage (25 DocTypes)
 
 **Tier 1 (Ultra-Critical) - ✅ COMPLETED**
+
 - ✅ **Member** (3,241 lines JS) - Complete member lifecycle management
 - ✅ **Direct Debit Batch** (842 lines) - SEPA payment processing
 - ✅ **Chapter** (4,000+ lines) - Geographic organization and board management
 - ✅ **Membership** (518 lines) - Membership lifecycle and billing management
 - ✅ **E-Boekhouden Migration** (2,104 lines) - Dutch accounting integration
 
-**Tier 2 (High Critical) - ✅ COMPLETED**  
+**Tier 2 (High Critical) - ✅ COMPLETED**
+
 - ✅ **SEPA Mandate** - European banking compliance and payment authorization
 - ✅ **Volunteer** - Volunteer management and board assignments
 - ✅ **Donor** (634 lines) - ANBI-compliant donation and donor management
@@ -95,6 +97,7 @@ npm test -- --watch member.test.js
 - ✅ **Periodic Donation Agreement** (532 lines) - Multi-year donation commitments
 
 **Tier 3 (Important) - ✅ COMPLETED**
+
 - ✅ **Volunteer Expense** (406 lines) - Expense submission and approval workflows
 - ✅ **SEPA Payment Retry** (462 lines) - Payment retry logic and failure handling
 - ✅ **Donation** - Tax-compliant donation processing and receipt management
@@ -102,6 +105,7 @@ npm test -- --watch member.test.js
 - ✅ **E-Boekhouden Settings** (455 lines) - API configuration and sync management
 
 **Tier 4 (Configuration) - ✅ COMPLETED**
+
 - ✅ **Verenigingen Settings** (293 lines) - System configuration and business rules
 - ✅ **Brand Settings** (336 lines) - Branding and UI customization
 - ✅ **Mollie Settings** - Payment gateway configuration and security
@@ -109,6 +113,7 @@ npm test -- --watch member.test.js
 - ✅ **Member CSV Import** (239 lines) - Bulk member data import and validation
 
 **Tier 5 (Administrative) - ✅ COMPLETED**
+
 - ✅ **Contribution Amendment Request** (327 lines) - Fee adjustment workflows
 - ✅ **Expulsion Report Entry** (596 lines) - Disciplinary reporting and audit trails
 - ✅ **Team** - Team management and organizational structure
@@ -116,6 +121,7 @@ npm test -- --watch member.test.js
 - ✅ **API Audit Log** - API security monitoring and access tracking
 
 **Integration Workflows**
+
 - ✅ **Member Onboarding** - Complete registration to active membership
 - ✅ **Payment Processing** - SEPA setup, invoicing, and collection
 - ✅ **Chapter Organization** - Geographic assignment and board management
@@ -126,8 +132,9 @@ npm test -- --watch member.test.js
 ### Coverage Metrics
 
 Current coverage targets:
+
 - **Branches**: 70%
-- **Functions**: 70% 
+- **Functions**: 70%
 - **Lines**: 70%
 - **Statements**: 70%
 
@@ -140,25 +147,25 @@ The test factory generates realistic Dutch association data:
 ```javascript
 // Realistic member data
 const member = testFactory.createMemberData({
-  first_name: 'Jan',           // Common Dutch names
-  tussenvoegsel: 'van der',    // Dutch naming particles
-  last_name: 'Berg',
-  email: 'jan.vandeberg@example.nl',
-  iban: 'NL91 ABNA 0417 1643 00', // Valid Dutch IBAN
-  postal_code: '1234 AB'       // Dutch postal format
+  first_name: "Jan", // Common Dutch names
+  tussenvoegsel: "van der", // Dutch naming particles
+  last_name: "Berg",
+  email: "jan.vandeberg@example.nl",
+  iban: "NL91 ABNA 0417 1643 00", // Valid Dutch IBAN
+  postal_code: "1234 AB", // Dutch postal format
 });
 
 // SEPA mandate with compliance
 const mandate = testFactory.createSEPAMandateData(member.name, {
-  mandate_type: 'RCUR',        // Recurring payments
-  sequence_type: 'FRST',       // First collection
-  creditor_id: 'NL98ZZZ999999999999' // Valid creditor ID
+  mandate_type: "RCUR", // Recurring payments
+  sequence_type: "FRST", // First collection
+  creditor_id: "NL98ZZZ999999999999", // Valid creditor ID
 });
 
 // Chapter with geographic coverage
 const chapter = testFactory.createChapterData({
-  postal_code_ranges: '1000-1999, 2000-2500', // Amsterdam region
-  region: 'Noord-Holland'
+  postal_code_ranges: "1000-1999, 2000-2500", // Amsterdam region
+  region: "Noord-Holland",
 });
 ```
 
@@ -178,10 +185,17 @@ Comprehensive edge case testing:
 
 ```javascript
 // Edge case scenarios
-const underageVolunteer = testFactory.createEdgeCaseScenario('minimum_age_volunteer');
-const maxLengthNames = testFactory.createEdgeCaseScenario('maximum_length_names');
-const internationalMember = testFactory.createEdgeCaseScenario('international_member');
-const expiredMembership = testFactory.createEdgeCaseScenario('expired_membership');
+const underageVolunteer = testFactory.createEdgeCaseScenario(
+  "minimum_age_volunteer",
+);
+const maxLengthNames = testFactory.createEdgeCaseScenario(
+  "maximum_length_names",
+);
+const internationalMember = testFactory.createEdgeCaseScenario(
+  "international_member",
+);
+const expiredMembership =
+  testFactory.createEdgeCaseScenario("expired_membership");
 ```
 
 ## Test File Structure
@@ -218,7 +232,7 @@ verenigingen/tests/frontend/
 ### Example Test Pattern
 
 ```javascript
-describe('Member DocType - Payment Integration', () => {
+describe("Member DocType - Payment Integration", () => {
   let testFactory;
   let mockFrm;
 
@@ -228,12 +242,12 @@ describe('Member DocType - Payment Integration', () => {
     setupGlobalMocks();
   });
 
-  test('should create SEPA mandate for Dutch bank account', async () => {
+  test("should create SEPA mandate for Dutch bank account", async () => {
     // Arrange - Use realistic data
     const memberData = testFactory.createMemberData({
-      payment_method: 'SEPA Direct Debit',
+      payment_method: "SEPA Direct Debit",
       iban: testFactory.generateDutchIBAN(), // Valid Dutch IBAN
-      bank_account_name: 'Jan van der Berg'
+      bank_account_name: "Jan van der Berg",
     });
 
     // Act - Test actual business logic
@@ -241,8 +255,8 @@ describe('Member DocType - Payment Integration', () => {
 
     // Assert - Validate business outcomes
     expect(result.mandate_id).toMatch(/^SEPA-\d{6}$/);
-    expect(result.creditor_id).toBe('NL98ZZZ999999999999');
-    expect(result.status).toBe('Active');
+    expect(result.creditor_id).toBe("NL98ZZZ999999999999");
+    expect(result.status).toBe("Active");
   });
 });
 ```
@@ -284,24 +298,28 @@ The test suite integrates with CI/CD pipelines:
 ## Best Practices
 
 ### Data Generation
+
 - Always use TestDataFactory for consistent, realistic data
 - Seed random generators for reproducible tests
 - Include edge cases with realistic boundary data
 - Respect business rules in generated data
 
 ### Test Organization
+
 - Group related tests in describe blocks
 - Use clear, descriptive test names
 - Document business context in test descriptions
 - Separate unit tests from integration tests
 
 ### Mocking Strategy
+
 - Mock external APIs and services only
 - Use real data for internal business logic
 - Mock Frappe framework components minimally
 - Prefer dependency injection over global mocks
 
 ### Performance Optimization
+
 - Use deterministic test data for fast execution
 - Implement parallel test execution where possible
 - Cache test setup data for repeated use
@@ -312,18 +330,21 @@ The test suite integrates with CI/CD pipelines:
 ### Common Issues
 
 **Test timeouts**
+
 ```bash
 # Increase timeout for complex workflows
 npm test -- --testTimeout=10000
 ```
 
 **Module resolution errors**
+
 ```bash
 # Check Jest configuration in jest.config.js
 # Verify setupFilesAfterEnv includes setup.js
 ```
 
 **Coverage issues**
+
 ```bash
 # Check coverage configuration in package.json
 # Ensure collectCoverageFrom includes correct patterns

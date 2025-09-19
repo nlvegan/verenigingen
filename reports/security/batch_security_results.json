@@ -693,27 +693,21 @@
       "success": false,
       "functions_secured": 0,
       "details": [],
-      "errors": [
-        "No @frappe.whitelist functions found"
-      ]
+      "errors": ["No @frappe.whitelist functions found"]
     },
     {
       "file": "verenigingen/api/generic_report_tester.py",
       "success": false,
       "functions_secured": 0,
       "details": [],
-      "errors": [
-        "No @frappe.whitelist functions found"
-      ]
+      "errors": ["No @frappe.whitelist functions found"]
     },
     {
       "file": "verenigingen/api/quick_stock_check.py",
       "success": false,
       "functions_secured": 0,
       "details": [],
-      "errors": [
-        "No @frappe.whitelist functions found"
-      ]
+      "errors": ["No @frappe.whitelist functions found"]
     }
   ],
   "total_functions": 94

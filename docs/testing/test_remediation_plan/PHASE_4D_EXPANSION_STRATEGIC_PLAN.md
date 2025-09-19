@@ -15,6 +15,7 @@
 **Strategic Principle**: **Focus on business logic mocks that prevent real bug detection** while preserving appropriate infrastructure mocks (external services, background jobs, email).
 
 ### 🎯 **IDENTIFIED PHASE 4D CATEGORIES**:
+
 1. **Payment Gateway Business Logic**: 10+ PaymentGatewayFactory/MollieClient mocks hiding real payment workflows
 2. **Background Job Business Logic**: 8+ frappe.enqueue mocks that should test real background processing
 3. **Database Operation Business Logic**: Selective elimination of frappe.get_doc/get_value mocks that hide real data validation
@@ -27,9 +28,11 @@
 ## Phase 4D Strategic Analysis
 
 ### Category 1: Payment Gateway Business Logic Mocks 🏦
+
 **Impact**: **HIGH** - Hides real payment processing failures and Dutch banking compliance issues
 
 **Target Pattern**:
+
 ```python
 # INAPPROPRIATE: Business logic mock hiding real payment failures
 @patch('verenigingen.verenigingen_payments.utils.payment_gateways.PaymentGatewayFactory.get_gateway')
@@ -39,11 +42,13 @@ def test_mollie_subscription_creation(self, mock_gateway_factory):
 ```
 
 **Files Identified**:
+
 - `test_mollie_subscription_integration.py`: 5+ PaymentGatewayFactory mocks
 - `test_mollie_comprehensive_integration.py`: 4+ MollieClient business logic mocks
 - Payment integration tests hiding real Dutch banking workflows
 
 **Phase 4D Approach**:
+
 ```python
 # PHASE 4D REPLACEMENT: Real payment gateway testing with test API keys
 def test_mollie_subscription_creation_real_business_logic(self):
@@ -68,9 +73,11 @@ def test_mollie_subscription_creation_real_business_logic(self):
 ---
 
 ### Category 2: Background Job Business Logic Mocks ⚙️
+
 **Impact**: **MEDIUM** - Some cases hide real business logic, others are appropriate infrastructure mocks
 
 **Target Pattern**:
+
 ```python
 # NEEDS ANALYSIS: May hide real business processing
 @patch('frappe.enqueue')
@@ -80,15 +87,18 @@ def test_account_creation_background_processing(self, mock_enqueue):
 ```
 
 **Files Identified**:
+
 - `test_account_creation_background_processing.py`: 8+ frappe.enqueue mocks
 - Background processing tests that may hide real business workflows
 
 **Phase 4D Analysis Approach**:
+
 1. **Distinguish Infrastructure vs Business Logic**:
    - **KEEP**: Pure job scheduling infrastructure mocks
    - **ELIMINATE**: Mocks that hide real business processing validation
 
 2. **Real Background Processing Testing**:
+
 ```python
 # PHASE 4D APPROACH: Test real business logic in background jobs
 def test_account_creation_real_background_processing(self):
@@ -112,9 +122,11 @@ def test_account_creation_real_background_processing(self):
 ---
 
 ### Category 3: Database Operation Business Logic Mocks 📊
+
 **Impact**: **SELECTIVE** - Target only mocks that hide real data validation business logic
 
 **Target Pattern** (Selective):
+
 ```python
 # INAPPROPRIATE: Hides real data validation business logic
 @patch('frappe.db.get_value')
@@ -124,11 +136,13 @@ def test_member_validation(self, mock_get_value):
 ```
 
 **Phase 4D Criteria**:
+
 - **ELIMINATE**: Database mocks that hide real business rule validation
 - **KEEP**: Database mocks for pure infrastructure (external system data)
 - **KEEP**: Database mocks for performance optimization in large test suites
 
 **Phase 4D Approach**:
+
 ```python
 # PHASE 4D REPLACEMENT: Real business data validation
 def test_member_validation_real_business_logic(self):
@@ -149,9 +163,11 @@ def test_member_validation_real_business_logic(self):
 ---
 
 ### Category 4: Financial Calculation Business Logic Mocks 💰
+
 **Impact**: **HIGH** - Dutch banking and SEPA calculation mocks hide real financial compliance issues
 
 **Target Pattern**:
+
 ```python
 # INAPPROPRIATE: Hides real Dutch financial calculation business logic
 @patch('verenigingen.utils.sepa_calculations.calculate_sepa_amount')
@@ -161,6 +177,7 @@ def test_dues_calculation(self, mock_calculate):
 ```
 
 **Phase 4D Approach**:
+
 ```python
 # PHASE 4D REPLACEMENT: Real Dutch financial calculation testing
 def test_dues_calculation_real_business_logic(self):
@@ -184,21 +201,25 @@ def test_dues_calculation_real_business_logic(self):
 ## Phase 4D Implementation Strategy
 
 ### Priority 1: Payment Gateway Business Logic (Weeks 1-2)
+
 **Target**: `test_mollie_subscription_integration.py`, `test_mollie_comprehensive_integration.py`
 **Focus**: Real Mollie API integration with test keys, Dutch payment compliance validation
 **Expected Impact**: Genuine payment workflow failure detection, real Dutch banking compliance
 
 ### Priority 2: Financial Calculation Business Logic (Week 3)
+
 **Target**: SEPA calculation mocks, dues calculation business logic
 **Focus**: Real Dutch financial compliance calculation testing
 **Expected Impact**: Authentic Dutch banking compliance validation
 
 ### Priority 3: Background Job Business Logic (Week 4)
+
 **Target**: `test_account_creation_background_processing.py` (selective)
 **Focus**: Real background processing business logic validation
 **Expected Impact**: Genuine account creation workflow testing
 
 ### Priority 4: Database Operation Business Logic (Week 5-6)
+
 **Target**: Selective elimination of data validation mocks
 **Focus**: Real business rule validation testing
 **Expected Impact**: Authentic business data validation
@@ -208,16 +229,19 @@ def test_dues_calculation_real_business_logic(self):
 ## Success Metrics and QCE Integration
 
 ### Quantitative Targets
+
 - **Payment Gateway Mocks**: Reduce 10+ PaymentGatewayFactory mocks to real API testing
 - **Financial Calculation Mocks**: Eliminate Dutch banking calculation mocks with real compliance testing
 - **Selective Database Mocks**: Replace business rule hiding mocks with real validation
 
 ### Quality Validation
+
 - **QCE Review**: Each category completion reviewed for business impact
 - **Real Bug Detection**: Validate that eliminated mocks expose genuine business issues
 - **Performance Monitoring**: Ensure real business logic testing doesn't compromise test performance
 
 ### Evidence-Based Approach
+
 - **Before/After Analysis**: Document specific business failures now caught
 - **Mock Categorization**: Clear criteria for business logic vs infrastructure mocks
 - **Production Bug Prevention**: Track real business issues prevented by mock elimination
@@ -227,11 +251,13 @@ def test_dues_calculation_real_business_logic(self):
 ## Risk Mitigation
 
 ### Performance Considerations
+
 - **Real API Testing**: Use Mollie test keys to avoid performance impact
 - **Selective Database Operations**: Target only high-impact business logic mocks
 - **Background Job Testing**: Focus on business logic validation, not job infrastructure
 
 ### Infrastructure Boundary Maintenance
+
 - **Keep Appropriate Mocks**: Email services, external APIs, pure infrastructure
 - **Clear Categorization**: Document why each mock is kept or eliminated
 - **QCE Validation**: Ensure infrastructure vs business logic distinction is maintained
@@ -241,18 +267,21 @@ def test_dues_calculation_real_business_logic(self):
 ## Phase 4D Expected Outcomes
 
 ### Business Logic Validation Enhancement
+
 - **Real Payment Processing**: Mollie integration tested with authentic Dutch banking workflows
 - **Financial Compliance**: Dutch SEPA calculations validated with real business rules
 - **Account Creation**: Background processing tested with genuine business logic
 - **Data Validation**: Member and financial data validated with real business rules
 
 ### Production Bug Prevention
+
 - **Payment Integration Failures**: Real Mollie API issues caught in testing
 - **Dutch Banking Compliance**: SEPA calculation errors detected before production
 - **Account Creation Issues**: Background processing failures identified early
 - **Business Rule Violations**: Data validation issues caught with real business logic
 
 ### Test Suite Quality Improvement
+
 - **Authentic Testing**: Business workflows tested with real components
 - **Failure Detection**: Tests catch genuine business issues vs artificial mock scenarios
 - **Dutch Association Compliance**: Financial and payment testing aligned with Dutch regulations

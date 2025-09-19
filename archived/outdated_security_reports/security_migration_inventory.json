@@ -9,7 +9,12 @@
     "functions_secured_this_session": 34,
     "files_modified": 4,
     "import_errors_fixed": 1,
-    "critical_fixes": ["sepa_duplicate_prevention import path", "membership financial operations", "dues schedule security", "volunteer management security"]
+    "critical_fixes": [
+      "sepa_duplicate_prevention import path",
+      "membership financial operations",
+      "dues schedule security",
+      "volunteer management security"
+    ]
   },
   "categories": {
     "critical_financial": [

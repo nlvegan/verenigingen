@@ -3,11 +3,13 @@
 ## Date: 2025-01-26
 
 ### Summary
+
 Comprehensive cleanup of the verenigingen application directory structure, removing obsolete files and organizing test scripts into appropriate locations.
 
 ## Files Organized
 
 ### Test Files Moved from Root Directory
+
 1. **To `scripts/testing/runners/`**:
    - `run_chapter_assignment_tests.py` - Test runner for chapter assignments
 
@@ -22,6 +24,7 @@ Comprehensive cleanup of the verenigingen application directory structure, remov
    - `test_history_fix.py` - Legacy history fix test
 
 ### Debug/Setup Scripts Moved from Root Directory
+
 1. **To `scripts/debug/`**:
    - `debug_dashboard_access.py` - Dashboard access debugging
    - `fix_dashboard_chart_issue.py` - Dashboard chart issue fixes
@@ -32,17 +35,21 @@ Comprehensive cleanup of the verenigingen application directory structure, remov
    - `add_expense_cards.py` - Expense card setup script
 
 ### Documentation Created
+
 - Converted `dashboard_completion_summary.py` to `docs/implementation/chapter_board_dashboard.md`
 - Created comprehensive documentation for the Chapter Board Dashboard implementation
 
 ## Files Removed
 
 ### Cache Files
+
 - All `.pyc` files throughout the codebase
 - All `__pycache__` directories
 
 ### Deprecated Legacy Tests
+
 Removed entire `/scripts/testing/legacy/` directory containing:
+
 - `test_debug_address.py`
 - `test_address_ui_quick.py`
 - `test_field_population.py`
@@ -51,21 +58,26 @@ Removed entire `/scripts/testing/legacy/` directory containing:
 - `README.md` (documented deprecation)
 
 ### Redundant Test Files
+
 - `test_volunteer_portal_simple.py` - Superseded by comprehensive tests
 - `test_volunteer_portal_working.py` - Superseded by comprehensive tests
 
 ## Files Retained
+
 - `patch_test_runner.py` - Still in use by Direct Debit Batch tests
 - All comprehensive test suites covering different aspects of functionality
 
 ## New Test Files Added
+
 As part of the SEPA enhancement work:
+
 1. `test_sepa_notifications.py` - Tests for SEPA notification system
 2. `test_iban_validator.py` - Tests for IBAN validation functionality
 3. `test_payment_retry.py` - Tests for payment retry mechanism
 4. `test_sepa_reconciliation.py` - Tests for bank reconciliation
 
 ## Directory Structure Improvements
+
 - Created clear separation between:
   - Integration tests (`scripts/testing/integration/`)
   - Test runners (`scripts/testing/runners/`)
@@ -74,6 +86,7 @@ As part of the SEPA enhancement work:
   - Debug utilities (`scripts/debug/`)
 
 ## Impact
+
 - Cleaner root directory with only essential configuration files
 - Better organized test structure
 - Removed ~50+ obsolete files
@@ -81,7 +94,9 @@ As part of the SEPA enhancement work:
 - Reduced repository size by removing cache files
 
 ## Recommendations for Future
+
 1. Add `.gitignore` entries for:
+
    ```
    *.pyc
    __pycache__/
@@ -99,6 +114,7 @@ As part of the SEPA enhancement work:
    - Move one-off scripts to appropriate directories
 
 ## Next Steps
+
 - Update any documentation that references moved files
 - Ensure CI/CD pipelines use correct test paths
 - Add pre-commit hooks to prevent cache files

@@ -108,7 +108,9 @@ class MobileDuesSchedule {
 
 		// Initialize on DOM ready
 		if (document.readyState === 'loading') {
-			document.addEventListener('DOMContentLoaded', () => this.initializeMobileFeatures());
+			document.addEventListener('DOMContentLoaded', () =>
+				this.initializeMobileFeatures()
+			);
 		} else {
 			this.initializeMobileFeatures();
 		}
@@ -153,7 +155,9 @@ class MobileDuesSchedule {
 	}
 
 	setupSwipeGestures() {
-		if (!this.isTouch) { return; }
+		if (!this.isTouch) {
+			return;
+		}
 
 		let startX = 0;
 		let startY = 0;
@@ -172,7 +176,9 @@ class MobileDuesSchedule {
 			});
 
 			tabContainer.addEventListener('touchmove', (e) => {
-				if (!startX || !startY) { return; }
+				if (!startX || !startY) {
+					return;
+				}
 
 				currentX = e.touches[0].clientX;
 				currentY = e.touches[0].clientY;
@@ -187,13 +193,18 @@ class MobileDuesSchedule {
 			});
 
 			tabContainer.addEventListener('touchend', (e) => {
-				if (!startX || !startY) { return; }
+				if (!startX || !startY) {
+					return;
+				}
 
 				const deltaX = currentX - startX;
 				const deltaY = currentY - startY;
 
 				// Check if it's a horizontal swipe
-				if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > swipeThreshold) {
+				if (
+					Math.abs(deltaX) > Math.abs(deltaY)
+          && Math.abs(deltaX) > swipeThreshold
+				) {
 					this.handleTabSwipe(deltaX > 0 ? 'right' : 'left');
 				}
 
@@ -222,7 +233,9 @@ class MobileDuesSchedule {
 		});
 
 		container.addEventListener('touchend', (e) => {
-			if (!startX || !startTime) { return; }
+			if (!startX || !startTime) {
+				return;
+			}
 
 			const endX = e.changedTouches[0].clientX;
 			const endTime = Date.now();
@@ -245,7 +258,9 @@ class MobileDuesSchedule {
 
 	handleTabSwipe(direction) {
 		const activeTab = document.querySelector('.tab-button.active');
-		if (!activeTab) { return; }
+		if (!activeTab) {
+			return;
+		}
 
 		const tabs = Array.from(document.querySelectorAll('.tab-button'));
 		const currentIndex = tabs.indexOf(activeTab);
@@ -264,7 +279,9 @@ class MobileDuesSchedule {
 	}
 
 	handleCalendarSwipe(direction) {
-		const button = document.querySelector(direction === 'prev' ? '#prev-month' : '#next-month');
+		const button = document.querySelector(
+			direction === 'prev' ? '#prev-month' : '#next-month'
+		);
 		if (button) {
 			button.click();
 			this.showSwipeIndicator(direction === 'prev' ? 'right' : 'left');
@@ -297,14 +314,16 @@ class MobileDuesSchedule {
 	}
 
 	setupVirtualKeyboard() {
-		if (!this.isMobile) { return; }
+		if (!this.isMobile) {
+			return;
+		}
 
 		// Handle virtual keyboard appearance
 		const viewport = document.querySelector('meta[name="viewport"]');
 		const originalViewport = viewport ? viewport.content : '';
 
 		const inputs = document.querySelectorAll('input, textarea, select');
-		inputs.forEach(input => {
+		inputs.forEach((input) => {
 			input.addEventListener('focus', () => {
 				// Prevent zoom on iOS
 				if (viewport) {
@@ -329,9 +348,16 @@ class MobileDuesSchedule {
 		if (window.visualViewport) {
 			window.visualViewport.addEventListener('resize', () => {
 				const focusedElement = document.activeElement;
-				if (focusedElement && (focusedElement.tagName === 'INPUT' || focusedElement.tagName === 'TEXTAREA')) {
+				if (
+					focusedElement
+          && (focusedElement.tagName === 'INPUT'
+            || focusedElement.tagName === 'TEXTAREA')
+				) {
 					setTimeout(() => {
-						focusedElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+						focusedElement.scrollIntoView({
+							behavior: 'smooth',
+							block: 'center'
+						});
 					}, 100);
 				}
 			});
@@ -339,7 +365,9 @@ class MobileDuesSchedule {
 	}
 
 	setupPullToRefresh() {
-		if (!this.isMobile || !this.isTouch) { return; }
+		if (!this.isMobile || !this.isTouch) {
+			return;
+		}
 
 		let startY = 0;
 		let currentY = 0;
@@ -357,7 +385,9 @@ class MobileDuesSchedule {
 		});
 
 		document.addEventListener('touchmove', (e) => {
-			if (!isPulling || window.scrollY > 0) { return; }
+			if (!isPulling || window.scrollY > 0) {
+				return;
+			}
 
 			currentY = e.touches[0].clientY;
 			pullDistance = currentY - startY;
@@ -369,7 +399,9 @@ class MobileDuesSchedule {
 		});
 
 		document.addEventListener('touchend', (e) => {
-			if (!isPulling) { return; }
+			if (!isPulling) {
+				return;
+			}
 
 			if (pullDistance > pullThreshold) {
 				this.performRefresh();
@@ -425,7 +457,8 @@ class MobileDuesSchedule {
 
 		const text = indicator.querySelector('.pull-text');
 		if (text) {
-			text.textContent = progress >= 1 ? 'Release to refresh' : 'Pull to refresh';
+			text.textContent
+        = progress >= 1 ? 'Release to refresh' : 'Pull to refresh';
 		}
 	}
 
@@ -578,7 +611,7 @@ class MobileDuesSchedule {
 	setupMobileModals() {
 		// Enhance modal behavior for mobile
 		const modals = document.querySelectorAll('.modal');
-		modals.forEach(modal => {
+		modals.forEach((modal) => {
 			this.enhanceModalForMobile(modal);
 		});
 	}
@@ -636,7 +669,7 @@ class MobileDuesSchedule {
 
 		// Improve touch targets
 		const days = calendar.querySelectorAll('.calendar-day');
-		days.forEach(day => {
+		days.forEach((day) => {
 			day.style.minHeight = '2.5rem';
 			day.style.display = 'flex';
 			day.style.alignItems = 'center';
@@ -651,7 +684,8 @@ class MobileDuesSchedule {
 		const skipLink = document.createElement('a');
 		skipLink.href = '#main-content';
 		skipLink.textContent = 'Skip to main content';
-		skipLink.className = 'sr-only focus:not-sr-only focus:absolute focus:top-0 focus:left-0 focus:z-50 focus:bg-primary focus:text-white focus:p-2';
+		skipLink.className
+      = 'sr-only focus:not-sr-only focus:absolute focus:top-0 focus:left-0 focus:z-50 focus:bg-primary focus:text-white focus:p-2';
 		document.body.insertBefore(skipLink, document.body.firstChild);
 
 		// Announce page changes
@@ -674,7 +708,7 @@ class MobileDuesSchedule {
 
 		// Announce tab changes
 		const tabButtons = document.querySelectorAll('.tab-button');
-		tabButtons.forEach(button => {
+		tabButtons.forEach((button) => {
 			button.addEventListener('click', () => {
 				const tabName = button.textContent.trim();
 				announcer.textContent = `Switched to ${tabName} tab`;
@@ -685,19 +719,21 @@ class MobileDuesSchedule {
 	improveFocusManagement() {
 		// Trap focus in modals
 		const modals = document.querySelectorAll('.modal');
-		modals.forEach(modal => {
+		modals.forEach((modal) => {
 			this.trapFocusInModal(modal);
 		});
 
 		// Manage focus on page changes
 		const tabButtons = document.querySelectorAll('.tab-button');
-		tabButtons.forEach(button => {
+		tabButtons.forEach((button) => {
 			button.addEventListener('click', () => {
 				// Focus first interactive element in new tab
 				setTimeout(() => {
 					const activeTab = document.querySelector('.tab-content:not(.hidden)');
 					if (activeTab) {
-						const firstFocusable = activeTab.querySelector('button, a, input, select, textarea, [tabindex]:not([tabindex="-1"])');
+						const firstFocusable = activeTab.querySelector(
+							'button, a, input, select, textarea, [tabindex]:not([tabindex="-1"])'
+						);
 						if (firstFocusable) {
 							firstFocusable.focus();
 						}
@@ -708,7 +744,9 @@ class MobileDuesSchedule {
 	}
 
 	trapFocusInModal(modal) {
-		const focusableElements = modal.querySelectorAll('button, a, input, select, textarea, [tabindex]:not([tabindex="-1"])');
+		const focusableElements = modal.querySelectorAll(
+			'button, a, input, select, textarea, [tabindex]:not([tabindex="-1"])'
+		);
 		const firstFocusable = focusableElements[0];
 		const lastFocusable = focusableElements[focusableElements.length - 1];
 
@@ -731,7 +769,8 @@ class MobileDuesSchedule {
 
 	addLandmarks() {
 		// Add ARIA landmarks for better navigation
-		const main = document.querySelector('main') || document.querySelector('.main-content');
+		const main
+      = document.querySelector('main') || document.querySelector('.main-content');
 		if (main) {
 			main.setAttribute('role', 'main');
 			main.setAttribute('aria-label', 'Main content');
@@ -758,11 +797,13 @@ class MobileDuesSchedule {
 	}
 
 	optimizeForMobile() {
-		if (!this.isMobile) { return; }
+		if (!this.isMobile) {
+			return;
+		}
 
 		// Optimize images
 		const images = document.querySelectorAll('img');
-		images.forEach(img => {
+		images.forEach((img) => {
 			if (!img.loading) {
 				img.loading = 'lazy';
 			}
@@ -777,7 +818,7 @@ class MobileDuesSchedule {
 
 	virtualizeDataTables() {
 		const tables = document.querySelectorAll('table');
-		tables.forEach(table => {
+		tables.forEach((table) => {
 			const rows = table.querySelectorAll('tbody tr');
 			if (rows.length > 20) {
 				this.implementVirtualScrolling(table);
@@ -825,7 +866,8 @@ class MobileDuesSchedule {
 
 	optimizeAnimations() {
 		// Disable animations on slower devices
-		const isSlowDevice = navigator.hardwareConcurrency < 4 || navigator.deviceMemory < 4;
+		const isSlowDevice
+      = navigator.hardwareConcurrency < 4 || navigator.deviceMemory < 4;
 
 		if (isSlowDevice) {
 			const style = document.createElement('style');
@@ -843,15 +885,17 @@ class MobileDuesSchedule {
 	setupMobileAnimations() {
 		// Add mobile-specific animations
 		const observer = new IntersectionObserver((entries) => {
-			entries.forEach(entry => {
+			entries.forEach((entry) => {
 				if (entry.isIntersecting) {
 					entry.target.classList.add('animate-in');
 				}
 			});
 		});
 
-		const animatedElements = document.querySelectorAll('.financial-card, .quick-action');
-		animatedElements.forEach(el => observer.observe(el));
+		const animatedElements = document.querySelectorAll(
+			'.financial-card, .quick-action'
+		);
+		animatedElements.forEach((el) => observer.observe(el));
 	}
 
 	setupMobilePerformance() {
@@ -900,7 +944,10 @@ class MobileDuesSchedule {
 	updateScrollPosition() {
 		// Update scroll position for various elements
 		const scrollTop = window.pageYOffset;
-		document.documentElement.style.setProperty('--scroll-top', `${scrollTop}px`);
+		document.documentElement.style.setProperty(
+			'--scroll-top',
+			`${scrollTop}px`
+		);
 	}
 
 	manageScrollBasedElements() {
@@ -919,7 +966,7 @@ class MobileDuesSchedule {
 			'/assets/verenigingen/js/dues_schedule_calendar.js'
 		];
 
-		criticalUrls.forEach(url => {
+		criticalUrls.forEach((url) => {
 			const link = document.createElement('link');
 			link.rel = 'preload';
 			link.href = url;

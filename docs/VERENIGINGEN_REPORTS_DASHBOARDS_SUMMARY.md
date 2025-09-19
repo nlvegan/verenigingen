@@ -1,13 +1,16 @@
 # Verenigingen Reports & Dashboards Permissions Audit
+
 Generated: 2025-08-03 23:36:40.462024
 
 ## Overview
+
 - Total Reports: 17
 - Total Dashboards: 0
 - Reports with Issues: 0
 - Dashboards with Issues: 0
 
 ## Priority Issues
+
 - Critical: 0
 - High: 0
 - Medium: 0
@@ -15,6 +18,7 @@ Generated: 2025-08-03 23:36:40.462024
 ## Reports by Module
 
 ### Verenigingen (17 reports)
+
 - ANBI Donation Summary ✅
 - ANBI Periodic Agreements ✅
 - Chapter Expense Report ✅

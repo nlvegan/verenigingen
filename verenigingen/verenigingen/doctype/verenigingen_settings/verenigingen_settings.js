@@ -145,9 +145,13 @@ frappe.ui.form.on('Verenigingen Settings', {
 			};
 		});
 
-		const docs_url = 'https://docs.erpnext.com/docs/user/manual/en/verenigingen/membership';
+		const docs_url
+      = 'https://docs.erpnext.com/docs/user/manual/en/verenigingen/membership';
 
-		frm.set_intro(`${__('You can learn more about memberships in the manual. ')}<a href='${docs_url}'>${__('ERPNext Docs')}</a>`, true);
+		frm.set_intro(
+			`${__('You can learn more about memberships in the manual. ')}<a href='${docs_url}'>${__('ERPNext Docs')}</a>`,
+			true
+		);
 		frm.trigger('setup_buttons_for_membership');
 		frm.trigger('setup_buttons_for_donation');
 		frm.trigger('setup_member_portal_buttons');
@@ -157,30 +161,48 @@ frappe.ui.form.on('Verenigingen Settings', {
 		let label;
 
 		if (frm.doc.membership_webhook_secret) {
-			frm.add_custom_button(__('Copy Webhook URL'), () => {
-				frappe.utils.copy_to_clipboard(`https://${frappe.boot.sitename}/api/method/verenigingen.verenigingen.doctype.membership.membership.trigger_razorpay_dues_schedule`);
-			}, __('Memberships'));
+			frm.add_custom_button(
+				__('Copy Webhook URL'),
+				() => {
+					frappe.utils.copy_to_clipboard(
+						`https://${frappe.boot.sitename}/api/method/verenigingen.verenigingen.doctype.membership.membership.trigger_razorpay_dues_schedule`
+					);
+				},
+				__('Memberships')
+			);
 
-			frm.add_custom_button(__('Revoke Key'), () => {
-				frm.call('revoke_key', {
-					key: 'membership_webhook_secret'
-				}).then(() => {
-					frm.refresh();
-				});
-			}, __('Memberships'));
+			frm.add_custom_button(
+				__('Revoke Key'),
+				() => {
+					frm
+						.call('revoke_key', {
+							key: 'membership_webhook_secret'
+						})
+						.then(() => {
+							frm.refresh();
+						});
+				},
+				__('Memberships')
+			);
 
 			label = __('Regenerate Webhook Secret');
 		} else {
 			label = __('Generate Webhook Secret');
 		}
 
-		frm.add_custom_button(label, () => {
-			frm.call('generate_webhook_secret', {
-				field: 'membership_webhook_secret'
-			}).then(() => {
-				frm.refresh();
-			});
-		}, __('Memberships'));
+		frm.add_custom_button(
+			label,
+			() => {
+				frm
+					.call('generate_webhook_secret', {
+						field: 'membership_webhook_secret'
+					})
+					.then(() => {
+						frm.refresh();
+					});
+			},
+			__('Memberships')
+		);
 	},
 
 	setup_buttons_for_donation(frm) {
@@ -189,39 +211,60 @@ frappe.ui.form.on('Verenigingen Settings', {
 		if (frm.doc.donation_webhook_secret) {
 			label = __('Regenerate Webhook Secret');
 
-			frm.add_custom_button(__('Copy Webhook URL'), () => {
-				frappe.utils.copy_to_clipboard(`https://${frappe.boot.sitename}/api/method/verenigingen.verenigingen.doctype.donation.donation.capture_razorpay_donations`);
-			}, __('Donations'));
+			frm.add_custom_button(
+				__('Copy Webhook URL'),
+				() => {
+					frappe.utils.copy_to_clipboard(
+						`https://${frappe.boot.sitename}/api/method/verenigingen.verenigingen.doctype.donation.donation.capture_razorpay_donations`
+					);
+				},
+				__('Donations')
+			);
 
-			frm.add_custom_button(__('Revoke Key'), () => {
-				frm.call('revoke_key', {
-					key: 'donation_webhook_secret'
-				}).then(() => {
-					frm.refresh();
-				});
-			}, __('Donations'));
+			frm.add_custom_button(
+				__('Revoke Key'),
+				() => {
+					frm
+						.call('revoke_key', {
+							key: 'donation_webhook_secret'
+						})
+						.then(() => {
+							frm.refresh();
+						});
+				},
+				__('Donations')
+			);
 		} else {
 			label = __('Generate Webhook Secret');
 		}
 
-		frm.add_custom_button(label, () => {
-			frm.call('generate_webhook_secret', {
-				field: 'donation_webhook_secret'
-			}).then(() => {
-				frm.refresh();
-			});
-		}, __('Donations'));
+		frm.add_custom_button(
+			label,
+			() => {
+				frm
+					.call('generate_webhook_secret', {
+						field: 'donation_webhook_secret'
+					})
+					.then(() => {
+						frm.refresh();
+					});
+			},
+			__('Donations')
+		);
 	},
 
 	setup_member_portal_buttons(frm) {
 		// Add member portal management buttons
-		frm.add_custom_button(__('View Portal Stats'), () => {
-			frappe.call({
-				method: 'verenigingen.utils.member_portal_utils.get_member_portal_stats',
-				callback(r) {
-					if (r.message) {
-						const stats = r.message;
-						const message = `
+		frm.add_custom_button(
+			__('View Portal Stats'),
+			() => {
+				frappe.call({
+					method:
+            'verenigingen.utils.member_portal_utils.get_member_portal_stats',
+					callback(r) {
+						if (r.message) {
+							const stats = r.message;
+							const message = `
 							<h4>Member Portal Statistics</h4>
 							<table class="table table-bordered">
 								<tr><td><strong>Total Member Users:</strong></td><td>${stats.total_member_users}</td></tr>
@@ -231,63 +274,85 @@ frappe.ui.form.on('Verenigingen Settings', {
 							</table>
 						`;
 
-						frappe.msgprint({
-							title: __('Member Portal Statistics'),
-							message,
-							wide: true
+							frappe.msgprint({
+								title: __('Member Portal Statistics'),
+								message,
+								wide: true
+							});
+						}
+					}
+				});
+			},
+			__('Member Portal')
+		);
+
+		frm.add_custom_button(
+			__('Setup Portal Home Pages'),
+			() => {
+				frappe.confirm(
+					__('Set /member_portal as home page for all users with Member role?'),
+					() => {
+						frappe.call({
+							method:
+                'verenigingen.utils.member_portal_utils.set_all_members_home_page',
+							args: {
+								home_page: '/member_portal'
+							},
+							callback(r) {
+								if (r.message && r.message.success) {
+									frappe.show_alert(
+										{
+											message: __(
+												'Updated {0} member users with portal home page',
+												[r.message.updated_count]
+											),
+											indicator: 'green'
+										},
+										5
+									);
+								} else {
+									frappe.msgprint({
+										title: __('Error'),
+										message:
+                      r.message.message || 'Failed to update member home pages',
+										indicator: 'red'
+									});
+								}
+							}
 						});
 					}
-				}
-			});
-		}, __('Member Portal'));
+				);
+			},
+			__('Member Portal')
+		);
 
-		frm.add_custom_button(__('Setup Portal Home Pages'), () => {
-			frappe.confirm(
-				__('Set /member_portal as home page for all users with Member role?'),
-				() => {
-					frappe.call({
-						method: 'verenigingen.utils.member_portal_utils.set_all_members_home_page',
-						args: {
-							home_page: '/member_portal'
-						},
-						callback(r) {
-							if (r.message && r.message.success) {
-								frappe.show_alert({
-									message: __('Updated {0} member users with portal home page', [r.message.updated_count]),
-									indicator: 'green'
-								}, 5);
-							} else {
-								frappe.msgprint({
-									title: __('Error'),
-									message: r.message.message || 'Failed to update member home pages',
-									indicator: 'red'
-								});
-							}
+		frm.add_custom_button(
+			__('Test Portal Redirect'),
+			() => {
+				frappe.call({
+					method:
+            'verenigingen.utils.member_portal_utils.get_user_appropriate_home_page',
+					callback(r) {
+						if (r.message) {
+							frappe.show_alert(
+								{
+									message: __('Your appropriate home page: {0}', [r.message]),
+									indicator: 'blue'
+								},
+								5
+							);
+
+							// Optionally navigate to it
+							setTimeout(() => {
+								if (confirm('Navigate to your home page now?')) {
+									window.location.href = r.message;
+								}
+							}, 2000);
 						}
-					});
-				}
-			);
-		}, __('Member Portal'));
-
-		frm.add_custom_button(__('Test Portal Redirect'), () => {
-			frappe.call({
-				method: 'verenigingen.utils.member_portal_utils.get_user_appropriate_home_page',
-				callback(r) {
-					if (r.message) {
-						frappe.show_alert({
-							message: __('Your appropriate home page: {0}', [r.message]),
-							indicator: 'blue'
-						}, 5);
-
-						// Optionally navigate to it
-						setTimeout(() => {
-							if (confirm('Navigate to your home page now?')) {
-								window.location.href = r.message;
-							}
-						}, 2000);
 					}
-				}
-			});
-		}, __('Member Portal'));
+				});
+			},
+			__('Member Portal')
+		);
 	}
 });

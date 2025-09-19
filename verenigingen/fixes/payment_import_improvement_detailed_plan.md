@@ -34,29 +34,35 @@ Create a clear entry point map in `CODE_PATHS.md`:
 ## Entry Points
 
 ### 1. REST API Migration (Primary)
+
 - **Start**: `doctype/e_boekhouden_migration/e_boekhouden_migration.py` → `start_transaction_import()`
 - **Route**: → `eboekhouden_rest_full_migration.py` → `migrate_transactions_via_rest()`
 - **Payment Processing**: → `_process_single_mutation()` → `_create_payment_entry()`
 
 ### 2. Manual Payment Import
+
 - **Start**: `api/eboekhouden_migration.py` → `import_single_mutation()`
 - **Route**: → `_process_single_mutation()` → `_create_payment_entry()`
 
 ### 3. Batch Processing
+
 - **Start**: `import_manager.py` → `clean_import_all()`
 - **Route**: → `_import_mutations()` → `_process_single_mutation()`
 
 ## Key Functions
 
 ### Payment Creation
+
 - **Basic (Current)**: `_create_payment_entry()` in `eboekhouden_rest_full_migration.py:2175`
 - **Enhanced (New)**: `create_enhanced_payment_entry()` in `payment_processing/payment_processor.py`
 
 ### Bank Account Mapping
+
 - **Ledger Mapping**: `payment_processing/bank_account_mapper.py`
 - **Configuration**: `eboekhouden_migration_config.py` - `PAYMENT_ACCOUNT_CONFIG`
 
 ### Reconciliation
+
 - **Auto-reconciliation**: `payment_processing/payment_reconciler.py`
 - **Manual reconciliation**: `api/sepa_reconciliation.py`
 ```
@@ -854,39 +860,42 @@ class TestPaymentProcessing(FrappeTestCase):
 
 ```javascript
 // In e_boekhouden_settings.js
-frappe.ui.form.on('E-Boekhouden Settings', {
-    refresh: function(frm) {
-        // Add section for payment processing
-        frm.add_custom_button(__('Test Payment Processing'), function() {
-            frappe.call({
-                method: 'verenigingen.utils.eboekhouden.payment_processing.test_configuration',
-                args: {
-                    company: frm.doc.default_company
-                },
-                callback: function(r) {
-                    if (r.message) {
-                        frappe.msgprint({
-                            title: __('Payment Processing Configuration Test'),
-                            message: r.message,
-                            indicator: 'green'
-                        });
-                    }
-                }
+frappe.ui.form.on("E-Boekhouden Settings", {
+  refresh: function (frm) {
+    // Add section for payment processing
+    frm.add_custom_button(__("Test Payment Processing"), function () {
+      frappe.call({
+        method:
+          "verenigingen.utils.eboekhouden.payment_processing.test_configuration",
+        args: {
+          company: frm.doc.default_company,
+        },
+        callback: function (r) {
+          if (r.message) {
+            frappe.msgprint({
+              title: __("Payment Processing Configuration Test"),
+              message: r.message,
+              indicator: "green",
             });
-        });
+          }
+        },
+      });
+    });
 
-        // Add help text
-        frm.set_df_property('use_enhanced_payment_processing', 'description',
-            `When enabled, payments will use intelligent bank account mapping instead of defaulting to Cash account.
+    // Add help text
+    frm.set_df_property(
+      "use_enhanced_payment_processing",
+      "description",
+      `When enabled, payments will use intelligent bank account mapping instead of defaulting to Cash account.
             <br><br>Features:
             <ul>
                 <li>Automatic bank account detection from E-Boekhouden ledgers</li>
                 <li>Support for multiple bank accounts (Triodos, PayPal, ASN)</li>
                 <li>Automatic payment-invoice reconciliation</li>
                 <li>Comprehensive audit trail and debugging</li>
-            </ul>`
-        );
-    }
+            </ul>`,
+    );
+  },
 });
 ```
 
@@ -894,48 +903,48 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 
 ```json
 {
-    "fields": [
-        {
-            "fieldname": "payment_processing_section",
-            "fieldtype": "Section Break",
-            "label": "Payment Processing Configuration"
-        },
-        {
-            "fieldname": "use_enhanced_payment_processing",
-            "fieldtype": "Check",
-            "label": "Use Enhanced Payment Processing",
-            "default": 1,
-            "description": "Enable intelligent bank account mapping and auto-reconciliation"
-        },
-        {
-            "fieldname": "default_customer_payment_account",
-            "fieldtype": "Link",
-            "label": "Default Customer Payment Account",
-            "options": "Account",
-            "description": "Default bank account for customer payments when mapping not found"
-        },
-        {
-            "fieldname": "default_supplier_payment_account",
-            "fieldtype": "Link",
-            "label": "Default Supplier Payment Account",
-            "options": "Account",
-            "description": "Default account for supplier payments when mapping not found"
-        },
-        {
-            "fieldname": "payment_reconciliation_tolerance",
-            "fieldtype": "Percent",
-            "label": "Payment Reconciliation Tolerance",
-            "default": 2,
-            "description": "Percentage tolerance for amount matching during reconciliation"
-        },
-        {
-            "fieldname": "enable_payment_debug_logging",
-            "fieldtype": "Check",
-            "label": "Enable Payment Debug Logging",
-            "default": 0,
-            "description": "Enable detailed logging for payment processing (impacts performance)"
-        }
-    ]
+  "fields": [
+    {
+      "fieldname": "payment_processing_section",
+      "fieldtype": "Section Break",
+      "label": "Payment Processing Configuration"
+    },
+    {
+      "fieldname": "use_enhanced_payment_processing",
+      "fieldtype": "Check",
+      "label": "Use Enhanced Payment Processing",
+      "default": 1,
+      "description": "Enable intelligent bank account mapping and auto-reconciliation"
+    },
+    {
+      "fieldname": "default_customer_payment_account",
+      "fieldtype": "Link",
+      "label": "Default Customer Payment Account",
+      "options": "Account",
+      "description": "Default bank account for customer payments when mapping not found"
+    },
+    {
+      "fieldname": "default_supplier_payment_account",
+      "fieldtype": "Link",
+      "label": "Default Supplier Payment Account",
+      "options": "Account",
+      "description": "Default account for supplier payments when mapping not found"
+    },
+    {
+      "fieldname": "payment_reconciliation_tolerance",
+      "fieldtype": "Percent",
+      "label": "Payment Reconciliation Tolerance",
+      "default": 2,
+      "description": "Percentage tolerance for amount matching during reconciliation"
+    },
+    {
+      "fieldname": "enable_payment_debug_logging",
+      "fieldtype": "Check",
+      "label": "Enable Payment Debug Logging",
+      "default": 0,
+      "description": "Enable detailed logging for payment processing (impacts performance)"
+    }
+  ]
 }
 ```
 
@@ -1000,24 +1009,28 @@ def get_payment_processing_stats(from_date=None, to_date=None):
 ## Part 7: Implementation Rollout Plan
 
 ### Phase 1: Preparation (Week 1)
+
 1. Create new module structure
 2. Implement core classes (PaymentProcessor, BankAccountMapper, PaymentReconciler)
 3. Write comprehensive tests
 4. Create documentation
 
 ### Phase 2: Testing (Week 2)
+
 1. Test with sample data
 2. Run parallel processing (old vs new) to compare results
 3. Validate bank account mappings
 4. Test reconciliation accuracy
 
 ### Phase 3: Migration (Week 3)
+
 1. Enable enhanced processing for new imports
 2. Run correction script for existing payments
 3. Monitor results and reconciliation rates
 4. Address any issues
 
 ### Phase 4: Full Deployment (Week 4)
+
 1. Make enhanced processing the default
 2. Deprecate old hardcoded function
 3. Update all documentation

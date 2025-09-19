@@ -1,14 +1,14 @@
 [
- {
-  "docstatus": 0,
-  "doctype": "Role",
-  "name": "Verenigingen Background Service",
-  "role_name": "Verenigingen Background Service",
-  "desk_access": 0,
-  "disabled": 0,
-  "home_page": "",
-  "is_custom": 1,
-  "restrict_to_domain": "",
-  "two_factor_auth": 0
- }
+  {
+    "docstatus": 0,
+    "doctype": "Role",
+    "name": "Verenigingen Background Service",
+    "role_name": "Verenigingen Background Service",
+    "desk_access": 0,
+    "disabled": 0,
+    "home_page": "",
+    "is_custom": 1,
+    "restrict_to_domain": "",
+    "two_factor_auth": 0
+  }
 ]

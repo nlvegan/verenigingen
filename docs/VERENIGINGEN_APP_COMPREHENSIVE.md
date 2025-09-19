@@ -82,6 +82,7 @@ Verenigingen is a comprehensive association management system built on the Frapp
 ### Design Principles
 
 #### Domain-Driven Design
+
 The system is organized around business domains with clear boundaries:
 
 - **Member Domain**: Member lifecycle, applications, terminations
@@ -91,6 +92,7 @@ The system is organized around business domains with clear boundaries:
 - **Communication Domain**: Notifications, templates, and messaging
 
 #### Mixin Pattern for Code Organization
+
 Core entities use mixins to separate concerns:
 
 ```python
@@ -100,6 +102,7 @@ class Member(Document, PaymentMixin, ExpenseMixin, SEPAMandateMixin,
 ```
 
 #### Manager Pattern for Complex Operations
+
 Complex business operations are encapsulated in manager classes:
 
 ```python
@@ -161,6 +164,7 @@ class Member(Document):
 #### Member Mixins
 
 **PaymentMixin**: Handles payment-related functionality
+
 ```python
 class PaymentMixin:
     def get_outstanding_invoices(self):
@@ -174,6 +178,7 @@ class PaymentMixin:
 ```
 
 **SEPAMandateMixin**: Manages SEPA direct debit mandates
+
 ```python
 class SEPAMandateMixin:
     def get_active_sepa_mandate(self):
@@ -187,6 +192,7 @@ class SEPAMandateMixin:
 ```
 
 **ChapterMixin**: Handles chapter membership
+
 ```python
 class ChapterMixin:
     def get_chapter_membership_history(self):
@@ -240,6 +246,7 @@ class Chapter(Document):
 The Chapter system uses specialized managers for different aspects:
 
 **BoardManager**: Manages chapter board members
+
 ```python
 class BoardManager:
     def __init__(self, chapter):
@@ -256,6 +263,7 @@ class BoardManager:
 ```
 
 **MemberManager**: Handles chapter membership
+
 ```python
 class MemberManager:
     def get_chapter_members(self, status_filter=None):
@@ -269,6 +277,7 @@ class MemberManager:
 ```
 
 **CommunicationManager**: Manages chapter communications
+
 ```python
 class CommunicationManager:
     def send_chapter_announcement(self, message, recipients):
@@ -918,37 +927,40 @@ The volunteer portal focuses on activity management and opportunity discovery.
 ```html
 <!-- Volunteer Dashboard Template -->
 <div class="volunteer-dashboard">
-    <div class="stats-row">
-        <div class="stat-card">
-            <h3>{{ total_hours }}</h3>
-            <p>Total Hours Logged</p>
-        </div>
-        <div class="stat-card">
-            <h3>{{ activities_completed }}</h3>
-            <p>Activities Completed</p>
-        </div>
-        <div class="stat-card">
-            <h3>{{ impact_score }}</h3>
-            <p>Impact Score</p>
-        </div>
+  <div class="stats-row">
+    <div class="stat-card">
+      <h3>{{ total_hours }}</h3>
+      <p>Total Hours Logged</p>
     </div>
+    <div class="stat-card">
+      <h3>{{ activities_completed }}</h3>
+      <p>Activities Completed</p>
+    </div>
+    <div class="stat-card">
+      <h3>{{ impact_score }}</h3>
+      <p>Impact Score</p>
+    </div>
+  </div>
 
-    <div class="opportunities-section">
-        <h2>Available Opportunities</h2>
-        {% for opportunity in opportunities %}
-        <div class="opportunity-card" data-skills="{{ opportunity.required_skills }}">
-            <h4>{{ opportunity.title }}</h4>
-            <p>{{ opportunity.description }}</p>
-            <div class="opportunity-meta">
-                <span>{{ opportunity.location }}</span>
-                <span>{{ opportunity.time_commitment }}</span>
-                <button class="btn-apply" data-opportunity="{{ opportunity.name }}">
-                    Apply
-                </button>
-            </div>
-        </div>
-        {% endfor %}
+  <div class="opportunities-section">
+    <h2>Available Opportunities</h2>
+    {% for opportunity in opportunities %}
+    <div
+      class="opportunity-card"
+      data-skills="{{ opportunity.required_skills }}"
+    >
+      <h4>{{ opportunity.title }}</h4>
+      <p>{{ opportunity.description }}</p>
+      <div class="opportunity-meta">
+        <span>{{ opportunity.location }}</span>
+        <span>{{ opportunity.time_commitment }}</span>
+        <button class="btn-apply" data-opportunity="{{ opportunity.name }}">
+          Apply
+        </button>
+      </div>
     </div>
+    {% endfor %}
+  </div>
 </div>
 ```
 
@@ -1821,6 +1833,7 @@ The Verenigingen app represents a comprehensive, production-ready association ma
 ### Business Impact
 
 The system has demonstrated production readiness through successful deployment and operation, handling:
+
 - Complex financial transaction workflows through eBoekhouden integration
 - Advanced membership workflows with governance compliance
 - Multi-chapter organizations with distributed management

@@ -7,11 +7,13 @@ This document demonstrates the successful implementation of **Phase 4D Priority 
 ## File Location
 
 **Primary Demonstration File:**
+
 ```
 /home/frappe/frappe-bench/apps/verenigingen/verenigingen/tests/integration/test_mollie_subscription_integration_phase4d.py
 ```
 
 **File Statistics:**
+
 - **765 lines** of comprehensive Phase 4D demonstration code
 - **4 test methods** showcasing different aspects of mock elimination
 - **84 occurrences** of "authentic" emphasizing real business logic testing
@@ -35,6 +37,7 @@ def test_subscription_creation(self):
 ```
 
 **Problems with These Mocks:**
+
 - ❌ Hide real Dutch payment processing business logic
 - ❌ Skip authentic Mollie API integration patterns
 - ❌ Bypass Dutch banking compliance validation (SEPA, IBAN)
@@ -69,6 +72,7 @@ def test_phase4d_authentic_subscription_creation(self):
 ### 1. Real PaymentGatewayFactory Integration
 
 **Authentic Gateway Usage:**
+
 ```python
 # Phase 4D: Use real PaymentGatewayFactory (no business logic mocks!)
 with self.assertQueryCount(10):  # Performance baseline
@@ -76,6 +80,7 @@ with self.assertQueryCount(10):  # Performance baseline
 ```
 
 **Benefits:**
+
 - ✅ Tests real gateway initialization logic
 - ✅ Validates authentic Mollie settings configuration
 - ✅ Catches genuine integration failures
@@ -84,6 +89,7 @@ with self.assertQueryCount(10):  # Performance baseline
 ### 2. Dutch Banking Compliance Validation
 
 **Authentic IBAN Validation:**
+
 ```python
 # Test authentic Dutch IBAN patterns (no mocks)
 valid_dutch_ibans = [
@@ -98,15 +104,17 @@ for iban in valid_dutch_ibans:
 ```
 
 **Dutch Business Rules Tested:**
+
 - ✅ IBAN format compliance (Dutch banks: ABN AMRO, Rabobank, ING)
 - ✅ VAT (BTW) calculation validation (21% Dutch rate)
-- ✅ Postal code format validation (####_AB pattern)
+- ✅ Postal code format validation (####\_AB pattern)
 - ✅ EUR currency requirement compliance
 - ✅ Standard Dutch association fee amounts (€25.00)
 
 ### 3. Authentic Webhook Processing
 
 **Real Webhook Business Logic:**
+
 ```python
 # Phase 4D: Use real PaymentGatewayFactory for webhook processing
 gateway = PaymentGatewayFactory.get_gateway("Mollie", "Phase4D Test Gateway")
@@ -122,6 +130,7 @@ result = _process_subscription_payment(
 ```
 
 **Authentic Processing Validation:**
+
 - ✅ Real Payment Entry creation logic
 - ✅ Authentic invoice payment status updates
 - ✅ Real member subscription status management
@@ -130,6 +139,7 @@ result = _process_subscription_payment(
 ### 4. Performance Monitoring with Enhanced Test Factory
 
 **Real Performance Baselines:**
+
 ```python
 # Monitor real gateway initialization performance
 with self.assertQueryCount(15):  # Authentic query count
@@ -142,6 +152,7 @@ with self.assertQueryCount(30):  # Real business logic query count
 ```
 
 **Performance Insights:**
+
 - ✅ Gateway initialization: 15 database queries (baseline established)
 - ✅ Member + subscription setup: 30 queries (real business logic)
 - ✅ Dues schedule creation: 20 queries (authentic workflow)
@@ -149,21 +160,25 @@ with self.assertQueryCount(30):  # Real business logic query count
 ## Test Methods Overview
 
 ### 1. `test_phase4d_authentic_subscription_creation()`
+
 - **Purpose:** Demonstrate real Mollie subscription creation without business logic mocks
 - **Key Achievement:** Uses actual `PaymentGatewayFactory.get_gateway()` with Mollie test API
 - **Dutch Compliance:** EUR currency, nl_NL locale, SEPA Direct Debit validation
 
 ### 2. `test_phase4d_authentic_webhook_payment_processing()`
+
 - **Purpose:** Test real webhook processing with authentic Dutch compliance
 - **Key Achievement:** Real `_process_subscription_payment()` business logic execution
 - **Validation:** Authentic Payment Entry creation, invoice status updates
 
 ### 3. `test_phase4d_dutch_business_rules_validation()`
+
 - **Purpose:** Test authentic Dutch banking and association compliance
 - **Key Achievement:** Real IBAN, VAT, postal code validation (no mocks)
 - **Business Rules:** ABN AMRO/Rabobank/ING IBAN patterns, 21% VAT, Dutch postal codes
 
 ### 4. `test_phase4d_performance_monitoring_baseline()`
+
 - **Purpose:** Establish performance baselines with real operations
 - **Key Achievement:** Enhanced Test Factory query count monitoring
 - **Baselines:** Gateway (15 queries), Member setup (30 queries), Dues (20 queries)
@@ -171,6 +186,7 @@ with self.assertQueryCount(30):  # Real business logic query count
 ## Infrastructure vs Business Logic Mocks
 
 ### Legitimate Infrastructure Mocks (Preserved)
+
 ```python
 # ✅ APPROPRIATE: External service infrastructure mock
 with patch('frappe.sendmail') as mock_sendmail:
@@ -178,6 +194,7 @@ with patch('frappe.sendmail') as mock_sendmail:
 ```
 
 ### Eliminated Business Logic Mocks
+
 ```python
 # ❌ INAPPROPRIATE: Business logic mocks (eliminated)
 @patch('verenigingen.verenigingen_payments.utils.payment_gateways.PaymentGatewayFactory.get_gateway')
@@ -188,12 +205,14 @@ with patch('frappe.sendmail') as mock_sendmail:
 ## Business Impact
 
 ### Testing Quality Improvements
+
 - **Real Failure Detection:** Catches authentic Dutch payment integration failures vs artificial mock scenarios
 - **Compliance Validation:** Tests genuine SEPA/IBAN processing workflows with Dutch banking standards
 - **Business Logic Verification:** Validates real subscription management and payment processing edge cases
 - **Performance Monitoring:** Establishes authentic performance baselines under realistic load
 
 ### Production Readiness
+
 - **Dutch Banking Integration:** Ready for real ABN AMRO, Rabobank, ING bank integration
 - **Mollie API Compatibility:** Tested with authentic Mollie test API endpoints and responses
 - **Association Management:** Validates real Dutch membership dues and payment workflows
@@ -202,12 +221,14 @@ with patch('frappe.sendmail') as mock_sendmail:
 ## Usage Instructions
 
 ### Run Full Phase 4D Demonstration
+
 ```bash
 cd /home/frappe/frappe-bench
 bench --site dev.veganisme.net run-tests --module verenigingen.tests.integration.test_mollie_subscription_integration_phase4d
 ```
 
 ### Run Specific Demonstrations
+
 ```bash
 # Authentic subscription creation
 python -m unittest verenigingen.tests.integration.test_mollie_subscription_integration_phase4d.TestMollieSubscriptionIntegrationPhase4D.test_phase4d_authentic_subscription_creation
@@ -222,11 +243,13 @@ python -m unittest verenigingen.tests.integration.test_mollie_subscription_integ
 ## Integration with Existing Testing Infrastructure
 
 ### Enhanced Test Factory Integration
+
 - **Extends:** `EnhancedTestCase` for business rule validation and automatic rollback
 - **Uses:** `create_test_member()` with Dutch name patterns and compliance data
 - **Monitors:** Performance with `assertQueryCount()` for real operation baselines
 
 ### Compatibility with Existing Patterns
+
 - **Follows:** Established integration test patterns from existing codebase
 - **Maintains:** Security compliance with proper permission validation
 - **Preserves:** Test data isolation and cleanup mechanisms

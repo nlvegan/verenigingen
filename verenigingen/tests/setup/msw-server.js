@@ -11,7 +11,11 @@
  */
 
 const { setupServer } = require('msw/node');
-const { mollieHandlers, errorHandlers, networkHandlers } = require('./msw-handlers');
+const {
+	mollieHandlers,
+	errorHandlers,
+	networkHandlers
+} = require('./msw-handlers');
 
 /**
  * MSW server instance with all Mollie API handlers

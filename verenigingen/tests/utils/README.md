@@ -9,13 +9,15 @@ This directory contains development utilities and debugging tools for the contro
 **Purpose**: Standalone debugging tool for verifying controller loading infrastructure works correctly.
 
 **Usage**:
+
 ```bash
 node verenigingen/tests/utils/debug_controller_loading.js
 ```
 
 **When to use**:
+
 - Controller loading fails mysteriously in Jest tests
-- Need to quickly test a specific controller without full test setup  
+- Need to quickly test a specific controller without full test setup
 - Debugging VM sandboxing or handler extraction issues
 - Verifying controller loading works after infrastructure changes
 
@@ -36,6 +38,6 @@ When adding new debugging or development utilities:
 ## Related Infrastructure
 
 - `../setup/controller-loader.js` - Core controller loading with VM sandboxing
-- `../setup/controller-test-base.js` - Centralized test infrastructure  
+- `../setup/controller-test-base.js` - Centralized test infrastructure
 - `../setup/domain-test-builders.js` - Domain-specific test builders
 - `../unit/doctype/` - Formal Jest test suites

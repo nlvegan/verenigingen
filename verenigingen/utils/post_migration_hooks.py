@@ -175,9 +175,9 @@ def quick_workspace_health_check(workspace_name):
 
         return {
             "fixes_applied": fixes_applied,
-            "summary": f"{fixes_applied} migration-related issues fixed"
-            if fixes_applied > 0
-            else "No issues found",
+            "summary": (
+                f"{fixes_applied} migration-related issues fixed" if fixes_applied > 0 else "No issues found"
+            ),
         }
 
     except Exception as e:

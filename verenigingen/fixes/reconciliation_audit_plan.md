@@ -1,6 +1,7 @@
 # Reconciliation and Audit Features Implementation Plan
 
 ## Current Issues
+
 - No way to verify import completeness
 - Difficult to track what was imported when
 - No reconciliation with e-boekhouden
@@ -11,6 +12,7 @@
 ### Step 1: Import Audit Trail
 
 1. **E-Boekhouden Import Log DocType**
+
    ```
    Fields:
    - migration_id (Link to E-Boekhouden Migration)
@@ -27,6 +29,7 @@
    ```
 
 2. **Comprehensive Logging**
+
    ```python
    def log_import_transaction(mutation, result, migration_id):
        """Create detailed audit log for each import"""
@@ -56,6 +59,7 @@
 ### Step 2: Reconciliation Framework
 
 1. **Reconciliation Runner**
+
    ```python
    def run_reconciliation(company, date_from, date_to):
        """Compare ERPNext data with e-boekhouden"""
@@ -96,6 +100,7 @@
    ```
 
 2. **Transaction-Level Reconciliation**
+
    ```python
    def reconcile_individual_transactions(date_from, date_to):
        """Match individual transactions between systems"""
@@ -141,6 +146,7 @@
 ### Step 3: Audit Reports
 
 1. **Import Summary Report**
+
    ```python
    def generate_import_summary_report(migration_id):
        """Generate comprehensive import summary"""
@@ -182,6 +188,7 @@
    ```
 
 2. **Discrepancy Report**
+
    ```python
    @frappe.whitelist()
    def get_reconciliation_discrepancies(filters):
@@ -214,6 +221,7 @@
 ### Step 4: Data Integrity Checks
 
 1. **Automated Validation**
+
    ```python
    def run_data_integrity_checks(company):
        """Run comprehensive data integrity checks"""
@@ -264,6 +272,7 @@
    ```
 
 2. **Manual Review Queue**
+
    ```python
    def create_review_queue_entry(issue_type, details):
        """Create entry for manual review"""
@@ -281,22 +290,23 @@
 ### Step 5: Reconciliation UI
 
 1. **Reconciliation Dashboard Page**
+
    ```javascript
-   frappe.pages['reconciliation-dashboard'] = {
-       refresh: function(wrapper) {
-           // Show reconciliation status
-           show_reconciliation_summary();
+   frappe.pages["reconciliation-dashboard"] = {
+     refresh: function (wrapper) {
+       // Show reconciliation status
+       show_reconciliation_summary();
 
-           // Display discrepancy trends
-           render_discrepancy_chart();
+       // Display discrepancy trends
+       render_discrepancy_chart();
 
-           // List recent issues
-           show_recent_issues();
+       // List recent issues
+       show_recent_issues();
 
-           // Quick actions
-           add_reconciliation_actions();
-       }
-   }
+       // Quick actions
+       add_reconciliation_actions();
+     },
+   };
    ```
 
 2. **Interactive Reconciliation Tool**
@@ -308,6 +318,7 @@
 ### Step 6: Scheduled Reconciliation
 
 1. **Daily Reconciliation Job**
+
    ```python
    def daily_reconciliation():
        """Run daily reconciliation checks"""
@@ -325,6 +336,7 @@
    ```
 
 2. **Monthly Audit Report**
+
    ```python
    def generate_monthly_audit_report():
        """Generate comprehensive monthly audit"""

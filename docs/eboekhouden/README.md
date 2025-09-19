@@ -14,23 +14,27 @@ This directory contains comprehensive documentation for the eBoekhouden integrat
 ## Documentation Structure
 
 ### 📚 **Core Documentation**
+
 - **[Migration Guide](./migration/migration-guide.md)** - Complete step-by-step migration process
 - **[API Reference](./api/api-reference.md)** - REST API endpoints and usage
 - **[Configuration Guide](./implementation/configuration.md)** - Setup and configuration
 - **[Troubleshooting](./maintenance/troubleshooting.md)** - Common issues and solutions
 
 ### 🔧 **Implementation Details**
+
 - **[Architecture Overview](./implementation/architecture.md)** - System architecture and components
 - **[Stock Account Handling](./implementation/stock-accounts.md)** - Special handling for stock accounts
 - **[Opening Balance Import](./implementation/opening-balances.md)** - Opening balance processing
 - **[Error Handling](./implementation/error-handling.md)** - Error recovery and handling
 
 ### 📋 **Maintenance & Development**
+
 - **[Development Guide](./maintenance/development.md)** - Development guidelines
 - **[Performance Monitoring](./maintenance/performance.md)** - Performance optimization
 - **[Upgrade Notes](./maintenance/upgrades.md)** - Version upgrade information
 
 ### 📊 **Project History**
+
 - **[Implementation Summary](./project/implementation-summary.md)** - Complete project history
 - **[2025 Reorganization](./project/reorganization-2025.md)** - Major 2025 modernization effort
 - **[Cleanup Results](./project/cleanup-results.md)** - Code organization achievements
@@ -38,6 +42,7 @@ This directory contains comprehensive documentation for the eBoekhouden integrat
 ## System Status
 
 **Current Version**: 2025.1 (August 2025)
+
 - ✅ **REST API Integration** with comprehensive functionality
 - ✅ **Complete DocType Implementation** (E-Boekhouden Settings, Migration, Import Log, etc.)
 - ✅ **Enhanced migration orchestration** with progress tracking
@@ -48,6 +53,7 @@ This directory contains comprehensive documentation for the eBoekhouden integrat
 ## Key Features
 
 ### 🔄 **Migration Capabilities**
+
 - **Full transaction import** from eBoekhouden.nl
 - **Chart of accounts mapping** with intelligent type detection
 - **Party management** (customers/suppliers) with automatic creation
@@ -55,6 +61,7 @@ This directory contains comprehensive documentation for the eBoekhouden integrat
 - **Real-time progress tracking** with accurate counters
 
 ### 🛡️ **Reliability Features**
+
 - **Automatic balancing** prevents migration failures
 - **Stock account detection** and proper handling
 - **Comprehensive error recovery** with retry mechanisms
@@ -62,6 +69,7 @@ This directory contains comprehensive documentation for the eBoekhouden integrat
 - **Detailed logging** for audit trails
 
 ### ⚡ **Performance Optimizations**
+
 - **REST API** provides unlimited transaction access
 - **Batch processing** for efficient imports
 - **Smart caching** reduces API calls
@@ -77,6 +85,7 @@ This directory contains comprehensive documentation for the eBoekhouden integrat
 ## Quick Reference
 
 ### Essential API Endpoints
+
 ```python
 # Test API connection
 verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator.test_rest_iterator()
@@ -98,6 +107,7 @@ verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.get_cache_statis
 ```
 
 ### Key Configuration DocTypes
+
 - **E-Boekhouden Settings**: Single doctype for API configuration and defaults
 - **E-Boekhouden Migration**: Migration orchestration with progress tracking
 - **E-Boekhouden Ledger Mapping**: Account mapping between systems

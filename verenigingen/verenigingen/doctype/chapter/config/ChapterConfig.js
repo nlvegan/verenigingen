@@ -99,7 +99,13 @@ export const ChapterConfig = {
 		importBatchSize: 100,
 		searchResultLimit: 50,
 		directoryPageSize: 24,
-		memberCardFields: ['full_name', 'email', 'mobile_no', 'member_since', 'status'],
+		memberCardFields: [
+			'full_name',
+			'email',
+			'mobile_no',
+			'member_since',
+			'status'
+		],
 		requiredFields: ['full_name', 'email'],
 		maxIntroductionLength: 500,
 		defaultMemberPermissions: ['view_directory', 'update_profile']
@@ -141,8 +147,16 @@ export const ChapterConfig = {
 			secondary: '#6c757d'
 		},
 		chartColorPalette: [
-			'#007bff', '#28a745', '#dc3545', '#ffc107', '#17a2b8',
-			'#6610f2', '#e83e8c', '#fd7e14', '#20c997', '#6c757d'
+			'#007bff',
+			'#28a745',
+			'#dc3545',
+			'#ffc107',
+			'#17a2b8',
+			'#6610f2',
+			'#e83e8c',
+			'#fd7e14',
+			'#20c997',
+			'#6c757d'
 		],
 		defaultChartHeight: 300,
 		exportFormats: ['csv', 'xlsx', 'pdf'],
@@ -220,9 +234,21 @@ export const ChapterConfig = {
 		},
 		requiredPermissions: {
 			board_management: ['Verenigingen Administrator', 'System Manager'],
-			member_management: ['Verenigingen Administrator', 'System Manager', 'Verenigingen Chapter Board Member'],
-			communication: ['Verenigingen Administrator', 'System Manager', 'Verenigingen Chapter Board Member'],
-			statistics: ['Verenigingen Administrator', 'System Manager', 'Verenigingen Chapter Board Member'],
+			member_management: [
+				'Verenigingen Administrator',
+				'System Manager',
+				'Verenigingen Chapter Board Member'
+			],
+			communication: [
+				'Verenigingen Administrator',
+				'System Manager',
+				'Verenigingen Chapter Board Member'
+			],
+			statistics: [
+				'Verenigingen Administrator',
+				'System Manager',
+				'Verenigingen Chapter Board Member'
+			],
 			export_data: ['Verenigingen Administrator', 'System Manager']
 		}
 	},
@@ -238,11 +264,16 @@ export const ChapterConfig = {
 			apiCallsPerMinute: 60
 		},
 		endpoints: {
-			boardHistory: 'verenigingen.verenigingen.doctype.chapter.chapter.get_chapter_board_history',
-			chapterStats: 'verenigingen.verenigingen.doctype.chapter.chapter.get_chapter_stats',
-			volunteerSync: 'verenigingen.verenigingen.doctype.volunteer.volunteer.sync_chapter_board_members',
-			bulkRemove: 'verenigingen.verenigingen.doctype.chapter.chapter.bulk_remove_board_members',
-			bulkDeactivate: 'verenigingen.verenigingen.doctype.chapter.chapter.bulk_deactivate_board_members'
+			boardHistory:
+        'verenigingen.verenigingen.doctype.chapter.chapter.get_chapter_board_history',
+			chapterStats:
+        'verenigingen.verenigingen.doctype.chapter.chapter.get_chapter_stats',
+			volunteerSync:
+        'verenigingen.verenigingen.doctype.volunteer.volunteer.sync_chapter_board_members',
+			bulkRemove:
+        'verenigingen.verenigingen.doctype.chapter.chapter.bulk_remove_board_members',
+			bulkDeactivate:
+        'verenigingen.verenigingen.doctype.chapter.chapter.bulk_deactivate_board_members'
 		}
 	},
 
@@ -273,7 +304,9 @@ export const ChapterConfig = {
 		confirmations: {
 			delete: __('Are you sure you want to delete this item?'),
 			save: __('Do you want to save your changes?'),
-			cancel: __('Are you sure you want to cancel? Unsaved changes will be lost.'),
+			cancel: __(
+				'Are you sure you want to cancel? Unsaved changes will be lost.'
+			),
 			bulkAction: __('This action will affect {0} items. Continue?')
 		},
 		success: {
@@ -345,11 +378,11 @@ export const ChapterConfig = {
 	// Helper Methods
 
 	/**
-     * Get configuration value by path
-     * @param {String} path - Dot-separated path (e.g., 'board.minimumSize')
-     * @param {*} defaultValue - Default value if path not found
-     * @returns {*} Configuration value
-     */
+   * Get configuration value by path
+   * @param {String} path - Dot-separated path (e.g., 'board.minimumSize')
+   * @param {*} defaultValue - Default value if path not found
+   * @returns {*} Configuration value
+   */
 	get(path, defaultValue = null) {
 		const keys = path.split('.');
 		let value = this;
@@ -366,75 +399,75 @@ export const ChapterConfig = {
 	},
 
 	/**
-     * Check if a feature is enabled
-     * @param {String} feature - Feature name
-     * @returns {Boolean} Whether feature is enabled
-     */
+   * Check if a feature is enabled
+   * @param {String} feature - Feature name
+   * @returns {Boolean} Whether feature is enabled
+   */
 	isFeatureEnabled(feature) {
 		return this.features[feature] === true;
 	},
 
 	/**
-     * Get role permissions
-     * @param {String} role - Role name
-     * @returns {Array} Array of permissions
-     */
+   * Get role permissions
+   * @param {String} role - Role name
+   * @returns {Array} Array of permissions
+   */
 	getRolePermissions(role) {
 		return this.board.rolePermissions[role] || [];
 	},
 
 	/**
-     * Get validation pattern
-     * @param {String} type - Pattern type (name, email, phone, url)
-     * @returns {RegExp} Regular expression pattern
-     */
+   * Get validation pattern
+   * @param {String} type - Pattern type (name, email, phone, url)
+   * @returns {RegExp} Regular expression pattern
+   */
 	getValidationPattern(type) {
 		return this.validation[`${type}Pattern`] || null;
 	},
 
 	/**
-     * Get API endpoint
-     * @param {String} endpoint - Endpoint name
-     * @returns {String} Full endpoint path
-     */
+   * Get API endpoint
+   * @param {String} endpoint - Endpoint name
+   * @returns {String} Full endpoint path
+   */
 	getEndpoint(endpoint) {
 		return this.api.endpoints[endpoint] || null;
 	},
 
 	/**
-     * Get date range configuration
-     * @param {String} range - Range name
-     * @returns {Object} Date range configuration
-     */
+   * Get date range configuration
+   * @param {String} range - Range name
+   * @returns {Object} Date range configuration
+   */
 	getDateRange(range) {
 		return this.statistics.dateRanges[range] || null;
 	},
 
 	/**
-     * Get chart color by index
-     * @param {Number} index - Color index
-     * @returns {String} Hex color code
-     */
+   * Get chart color by index
+   * @param {Number} index - Color index
+   * @returns {String} Hex color code
+   */
 	getChartColor(index) {
 		const colors = this.statistics.chartColorPalette;
 		return colors[index % colors.length];
 	},
 
 	/**
-     * Get maximum field length
-     * @param {String} field - Field name
-     * @returns {Number} Maximum length
-     */
+   * Get maximum field length
+   * @param {String} field - Field name
+   * @returns {Number} Maximum length
+   */
 	getMaxFieldLength(field) {
 		return this.validation.maxFieldLengths[field] || 255;
 	},
 
 	/**
-     * Get message template
-     * @param {String} category - Message category (errors, confirmations, success)
-     * @param {String} key - Message key
-     * @returns {String} Message template
-     */
+   * Get message template
+   * @param {String} category - Message category (errors, confirmations, success)
+   * @param {String} key - Message key
+   * @returns {String} Message template
+   */
 	getMessage(category, key) {
 		return this.messages[category]?.[key] || this.messages.errors.generic;
 	}

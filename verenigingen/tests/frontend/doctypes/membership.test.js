@@ -68,7 +68,9 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			mockDoc.member = testFactory.createMemberName();
 
 			// Mock dues schedule query to return active schedule
-			const mockDuesSchedule = testFactory.createDuesScheduleData(mockDoc.member);
+			const mockDuesSchedule = testFactory.createDuesScheduleData(
+				mockDoc.member
+			);
 			frappe.db.get_value.mockResolvedValueOnce({
 				message: { name: mockDuesSchedule.name }
 			});
@@ -95,7 +97,9 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			// Arrange
 			mockDoc.docstatus = 1;
 			mockDoc.member = testFactory.createMemberName();
-			const mockDuesSchedule = testFactory.createDuesScheduleData(mockDoc.member);
+			const mockDuesSchedule = testFactory.createDuesScheduleData(
+				mockDoc.member
+			);
 
 			frappe.db.get_value.mockResolvedValueOnce({
 				message: { name: mockDuesSchedule.name }
@@ -106,7 +110,7 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			await membership.refresh(mockFrm);
 
 			// Wait for async operations
-			await new Promise(resolve => setTimeout(resolve, 0));
+			await new Promise((resolve) => setTimeout(resolve, 0));
 
 			// Assert
 			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
@@ -133,7 +137,7 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			await membership.refresh(mockFrm);
 
 			// Wait for async operations
-			await new Promise(resolve => setTimeout(resolve, 0));
+			await new Promise((resolve) => setTimeout(resolve, 0));
 
 			// Assert
 			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
@@ -149,9 +153,15 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			// Arrange
 			mockDoc.docstatus = 1;
 			mockDoc.member = testFactory.createMemberName();
-			mockDoc.membership_type = testFactory.randomChoice(['Regular', 'Student', 'Senior']);
+			mockDoc.membership_type = testFactory.randomChoice([
+				'Regular',
+				'Student',
+				'Senior'
+			]);
 
-			const mockDuesSchedule = testFactory.createDuesScheduleData(mockDoc.member);
+			const mockDuesSchedule = testFactory.createDuesScheduleData(
+				mockDoc.member
+			);
 			mockFrm.call.mockResolvedValueOnce({
 				message: mockDuesSchedule.name
 			});
@@ -161,8 +171,12 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			await membership.create_dues_schedule(mockFrm);
 
 			// Assert
-			expect(mockFrm.call).toHaveBeenCalledWith('create_dues_schedule_from_membership');
-			expect(frappe.msgprint).toHaveBeenCalledWith('Dues schedule created successfully');
+			expect(mockFrm.call).toHaveBeenCalledWith(
+				'create_dues_schedule_from_membership'
+			);
+			expect(frappe.msgprint).toHaveBeenCalledWith(
+				'Dues schedule created successfully'
+			);
 			expect(mockFrm.reload_doc).toHaveBeenCalled();
 		});
 
@@ -176,7 +190,9 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			await membership.create_dues_schedule(mockFrm);
 
 			// Assert
-			expect(mockFrm.call).toHaveBeenCalledWith('create_dues_schedule_from_membership');
+			expect(mockFrm.call).toHaveBeenCalledWith(
+				'create_dues_schedule_from_membership'
+			);
 			expect(frappe.msgprint).not.toHaveBeenCalled();
 			expect(mockFrm.reload_doc).not.toHaveBeenCalled();
 		});
@@ -207,7 +223,9 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			membership.membership_type(mockFrm);
 
 			// Assert
-			expect(mockFrm.trigger).toHaveBeenCalledWith('refresh_dues_schedule_info');
+			expect(mockFrm.trigger).toHaveBeenCalledWith(
+				'refresh_dues_schedule_info'
+			);
 		});
 	});
 
@@ -297,10 +315,12 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			expect(mockFrm.call).toHaveBeenCalledWith('show_payment_history');
 			expect(frappe.ui.Dialog).toHaveBeenCalledWith({
 				title: 'Payment History',
-				fields: [{
-					fieldname: 'payment_history',
-					fieldtype: 'HTML'
-				}]
+				fields: [
+					{
+						fieldname: 'payment_history',
+						fieldtype: 'HTML'
+					}
+				]
 			});
 			expect(mockDialog.show).toHaveBeenCalled();
 		});
@@ -331,7 +351,9 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			await membership.view_payments(mockFrm);
 
 			// Assert
-			expect(mockDialog.fields_dict.payment_history.$wrapper.html).toHaveBeenCalledWith(
+			expect(
+				mockDialog.fields_dict.payment_history.$wrapper.html
+			).toHaveBeenCalledWith(
 				'<table class="table table-striped"><tr><th>Invoice</th><th>Date</th><th>Amount</th><th>Status</th></tr></table>'
 			);
 		});
@@ -360,7 +382,9 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			membership.membership_type(mockFrm);
 
 			// Assert
-			expect(mockFrm.trigger).toHaveBeenCalledWith('refresh_dues_schedule_info');
+			expect(mockFrm.trigger).toHaveBeenCalledWith(
+				'refresh_dues_schedule_info'
+			);
 		});
 	});
 
@@ -433,7 +457,9 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			membership.membership_type(mockFrm);
 
 			// Assert business rule validation is triggered
-			expect(mockFrm.trigger).toHaveBeenCalledWith('refresh_dues_schedule_info');
+			expect(mockFrm.trigger).toHaveBeenCalledWith(
+				'refresh_dues_schedule_info'
+			);
 		});
 
 		test('should handle student membership with appropriate validation', () => {
@@ -449,7 +475,9 @@ describe('Membership DocType - Comprehensive Test Suite', () => {
 			membership.membership_type(mockFrm);
 
 			// Assert
-			expect(mockFrm.trigger).toHaveBeenCalledWith('refresh_dues_schedule_info');
+			expect(mockFrm.trigger).toHaveBeenCalledWith(
+				'refresh_dues_schedule_info'
+			);
 		});
 
 		test('should validate SEPA mandate requirements for Dutch members', () => {
@@ -497,7 +525,9 @@ describe('Membership List View - Status Indicators', () => {
 
 	test('should display correct indicator for Active status', () => {
 		// Arrange
-		const membershipDoc = testFactory.createMembershipData({ status: 'Active' });
+		const membershipDoc = testFactory.createMembershipData({
+			status: 'Active'
+		});
 
 		// Act
 		const listSettings = require('../../../../verenigingen/doctype/membership/membership_list.js');
@@ -509,7 +539,9 @@ describe('Membership List View - Status Indicators', () => {
 
 	test('should display correct indicator for Pending status', () => {
 		// Arrange
-		const membershipDoc = testFactory.createMembershipData({ status: 'Pending' });
+		const membershipDoc = testFactory.createMembershipData({
+			status: 'Pending'
+		});
 
 		// Act
 		const listSettings = require('../../../../verenigingen/doctype/membership/membership_list.js');
@@ -521,7 +553,9 @@ describe('Membership List View - Status Indicators', () => {
 
 	test('should display correct indicator for Inactive status', () => {
 		// Arrange
-		const membershipDoc = testFactory.createMembershipData({ status: 'Inactive' });
+		const membershipDoc = testFactory.createMembershipData({
+			status: 'Inactive'
+		});
 
 		// Act
 		const listSettings = require('../../../../verenigingen/doctype/membership/membership_list.js');
@@ -533,7 +567,9 @@ describe('Membership List View - Status Indicators', () => {
 
 	test('should display correct indicator for Expired status', () => {
 		// Arrange
-		const membershipDoc = testFactory.createMembershipData({ status: 'Expired' });
+		const membershipDoc = testFactory.createMembershipData({
+			status: 'Expired'
+		});
 
 		// Act
 		const listSettings = require('../../../../verenigingen/doctype/membership/membership_list.js');
@@ -545,7 +581,9 @@ describe('Membership List View - Status Indicators', () => {
 
 	test('should display correct indicator for Cancelled status', () => {
 		// Arrange
-		const membershipDoc = testFactory.createMembershipData({ status: 'Cancelled' });
+		const membershipDoc = testFactory.createMembershipData({
+			status: 'Cancelled'
+		});
 
 		// Act
 		const listSettings = require('../../../../verenigingen/doctype/membership/membership_list.js');
@@ -557,7 +595,9 @@ describe('Membership List View - Status Indicators', () => {
 
 	test('should handle unknown status with fallback indicator', () => {
 		// Arrange
-		const membershipDoc = testFactory.createMembershipData({ status: 'Unknown Status' });
+		const membershipDoc = testFactory.createMembershipData({
+			status: 'Unknown Status'
+		});
 
 		// Act
 		const listSettings = require('../../../../verenigingen/doctype/membership/membership_list.js');
@@ -613,10 +653,10 @@ function setupGlobalMocks() {
 		set_route: jest.fn(),
 		show_alert: jest.fn(),
 		msgprint: jest.fn(),
-		__: jest.fn(str => str) // Simple translation mock
+		__: jest.fn((str) => str) // Simple translation mock
 	};
 
-	global.__ = jest.fn(str => str);
+	global.__ = jest.fn((str) => str);
 }
 
 /**

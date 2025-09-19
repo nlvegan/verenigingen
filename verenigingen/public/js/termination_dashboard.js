@@ -257,8 +257,12 @@ verenigingen.termination_dashboard = {
 		}
 
 		requests.forEach((request) => {
-			const statusColor = verenigingen.termination_dashboard.get_status_color(request.status);
-			const typeColor = verenigingen.termination_dashboard.get_type_color(request.termination_type);
+			const statusColor = verenigingen.termination_dashboard.get_status_color(
+				request.status
+			);
+			const typeColor = verenigingen.termination_dashboard.get_type_color(
+				request.termination_type
+			);
 
 			container.append(`
 				<div class="request-item" data-name="${request.name}">
@@ -313,8 +317,14 @@ verenigingen.termination_dashboard = {
 	},
 
 	get_type_color(type) {
-		const disciplinaryTypes = ['Policy Violation', 'Disciplinary Action', 'Expulsion'];
-		return disciplinaryTypes.includes(type) ? 'type-disciplinary' : 'type-voluntary';
+		const disciplinaryTypes = [
+			'Policy Violation',
+			'Disciplinary Action',
+			'Expulsion'
+		];
+		return disciplinaryTypes.includes(type)
+			? 'type-disciplinary'
+			: 'type-voluntary';
 	}
 };
 

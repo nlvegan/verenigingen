@@ -9,9 +9,11 @@ The Mollie Payment Processing Integration provides comprehensive online payment 
 ### Mollie Integration Framework
 
 #### Mollie Settings Configuration (`Mollie Settings`)
+
 Centralized configuration for all Mollie payment operations:
 
 **Core Configuration:**
+
 - **API Access**: profile_id, test_secret_key, live_secret_key, test_mode
 - **Subscription Management**: enable_subscriptions, default_subscription_interval
 - **Webhook Security**: testing_webhook_url, live_webhook_url, webhook_secret_keys
@@ -19,6 +21,7 @@ Centralized configuration for all Mollie payment operations:
 - **Accounting Integration**: mollie_bank_account, mollie_clearing_account, payment_processing_fees_account
 
 **Security Features:**
+
 - Encrypted credential storage
 - Test/live environment separation
 - Webhook signature verification
@@ -27,9 +30,11 @@ Centralized configuration for all Mollie payment operations:
 ### Payment Processing Workflows
 
 #### One-Time Payment Processing
+
 Direct payment processing for donations and one-off contributions:
 
 **Payment Flow:**
+
 1. **Payment Initiation**: Member selects amount and payment method
 2. **Mollie Payment Creation**: API call to create Mollie payment object
 3. **Redirect to Mollie**: Secure redirect to Mollie payment interface
@@ -39,9 +44,11 @@ Direct payment processing for donations and one-off contributions:
 7. **Member History Update**: Payment recorded in member payment history
 
 #### Subscription Management System
+
 Comprehensive recurring payment management for membership dues:
 
 **Subscription Lifecycle:**
+
 1. **Customer Creation**: Mollie customer record for subscription management
 2. **Mandate Setup**: First payment for subscription authorization
 3. **Subscription Creation**: Recurring payment schedule establishment
@@ -53,9 +60,11 @@ Comprehensive recurring payment management for membership dues:
 ### Member Payment Integration
 
 #### Customer-Member Synchronization
+
 Seamless integration between Member records and Mollie customers:
 
 **Member Fields:**
+
 - `mollie_customer_id`: Unique Mollie customer identifier
 - `mollie_subscription_id`: Active subscription reference
 - `subscription_status`: Current subscription state (active, pending, canceled, suspended)
@@ -63,6 +72,7 @@ Seamless integration between Member records and Mollie customers:
 - `subscription_cancelled_date`: Cancellation timestamp
 
 **Automatic Updates:**
+
 - Real-time subscription status synchronization
 - Payment date forecasting and updates
 - Customer information propagation
@@ -71,24 +81,29 @@ Seamless integration between Member records and Mollie customers:
 ### Webhook Processing Architecture
 
 #### Real-Time Payment Notifications
+
 Secure webhook handling for immediate payment status updates:
 
 **Webhook Types:**
+
 - **Payment Status Updates**: Successful, failed, and pending payments
 - **Subscription Events**: Creation, modification, and cancellation
 - **Mandate Updates**: Authorization status changes
 - **Refund Notifications**: Refund processing confirmations
 
 **Security Implementation:**
+
 - Webhook signature verification using Mollie secret keys
 - Request validation and sanitization
 - Replay attack prevention
 - Error handling and logging
 
 #### Background Processing Integration
+
 Asynchronous processing for performance optimization:
 
 **Processing Pipeline:**
+
 1. **Webhook Receipt**: Immediate acknowledgment to Mollie
 2. **Background Queuing**: Event queued for processing
 3. **Validation**: Payment and subscription data validation
@@ -99,23 +114,28 @@ Asynchronous processing for performance optimization:
 ### Financial Integration
 
 #### Automatic Invoice Reconciliation
+
 Intelligent matching between Mollie payments and pending invoices:
 
 **Matching Logic:**
+
 - Customer-based matching using member-customer relationships
 - Amount-based correlation for invoice identification
 - Date-range matching for payment timing
 - Manual intervention queue for complex cases
 
 #### Accounting Integration
+
 Comprehensive integration with ERPNext accounting system:
 
 **Account Structure:**
+
 - **Mollie Bank Account**: Final settlement destination
 - **Mollie Clearing Account**: Temporary reconciliation account
 - **Payment Processing Fees Account**: Mollie transaction fee recording
 
 **Transaction Flow:**
+
 1. **Payment Receipt**: Record in clearing account
 2. **Fee Deduction**: Mollie processing fees recorded
 3. **Settlement**: Transfer to bank account upon Mollie settlement
@@ -124,9 +144,11 @@ Comprehensive integration with ERPNext accounting system:
 ### Subscription Management Features
 
 #### Flexible Subscription Configuration
+
 Comprehensive subscription setup and management:
 
 **Interval Options:**
+
 - Daily (1 day)
 - Weekly (7 days)
 - Bi-weekly (14 days)
@@ -136,15 +158,18 @@ Comprehensive subscription setup and management:
 - Annual (1 year)
 
 **Dynamic Subscription Management:**
+
 - Amount modification without cancellation
 - Interval changes with proper prorating
 - Temporary suspension and reactivation
 - Graceful cancellation with member retention
 
 #### Subscription Analytics
+
 Comprehensive subscription performance monitoring:
 
 **Key Metrics:**
+
 - Subscription success and failure rates
 - Revenue predictability and forecasting
 - Customer lifetime value analysis
@@ -153,18 +178,22 @@ Comprehensive subscription performance monitoring:
 ### Error Handling and Recovery
 
 #### Payment Failure Management
+
 Intelligent handling of failed payments and recovery:
 
 **Failure Types:**
+
 - **Insufficient Funds**: Automatic retry scheduling
 - **Invalid Payment Method**: Member notification and method update
 - **Technical Failures**: System retry with exponential backoff
 - **Fraud Prevention**: Security review and member contact
 
 #### Subscription Failure Recovery
+
 Automated subscription recovery and member retention:
 
 **Recovery Process:**
+
 1. **Failure Detection**: Real-time payment failure notification
 2. **Retry Scheduling**: Intelligent retry timing based on failure type
 3. **Member Communication**: Proactive notification and assistance
@@ -174,18 +203,22 @@ Automated subscription recovery and member retention:
 ### Dashboard and Monitoring
 
 #### Mollie Dashboard Integration
+
 Real-time monitoring of payment processing status:
 
 **Dashboard Features:**
+
 - **Payment Status Overview**: Success, failure, and pending statistics
 - **Subscription Health**: Active, suspended, and cancelled subscription metrics
 - **Revenue Tracking**: Daily, weekly, and monthly revenue analysis
 - **Error Monitoring**: Payment failure alerts and trend analysis
 
 #### Performance Analytics
+
 Comprehensive payment system performance monitoring:
 
 **Analytics Categories:**
+
 - **Payment Success Rates**: By method, amount, and time period
 - **Processing Performance**: API response times and reliability
 - **Customer Behavior**: Payment timing and method preferences
@@ -194,18 +227,22 @@ Comprehensive payment system performance monitoring:
 ### Security and Compliance
 
 #### Payment Data Security
+
 Enterprise-grade security for payment information:
 
 **Security Measures:**
+
 - **PCI DSS Compliance**: Mollie handles sensitive payment data
 - **Data Encryption**: Local payment references encrypted at rest
 - **Access Controls**: Role-based payment system access
 - **Audit Logging**: Complete payment processing audit trail
 
 #### Fraud Prevention
+
 Comprehensive fraud prevention and detection:
 
 **Prevention Measures:**
+
 - **Webhook Verification**: Cryptographic signature validation
 - **Amount Validation**: Payment amount and invoice correlation
 - **Geographic Validation**: Payment location and member address correlation
@@ -214,9 +251,11 @@ Comprehensive fraud prevention and detection:
 ### Integration APIs
 
 #### Mollie API Integration
+
 Comprehensive integration with Mollie's payment platform:
 
 **API Endpoints:**
+
 - **Payments API**: One-time payment creation and status
 - **Customers API**: Customer management for subscriptions
 - **Subscriptions API**: Recurring payment management
@@ -224,9 +263,11 @@ Comprehensive integration with Mollie's payment platform:
 - **Organizations API**: Backend organization data access
 
 #### Internal APIs
+
 Whitelisted APIs for payment system management:
 
 **Core APIs:**
+
 - `create_mollie_payment()`: One-time payment creation
 - `create_mollie_subscription()`: Subscription setup
 - `process_mollie_webhook()`: Webhook event processing
@@ -236,9 +277,11 @@ Whitelisted APIs for payment system management:
 ### Dutch Market Optimization
 
 #### Payment Method Support
+
 Comprehensive support for Dutch payment preferences:
 
 **Supported Methods:**
+
 - **iDEAL**: Primary Dutch online banking method
 - **Bancontact**: Belgian payment method for border regions
 - **SEPA Direct Debit**: Automated recurring payments
@@ -246,9 +289,11 @@ Comprehensive support for Dutch payment preferences:
 - **Digital Wallets**: PayPal, Apple Pay, Google Pay
 
 #### Cultural Adaptation
+
 Payment experience optimized for Dutch preferences:
 
 **Localization Features:**
+
 - Dutch language payment interfaces
 - Euro currency default configuration
 - Dutch bank integration optimization
@@ -257,18 +302,22 @@ Payment experience optimized for Dutch preferences:
 ### Testing and Development
 
 #### Test Environment Support
+
 Comprehensive testing capabilities for payment integration:
 
 **Testing Features:**
+
 - **Test API Keys**: Separate test environment configuration
 - **Mock Payments**: Simulated payment processing for development
 - **Webhook Testing**: Local webhook endpoint testing
 - **Error Simulation**: Failure scenario testing and validation
 
 #### Integration Testing
+
 Comprehensive testing framework for payment workflows:
 
 **Test Categories:**
+
 - **Unit Tests**: Individual payment component testing
 - **Integration Tests**: End-to-end payment workflow validation
 - **Performance Tests**: Payment processing load testing

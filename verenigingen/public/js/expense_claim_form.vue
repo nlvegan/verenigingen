@@ -46,7 +46,11 @@
 						<option value="">
 							Select chapter
 						</option>
-						<option v-for="chapter in userChapters" :key="chapter" :value="chapter">
+						<option
+							v-for="chapter in userChapters"
+							:key="chapter"
+							:value="chapter"
+						>
 							{{ chapter }}
 						</option>
 					</select>
@@ -128,7 +132,9 @@
 						<div class="grid grid-cols-1 md:grid-cols-12 gap-4">
 							<!-- Date -->
 							<div class="md:col-span-2">
-								<label class="block md:hidden text-sm font-medium text-gray-700 mb-1">Date</label>
+								<label
+									class="block md:hidden text-sm font-medium text-gray-700 mb-1"
+								>Date</label>
 								<input
 									v-model="line.expense_date"
 									type="date"
@@ -140,7 +146,9 @@
 
 							<!-- Category -->
 							<div class="md:col-span-2">
-								<label class="block md:hidden text-sm font-medium text-gray-700 mb-1">Category</label>
+								<label
+									class="block md:hidden text-sm font-medium text-gray-700 mb-1"
+								>Category</label>
 								<select
 									v-model="line.category"
 									class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
@@ -149,7 +157,11 @@
 									<option value="">
 										Select category
 									</option>
-									<option v-for="cat in expenseCategories" :key="cat" :value="cat">
+									<option
+										v-for="cat in expenseCategories"
+										:key="cat"
+										:value="cat"
+									>
 										{{ cat }}
 									</option>
 								</select>
@@ -157,7 +169,9 @@
 
 							<!-- Description -->
 							<div class="md:col-span-3">
-								<label class="block md:hidden text-sm font-medium text-gray-700 mb-1">Description</label>
+								<label
+									class="block md:hidden text-sm font-medium text-gray-700 mb-1"
+								>Description</label>
 								<input
 									v-model="line.description"
 									type="text"
@@ -169,7 +183,9 @@
 
 							<!-- Amount -->
 							<div class="md:col-span-2">
-								<label class="block md:hidden text-sm font-medium text-gray-700 mb-1">Amount (€)</label>
+								<label
+									class="block md:hidden text-sm font-medium text-gray-700 mb-1"
+								>Amount (€)</label>
 								<input
 									v-model.number="line.amount"
 									type="number"
@@ -183,7 +199,9 @@
 
 							<!-- Receipt -->
 							<div class="md:col-span-2">
-								<label class="block md:hidden text-sm font-medium text-gray-700 mb-1">Receipt</label>
+								<label
+									class="block md:hidden text-sm font-medium text-gray-700 mb-1"
+								>Receipt</label>
 								<div class="relative">
 									<input
 										:id="`receipt-${line.id}`"
@@ -196,7 +214,7 @@
 										:for="`receipt-${line.id}`"
 										class="w-full px-3 py-2 border border-gray-300 rounded-md cursor-pointer hover:bg-gray-50 text-sm text-gray-600 text-center block"
 									>
-										{{ line.receipt_name || 'Choose file' }}
+										{{ line.receipt_name || "Choose file" }}
 									</label>
 								</div>
 							</div>
@@ -263,7 +281,11 @@
 				>
 					<span v-if="!isSubmitting">Submit Expenses</span>
 					<span v-else class="flex items-center">
-						<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+						<svg
+							class="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+							fill="none"
+							viewBox="0 0 24 24"
+						>
 							<circle
 								class="opacity-25"
 								cx="12"
@@ -272,7 +294,11 @@
 								stroke="currentColor"
 								stroke-width="4"
 							/>
-							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+							<path
+								class="opacity-75"
+								fill="currentColor"
+								d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+							/>
 						</svg>
 						Submitting...
 					</span>
@@ -281,10 +307,15 @@
 		</div>
 
 		<!-- Success Message -->
-		<div v-if="showSuccess" class="fixed inset-0 flex items-center justify-center z-50">
+		<div
+			v-if="showSuccess"
+			class="fixed inset-0 flex items-center justify-center z-50"
+		>
 			<div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" />
 			<div class="bg-white rounded-lg p-6 max-w-sm mx-auto relative z-10">
-				<div class="flex items-center justify-center w-12 h-12 mx-auto bg-green-100 rounded-full mb-4">
+				<div
+					class="flex items-center justify-center w-12 h-12 mx-auto bg-green-100 rounded-full mb-4"
+				>
 					<svg
 						class="w-6 h-6 text-green-600"
 						fill="none"
@@ -342,24 +373,37 @@ export default {
 		});
 
 		const totalAmount = computed(() => {
-			return expenseLines.value.reduce((sum, line) => sum + (parseFloat(line.amount) || 0), 0);
+			return expenseLines.value.reduce(
+				(sum, line) => sum + (parseFloat(line.amount) || 0),
+				0
+			);
 		});
 
 		const isFormValid = computed(() => {
 			// Check organization selection
-			if (!organizationType.value) { return false; }
-			if (organizationType.value === 'Chapter' && !selectedChapter.value) { return false; }
-			if (organizationType.value === 'Team' && !selectedTeam.value) { return false; }
+			if (!organizationType.value) {
+				return false;
+			}
+			if (organizationType.value === 'Chapter' && !selectedChapter.value) {
+				return false;
+			}
+			if (organizationType.value === 'Team' && !selectedTeam.value) {
+				return false;
+			}
 
 			// Check if we have at least one valid expense line
-			if (expenseLines.value.length === 0) { return false; }
+			if (expenseLines.value.length === 0) {
+				return false;
+			}
 
 			// Check each expense line
-			return expenseLines.value.every(line => {
-				return line.expense_date
-               && line.category
-               && line.description
-               && line.amount > 0;
+			return expenseLines.value.every((line) => {
+				return (
+					line.expense_date
+          && line.category
+          && line.description
+          && line.amount > 0
+				);
 			});
 		});
 
@@ -367,7 +411,8 @@ export default {
 		const loadUserData = async () => {
 			try {
 				const response = await frappe.call({
-					method: 'verenigingen.api.volunteer.expenses.get_volunteer_expense_context'
+					method:
+            'verenigingen.api.volunteer.expenses.get_volunteer_expense_context'
 				});
 
 				if (response.message) {
@@ -447,26 +492,30 @@ export default {
 		};
 
 		const submitExpenses = async () => {
-			if (!isFormValid.value) { return; }
+			if (!isFormValid.value) {
+				return;
+			}
 
 			isSubmitting.value = true;
 
 			try {
 				// Prepare expenses data
-				const expenses = expenseLines.value.map(line => ({
+				const expenses = expenseLines.value.map((line) => ({
 					description: line.description,
 					amount: parseFloat(line.amount),
 					expense_date: line.expense_date,
 					organization_type: organizationType.value,
 					category: line.category,
-					chapter: organizationType.value === 'Chapter' ? selectedChapter.value : null,
+					chapter:
+            organizationType.value === 'Chapter' ? selectedChapter.value : null,
 					team: organizationType.value === 'Team' ? selectedTeam.value : null,
 					notes: line.notes || null,
 					receipt_attachment: line.receipt_attachment
 				}));
 
 				const response = await frappe.call({
-					method: 'verenigingen.api.volunteer.expenses.submit_multiple_expenses',
+					method:
+            'verenigingen.api.volunteer.expenses.submit_multiple_expenses',
 					args: {
 						expenses
 					}
@@ -477,7 +526,9 @@ export default {
 					showSuccess.value = true;
 					clearForm();
 				} else {
-					throw new Error(response.message?.error || 'Failed to submit expenses');
+					throw new Error(
+						response.message?.error || 'Failed to submit expenses'
+					);
 				}
 			} catch (error) {
 				frappe.msgprint({

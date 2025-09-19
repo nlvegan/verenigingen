@@ -134,7 +134,7 @@ describe('API Contract Testing Examples', () => {
 			const validDonation = {
 				donor_name: 'John Doe',
 				email: 'john.doe@example.org',
-				amount: 50.00,
+				amount: 50.0,
 				donation_type: 'one-time',
 				anbi_consent: true
 			};
@@ -148,7 +148,7 @@ describe('API Contract Testing Examples', () => {
 			const recurringDonation = {
 				donor_name: 'Jane Smith',
 				email: 'jane@example.org',
-				amount: 25.00,
+				amount: 25.0,
 				donation_type: 'recurring'
 			};
 
@@ -161,7 +161,7 @@ describe('API Contract Testing Examples', () => {
 			const invalidEmailDonation = {
 				donor_name: 'Invalid Email',
 				email: 'not-an-email',
-				amount: 25.00
+				amount: 25.0
 			};
 
 			expect(() => {
@@ -175,7 +175,7 @@ describe('API Contract Testing Examples', () => {
 			const negativeDonation = {
 				donor_name: 'Negative Amount',
 				email: 'test@example.org',
-				amount: -5.00
+				amount: -5.0
 			};
 
 			expect(() => {
@@ -244,9 +244,15 @@ describe('API Contract Testing Examples', () => {
 		it('should list all available API methods for testing', () => {
 			const methods = tester.getAvailableMethods();
 
-			expect(methods).toContain('verenigingen.verenigingen.doctype.member.member.process_payment');
-			expect(methods).toContain('verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter_with_cleanup');
-			expect(methods).toContain('verenigingen.templates.pages.donate.submit_donation');
+			expect(methods).toContain(
+				'verenigingen.verenigingen.doctype.member.member.process_payment'
+			);
+			expect(methods).toContain(
+				'verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter_with_cleanup'
+			);
+			expect(methods).toContain(
+				'verenigingen.templates.pages.donate.submit_donation'
+			);
 			expect(methods.length).toBeGreaterThan(5);
 		});
 
@@ -276,12 +282,15 @@ describe('API Contract Testing Examples', () => {
 			global.fetch = mockFetch;
 
 			// Simulate a frappe.call() through the mock server
-			const response = await fetch('/api/method/verenigingen.verenigingen.doctype.member.member.process_payment', {
-				method: 'POST',
-				body: JSON.stringify({
-					member: 'ASSOC-MEMBER-2025-001'
-				})
-			});
+			const response = await fetch(
+				'/api/method/verenigingen.verenigingen.doctype.member.member.process_payment',
+				{
+					method: 'POST',
+					body: JSON.stringify({
+						member: 'ASSOC-MEMBER-2025-001'
+					})
+				}
+			);
 
 			const result = await response.json();
 			expect(result.message.success).toBe(true);
@@ -300,12 +309,15 @@ describe('API Contract Testing Examples', () => {
 			global.fetch = mockFetch;
 
 			// Simulate an invalid frappe.call()
-			const response = await fetch('/api/method/verenigingen.verenigingen.doctype.member.member.process_payment', {
-				method: 'POST',
-				body: JSON.stringify({
-					invalid_param: 'should fail'
-				})
-			});
+			const response = await fetch(
+				'/api/method/verenigingen.verenigingen.doctype.member.member.process_payment',
+				{
+					method: 'POST',
+					body: JSON.stringify({
+						invalid_param: 'should fail'
+					})
+				}
+			);
 
 			expect(response.ok).toBe(false);
 			expect(response.status).toBe(417);

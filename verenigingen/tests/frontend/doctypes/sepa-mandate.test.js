@@ -75,12 +75,12 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 			);
 
 			// Act
-			const mandateIds = mandates.map(mandate => mandate.mandate_id);
+			const mandateIds = mandates.map((mandate) => mandate.mandate_id);
 			const uniqueIds = new Set(mandateIds);
 
 			// Assert
 			expect(uniqueIds.size).toBe(mandateIds.length);
-			expect(mandateIds.every(id => /^SEPA-\d{6}$/.test(id))).toBe(true);
+			expect(mandateIds.every((id) => /^SEPA-\d{6}$/.test(id))).toBe(true);
 		});
 
 		test('should validate mandate date is not in future', () => {
@@ -88,9 +88,12 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 			const futureDate = new Date();
 			futureDate.setDate(futureDate.getDate() + 1);
 
-			const mandateWithFutureDate = testFactory.createSEPAMandateData('Member-001', {
-				mandate_date: futureDate.toISOString().split('T')[0]
-			});
+			const mandateWithFutureDate = testFactory.createSEPAMandateData(
+				'Member-001',
+				{
+					mandate_date: futureDate.toISOString().split('T')[0]
+				}
+			);
 
 			// Act
 			const validation = validateMandateDate(mandateWithFutureDate);
@@ -154,11 +157,11 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 			];
 
 			// Act & Assert
-			validDutchIBANs.forEach(iban => {
+			validDutchIBANs.forEach((iban) => {
 				expect(validateDutchIBAN(iban)).toBe(true);
 			});
 
-			invalidDutchIBANs.forEach(iban => {
+			invalidDutchIBANs.forEach((iban) => {
 				expect(validateDutchIBAN(iban)).toBe(false);
 			});
 		});
@@ -179,11 +182,11 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 			];
 
 			// Act & Assert
-			validInternationalIBANs.forEach(iban => {
+			validInternationalIBANs.forEach((iban) => {
 				expect(validateInternationalIBAN(iban)).toBe(true);
 			});
 
-			invalidInternationalIBANs.forEach(iban => {
+			invalidInternationalIBANs.forEach((iban) => {
 				expect(validateInternationalIBAN(iban)).toBe(false);
 			});
 		});
@@ -200,7 +203,7 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 			const expectedNormalized = 'NL91ABNA0417164300';
 
 			// Act & Assert
-			ibanVariations.forEach(iban => {
+			ibanVariations.forEach((iban) => {
 				expect(normalizeIBAN(iban)).toBe(expectedNormalized);
 			});
 		});
@@ -228,8 +231,12 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 			const invalidIBANWithWrongCheckDigits = 'NL99ABNA0417164300';
 
 			// Act
-			const validCheck = validateIBANCheckDigits(validIBANWithCorrectCheckDigits);
-			const invalidCheck = validateIBANCheckDigits(invalidIBANWithWrongCheckDigits);
+			const validCheck = validateIBANCheckDigits(
+				validIBANWithCorrectCheckDigits
+			);
+			const invalidCheck = validateIBANCheckDigits(
+				invalidIBANWithWrongCheckDigits
+			);
 
 			// Assert
 			expect(validCheck).toBe(true);
@@ -252,7 +259,8 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(mockFrm.call).toHaveBeenCalledWith({
-				method: 'verenigingen.verenigingen_payments.doctype.sepa_mandate.sepa_mandate.activate_mandate',
+				method:
+          'verenigingen.verenigingen_payments.doctype.sepa_mandate.sepa_mandate.activate_mandate',
 				args: { mandate_name: pendingMandate.name }
 			});
 			expect(mockFrm.set_value).toHaveBeenCalledWith('status', 'Active');
@@ -270,7 +278,8 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(mockFrm.call).toHaveBeenCalledWith({
-				method: 'verenigingen.verenigingen_payments.doctype.sepa_mandate.sepa_mandate.cancel_mandate',
+				method:
+          'verenigingen.verenigingen_payments.doctype.sepa_mandate.sepa_mandate.cancel_mandate',
 				args: {
 					mandate_name: activeMandate.name,
 					cancellation_reason: 'Member request'
@@ -285,9 +294,9 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 			});
 
 			const transactions = [
-				{ date: '2025-01-01', amount: 25.00, status: 'Completed' },
-				{ date: '2025-02-01', amount: 25.00, status: 'Completed' },
-				{ date: '2025-03-01', amount: 25.00, status: 'Failed' }
+				{ date: '2025-01-01', amount: 25.0, status: 'Completed' },
+				{ date: '2025-02-01', amount: 25.0, status: 'Completed' },
+				{ date: '2025-03-01', amount: 25.0, status: 'Failed' }
 			];
 
 			// Act
@@ -297,7 +306,7 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 			expect(usage.totalTransactions).toBe(3);
 			expect(usage.successfulTransactions).toBe(2);
 			expect(usage.failedTransactions).toBe(1);
-			expect(usage.totalAmount).toBe(75.00);
+			expect(usage.totalAmount).toBe(75.0);
 		});
 
 		test('should handle mandate expiration', () => {
@@ -324,11 +333,11 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 			const invalidTypes = ['INVALID', '', null];
 
 			// Act & Assert
-			sequenceTypes.forEach(type => {
+			sequenceTypes.forEach((type) => {
 				expect(validateSequenceType(type)).toBe(true);
 			});
 
-			invalidTypes.forEach(type => {
+			invalidTypes.forEach((type) => {
 				expect(validateSequenceType(type)).toBe(false);
 			});
 		});
@@ -367,11 +376,11 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 			];
 
 			// Act & Assert
-			validCreditorIds.forEach(id => {
+			validCreditorIds.forEach((id) => {
 				expect(validateCreditorIdentifier(id)).toBe(true);
 			});
 
-			invalidCreditorIds.forEach(id => {
+			invalidCreditorIds.forEach((id) => {
 				expect(validateCreditorIdentifier(id)).toBe(false);
 			});
 		});
@@ -385,8 +394,14 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 			];
 
 			// Act
-			const duplicateValidation = validateMandateReference('SEPA-000001', existingMandates);
-			const uniqueValidation = validateMandateReference('SEPA-000004', existingMandates);
+			const duplicateValidation = validateMandateReference(
+				'SEPA-000001',
+				existingMandates
+			);
+			const uniqueValidation = validateMandateReference(
+				'SEPA-000004',
+				existingMandates
+			);
 
 			// Assert
 			expect(duplicateValidation.isUnique).toBe(false);
@@ -396,11 +411,13 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 		test('should enforce SEPA transaction limits', () => {
 			// Arrange
 			const withinLimitAmount = 999999.99;
-			const exceedsLimitAmount = 1000000.00;
+			const exceedsLimitAmount = 1000000.0;
 
 			// Act
-			const withinLimitValidation = validateSEPATransactionLimit(withinLimitAmount);
-			const exceedsLimitValidation = validateSEPATransactionLimit(exceedsLimitAmount);
+			const withinLimitValidation
+        = validateSEPATransactionLimit(withinLimitAmount);
+			const exceedsLimitValidation
+        = validateSEPATransactionLimit(exceedsLimitAmount);
 
 			// Assert
 			expect(withinLimitValidation.valid).toBe(true);
@@ -433,10 +450,22 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 		test('should handle SEPA return codes correctly', () => {
 			// Arrange
 			const returnCodes = [
-				{ code: 'AC04', description: 'Account Closed', action: 'cancel_mandate' },
+				{
+					code: 'AC04',
+					description: 'Account Closed',
+					action: 'cancel_mandate'
+				},
 				{ code: 'AM04', description: 'Insufficient Funds', action: 'retry' },
-				{ code: 'MD07', description: 'End Customer Deceased', action: 'cancel_mandate' },
-				{ code: 'MS02', description: 'Refusal by Debtor', action: 'contact_member' }
+				{
+					code: 'MD07',
+					description: 'End Customer Deceased',
+					action: 'cancel_mandate'
+				},
+				{
+					code: 'MS02',
+					description: 'Refusal by Debtor',
+					action: 'contact_member'
+				}
 			];
 
 			// Act & Assert
@@ -478,8 +507,11 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 			});
 
 			// Act
-			const sepaCompatibility = validatePaymentMethodCompatibility(memberWithSEPA);
-			const transferCompatibility = validatePaymentMethodCompatibility(memberWithBankTransfer);
+			const sepaCompatibility
+        = validatePaymentMethodCompatibility(memberWithSEPA);
+			const transferCompatibility = validatePaymentMethodCompatibility(
+				memberWithBankTransfer
+			);
 
 			// Assert
 			expect(sepaCompatibility.compatible).toBe(true);
@@ -495,7 +527,7 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 
 			const batchEntry = {
 				member: 'Member-001',
-				amount: 25.00,
+				amount: 25.0,
 				collection_date: '2025-02-01'
 			};
 
@@ -540,7 +572,7 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 			];
 
 			// Act & Assert
-			invalidIBANs.forEach(iban => {
+			invalidIBANs.forEach((iban) => {
 				const validation = validateIBAN(iban);
 				expect(validation.valid).toBe(false);
 				expect(validation.message).toBeDefined();
@@ -573,7 +605,9 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 			// Act & Assert
 			// Should handle concurrent operations gracefully without data corruption
 			const results = await Promise.allSettled(operations);
-			expect(results.some(result => result.status === 'fulfilled')).toBe(true);
+			expect(results.some((result) => result.status === 'fulfilled')).toBe(
+				true
+			);
 		});
 
 		test('should handle missing member reference', () => {
@@ -610,11 +644,11 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 			];
 
 			// Act & Assert
-			validNames.forEach(name => {
+			validNames.forEach((name) => {
 				expect(validateBankAccountName(name)).toBe(true);
 			});
 
-			invalidNames.forEach(name => {
+			invalidNames.forEach((name) => {
 				expect(validateBankAccountName(name)).toBe(false);
 			});
 		});
@@ -673,7 +707,8 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 
 		return {
 			valid: mandateDate <= today,
-			message: mandateDate > today ? 'Mandate date cannot be in the future' : ''
+			message:
+        mandateDate > today ? 'Mandate date cannot be in the future' : ''
 		};
 	});
 
@@ -688,22 +723,32 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 	});
 
 	const validateDutchIBAN = jest.fn((iban) => {
-		if (!iban) { return false; }
+		if (!iban) {
+			return false;
+		}
 		const cleaned = iban.replace(/\s/g, '').toUpperCase();
 
 		// Dutch IBAN format: NL + 2 digits + 4 letters + 10 digits
-		if (!/^NL[0-9]{2}[A-Z]{4}[0-9]{10}$/.test(cleaned)) { return false; }
+		if (!/^NL[0-9]{2}[A-Z]{4}[0-9]{10}$/.test(cleaned)) {
+			return false;
+		}
 
 		return cleaned.length === 18;
 	});
 
 	const validateInternationalIBAN = jest.fn((iban) => {
-		if (!iban) { return false; }
+		if (!iban) {
+			return false;
+		}
 		const cleaned = iban.replace(/\s/g, '').toUpperCase();
 
 		// Basic international IBAN format
-		if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{4,}$/.test(cleaned)) { return false; }
-		if (cleaned.length < 15 || cleaned.length > 34) { return false; }
+		if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{4,}$/.test(cleaned)) {
+			return false;
+		}
+		if (cleaned.length < 15 || cleaned.length > 34) {
+			return false;
+		}
 
 		return true;
 	});
@@ -729,7 +774,9 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 	const validateIBANCheckDigits = jest.fn((iban) => {
 		// Simplified check digit validation
 		const cleaned = normalizeIBAN(iban);
-		if (cleaned.length < 4) { return false; }
+		if (cleaned.length < 4) {
+			return false;
+		}
 
 		// For testing purposes, assume check digits are valid for properly formatted IBANs
 		return /^[A-Z]{2}[0-9]{2}/.test(cleaned);
@@ -737,7 +784,8 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 
 	const activateMandate = jest.fn(async (frm) => {
 		await frm.call({
-			method: 'verenigingen.verenigingen_payments.doctype.sepa_mandate.sepa_mandate.activate_mandate',
+			method:
+        'verenigingen.verenigingen_payments.doctype.sepa_mandate.sepa_mandate.activate_mandate',
 			args: { mandate_name: frm.doc.name }
 		});
 
@@ -746,7 +794,8 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 
 	const cancelMandate = jest.fn(async (frm, reason) => {
 		await frm.call({
-			method: 'verenigingen.verenigingen_payments.doctype.sepa_mandate.sepa_mandate.cancel_mandate',
+			method:
+        'verenigingen.verenigingen_payments.doctype.sepa_mandate.sepa_mandate.cancel_mandate',
 			args: {
 				mandate_name: frm.doc.name,
 				cancellation_reason: reason
@@ -755,8 +804,8 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 	});
 
 	const calculateMandateUsage = jest.fn((mandate, transactions) => {
-		const successful = transactions.filter(t => t.status === 'Completed');
-		const failed = transactions.filter(t => t.status === 'Failed');
+		const successful = transactions.filter((t) => t.status === 'Completed');
+		const failed = transactions.filter((t) => t.status === 'Failed');
 
 		return {
 			totalTransactions: transactions.length,
@@ -775,7 +824,10 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 
 		return {
 			isExpired: monthsSinceLastUse > 36,
-			reason: monthsSinceLastUse > 36 ? 'Mandate expires after 36 months of non-use' : ''
+			reason:
+        monthsSinceLastUse > 36
+        	? 'Mandate expires after 36 months of non-use'
+        	: ''
 		};
 	});
 
@@ -786,12 +838,15 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 	const canReactivateMandate = jest.fn((mandate) => {
 		return {
 			canReactivate: false,
-			reason: 'Cancelled mandates cannot be reactivated. Please create a new mandate.'
+			reason:
+        'Cancelled mandates cannot be reactivated. Please create a new mandate.'
 		};
 	});
 
 	const validateCreditorIdentifier = jest.fn((creditorId) => {
-		if (!creditorId) { return false; }
+		if (!creditorId) {
+			return false;
+		}
 
 		// SEPA creditor identifier format: Country code + check digits + ZZZ + identifier
 		const pattern = /^[A-Z]{2}[0-9]{2}ZZZ[0-9A-Z]{9}$/;
@@ -799,7 +854,7 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 	});
 
 	const validateMandateReference = jest.fn((mandateId, existingMandates) => {
-		const exists = existingMandates.some(m => m.mandate_id === mandateId);
+		const exists = existingMandates.some((m) => m.mandate_id === mandateId);
 		return {
 			isUnique: !exists,
 			message: exists ? 'Mandate reference already exists' : ''
@@ -827,13 +882,27 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 
 	const processSEPAReturnCode = jest.fn((code) => {
 		const returnCodes = {
-			AC04: { description: 'account closed', recommendedAction: 'cancel_mandate' },
+			AC04: {
+				description: 'account closed',
+				recommendedAction: 'cancel_mandate'
+			},
 			AM04: { description: 'insufficient funds', recommendedAction: 'retry' },
-			MD07: { description: 'end customer deceased', recommendedAction: 'cancel_mandate' },
-			MS02: { description: 'refusal by debtor', recommendedAction: 'contact_member' }
+			MD07: {
+				description: 'end customer deceased',
+				recommendedAction: 'cancel_mandate'
+			},
+			MS02: {
+				description: 'refusal by debtor',
+				recommendedAction: 'contact_member'
+			}
 		};
 
-		return returnCodes[code] || { description: 'unknown return code', recommendedAction: 'investigate' };
+		return (
+			returnCodes[code] || {
+				description: 'unknown return code',
+				recommendedAction: 'investigate'
+			}
+		);
 	});
 
 	const linkMandateToMember = jest.fn(async (mandate, member) => {
@@ -848,7 +917,9 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 		const compatible = member.payment_method === 'SEPA Direct Debit';
 		return {
 			compatible,
-			message: compatible ? '' : 'Member payment method must be SEPA Direct Debit'
+			message: compatible
+				? ''
+				: 'Member payment method must be SEPA Direct Debit'
 		};
 	});
 
@@ -860,7 +931,9 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 	});
 
 	const getActiveMandateForMember = jest.fn((memberName, mandates) => {
-		return mandates.find(m => m.member === memberName && m.status === 'Active');
+		return mandates.find(
+			(m) => m.member === memberName && m.status === 'Active'
+		);
 	});
 
 	const validateIBAN = jest.fn((iban) => {
@@ -885,7 +958,11 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 	});
 
 	const createMandate = jest.fn(async (mandateData) => {
-		if (!mandateData.member || !mandateData.iban || !mandateData.bank_account_name) {
+		if (
+			!mandateData.member
+      || !mandateData.iban
+      || !mandateData.bank_account_name
+		) {
 			throw new Error('Missing required mandate data');
 		}
 
@@ -893,7 +970,7 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 	});
 
 	const updateMandate = jest.fn(async (frm, updates) => {
-		Object.keys(updates).forEach(key => {
+		Object.keys(updates).forEach((key) => {
 			frm.doc[key] = updates[key];
 		});
 		return { success: true };
@@ -902,9 +979,15 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 	const validateMandateData = jest.fn((mandateData) => {
 		const errors = [];
 
-		if (!mandateData.member) { errors.push('member required'); }
-		if (!mandateData.iban) { errors.push('iban required'); }
-		if (!mandateData.bank_account_name) { errors.push('bank account name required'); }
+		if (!mandateData.member) {
+			errors.push('member required');
+		}
+		if (!mandateData.iban) {
+			errors.push('iban required');
+		}
+		if (!mandateData.bank_account_name) {
+			errors.push('bank account name required');
+		}
 
 		return {
 			valid: errors.length === 0,
@@ -913,15 +996,25 @@ describe('SEPA Mandate DocType - Comprehensive Test Suite', () => {
 	});
 
 	const validateBankAccountName = jest.fn((name) => {
-		if (!name) { return false; }
-		if (name.length < 2) { return false; }
-		if (name.length > 70) { return false; } // SEPA limit
+		if (!name) {
+			return false;
+		}
+		if (name.length < 2) {
+			return false;
+		}
+		if (name.length > 70) {
+			return false;
+		} // SEPA limit
 
 		// Check for potentially harmful content
-		if (/<script|javascript:|on\w+=/i.test(name)) { return false; }
+		if (/<script|javascript:|on\w+=/i.test(name)) {
+			return false;
+		}
 
 		// Must contain at least one letter
-		if (!/[a-zA-Z]/.test(name)) { return false; }
+		if (!/[a-zA-Z]/.test(name)) {
+			return false;
+		}
 
 		return true;
 	});

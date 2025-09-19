@@ -13,6 +13,7 @@ This document describes the security hardening implementation for SEPA billing o
 **Purpose:** Protects against Cross-Site Request Forgery attacks by requiring valid tokens for state-changing operations.
 
 **Features:**
+
 - Secure token generation with HMAC signatures
 - Configurable token expiry (default: 1 hour)
 - Session-based token validation
@@ -20,6 +21,7 @@ This document describes the security hardening implementation for SEPA billing o
 - Header and form field support
 
 **Usage:**
+
 ```python
 from verenigingen.utils.security.csrf_protection import require_csrf_token
 
@@ -30,6 +32,7 @@ def secure_api_function():
 ```
 
 **Configuration:**
+
 - Secret key: Set in site config as `csrf_secret_key`
 - Token expiry: `CSRFProtection.TOKEN_EXPIRY_SECONDS`
 - Headers: `X-CSRF-Token` or form field `csrf_token`
@@ -41,6 +44,7 @@ def secure_api_function():
 **Purpose:** Prevents abuse of SEPA operations by limiting request frequency per user and operation type.
 
 **Features:**
+
 - Sliding window algorithm
 - Role-based rate multipliers
 - Redis and memory backends
@@ -49,18 +53,21 @@ def secure_api_function():
 - IP-based additional protection
 
 **Default Limits:**
+
 - SEPA Batch Creation: 10 requests/hour
 - SEPA Validation: 50 requests/hour
 - Invoice Loading: 100 requests/hour
 - Analytics: 30 requests/hour
 
 **Role Multipliers:**
+
 - System Manager: 10x
 - Verenigingen Administrator: 5x
 - Verenigingen Manager: 3x
 - Verenigingen Staff: 2x
 
 **Usage:**
+
 ```python
 from verenigingen.utils.security.rate_limiting import rate_limit
 
@@ -77,6 +84,7 @@ def create_batch():
 **Purpose:** Enforces granular permissions for SEPA operations based on user roles and context.
 
 **Permission Levels:**
+
 - **READ**: View SEPA data and reports
 - **VALIDATE**: Validate invoices and mandates
 - **CREATE**: Create SEPA batches
@@ -86,21 +94,23 @@ def create_batch():
 
 **Role Permissions Matrix:**
 
-| Role | READ | VALIDATE | CREATE | PROCESS | ADMIN | AUDIT |
-|------|------|----------|--------|---------|-------|-------|
-| System Manager | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Verenigingen Administrator | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
-| Verenigingen Manager | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ |
-| Verenigingen Staff | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
-| Verenigingen Treasurer | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
-| Governance Auditor | ✓ | ✗ | ✗ | ✗ | ✗ | ✓ |
+| Role                       | READ | VALIDATE | CREATE | PROCESS | ADMIN | AUDIT |
+| -------------------------- | ---- | -------- | ------ | ------- | ----- | ----- |
+| System Manager             | ✓    | ✓        | ✓      | ✓       | ✓     | ✓     |
+| Verenigingen Administrator | ✓    | ✓        | ✓      | ✓       | ✗     | ✓     |
+| Verenigingen Manager       | ✓    | ✓        | ✓      | ✓       | ✗     | ✗     |
+| Verenigingen Staff         | ✓    | ✓        | ✓      | ✗       | ✗     | ✗     |
+| Verenigingen Treasurer     | ✓    | ✓        | ✓      | ✓       | ✗     | ✓     |
+| Governance Auditor         | ✓    | ✗        | ✗      | ✗       | ✗     | ✓     |
 
 **Contextual Permissions:**
+
 - Business hours restrictions for batch processing
 - IP-based restrictions for administrative operations
 - Batch ownership validation for processing operations
 
 **Usage:**
+
 ```python
 from verenigingen.utils.security.authorization import require_sepa_permission, SEPAOperation
 
@@ -117,6 +127,7 @@ def create_batch():
 **Purpose:** Provides complete audit trails for all SEPA operations with structured logging and alerting.
 
 **Event Types:**
+
 - SEPA Operations (batch creation, validation, processing)
 - Security Events (CSRF failures, rate limit violations)
 - Authentication Events (login, logout, failures)
@@ -124,12 +135,14 @@ def create_batch():
 - System Events (configuration changes, errors)
 
 **Severity Levels:**
+
 - **INFO**: Normal operations
 - **WARNING**: Potential issues
 - **ERROR**: Operational errors
 - **CRITICAL**: Security incidents
 
 **Features:**
+
 - Structured JSON logging
 - Database storage with retention policies
 - Automatic alerting on security thresholds
@@ -138,18 +151,21 @@ def create_batch():
 - Performance monitoring
 
 **Retention Policies:**
+
 - INFO: 30 days
 - WARNING: 90 days
 - ERROR: 365 days
 - CRITICAL: 7 years
 
 **Alert Thresholds:**
+
 - CSRF Validation Failed: 5 events in 15 minutes
 - Rate Limit Exceeded: 10 events in 60 minutes
 - Unauthorized Access: 3 events in 5 minutes
 - Failed Login: 5 events in 30 minutes
 
 **Usage:**
+
 ```python
 from verenigingen.utils.security.audit_logging import audit_log, AuditEventType
 
@@ -180,6 +196,7 @@ def create_sepa_batch_validated_secure(**params):
 ### Database Schema
 
 **SEPA Audit Log DocType:**
+
 - `event_id`: Unique identifier
 - `timestamp`: Event timestamp
 - `event_type`: Type of event
@@ -192,6 +209,7 @@ def create_sepa_batch_validated_secure(**params):
 ### Configuration
 
 **Site Configuration Variables:**
+
 ```python
 # CSRF Protection
 csrf_secret_key = "your-secret-key-here"
@@ -209,6 +227,7 @@ sepa_allowed_ips = ["192.168.1.0/24", "10.0.0.0/8"]
 ```
 
 **Verenigingen Settings Fields:**
+
 - `sepa_allowed_ips`: Comma-separated list of allowed IP addresses
 
 ## Security Testing
@@ -218,6 +237,7 @@ sepa_allowed_ips = ["192.168.1.0/24", "10.0.0.0/8"]
 **Location:** `verenigingen/tests/test_sepa_security_comprehensive.py`
 
 The comprehensive test suite covers:
+
 - CSRF token generation and validation
 - Rate limiting enforcement and bypass
 - Authorization permission matrix
@@ -226,6 +246,7 @@ The comprehensive test suite covers:
 - Error handling and edge cases
 
 **Running Tests:**
+
 ```bash
 # Full security test suite
 bench --site dev.veganisme.net run-tests --app verenigingen --module verenigingen.tests.test_sepa_security_comprehensive
@@ -239,15 +260,16 @@ bench --site dev.veganisme.net run-tests --app verenigingen --module vereniginge
 **Endpoint:** `/api/method/verenigingen.api.sepa_batch_ui_secure.sepa_security_health_check`
 
 Provides real-time status of all security components:
+
 ```json
 {
   "success": true,
   "overall_health": "healthy",
   "components": {
-    "csrf_protection": {"status": "healthy"},
-    "rate_limiting": {"status": "healthy"},
-    "authorization": {"status": "healthy"},
-    "audit_logging": {"status": "healthy"}
+    "csrf_protection": { "status": "healthy" },
+    "rate_limiting": { "status": "healthy" },
+    "authorization": { "status": "healthy" },
+    "audit_logging": { "status": "healthy" }
   }
 }
 ```
@@ -365,6 +387,7 @@ Provides real-time status of all security components:
 ### Performance Impact
 
 The security measures are designed to have minimal performance impact:
+
 - CSRF validation: < 1ms overhead
 - Rate limiting: < 2ms overhead (Redis), < 5ms (memory)
 - Authorization: < 1ms overhead

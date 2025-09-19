@@ -3,6 +3,7 @@
 ## Summary of Changes (July 2025)
 
 ### Consolidation Completed
+
 The monitoring implementation has been consolidated from two locations into a single enhanced module.
 
 ### What Was Done
@@ -30,6 +31,7 @@ The monitoring implementation has been consolidated from two locations into a si
 ### Migration Steps
 
 1. **Update the main integration to use enhanced version**:
+
    ```python
    # In verenigingen/monitoring/zabbix_integration.py
    # Import from enhanced version instead
@@ -37,6 +39,7 @@ The monitoring implementation has been consolidated from two locations into a si
    ```
 
 2. **Update site configuration** (if using advanced features):
+
    ```json
    {
      "enable_advanced_metrics": true,
@@ -80,6 +83,7 @@ The monitoring implementation has been consolidated from two locations into a si
 ### Template Updates Required
 
 The Zabbix template should be updated to include:
+
 - New performance metrics (response_time_p50, p95, p99)
 - Error breakdown metrics (errors_permission, errors_validation, etc.)
 - Enhanced health check triggers
@@ -97,6 +101,7 @@ The Zabbix template should be updated to include:
 ### Rollback Plan
 
 If issues occur:
+
 1. Revert verenigingen/monitoring/zabbix_integration.py to original
 2. Keep enhanced version for gradual migration
 3. Scripts in scripts/monitoring can be used as fallback

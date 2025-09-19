@@ -112,7 +112,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Function to convert technical interval to friendly text
 function getFrequencyDisplayText(interval) {
-	switch(interval) {
+	switch (interval) {
 		case '1 month':
 			return 'Monthly';
 		case '3 months':
@@ -170,7 +170,7 @@ function prevStep() {
 
 function showStep(stepNumber) {
 	// Hide all form steps (use .form-step class, not just any element with data-step)
-	document.querySelectorAll('.form-step').forEach(step => {
+	document.querySelectorAll('.form-step').forEach((step) => {
 		step.style.display = 'none';
 		step.classList.remove('active');
 	});
@@ -181,14 +181,18 @@ function showStep(stepNumber) {
 	// Check for success step - handle both string and any truthy value
 	if (stepNumber === 'success' || stepNumber === 6) {
 		// Find success step by data-step attribute
-		currentStepElement = document.querySelector('.form-step[data-step="success"]');
+		currentStepElement = document.querySelector(
+			'.form-step[data-step="success"]'
+		);
 		if (!currentStepElement) {
 			// Try as step 6 since it's the 6th form step
 			currentStepElement = document.querySelector('.form-step[data-step="6"]');
 		}
 	} else {
 		// Regular numbered step
-		currentStepElement = document.querySelector(`.form-step[data-step="${stepNumber}"]`);
+		currentStepElement = document.querySelector(
+			`.form-step[data-step="${stepNumber}"]`
+		);
 	}
 
 	if (currentStepElement) {
@@ -241,7 +245,7 @@ function validateCurrentStep() {
 	// Clear previous errors
 	clearErrors();
 
-	requiredFields.forEach(field => {
+	requiredFields.forEach((field) => {
 		if (!field.value.trim()) {
 			showFieldError(field, __('This field is required'));
 			isValid = false;
@@ -252,7 +256,10 @@ function validateCurrentStep() {
 	if (window.currentStep === 1) {
 		const amount = parseFloat(document.getElementById('amount').value);
 		if (!amount || amount <= 0) {
-			showFieldError(document.getElementById('amount'), __('Amount must be greater than zero'));
+			showFieldError(
+				document.getElementById('amount'),
+				__('Amount must be greater than zero')
+			);
 			isValid = false;
 		}
 	}
@@ -260,13 +267,18 @@ function validateCurrentStep() {
 	if (window.currentStep === 3) {
 		const email = document.querySelector('[name="donor_email"]').value;
 		if (!isValidEmail(email)) {
-			showFieldError(document.querySelector('[name="donor_email"]'), __('Please enter a valid email address'));
+			showFieldError(
+				document.querySelector('[name="donor_email"]'),
+				__('Please enter a valid email address')
+			);
 			isValid = false;
 		}
 	}
 
 	if (window.currentStep === 4) {
-		const selectedPayment = document.querySelector('[name="payment_method"]:checked');
+		const selectedPayment = document.querySelector(
+			'[name="payment_method"]:checked'
+		);
 		if (!selectedPayment) {
 			showAlert(__('Please select a payment method'), 'danger');
 			isValid = false;
@@ -302,8 +314,9 @@ function collectStepData() {
 
 	const inputs = currentStepElement.querySelectorAll('input, select, textarea');
 
-	inputs.forEach(input => {
-		if (input.name) { // Only collect inputs that have a name attribute
+	inputs.forEach((input) => {
+		if (input.name) {
+			// Only collect inputs that have a name attribute
 			if (input.type === 'checkbox') {
 				window.formData[input.name] = input.checked;
 			} else if (input.type === 'radio') {
@@ -324,15 +337,17 @@ function collectAllStepData() {
 	formSteps.forEach((step, index) => {
 		const inputs = step.querySelectorAll('input, select, textarea');
 
-		inputs.forEach(input => {
-			if (input.name) { // Only collect inputs that have a name attribute
+		inputs.forEach((input) => {
+			if (input.name) {
+				// Only collect inputs that have a name attribute
 				if (input.type === 'checkbox') {
 					window.formData[input.name] = input.checked;
 				} else if (input.type === 'radio') {
 					if (input.checked) {
 						window.formData[input.name] = input.value;
 					}
-				} else if (input.value) { // Only collect non-empty values
+				} else if (input.value) {
+					// Only collect non-empty values
 					window.formData[input.name] = input.value;
 				}
 			}
@@ -365,7 +380,7 @@ function setupFormValidation() {
 
 function initializePaymentMethods() {
 	// Set up payment method selection handlers
-	document.querySelectorAll('.payment-method').forEach(method => {
+	document.querySelectorAll('.payment-method').forEach((method) => {
 		method.addEventListener('click', function () {
 			selectPaymentMethod(this);
 		});
@@ -374,7 +389,7 @@ function initializePaymentMethods() {
 
 function selectPaymentMethod(element) {
 	// Remove selection from all methods
-	document.querySelectorAll('.payment-method').forEach(method => {
+	document.querySelectorAll('.payment-method').forEach((method) => {
 		method.classList.remove('selected');
 	});
 
@@ -462,9 +477,12 @@ function populateConfirmation() {
 
 	// Get payment method text
 	let paymentMethodText = window.formData.payment_method || 'Not selected';
-	const selectedPaymentElement = document.querySelector('[name="payment_method"]:checked');
+	const selectedPaymentElement = document.querySelector(
+		'[name="payment_method"]:checked'
+	);
 	if (selectedPaymentElement) {
-		const paymentMethodContainer = selectedPaymentElement.closest('.payment-method');
+		const paymentMethodContainer
+      = selectedPaymentElement.closest('.payment-method');
 		if (paymentMethodContainer) {
 			const labelElement = paymentMethodContainer.querySelector('h5');
 			if (labelElement) {
@@ -473,13 +491,13 @@ function populateConfirmation() {
 		}
 	}
 
-
 	// Determine frequency display text
 	let frequencyText = donationStatus;
 	let nextPaymentText = '';
 
 	if (donationStatus === 'Recurring') {
-		const subscriptionInterval = window.formData.subscription_interval || '1 month';
+		const subscriptionInterval
+      = window.formData.subscription_interval || '1 month';
 
 		// Convert billing cycle to readable format
 		frequencyText = getFrequencyDisplayText(subscriptionInterval);
@@ -574,7 +592,10 @@ function submitDonation() {
 			if (response.message.success) {
 				showSuccessStep(response.message);
 			} else {
-				showAlert(response.message.message || __('An error occurred'), 'danger');
+				showAlert(
+					response.message.message || __('An error occurred'),
+					'danger'
+				);
 			}
 		},
 		error(error) {
@@ -582,7 +603,12 @@ function submitDonation() {
 			submitText.style.display = 'inline-block';
 			submitLoading.style.display = 'none';
 
-			showAlert(__('An error occurred while submitting your donation. Please try again.'), 'danger');
+			showAlert(
+				__(
+					'An error occurred while submitting your donation. Please try again.'
+				),
+				'danger'
+			);
 		}
 	});
 }
@@ -619,7 +645,10 @@ function showSuccessStep(response) {
                 </div>
                 <p class="text-info">${response.payment_info.instructions}</p>
             `;
-		} else if (response.payment_info.status === 'subscription_redirect_required' && response.payment_info.payment_url) {
+		} else if (
+			response.payment_info.status === 'subscription_redirect_required'
+      && response.payment_info.payment_url
+		) {
 			// Handle Mollie subscription redirect
 			successContent += `
                 <div class="alert alert-success">
@@ -640,8 +669,10 @@ function showSuccessStep(response) {
 			setTimeout(() => {
 				window.open(response.payment_info.payment_url, '_self');
 			}, 3000);
-
-		} else if (response.payment_info.status === 'redirect_required' && response.payment_info.payment_url) {
+		} else if (
+			response.payment_info.status === 'redirect_required'
+      && response.payment_info.payment_url
+		) {
 			// Handle regular Mollie payment redirect
 			successContent += `
                 <div class="alert alert-info">
@@ -661,7 +692,6 @@ function showSuccessStep(response) {
 			setTimeout(() => {
 				window.open(response.payment_info.payment_url, '_self');
 			}, 3000);
-
 		} else {
 			successContent += `
                 <div class="alert alert-info">
@@ -725,7 +755,7 @@ function toggleRecurringOptions() {
 function updatePaymentMethodsForRecurring() {
 	// For recurring donations, show all methods but add helpful guidance
 	const paymentMethods = document.querySelectorAll('.payment-method');
-	paymentMethods.forEach(method => {
+	paymentMethods.forEach((method) => {
 		const methodValue = method.getAttribute('data-method');
 		method.style.display = 'block'; // Show all payment methods
 
@@ -733,21 +763,40 @@ function updatePaymentMethodsForRecurring() {
 		const description = method.querySelector('p');
 		if (description) {
 			// Remove any existing recurring notes first
-			description.textContent = description.textContent.replace(/ \([^)]*recurring[^)]*\)/gi, '');
-			description.textContent = description.textContent.replace(/ \([^)]*subscription[^)]*\)/gi, '');
-			description.textContent = description.textContent.replace(/ \([^)]*automatic[^)]*\)/gi, '');
-			description.textContent = description.textContent.replace(/ \([^)]*Set up[^)]*\)/gi, '');
-			description.textContent = description.textContent.replace(/ \([^)]*commitment[^)]*\)/gi, '');
+			description.textContent = description.textContent.replace(
+				/ \([^)]*recurring[^)]*\)/gi,
+				''
+			);
+			description.textContent = description.textContent.replace(
+				/ \([^)]*subscription[^)]*\)/gi,
+				''
+			);
+			description.textContent = description.textContent.replace(
+				/ \([^)]*automatic[^)]*\)/gi,
+				''
+			);
+			description.textContent = description.textContent.replace(
+				/ \([^)]*Set up[^)]*\)/gi,
+				''
+			);
+			description.textContent = description.textContent.replace(
+				/ \([^)]*commitment[^)]*\)/gi,
+				''
+			);
 
 			// Add appropriate guidance for each method
 			if (methodValue === 'Mollie') {
-				description.textContent += ' (Automatic subscriptions - we handle everything)';
+				description.textContent
+          += ' (Automatic subscriptions - we handle everything)';
 			} else if (methodValue === 'Bank Transfer') {
-				description.textContent += ' (Set up recurring transfer in your online banking)';
+				description.textContent
+          += ' (Set up recurring transfer in your online banking)';
 			} else if (methodValue === 'SEPA Direct Debit') {
-				description.textContent += ' (We collect automatically with your authorization)';
+				description.textContent
+          += ' (We collect automatically with your authorization)';
 			} else if (methodValue === 'Cash') {
-				description.textContent += ' (Requires regular commitment to pay at events)';
+				description.textContent
+          += ' (Requires regular commitment to pay at events)';
 			}
 		}
 	});
@@ -758,12 +807,18 @@ function updatePaymentMethodsForRecurring() {
 function resetPaymentMethods() {
 	// Show all payment methods
 	const paymentMethods = document.querySelectorAll('.payment-method');
-	paymentMethods.forEach(method => {
+	paymentMethods.forEach((method) => {
 		method.style.display = 'block';
 		// Remove subscription note
 		const description = method.querySelector('p');
-		if (description && description.textContent.includes('(Supports monthly subscriptions)')) {
-			description.textContent = description.textContent.replace(' (Supports monthly subscriptions)', '');
+		if (
+			description
+      && description.textContent.includes('(Supports monthly subscriptions)')
+		) {
+			description.textContent = description.textContent.replace(
+				' (Supports monthly subscriptions)',
+				''
+			);
 		}
 	});
 }
@@ -775,10 +830,13 @@ function toggleAnbiFields() {
 	if (checkbox.checked) {
 		fields.style.display = 'block';
 		// Auto-generate ANBI agreement number if empty
-		const numberField = document.querySelector('[name="anbi_agreement_number"]');
+		const numberField = document.querySelector(
+			'[name="anbi_agreement_number"]'
+		);
 		if (!numberField.value) {
 			frappe.call({
-				method: 'verenigingen.verenigingen.doctype.donation.donation.generate_anbi_agreement_number',
+				method:
+          'verenigingen.verenigingen.doctype.donation.donation.generate_anbi_agreement_number',
 				callback(response) {
 					if (response.message) {
 						numberField.value = response.message;
@@ -843,8 +901,8 @@ function clearFieldError(field) {
 }
 
 function clearErrors() {
-	document.querySelectorAll('.field-error').forEach(error => error.remove());
-	document.querySelectorAll('.form-control').forEach(field => {
+	document.querySelectorAll('.field-error').forEach((error) => error.remove());
+	document.querySelectorAll('.form-control').forEach((field) => {
 		field.style.borderColor = '';
 	});
 }
@@ -872,7 +930,7 @@ function initializeDonationForm() {
 }
 
 // Initialize on DOM content loaded
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', () => {
 	initializeDonationForm();
 });
 

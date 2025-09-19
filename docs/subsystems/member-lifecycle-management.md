@@ -9,15 +9,18 @@ The Member Lifecycle Management System is the core of the Verenigingen associati
 ### Central DocTypes
 
 #### Member (`Member`)
+
 The foundational entity representing an association member with comprehensive personal, administrative, and relational data:
 
 **Key Characteristics:**
+
 - Auto-naming: `Assoc-Member-{YYYY}-{MM}-{####}`
 - Complete Dutch name handling including tussenvoegsel (van, de, der, etc.)
 - Lifecycle status tracking from application through termination
 - Multi-tab organization: Member Details, Membership Data, Financial Information, Volunteer & Chapter Data, Administration, Miscellaneous
 
 **Core Fields:**
+
 - **Identity**: first_name, middle_name, tussenvoegsel, last_name, full_name, pronouns, birth_date, age
 - **Contact**: email, contact_number, primary_address
 - **Status Management**: status (Pending, Active, Rejected, Expired, Suspended, Banned, Deceased, Terminated)
@@ -26,6 +29,7 @@ The foundational entity representing an association member with comprehensive pe
 - **Financial Integration**: customer (ERPNext Customer), payment_method, dues_rate
 
 **Integration Points:**
+
 - Links to Membership records for time-bounded membership periods
 - Customer integration for ERPNext financial operations
 - Employee integration for volunteer expense claims
@@ -33,15 +37,18 @@ The foundational entity representing an association member with comprehensive pe
 - Address optimization for household member detection
 
 #### Membership (`Membership`)
+
 Time-bounded membership periods with submission workflow:
 
 **Key Characteristics:**
+
 - Auto-naming: `MEMB-{YY}-{MM}-{####}`
 - Submittable DocType with workflow states
 - Grace period management for payment delays
 - Cancellation handling with reason tracking
 
 **Core Fields:**
+
 - **Member Link**: member, member_name, email, contact_number
 - **Type & Status**: membership_type, status (Draft, Active, Pending, Inactive, Expired, Cancelled)
 - **Period Management**: start_date, renewal_date (minimum 1 year)
@@ -49,6 +56,7 @@ Time-bounded membership periods with submission workflow:
 - **Cancellation**: cancellation_date, cancellation_reason, cancellation_type
 
 **Business Rules:**
+
 - Minimum 1-year membership periods
 - Grace period support for payment issues
 - Automated status transitions based on payment and time
@@ -56,18 +64,21 @@ Time-bounded membership periods with submission workflow:
 ### Lifecycle States and Transitions
 
 #### Application Phase
+
 1. **Initial Application**: Online form submission via web form
 2. **Review Process**: Manual or automated approval workflow
 3. **Payment Setup**: SEPA mandate creation, dues schedule generation
 4. **Activation**: Member status change to Active, integration setup
 
 #### Active Membership Phase
+
 1. **Dues Processing**: Automated invoice generation from dues schedules
 2. **Payment Collection**: SEPA direct debit batch processing
 3. **Status Monitoring**: Grace period management for payment delays
 4. **Renewal Processing**: Automated renewal workflows
 
 #### Termination Phase
+
 1. **Request Submission**: Termination workflow initiation
 2. **Review & Approval**: Governance review process
 3. **Execution**: Member deactivation, payment cessation
@@ -76,6 +87,7 @@ Time-bounded membership periods with submission workflow:
 ## Application Management System
 
 ### Web Form Integration
+
 - Public membership application form
 - Dutch postal code validation
 - IBAN validation for payment setup
@@ -83,6 +95,7 @@ Time-bounded membership periods with submission workflow:
 - Volunteer interest indication
 
 ### Review Workflow
+
 - Automated eligibility checking
 - Manual review for edge cases
 - Background check integration capability
@@ -90,6 +103,7 @@ Time-bounded membership periods with submission workflow:
 - Chapter assignment
 
 ### Data Validation
+
 - Age requirement enforcement (16+ for volunteers)
 - Dutch business logic (postal codes, IBAN format)
 - Duplicate detection across name variants
@@ -98,12 +112,14 @@ Time-bounded membership periods with submission workflow:
 ## Membership Duration and Analytics
 
 ### Duration Calculation
+
 - Real-time membership duration tracking
 - Cumulative membership days calculation
 - Daily scheduled updates via background jobs
 - Historical period aggregation
 
 ### Analytics Integration
+
 - Member growth tracking
 - Retention rate calculation
 - Geographic distribution analysis
@@ -112,15 +128,18 @@ Time-bounded membership periods with submission workflow:
 ## Address Optimization System
 
 ### Household Member Detection
+
 Advanced address matching system for detecting multiple members at the same address:
 
 **Technical Implementation:**
+
 - 8-byte hash fingerprinting for O(1) address matching
 - Normalized address line and city name storage
 - Address optimization scheduled tasks
 - Efficient household member display
 
 **Business Benefits:**
+
 - Family membership management
 - Duplicate address detection
 - Household communication optimization
@@ -129,6 +148,7 @@ Advanced address matching system for detecting multiple members at the same addr
 ## Status Management and Business Rules
 
 ### Status Hierarchy
+
 1. **Pending**: Initial application state
 2. **Active**: Full membership privileges
 3. **Suspended**: Temporary access restriction
@@ -136,6 +156,7 @@ Advanced address matching system for detecting multiple members at the same addr
 5. **Terminated**: Formal membership termination
 
 ### Business Rule Enforcement
+
 - Membership type compatibility checking
 - Payment method validation
 - Age-based restriction enforcement
@@ -144,18 +165,21 @@ Advanced address matching system for detecting multiple members at the same addr
 ## Integration Architecture
 
 ### Financial System Integration
+
 - Customer record synchronization
 - Payment history tracking
 - Invoice generation coordination
 - SEPA mandate management
 
 ### Volunteer System Integration
+
 - Employee record creation for expense claims
 - Volunteer profile linking
 - Skills and interest tracking
 - Team assignment coordination
 
 ### Chapter System Integration
+
 - Geographic assignment management
 - Board member role automation
 - Chapter-specific permissions
@@ -164,11 +188,13 @@ Advanced address matching system for detecting multiple members at the same addr
 ## Background Processing
 
 ### Scheduled Tasks
+
 - **Daily**: Member financial history refresh, membership duration updates, expired membership processing
 - **Hourly**: Payment history validation and repair
 - **Weekly**: Address display refresh, data integrity validation
 
 ### Event-Driven Processing
+
 - Member status change events
 - Payment processing events
 - Chapter assignment events
@@ -177,6 +203,7 @@ Advanced address matching system for detecting multiple members at the same addr
 ## Security and Permissions
 
 ### Role-Based Access Control
+
 - **Verenigingen Member**: Own record access only
 - **Verenigingen Staff**: Read-only member access
 - **Verenigingen Chapter Board Member**: Chapter member management
@@ -184,6 +211,7 @@ Advanced address matching system for detecting multiple members at the same addr
 - **Verenigingen Administrator**: System administration
 
 ### Data Protection
+
 - Permission category system (Public, Board Only, Admin Only)
 - Row-level security based on chapter membership
 - Audit trail for sensitive operations
@@ -192,12 +220,14 @@ Advanced address matching system for detecting multiple members at the same addr
 ## Performance Optimization
 
 ### Caching Strategy
+
 - Member display data caching
 - Financial history caching
 - Address optimization caching
 - Chapter assignment caching
 
 ### Query Optimization
+
 - Database indexing for frequent queries
 - Bulk operation optimization
 - Background job queue management
@@ -206,17 +236,20 @@ Advanced address matching system for detecting multiple members at the same addr
 ## Dutch Business Logic Compliance
 
 ### Name Handling
+
 - Tussenvoegsel proper handling in all displays
 - Alphabetical sorting considering particles
 - Form field organization for Dutch naming conventions
 
 ### Regulatory Compliance
+
 - SEPA direct debit regulations
 - Dutch postal code validation
 - IBAN format verification
 - Privacy regulation compliance (AVG/GDPR)
 
 ### Cultural Adaptation
+
 - Pronoun support for inclusive language
 - Address format standardization
 - Communication preference management

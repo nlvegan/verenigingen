@@ -14,25 +14,19 @@
     "current_compliance": 99.3,
     "trend_direction": "stable",
     "last_30_days": [],
-    "improvement_areas": [
-      "Add security framework imports"
-    ]
+    "improvement_areas": ["Add security framework imports"]
   },
   "security_alerts": [
     {
       "level": "WARNING",
       "message": "Security warnings for api_security_framework.py",
-      "details": [
-        "Missing security framework imports"
-      ],
+      "details": ["Missing security framework imports"],
       "timestamp": "2025-07-29T11:51:22.728700"
     },
     {
       "level": "WARNING",
       "message": "Security warnings for onboarding_info.py",
-      "details": [
-        "Missing security framework imports"
-      ],
+      "details": ["Missing security framework imports"],
       "timestamp": "2025-07-29T11:51:22.728717"
     }
   ],

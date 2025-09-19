@@ -19,6 +19,7 @@ After investigating specific cases, I discovered that **many methods already hav
 ## Revised Action Plan
 
 ### Phase 1: Validation Accuracy (FIRST)
+
 1. **Fix the validator** to properly handle path variations:
    - Map `verenigingen.api.X` to `verenigingen/*/api/X.py`
    - Handle nested module structures
@@ -27,7 +28,9 @@ After investigating specific cases, I discovered that **many methods already hav
 2. **Re-run validation** with corrected paths to get accurate results
 
 ### Phase 2: Real Issues Only
+
 Only after getting accurate validation results:
+
 - Fix actual missing `@frappe.whitelist()` decorators
 - Remove genuinely dead JavaScript calls
 - Address test helper methods
@@ -36,6 +39,7 @@ Only after getting accurate validation results:
 
 **Original Assessment:** 241 broken calls, 13 critical production issues
 **Likely Reality:** Significantly fewer real issues, mostly:
+
 - Test helper methods that need whitelisting
 - Framework methods (should be ignored)
 - Some genuine missing decorators
@@ -52,10 +56,12 @@ Only after getting accurate validation results:
 The `JSPythonParameterValidator` in `scripts/validation/js_python_parameter_validator.py` has these problems:
 
 1. **Path Building Logic** (lines 258-259):
+
    ```python
    module_path = str(relative_path).replace('/', '.').replace('\\', '.').replace('.py', '')
    full_method_path = f"{module_path}.{node.name}"
    ```
+
    This creates paths like `verenigingen.e_boekhouden.api.test_eboekhouden_connection.test_eboekhouden_connection`
    But JavaScript calls `verenigingen.api.test_eboekhouden_connection.test_eboekhouden_connection`
 
@@ -77,5 +83,6 @@ The `JSPythonParameterValidator` in `scripts/validation/js_python_parameter_vali
 4. **Then proceed with actual fixes**
 
 ---
+
 **Status:** 🔴 **Analysis incomplete due to validator issues**
 **Recommendation:** Fix validator before proceeding with JavaScript fixes

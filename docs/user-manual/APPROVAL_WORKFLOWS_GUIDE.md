@@ -47,28 +47,28 @@ The expense approval system uses amount-based thresholds with role-specific limi
 
 #### Chapter-Level Approvals
 
-| Role | Expense Limit | Approval Authority |
-|------|---------------|-------------------|
-| Chapter Head | €1,000 | Full approval authority for chapter expenses |
-| Treasurer | €500 | Financial approval authority |
-| Secretary | €0 | Cannot approve expenses |
-| Other Board Members | €0 | Cannot approve expenses (unless specified otherwise) |
+| Role                | Expense Limit | Approval Authority                                   |
+| ------------------- | ------------- | ---------------------------------------------------- |
+| Chapter Head        | €1,000        | Full approval authority for chapter expenses         |
+| Treasurer           | €500          | Financial approval authority                         |
+| Secretary           | €0            | Cannot approve expenses                              |
+| Other Board Members | €0            | Cannot approve expenses (unless specified otherwise) |
 
 #### Team-Level Approvals
 
-| Role | Expense Limit | Approval Authority |
-|------|---------------|-------------------|
-| Team Leader | €500 | Can approve team expenses up to limit |
-| Team Member | €0 | Cannot approve expenses |
+| Role        | Expense Limit | Approval Authority                    |
+| ----------- | ------------- | ------------------------------------- |
+| Team Leader | €500          | Can approve team expenses up to limit |
+| Team Member | €0            | Cannot approve expenses               |
 
 #### Permission Levels by Amount
 
-| Amount Range | Required Permission Level | Who Can Approve |
-|--------------|-------------------------|-----------------|
-| €0 - €100 | Basic | Team Leaders, Chapter Treasurers, Chapter Heads |
-| €101 - €500 | Financial | Chapter Treasurers, Chapter Heads |
-| €501 - €1,000 | Management | Chapter Heads |
-| €1,000+ | Admin | System Managers, Verenigingen Administrators |
+| Amount Range  | Required Permission Level | Who Can Approve                                 |
+| ------------- | ------------------------- | ----------------------------------------------- |
+| €0 - €100     | Basic                     | Team Leaders, Chapter Treasurers, Chapter Heads |
+| €101 - €500   | Financial                 | Chapter Treasurers, Chapter Heads               |
+| €501 - €1,000 | Management                | Chapter Heads                                   |
+| €1,000+       | Admin                     | System Managers, Verenigingen Administrators    |
 
 ### Approval Process Flow
 
@@ -111,14 +111,14 @@ The expense approval system uses amount-based thresholds with role-specific limi
 
 ### Approval Authority
 
-| Termination Type | Primary Approver | Secondary Approver | Documentation Required |
-|------------------|------------------|-------------------|----------------------|
-| Voluntary | Chapter Board Member | Not required | Reason |
-| Non-payment | Chapter Treasurer | Not required | Payment history |
-| Deceased | Chapter Board Member | Not required | Death certificate |
-| Policy Violation | Chapter Head | Board Member | Incident documentation |
-| Disciplinary Action | Chapter Head | System Manager | Full investigation report |
-| Expulsion | System Manager | Verenigingen Administrator | Complete case file |
+| Termination Type    | Primary Approver     | Secondary Approver         | Documentation Required    |
+| ------------------- | -------------------- | -------------------------- | ------------------------- |
+| Voluntary           | Chapter Board Member | Not required               | Reason                    |
+| Non-payment         | Chapter Treasurer    | Not required               | Payment history           |
+| Deceased            | Chapter Board Member | Not required               | Death certificate         |
+| Policy Violation    | Chapter Head         | Board Member               | Incident documentation    |
+| Disciplinary Action | Chapter Head         | System Manager             | Full investigation report |
+| Expulsion           | System Manager       | Verenigingen Administrator | Complete case file        |
 
 ### Execution Timeline
 
@@ -157,23 +157,23 @@ Fee changes require manual approval for:
 
 ### Amendment Types
 
-| Amendment Type | Auto-Approval Eligible | Manual Review Required |
-|----------------|------------------------|----------------------|
-| Fee Change (increase by member) | ✓ (up to €1,000) | If exceeds limit |
-| Fee Change (decrease) | ✗ | Always |
-| Membership Type Change | ✗ | Always |
-| Billing Interval Change | ✗ | Always |
-| Plan Change | ✗ | Always |
-| Suspension | ✗ | Always |
-| Reactivation | ✗ | Always |
+| Amendment Type                  | Auto-Approval Eligible | Manual Review Required |
+| ------------------------------- | ---------------------- | ---------------------- |
+| Fee Change (increase by member) | ✓ (up to €1,000)       | If exceeds limit       |
+| Fee Change (decrease)           | ✗                      | Always                 |
+| Membership Type Change          | ✗                      | Always                 |
+| Billing Interval Change         | ✗                      | Always                 |
+| Plan Change                     | ✗                      | Always                 |
+| Suspension                      | ✗                      | Always                 |
+| Reactivation                    | ✗                      | Always                 |
 
 ### Approval Authority
 
-| Role | Approval Authority |
-|------|-------------------|
-| System Manager | All amendments |
-| Verenigingen Manager | All amendments |
-| Verenigingen Staff | Read-only access |
+| Role                 | Approval Authority |
+| -------------------- | ------------------ |
+| System Manager       | All amendments     |
+| Verenigingen Manager | All amendments     |
+| Verenigingen Staff   | Read-only access   |
 
 ## SEPA Batch Approvals
 
@@ -198,11 +198,11 @@ SEPA Direct Debit batches require approval before submission to banking systems:
 
 ### Approval Authority
 
-| Role | Batch Approval Authority |
-|------|-------------------------|
-| System Manager | All batches |
-| Verenigingen Manager | All batches |
-| Verenigingen Treasurer | Standard batches |
+| Role                   | Batch Approval Authority |
+| ---------------------- | ------------------------ |
+| System Manager         | All batches              |
+| Verenigingen Manager   | All batches              |
+| Verenigingen Treasurer | Standard batches         |
 
 ### Validation Requirements
 
@@ -218,12 +218,14 @@ Before approval, batches must pass:
 ### System-Level Roles
 
 #### System Manager
+
 - **Full system access** to all approval workflows
 - **Override capability** for any approval decision
 - **Emergency termination** authority
 - **SEPA batch** approval for any amount
 
 #### Verenigingen Administrator
+
 - **Application-wide** approval authority
 - **Expense approval** unlimited amounts
 - **Termination approval** including disciplinary
@@ -232,18 +234,21 @@ Before approval, batches must pass:
 ### Chapter-Level Roles
 
 #### Chapter Head
+
 - **Expense approval** up to €1,000
 - **Member management** including terminations
 - **Board management** capabilities
 - **Financial oversight** within chapter
 
 #### Treasurer
+
 - **Expense approval** up to €500
 - **Financial review** capabilities
 - **SEPA batch** standard approval
 - **Fee amendment** review authority
 
 #### Secretary
+
 - **Member data** management
 - **Administrative** functions
 - **No financial** approval authority
@@ -251,6 +256,7 @@ Before approval, batches must pass:
 ### Team-Level Roles
 
 #### Team Leader
+
 - **Team expense approval** up to €500
 - **Team member** management
 - **Activity coordination**
@@ -348,12 +354,12 @@ Before approval, batches must pass:
 
 ### Standard Processing Times
 
-| Approval Type | Target Time | Maximum Time | Escalation Trigger |
-|---------------|-------------|--------------|-------------------|
-| Volunteer Expense | 48 hours | 7 days | After 3 days |
-| Membership Termination | 5 days | 14 days | After 7 days |
-| Fee Amendment (manual) | 3 days | 10 days | After 5 days |
-| SEPA Batch | 24 hours | 72 hours | After 48 hours |
+| Approval Type          | Target Time | Maximum Time | Escalation Trigger |
+| ---------------------- | ----------- | ------------ | ------------------ |
+| Volunteer Expense      | 48 hours    | 7 days       | After 3 days       |
+| Membership Termination | 5 days      | 14 days      | After 7 days       |
+| Fee Amendment (manual) | 3 days      | 10 days      | After 5 days       |
+| SEPA Batch             | 24 hours    | 72 hours     | After 48 hours     |
 
 ### Escalation Procedures
 
@@ -367,6 +373,7 @@ Before approval, batches must pass:
 #### Manual Escalation
 
 Users can manually escalate by:
+
 - **Contacting chapter head** directly
 - **Using support channels** in system
 - **Emailing administration** for urgent cases
@@ -386,6 +393,7 @@ Users can manually escalate by:
 
 **Cause**: No users have appropriate role/permissions
 **Solution**:
+
 1. Check chapter board member assignments
 2. Verify role permissions in system
 3. Contact system administrator
@@ -394,6 +402,7 @@ Users can manually escalate by:
 
 **Cause**: Approver not responding, system error
 **Solution**:
+
 1. Check approver availability
 2. Use escalation process
 3. Contact technical support if system issue
@@ -402,6 +411,7 @@ Users can manually escalate by:
 
 **Cause**: Doesn't meet auto-approval criteria
 **Solution**:
+
 1. Review auto-approval conditions
 2. Modify request to meet criteria, or
 3. Accept manual approval process
@@ -410,6 +420,7 @@ Users can manually escalate by:
 
 **Cause**: Validation errors, mandate issues
 **Solution**:
+
 1. Review validation error details
 2. Fix mandate/account issues
 3. Regenerate batch after fixes
@@ -437,4 +448,4 @@ Users can manually escalate by:
 
 ---
 
-*This documentation reflects the current approval workflow implementation. For system configuration changes or role permission modifications, contact your system administrator.*
+_This documentation reflects the current approval workflow implementation. For system configuration changes or role permission modifications, contact your system administrator._

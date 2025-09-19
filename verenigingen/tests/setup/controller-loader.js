@@ -38,7 +38,9 @@ function loadFrappeController(controllerPath) {
 	const expectedBasePath = '/home/frappe/frappe-bench/apps/verenigingen';
 
 	if (!absolutePath.startsWith(expectedBasePath)) {
-		throw new Error(`Controller file must be within project directory: ${absolutePath}`);
+		throw new Error(
+			`Controller file must be within project directory: ${absolutePath}`
+		);
 	}
 
 	if (!fs.existsSync(absolutePath)) {
@@ -54,14 +56,18 @@ function loadFrappeController(controllerPath) {
 	// Read the controller file content with size limit
 	const maxFileSize = 1024 * 1024; // 1MB limit
 	if (stats.size > maxFileSize) {
-		throw new Error(`Controller file too large (${stats.size} bytes, max ${maxFileSize}): ${absolutePath}`);
+		throw new Error(
+			`Controller file too large (${stats.size} bytes, max ${maxFileSize}): ${absolutePath}`
+		);
 	}
 
 	const controllerContent = fs.readFileSync(absolutePath, 'utf8');
 
 	// Basic content validation - ensure it looks like a Frappe controller
 	if (!controllerContent.includes('frappe.ui.form.on')) {
-		throw new Error(`File does not appear to be a Frappe controller: ${absolutePath}`);
+		throw new Error(
+			`File does not appear to be a Frappe controller: ${absolutePath}`
+		);
 	}
 
 	// Setup minimal Frappe environment for controller loading
@@ -100,7 +106,8 @@ function loadFrappeController(controllerPath) {
 			setup_chapter_buttons: global.setup_chapter_buttons || jest.fn(),
 			update_chapter_ui: global.update_chapter_ui || jest.fn(),
 			setup_board_grid: global.setup_board_grid || jest.fn(),
-			display_chapter_join_requests: global.display_chapter_join_requests || jest.fn(),
+			display_chapter_join_requests:
+        global.display_chapter_join_requests || jest.fn(),
 
 			global: {
 				_frappe_form_handlers: global._frappe_form_handlers
@@ -118,7 +125,9 @@ function loadFrappeController(controllerPath) {
 		return global._frappe_form_handlers || {};
 	} catch (error) {
 		// Preserve stack trace and add context
-		const detailedError = new Error(`Failed to load controller at ${absolutePath}: ${error.message}`);
+		const detailedError = new Error(
+			`Failed to load controller at ${absolutePath}: ${error.message}`
+		);
 		detailedError.originalError = error;
 		detailedError.controllerPath = absolutePath;
 		detailedError.stack = error.stack;
@@ -181,7 +190,8 @@ function setupMinimalFrappeEnvironment() {
 		setup_payment_integration: jest.fn()
 	};
 
-	global.setup_dutch_naming_fields = global.setup_dutch_naming_fields || jest.fn();
+	global.setup_dutch_naming_fields
+    = global.setup_dutch_naming_fields || jest.fn();
 	global.validate_postal_codes = global.validate_postal_codes || jest.fn();
 	global.validate_chapter_form = global.validate_chapter_form || jest.fn();
 
@@ -190,7 +200,8 @@ function setupMinimalFrappeEnvironment() {
 	global.frappe._ = global.frappe._ || ((text) => text);
 
 	// Mock essential Frappe objects that controllers might reference
-	const mockFunction = (typeof jest !== 'undefined' && jest.fn) ? jest.fn() : (() => {});
+	const mockFunction
+    = typeof jest !== 'undefined' && jest.fn ? jest.fn() : () => {};
 
 	global.frappe.set_route = global.frappe.set_route || mockFunction;
 	global.frappe.msgprint = global.frappe.msgprint || mockFunction;
@@ -198,15 +209,17 @@ function setupMinimalFrappeEnvironment() {
 	global.frappe.show_alert = global.frappe.show_alert || mockFunction;
 
 	// Mock frappe.require for controllers that load external utility modules
-	global.frappe.require = global.frappe.require || function (paths, callback) {
-		// Mock the require function - in tests we don't actually need to load the utility files
-		// since we're testing the controller logic, not the utilities
-		if (callback && typeof callback === 'function') {
-			// Call the callback immediately to simulate successful loading
-			callback();
-		}
-		return Promise.resolve();
-	};
+	global.frappe.require
+    = global.frappe.require
+    || function (paths, callback) {
+    	// Mock the require function - in tests we don't actually need to load the utility files
+    	// since we're testing the controller logic, not the utilities
+    	if (callback && typeof callback === 'function') {
+    		// Call the callback immediately to simulate successful loading
+    		callback();
+    	}
+    	return Promise.resolve();
+    };
 
 	// Mock user context for role-based functionality
 	global.frappe.user_roles = global.frappe.user_roles || ['Test User'];
@@ -241,54 +254,56 @@ function setupMinimalFrappeEnvironment() {
 	global.frappe.dynamic_link = null;
 
 	// Mock jQuery with comprehensive DOM methods
-	global.$ = global.$ || function (selector) {
-		const jqueryMock = {
-			// Core jQuery methods
-			find: () => global.$(),
-			closest: () => global.$(),
-			parent: () => global.$(),
-			children: () => global.$(),
-			siblings: () => global.$(),
+	global.$
+    = global.$
+    || function (selector) {
+    	const jqueryMock = {
+    		// Core jQuery methods
+    		find: () => global.$(),
+    		closest: () => global.$(),
+    		parent: () => global.$(),
+    		children: () => global.$(),
+    		siblings: () => global.$(),
 
-			// DOM manipulation
-			append: mockFunction,
-			prepend: mockFunction,
-			appendTo: mockFunction,
-			remove: mockFunction,
-			empty: mockFunction,
-			html: mockFunction,
-			text: mockFunction,
+    		// DOM manipulation
+    		append: mockFunction,
+    		prepend: mockFunction,
+    		appendTo: mockFunction,
+    		remove: mockFunction,
+    		empty: mockFunction,
+    		html: mockFunction,
+    		text: mockFunction,
 
-			// CSS and styling
-			css: mockFunction,
-			addClass: mockFunction,
-			removeClass: mockFunction,
-			toggleClass: mockFunction,
-			hasClass: () => false,
+    		// CSS and styling
+    		css: mockFunction,
+    		addClass: mockFunction,
+    		removeClass: mockFunction,
+    		toggleClass: mockFunction,
+    		hasClass: () => false,
 
-			// Attributes and properties
-			attr: mockFunction,
-			prop: mockFunction,
-			val: mockFunction,
-			data: mockFunction,
+    		// Attributes and properties
+    		attr: mockFunction,
+    		prop: mockFunction,
+    		val: mockFunction,
+    		data: mockFunction,
 
-			// Events
-			on: mockFunction,
-			off: mockFunction,
-			click: mockFunction,
+    		// Events
+    		on: mockFunction,
+    		off: mockFunction,
+    		click: mockFunction,
 
-			// jQuery properties
-			length: 1,
-			jquery: '3.6.0',
+    		// jQuery properties
+    		length: 1,
+    		jquery: '3.6.0',
 
-			// Common methods used in Frappe
-			show: mockFunction,
-			hide: mockFunction,
-			toggle: mockFunction
-		};
+    		// Common methods used in Frappe
+    		show: mockFunction,
+    		hide: mockFunction,
+    		toggle: mockFunction
+    	};
 
-		return jqueryMock;
-	};
+    	return jqueryMock;
+    };
 
 	// Mock window and document for browser-dependent controller features
 	global.window = global.window || {
@@ -311,12 +326,14 @@ function setupMinimalFrappeEnvironment() {
 	};
 
 	// Mock Blob for file downloads
-	global.Blob = global.Blob || class MockBlob {
-		constructor(data, options) {
-			this.data = data;
-			this.options = options;
-		}
-	};
+	global.Blob
+    = global.Blob
+    || class MockBlob {
+    	constructor(data, options) {
+    		this.data = data;
+    		this.options = options;
+    	}
+    };
 }
 
 /**
@@ -369,13 +386,17 @@ function getAvailableEvents(doctype, handlers = null) {
  */
 function validateControllerEvents(doctype, expectedEvents, handlers = null) {
 	const availableEvents = getAvailableEvents(doctype, handlers);
-	const missingEvents = expectedEvents.filter(event => !availableEvents.includes(event));
+	const missingEvents = expectedEvents.filter(
+		(event) => !availableEvents.includes(event)
+	);
 
 	return {
 		valid: missingEvents.length === 0,
 		availableEvents,
 		missingEvents,
-		extraEvents: availableEvents.filter(event => !expectedEvents.includes(event))
+		extraEvents: availableEvents.filter(
+			(event) => !expectedEvents.includes(event)
+		)
 	};
 }
 
@@ -399,7 +420,9 @@ function loadMultipleControllers(baseDirectory, doctypes) {
 			const handlers = loadFrappeController(controllerPath);
 			Object.assign(allHandlers, handlers);
 		} catch (error) {
-			console.warn(`Could not load controller for ${doctype}: ${error.message}`);
+			console.warn(
+				`Could not load controller for ${doctype}: ${error.message}`
+			);
 		}
 	}
 

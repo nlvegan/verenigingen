@@ -15,11 +15,12 @@
     "get_mt940_import_url"
   ],
   "custom_patterns": {
-    "high_risk_keywords": [
-      "admin", "sudo", "root", "superuser"
-    ],
+    "high_risk_keywords": ["admin", "sudo", "root", "superuser"],
     "sensitive_data_patterns": [
-      "ssn", "social_security", "credit_card", "passport"
+      "ssn",
+      "social_security",
+      "credit_card",
+      "passport"
     ]
   },
   "security_levels": {
@@ -32,17 +33,12 @@
   "frameworks": {
     "required_decorators": [
       "@critical_api",
-      "@high_security_api", 
+      "@high_security_api",
       "@standard_api",
       "@utility_api",
       "@public_api"
     ],
-    "performance_decorators": [
-      "@performance_monitor",
-      "@handle_api_error"
-    ],
-    "validation_decorators": [
-      "@validate_with_schema"
-    ]
+    "performance_decorators": ["@performance_monitor", "@handle_api_error"],
+    "validation_decorators": ["@validate_with_schema"]
   }
 }

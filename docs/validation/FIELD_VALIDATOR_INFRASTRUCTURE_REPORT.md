@@ -5,6 +5,7 @@
 This report provides a comprehensive technical analysis of the field validation infrastructure in the Verenigingen codebase. Eight core field validators were systematically tested to evaluate their functional status, capabilities, performance characteristics, and actual output quality.
 
 **Key Findings:**
+
 - 5 validators are fully functional with varying accuracy levels
 - 1 validator has configuration issues preventing execution
 - 2 validators show mixed results
@@ -21,29 +22,34 @@ This report provides a comprehensive technical analysis of the field validation 
 ### Functional Status: ✅ WORKING
 
 **Capabilities:**
+
 - Loads 1,049 DocTypes from comprehensive DocType loader
 - Validates SQL string literals containing database field references
 - Extracts table aliases and field references from SQL queries
 - Provides field similarity suggestions
 
 **Performance:**
+
 - Execution Time: < 5 seconds
 - Memory Usage: Moderate (DocType loading)
 - Scalability: Good for large codebases
 
 **Actual Output:**
+
 ```
 🔍 SQL Validator loaded 1049 DocTypes from comprehensive loader
 ✅ No SQL field reference issues found!
 ```
 
 **Technical Assessment:**
+
 - **Strengths:** Fast execution, comprehensive DocType coverage, good SQL parsing
 - **Weaknesses:** May miss complex SQL patterns, limited to string literal detection
 - **Accuracy:** High precision, low false positive rate
 - **Configuration Issues:** None detected
 
 ### Arguments/Options Supported:
+
 - Single file validation: `python script.py path/to/file.py`
 - No command-line help implemented
 
@@ -56,6 +62,7 @@ This report provides a comprehensive technical analysis of the field validation 
 ### Functional Status: ✅ WORKING
 
 **Capabilities:**
+
 - Comprehensive AST-based field validation
 - Confidence scoring system (high/medium/low)
 - Property method detection (@property decorators)
@@ -63,11 +70,13 @@ This report provides a comprehensive technical analysis of the field validation 
 - Multi-app DocType loading (1,049 DocTypes, 32,151 fields)
 
 **Performance:**
+
 - Execution Time: ~8.89 seconds
 - Files Processed: 1,167
 - Memory Usage: Higher due to comprehensive analysis
 
 **Actual Output:**
+
 ```
 🔍 Loaded 1049 DocTypes with 32151 fields
 Total issues found: 1392
@@ -77,6 +86,7 @@ Total issues found: 1392
 ```
 
 **Sample Issues Detected:**
+
 ```
 ❌ verenigingen/permissions.py:575
   Field 'has_common_link' does not exist in Contact
@@ -88,12 +98,14 @@ Total issues found: 1392
 ```
 
 ### Arguments/Options Supported:
+
 - `--help`: Show help message
 - `--pre-commit`: Run in pre-commit mode (only high confidence issues)
 - `--verbose`: Enable verbose output
 - `--path PATH`: Path to validate
 
 **Technical Assessment:**
+
 - **Strengths:** Sophisticated confidence scoring, comprehensive analysis, excellent performance
 - **Weaknesses:** High issue count may overwhelm developers
 - **Accuracy:** Good precision, moderate false positive rate in medium/low confidence
@@ -108,16 +120,19 @@ Total issues found: 1392
 ### Functional Status: ⚠️ CONFIGURATION ISSUE
 
 **Expected Capabilities:**
+
 - Selective exclusions for false positive reduction
 - Configurable validation levels (strict/balanced/permissive)
 - Pattern-based validation with intelligent exclusions
 - Child table pattern recognition
 
 **Performance:**
+
 - Execution Time: < 2 seconds
 - DocTypes Loaded: 0 (ISSUE)
 
 **Actual Output:**
+
 ```
 🔍 Running pragmatic database query field validation...
 📊 Validation Level: BALANCED
@@ -126,6 +141,7 @@ Total issues found: 1392
 ```
 
 ### Arguments/Options Supported:
+
 - `--help`: Working help system
 - `--level {strict,balanced,permissive}`: Validation level
 - `--app-path APP_PATH`: Path to app directory
@@ -133,6 +149,7 @@ Total issues found: 1392
 - `--pre-commit`: Pre-commit mode
 
 **Technical Assessment:**
+
 - **Strengths:** Well-designed architecture, excellent configuration options
 - **Critical Issue:** DocType loader failing - loads 0 DocTypes vs expected 1,000+
 - **Root Cause:** Path configuration or DocType loader integration problem
@@ -147,6 +164,7 @@ Total issues found: 1392
 ### Functional Status: ✅ WORKING
 
 **Capabilities:**
+
 - Ultra-precise DocType context detection
 - Multiple validation strategies for variable type inference
 - Enhanced exclusion patterns for false positive reduction
@@ -154,11 +172,13 @@ Total issues found: 1392
 - Child table relationship mapping (391 entries)
 
 **Performance:**
+
 - Execution Time: ~30 seconds
 - Files Processed: 1,634
 - Memory Usage: Moderate
 
 **Actual Output:**
+
 ```
 📋 Loaded 853 doctypes with field definitions
 📋 Built child table mapping with 391 entries
@@ -166,6 +186,7 @@ Total issues found: 763
 ```
 
 **Sample Issues Detected:**
+
 ```
 ❌ verenigingen/validations.py:47 - default_grace_period_days not in Membership Termination Request
    → Field 'default_grace_period_days' does not exist in Membership Termination Request
@@ -175,9 +196,11 @@ Total issues found: 763
 ```
 
 ### Arguments/Options Supported:
+
 - No command-line arguments (runs directly)
 
 **Technical Assessment:**
+
 - **Strengths:** Excellent balance of accuracy and coverage, good performance
 - **Weaknesses:** Still produces 763 issues - may have some false positives
 - **Accuracy:** Good precision, significant reduction from raw validation
@@ -192,17 +215,20 @@ Total issues found: 763
 ### Functional Status: ✅ WORKING
 
 **Capabilities:**
+
 - Live schema introspection including custom fields
 - Confidence-based validation with scoring algorithm
 - Pattern recognition for valid Frappe ORM patterns
 - Comprehensive context analysis with AST parsing
 
 **Performance:**
+
 - Execution Time: ~45 seconds (slowest)
 - Files Processed: 1,643
 - Memory Usage: High due to comprehensive analysis
 
 **Actual Output:**
+
 ```
 📋 Loaded 71 DocType schemas
 Found 7067 potential field reference issues
@@ -210,6 +236,7 @@ High confidence (≥90%): 7067 issues
 ```
 
 **Sample Issues Detected:**
+
 ```
 ❌ schedule.can_generate_invoice (DocType: Membership Dues Schedule)
    Field 'can_generate_invoice' does not exist in DocType 'Membership Dues Schedule'
@@ -221,6 +248,7 @@ High confidence (≥90%): 7067 issues
 ```
 
 ### Arguments/Options Supported:
+
 - `--help`: Working help system
 - `--app-path APP_PATH`: Path to the Frappe app
 - `--min-confidence MIN_CONFIDENCE`: Confidence threshold (0.0-1.0)
@@ -229,6 +257,7 @@ High confidence (≥90%): 7067 issues
 - `--pre-commit`: Pre-commit mode
 
 **Technical Assessment:**
+
 - **Strengths:** Most sophisticated architecture, excellent configuration options
 - **Critical Issue:** Very high false positive rate (7,067 issues) suggests calibration problems
 - **Issue:** Only loads 71 DocTypes vs 1,000+ expected - significant schema coverage gap
@@ -243,17 +272,20 @@ High confidence (≥90%): 7067 issues
 ### Functional Status: ✅ WORKING
 
 **Capabilities:**
+
 - Optimized for speed with focused validation
 - Known field mappings for common issues
 - Confidence-based filtering (high/medium/low)
 - Enhanced exclusion lists to reduce false positives
 
 **Performance:**
+
 - Execution Time: ~15 seconds
 - Files Processed: 1,844
 - Memory Usage: Moderate
 
 **Actual Output:**
+
 ```
 📋 Loaded 83 doctypes with field definitions
 📊 Total issues: 77
@@ -263,6 +295,7 @@ High confidence (≥90%): 7067 issues
 ```
 
 **Sample Issues Detected:**
+
 ```
 ❌ verenigingen/api/dd_batch_api.py:409
    Field 'mandate_reference' does not exist in SEPA Mandate
@@ -274,10 +307,12 @@ High confidence (≥90%): 7067 issues
 ```
 
 ### Arguments/Options Supported:
+
 - `--help`: Working help system
 - `--pre-commit`: Run in pre-commit mode
 
 **Technical Assessment:**
+
 - **Strengths:** Excellent balance of speed and accuracy, low false positive rate
 - **Weaknesses:** Limited DocType coverage (83 vs 1,000+), focused scope
 - **Accuracy:** Very high precision, practical for daily development
@@ -292,6 +327,7 @@ High confidence (≥90%): 7067 issues
 ### Functional Status: ✅ WORKING
 
 **Capabilities:**
+
 - Fast method call validation focused on common issues
 - Deprecated method detection
 - Typo pattern recognition
@@ -300,11 +336,13 @@ High confidence (≥90%): 7067 issues
 - Hooks.py validation integration
 
 **Performance:**
+
 - Execution Time: ~20 seconds
 - Files Processed: 1,842
 - Memory Usage: Low
 
 **Actual Output:**
+
 ```
 🚨 Found 1475 method call issues:
 📋 SUSPICIOUS PATTERN (781 issues):
@@ -318,10 +356,12 @@ High confidence (≥90%): 7067 issues
 ```
 
 ### Arguments/Options Supported:
+
 - No command-line arguments (runs directly)
 - Single file validation supported
 
 **Technical Assessment:**
+
 - **Strengths:** Fast execution, practical focus on real issues, good pattern recognition
 - **Weaknesses:** High issue count with many "likely typos" that may be legitimate
 - **Accuracy:** Good for security and method existence, moderate precision on typos
@@ -336,6 +376,7 @@ High confidence (≥90%): 7067 issues
 ### Functional Status: ✅ WORKING
 
 **Capabilities:**
+
 - Ultimate precision field validation using comprehensive DocType loader
 - Advanced exclusion patterns targeting specific false positives
 - Enhanced DocType detection with multiple strategies
@@ -343,11 +384,13 @@ High confidence (≥90%): 7067 issues
 - Multi-app schema loading (1,049 DocTypes, 32,151 fields)
 
 **Performance:**
+
 - Execution Time: ~25 seconds
 - Files Processed: 1,600+
 - Memory Usage: High
 
 **Actual Output:**
+
 ```
 🔍 Loaded 1049 DocTypes with 32151 fields from 9 apps
 🔗 Built 462 child table relationships
@@ -355,6 +398,7 @@ Total issues found: 369
 ```
 
 **Sample Issues Detected:**
+
 ```
 ❌ verenigingen/validations.py:47 - default_grace_period_days not in Membership Termination Request
    → Field 'default_grace_period_days' does not exist in Membership Termination Request
@@ -365,11 +409,13 @@ Total issues found: 369
 ```
 
 ### Arguments/Options Supported:
+
 - `--pre-commit`: Pre-commit mode
 - `--verbose`: Verbose output
 - Single file validation: `python script.py filename.py`
 
 **Technical Assessment:**
+
 - **Strengths:** Most comprehensive DocType loading, excellent precision, sophisticated exclusions
 - **Weaknesses:** Still produces 369 issues - some may be legitimate field references
 - **Accuracy:** Highest precision among all validators, best balance of coverage and accuracy
@@ -380,40 +426,43 @@ Total issues found: 369
 ## Comparative Analysis
 
 ### Performance Comparison
-| Validator | Execution Time | Files Processed | DocTypes Loaded | Issues Found |
-|-----------|---------------|-----------------|-----------------|--------------|
-| Basic SQL | < 5 seconds | Unknown | 1,049 | 0 |
-| Enhanced | ~9 seconds | 1,167 | 1,049 | 1,392 |
-| Pragmatic | < 2 seconds | Unknown | 0 ⚠️ | 0 |
-| Context Aware | ~30 seconds | 1,634 | 853 | 763 |
-| Schema Aware | ~45 seconds | 1,643 | 71 ⚠️ | 7,067 |
-| Performance Optimized | ~15 seconds | 1,844 | 83 | 77 |
-| Method Call | ~20 seconds | 1,842 | N/A | 1,475 |
-| Comprehensive | ~25 seconds | 1,600+ | 1,049 | 369 |
+
+| Validator             | Execution Time | Files Processed | DocTypes Loaded | Issues Found |
+| --------------------- | -------------- | --------------- | --------------- | ------------ |
+| Basic SQL             | < 5 seconds    | Unknown         | 1,049           | 0            |
+| Enhanced              | ~9 seconds     | 1,167           | 1,049           | 1,392        |
+| Pragmatic             | < 2 seconds    | Unknown         | 0 ⚠️            | 0            |
+| Context Aware         | ~30 seconds    | 1,634           | 853             | 763          |
+| Schema Aware          | ~45 seconds    | 1,643           | 71 ⚠️           | 7,067        |
+| Performance Optimized | ~15 seconds    | 1,844           | 83              | 77           |
+| Method Call           | ~20 seconds    | 1,842           | N/A             | 1,475        |
+| Comprehensive         | ~25 seconds    | 1,600+          | 1,049           | 369          |
 
 ### Accuracy Assessment
-| Validator | Precision | False Positive Rate | Practical Usability |
-|-----------|-----------|-------------------|-------------------|
-| Basic SQL | High | Very Low | ✅ Excellent |
-| Enhanced | Good | Moderate | ✅ Good |
-| Pragmatic | N/A | N/A | ❌ Non-functional |
-| Context Aware | Good | Low-Moderate | ✅ Good |
-| Schema Aware | Poor | Very High | ❌ Too noisy |
-| Performance Optimized | Very High | Very Low | ✅ Excellent |
-| Method Call | Variable | High for typos | ⚠️ Mixed |
-| Comprehensive | Very High | Low | ✅ Excellent |
+
+| Validator             | Precision | False Positive Rate | Practical Usability |
+| --------------------- | --------- | ------------------- | ------------------- |
+| Basic SQL             | High      | Very Low            | ✅ Excellent        |
+| Enhanced              | Good      | Moderate            | ✅ Good             |
+| Pragmatic             | N/A       | N/A                 | ❌ Non-functional   |
+| Context Aware         | Good      | Low-Moderate        | ✅ Good             |
+| Schema Aware          | Poor      | Very High           | ❌ Too noisy        |
+| Performance Optimized | Very High | Very Low            | ✅ Excellent        |
+| Method Call           | Variable  | High for typos      | ⚠️ Mixed            |
+| Comprehensive         | Very High | Low                 | ✅ Excellent        |
 
 ### Configuration Issues Summary
-| Validator | Status | Issues Identified |
-|-----------|--------|------------------|
-| Basic SQL | ✅ Working | None |
-| Enhanced | ✅ Working | None |
-| Pragmatic | ❌ Broken | DocType loader loads 0 DocTypes |
-| Context Aware | ✅ Working | None |
-| Schema Aware | ⚠️ Degraded | Only 71 DocTypes loaded vs 1,000+ expected |
-| Performance Optimized | ✅ Working | Limited DocType coverage by design |
-| Method Call | ✅ Working | None |
-| Comprehensive | ✅ Working | None |
+
+| Validator             | Status      | Issues Identified                          |
+| --------------------- | ----------- | ------------------------------------------ |
+| Basic SQL             | ✅ Working  | None                                       |
+| Enhanced              | ✅ Working  | None                                       |
+| Pragmatic             | ❌ Broken   | DocType loader loads 0 DocTypes            |
+| Context Aware         | ✅ Working  | None                                       |
+| Schema Aware          | ⚠️ Degraded | Only 71 DocTypes loaded vs 1,000+ expected |
+| Performance Optimized | ✅ Working  | Limited DocType coverage by design         |
+| Method Call           | ✅ Working  | None                                       |
+| Comprehensive         | ✅ Working  | None                                       |
 
 ---
 
@@ -438,14 +487,17 @@ Total issues found: 369
 ### Production Deployment Recommendations
 
 **For Pre-commit Hooks:**
+
 - **Primary:** `performance_optimized_validator.py` (77 high-quality issues, fast)
 - **Backup:** `basic_sql_field_validator.py` (SQL-specific, very fast)
 
 **For CI/CD Pipelines:**
+
 - **Primary:** `comprehensive_doctype_validator.py` (369 issues, comprehensive)
 - **Secondary:** `enhanced_doctype_field_validator.py` (1,392 issues, confidence-based filtering)
 
 **For Manual Code Review:**
+
 - **Primary:** `context_aware_field_validator.py` (763 issues, good balance)
 - **Security Focus:** `method_call_validator.py` (focus on ignore_permissions patterns)
 

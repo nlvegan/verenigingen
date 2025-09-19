@@ -83,6 +83,7 @@ ERPNext (Target)
 ### Design Patterns
 
 #### Processor Pattern
+
 Each transaction type has a dedicated processor implementing `BaseTransactionProcessor`:
 
 ```python
@@ -98,6 +99,7 @@ class PaymentProcessor(BaseTransactionProcessor):
 ```
 
 #### Strategy Pattern
+
 Different APIs use the same interface but different implementations:
 
 ```python
@@ -108,6 +110,7 @@ class EBoekhoudenRESTClient:
 ```
 
 #### Factory Pattern
+
 Dynamic processor selection based on mutation type:
 
 ```python
@@ -150,13 +153,13 @@ headers = {
 
 #### Core Endpoints
 
-| Endpoint | Purpose | Pagination | Max Records |
-|----------|---------|------------|-------------|
-| `/v1/mutation` | Financial transactions | Yes | 2000/page |
-| `/v1/ledger` | Chart of accounts | Yes | 2000/page |
-| `/v1/relation` | Customers/Suppliers | Yes | 2000/page |
-| `/v1/invoice` | Invoice details | Yes | 2000/page |
-| `/v1/costcenter` | Cost centers | Yes | 500/page |
+| Endpoint         | Purpose                | Pagination | Max Records |
+| ---------------- | ---------------------- | ---------- | ----------- |
+| `/v1/mutation`   | Financial transactions | Yes        | 2000/page   |
+| `/v1/ledger`     | Chart of accounts      | Yes        | 2000/page   |
+| `/v1/relation`   | Customers/Suppliers    | Yes        | 2000/page   |
+| `/v1/invoice`    | Invoice details        | Yes        | 2000/page   |
+| `/v1/costcenter` | Cost centers           | Yes        | 500/page    |
 
 #### Pagination Handling
 
@@ -198,23 +201,25 @@ def get_all_mutations(self, date_from=None, date_to=None) -> Dict[str, Any]:
 
 #### Technical Features
 
-| Feature | Implementation |
-|---------|----------------|
-| Transaction Limit | Unlimited with pagination |
-| Data Format | JSON |
-| Performance | Optimized for large datasets |
-| Maintenance | Active development |
-| Error Handling | Comprehensive logging |
+| Feature           | Implementation               |
+| ----------------- | ---------------------------- |
+| Transaction Limit | Unlimited with pagination    |
+| Data Format       | JSON                         |
+| Performance       | Optimized for large datasets |
+| Maintenance       | Active development           |
+| Error Handling    | Comprehensive logging        |
 
 ### Current Implementation Status
 
 #### Verified API Implementation
+
 - **REST API Client**: `EBoekhoudenRESTClient` in `utils/eboekhouden_rest_client.py`
 - **Session Management**: Automatic token refresh with 60-minute expiry
 - **Pagination Support**: Handles large datasets with configurable batch sizes
 - **Error Recovery**: Comprehensive error handling and retry mechanisms
 
 #### DocTypes Currently Implemented
+
 - **E-Boekhouden Settings**: Single doctype for API configuration
 - **E-Boekhouden Migration**: Main migration orchestration doctype
 - **E-Boekhouden Import Log**: Detailed logging of all import operations
@@ -225,6 +230,7 @@ def get_all_mutations(self, date_from=None, date_to=None) -> Dict[str, Any]:
 #### API Capabilities
 
 The REST API implementation provides:
+
 - Unlimited transaction access with pagination
 - Modern JSON data format
 - High performance with optimized queries
@@ -327,16 +333,16 @@ def create_account_from_ledger(ledger_data):
 
 The current implementation supports the following transaction types:
 
-| eBoekhouden Type | ERPNext Document | Description | Processor Class |
-|------------------|------------------|-------------|-----------------|
-| 0 | Journal Entry | Opening Balance |
-| 1 | Purchase Invoice | Supplier Invoice |
-| 2 | Sales Invoice | Customer Invoice |
-| 3 | Payment Entry | Money Received |
-| 4 | Payment Entry | Money Paid |
-| 5 | Payment Entry | General Receipt |
-| 6 | Payment Entry | General Payment |
-| 7 | Journal Entry | Memorial Entry |
+| eBoekhouden Type | ERPNext Document | Description      | Processor Class |
+| ---------------- | ---------------- | ---------------- | --------------- |
+| 0                | Journal Entry    | Opening Balance  |
+| 1                | Purchase Invoice | Supplier Invoice |
+| 2                | Sales Invoice    | Customer Invoice |
+| 3                | Payment Entry    | Money Received   |
+| 4                | Payment Entry    | Money Paid       |
+| 5                | Payment Entry    | General Receipt  |
+| 6                | Payment Entry    | General Payment  |
+| 7                | Journal Entry    | Memorial Entry   |
 
 #### Payment Entry Creation
 
@@ -497,19 +503,22 @@ def create_customer(party_data: Dict) -> str:
 The integration uses a single settings doctype with the following required fields:
 
 #### API Connection (Required)
+
 - **API URL**: `https://api.e-boekhouden.nl` (default REST endpoint)
 - **API Token**: Your eBoekhouden API token (stored encrypted)
 - **Source Application**: `VerenigingenERPNext` (API identifier)
 
-
 #### Default Mapping Settings (Required)
+
 - **Default Company**: ERPNext company for imports
 - **Default Cost Center**: Optional default cost center
 - **Default Currency**: EUR (typically)
 - **Fiscal Year Start Month**: 1-12 (default: 1 for January)
 
 #### Account Group Mappings (Optional)
+
 Custom account group codes and names in format:
+
 ```
 001 Vaste activa
 002 Liquide middelen
@@ -569,11 +578,12 @@ bench --site your-site.com console
 ```
 
 Expected successful response:
+
 ```json
 {
-    "success": true,
-    "message": "API connection successful",
-    "sample_data": "...chart of accounts preview..."
+  "success": true,
+  "message": "API connection successful",
+  "sample_data": "...chart of accounts preview..."
 }
 ```
 
@@ -684,6 +694,7 @@ result = import_mutations_by_type([1, 2])  # Purchase/Sales invoices
 ### Error Categories
 
 #### 1. API Connection Errors
+
 - **Cause**: Network issues, invalid credentials, API downtime
 - **Recovery**: Automatic retry with exponential backoff
 - **Monitoring**: Real-time API status checking
@@ -706,6 +717,7 @@ def handle_api_error(error, retry_count=0):
 ```
 
 #### 2. Data Validation Errors
+
 - **Cause**: Missing required fields, invalid data formats
 - **Recovery**: Data transformation and default value assignment
 - **Logging**: Detailed validation error reports
@@ -734,6 +746,7 @@ def validate_and_transform_mutation(mutation):
 ```
 
 #### 3. Balance Validation Errors
+
 - **Cause**: Unbalanced journal entries, missing contra accounts
 - **Recovery**: Automatic balancing entry creation
 - **Prevention**: Pre-validation before document creation
@@ -949,13 +962,13 @@ def get_dashboard_metrics():
 
 Based on production usage:
 
-| Metric | Performance |
-|--------|-------------|
-| API Response Time | < 2 seconds |
-| Transaction Processing | 50-100 per minute |
-| Large Dataset Import | 10,000 records in ~3 hours |
-| Memory Usage | < 512MB for 5,000 records |
-| CPU Usage | < 30% during import |
+| Metric                 | Performance                |
+| ---------------------- | -------------------------- |
+| API Response Time      | < 2 seconds                |
+| Transaction Processing | 50-100 per minute          |
+| Large Dataset Import   | 10,000 records in ~3 hours |
+| Memory Usage           | < 512MB for 5,000 records  |
+| CPU Usage              | < 30% during import        |
 
 ## Development Guide
 
@@ -1096,11 +1109,13 @@ def test_full_migration_workflow():
 #### 1. API Connection Failures
 
 **Symptoms**:
+
 - "Failed to get session token" errors
 - HTTP 401/403 responses
 - Connection timeout errors
 
 **Solutions**:
+
 ```python
 # Check API credentials
 settings = frappe.get_single("E-Boekhouden Settings")
@@ -1120,10 +1135,12 @@ settings.save()
 #### 2. Balance Validation Errors
 
 **Symptoms**:
+
 - "Journal Entry does not balance" errors
 - Total debit != total credit warnings
 
 **Solutions**:
+
 ```python
 # Enable automatic balancing
 frappe.db.set_value("E-Boekhouden Settings", None, "auto_balance_entries", 1)
@@ -1139,10 +1156,12 @@ fix_unbalanced_journal_entries()
 #### 3. Duplicate Import Prevention
 
 **Symptoms**:
+
 - "Document already exists" errors
 - Duplicate transaction warnings
 
 **Solutions**:
+
 ```python
 # Check for existing imports
 existing_mutations = frappe.db.get_all(
@@ -1158,11 +1177,13 @@ skip_existing_mutations = True
 #### 4. Performance Issues
 
 **Symptoms**:
+
 - Slow import speeds
 - High memory usage
 - Database timeout errors
 
 **Solutions**:
+
 ```python
 # Reduce batch size
 batch_size = 50  # Down from default 100
@@ -1243,6 +1264,7 @@ The eBoekhouden integration provides a robust, production-ready solution for imp
 The modular architecture allows for easy extension and customization, while the extensive documentation and testing framework ensure maintainability and reliability in production environments.
 
 **Key Success Factors:**
+
 1. **Proper Configuration**: Ensure all settings are correctly configured
 2. **Gradual Rollout**: Start with chart of accounts, then master data, then transactions
 3. **Monitoring**: Use the dashboard to track progress and identify issues early

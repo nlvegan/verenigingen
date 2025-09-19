@@ -4,6 +4,7 @@ Webhook Security Utilities for Mollie Integration
 Provides secure webhook signature verification to ensure webhook requests
 actually originate from Mollie and prevent malicious attacks.
 """
+
 import hashlib
 import hmac
 from typing import Optional

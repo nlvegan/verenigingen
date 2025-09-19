@@ -21,10 +21,12 @@
 ## Phase 2: Critical DocType Methods (HIGH PRIORITY)
 
 ### Chapter DocType
+
 - [ ] **File:** `verenigingen/verenigingen/doctype/chapter/chapter.js:200`
   - [ ] Add `@frappe.whitelist()` to `validate_postal_codes` method
 
 ### Member Management
+
 - [ ] **File:** Multiple DocType JS files
   - [ ] Add `@frappe.whitelist()` to `assign_member_to_chapter`
   - [ ] Add `@frappe.whitelist()` to `get_member_chapter_display_html`
@@ -33,6 +35,7 @@
   - [ ] Add `@frappe.whitelist()` to `update_member_payment_history`
 
 ### SEPA Mandate Management
+
 - [ ] **File:** Multiple SEPA-related DocType JS files
   - [ ] Add `@frappe.whitelist()` to `get_active_sepa_mandate`
   - [ ] Add `@frappe.whitelist()` to `create_sepa_mandate`
@@ -42,6 +45,7 @@
 ## Validation Commands
 
 **Test fixes immediately after each change:**
+
 ```bash
 # Check if methods exist
 python -c "import verenigingen.api.test_eboekhouden_connection; print('Module exists')"

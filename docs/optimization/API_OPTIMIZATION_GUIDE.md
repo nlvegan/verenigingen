@@ -14,11 +14,13 @@
 These endpoints handle the most traffic and would benefit most from optimization:
 
 #### 1. Payment Dashboard (`payment_dashboard.py`)
+
 - `get_dashboard_data()` - Heavy queries, no caching
 - `get_payment_history()` - Complex JOINs
 - `get_payment_schedule()` - Calculations
 
 **Optimizations needed**:
+
 ```python
 @cache_with_ttl(ttl=300)  # 5 min cache
 @handle_api_errors
@@ -31,14 +33,17 @@ def get_dashboard_data(**kwargs):
 ```
 
 #### 2. Chapter Dashboard (`chapter_dashboard_api.py`)
+
 - `get_chapter_member_emails()` - Currently 5 min cache, increase to 30 min
 - `get_chapter_analytics()` - No caching
 
 #### 3. SEPA Batch UI (`sepa_batch_ui.py`)
+
 - `load_unpaid_invoices()` - N+1 query problem
 - `get_batch_analytics()` - Heavy aggregations
 
 #### 4. Member Management (`member_management.py`)
+
 - `get_members_without_chapter()` - Full table scan
 - `search_members()` - No pagination
 
@@ -55,6 +60,7 @@ from verenigingen.utils.batch_processor import BatchProcessor
 #### Step 2: Apply Decorators
 
 For **GET/List endpoints**:
+
 ```python
 @cache_with_ttl(ttl=300)  # 5-30 minutes depending on data volatility
 @handle_api_errors
@@ -65,6 +71,7 @@ def get_something():
 ```
 
 For **Create/Update endpoints**:
+
 ```python
 @validate_request
 @handle_api_errors
@@ -107,6 +114,7 @@ def get_list(**kwargs):
 #### Step 4: Optimize Queries
 
 Replace multiple queries with JOINs:
+
 ```python
 # Before (N+1 problem)
 members = frappe.get_all("Member")
@@ -123,17 +131,18 @@ members = frappe.db.sql("""
 
 ### Cache TTL Guidelines
 
-| Data Type | Suggested TTL | Example |
-|-----------|--------------|---------|
-| Dashboard data | 5-15 minutes | `@cache_with_ttl(ttl=300)` |
-| User lists | 5-10 minutes | `@cache_with_ttl(ttl=600)` |
-| Reports | 15-60 minutes | `@cache_with_ttl(ttl=1800)` |
-| Static data | 1-24 hours | `@cache_with_ttl(ttl=3600)` |
-| Real-time data | No cache | Don't add decorator |
+| Data Type      | Suggested TTL | Example                     |
+| -------------- | ------------- | --------------------------- |
+| Dashboard data | 5-15 minutes  | `@cache_with_ttl(ttl=300)`  |
+| User lists     | 5-10 minutes  | `@cache_with_ttl(ttl=600)`  |
+| Reports        | 15-60 minutes | `@cache_with_ttl(ttl=1800)` |
+| Static data    | 1-24 hours    | `@cache_with_ttl(ttl=3600)` |
+| Real-time data | No cache      | Don't add decorator         |
 
 ### Testing Optimizations
 
 #### 1. Performance Test
+
 ```bash
 # Before optimization
 time curl https://site.com/api/method/endpoint
@@ -144,6 +153,7 @@ time curl https://site.com/api/method/endpoint  # Cached
 ```
 
 #### 2. Load Test
+
 ```python
 import concurrent.futures
 import requests
@@ -158,7 +168,9 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
 ```
 
 #### 3. Cache Verification
+
 Check Redis for cached values:
+
 ```python
 frappe.cache().get_value("cache_key")
 ```
@@ -171,6 +183,7 @@ frappe.cache().get_value("cache_key")
    - Error rates
 
 2. **Cache Hit Rates**
+
    ```python
    # Add to your monitoring
    cache_hits = frappe.cache().hget("stats", "hits")
@@ -217,6 +230,7 @@ After implementing these quick wins:
 ### Success Metrics
 
 Track these KPIs after optimization:
+
 - Average response time < 200ms
 - Cache hit rate > 80%
 - Database queries per request < 5

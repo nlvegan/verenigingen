@@ -11,6 +11,7 @@ The API Security Framework has been enhanced with **Role Profile Integration**, 
 ## What Changed
 
 ### Before: Hardcoded Role Lists
+
 ```python
 # Old system - hardcoded roles that didn't match actual user assignments
 SecurityLevel.CRITICAL: SecurityProfile(
@@ -20,6 +21,7 @@ SecurityLevel.CRITICAL: SecurityProfile(
 ```
 
 ### After: Role Profile Integration
+
 ```python
 # New system - role profiles properly mapped to security levels
 ROLE_PROFILE_SECURITY_MAPPING = {
@@ -33,7 +35,9 @@ ROLE_PROFILE_SECURITY_MAPPING = {
 ## Role Profile to Security Level Mapping
 
 ### Critical Level Access (`SecurityLevel.CRITICAL`)
+
 **Role Profiles with CRITICAL access:**
+
 - `Verenigingen System Administrator` - Full system access
 - `Verenigingen Administrator` - Full association management
 - `Verenigingen Treasurer` - **Financial operations access** ✅
@@ -42,14 +46,18 @@ ROLE_PROFILE_SECURITY_MAPPING = {
 **Use Cases:** Payment processing, SEPA operations, critical financial functions
 
 ### High Level Access (`SecurityLevel.HIGH`)
+
 **Role Profiles with HIGH access:**
+
 - All CRITICAL level profiles +
 - `Verenigingen Manager` - Operational management
 
 **Use Cases:** Member data operations, batch processing, administrative functions
 
 ### Medium Level Access (`SecurityLevel.MEDIUM`)
+
 **Role Profiles with MEDIUM access:**
+
 - All HIGH level profiles +
 - `Verenigingen Board Member` - Chapter operations (+ contextual validation)
 - `Verenigingen Kascommissie` - Audit and compliance access
@@ -58,7 +66,9 @@ ROLE_PROFILE_SECURITY_MAPPING = {
 **Use Cases:** Reporting, analytics, read operations, self-service operations
 
 ### Low Level Access (`SecurityLevel.LOW`)
+
 **Role Profiles with LOW access:**
+
 - All MEDIUM level profiles +
 - `Verenigingen Team Leader` - Team coordination (+ contextual validation)
 - `Verenigingen Auditor` - Read-only audit access
@@ -68,6 +78,7 @@ ROLE_PROFILE_SECURITY_MAPPING = {
 **Use Cases:** Utility functions, basic operations, self-service with restrictions
 
 ### Public Access (`SecurityLevel.PUBLIC`)
+
 - `Verenigingen Webhook User` - Integration access
 - No authentication required for truly public endpoints
 
@@ -97,6 +108,7 @@ def submit_expense(expense_data=None):
 ### Financial Operations Now Work Correctly
 
 **Before (Broken):**
+
 ```python
 @critical_api(operation_type=OperationType.FINANCIAL)
 def process_payment():
@@ -105,6 +117,7 @@ def process_payment():
 ```
 
 **After (Fixed):**
+
 ```python
 @critical_api(operation_type=OperationType.FINANCIAL)
 def process_payment():
@@ -118,6 +131,7 @@ def process_payment():
 ### Volunteer Expense Submission
 
 **Self-service financial operation:**
+
 ```python
 @standard_api(operation_type=OperationType.REPORTING, self_service_only=True)
 def submit_expense(expense_data=None):
@@ -132,6 +146,7 @@ def submit_expense(expense_data=None):
 ### Chapter-Specific Operations
 
 **Contextual business logic example:**
+
 ```python
 @standard_api(operation_type=OperationType.REPORTING)
 def get_chapter_expenses(chapter_id):
@@ -195,11 +210,13 @@ def validate_authentication(self, profile: SecurityProfile, user: str = None) ->
 ### Enhanced Error Messages
 
 **Before:**
+
 ```
 Access denied. Required roles: System Manager, Verenigingen Administrator
 ```
 
 **After:**
+
 ```
 Access denied. Required security level: CRITICAL.
 Your access: Role profiles: Verenigingen Treasurer; Individual roles: Verenigingen Member, Verenigingen Financial
@@ -225,6 +242,7 @@ print(result)
 ```
 
 ### Example Analysis Output
+
 ```json
 {
   "success": true,
@@ -261,6 +279,7 @@ print(result)
 ### Deployment Checklist
 
 **Before Deployment:**
+
 1. ✅ Role profile query vulnerability fixed
 2. ✅ Role profile existence validation added
 3. ✅ Self-service validation enhanced
@@ -268,6 +287,7 @@ print(result)
 5. ✅ Documentation updated
 
 **After Deployment:**
+
 1. Monitor logs for role profile warnings
 2. Use security profile analysis to validate user access
 3. Check volunteer expense submission works correctly
@@ -279,21 +299,25 @@ print(result)
 ### For Different User Types
 
 **Treasurers:**
+
 - ✅ Can now access financial operations as intended
 - ✅ Have appropriate security level for their responsibilities
 - ✅ No more "access denied" errors for legitimate operations
 
 **Board Members:**
+
 - ✅ Have appropriate medium-level access for chapter operations
 - ✅ Business logic still validates chapter-specific permissions
 - ✅ Can approve expenses for their chapters (contextual validation)
 
 **Volunteers:**
+
 - ✅ Can submit their own expenses with `self_service_only=True`
 - ✅ Cannot access other volunteers' financial data
 - ✅ Appropriate low-level access for volunteer activities
 
 **Staff and Administrators:**
+
 - ✅ Unchanged access levels and capabilities
 - ✅ Better error messages when access is denied
 - ✅ Admin tools to debug user access issues
@@ -303,11 +327,13 @@ print(result)
 ### Separation of Concerns
 
 **Security Framework Layer:**
+
 - **Responsibility**: "Can this role profile perform this TYPE of operation?"
 - **Handles**: Role profile → security level mapping, authentication, rate limiting
 - **Example**: "Verenigingen Board Member can perform MEDIUM security level operations"
 
 **Business Logic Layer:**
+
 - **Responsibility**: "Can this user perform this SPECIFIC operation on this SPECIFIC data?"
 - **Handles**: Chapter membership, team leadership, data ownership validation
 - **Example**: "Board member can approve expenses for Amsterdam chapter only"
@@ -335,6 +361,7 @@ if not user_has_chapter_authority():
 The Role Profile Integration transforms the API Security Framework from a hardcoded, inflexible system into a dynamic, maintainable, and business-aligned security solution.
 
 **Key Achievements:**
+
 - ✅ **Security vulnerabilities eliminated** (privilege escalation, access bypass)
 - ✅ **Business alignment improved** (treasurers can access financial operations)
 - ✅ **Maintainability enhanced** (role profiles managed through UI)
@@ -346,6 +373,7 @@ The system now provides **quality security** that **scales with organizational c
 ---
 
 **Next Steps:**
+
 - Deploy to production with monitoring
 - Use admin tools to validate user access levels
 - Consider Phase 2 enhancements (configurable mappings, role hierarchy)

@@ -11,12 +11,14 @@ The enhanced validator successfully addresses the key issues identified in the a
 **Problem:** Validator couldn't find methods like `get_billing_amount`, `derive_bic_from_iban` that actually exist.
 
 **Solution:** Multi-strategy resolution approach:
+
 - Direct path matching (exact match)
 - Function name-only matching (handles path variations)
 - Fuzzy matching with configurable threshold (0.8 default)
 - Partial path matching for similar structures
 
 **Results:**
+
 - `derive_bic_from_iban` → Found in `verenigingen.utils.validation.iban_validator.derive_bic_from_iban`
 - `validate_postal_codes` → Found in `verenigingen.verenigingen.doctype.chapter.chapter.validate_postal_codes`
 - 10 fuzzy matches found during full validation
@@ -26,11 +28,13 @@ The enhanced validator successfully addresses the key issues identified in the a
 **Problem:** Flagging `frappe.client.get`, `frappe.call` as missing methods.
 
 **Solution:** Comprehensive framework method whitelist:
+
 - 26 predefined framework methods in configuration
 - Automatic "ignore" severity assignment
 - Clear identification in reports
 
 **Results:**
+
 - `frappe.client.get` → Correctly ignored (framework method)
 - `frappe.client.get_list` → Correctly ignored (framework method)
 - 43 framework methods detected and ignored during validation
@@ -41,12 +45,14 @@ The enhanced validator successfully addresses the key issues identified in the a
 **Problem:** Can't match `verenigingen.api.X` calls to actual file locations.
 
 **Solution:** Function name indexing system:
+
 - 1,648 unique function names indexed
 - Multiple occurrences tracked per function name
 - Better handling of Frappe app structure patterns
 - Enhanced DocType method resolution
 
 **Results:**
+
 - Function index built with 1,648 unique names
 - Multiple implementation paths tracked (e.g., `derive_bic_from_iban` found in 3 locations)
 - Improved matching for API method calls
@@ -56,13 +62,15 @@ The enhanced validator successfully addresses the key issues identified in the a
 **Problem:** All issues marked as high priority regardless of context.
 
 **Solution:** Context-aware severity classification:
+
 - Framework methods → "ignore" severity
-- Test/debug methods → "low" severity  
+- Test/debug methods → "low" severity
 - API methods → "medium" severity
 - Core methods → "high" severity
 - Resolution actions: fix, review, remove, ignore
 
 **Results:**
+
 ```
 frappe.client.get: ignore severity, ignore action
 debug_some_function: low severity, review action
@@ -73,6 +81,7 @@ some_missing_method: high severity, fix action
 ### 5. Configuration Support ✅
 
 **Solution:** Comprehensive configuration system via `validator_config.json`:
+
 - Framework methods list (26 methods)
 - Exclude patterns (6 patterns for test/debug files)
 - Fuzzy matching settings (enabled, 0.8 threshold)
@@ -82,12 +91,14 @@ some_missing_method: high severity, fix action
 ## Validation Results Comparison
 
 ### Before Enhancement
+
 - High false positive rate for framework methods
 - Poor path resolution leading to "method not found" errors
 - All issues categorized as high priority
 - No fuzzy matching for typos/variations
 
 ### After Enhancement
+
 - **Framework Methods:** 43 correctly ignored (0 false positives)
 - **Path Resolution:** 10 fuzzy matches found, methods like `derive_bic_from_iban` correctly resolved
 - **Issue Categorization:** 118 actionable issues vs 43 ignored framework methods
@@ -95,13 +106,13 @@ some_missing_method: high severity, fix action
 
 ## Test Results Against Known Doubtful Cases
 
-| Method | Original Result | Enhanced Result | Status |
-|--------|----------------|-----------------|---------|
-| `derive_bic_from_iban` | Not found (false negative) | ✅ Found via path resolution | Fixed |
-| `get_billing_amount` | Not found | ✅ Correctly not found (no @frappe.whitelist) | Correct |
-| `frappe.client.get` | Missing method (false positive) | ✅ Correctly ignored (framework method) | Fixed |
-| `frappe.client.get_list` | Missing method (false positive) | ✅ Correctly ignored (framework method) | Fixed |
-| `validate_postal_codes` | Not found | ✅ Found in chapter.py | Fixed |
+| Method                   | Original Result                 | Enhanced Result                               | Status  |
+| ------------------------ | ------------------------------- | --------------------------------------------- | ------- |
+| `derive_bic_from_iban`   | Not found (false negative)      | ✅ Found via path resolution                  | Fixed   |
+| `get_billing_amount`     | Not found                       | ✅ Correctly not found (no @frappe.whitelist) | Correct |
+| `frappe.client.get`      | Missing method (false positive) | ✅ Correctly ignored (framework method)       | Fixed   |
+| `frappe.client.get_list` | Missing method (false positive) | ✅ Correctly ignored (framework method)       | Fixed   |
+| `validate_postal_codes`  | Not found                       | ✅ Found in chapter.py                        | Fixed   |
 
 ## Performance Metrics
 
@@ -130,11 +141,13 @@ The enhanced validator includes a comprehensive configuration system:
 ## Usage Examples
 
 ### Basic Usage
+
 ```bash
 python scripts/validation/js_python_parameter_validator_enhanced.py --project-root .
 ```
 
 ### Test Specific Methods
+
 ```bash
 python scripts/validation/js_python_parameter_validator_enhanced.py \
   --test-methods "derive_bic_from_iban,frappe.client.get" \
@@ -142,6 +155,7 @@ python scripts/validation/js_python_parameter_validator_enhanced.py \
 ```
 
 ### Generate HTML Report
+
 ```bash
 python scripts/validation/js_python_parameter_validator_enhanced.py \
   --output-format html \
@@ -159,11 +173,13 @@ python scripts/validation/js_python_parameter_validator_enhanced.py \
 ## Files Created/Modified
 
 ### New Files
+
 - `scripts/validation/js_python_parameter_validator_enhanced.py` - Enhanced validator
 - `scripts/validation/validator_config.json` - Configuration file
 - `test_validator_improvements.py` - Test verification script
 
 ### Features Added
+
 - Multi-strategy path resolution
 - Framework method detection
 - Function name indexing

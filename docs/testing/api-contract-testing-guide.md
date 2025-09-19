@@ -19,12 +19,12 @@ Traditional unit tests mock JavaScript controllers and Python API methods separa
 
 ```javascript
 // Simple API contract validation
-const { SimpleAPIContractTester } = require('../setup/api-contract-simple');
+const { SimpleAPIContractTester } = require("../setup/api-contract-simple");
 
 const tester = new SimpleAPIContractTester();
 const result = tester.validateFrappeCall({
-    method: 'verenigingen.verenigingen.doctype.member.member.process_payment',
-    args: { member: 'ASSOC-MEMBER-2025-001' }
+  method: "verenigingen.verenigingen.doctype.member.member.process_payment",
+  args: { member: "ASSOC-MEMBER-2025-001" },
 });
 
 console.log(result.valid); // true
@@ -34,12 +34,14 @@ console.log(result.valid); // true
 
 ```javascript
 // Add custom Jest matcher
-const { createSimpleAPIContractMatcher } = require('../setup/api-contract-simple');
+const {
+  createSimpleAPIContractMatcher,
+} = require("../setup/api-contract-simple");
 expect.extend(createSimpleAPIContractMatcher());
 
 // Use in tests
-expect({ member: 'ASSOC-MEMBER-2025-001' }).toMatchAPIContract(
-    'verenigingen.verenigingen.doctype.member.member.process_payment'
+expect({ member: "ASSOC-MEMBER-2025-001" }).toMatchAPIContract(
+  "verenigingen.verenigingen.doctype.member.member.process_payment",
 );
 ```
 
@@ -47,28 +49,28 @@ expect({ member: 'ASSOC-MEMBER-2025-001' }).toMatchAPIContract(
 
 ```javascript
 const memberApiContractTests = {
-    'API Contract Validation': (getControllerTest) => {
-        it('should validate API calls', () => {
-            const controllerTest = getControllerTest();
+  "API Contract Validation": (getControllerTest) => {
+    it("should validate API calls", () => {
+      const controllerTest = getControllerTest();
 
-            // Track API calls made by controller
-            const capturedCalls = [];
-            global.frappe.call = jest.fn((options) => {
-                capturedCalls.push({
-                    method: options.method,
-                    args: options.args || {}
-                });
-            });
-
-            // Trigger controller events
-            controllerTest.testEvent('refresh');
-
-            // Validate all captured API calls
-            capturedCalls.forEach(call => {
-                expect(call.args).toMatchAPIContract(call.method);
-            });
+      // Track API calls made by controller
+      const capturedCalls = [];
+      global.frappe.call = jest.fn((options) => {
+        capturedCalls.push({
+          method: options.method,
+          args: options.args || {},
         });
-    }
+      });
+
+      // Trigger controller events
+      controllerTest.testEvent("refresh");
+
+      // Validate all captured API calls
+      capturedCalls.forEach((call) => {
+        expect(call.args).toMatchAPIContract(call.method);
+      });
+    });
+  },
 };
 ```
 
@@ -78,25 +80,25 @@ Schemas are defined in `api-contract-simple.js`:
 
 ```javascript
 const API_SCHEMAS = {
-    'verenigingen.verenigingen.doctype.member.member.process_payment': {
-        args: {
-            type: 'object',
-            properties: {
-                member: { type: 'string', pattern: '^[A-Z]+-[A-Z]+-[0-9]+-[0-9]+$' }
-            },
-            required: ['member'],
-            additionalProperties: false
-        },
-        response: {
-            type: 'object',
-            properties: {
-                success: { type: 'boolean' },
-                message: { type: 'string' },
-                payment_data: { type: 'object' }
-            },
-            required: ['success']
-        }
-    }
+  "verenigingen.verenigingen.doctype.member.member.process_payment": {
+    args: {
+      type: "object",
+      properties: {
+        member: { type: "string", pattern: "^[A-Z]+-[A-Z]+-[0-9]+-[0-9]+$" },
+      },
+      required: ["member"],
+      additionalProperties: false,
+    },
+    response: {
+      type: "object",
+      properties: {
+        success: { type: "boolean" },
+        message: { type: "string" },
+        payment_data: { type: "object" },
+      },
+      required: ["success"],
+    },
+  },
 };
 ```
 
@@ -114,15 +116,18 @@ const API_SCHEMAS = {
 Current schema coverage includes:
 
 ### Member APIs
+
 - `verenigingen.verenigingen.doctype.member.member.process_payment`
 - `verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details`
 - `verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban`
 - `verenigingen.verenigingen.doctype.member.member.validate_mandate_creation`
 
 ### Chapter APIs
+
 - `verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter_with_cleanup`
 
 ### Donation APIs
+
 - `verenigingen.templates.pages.donate.submit_donation`
 
 ## Usage Examples
@@ -130,38 +135,38 @@ Current schema coverage includes:
 ### Basic Validation
 
 ```javascript
-it('should validate member payment API call', () => {
-    const validArgs = { member: 'ASSOC-MEMBER-2025-001' };
+it("should validate member payment API call", () => {
+  const validArgs = { member: "ASSOC-MEMBER-2025-001" };
 
-    expect(validArgs).toMatchAPIContract(
-        'verenigingen.verenigingen.doctype.member.member.process_payment'
-    );
+  expect(validArgs).toMatchAPIContract(
+    "verenigingen.verenigingen.doctype.member.member.process_payment",
+  );
 });
 ```
 
 ### Test Data Generation
 
 ```javascript
-it('should generate valid test data', () => {
-    const testData = tester.generateValidTestData(
-        'verenigingen.verenigingen.doctype.member.member.process_payment'
-    );
+it("should generate valid test data", () => {
+  const testData = tester.generateValidTestData(
+    "verenigingen.verenigingen.doctype.member.member.process_payment",
+  );
 
-    expect(testData.member).toMatch(/^[A-Z]+-[A-Z]+-[0-9]+-[0-9]+$/);
+  expect(testData.member).toMatch(/^[A-Z]+-[A-Z]+-[0-9]+-[0-9]+$/);
 });
 ```
 
 ### Error Detection
 
 ```javascript
-it('should detect parameter mismatches', () => {
-    const invalidArgs = { member_id: 'WRONG-PARAM' }; // Should be 'member'
+it("should detect parameter mismatches", () => {
+  const invalidArgs = { member_id: "WRONG-PARAM" }; // Should be 'member'
 
-    expect(() => {
-        expect(invalidArgs).toMatchAPIContract(
-            'verenigingen.verenigingen.doctype.member.member.process_payment'
-        );
-    }).toThrow('required');
+  expect(() => {
+    expect(invalidArgs).toMatchAPIContract(
+      "verenigingen.verenigingen.doctype.member.member.process_payment",
+    );
+  }).toThrow("required");
 });
 ```
 
@@ -170,35 +175,36 @@ it('should detect parameter mismatches', () => {
 ```javascript
 // In controller test
 const memberControllerConfig = {
-    doctype: 'Member',
-    controllerPath: '/path/to/member.js',
-    // ... other config
+  doctype: "Member",
+  controllerPath: "/path/to/member.js",
+  // ... other config
 };
 
 const apiContractTests = {
-    'API Validation': (getControllerTest) => {
-        it('validates controller API calls', () => {
-            const test = getControllerTest();
+  "API Validation": (getControllerTest) => {
+    it("validates controller API calls", () => {
+      const test = getControllerTest();
 
-            // Mock and capture API calls
-            const calls = [];
-            global.frappe.call = jest.fn((opts) => calls.push(opts));
+      // Mock and capture API calls
+      const calls = [];
+      global.frappe.call = jest.fn((opts) => calls.push(opts));
 
-            // Trigger controller
-            test.testEvent('refresh');
+      // Trigger controller
+      test.testEvent("refresh");
 
-            // Validate contracts
-            calls.forEach(call => {
-                if (tester.getMethodSchema(call.method)) {
-                    expect(call.args).toMatchAPIContract(call.method);
-                }
-            });
-        });
-    }
+      // Validate contracts
+      calls.forEach((call) => {
+        if (tester.getMethodSchema(call.method)) {
+          expect(call.args).toMatchAPIContract(call.method);
+        }
+      });
+    });
+  },
 };
 
-describe('Member Controller',
-    createControllerTestSuite(memberControllerConfig, apiContractTests)
+describe(
+  "Member Controller",
+  createControllerTestSuite(memberControllerConfig, apiContractTests),
 );
 ```
 
@@ -248,6 +254,7 @@ npm test -- --testPathPattern="simple_contracts.test.js"
 5. **Update documentation** with the new API method
 
 Example:
+
 ```javascript
 'verenigingen.new_module.new_api_method': {
     args: {
@@ -282,28 +289,30 @@ Example:
 
 ### Common Issues
 
-| Issue | Solution |
-|-------|----------|
-| "No API schema defined" | Add schema to `API_SCHEMAS` |
-| "Pattern does not match" | Check data format (IBAN, member ID, etc.) |
-| "Additional properties not allowed" | Remove unexpected parameters |
-| "Required parameter missing" | Ensure all required fields are provided |
+| Issue                               | Solution                                  |
+| ----------------------------------- | ----------------------------------------- |
+| "No API schema defined"             | Add schema to `API_SCHEMAS`               |
+| "Pattern does not match"            | Check data format (IBAN, member ID, etc.) |
+| "Additional properties not allowed" | Remove unexpected parameters              |
+| "Required parameter missing"        | Ensure all required fields are provided   |
 
 ### Debug Mode
 
 ```javascript
 // Enable detailed validation output
-process.env.DEBUG_API_CONTRACTS = 'true';
+process.env.DEBUG_API_CONTRACTS = "true";
 
 // Manual validation with full error details
 const result = tester.validateFrappeCall({
-    method: 'my.api.method',
-    args: { /* test args */ }
+  method: "my.api.method",
+  args: {
+    /* test args */
+  },
 });
 
-console.log('Validation result:', result);
+console.log("Validation result:", result);
 if (!result.valid) {
-    console.log('Errors:', result.errors);
+  console.log("Errors:", result.errors);
 }
 ```
 
@@ -329,12 +338,13 @@ if (!result.valid) {
 - **Team Readiness**: Ready for immediate adoption with provided training materials
 
 **Double Code Review Results:**
+
 - ✅ **Code Review & Test Runner**: Comprehensive functionality and integration testing
 - ✅ **Quality Control Enforcer**: Final approval for production deployment
 
 **API Contract Testing represents a significant advancement in integration testing for Frappe applications, providing confidence that JavaScript controllers correctly communicate with Python backends.**
 
-*For questions or contributions, contact the Verenigingen Development Team.*
+_For questions or contributions, contact the Verenigingen Development Team._
 
 **Last Updated**: January 2025
 **Version**: 1.0.0

@@ -90,17 +90,31 @@ frappe.ui.form.on('Membership', {
 		if (frm.doc.docstatus === 1) {
 			// Check for any active dues schedule for this member
 			if (frm.doc.member) {
-				frappe.db.get_value('Membership Dues Schedule', {
-					member: frm.doc.member,
-					is_template: 0,
-					status: ['in', ['Active', 'Paused']]
-				}, 'name').then((result) => {
-					if (result.message && result.message.name) {
-						frm.add_custom_button(__('View Active Dues Schedule'), () => {
-							frappe.set_route('Form', 'Membership Dues Schedule', result.message.name);
-						}, __('Dues Schedule'));
-					}
-				});
+				frappe.db
+					.get_value(
+						'Membership Dues Schedule',
+						{
+							member: frm.doc.member,
+							is_template: 0,
+							status: ['in', ['Active', 'Paused']]
+						},
+						'name'
+					)
+					.then((result) => {
+						if (result.message && result.message.name) {
+							frm.add_custom_button(
+								__('View Active Dues Schedule'),
+								() => {
+									frappe.set_route(
+										'Form',
+										'Membership Dues Schedule',
+										result.message.name
+									);
+								},
+								__('Dues Schedule')
+							);
+						}
+					});
 			}
 
 			// Note: dues_schedule field no longer exists on Membership
@@ -111,26 +125,38 @@ frappe.ui.form.on('Membership', {
 		if (frm.doc.docstatus === 1 && !frm.doc.dues_schedule) {
 			// Check if member already has an active dues schedule before showing create button
 			if (frm.doc.member) {
-				frappe.db.get_value('Membership Dues Schedule', {
-					member: frm.doc.member,
-					is_template: 0,
-					status: 'Active'
-				}, 'name').then((result) => {
-					if (!result.message || !result.message.name) {
-						// No active dues schedule exists, show create button
-						frm.add_custom_button(__('Create Dues Schedule'), () => {
-							frm.call('create_dues_schedule_from_membership').then((response) => {
-								if (response.message) {
-									frappe.show_alert({
-										message: __('Dues Schedule created successfully'),
-										indicator: 'green'
-									});
-									frm.refresh();
-								}
-							});
-						}, __('Dues Schedule'));
-					}
-				});
+				frappe.db
+					.get_value(
+						'Membership Dues Schedule',
+						{
+							member: frm.doc.member,
+							is_template: 0,
+							status: 'Active'
+						},
+						'name'
+					)
+					.then((result) => {
+						if (!result.message || !result.message.name) {
+							// No active dues schedule exists, show create button
+							frm.add_custom_button(
+								__('Create Dues Schedule'),
+								() => {
+									frm
+										.call('create_dues_schedule_from_membership')
+										.then((response) => {
+											if (response.message) {
+												frappe.show_alert({
+													message: __('Dues Schedule created successfully'),
+													indicator: 'green'
+												});
+												frm.refresh();
+											}
+										});
+								},
+								__('Dues Schedule')
+							);
+						}
+					});
 			}
 		}
 	},
@@ -162,7 +188,11 @@ frappe.ui.form.on('Membership', {
 
 	view_dues_schedule(frm) {
 		if (frm.doc.dues_schedule) {
-			frappe.set_route('Form', 'Membership Dues Schedule', frm.doc.dues_schedule);
+			frappe.set_route(
+				'Form',
+				'Membership Dues Schedule',
+				frm.doc.dues_schedule
+			);
 		}
 	},
 
@@ -181,7 +211,8 @@ frappe.ui.form.on('Membership', {
 						]
 					});
 
-					let html = '<table class="table table-striped"><tr><th>Invoice</th><th>Date</th><th>Amount</th><th>Status</th></tr>';
+					let html
+            = '<table class="table table-striped"><tr><th>Invoice</th><th>Date</th><th>Amount</th><th>Status</th></tr>';
 					r.message.forEach((payment) => {
 						html += `<tr><td>${payment.invoice}</td><td>${payment.date}</td><td>${payment.amount}</td><td>${payment.status}</td></tr>`;
 					});

@@ -28,11 +28,13 @@ for chapter in chapters:
 ### Why Existing Validators Missed This
 
 Our existing validators could catch:
+
 - ✅ Invalid fields in the `fields` parameter of `frappe.get_all`
 - ✅ Invalid fields in `frappe.db.get_value` calls
 - ✅ Direct attribute access on `frappe.get_doc` results
 
 But they couldn't catch:
+
 - ❌ Attribute access on loop variables from `frappe.get_all`
 - ❌ The connection between loop variables and their source DocType
 
@@ -43,11 +45,13 @@ But they couldn't catch:
 The validator uses AST (Abstract Syntax Tree) analysis to:
 
 1. **Track assignments**: When `frappe.get_all` result is assigned to a variable
+
    ```python
    chapters = frappe.get_all("Chapter", fields=["name", "region"])
    ```
 
 2. **Track loop contexts**: When iterating over these results
+
    ```python
    for chapter in chapters:  # 'chapter' now has context of DocType 'Chapter'
    ```
@@ -112,6 +116,7 @@ python scripts/validation/loop_context_field_validator.py
 ### Known Limitations (FIXED)
 
 1. ~~**False positives with dictionaries**~~: **FIXED** - The validator now correctly detects when `as_dict=True` is used (or defaulted to) and skips validation for dictionary methods like `.get()`, `.keys()`, `.values()`, etc.
+
    ```python
    members = frappe.get_all("Member", fields=["name"], as_dict=True)
    for member in members:
@@ -119,6 +124,7 @@ python scripts/validation/loop_context_field_validator.py
    ```
 
 2. ~~**SQL query results**~~: **FIXED** - The validator now detects and skips validation for variables from `frappe.db.sql()` queries
+
    ```python
    results = frappe.db.sql("SELECT parent as chapter FROM tabChapter", as_dict=True)
    for row in results:
@@ -126,6 +132,7 @@ python scripts/validation/loop_context_field_validator.py
    ```
 
 3. ~~**Common object methods**~~: **FIXED** - The validator now skips common methods like `as_dict()`, `save()`, `insert()`, etc.
+
    ```python
    for doc in documents:
        doc.as_dict()  # ✅ No longer flagged as field access
@@ -172,6 +179,7 @@ chapter_name_lower = chapter.name.lower() if chapter.name else ""
 ### Potential Issues Found
 
 Running on the codebase found:
+
 - 221 potential issues (including false positives)
 - 7 issues in `member_management.py` (false positives - dictionary access)
 - 0 issues in recently fixed files

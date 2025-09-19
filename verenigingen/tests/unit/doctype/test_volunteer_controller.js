@@ -48,7 +48,8 @@ describe('Volunteer DocType Controller', () => {
 
 	beforeAll(() => {
 		// Load the real volunteer controller
-		const controllerPath = '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/volunteer/volunteer.js';
+		const controllerPath
+      = '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/volunteer/volunteer.js';
 		const allHandlers = loadFrappeController(controllerPath);
 		volunteerHandlers = allHandlers.Volunteer;
 
@@ -148,7 +149,9 @@ describe('Volunteer DocType Controller', () => {
 			it('should render assignment history correctly', () => {
 				frm.doc.__islocal = 0;
 
-				testFormEvent('Volunteer', 'refresh', frm, { Volunteer: volunteerHandlers });
+				testFormEvent('Volunteer', 'refresh', frm, {
+					Volunteer: volunteerHandlers
+				});
 
 				// Verify that get_aggregated_assignments was called
 				expect(global.frappe.call).toHaveBeenCalledWith(
@@ -170,7 +173,9 @@ describe('Volunteer DocType Controller', () => {
 				frm.doc.__islocal = 0;
 
 				expect(() => {
-					testFormEvent('Volunteer', 'refresh', frm, { Volunteer: volunteerHandlers });
+					testFormEvent('Volunteer', 'refresh', frm, {
+						Volunteer: volunteerHandlers
+					});
 				}).not.toThrow();
 			});
 
@@ -185,7 +190,9 @@ describe('Volunteer DocType Controller', () => {
 				frm.doc.__islocal = 0;
 
 				expect(() => {
-					testFormEvent('Volunteer', 'refresh', frm, { Volunteer: volunteerHandlers });
+					testFormEvent('Volunteer', 'refresh', frm, {
+						Volunteer: volunteerHandlers
+					});
 				}).not.toThrow();
 			});
 		});
@@ -194,11 +201,13 @@ describe('Volunteer DocType Controller', () => {
 			it('should add the Add Activity button for saved records', () => {
 				frm.doc.__islocal = 0;
 
-				testFormEvent('Volunteer', 'refresh', frm, { Volunteer: volunteerHandlers });
+				testFormEvent('Volunteer', 'refresh', frm, {
+					Volunteer: volunteerHandlers
+				});
 
 				// Check for Add Activity button
-				const addActivityCall = frm.add_custom_button.mock.calls.find(
-					call => call[0].includes('Add Activity')
+				const addActivityCall = frm.add_custom_button.mock.calls.find((call) =>
+					call[0].includes('Add Activity')
 				);
 				expect(addActivityCall).toBeDefined();
 				expect(addActivityCall[2]).toBe('Assignments');
@@ -207,11 +216,13 @@ describe('Volunteer DocType Controller', () => {
 			it('should not add buttons for new records', () => {
 				frm.doc.__islocal = 1;
 
-				testFormEvent('Volunteer', 'refresh', frm, { Volunteer: volunteerHandlers });
+				testFormEvent('Volunteer', 'refresh', frm, {
+					Volunteer: volunteerHandlers
+				});
 
 				// Should not have Add Activity button for new records
-				const addActivityCall = frm.add_custom_button.mock.calls.find(
-					call => call[0].includes('Add Activity')
+				const addActivityCall = frm.add_custom_button.mock.calls.find((call) =>
+					call[0].includes('Add Activity')
 				);
 				expect(addActivityCall).toBeUndefined();
 			});
@@ -220,19 +231,22 @@ describe('Volunteer DocType Controller', () => {
 
 	describe('Skills Management', () => {
 		it('should add skills grid custom button', () => {
-			testFormEvent('Volunteer', 'refresh', frm, { Volunteer: volunteerHandlers });
+			testFormEvent('Volunteer', 'refresh', frm, {
+				Volunteer: volunteerHandlers
+			});
 
-			expect(frm.fields_dict.skills_and_qualifications.grid.add_custom_button).toHaveBeenCalledWith(
-				'Add Skill',
-				expect.any(Function)
-			);
+			expect(
+				frm.fields_dict.skills_and_qualifications.grid.add_custom_button
+			).toHaveBeenCalledWith('Add Skill', expect.any(Function));
 		});
 
 		it('should handle missing skills grid gracefully', () => {
 			frm.fields_dict.skills_and_qualifications = null;
 
 			expect(() => {
-				testFormEvent('Volunteer', 'refresh', frm, { Volunteer: volunteerHandlers });
+				testFormEvent('Volunteer', 'refresh', frm, {
+					Volunteer: volunteerHandlers
+				});
 			}).not.toThrow();
 		});
 	});
@@ -241,11 +255,13 @@ describe('Volunteer DocType Controller', () => {
 		it('should add View Timeline button for saved records', () => {
 			frm.doc.__islocal = 0;
 
-			testFormEvent('Volunteer', 'refresh', frm, { Volunteer: volunteerHandlers });
+			testFormEvent('Volunteer', 'refresh', frm, {
+				Volunteer: volunteerHandlers
+			});
 
 			// Check for View Timeline button
-			const viewTimelineCall = frm.add_custom_button.mock.calls.find(
-				call => call[0].includes('View Timeline')
+			const viewTimelineCall = frm.add_custom_button.mock.calls.find((call) =>
+				call[0].includes('View Timeline')
 			);
 			expect(viewTimelineCall).toBeDefined();
 			expect(viewTimelineCall[2]).toBe('View');
@@ -254,11 +270,13 @@ describe('Volunteer DocType Controller', () => {
 		it('should add Volunteer Report button for saved records', () => {
 			frm.doc.__islocal = 0;
 
-			testFormEvent('Volunteer', 'refresh', frm, { Volunteer: volunteerHandlers });
+			testFormEvent('Volunteer', 'refresh', frm, {
+				Volunteer: volunteerHandlers
+			});
 
 			// Check for Volunteer Report button
-			const reportCall = frm.add_custom_button.mock.calls.find(
-				call => call[0].includes('Volunteer Report')
+			const reportCall = frm.add_custom_button.mock.calls.find((call) =>
+				call[0].includes('Volunteer Report')
 			);
 			expect(reportCall).toBeDefined();
 			expect(reportCall[2]).toBe('View');
@@ -284,7 +302,9 @@ describe('Volunteer DocType Controller', () => {
 		it('should fetch member data when member field changes', () => {
 			frm.doc.member = 'MEM-2024-001';
 
-			testFormEvent('Volunteer', 'member', frm, { Volunteer: volunteerHandlers });
+			testFormEvent('Volunteer', 'member', frm, {
+				Volunteer: volunteerHandlers
+			});
 
 			expect(global.frappe.call).toHaveBeenCalledWith(
 				expect.objectContaining({
@@ -300,7 +320,9 @@ describe('Volunteer DocType Controller', () => {
 		it('should update dynamic link when member is selected', () => {
 			frm.doc.member = 'MEM-2024-001';
 
-			testFormEvent('Volunteer', 'member', frm, { Volunteer: volunteerHandlers });
+			testFormEvent('Volunteer', 'member', frm, {
+				Volunteer: volunteerHandlers
+			});
 
 			expect(global.frappe.dynamic_link).toEqual({
 				doc: { name: 'MEM-2024-001', doctype: 'Member' },
@@ -313,11 +335,13 @@ describe('Volunteer DocType Controller', () => {
 			frm.doc.member = 'MEM-2024-001';
 			frm.doc.__islocal = 0;
 
-			testFormEvent('Volunteer', 'refresh', frm, { Volunteer: volunteerHandlers });
+			testFormEvent('Volunteer', 'refresh', frm, {
+				Volunteer: volunteerHandlers
+			});
 
 			// Check that View Member button was added
-			const viewMemberCall = frm.add_custom_button.mock.calls.find(
-				call => call[0].includes('View Member')
+			const viewMemberCall = frm.add_custom_button.mock.calls.find((call) =>
+				call[0].includes('View Member')
 			);
 			expect(viewMemberCall).toBeDefined();
 			expect(viewMemberCall[2]).toBe('Links');
@@ -326,7 +350,9 @@ describe('Volunteer DocType Controller', () => {
 
 	describe('Form Query Filters', () => {
 		it('should set up query filters for assignment history', () => {
-			testFormEvent('Volunteer', 'refresh', frm, { Volunteer: volunteerHandlers });
+			testFormEvent('Volunteer', 'refresh', frm, {
+				Volunteer: volunteerHandlers
+			});
 
 			expect(frm.set_query).toHaveBeenCalledWith(
 				'reference_doctype',
@@ -336,7 +362,8 @@ describe('Volunteer DocType Controller', () => {
 
 			// Test the query function
 			const queryCall = frm.set_query.mock.calls.find(
-				call => call[0] === 'reference_doctype' && call[1] === 'assignment_history'
+				(call) =>
+					call[0] === 'reference_doctype' && call[1] === 'assignment_history'
 			);
 			expect(queryCall).toBeDefined();
 
@@ -345,7 +372,10 @@ describe('Volunteer DocType Controller', () => {
 
 			expect(result).toEqual({
 				filters: {
-					name: ['in', ['Chapter', 'Team', 'Event', 'Volunteer Activity', 'Commission']]
+					name: [
+						'in',
+						['Chapter', 'Team', 'Event', 'Volunteer Activity', 'Commission']
+					]
 				}
 			});
 		});
@@ -353,25 +383,38 @@ describe('Volunteer DocType Controller', () => {
 
 	describe('Address and Contact Management', () => {
 		it('should toggle display for address and contact fields', () => {
-			testFormEvent('Volunteer', 'refresh', frm, { Volunteer: volunteerHandlers });
+			testFormEvent('Volunteer', 'refresh', frm, {
+				Volunteer: volunteerHandlers
+			});
 
-			expect(frm.toggle_display).toHaveBeenCalledWith(['address_html', 'contact_html'], true);
+			expect(frm.toggle_display).toHaveBeenCalledWith(
+				['address_html', 'contact_html'],
+				true
+			);
 		});
 
 		it('should render address and contact for saved records', () => {
 			frm.doc.__islocal = 0;
 
-			testFormEvent('Volunteer', 'refresh', frm, { Volunteer: volunteerHandlers });
+			testFormEvent('Volunteer', 'refresh', frm, {
+				Volunteer: volunteerHandlers
+			});
 
-			expect(global.frappe.contacts.render_address_and_contact).toHaveBeenCalledWith(frm);
+			expect(
+				global.frappe.contacts.render_address_and_contact
+			).toHaveBeenCalledWith(frm);
 		});
 
 		it('should clear address and contact for new records', () => {
 			frm.doc.__islocal = 1;
 
-			testFormEvent('Volunteer', 'refresh', frm, { Volunteer: volunteerHandlers });
+			testFormEvent('Volunteer', 'refresh', frm, {
+				Volunteer: volunteerHandlers
+			});
 
-			expect(global.frappe.contacts.clear_address_and_contact).toHaveBeenCalledWith(frm);
+			expect(
+				global.frappe.contacts.clear_address_and_contact
+			).toHaveBeenCalledWith(frm);
 		});
 	});
 
@@ -379,7 +422,9 @@ describe('Volunteer DocType Controller', () => {
 		it('should not cause excessive server calls during refresh', () => {
 			const initialCallCount = global.frappe.call.mock.calls.length;
 
-			testFormEvent('Volunteer', 'refresh', frm, { Volunteer: volunteerHandlers });
+			testFormEvent('Volunteer', 'refresh', frm, {
+				Volunteer: volunteerHandlers
+			});
 
 			const finalCallCount = global.frappe.call.mock.calls.length;
 			const callsAdded = finalCallCount - initialCallCount;
@@ -390,13 +435,17 @@ describe('Volunteer DocType Controller', () => {
 
 		it('should execute refresh handler without errors', () => {
 			expect(() => {
-				testFormEvent('Volunteer', 'refresh', frm, { Volunteer: volunteerHandlers });
+				testFormEvent('Volunteer', 'refresh', frm, {
+					Volunteer: volunteerHandlers
+				});
 			}).not.toThrow();
 		});
 
 		it('should execute member handler without errors', () => {
 			expect(() => {
-				testFormEvent('Volunteer', 'member', frm, { Volunteer: volunteerHandlers });
+				testFormEvent('Volunteer', 'member', frm, {
+					Volunteer: volunteerHandlers
+				});
 			}).not.toThrow();
 		});
 	});
@@ -405,6 +454,8 @@ describe('Volunteer DocType Controller', () => {
 // Export test utilities for reuse
 module.exports = {
 	testVolunteerHandler: (event, mockForm) => {
-		return testFormEvent('Volunteer', event, mockForm, { Volunteer: volunteerHandlers });
+		return testFormEvent('Volunteer', event, mockForm, {
+			Volunteer: volunteerHandlers
+		});
 	}
 };

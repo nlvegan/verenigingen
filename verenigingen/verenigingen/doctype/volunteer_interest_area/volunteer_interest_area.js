@@ -37,13 +37,20 @@ frappe.ui.form.on('Volunteer Interest Area', {
 		const row = locals[cdt][cdn];
 		if (row.interest_category) {
 			// Load category defaults if available
-			frappe.db.get_value('Volunteer Interest Category', row.interest_category,
+			frappe.db.get_value(
+				'Volunteer Interest Category',
+				row.interest_category,
 				['typical_time_commitment', 'requires_training'],
 				(r) => {
 					if (r) {
 						// Set suggested defaults based on category
 						if (r.typical_time_commitment && !row.preferred_time_commitment) {
-							frappe.model.set_value(cdt, cdn, 'preferred_time_commitment', r.typical_time_commitment);
+							frappe.model.set_value(
+								cdt,
+								cdn,
+								'preferred_time_commitment',
+								r.typical_time_commitment
+							);
 						}
 						if (r.requires_training) {
 							frappe.model.set_value(cdt, cdn, 'training_required', 1);

@@ -5,6 +5,7 @@
 ### 1. Critical Test Files to Restore
 
 #### Expense Workflow Tests (CRITICAL)
+
 ```bash
 # Restore from archived_removal/
 git checkout HEAD -- archived_removal/test_expense_workflow_complete.py
@@ -18,6 +19,7 @@ mv archived_removal/test_expense_handlers.py verenigingen/tests/backend/workflow
 ```
 
 #### Edge Case Tests (HIGH PRIORITY)
+
 ```bash
 # Restore edge case testing
 git checkout HEAD -- verenigingen/tests/test_edge_case_testing_demo.py
@@ -28,6 +30,7 @@ mv verenigingen/tests/test_edge_case_testing_demo.py verenigingen/tests/edge_cas
 ```
 
 #### Financial Validation Tests (HIGH PRIORITY)
+
 ```bash
 # Restore financial tests
 git checkout HEAD -- archived_removal/test_dues_validation.py

@@ -23,7 +23,8 @@ describe('API Audit Log DocType - Comprehensive Test Suite', () => {
 
 	describe('API Logging Management', () => {
 		test('should log API request audit trail', () => {
-			mockDoc.endpoint = '/api/method/verenigingen.api.member_management.create_member';
+			mockDoc.endpoint
+        = '/api/method/verenigingen.api.member_management.create_member';
 			mockDoc.method = 'POST';
 			mockDoc.user = 'admin@example.com';
 			mockDoc.timestamp = '2025-08-19 14:30:00';
@@ -88,9 +89,9 @@ function setupGlobalMocks() {
 	global.frappe = {
 		ui: { form: { on: jest.fn() } },
 		call: jest.fn(),
-		__: jest.fn(str => str)
+		__: jest.fn((str) => str)
 	};
-	global.__ = jest.fn(str => str);
+	global.__ = jest.fn((str) => str);
 }
 
 function teardownGlobalMocks() {

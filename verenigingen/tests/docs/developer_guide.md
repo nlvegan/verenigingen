@@ -46,13 +46,13 @@ edge_case_summary = runner.generate_edge_case_summary()
 
 ### Available Test Suites
 
-| Suite | Description | Usage |
-|-------|-------------|-------|
-| `quick` | Fast validation tests for pre-commit hooks | `run_quick_tests()` |
-| `comprehensive` | Full test suite for CI/CD | `run_comprehensive_tests()` |
-| `performance` | Performance-focused analysis | `run_performance_test_analysis()` |
-| `edge_cases` | Edge case validation | `run_edge_case_validation()` |
-| `all` | Complete test run with all reports | `run_tests_with_coverage_dashboard()` |
+| Suite           | Description                                | Usage                                 |
+| --------------- | ------------------------------------------ | ------------------------------------- |
+| `quick`         | Fast validation tests for pre-commit hooks | `run_quick_tests()`                   |
+| `comprehensive` | Full test suite for CI/CD                  | `run_comprehensive_tests()`           |
+| `performance`   | Performance-focused analysis               | `run_performance_test_analysis()`     |
+| `edge_cases`    | Edge case validation                       | `run_edge_case_validation()`          |
+| `all`           | Complete test run with all reports         | `run_tests_with_coverage_dashboard()` |
 
 ### Enhanced Output
 
@@ -73,6 +73,7 @@ Tests now show performance metrics in real-time:
 ### Generating Coverage Reports
 
 #### Via API
+
 ```python
 # Generate coverage dashboard programmatically
 import frappe
@@ -84,6 +85,7 @@ print(f"JSON report at: {result['json_path']}")
 ```
 
 #### Via Command Line
+
 ```bash
 # Run tests with coverage dashboard
 python scripts/testing/runners/enhanced_test_runner.py --suite comprehensive --coverage --html-report
@@ -158,31 +160,31 @@ from verenigingen.tests.utils.base import VereningingenTestCase
 class TestMyFeature(VereningingenTestCase):
     def test_performance_sensitive_operation(self):
         """Test with performance monitoring"""
-        
+
         # Monitor query count
         with self.assertQueryCount(50):  # Max 50 queries
             result = bulk_process_members()
-        
+
         # Monitor execution time
         with self.assertMaxExecutionTime(2.0):  # Max 2 seconds
             result = complex_calculation()
-        
+
         # Access performance metrics
         duration = self.get_last_test_duration()
         query_count = self.get_last_query_count()
-        
+
         self.assertLess(duration, 1.0)
         self.assertLess(query_count, 25)
 ```
 
 ### Performance Targets
 
-| Test Type | Duration Target | Query Target | Notes |
-|-----------|-----------------|--------------|-------|
-| Unit Tests | < 0.1s | < 10 queries | Fast, isolated tests |
-| Integration Tests | < 1.0s | < 50 queries | Component interactions |
-| Workflow Tests | < 5.0s | < 100 queries | End-to-end scenarios |
-| Performance Tests | Varies | Optimized | Benchmarking specific operations |
+| Test Type         | Duration Target | Query Target  | Notes                            |
+| ----------------- | --------------- | ------------- | -------------------------------- |
+| Unit Tests        | < 0.1s          | < 10 queries  | Fast, isolated tests             |
+| Integration Tests | < 1.0s          | < 50 queries  | Component interactions           |
+| Workflow Tests    | < 5.0s          | < 100 queries | End-to-end scenarios             |
+| Performance Tests | Varies          | Optimized     | Benchmarking specific operations |
 
 ### Performance Reports
 
@@ -197,6 +199,7 @@ python scripts/testing/runners/enhanced_test_runner.py --suite performance
 ```
 
 Performance report structure:
+
 ```json
 {
   "timestamp": "2024-01-15T10:30:00",
@@ -226,22 +229,22 @@ The **VereningingenTestCase** provides specialized methods for edge case testing
 ```python
 def test_billing_frequency_conflicts(self):
     """Test detection of billing frequency conflicts"""
-    
+
     # 1. Create member and clear auto-schedules
     member = self.create_test_member()
     self.clear_member_auto_schedules(member.name)
-    
+
     # 2. Create controlled test scenarios
     monthly_schedule = self.create_controlled_dues_schedule(
         member.name, "Monthly", 25.0,
         start_date="2024-01-01"
     )
-    
+
     annual_schedule = self.create_controlled_dues_schedule(
         member.name, "Annual", 250.0,
         start_date="2024-01-15"  # Creates overlap
     )
-    
+
     # 3. Test conflict detection
     conflicts = self._detect_billing_conflicts(member.name)
     self.assertTrue(conflicts["has_conflicts"])
@@ -253,7 +256,7 @@ def test_billing_frequency_conflicts(self):
 The system tracks edge cases in these categories:
 
 - **🔍 Validation** - Data validation, format checking, business rules
-- **🔒 Security** - Permission testing, access control, input sanitization  
+- **🔒 Security** - Permission testing, access control, input sanitization
 - **⚡ Performance** - Load testing, scalability, optimization
 - **🔗 Integration** - API testing, workflow testing, cross-component
 - **💼 Business Logic** - Domain-specific rules, edge conditions
@@ -266,6 +269,7 @@ python scripts/testing/runners/enhanced_test_runner.py --suite edge_cases
 ```
 
 Report structure:
+
 ```json
 {
   "timestamp": "2024-01-15T10:30:00",
@@ -299,7 +303,7 @@ from verenigingen.utils.iban_validator import generate_test_iban
 
 # Generate test IBANs for different mock banks
 test_iban = generate_test_iban("TEST")  # NL13TEST0123456789
-mock_iban = generate_test_iban("MOCK")  # NL82MOCK0123456789  
+mock_iban = generate_test_iban("MOCK")  # NL82MOCK0123456789
 demo_iban = generate_test_iban("DEMO")  # NL93DEMO0123456789
 
 # All IBANs pass full MOD-97 validation
@@ -309,12 +313,12 @@ demo_iban = generate_test_iban("DEMO")  # NL93DEMO0123456789
 def test_sepa_mandate_creation(self):
     member = self.create_test_member()
     test_iban = self.factory.generate_test_iban("TEST")
-    
+
     mandate = self.create_sepa_mandate(
         member=member.name,
         iban=test_iban
     )
-    
+
     self.assertFieldEqual(mandate, "iban", test_iban)
     self.assertTrue(mandate.validate_iban())
 ```
@@ -330,11 +334,11 @@ def test_complex_workflow(self):
     member = self.create_test_member(chapter=chapter.name)
     membership = self.create_test_membership(member=member.name)
     volunteer = self.create_test_volunteer(member=member.name)
-    
+
     # Approve membership application (creates customer automatically)
     application = self.create_membership_application(member=member.name)
     approved_member = self.approve_application(application)
-    
+
     # No manual cleanup needed!
     # System handles dependencies and relationships automatically
 ```
@@ -392,30 +396,30 @@ python scripts/testing/runners/enhanced_test_runner.py --list-reports
 
 ### Command Line Options
 
-| Option | Description | Example |
-|--------|-------------|---------|
-| `--suite` | Test suite to run | `--suite comprehensive` |
-| `--coverage` | Generate coverage report | `--coverage` |
-| `--performance-report` | Generate performance analysis | `--performance-report` |
-| `--edge-case-summary` | Generate edge case coverage | `--edge-case-summary` |
-| `--html-report` | Generate HTML dashboard and open in browser | `--html-report` |
-| `--all-reports` | Generate all available reports | `--all-reports` |
-| `--list-reports` | List all available test reports | `--list-reports` |
-| `--verbose` | Verbose output | `--verbose` |
+| Option                 | Description                                 | Example                 |
+| ---------------------- | ------------------------------------------- | ----------------------- |
+| `--suite`              | Test suite to run                           | `--suite comprehensive` |
+| `--coverage`           | Generate coverage report                    | `--coverage`            |
+| `--performance-report` | Generate performance analysis               | `--performance-report`  |
+| `--edge-case-summary`  | Generate edge case coverage                 | `--edge-case-summary`   |
+| `--html-report`        | Generate HTML dashboard and open in browser | `--html-report`         |
+| `--all-reports`        | Generate all available reports              | `--all-reports`         |
+| `--list-reports`       | List all available test reports             | `--list-reports`        |
+| `--verbose`            | Verbose output                              | `--verbose`             |
 
 ### Report File Locations
 
 All reports are saved to: `/home/frappe/frappe-bench/sites/dev.veganisme.net/test-results/`
 
-| Report Type | Filename | Description |
-|-------------|----------|-------------|
-| Coverage Dashboard | `coverage_dashboard.html` | Interactive HTML dashboard |
-| Coverage Data | `coverage_report.json` | Raw coverage data |
-| Performance Analysis | `performance_report.json` | Performance metrics and trends |
-| Edge Case Summary | `edge_case_summary.json` | Edge case coverage tracking |
-| Quick Tests | `quick_tests.json` | Quick test results |
-| Comprehensive Tests | `comprehensive_tests.json` | Full test suite results |
-| Complete Run | `full_test_run.json` | All tests with all reports |
+| Report Type          | Filename                   | Description                    |
+| -------------------- | -------------------------- | ------------------------------ |
+| Coverage Dashboard   | `coverage_dashboard.html`  | Interactive HTML dashboard     |
+| Coverage Data        | `coverage_report.json`     | Raw coverage data              |
+| Performance Analysis | `performance_report.json`  | Performance metrics and trends |
+| Edge Case Summary    | `edge_case_summary.json`   | Edge case coverage tracking    |
+| Quick Tests          | `quick_tests.json`         | Quick test results             |
+| Comprehensive Tests  | `comprehensive_tests.json` | Full test suite results        |
+| Complete Run         | `full_test_run.json`       | All tests with all reports     |
 
 ## Integration Workflows
 
@@ -441,7 +445,7 @@ fi
     cd apps/verenigingen
     python scripts/testing/runners/enhanced_test_runner.py \
       --suite comprehensive --all-reports
-    
+
 - name: Upload Test Reports
   uses: actions/upload-artifact@v2
   with:
@@ -452,12 +456,14 @@ fi
 ### Development Workflow
 
 1. **During Development**:
+
    ```bash
    # Quick feedback loop
    python scripts/testing/runners/enhanced_test_runner.py --suite quick
    ```
 
 2. **Before Committing**:
+
    ```bash
    # Comprehensive validation
    python scripts/testing/runners/enhanced_test_runner.py --suite comprehensive --performance-report
@@ -472,12 +478,14 @@ fi
 ### Performance Monitoring Workflow
 
 1. **Establish Baseline**:
+
    ```bash
    python scripts/testing/runners/enhanced_test_runner.py --suite performance
    # Save baseline metrics
    ```
 
 2. **Regular Monitoring**:
+
    ```bash
    # Compare against baseline
    python scripts/testing/runners/enhanced_test_runner.py --suite comprehensive --performance-report
@@ -491,6 +499,7 @@ fi
 ### Coverage Improvement Workflow
 
 1. **Identify Gaps**:
+
    ```bash
    python scripts/testing/runners/enhanced_test_runner.py --suite comprehensive --coverage
    # Review coverage_dashboard.html
@@ -512,7 +521,7 @@ fi
 ### Test Organization
 
 - **Use descriptive test names** that explain the scenario
-- **Group related tests** in focused test classes  
+- **Group related tests** in focused test classes
 - **Separate unit, integration, and workflow tests** into different files
 - **Use mock banks** for financial testing to avoid external dependencies
 
@@ -547,7 +556,7 @@ fi
 # Quick development testing
 python scripts/testing/runners/enhanced_test_runner.py --suite quick
 
-# Pre-commit validation  
+# Pre-commit validation
 python scripts/testing/runners/enhanced_test_runner.py --suite comprehensive --performance-report
 
 # Weekly quality review
@@ -563,7 +572,7 @@ python scripts/testing/runners/enhanced_test_runner.py --suite comprehensive --c
 ### Key Files
 
 - **Base Test Class**: `verenigingen/tests/utils/base.py`
-- **Enhanced Test Runner**: `verenigingen/tests/utils/test_runner.py`  
+- **Enhanced Test Runner**: `verenigingen/tests/utils/test_runner.py`
 - **Coverage Reporter**: `verenigingen/tests/utils/coverage_reporter.py`
 - **CLI Interface**: `scripts/testing/runners/enhanced_test_runner.py`
 - **Test Templates**: `verenigingen/tests/docs/test_templates.md`

@@ -9,6 +9,7 @@ Based on software architecture expert review, the N+1 optimization requires a fo
 ## Current Architecture Problems
 
 ### Tight Coupling Issues
+
 ```python
 # CURRENT PROBLEM: Direct database access in business logic
 class Member(Document):
@@ -22,6 +23,7 @@ class Member(Document):
 ```
 
 ### N+1 Pattern Multiplication
+
 - 864 N+1 patterns across 277 files
 - Each optimization requires duplicate bulk operation code
 - No centralized optimization strategy
@@ -392,18 +394,21 @@ class CacheService:
 ### Migration Strategy
 
 **Phase 0: Service Layer Foundation (Weeks 1-2)**
+
 1. Create base service classes and interfaces
 2. Implement Member Service with bulk operations
 3. Replace critical N+1 patterns in member listing API
 4. Add comprehensive testing for service layer
 
 **Phase 1: Core Services (Weeks 3-4)**
+
 1. Implement Payment Service with SEPA optimization
 2. Create E-Boekhouden Integration Service
 3. Add caching infrastructure
 4. Migrate donation page to use services
 
 **Phase 2: Full Migration (Weeks 5-8)**
+
 1. Migrate all DocType controllers to use services
 2. Implement repository pattern for data access
 3. Add comprehensive monitoring and metrics
@@ -557,6 +562,7 @@ class PerformanceMonitor:
 5. **Expand to Other Services** - Payment, SEPA, E-Boekhouden integrations
 
 This service layer architecture provides:
+
 - ✅ **Decoupled Architecture** - Business logic separated from data access
 - ✅ **Reusable Bulk Operations** - DRY principle for N+1 optimizations
 - ✅ **Comprehensive Caching** - Multi-layered caching with dependency management

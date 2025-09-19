@@ -13,22 +13,28 @@ self.flags.ignore_validate_update_after_submit = True
 ## Flag Analysis
 
 ### `ignore_version = True`
+
 **Purpose**: Skips version control/audit trail creation
 **Risk Level**: ⚠️ MODERATE
+
 - **Financial Impact**: Payment history changes won't be tracked in version history
 - **Compliance Risk**: Audit trails are important for financial operations
 - **Justification**: Payment history refresh is a computed field update, not user data change
 
 ### `ignore_links = True`
+
 **Purpose**: Skips link field validation and cascade updates
 **Risk Level**: ✅ LOW
+
 - **Financial Impact**: Minimal - payment history uses standard invoice/payment references
 - **Compliance Risk**: Low - not bypassing critical validations
 - **Justification**: Payment history is computed from existing validated data
 
 ### `ignore_validate_update_after_submit = True`
+
 **Purpose**: Allows updates to submitted document fields
 **Risk Level**: ⚠️ HIGH
+
 - **Financial Impact**: Potentially dangerous for financial document integrity
 - **Compliance Risk**: HIGH - bypasses submitted document protection
 - **Justification**: Payment history is a child table, not core financial data
@@ -36,11 +42,13 @@ self.flags.ignore_validate_update_after_submit = True
 ## Security Assessment
 
 ### Current Implementation Risk
+
 - **MODERATE-HIGH RISK**: Bypassing update validation on financial documents
 - **Audit Concern**: No version tracking for payment history updates
 - **Compliance Gap**: Could violate financial audit requirements
 
 ### Recommended Approach
+
 1. **Remove update validation bypass** - Use proper child table updates
 2. **Evaluate version tracking need** - Consider audit requirements
 3. **Implement safer update pattern** - Use standard Frappe document operations
@@ -48,6 +56,7 @@ self.flags.ignore_validate_update_after_submit = True
 ## Safer Alternative Implementation
 
 ### Option 1: Proper Child Table Updates
+
 ```python
 def load_payment_history(self):
     """Load payment history using standard Frappe operations"""
@@ -66,6 +75,7 @@ def load_payment_history(self):
 ```
 
 ### Option 2: Direct Child Table Management
+
 ```python
 def refresh_payment_history(self):
     """Refresh payment history without document save"""
@@ -83,11 +93,13 @@ def refresh_payment_history(self):
 ## Compliance Considerations
 
 ### Financial System Requirements
+
 - **Audit Trail**: All payment-related changes should be tracked
 - **Data Integrity**: Submitted documents should be protected
 - **Version Control**: Changes to financial data need versioning
 
 ### EU SEPA Compliance
+
 - **Transaction Tracking**: All payment operations must be auditable
 - **Data Protection**: Financial data changes need proper authorization
 - **Regulatory Reporting**: Audit trails may be required for compliance
@@ -95,6 +107,7 @@ def refresh_payment_history(self):
 ## Recommendation
 
 **REMOVE permission bypass flags** and implement proper document update patterns that:
+
 1. ✅ Maintain audit trails for financial operations
 2. ✅ Respect submitted document integrity
 3. ✅ Use standard Frappe validation processes

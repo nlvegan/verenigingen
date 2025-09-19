@@ -151,7 +151,7 @@ def create_subscription_for_simple_emma(member_name):
             "amount": 25.00,
             "interval": "1 month",
             "description": f"Simple subscription test - {member.full_name}",
-            "currency": "EUR"
+            "currency": "EUR",
             # Note: webhookUrl will be added by gateway
         }
 

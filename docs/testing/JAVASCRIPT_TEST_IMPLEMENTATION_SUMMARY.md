@@ -7,6 +7,7 @@ I have successfully designed and implemented a comprehensive JavaScript test cov
 ## Implementation Philosophy
 
 ### Core Principles
+
 1. **Realistic Data Generation**: Uses actual Dutch postal codes, IBANs, names, and business patterns
 2. **Business Rule Compliance**: Generated data respects all validation rules and constraints
 3. **Minimal Mocking**: Mock only external dependencies, use real data for internal business logic
@@ -14,6 +15,7 @@ I have successfully designed and implemented a comprehensive JavaScript test cov
 5. **Performance Focused**: Deterministic testing with seeded random generators for reproducible results
 
 ### Why This Approach?
+
 - **Better Test Quality**: Realistic data exposes real-world issues that mocks might hide
 - **Maintainable Tests**: Less brittle than heavily mocked tests, easier to maintain over time
 - **Business Logic Validation**: Tests actual business rules rather than mock implementations
@@ -22,6 +24,7 @@ I have successfully designed and implemented a comprehensive JavaScript test cov
 ## Files Created
 
 ### Test Infrastructure
+
 ```
 verenigingen/tests/frontend/
 ├── factories/
@@ -33,6 +36,7 @@ verenigingen/tests/frontend/
 ### DocType Test Suites
 
 #### Tier 1 (Ultra-Critical) - ✅ COMPLETED
+
 ```
 ├── doctypes/
 │   ├── member.test.js                 # Member DocType (3,241 lines coverage)
@@ -41,18 +45,21 @@ verenigingen/tests/frontend/
 ```
 
 #### Tier 2 (High Critical) - ✅ COMPLETED
+
 ```
 │   ├── sepa-mandate.test.js           # European banking compliance
 │   └── volunteer.test.js              # Volunteer management and board assignments
 ```
 
 ### Integration Testing
+
 ```
 ├── integration/
 │   └── business-workflows.test.js     # End-to-end business process testing
 ```
 
 ### Configuration & Scripts
+
 ```
 jest.config.js                        # Updated Jest configuration
 package.json                          # Updated with comprehensive test scripts
@@ -64,6 +71,7 @@ scripts/run-js-tests.sh              # Advanced test runner script
 ### Tier 1 DocTypes (Ultra-Critical)
 
 **✅ Member DocType** (3,241 lines JS coverage)
+
 - Complete member lifecycle management
 - Dutch naming conventions (tussenvoegsel handling)
 - SEPA mandate integration
@@ -76,6 +84,7 @@ scripts/run-js-tests.sh              # Advanced test runner script
 - Edge cases and error handling
 
 **✅ Direct Debit Batch DocType** (842 lines coverage)
+
 - SEPA direct debit batch processing
 - XML generation and bank submission
 - Payment status tracking and reconciliation
@@ -86,6 +95,7 @@ scripts/run-js-tests.sh              # Advanced test runner script
 - European banking standard compliance
 
 **✅ Chapter DocType** (4,000+ lines coverage)
+
 - Geographic organization by postal code ranges
 - Board member management with roles and terms
 - Member assignment based on location
@@ -98,6 +108,7 @@ scripts/run-js-tests.sh              # Advanced test runner script
 ### Tier 2 DocTypes (High Critical)
 
 **✅ SEPA Mandate DocType**
+
 - European banking compliance validation
 - IBAN format verification (Dutch and international)
 - Mandate lifecycle management (active, cancelled, expired)
@@ -108,6 +119,7 @@ scripts/run-js-tests.sh              # Advanced test runner script
 - Compliance with SEPA regulations
 
 **✅ Volunteer DocType**
+
 - Volunteer profile creation and management
 - Skills assessment and competency tracking
 - Availability management and scheduling
@@ -120,6 +132,7 @@ scripts/run-js-tests.sh              # Advanced test runner script
 ### Cross-DocType Integration Testing
 
 **✅ Business Workflows Integration**
+
 - Complete member onboarding workflow
 - Payment processing end-to-end
 - Chapter organization and member assignment
@@ -131,6 +144,7 @@ scripts/run-js-tests.sh              # Advanced test runner script
 ## Test Data Factory Features
 
 ### Realistic Dutch Data Generation
+
 ```javascript
 // Example generated member data
 {
@@ -146,6 +160,7 @@ scripts/run-js-tests.sh              # Advanced test runner script
 ```
 
 ### Business Rule Compliance
+
 - **Age Requirements**: Volunteers must be 16+, board members 18+
 - **IBAN Validation**: European banking format compliance with check digits
 - **Dutch Postal Codes**: 1234 AB format validation
@@ -153,17 +168,26 @@ scripts/run-js-tests.sh              # Advanced test runner script
 - **Chapter Assignment**: Geographic postal code range matching
 
 ### Edge Case Scenarios
+
 ```javascript
 // Comprehensive edge case testing
-const underageVolunteer = testFactory.createEdgeCaseScenario('minimum_age_volunteer');
-const maxLengthNames = testFactory.createEdgeCaseScenario('maximum_length_names');
-const internationalMember = testFactory.createEdgeCaseScenario('international_member');
-const expiredMembership = testFactory.createEdgeCaseScenario('expired_membership');
+const underageVolunteer = testFactory.createEdgeCaseScenario(
+  "minimum_age_volunteer",
+);
+const maxLengthNames = testFactory.createEdgeCaseScenario(
+  "maximum_length_names",
+);
+const internationalMember = testFactory.createEdgeCaseScenario(
+  "international_member",
+);
+const expiredMembership =
+  testFactory.createEdgeCaseScenario("expired_membership");
 ```
 
 ## Test Execution Commands
 
 ### Updated Package.json Scripts
+
 ```json
 {
   "test": "jest --passWithNoTests",
@@ -181,6 +205,7 @@ const expiredMembership = testFactory.createEdgeCaseScenario('expired_membership
 ```
 
 ### Advanced Test Runner Script
+
 ```bash
 # Run all tests with coverage
 ./scripts/run-js-tests.sh --coverage
@@ -201,48 +226,58 @@ const expiredMembership = testFactory.createEdgeCaseScenario('expired_membership
 ## Key Testing Patterns
 
 ### 1. Realistic Data Usage
+
 ```javascript
 // ❌ Avoid: Oversimplified mock data
-const member = { name: 'Test', email: 'test@test.com' };
+const member = { name: "Test", email: "test@test.com" };
 
 // ✅ Prefer: Realistic business data
 const member = testFactory.createMemberData({
-  first_name: 'Maria',
-  tussenvoegsel: 'van der',
-  last_name: 'Berg',
-  email: 'maria.vandeberg@example.nl',
+  first_name: "Maria",
+  tussenvoegsel: "van der",
+  last_name: "Berg",
+  email: "maria.vandeberg@example.nl",
   iban: testFactory.generateDutchIBAN(),
-  birth_date: testFactory.generateBirthDate(25, 25)
+  birth_date: testFactory.generateBirthDate(25, 25),
 });
 ```
 
 ### 2. Business Logic Testing
+
 ```javascript
 // Test actual business rules, not mocks
-test('should enforce minimum age for volunteer creation', async () => {
+test("should enforce minimum age for volunteer creation", async () => {
   const underageMember = testFactory.createMemberData({
-    birth_date: testFactory.generateBirthDate(15, 15) // 15 years old
+    birth_date: testFactory.generateBirthDate(15, 15), // 15 years old
   });
 
-  await expect(createVolunteerProfile(underageMember))
-    .rejects.toThrow('Minimum age requirement not met');
+  await expect(createVolunteerProfile(underageMember)).rejects.toThrow(
+    "Minimum age requirement not met",
+  );
 });
 ```
 
 ### 3. Integration Workflow Testing
+
 ```javascript
 // Test complete business workflows
-test('should complete member onboarding workflow', async () => {
+test("should complete member onboarding workflow", async () => {
   const workflow = new MemberOnboardingWorkflow();
 
   // Step 1: Submit application
   const application = await workflow.submitApplication(memberData, addressData);
 
   // Step 2: Assign to chapter
-  const chapterAssignment = await workflow.assignToChapter(application, chapterData);
+  const chapterAssignment = await workflow.assignToChapter(
+    application,
+    chapterData,
+  );
 
   // Step 3: Create SEPA mandate
-  const mandateCreation = await workflow.createSEPAMandate(application, mandateData);
+  const mandateCreation = await workflow.createSEPAMandate(
+    application,
+    mandateData,
+  );
 
   // Validate complete workflow
   expect(workflow.isOnboardingComplete()).toBe(true);
@@ -252,12 +287,14 @@ test('should complete member onboarding workflow', async () => {
 ## Coverage Metrics
 
 ### Current Coverage Targets
+
 - **Branches**: 70%
 - **Functions**: 70%
 - **Lines**: 70%
 - **Statements**: 70%
 
 ### Performance Benchmarks
+
 - **Quick tests**: < 30 seconds
 - **Full test suite**: < 2 minutes
 - **Coverage generation**: + 30 seconds
@@ -265,6 +302,7 @@ test('should complete member onboarding workflow', async () => {
 ## Business Workflows Tested
 
 ### 1. Member Onboarding
+
 - Application submission and validation
 - Chapter assignment based on postal code
 - SEPA mandate creation and verification
@@ -272,6 +310,7 @@ test('should complete member onboarding workflow', async () => {
 - Integration with payment systems
 
 ### 2. Payment Processing
+
 - SEPA direct debit collection workflow
 - Invoice generation and batch processing
 - Bank submission and status tracking
@@ -279,18 +318,21 @@ test('should complete member onboarding workflow', async () => {
 - Reconciliation and accounting integration
 
 ### 3. Chapter Organization
+
 - Chapter creation and member assignment
 - Board recruitment and role assignment
 - Geographic coverage and postal code management
 - Member transfer and chapter mergers
 
 ### 4. Volunteer Management
+
 - Profile creation and skills assessment
 - Availability tracking and scheduling
 - Board position assignments
 - Performance monitoring and recognition
 
 ### 5. Financial Operations
+
 - Annual fee collection workflows
 - Multiple payment method handling
 - Payment dispute and refund processing
@@ -299,6 +341,7 @@ test('should complete member onboarding workflow', async () => {
 ## Future Extensions
 
 ### Tier 3 DocTypes (Pending Implementation)
+
 - Volunteer Expense (406 lines)
 - SEPA Payment Retry (462 lines)
 - Donation Management
@@ -309,6 +352,7 @@ test('should complete member onboarding workflow', async () => {
 - API Audit Logging
 
 ### Additional Integration Tests
+
 - Multi-chapter coordination workflows
 - Annual financial reporting cycles
 - Bulk member operations
@@ -318,21 +362,25 @@ test('should complete member onboarding workflow', async () => {
 ## Getting Started
 
 1. **Install Dependencies**
+
    ```bash
    npm install
    ```
 
 2. **Run Basic Tests**
+
    ```bash
    npm test
    ```
 
 3. **Generate Coverage Report**
+
    ```bash
    npm run test:coverage
    ```
 
 4. **Development Mode**
+
    ```bash
    npm run test:watch
    ```
@@ -346,6 +394,7 @@ test('should complete member onboarding workflow', async () => {
 ## Technical Architecture
 
 ### Test File Structure
+
 ```
 verenigingen/tests/frontend/
 ├── doctypes/           # DocType-specific functionality
@@ -357,6 +406,7 @@ verenigingen/tests/frontend/
 ```
 
 ### Key Technologies
+
 - **Jest**: Test framework with jsdom environment
 - **Realistic Data Factory**: Custom data generation with Dutch patterns
 - **Business Workflow Classes**: Integration test orchestration

@@ -46,6 +46,7 @@ This guide covers the deployment of Mollie payment integration and subscription 
 ### 4. Error Recovery Setup
 
 - [ ] **Scheduled Jobs**: Configure subscription retry scheduled task
+
   ```python
   # Add to hooks.py or scheduler_events
   scheduler_events = {
@@ -116,6 +117,7 @@ curl -X POST https://yourdomain.com/api/method/verenigingen.verenigingen_payment
 #### 4.1 Test Payment Flow
 
 **CRITICAL SAFETY**: Verify test environment is using test API keys:
+
 ```bash
 # Verify test mode in Frappe console
 bench --site [site-name] console
@@ -155,6 +157,7 @@ curl -X POST https://yourdomain.com/api/method/verenigingen.verenigingen_payment
 - **Payment Entry Creation**: Verify Payment Entries are created correctly
 
 Key log patterns to monitor:
+
 ```
 - "Mollie subscription webhook received and authenticated"
 - "Created Payment Entry .* for Mollie subscription payment"
@@ -165,11 +168,13 @@ Key log patterns to monitor:
 ### 2. Data Integrity Checks
 
 #### Daily Checks
+
 - Verify all paid Mollie payments have corresponding Payment Entries
 - Check members with completed first payments have active subscriptions
 - Monitor failed subscription activation attempts
 
 #### Weekly Checks
+
 - Reconcile Mollie dashboard subscriptions with system subscriptions
 - Verify subscription payment amounts match Membership Dues Schedules
 - Check for orphaned customers without linked members
@@ -209,6 +214,7 @@ Key log patterns to monitor:
 
 **Symptoms**: No webhook calls in logs, payments not processed
 **Solutions**:
+
 - Check Mollie Dashboard webhook URL configuration
 - Verify webhook endpoint is publicly accessible
 - Test with `curl` or webhook testing tools
@@ -218,6 +224,7 @@ Key log patterns to monitor:
 
 **Symptoms**: First payments complete but subscriptions not activated
 **Solutions**:
+
 - Verify customer has valid mandate (completed first payment)
 - Check Membership Dues Schedule exists and is active
 - Run manual subscription retry function
@@ -227,6 +234,7 @@ Key log patterns to monitor:
 
 **Symptoms**: Webhooks received but Payment Entries not created
 **Solutions**:
+
 - Check bank account configuration
 - Verify Sales Invoice exists and is unpaid
 - Check account mapping for receivable accounts
@@ -236,6 +244,7 @@ Key log patterns to monitor:
 
 **Symptoms**: Webhooks processed but member data not updated
 **Solutions**:
+
 - Verify Customer has `custom_mollie_subscription_id` field
 - Check Member-Customer relationship is properly linked
 - Ensure customer sync hooks are enabled
@@ -245,16 +254,19 @@ Key log patterns to monitor:
 If issues arise post-deployment:
 
 ### 1. Immediate Actions
+
 - Disable webhook in Mollie Dashboard
 - Switch Mollie Settings back to test mode
 - Stop scheduled subscription retry jobs
 
 ### 2. Data Recovery
+
 - Review Payment Entries created since deployment
 - Check member subscription status updates
 - Verify no duplicate charges occurred
 
 ### 3. System Restore
+
 ```bash
 # Restore from pre-deployment backup if necessary
 bench --site [site-name] restore [backup-file]
@@ -266,12 +278,15 @@ bench --site [site-name] migrate --reset-to [commit-hash]
 ## Support and Maintenance
 
 ### Contact Information
+
 - **Technical Issues**: Development team
 - **Mollie API Issues**: Mollie Support
 - **Financial Discrepancies**: Finance team
 
 ### Documentation Updates
+
 This document should be updated when:
+
 - API endpoints change
 - New webhook events are added
 - Security requirements are updated
@@ -287,10 +302,12 @@ This document should be updated when:
 ### B. Database Fields
 
 **Customer DocType**:
+
 - `custom_mollie_customer_id` (Data)
 - `custom_mollie_subscription_id` (Data)
 
 **Member DocType**:
+
 - `mollie_customer_id` (Data)
 - `mollie_subscription_id` (Data)
 - `subscription_status` (Select)
@@ -299,6 +316,7 @@ This document should be updated when:
 ### C. Test Scenarios
 
 Comprehensive test scenarios are available in:
+
 - `verenigingen/tests/test_mollie_subscription_integration.py`
 - All tests use genuine Mollie API integration (no mocks)
 - Tests validate complete payment and subscription workflows

@@ -1,6 +1,7 @@
 # Performance Optimization Implementation Plan
 
 ## Current Issues
+
 - Slow processing of large datasets
 - Memory issues with bulk operations
 - No progress visibility
@@ -11,6 +12,7 @@
 ### Step 1: Batch Processing Optimization
 
 1. **Chunked Data Fetching**
+
    ```python
    def fetch_mutations_chunked(date_from, date_to, chunk_size=500):
        """Fetch data in chunks to avoid memory issues"""
@@ -40,6 +42,7 @@
    ```
 
 2. **Parallel Processing**
+
    ```python
    from concurrent.futures import ThreadPoolExecutor, as_completed
    import threading
@@ -83,6 +86,7 @@
 ### Step 2: Database Query Optimization
 
 1. **Bulk Operations**
+
    ```python
    def bulk_create_invoices(invoice_data_list):
        """Create multiple invoices in one operation"""
@@ -114,6 +118,7 @@
    ```
 
 2. **Query Optimization**
+
    ```python
    def get_existing_invoices_optimized(invoice_numbers):
        """Check for existing invoices efficiently"""
@@ -137,6 +142,7 @@
 ### Step 3: Memory Management
 
 1. **Generator-Based Processing**
+
    ```python
    def process_large_import(migration_id):
        """Process large imports without loading all data in memory"""
@@ -169,6 +175,7 @@
    ```
 
 2. **Resource Monitoring**
+
    ```python
    import psutil
    import gc
@@ -207,6 +214,7 @@
 ### Step 4: Progress Tracking
 
 1. **Real-time Progress Updates**
+
    ```python
    class ImportProgressTracker:
        def __init__(self, total_records):
@@ -265,6 +273,7 @@
 ### Step 5: Caching Strategy
 
 1. **Lookup Cache**
+
    ```python
    class ImportCache:
        def __init__(self):
@@ -302,6 +311,7 @@
 ### Step 6: Performance Monitoring
 
 1. **Import Metrics**
+
    ```python
    def collect_import_metrics(migration_id):
        """Collect performance metrics"""
@@ -316,6 +326,7 @@
    ```
 
 2. **Optimization Recommendations**
+
    ```python
    def analyze_performance(metrics):
        """Provide optimization recommendations"""

@@ -14,6 +14,7 @@ This directory is reserved for documentation of features and improvements that h
 ## Future Use
 
 This directory will contain:
+
 - New feature proposals and specifications
 - Implementation plans in early development stages
 - Research documents for potential improvements
@@ -22,6 +23,7 @@ This directory will contain:
 ## Migration Criteria
 
 Plans are moved from this directory when they reach:
+
 - **85%+ implementation**: Move to `../archived/completed-implementations/[topic]/`
 - **100% implementation**: Mark as "COMPLETED"
 - **Superseded**: Move to `../archived/superseded-versions/`
@@ -30,6 +32,7 @@ Plans are moved from this directory when they reach:
 ## Organization
 
 When this directory contains files, they should be organized by:
+
 - Topic area (matching existing system modules)
 - Implementation priority (high/medium/low)
 - Resource requirements
@@ -38,6 +41,7 @@ When this directory contains files, they should be organized by:
 ## Verification Process
 
 Plans in this directory undergo periodic verification to:
+
 1. Check actual implementation status in codebase
 2. Verify against current system functionality
 3. Assess completion percentage

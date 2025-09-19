@@ -1,4 +1,5 @@
 # API Optimization Summary Report
+
 Generated: 2025-07-10 22:27:50
 
 ## Optimizations Applied
@@ -6,6 +7,7 @@ Generated: 2025-07-10 22:27:50
 ### Files Modified:
 
 **payment_dashboard.py**
+
 - `get_dashboard_data`:
   - Caching: 300s TTL
   - Optimizations: cache, error_handling, performance
@@ -17,6 +19,7 @@ Generated: 2025-07-10 22:27:50
   - Optimizations: cache, error_handling
 
 **chapter_dashboard_api.py**
+
 - `get_chapter_member_emails`:
   - Caching: 1800s TTL
   - Optimizations: cache, error_handling
@@ -25,6 +28,7 @@ Generated: 2025-07-10 22:27:50
   - Optimizations: cache, error_handling, performance
 
 **sepa_batch_ui.py**
+
 - `load_unpaid_invoices`:
   - Caching: 300s TTL
   - Optimizations: cache, error_handling, batch_processing
@@ -33,6 +37,7 @@ Generated: 2025-07-10 22:27:50
   - Optimizations: cache, error_handling
 
 **member_management.py**
+
 - `get_members_without_chapter`:
   - Caching: 600s TTL
   - Optimizations: cache, error_handling, pagination
@@ -41,6 +46,7 @@ Generated: 2025-07-10 22:27:50
   - Optimizations: cache, error_handling
 
 **sepa_reconciliation.py**
+
 - `get_sepa_reconciliation_dashboard`:
   - Caching: 300s TTL
   - Optimizations: cache, error_handling, performance
@@ -70,6 +76,7 @@ Generated: 2025-07-10 22:27:50
 ## Rollback Instructions
 
 If needed, restore from backups:
+
 ```bash
 cp /home/frappe/frappe-bench/apps/verenigingen/verenigingen/api_backups/20250710_222750/* /home/frappe/frappe-bench/apps/verenigingen/verenigingen/api/
 ```

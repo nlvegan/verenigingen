@@ -477,12 +477,16 @@ class FrappeNativeSEPAManagerOptimized:
                 "execution_time": actual_duration,
                 "results_by_type": {
                     op_type: {
-                        "successful": len([r for r in op_results if r.get("success", False)])
-                        if isinstance(op_results, list)
-                        else (op_results if isinstance(op_results, int) else 0),
-                        "failed": len([r for r in op_results if not r.get("success", True)])
-                        if isinstance(op_results, list)
-                        else 0,
+                        "successful": (
+                            len([r for r in op_results if r.get("success", False)])
+                            if isinstance(op_results, list)
+                            else (op_results if isinstance(op_results, int) else 0)
+                        ),
+                        "failed": (
+                            len([r for r in op_results if not r.get("success", True)])
+                            if isinstance(op_results, list)
+                            else 0
+                        ),
                     }
                     for op_type, op_results in results.items()
                     if op_results  # Use items() and store op_results

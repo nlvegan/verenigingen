@@ -38,17 +38,20 @@ MIGRATION_ROLES = {
 ### 3. Files Updated
 
 #### Completed:
+
 - `/utils/payment_processing/payment_entry_handler.py` - Fixed payment entry creation
 - `/doctype/e_boekhouden_migration/e_boekhouden_migration.py` - Fixed 15 occurrences
 - `/utils/cleanup_utils.py` - Added cleanup context (delete operations require special handling)
 
 #### Partially Updated:
+
 - Added security helper imports and contexts to cleanup utilities
 - Note: `frappe.delete_doc()` requires `ignore_permissions=True` by design
 
 ### 4. Testing
 
 Created comprehensive test suite that verifies:
+
 - Permission checking works correctly
 - Migration context properly switches users
 - Document creation respects permissions
@@ -75,6 +78,7 @@ validate_and_insert(customer)
 ### Audit Trail
 
 All operations now include:
+
 - Original user who initiated the operation
 - Migration operation type
 - Timestamp and details
@@ -89,11 +93,13 @@ All operations now include:
 ## Remaining Work
 
 ### High Priority:
+
 1. Complete replacement of remaining 70+ occurrences across other files
 2. Add comprehensive integration tests for permission model
 3. Ensure Administrator user has all required roles in production
 
 ### Files Still Needing Updates:
+
 - `/utils/transaction_utils.py` (6 occurrences)
 - `/utils/eboekhouden_unified_processor.py` (8 occurrences)
 - `/utils/eboekhouden_coa_import.py` (4 occurrences)

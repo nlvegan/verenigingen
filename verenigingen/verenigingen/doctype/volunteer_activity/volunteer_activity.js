@@ -95,16 +95,24 @@ frappe.ui.form.on('Volunteer Activity', {
 	refresh(frm) {
 		// Add button to view volunteer
 		if (!frm.is_new() && frm.doc.volunteer) {
-			frm.add_custom_button(__('View Volunteer'), () => {
-				frappe.set_route('Form', 'Volunteer', frm.doc.volunteer);
-			}, __('Links'));
+			frm.add_custom_button(
+				__('View Volunteer'),
+				() => {
+					frappe.set_route('Form', 'Volunteer', frm.doc.volunteer);
+				},
+				__('Links')
+			);
 		}
 
 		// Add button to complete activity
 		if (!frm.is_new() && frm.doc.status === 'Active') {
-			frm.add_custom_button(__('Complete Activity'), () => {
-				show_complete_dialog(frm);
-			}, __('Actions'));
+			frm.add_custom_button(
+				__('Complete Activity'),
+				() => {
+					show_complete_dialog(frm);
+				},
+				__('Actions')
+			);
 		}
 
 		// Add reference filters
@@ -120,7 +128,7 @@ frappe.ui.form.on('Volunteer Activity', {
 	volunteer(frm) {
 		// When volunteer is selected, fetch name
 		if (frm.doc.volunteer) {
-			frappe.db.get_doc('Volunteer', frm.doc.volunteer).then(doc => {
+			frappe.db.get_doc('Volunteer', frm.doc.volunteer).then((doc) => {
 				frm.set_value('volunteer_name', doc.volunteer_name);
 			});
 		}
@@ -136,7 +144,11 @@ frappe.ui.form.on('Volunteer Activity', {
 
 	end_date(frm) {
 		// Validate dates
-		if (frm.doc.start_date && frm.doc.end_date && frm.doc.start_date > frm.doc.end_date) {
+		if (
+			frm.doc.start_date
+      && frm.doc.end_date
+      && frm.doc.start_date > frm.doc.end_date
+		) {
 			frappe.msgprint(__('End date cannot be before start date'));
 			frm.set_value('end_date', frm.doc.start_date);
 		}
@@ -186,7 +198,12 @@ function show_complete_dialog(frm) {
 			}
 
 			if (values.notes) {
-				frm.set_value('notes', frm.doc.notes ? (`${frm.doc.notes}\n\nCompletion Notes: ${values.notes}`) : values.notes);
+				frm.set_value(
+					'notes',
+					frm.doc.notes
+						? `${frm.doc.notes}\n\nCompletion Notes: ${values.notes}`
+						: values.notes
+				);
 			}
 
 			frm.save();

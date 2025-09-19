@@ -63,18 +63,20 @@ def get_link_groups(self):
 ### The Mismatch Problem
 
 **Content Field Structure** (Frontend Layout):
+
 ```json
 {
   "id": "ReportsCard",
   "type": "card",
   "data": {
-    "card_name": "Reports",  // ← Generic card name
+    "card_name": "Reports", // ← Generic card name
     "col": 8
   }
 }
 ```
 
 **Database Card Break Structure** (Backend Data):
+
 ```
 Card Break: "Financial Reports"     → Links: Chapter Expense Report, etc.
 Card Break: "Member & Chapter Reports" → Links: Expiring Memberships, etc.
@@ -89,6 +91,7 @@ Card Break: "Reports"              → Links: (none - orphaned)
 ### Phase 1: Initial Hypothesis Testing
 
 **Wrong Hypothesis**: "The workspace file was deleted"
+
 ```bash
 # Check git status
 git status
@@ -131,10 +134,12 @@ ORDER BY label;"
 **Critical Finding**: Mismatch between content cards and Card Break labels:
 
 Content Field Cards:
+
 - Reports (single generic card)
 - Portal Pages
 
 Database Card Breaks:
+
 - Financial Reports
 - Member & Chapter Reports
 - Reports
@@ -470,6 +475,7 @@ bench --site [site] execute "verenigingen.utils.workspace_analyzer.print_analysi
 ### 4. Cache Management
 
 Always clear cache after workspace changes:
+
 ```bash
 bench --site [site] clear-cache
 bench --site [site] clear-website-cache  # If needed
@@ -708,15 +714,18 @@ print(f"\n🎯 OVERALL STATUS: {'✅ HEALTHY' if overall_status else '❌ ISSUES
 ## Step-by-Step Workspace Modification Process
 
 ### 1. Pre-Modification Validation
+
 ```bash
 # Always validate before making changes
 echo "exec(open('/path/to/validation_script.py').read())" | bench --site [site] console
 ```
 
 ### 2. Database-First Approach
+
 When modifying workspaces, always follow this sequence:
 
 1. **Modify Database Structure First**:
+
    ```sql
    -- Example: Adding a new Card Break
    INSERT INTO `tabWorkspace Link` (
@@ -731,6 +740,7 @@ When modifying workspaces, always follow this sequence:
    ```
 
 2. **Update Content Field to Match**:
+
    ```sql
    -- Update content field with properly escaped JSON
    UPDATE `tabWorkspace`
@@ -739,11 +749,13 @@ When modifying workspaces, always follow this sequence:
    ```
 
 3. **Clear Cache**:
+
    ```bash
    bench --site [site] clear-cache
    ```
 
 4. **Export to Fixture**:
+
    ```bash
    bench --site [site] export-doc Workspace Workspace_Name
    ```
@@ -758,6 +770,7 @@ When modifying workspaces, always follow this sequence:
 When updating the content field manually:
 
 **HTML Quotes in Content**: Must be double-escaped
+
 ```json
 // WRONG:
 "text": "<span class="h4"><b>Title</b></span>"
@@ -767,6 +780,7 @@ When updating the content field manually:
 ```
 
 **SQL String Literals**: Use proper SQL escaping
+
 ```sql
 -- For complex JSON, save to file and use:
 UPDATE `tabWorkspace` SET content = LOAD_FILE('/tmp/content.json') WHERE name = 'Workspace_Name';
@@ -782,6 +796,7 @@ UPDATE `tabWorkspace` SET content = '[{\"type\": \"card\", \"data\": {\"text\": 
 **Cause**: Content field cards don't match Card Break labels exactly
 
 **Solution**:
+
 1. Run validation tools to identify mismatches
 2. Either add missing Card Breaks or remove orphaned content cards
 3. Ensure exact case-sensitive matching
@@ -791,6 +806,7 @@ UPDATE `tabWorkspace` SET content = '[{\"type\": \"card\", \"data\": {\"text\": 
 **Cause**: Invalid JSON in content field due to improper escaping
 
 **Solution**:
+
 1. Validate JSON syntax: `python -m json.tool < content.json`
 2. Check HTML quote escaping: `class=\"value\"` not `class="value"`
 3. Use `bench export-doc` after fixing database to get proper JSON
@@ -800,6 +816,7 @@ UPDATE `tabWorkspace` SET content = '[{\"type\": \"card\", \"data\": {\"text\": 
 **Cause**: Card Break `link_count` doesn't match actual links, or `idx` ordering issues
 
 **Solution**:
+
 1. Run Card Break count validation
 2. Fix `link_count` values:
    ```sql
@@ -812,6 +829,7 @@ UPDATE `tabWorkspace` SET content = '[{\"type\": \"card\", \"data\": {\"text\": 
 **Cause**: Database changes made without updating content field
 
 **Solution**:
+
 1. Database is primary - content field must match
 2. Update content field to match database Card Break structure
 3. Use `bench export-doc` to sync fixture
@@ -819,31 +837,37 @@ UPDATE `tabWorkspace` SET content = '[{\"type\": \"card\", \"data\": {\"text\": 
 ## Maintenance Checklist
 
 ### Before Any Workspace Changes:
+
 - [ ] Run validation tools
 - [ ] Backup current workspace: `bench --site [site] export-doc Workspace [name]`
 - [ ] Document intended changes
 
 ### During Changes:
+
 - [ ] Modify database structure first
 - [ ] Update content field to match
 - [ ] Clear cache after each step
 - [ ] Test in browser
 
 ### After Changes:
+
 - [ ] Run full validation suite
 - [ ] Fix any Card Break count mismatches
 - [ ] Export to fixture with `bench export-doc`
 - [ ] Commit changes to version control
 
 ### Emergency Restore Process:
+
 If workspace becomes completely broken:
 
 1. **Restore from fixture**:
+
    ```bash
    bench --site [site] migrate --reset-permissions
    ```
 
 2. **Or restore from backup**:
+
    ```sql
    -- Restore workspace from exported JSON
    UPDATE `tabWorkspace` SET content = '[backup_content]' WHERE name = 'Workspace_Name';
@@ -861,15 +885,21 @@ If workspace becomes completely broken:
 // Browser console debugging
 // Check if content field is valid JSON
 try {
-    JSON.parse(cur_page.workspace.content);
-    console.log("✅ Content JSON is valid");
-} catch(e) {
-    console.error("❌ Content JSON error:", e);
+  JSON.parse(cur_page.workspace.content);
+  console.log("✅ Content JSON is valid");
+} catch (e) {
+  console.error("❌ Content JSON error:", e);
 }
 
 // Check Card Break to Link mapping
-console.log("Card Breaks:", cur_page.workspace.links.filter(l => l.type === 'Card Break'));
-console.log("Links:", cur_page.workspace.links.filter(l => l.type === 'Link'));
+console.log(
+  "Card Breaks:",
+  cur_page.workspace.links.filter((l) => l.type === "Card Break"),
+);
+console.log(
+  "Links:",
+  cur_page.workspace.links.filter((l) => l.type === "Link"),
+);
 ```
 
 ### SQL Debugging Queries
@@ -900,12 +930,14 @@ This comprehensive guide should prevent and resolve most workspace issues encoun
 **⚠️ IMPORTANT**: The Verenigingen application has an extensive workspace auto-correction system that can cause workspace corruption when broken links are clicked.
 
 ### Identified Risk Pattern:
+
 1. User clicks broken link → 404 error occurs
 2. System validation triggers → detects "content/database mismatch"
 3. Auto-correction activates → `workspace_content_fixer.py` removes "orphaned cards"
 4. Workspace reverts → custom layouts get wiped
 
 ### High-Risk Auto-Correction Files:
+
 - `/verenigingen/utils/workspace_content_fixer.py` - Removes "orphaned cards"
 - `/verenigingen/api/rebuild_workspace.py` - Complete workspace rebuilding
 - `/verenigingen/api/fix_workspace.py` - Adds missing links
@@ -914,12 +946,14 @@ This comprehensive guide should prevent and resolve most workspace issues encoun
 ### Immediate Protection Steps:
 
 1. **Backup Before Link Testing**:
+
    ```bash
    # Always backup before clicking suspicious links
    bench --site [site] export-doc Workspace Verenigingen
    ```
 
 2. **Monitor Auto-Correction Calls**:
+
    ```bash
    # Check if auto-correction was triggered
    grep -r "workspace.*fix\|fix.*workspace" /path/to/error/logs/
@@ -936,6 +970,7 @@ This comprehensive guide should prevent and resolve most workspace issues encoun
    ```
 
 ### Safe Link Testing Procedure:
+
 1. **Validate workspace health first** (using tools above)
 2. **Export current workspace** as backup
 3. **Test broken links in incognito/private browser** (reduces cached state issues)
@@ -943,4 +978,5 @@ This comprehensive guide should prevent and resolve most workspace issues encoun
 5. **Restore from backup** if corruption detected
 
 ### Long-term Solution:
+
 Consider disabling or modifying auto-correction systems to require explicit user confirmation before making any workspace structural changes.

@@ -1,5 +1,6 @@
 # Membership Dues System - Enhanced Implementation Plan
-*Updated to reflect flexible contribution system based on current UX patterns*
+
+_Updated to reflect flexible contribution system based on current UX patterns_
 
 ## Overview
 
@@ -104,108 +105,144 @@ class MembershipTier(Document):
 ```html
 <!-- Flexible contribution selection matching current UX -->
 <div class="contribution-selection-container">
-    <h3>{{ _("Choose Your Contribution") }}</h3>
+  <h3>{{ _("Choose Your Contribution") }}</h3>
 
-    <!-- Income Calculator (if enabled) -->
-    {% if contribution_options.calculator.enabled %}
-    <div class="income-calculator-card">
-        <h5>{{ _("Contribution Calculator") }}</h5>
-        <p>{{ contribution_options.calculator.description }}</p>
+  <!-- Income Calculator (if enabled) -->
+  {% if contribution_options.calculator.enabled %}
+  <div class="income-calculator-card">
+    <h5>{{ _("Contribution Calculator") }}</h5>
+    <p>{{ contribution_options.calculator.description }}</p>
 
-        <div class="calculator-inputs">
-            <div class="input-group">
-                <label for="calc-monthly-income">{{ _("Monthly Net Income (€)") }}</label>
-                <input type="number" id="calc-monthly-income"
-                       placeholder="3500" min="0" step="0.01">
-            </div>
+    <div class="calculator-inputs">
+      <div class="input-group">
+        <label for="calc-monthly-income"
+          >{{ _("Monthly Net Income (€)") }}</label
+        >
+        <input
+          type="number"
+          id="calc-monthly-income"
+          placeholder="3500"
+          min="0"
+          step="0.01"
+        />
+      </div>
 
-            <div class="input-group">
-                <label for="calc-payment-interval">{{ _("Payment Interval") }}</label>
-                <select id="calc-payment-interval">
-                    <option value="monthly">{{ _("Monthly") }}</option>
-                    <option value="quarterly">{{ _("Quarterly") }}</option>
-                    <option value="annual">{{ _("Annual") }}</option>
-                </select>
-            </div>
-        </div>
-
-        <div class="calculator-result">
-            <p>{{ _("Suggested contribution: ") }}<span id="calculated-amount">€0.00</span></p>
-            <button type="button" id="use-calculated-amount" class="btn btn-outline">
-                {{ _("Use This Amount") }}
-            </button>
-        </div>
-    </div>
-    {% endif %}
-
-    <!-- Contribution Options -->
-    {% if contribution_options.mode == "Tiers" %}
-    <!-- Predefined Tiers -->
-    <div class="contribution-tiers">
-        {% for tier in contribution_options.tiers %}
-        <div class="tier-card {{ 'default' if tier.is_default else '' }}">
-            <h4>{{ tier.display_name }}</h4>
-            <div class="tier-amount">€{{ tier.amount }}</div>
-            <p>{{ tier.description }}</p>
-            <button type="button" class="tier-select-btn"
-                    data-amount="{{ tier.amount }}"
-                    data-tier="{{ tier.name }}">
-                {{ _("Select") }}
-            </button>
-        </div>
-        {% endfor %}
-    </div>
-    {% else %}
-    <!-- Quick Amount Selection (Calculator Mode) -->
-    <div class="quick-amounts">
-        <h5>{{ _("Quick Selection") }}</h5>
-        <div class="amount-buttons">
-            {% for amount in contribution_options.quick_amounts %}
-            <button type="button" class="amount-btn {{ 'default' if amount.is_default else '' }}"
-                    data-amount="{{ amount.amount }}"
-                    data-multiplier="{{ amount.multiplier }}">
-                <span class="amount-label">{{ amount.label }}</span>
-                <span class="amount-value">€{{ amount.amount }}</span>
-            </button>
-            {% endfor %}
-        </div>
-    </div>
-    {% endif %}
-
-    <!-- Fee Slider (Always Available) -->
-    <div class="fee-slider-container">
-        <h5>{{ _("Custom Amount") }}</h5>
-        <div class="slider-wrapper">
-            <input type="range" id="fee-slider"
-                   min="{{ contribution_options.minimum }}"
-                   max="{{ contribution_options.maximum }}"
-                   step="0.50"
-                   value="{{ contribution_options.suggested }}">
-        </div>
-
-        <div class="fee-input-group">
-            <label for="custom-amount">{{ _("Amount (€)") }}</label>
-            <input type="number" id="custom-amount"
-                   min="{{ contribution_options.minimum }}"
-                   max="{{ contribution_options.maximum }}"
-                   step="0.50"
-                   value="{{ contribution_options.suggested }}">
-        </div>
-
-        <div class="fee-info">
-            <p><small>{{ _("Minimum: €{0}").format(contribution_options.minimum) }}</small></p>
-            <p><small>{{ _("Suggested: €{0}").format(contribution_options.suggested) }}</small></p>
-        </div>
+      <div class="input-group">
+        <label for="calc-payment-interval">{{ _("Payment Interval") }}</label>
+        <select id="calc-payment-interval">
+          <option value="monthly">{{ _("Monthly") }}</option>
+          <option value="quarterly">{{ _("Quarterly") }}</option>
+          <option value="annual">{{ _("Annual") }}</option>
+        </select>
+      </div>
     </div>
 
-    <!-- Selected Amount Display -->
-    <div class="selected-amount-display">
-        <h4>{{ _("Selected Contribution") }}</h4>
-        <div class="amount-display">
-            <span class="selected-amount">€<span id="selected-amount-value">{{ contribution_options.suggested }}</span></span>
-            <span class="frequency">{{ _("per month") }}</span>
-        </div>
+    <div class="calculator-result">
+      <p>
+        {{ _("Suggested contribution: ") }}<span id="calculated-amount"
+          >€0.00</span
+        >
+      </p>
+      <button type="button" id="use-calculated-amount" class="btn btn-outline">
+        {{ _("Use This Amount") }}
+      </button>
     </div>
+  </div>
+  {% endif %}
+
+  <!-- Contribution Options -->
+  {% if contribution_options.mode == "Tiers" %}
+  <!-- Predefined Tiers -->
+  <div class="contribution-tiers">
+    {% for tier in contribution_options.tiers %}
+    <div class="tier-card {{ 'default' if tier.is_default else '' }}">
+      <h4>{{ tier.display_name }}</h4>
+      <div class="tier-amount">€{{ tier.amount }}</div>
+      <p>{{ tier.description }}</p>
+      <button
+        type="button"
+        class="tier-select-btn"
+        data-amount="{{ tier.amount }}"
+        data-tier="{{ tier.name }}"
+      >
+        {{ _("Select") }}
+      </button>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <!-- Quick Amount Selection (Calculator Mode) -->
+  <div class="quick-amounts">
+    <h5>{{ _("Quick Selection") }}</h5>
+    <div class="amount-buttons">
+      {% for amount in contribution_options.quick_amounts %}
+      <button
+        type="button"
+        class="amount-btn {{ 'default' if amount.is_default else '' }}"
+        data-amount="{{ amount.amount }}"
+        data-multiplier="{{ amount.multiplier }}"
+      >
+        <span class="amount-label">{{ amount.label }}</span>
+        <span class="amount-value">€{{ amount.amount }}</span>
+      </button>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Fee Slider (Always Available) -->
+  <div class="fee-slider-container">
+    <h5>{{ _("Custom Amount") }}</h5>
+    <div class="slider-wrapper">
+      <input
+        type="range"
+        id="fee-slider"
+        min="{{ contribution_options.minimum }}"
+        max="{{ contribution_options.maximum }}"
+        step="0.50"
+        value="{{ contribution_options.suggested }}"
+      />
+    </div>
+
+    <div class="fee-input-group">
+      <label for="custom-amount">{{ _("Amount (€)") }}</label>
+      <input
+        type="number"
+        id="custom-amount"
+        min="{{ contribution_options.minimum }}"
+        max="{{ contribution_options.maximum }}"
+        step="0.50"
+        value="{{ contribution_options.suggested }}"
+      />
+    </div>
+
+    <div class="fee-info">
+      <p>
+        <small
+          >{{ _("Minimum: €{0}").format(contribution_options.minimum) }}</small
+        >
+      </p>
+      <p>
+        <small
+          >{{ _("Suggested: €{0}").format(contribution_options.suggested)
+          }}</small
+        >
+      </p>
+    </div>
+  </div>
+
+  <!-- Selected Amount Display -->
+  <div class="selected-amount-display">
+    <h4>{{ _("Selected Contribution") }}</h4>
+    <div class="amount-display">
+      <span class="selected-amount"
+        >€<span id="selected-amount-value"
+          >{{ contribution_options.suggested }}</span
+        ></span
+      >
+      <span class="frequency">{{ _("per month") }}</span>
+    </div>
+  </div>
 </div>
 ```
 
@@ -532,47 +569,69 @@ def process_membership_application_enhanced(application_data):
 ```html
 <!-- Member dashboard showing flexible contribution info -->
 <div class="member-contribution-dashboard">
-    <div class="contribution-summary-card">
-        <h3>{{ _("Your Membership Contribution") }}</h3>
+  <div class="contribution-summary-card">
+    <h3>{{ _("Your Membership Contribution") }}</h3>
 
-        <div class="current-contribution">
-            <div class="contribution-amount">
-                <span class="amount">€{{ current_dues.amount }}</span>
-                <span class="frequency">{{ _("per {0}").format(current_dues.billing_frequency.lower()) }}</span>
-            </div>
+    <div class="current-contribution">
+      <div class="contribution-amount">
+        <span class="amount">€{{ current_dues.amount }}</span>
+        <span class="frequency"
+          >{{ _("per {0}").format(current_dues.billing_frequency.lower())
+          }}</span
+        >
+      </div>
 
-            <div class="contribution-details">
-                {% if current_dues.contribution_mode == "Tier" %}
-                <p><strong>{{ _("Tier") }}:</strong> {{ current_dues.selected_tier_name }}</p>
-                {% elif current_dues.contribution_mode == "Calculator" %}
-                <p><strong>{{ _("Amount") }}:</strong> {{ (current_dues.base_multiplier * 100)|int }}% of suggested</p>
-                {% else %}
-                <p><strong>{{ _("Custom Amount") }}:</strong> {{ current_dues.custom_amount_reason }}</p>
-                {% endif %}
-            </div>
-        </div>
-
-        <div class="contribution-actions">
-            <button class="btn btn-outline" onclick="showContributionAdjustment()">
-                {{ _("Adjust Contribution") }}
-            </button>
-        </div>
+      <div class="contribution-details">
+        {% if current_dues.contribution_mode == "Tier" %}
+        <p>
+          <strong>{{ _("Tier") }}:</strong> {{ current_dues.selected_tier_name
+          }}
+        </p>
+        {% elif current_dues.contribution_mode == "Calculator" %}
+        <p>
+          <strong>{{ _("Amount") }}:</strong> {{ (current_dues.base_multiplier *
+          100)|int }}% of suggested
+        </p>
+        {% else %}
+        <p>
+          <strong>{{ _("Custom Amount") }}:</strong> {{
+          current_dues.custom_amount_reason }}
+        </p>
+        {% endif %}
+      </div>
     </div>
 
-    <!-- Payment Status -->
-    <div class="payment-status-card">
-        <h4>{{ _("Payment Status") }}</h4>
-        <div class="status-indicator status-{{ payment_status }}">
-            <i class="fa fa-{{ payment_status_icon }}"></i>
-            <span>{{ payment_status_text }}</span>
-        </div>
-
-        <div class="payment-details">
-            <p><strong>{{ _("Coverage Period") }}:</strong> {{ current_dues.current_coverage_start }} - {{ current_dues.current_coverage_end }}</p>
-            <p><strong>{{ _("Next Payment") }}:</strong> {{ current_dues.next_invoice_date }}</p>
-            <p><strong>{{ _("Payment Method") }}:</strong> {{ current_dues.payment_method }}</p>
-        </div>
+    <div class="contribution-actions">
+      <button class="btn btn-outline" onclick="showContributionAdjustment()">
+        {{ _("Adjust Contribution") }}
+      </button>
     </div>
+  </div>
+
+  <!-- Payment Status -->
+  <div class="payment-status-card">
+    <h4>{{ _("Payment Status") }}</h4>
+    <div class="status-indicator status-{{ payment_status }}">
+      <i class="fa fa-{{ payment_status_icon }}"></i>
+      <span>{{ payment_status_text }}</span>
+    </div>
+
+    <div class="payment-details">
+      <p>
+        <strong>{{ _("Coverage Period") }}:</strong> {{
+        current_dues.current_coverage_start }} - {{
+        current_dues.current_coverage_end }}
+      </p>
+      <p>
+        <strong>{{ _("Next Payment") }}:</strong> {{
+        current_dues.next_invoice_date }}
+      </p>
+      <p>
+        <strong>{{ _("Payment Method") }}:</strong> {{
+        current_dues.payment_method }}
+      </p>
+    </div>
+  </div>
 </div>
 ```
 
@@ -581,26 +640,31 @@ def process_membership_application_enhanced(application_data):
 ## 5. Implementation Phases
 
 ### Phase 1: Core Infrastructure (Month 1)
+
 - Enhanced MembershipType with flexible contribution options
 - Updated MembershipDuesSchedule with contribution tracking
 - Basic member portal interface for contribution selection
 
 ### Phase 2: Application Integration (Month 2)
+
 - Payment-first application flow with contribution selection
 - SEPA mandate integration
 - Invoice generation with coverage periods
 
 ### Phase 3: Advanced Features (Month 3)
+
 - Income calculator functionality
 - Contribution adjustment workflows
 - Enhanced member dashboard
 
 ### Phase 4: SEPA Enhancement (Month 4)
+
 - Enhanced batch processing with proper FRST/RCUR tracking
 - Payment failure handling
 - Administrative interfaces
 
 ### Phase 5: Testing & Deployment (Month 5)
+
 - Comprehensive testing with both tier and calculator modes
 - Data migration from existing systems
 - User training and documentation
@@ -610,6 +674,7 @@ def process_membership_application_enhanced(application_data):
 ## 6. Configuration Examples
 
 ### Example 1: Tier-Based Organization
+
 ```python
 # Membership Type Configuration
 membership_type = {
@@ -627,6 +692,7 @@ membership_type = {
 ```
 
 ### Example 2: Calculator-Based Organization
+
 ```python
 # Membership Type Configuration
 membership_type = {

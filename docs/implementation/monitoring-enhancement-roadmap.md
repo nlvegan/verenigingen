@@ -11,6 +11,7 @@
 This roadmap provides detailed, step-by-step implementation guidance for the refined 7-week monitoring enhancement plan based on comprehensive feedback synthesis. The approach prioritizes safety, backward compatibility, and protection of the current excellent system performance (95/100 health score).
 
 **Key Implementation Principles:**
+
 - **Safety First**: Comprehensive testing before any changes
 - **Backward Compatibility**: 100% preservation of existing APIs
 - **Performance Protection**: Zero degradation from current baselines
@@ -22,26 +23,31 @@ This roadmap provides detailed, step-by-step implementation guidance for the ref
 ## 📋 **IMPLEMENTATION PHASES OVERVIEW**
 
 ### **Week 0: Pre-Implementation Infrastructure (MANDATORY)**
+
 - ✅ **Files Created**: Performance regression tests, baseline establishment, compatibility tests
 - ✅ **Success Criteria**: All tests pass, baseline captured, rollback procedures validated
 - ✅ **Deliverables**: Complete testing infrastructure operational
 
 ### **Phase 0: Production Deployment (Week 1)**
+
 - ✅ **Files Created**: Production health monitoring system
 - **Success Criteria**: 95/100 health score maintained, <0.015s response time, ≤5 queries per operation
 - **Focus**: Deploy existing system with enhanced monitoring
 
 ### **Phase 1.5.2: Data Efficiency (Weeks 2-3) - PRIORITIZED**
+
 - ✅ **Files Created**: Data retention and aggregation system
 - **Success Criteria**: 40-60% storage reduction, zero data loss, <10% performance impact
 - **Focus**: Smart data management without complexity
 
 ### **Phase 1.5.3: Configuration Management (Weeks 4-5) - PRIORITIZED**
+
 - ✅ **Files Created**: Centralized configuration system
 - **Success Criteria**: All hardcoded thresholds centralized, environment-specific settings
 - **Focus**: Maintainable configuration management
 
 ### **Phase 1.5.1: API Convenience Methods (Weeks 6-7) - SIMPLIFIED**
+
 - ✅ **Files Created**: Convenience API wrappers
 - **Success Criteria**: 100% backward compatibility, <5% performance impact
 - **Focus**: Developer experience improvements
@@ -53,6 +59,7 @@ This roadmap provides detailed, step-by-step implementation guidance for the ref
 ### **1. CODE ARCHITECTURE DECISIONS**
 
 #### **File Organization Strategy**
+
 ```
 verenigingen/
 ├── scripts/testing/monitoring/           # Testing infrastructure (NEW)
@@ -70,6 +77,7 @@ verenigingen/
 ```
 
 #### **Integration with Existing Architecture**
+
 - **Extends, doesn't replace**: All new code builds upon existing 4,800+ line infrastructure
 - **Preserves existing patterns**: Uses same coding standards and architectural principles
 - **Maintains separation of concerns**: Clear boundaries between measurement, analysis, and configuration
@@ -78,6 +86,7 @@ verenigingen/
 ### **2. TESTING STRATEGY IMPLEMENTATION**
 
 #### **Comprehensive Test Coverage**
+
 ```python
 # Performance Regression Prevention
 class TestPerformanceRegression(VereningingenTestCase):
@@ -91,6 +100,7 @@ class TestPerformanceRegression(VereningingenTestCase):
 ```
 
 #### **Backward Compatibility Validation**
+
 ```python
 # API Contract Protection
 class TestBackwardCompatibility(VereningingenTestCase):
@@ -102,6 +112,7 @@ class TestBackwardCompatibility(VereningingenTestCase):
 ```
 
 #### **Production Scale Testing**
+
 ```python
 # Scale and Load Testing
 def test_performance_at_scale():
@@ -112,6 +123,7 @@ def test_performance_at_scale():
 ### **3. RISK MITIGATION CODE**
 
 #### **Automated Rollback Triggers**
+
 ```python
 # In test_performance_regression.py
 def validate_no_regression(self, current_metrics):
@@ -125,6 +137,7 @@ def validate_no_regression(self, current_metrics):
 ```
 
 #### **Safe Data Processing**
+
 ```python
 # In data_retention.py
 BATCH_SIZE = 100  # Process in small batches for safety
@@ -137,6 +150,7 @@ def _can_safely_delete_measurement(self, measurement):
 ```
 
 #### **Configuration Validation**
+
 ```python
 # In config.py
 def validate_configuration(self):
@@ -149,6 +163,7 @@ def validate_configuration(self):
 ### **4. PERFORMANCE PROTECTION IMPLEMENTATION**
 
 #### **Meta-Monitoring System**
+
 ```python
 # In monitor_monitoring_system_health.py
 @frappe.whitelist()
@@ -161,6 +176,7 @@ def monitor_monitoring_system_health():
 ```
 
 #### **Production Sampling Strategy**
+
 ```python
 # In data_retention.py
 class ProductionSampler:
@@ -179,6 +195,7 @@ class ProductionSampler:
 #### **Week-by-Week Implementation**
 
 **Week 0: Pre-Implementation (MANDATORY)**
+
 ```bash
 # 1. Create testing infrastructure
 python scripts/testing/monitoring/test_performance_regression.py
@@ -192,6 +209,7 @@ python scripts/monitoring/test_rollback_procedures.sh
 ```
 
 **Week 1: Phase 0 - Production Deployment**
+
 ```bash
 # 1. Deploy meta-monitoring
 python scripts/monitoring/monitor_monitoring_system_health.py
@@ -204,6 +222,7 @@ bench --site dev.veganisme.net run-tests --module scripts.testing.monitoring
 ```
 
 **Weeks 2-3: Phase 1.5.2 - Data Efficiency**
+
 ```bash
 # Week 2: Basic retention
 python -c "from verenigingen.utils.performance.data_retention import DataRetentionManager;
@@ -217,6 +236,7 @@ python -c "from verenigingen.utils.performance.data_retention import DataRetenti
 ```
 
 **Weeks 4-5: Phase 1.5.3 - Configuration Management**
+
 ```bash
 # Week 4: Extract critical thresholds
 python -c "from verenigingen.utils.performance.config import migrate_hardcoded_thresholds;
@@ -229,6 +249,7 @@ python -c "from verenigingen.utils.performance.config import PerformanceConfigur
 ```
 
 **Weeks 6-7: Phase 1.5.1 - API Convenience Methods**
+
 ```bash
 # Test convenience APIs
 python -c "from verenigingen.api.performance_convenience import quick_health_check;
@@ -242,6 +263,7 @@ python -c "from verenigingen.api.performance_convenience import batch_member_ana
 ### **6. QUALITY ASSURANCE INTEGRATION**
 
 #### **Continuous Integration Updates**
+
 ```yaml
 # .pre-commit-config.yaml additions
 - id: monitoring-performance-regression
@@ -258,6 +280,7 @@ python -c "from verenigingen.api.performance_convenience import batch_member_ana
 ```
 
 #### **Success Criteria Validation**
+
 ```python
 # Automated validation for each phase
 def validate_phase_success(phase_name):
@@ -282,6 +305,7 @@ def validate_phase_success(phase_name):
 ## 🎯 **IMPLEMENTATION CHECKLIST**
 
 ### **Pre-Implementation (Week 0) - MANDATORY**
+
 - [ ] Performance regression test suite operational
 - [ ] Backward compatibility test suite operational
 - [ ] Baseline establishment script working
@@ -290,6 +314,7 @@ def validate_phase_success(phase_name):
 - [ ] All tests pass in clean environment
 
 ### **Phase 0 (Week 1) - Production Deployment**
+
 - [ ] Current monitoring system deployed to production
 - [ ] Meta-monitoring operational and reporting healthy status
 - [ ] All APIs responding within 0.015s limit
@@ -299,6 +324,7 @@ def validate_phase_success(phase_name):
 - [ ] Team trained on production monitoring capabilities
 
 ### **Phase 1.5.2 (Weeks 2-3) - Data Efficiency**
+
 - [ ] Basic data retention implemented and tested
 - [ ] Smart aggregation operational
 - [ ] 40-60% storage reduction achieved
@@ -307,6 +333,7 @@ def validate_phase_success(phase_name):
 - [ ] Production sampling strategy active
 
 ### **Phase 1.5.3 (Weeks 4-5) - Configuration Management**
+
 - [ ] Critical thresholds extracted from hardcoded values
 - [ ] Environment-specific configurations operational
 - [ ] Runtime configuration updates working
@@ -315,6 +342,7 @@ def validate_phase_success(phase_name):
 - [ ] All components using centralized configuration
 
 ### **Phase 1.5.1 (Weeks 6-7) - API Convenience Methods**
+
 - [ ] Convenience APIs implemented and tested
 - [ ] 100% backward compatibility maintained
 - [ ] <5% performance impact from new methods validated
@@ -327,6 +355,7 @@ def validate_phase_success(phase_name):
 ## 🚨 **ROLLBACK PROCEDURES**
 
 ### **Automated Rollback Triggers**
+
 - Performance degradation >5% from baseline
 - API response time >0.020s sustained
 - Memory usage >150MB sustained
@@ -334,6 +363,7 @@ def validate_phase_success(phase_name):
 - Any critical monitoring functionality broken
 
 ### **Manual Rollback Steps**
+
 1. **Immediate**: Disable feature flags for problematic features
 2. **Short-term**: Revert to previous code version if needed
 3. **Data recovery**: Restore from backup if data corruption detected
@@ -345,18 +375,21 @@ def validate_phase_success(phase_name):
 ## 📈 **SUCCESS METRICS TRACKING**
 
 ### **Performance Metrics**
+
 - **Health Score**: Maintain ≥95/100 throughout implementation
 - **Response Time**: Keep all APIs <0.015s
 - **Query Efficiency**: Stay ≤5 queries per operation
 - **Memory Usage**: Stay <100MB sustained
 
 ### **Enhancement Metrics**
+
 - **Storage Reduction**: Achieve 40-60% reduction in Phase 1.5.2
 - **Configuration Coverage**: 100% of hardcoded thresholds centralized
 - **API Simplification**: Reduce developer onboarding time by 50%
 - **Backward Compatibility**: 100% of existing functionality preserved
 
 ### **Quality Metrics**
+
 - **Test Coverage**: 100% of new code covered by tests
 - **Regression Tests**: Zero failures throughout implementation
 - **Documentation**: Complete developer documentation for all new features

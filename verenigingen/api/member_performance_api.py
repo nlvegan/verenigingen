@@ -191,19 +191,23 @@ def get_performance_stats() -> Dict[str, Any]:
                 "total_members": total_members,
                 "active_members": active_members,
                 "cached_dashboards": len(member_cache_keys),
-                "metadata_cache_hits": metadata_cache_info.hits
-                if hasattr(metadata_cache_info, "hits")
-                else 0,
-                "metadata_cache_misses": metadata_cache_info.misses
-                if hasattr(metadata_cache_info, "misses")
-                else 0,
-                "cache_hit_rate": round(
-                    metadata_cache_info.hits / (metadata_cache_info.hits + metadata_cache_info.misses) * 100,
-                    1,
-                )
-                if hasattr(metadata_cache_info, "hits")
-                and (metadata_cache_info.hits + metadata_cache_info.misses) > 0
-                else 0,
+                "metadata_cache_hits": (
+                    metadata_cache_info.hits if hasattr(metadata_cache_info, "hits") else 0
+                ),
+                "metadata_cache_misses": (
+                    metadata_cache_info.misses if hasattr(metadata_cache_info, "misses") else 0
+                ),
+                "cache_hit_rate": (
+                    round(
+                        metadata_cache_info.hits
+                        / (metadata_cache_info.hits + metadata_cache_info.misses)
+                        * 100,
+                        1,
+                    )
+                    if hasattr(metadata_cache_info, "hits")
+                    and (metadata_cache_info.hits + metadata_cache_info.misses) > 0
+                    else 0
+                ),
             },
             "message": _("Performance statistics retrieved"),
         }

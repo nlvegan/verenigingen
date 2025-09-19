@@ -225,9 +225,11 @@ def process_mollie_subscription(donor, donation, form_data, gateway):
             "last_name": getattr(
                 donor,
                 "last_name",
-                " ".join(getattr(donor, "donor_name", "").split()[1:])
-                if hasattr(donor, "donor_name")
-                else "",
+                (
+                    " ".join(getattr(donor, "donor_name", "").split()[1:])
+                    if hasattr(donor, "donor_name")
+                    else ""
+                ),
             ),
             "email_address": getattr(donor, "email_address", getattr(donor, "donor_email", "")),
         }

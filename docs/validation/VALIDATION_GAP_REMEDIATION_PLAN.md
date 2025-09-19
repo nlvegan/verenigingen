@@ -7,6 +7,7 @@ Based on Phase 3 Integration Testing discoveries, we have 4 major validation gap
 ## Current Validation Architecture Assessment
 
 ### What We Have (Working Well)
+
 1. **Comprehensive Field Reference Validator** (`comprehensive_field_reference_validator.py`)
    - 1200+ lines of sophisticated AST analysis
    - Schema-aware with confidence scoring
@@ -25,22 +26,25 @@ Based on Phase 3 Integration Testing discoveries, we have 4 major validation gap
 
 ### Remaining Gaps to Fill
 
-| Gap | Description | Example Error | Current Detection |
-|-----|-------------|---------------|-------------------|
-| **Import Path Validation** | Wrong module paths in import statements | `from verenigingen.utils.iban_validator import validate_iban` | ❌ None |
-| **Method Signature Validation** | Wrong parameter types/counts | `factory.ensure_membership_type("Name", 25.0)` instead of `("Name", {"amount": 25.0})` | ❌ None |
-| **Type Consistency Validation** | Type mismatches in operations | `string_date < date_object` | ❌ None |
+| Gap                             | Description                             | Example Error                                                                          | Current Detection |
+| ------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------- | ----------------- |
+| **Import Path Validation**      | Wrong module paths in import statements | `from verenigingen.utils.iban_validator import validate_iban`                          | ❌ None           |
+| **Method Signature Validation** | Wrong parameter types/counts            | `factory.ensure_membership_type("Name", 25.0)` instead of `("Name", {"amount": 25.0})` | ❌ None           |
+| **Type Consistency Validation** | Type mismatches in operations           | `string_date < date_object`                                                            | ❌ None           |
 
 ## Strategic Options Analysis
 
 ### Option 1: Extend Comprehensive Field Reference Validator
+
 **Pros:**
+
 - Single tool to maintain
 - Already has AST parsing infrastructure
 - Has context analysis capabilities
 - Users already familiar with it
 
 **Cons:**
+
 - Tool becomes bloated (already 1200+ lines)
 - Violates single responsibility principle
 - Different validation types need different approaches
@@ -50,7 +54,9 @@ Based on Phase 3 Integration Testing discoveries, we have 4 major validation gap
 **Verdict**: ❌ Not recommended - tool complexity would become unmanageable
 
 ### Option 2: Create Separate Specialized Validators
+
 **Pros:**
+
 - Clean separation of concerns
 - Each tool optimized for its purpose
 - Easier to test and maintain
@@ -58,6 +64,7 @@ Based on Phase 3 Integration Testing discoveries, we have 4 major validation gap
 - Follows Unix philosophy (do one thing well)
 
 **Cons:**
+
 - Multiple tools to maintain
 - Potential code duplication (AST parsing)
 - Need coordination layer for pre-commit
@@ -65,13 +72,16 @@ Based on Phase 3 Integration Testing discoveries, we have 4 major validation gap
 **Verdict**: ✅ Recommended approach
 
 ### Option 3: Create Validation Framework with Plugins
+
 **Pros:**
+
 - Shared infrastructure (AST parsing, file traversal)
 - Plugin architecture for extensibility
 - Single entry point for users
 - Reduced code duplication
 
 **Cons:**
+
 - Significant refactoring needed
 - Over-engineering for current needs
 - Complexity of plugin system
@@ -84,6 +94,7 @@ Based on Phase 3 Integration Testing discoveries, we have 4 major validation gap
 ### Phase 1: Create Specialized Validators (Immediate)
 
 #### 1. Import Path Validator
+
 ```python
 # scripts/validation/import_path_validator.py
 class ImportPathValidator:
@@ -96,6 +107,7 @@ class ImportPathValidator:
 ```
 
 **Implementation approach:**
+
 - Parse AST to find all import statements
 - Resolve module paths to file system paths
 - Check if files/modules exist
@@ -105,6 +117,7 @@ class ImportPathValidator:
 **Complexity**: Medium (2-3 days)
 
 #### 2. Method Signature Validator
+
 ```python
 # scripts/validation/method_signature_validator.py
 class MethodSignatureValidator:
@@ -117,6 +130,7 @@ class MethodSignatureValidator:
 ```
 
 **Implementation approach:**
+
 - Build method signature database from codebase
 - Track method calls and their arguments
 - Match calls against known signatures
@@ -126,6 +140,7 @@ class MethodSignatureValidator:
 **Complexity**: High (4-5 days) - requires cross-file analysis
 
 #### 3. Type Consistency Validator
+
 ```python
 # scripts/validation/type_consistency_validator.py
 class TypeConsistencyValidator:
@@ -138,6 +153,7 @@ class TypeConsistencyValidator:
 ```
 
 **Implementation approach:**
+
 - Type inference from assignments and returns
 - Track variable types through scope
 - Validate operations based on inferred types
@@ -148,6 +164,7 @@ class TypeConsistencyValidator:
 ### Phase 2: Integration Layer (Week 2)
 
 #### Validation Orchestrator
+
 ```python
 # scripts/validation/validation_orchestrator.py
 class ValidationOrchestrator:
@@ -168,6 +185,7 @@ class ValidationOrchestrator:
 ```
 
 **Benefits:**
+
 - Single command to run all validations
 - Consistent reporting format
 - Easier pre-commit integration
@@ -176,19 +194,21 @@ class ValidationOrchestrator:
 ### Phase 3: Pre-commit Integration (Week 3)
 
 #### Update .pre-commit-config.yaml
+
 ```yaml
 - id: comprehensive-validation
   name: Verenigingen Comprehensive Validation
   entry: python scripts/validation/validation_orchestrator.py
   language: system
   files: \.py$
-  exclude: '^(tests/fixtures/|migrations/)'
+  exclude: "^(tests/fixtures/|migrations/)"
   stages: [commit]
 ```
 
 ### Phase 4: Shared Infrastructure Extraction (Month 2)
 
 After validators are proven, extract common code:
+
 - AST parsing utilities
 - File traversal logic
 - Context analysis helpers
@@ -198,16 +218,17 @@ This sets foundation for future plugin architecture.
 
 ## Implementation Priority & Effort Estimation
 
-| Validator | Priority | Effort | Value | Recommendation |
-|-----------|----------|--------|-------|----------------|
-| Import Path | **HIGH** | 2-3 days | High - Catches ModuleNotFoundError | Start immediately |
-| Method Signature | MEDIUM | 4-5 days | Medium - Complex to implement accurately | Phase 2 |
-| Type Consistency | LOW | 4-5 days | Low - Many false positives likely | Phase 3 |
-| Orchestrator | **HIGH** | 1-2 days | High - Multiplies value of all validators | After 2+ validators |
+| Validator        | Priority | Effort   | Value                                     | Recommendation      |
+| ---------------- | -------- | -------- | ----------------------------------------- | ------------------- |
+| Import Path      | **HIGH** | 2-3 days | High - Catches ModuleNotFoundError        | Start immediately   |
+| Method Signature | MEDIUM   | 4-5 days | Medium - Complex to implement accurately  | Phase 2             |
+| Type Consistency | LOW      | 4-5 days | Low - Many false positives likely         | Phase 3             |
+| Orchestrator     | **HIGH** | 1-2 days | High - Multiplies value of all validators | After 2+ validators |
 
 ## Quick Wins vs Long-term Architecture
 
 ### Quick Wins (This Week)
+
 1. **Import Path Validator** - Most bang for buck
    - Straightforward implementation
    - High accuracy possible
@@ -219,6 +240,7 @@ This sets foundation for future plugin architecture.
    - Single command interface
 
 ### Long-term Architecture (Next Quarter)
+
 1. **Shared AST Infrastructure**
    - Extract after patterns emerge
    - Reduce redundant parsing
@@ -234,18 +256,21 @@ This sets foundation for future plugin architecture.
 ## Risk Mitigation
 
 ### Avoiding Over-Engineering
+
 - Start with simple, working validators
 - Extract abstractions only after patterns clear
 - Resist premature optimization
 - Focus on catching real errors from Phase 3
 
 ### Maintaining Performance
+
 - Cache AST parsing where possible
 - Parallel execution for independent validators
 - Skip validation for unchanged files
 - Configurable validation levels
 
 ### Ensuring Adoption
+
 - Clear value demonstration (catch real bugs)
 - Fast execution (< 5 seconds for full validation)
 - Good error messages with fix suggestions
@@ -254,18 +279,21 @@ This sets foundation for future plugin architecture.
 ## Success Metrics
 
 ### Short-term (1 month)
+
 - ✅ All Phase 3 discovered error types detectable
 - ✅ < 5% false positive rate
 - ✅ Pre-commit integration working
 - ✅ Validation time < 5 seconds for typical commits
 
 ### Medium-term (3 months)
+
 - ✅ 50% reduction in runtime errors
 - ✅ Developer satisfaction > 80%
 - ✅ All team members using validators
 - ✅ CI/CD integration complete
 
 ### Long-term (6 months)
+
 - ✅ Validation as standard practice
 - ✅ Plugin ecosystem emerging
 - ✅ IDE integration available
@@ -274,17 +302,20 @@ This sets foundation for future plugin architecture.
 ## Recommended Next Steps
 
 ### Week 1
+
 1. **Day 1-2**: Implement Import Path Validator
 2. **Day 3**: Test on Phase 3 integration tests
 3. **Day 4**: Create basic Orchestrator
 4. **Day 5**: Documentation and team demo
 
 ### Week 2
+
 1. **Day 1-3**: Start Method Signature Validator
 2. **Day 4-5**: Integrate with Orchestrator
 3. **Review**: Assess approach, adjust plan
 
 ### Week 3
+
 1. **Day 1-2**: Pre-commit integration
 2. **Day 3-5**: Type Consistency Validator (if valuable)
 3. **Rollout**: Gradual team adoption
@@ -296,6 +327,7 @@ Based on this analysis, the recommendation is clear:
 **CREATE NEW SPECIALIZED VALIDATORS** rather than extending existing ones.
 
 **Rationale:**
+
 1. **Separation of Concerns**: Each validator has a focused responsibility
 2. **Maintainability**: Smaller, focused tools are easier to understand and fix
 3. **Performance**: Can optimize each validator for its specific task

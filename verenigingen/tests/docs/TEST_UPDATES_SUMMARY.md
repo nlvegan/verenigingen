@@ -3,10 +3,12 @@
 ## Changes Made to Suspension API Tests
 
 ### Issue Fixed
+
 - **Import Error**: `can_suspend_member` function was failing with `ImportError: cannot import name 'can_terminate_member' from 'verenigingen.permissions'`
 - **Root Cause**: Direct import statement was failing in runtime environment
 
 ### Solution Implemented
+
 1. **Modified `can_suspend_member` function** in `verenigingen/api/suspension_api.py`:
    - Replaced direct import with `frappe.get_attr()` for safer dynamic importing
    - Added comprehensive error handling with fallback mechanism
@@ -15,6 +17,7 @@
 ### Test Updates Made
 
 #### 1. Updated `test_suspension_api.py`
+
 - **Changed all permission mocks**: Replaced `@patch('verenigingen.permissions.can_terminate_member')` with `@patch('frappe.get_attr')`
 - **Updated verification calls**: Changed assertions to verify `frappe.get_attr` calls with correct module path
 - **Added new test methods**:
@@ -25,7 +28,9 @@
   - `test_can_suspend_member_fallback_no_access()` - Tests fallback access denial
 
 #### 2. Created `test_suspension_api_import_fallback.py`
+
 New comprehensive test file specifically for the import fallback mechanism:
+
 - `test_import_error_triggers_fallback()` - Verifies import errors trigger fallback
 - `test_successful_import_bypasses_fallback()` - Verifies normal operation when imports work
 - `test_fallback_admin_permission()` - Tests admin permissions in fallback
@@ -36,6 +41,7 @@ New comprehensive test file specifically for the import fallback mechanism:
 - `test_fallback_function_exists_and_callable()` - Validates function signature
 
 #### 3. Updated `test_suspension_runner.py`
+
 - Added new test file to the test suite
 - Updated header comment to reflect import fallback testing
 
@@ -50,12 +56,14 @@ New comprehensive test file specifically for the import fallback mechanism:
 4. **Edge Case Coverage**: Tests handle various edge cases like members without chapters, chapter access errors, and missing user records
 
 ### Test Coverage
+
 - **Original functionality**: All existing tests still pass with updated mocking strategy
 - **New fallback mechanism**: Comprehensive coverage of fallback logic
 - **Error scenarios**: Import errors, permission failures, and system errors
 - **Different user types**: Admin users, board members, regular users, non-members
 
 ### Running the Tests
+
 ```bash
 # Run all suspension tests including new fallback tests
 bench execute verenigingen.tests.test_suspension_runner.run_all_suspension_tests
@@ -68,6 +76,7 @@ python -m unittest verenigingen.tests.test_suspension_api
 ```
 
 ### Benefits
+
 1. **Robustness**: System now handles import failures gracefully
 2. **Maintainability**: Clear separation between normal and fallback logic
 3. **Reliability**: Comprehensive test coverage ensures system works under all conditions

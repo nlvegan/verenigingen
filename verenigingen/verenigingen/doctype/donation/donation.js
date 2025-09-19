@@ -53,31 +53,31 @@
  */
 frappe.ui.form.on('Donation', {
 	/**
-	 * Form Refresh Event Handler
-	 *
-	 * Configures the donation form interface based on document status and payment state.
-	 * Adds payment processing buttons for submitted but unpaid donations.
-	 *
-	 * @description Business Logic:
-	 * - Shows payment creation button for submitted unpaid donations
-	 * - Manages donation status indicators and alerts
-	 * - Configures user interface based on donation state
-	 * - Applies role-based access controls for financial operations
-	 *
-	 * @description Payment Integration:
-	 * The system integrates with ERPNext's payment system to create formal
-	 * Payment Entry records that link donations to actual bank transactions
-	 * and enable proper financial accounting and reconciliation.
-	 *
-	 * @param {Object} frm - Frappe Form object containing donation document
-	 * @param {Object} frm.doc - Donation document with fields and status
-	 * @param {number} frm.doc.docstatus - Document status (0=draft, 1=submitted, 2=cancelled)
-	 * @param {boolean} frm.doc.paid - Flag indicating if donation has been paid
-	 *
-	 * @example
-	 * // Automatically called when donation form is displayed:
-	 * // Shows "Create Payment Entry" button for submitted unpaid donations
-	 */
+   * Form Refresh Event Handler
+   *
+   * Configures the donation form interface based on document status and payment state.
+   * Adds payment processing buttons for submitted but unpaid donations.
+   *
+   * @description Business Logic:
+   * - Shows payment creation button for submitted unpaid donations
+   * - Manages donation status indicators and alerts
+   * - Configures user interface based on donation state
+   * - Applies role-based access controls for financial operations
+   *
+   * @description Payment Integration:
+   * The system integrates with ERPNext's payment system to create formal
+   * Payment Entry records that link donations to actual bank transactions
+   * and enable proper financial accounting and reconciliation.
+   *
+   * @param {Object} frm - Frappe Form object containing donation document
+   * @param {Object} frm.doc - Donation document with fields and status
+   * @param {number} frm.doc.docstatus - Document status (0=draft, 1=submitted, 2=cancelled)
+   * @param {boolean} frm.doc.paid - Flag indicating if donation has been paid
+   *
+   * @example
+   * // Automatically called when donation form is displayed:
+   * // Shows "Create Payment Entry" button for submitted unpaid donations
+   */
 	refresh(frm) {
 		if (frm.doc.docstatus === 1 && !frm.doc.paid) {
 			frm.add_custom_button(__('Create Payment Entry'), () => {
@@ -87,37 +87,37 @@ frappe.ui.form.on('Donation', {
 	},
 
 	/**
-	 * Create Payment Entry for Donation
-	 *
-	 * Generates a Payment Entry document linked to this donation for financial
-	 * accounting and payment tracking. Integrates with ERPNext's accounting
-	 * system to ensure proper bookkeeping and audit trail.
-	 *
-	 * @description Financial Integration:
-	 * - Creates Payment Entry with proper account mapping
-	 * - Links donation to bank transaction records
-	 * - Enables financial reconciliation and reporting
-	 * - Supports various payment methods and currencies
-	 * - Maintains compliance with Dutch accounting standards
-	 *
-	 * @description Business Process:
-	 * 1. Validates donation is eligible for payment processing
-	 * 2. Calls backend payment utility to generate Payment Entry
-	 * 3. Redirects user to the new Payment Entry for completion
-	 * 4. Maintains linkage between donation and payment records
-	 *
-	 * @param {Object} frm - Form object containing donation data
-	 * @returns {Promise} Promise resolving to payment entry creation result
-	 *
-	 * @throws {ValidationError} If donation is not eligible for payment processing
-	 * @throws {APIError} If payment entry creation fails
-	 *
-	 * @see {@link verenigingen.utils.payment_utils.get_donation_payment_entry} Backend payment utility
-	 *
-	 * @example
-	 * // Called when user clicks "Create Payment Entry" button:
-	 * // Generates Payment Entry and redirects to form for completion
-	 */
+   * Create Payment Entry for Donation
+   *
+   * Generates a Payment Entry document linked to this donation for financial
+   * accounting and payment tracking. Integrates with ERPNext's accounting
+   * system to ensure proper bookkeeping and audit trail.
+   *
+   * @description Financial Integration:
+   * - Creates Payment Entry with proper account mapping
+   * - Links donation to bank transaction records
+   * - Enables financial reconciliation and reporting
+   * - Supports various payment methods and currencies
+   * - Maintains compliance with Dutch accounting standards
+   *
+   * @description Business Process:
+   * 1. Validates donation is eligible for payment processing
+   * 2. Calls backend payment utility to generate Payment Entry
+   * 3. Redirects user to the new Payment Entry for completion
+   * 4. Maintains linkage between donation and payment records
+   *
+   * @param {Object} frm - Form object containing donation data
+   * @returns {Promise} Promise resolving to payment entry creation result
+   *
+   * @throws {ValidationError} If donation is not eligible for payment processing
+   * @throws {APIError} If payment entry creation fails
+   *
+   * @see {@link verenigingen.utils.payment_utils.get_donation_payment_entry} Backend payment utility
+   *
+   * @example
+   * // Called when user clicks "Create Payment Entry" button:
+   * // Generates Payment Entry and redirects to form for completion
+   */
 	make_payment_entry(frm) {
 		return frappe.call({
 			method: 'verenigingen.utils.payment_utils.get_donation_payment_entry',

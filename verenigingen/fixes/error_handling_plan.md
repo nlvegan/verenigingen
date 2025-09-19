@@ -1,6 +1,7 @@
 # Error Handling and Retry Mechanism Implementation Plan
 
 ## Current Issues
+
 - Errors cause complete import failure
 - No retry mechanism for transient failures
 - Poor error reporting and debugging
@@ -11,6 +12,7 @@
 ### Step 1: Create Error Tracking Infrastructure
 
 1. **Import Error Log DocType**
+
    ```
    Fields:
    - error_type (Select: Validation/Connection/Data/Permission)
@@ -56,6 +58,7 @@
 ### Step 2: Implement Retry Logic
 
 1. **Decorator for Retryable Operations**
+
    ```python
    from functools import wraps
    import time
@@ -89,6 +92,7 @@
    ```
 
 2. **Transaction-Level Retry**
+
    ```python
    @with_retry(max_retries=3)
    def import_single_transaction(mutation_data):
@@ -116,6 +120,7 @@
 ### Step 3: Error Recovery Mechanisms
 
 1. **Batch Processing with Error Isolation**
+
    ```python
    def import_batch_with_recovery(mutations, batch_size=50):
        """Process in batches with error isolation"""
@@ -162,6 +167,7 @@
    ```
 
 2. **Manual Error Resolution Interface**
+
    ```python
    @frappe.whitelist()
    def get_pending_errors(filters=None):
@@ -187,6 +193,7 @@
 ### Step 4: Intelligent Error Handling
 
 1. **Context-Aware Error Messages**
+
    ```python
    def enhance_error_message(error, context):
        """Provide actionable error messages"""
@@ -213,6 +220,7 @@
    ```
 
 2. **Auto-Fix Capabilities**
+
    ```python
    def attempt_auto_fix(error_log):
        """Try to automatically fix certain errors"""
@@ -235,6 +243,7 @@
 ### Step 5: Monitoring and Alerting
 
 1. **Error Dashboard**
+
    ```python
    def get_error_statistics():
        """Get error statistics for dashboard"""
@@ -248,6 +257,7 @@
    ```
 
 2. **Automated Alerts**
+
    ```python
    def check_error_thresholds():
        """Check if error rates exceed thresholds"""
@@ -271,6 +281,7 @@
 ### Step 6: Resume Capability
 
 1. **Checkpoint System**
+
    ```python
    def save_import_checkpoint(migration_id, last_processed):
        """Save progress checkpoint"""

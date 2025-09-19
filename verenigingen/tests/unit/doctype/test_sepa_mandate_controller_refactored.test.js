@@ -13,7 +13,9 @@
 /* global describe, it, expect, jest, beforeEach, afterEach, beforeAll */
 
 // Import centralized test infrastructure
-const { createControllerTestSuite } = require('../../setup/controller-test-base');
+const {
+	createControllerTestSuite
+} = require('../../setup/controller-test-base');
 const { createDomainTestBuilder } = require('../../setup/domain-test-builders');
 
 // Initialize test environment
@@ -37,7 +39,8 @@ global.$ = jest.fn((selector) => ({
 // Controller configuration
 const sepaConfig = {
 	doctype: 'SEPA Mandate',
-	controllerPath: '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen_payments/doctype/sepa_mandate/sepa_mandate.js',
+	controllerPath:
+    '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen_payments/doctype/sepa_mandate/sepa_mandate.js',
 	expectedHandlers: ['refresh', 'member', 'status'],
 	defaultDoc: {
 		mandate_id: 'MAND-2024-001',
@@ -75,26 +78,35 @@ const customSEPATests = {
 	'SEPA Banking Compliance': (getControllerTest) => {
 		it('should validate Dutch IBAN correctly', () => {
 			const controllerTest = getControllerTest();
-			const financialBuilder = createDomainTestBuilder(controllerTest, 'financial');
+			const financialBuilder = createDomainTestBuilder(
+				controllerTest,
+				'financial'
+			);
 			const sepaTests = financialBuilder.createSEPATests();
 			sepaTests['should validate Dutch IBAN correctly']();
 		});
 
 		it('should validate BIC codes correctly', () => {
 			const controllerTest = getControllerTest();
-			const financialBuilder = createDomainTestBuilder(controllerTest, 'financial');
+			const financialBuilder = createDomainTestBuilder(
+				controllerTest,
+				'financial'
+			);
 			const sepaTests = financialBuilder.createSEPATests();
 			sepaTests['should validate BIC codes correctly']();
 		});
 
 		it('should handle European banking compliance', () => {
 			const controllerTest = getControllerTest();
-			const financialBuilder = createDomainTestBuilder(controllerTest, 'financial');
+			const financialBuilder = createDomainTestBuilder(
+				controllerTest,
+				'financial'
+			);
 			const sepaTests = financialBuilder.createSEPATests();
 			sepaTests['should handle European banking compliance']();
 		});
 
-		it('should handle IBAN normalization', () => {
+		(it('should handle IBAN normalization', () => {
 			getControllerTest().mockForm.doc.iban = 'NL91 ABNA 0417 1643 00'; // With spaces
 
 			expect(() => {
@@ -104,7 +116,6 @@ const customSEPATests = {
 			// Test passes if no errors thrown during normalization
 			expect(getControllerTest().mockForm.doc.iban).toBeDefined();
 		}),
-
 		it('should support SEPA zone countries', () => {
 			const sepaIBANs = [
 				'NL91ABNA0417164300', // Netherlands
@@ -114,27 +125,33 @@ const customSEPATests = {
 				'IT60X0542811101000000123456' // Italy
 			];
 
-			sepaIBANs.forEach(iban => {
+			sepaIBANs.forEach((iban) => {
 				getControllerTest().mockForm.doc.iban = iban;
 
 				expect(() => {
 					getControllerTest().testEvent('refresh');
 				}).not.toThrow();
 			});
-		});
+		}));
 	},
 
 	'Mandate Status Workflow': (getControllerTest) => {
 		it('should handle mandate status transitions', () => {
 			const controllerTest = getControllerTest();
-			const financialBuilder = createDomainTestBuilder(controllerTest, 'financial');
+			const financialBuilder = createDomainTestBuilder(
+				controllerTest,
+				'financial'
+			);
 			const mandateTests = financialBuilder.createMandateTests();
 			mandateTests['should handle mandate status transitions']();
 		});
 
 		it('should validate mandate authorization', () => {
 			const controllerTest = getControllerTest();
-			const financialBuilder = createDomainTestBuilder(controllerTest, 'financial');
+			const financialBuilder = createDomainTestBuilder(
+				controllerTest,
+				'financial'
+			);
 			const mandateTests = financialBuilder.createMandateTests();
 			mandateTests['should validate mandate authorization']();
 		});
@@ -147,7 +164,7 @@ const customSEPATests = {
 				{ from: 'Active', to: 'Cancelled' }
 			];
 
-			statusTransitions.forEach(transition => {
+			statusTransitions.forEach((transition) => {
 				getControllerTest().mockForm.doc.status = transition.from;
 
 				expect(() => {
@@ -229,7 +246,7 @@ const customSEPATests = {
 		it('should prevent debit processing for inactive mandates', () => {
 			const inactiveStatuses = ['Draft', 'Suspended', 'Cancelled'];
 
-			inactiveStatuses.forEach(status => {
+			inactiveStatuses.forEach((status) => {
 				getControllerTest().mockForm.doc.status = status;
 
 				expect(() => {
@@ -241,7 +258,7 @@ const customSEPATests = {
 		it('should handle mandate types correctly', () => {
 			const mandateTypes = ['OOFF', 'RCUR']; // One-off, Recurring
 
-			mandateTypes.forEach(type => {
+			mandateTypes.forEach((type) => {
 				getControllerTest().mockForm.doc.mandate_type = type;
 
 				expect(() => {
@@ -282,7 +299,10 @@ const customSEPATests = {
 };
 
 // Create and export the test suite
-describe('SEPA Mandate Controller (Refactored)', createControllerTestSuite(sepaConfig, customSEPATests));
+describe(
+	'SEPA Mandate Controller (Refactored)',
+	createControllerTestSuite(sepaConfig, customSEPATests)
+);
 
 // Export test utilities for reuse
 module.exports = {

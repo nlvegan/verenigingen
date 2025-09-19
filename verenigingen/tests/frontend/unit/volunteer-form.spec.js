@@ -9,7 +9,7 @@ describe('Volunteer Form', () => {
 
 	beforeEach(() => {
 		// Mock Frappe framework
-		global.__ = jest.fn(str => str);
+		global.__ = jest.fn((str) => str);
 
 		frappe = {
 			call: jest.fn(),
@@ -25,7 +25,7 @@ describe('Volunteer Form', () => {
 			set_route: jest.fn(),
 			route_options: {},
 			datetime: {
-				str_to_user: jest.fn(date => date),
+				str_to_user: jest.fn((date) => date),
 				get_today: jest.fn(() => '2024-01-01'),
 				now_datetime: jest.fn(() => '2024-01-01 10:00:00')
 			},
@@ -102,8 +102,14 @@ describe('Volunteer Form', () => {
 				})
 			);
 
-			expect(frm.set_value).toHaveBeenCalledWith('volunteer_name', 'Jane Smith');
-			expect(frm.set_value).toHaveBeenCalledWith('personal_email', 'jane@example.com');
+			expect(frm.set_value).toHaveBeenCalledWith(
+				'volunteer_name',
+				'Jane Smith'
+			);
+			expect(frm.set_value).toHaveBeenCalledWith(
+				'personal_email',
+				'jane@example.com'
+			);
 		});
 
 		it('should generate organization email from member name', () => {
@@ -201,7 +207,7 @@ describe('Volunteer Form', () => {
 
 			const aggregateAssignments = (assignments) => {
 				const grouped = {};
-				assignments.forEach(assignment => {
+				assignments.forEach((assignment) => {
 					const key = `${assignment.team}-${assignment.chapter}`;
 					if (!grouped[key]) {
 						grouped[key] = {
@@ -242,7 +248,11 @@ describe('Volunteer Form', () => {
 	describe('Skills Management', () => {
 		it('should add new skill', () => {
 			const addSkill = (frm, skill, proficiency) => {
-				const newSkill = frappe.model.add_child(frm.doc, 'Volunteer Skill', 'skills');
+				const newSkill = frappe.model.add_child(
+					frm.doc,
+					'Volunteer Skill',
+					'skills'
+				);
 				newSkill.skill = skill;
 				newSkill.proficiency_level = proficiency;
 				frm.refresh_field('skills');

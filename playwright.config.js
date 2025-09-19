@@ -17,7 +17,7 @@
  * @requires @playwright/test
  */
 
-const { defineConfig, devices } = require('@playwright/test');
+const { defineConfig, devices } = require("@playwright/test");
 
 /**
  * Playwright Test Configuration
@@ -27,14 +27,14 @@ const { defineConfig, devices } = require('@playwright/test');
  */
 module.exports = defineConfig({
   // Test directory configuration
-  testDir: './tests/e2e',
+  testDir: "./tests/e2e",
 
   // Global test timeout (2 minutes for complex donation flows)
   timeout: 120 * 1000,
 
   // Expect timeout for assertions
   expect: {
-    timeout: 10 * 1000
+    timeout: 10 * 1000,
   },
 
   // Test execution configuration
@@ -45,16 +45,16 @@ module.exports = defineConfig({
 
   // Reporting configuration
   reporter: [
-    ['html', { outputFolder: 'test-results/html-report' }],
-    ['json', { outputFile: 'test-results/test-results.json' }],
-    ['junit', { outputFile: 'test-results/junit.xml' }],
-    process.env.CI ? ['github'] : ['list']
+    ["html", { outputFolder: "test-results/html-report" }],
+    ["json", { outputFile: "test-results/test-results.json" }],
+    ["junit", { outputFile: "test-results/junit.xml" }],
+    process.env.CI ? ["github"] : ["list"],
   ],
 
   // Global test configuration
   use: {
     // Base URL for the development environment
-    baseURL: 'https://dev.veganisme.net',
+    baseURL: "https://dev.veganisme.net",
 
     // Browser configuration
     headless: true, // Always headless by default
@@ -65,115 +65,117 @@ module.exports = defineConfig({
     actionTimeout: 10 * 1000,
 
     // Test artifacts
-    screenshot: 'only-on-failure',
-    video: process.env.CI ? 'retain-on-failure' : 'off',
-    trace: 'retain-on-failure',
+    screenshot: "only-on-failure",
+    video: process.env.CI ? "retain-on-failure" : "off",
+    trace: "retain-on-failure",
 
     // Additional context options
     ignoreHTTPSErrors: true, // For development environment
 
     // User agent for test identification
-    userAgent: 'PlaywrightE2E/1.0 (Verenigingen Test Suite)'
+    userAgent: "PlaywrightE2E/1.0 (Verenigingen Test Suite)",
   },
 
   // Project configuration for different browsers and scenarios
   projects: [
     {
-      name: 'setup',
+      name: "setup",
       testMatch: /.*\.setup\.js/,
-      teardown: 'cleanup'
+      teardown: "cleanup",
     },
 
     {
-      name: 'cleanup',
-      testMatch: /.*\.cleanup\.js/
+      name: "cleanup",
+      testMatch: /.*\.cleanup\.js/,
     },
 
     {
-      name: 'mollie-donation-chrome',
+      name: "mollie-donation-chrome",
       use: {
-        ...devices['Desktop Chrome'],
+        ...devices["Desktop Chrome"],
         // Chrome-specific overrides for Mollie testing
         launchOptions: {
           args: [
-            '--disable-web-security', // For CORS in test environment
-            '--ignore-certificate-errors', // For dev SSL
-            '--no-sandbox' // For CI environment
-          ]
-        }
+            "--disable-web-security", // For CORS in test environment
+            "--ignore-certificate-errors", // For dev SSL
+            "--no-sandbox", // For CI environment
+          ],
+        },
       },
-      dependencies: ['setup'],
-      testMatch: /mollie-donation-flow\.spec\.js/
+      dependencies: ["setup"],
+      testMatch: /mollie-donation-flow\.spec\.js/,
     },
 
     {
-      name: 'mollie-donation-firefox',
+      name: "mollie-donation-firefox",
       use: {
-        ...devices['Desktop Firefox'],
+        ...devices["Desktop Firefox"],
         // Firefox-specific configuration
         launchOptions: {
           firefoxUserPrefs: {
-            'security.tls.insecure_fallback_hosts': 'dev.veganisme.net',
-            'security.tls.skip_ocsp_for_issuers': true
-          }
-        }
+            "security.tls.insecure_fallback_hosts": "dev.veganisme.net",
+            "security.tls.skip_ocsp_for_issuers": true,
+          },
+        },
       },
-      dependencies: ['setup'],
-      testMatch: /mollie-donation-flow\.spec\.js/
+      dependencies: ["setup"],
+      testMatch: /mollie-donation-flow\.spec\.js/,
     },
 
     {
-      name: 'mollie-donation-mobile',
+      name: "mollie-donation-mobile",
       use: {
-        ...devices['iPhone 13'],
+        ...devices["iPhone 13"],
         // Mobile-specific viewport for responsive testing
-        viewport: { width: 390, height: 844 }
+        viewport: { width: 390, height: 844 },
       },
-      dependencies: ['setup'],
-      testMatch: /mollie-donation-flow\.spec\.js/
+      dependencies: ["setup"],
+      testMatch: /mollie-donation-flow\.spec\.js/,
     },
 
     {
-      name: 'webhook-comprehensive',
-      use: { ...devices['Desktop Chrome'] },
-      dependencies: ['setup'],
-      testMatch: /webhook-.*\.spec\.js/
+      name: "webhook-comprehensive",
+      use: { ...devices["Desktop Chrome"] },
+      dependencies: ["setup"],
+      testMatch: /webhook-.*\.spec\.js/,
     },
 
     {
-      name: 'performance-testing',
+      name: "performance-testing",
       use: {
-        ...devices['Desktop Chrome'],
+        ...devices["Desktop Chrome"],
         // Performance testing specific configuration
-        video: 'off',
-        screenshot: 'off'
+        video: "off",
+        screenshot: "off",
       },
-      dependencies: ['setup'],
-      testMatch: /performance-.*\.spec\.js/
-    }
+      dependencies: ["setup"],
+      testMatch: /performance-.*\.spec\.js/,
+    },
   ],
 
   // Global setup and teardown
-  globalSetup: require.resolve('./tests/support/global-setup.js'),
-  globalTeardown: require.resolve('./tests/support/global-teardown.js'),
+  globalSetup: require.resolve("./tests/support/global-setup.js"),
+  globalTeardown: require.resolve("./tests/support/global-teardown.js"),
 
   // Web server configuration (if needed to start dev server)
-  webServer: process.env.START_DEV_SERVER ? {
-    command: 'bench start --skip-redis-config-generation',
-    port: 8000,
-    timeout: 120 * 1000,
-    reuseExistingServer: !process.env.CI
-  } : undefined,
+  webServer: process.env.START_DEV_SERVER
+    ? {
+        command: "bench start --skip-redis-config-generation",
+        port: 8000,
+        timeout: 120 * 1000,
+        reuseExistingServer: !process.env.CI,
+      }
+    : undefined,
 
   // Test output directory
-  outputDir: 'test-results/playwright-output',
+  outputDir: "test-results/playwright-output",
 
   // Metadata for test runs
   metadata: {
-    environment: process.env.NODE_ENV || 'development',
-    baseURL: 'https://dev.veganisme.net',
-    testType: 'e2e-mollie-integration',
-    version: require('./package.json').version || '1.0.0',
-    timestamp: new Date().toISOString()
-  }
+    environment: process.env.NODE_ENV || "development",
+    baseURL: "https://dev.veganisme.net",
+    testType: "e2e-mollie-integration",
+    version: require("./package.json").version || "1.0.0",
+    timestamp: new Date().toISOString(),
+  },
 });

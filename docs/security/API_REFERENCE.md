@@ -32,6 +32,7 @@ def function_name(param1, param2):
 ```
 
 **Parameters:**
+
 - `operation_type` (OperationType, optional): Type of operation being performed
   - Default: `OperationType.FINANCIAL`
   - Options: `FINANCIAL`, `MEMBER_DATA`, `ADMIN`, `REPORTING`, `UTILITY`, `PUBLIC`
@@ -39,6 +40,7 @@ def function_name(param1, param2):
 **Security Level:** `CRITICAL`
 
 **Default Requirements:**
+
 - **Roles:** System Manager, Verenigingen Administrator
 - **Rate Limit:** 10 calls per hour
 - **CSRF Protection:** Required
@@ -59,12 +61,14 @@ def function_name(param1, param2):
 ```
 
 **Parameters:**
+
 - `operation_type` (OperationType, optional): Type of operation being performed
   - Default: `OperationType.MEMBER_DATA`
 
 **Security Level:** `HIGH`
 
 **Default Requirements:**
+
 - **Roles:** System Manager, Verenigingen Administrator, Verenigingen Manager
 - **Rate Limit:** 50 calls per hour
 - **CSRF Protection:** Required
@@ -94,12 +98,14 @@ def function_name():
 ```
 
 **Parameters:**
+
 - `operation_type` (OperationType, optional): Type of operation being performed
   - Default: `OperationType.REPORTING`
 
 **Security Level:** `MEDIUM`
 
 **Default Requirements:**
+
 - **Roles:** System Manager, Verenigingen Administrator, Verenigingen Manager, Verenigingen Staff
 - **Rate Limit:** 200 calls per hour
 - **CSRF Protection:** Not required
@@ -129,12 +135,14 @@ def function_name():
 ```
 
 **Parameters:**
+
 - `operation_type` (OperationType, optional): Type of operation being performed
   - Default: `OperationType.UTILITY`
 
 **Security Level:** `LOW`
 
 **Default Requirements:**
+
 - **Roles:** Any authenticated user
 - **Rate Limit:** 500 calls per hour
 - **CSRF Protection:** Not required
@@ -164,12 +172,14 @@ def function_name():
 ```
 
 **Parameters:**
+
 - `operation_type` (OperationType, optional): Type of operation being performed
   - Default: `OperationType.PUBLIC`
 
 **Security Level:** `PUBLIC`
 
 **Default Requirements:**
+
 - **Roles:** None (guest access allowed)
 - **Rate Limit:** 1000 calls per hour
 - **CSRF Protection:** Not required
@@ -194,6 +204,7 @@ def debug_function():
 ```
 
 **Parameters:**
+
 - `operation_type` (OperationType, optional): Type of operation
   - Default: `OperationType.UTILITY`
 - `security_level` (SecurityLevel, optional): Security level override
@@ -261,6 +272,7 @@ def custom_function(amount, member_id):
 ```
 
 **Parameters:**
+
 - `security_level` (SecurityLevel, optional): Override security classification
 - `operation_type` (OperationType, optional): Type of operation for automatic classification
 - `roles` (List[str], optional): Additional role requirements
@@ -309,6 +321,7 @@ class SecurityProfile:
 ```
 
 **Attributes:**
+
 - `level`: Security level classification
 - `required_roles`: List of required user roles
 - `required_permissions`: List of required permissions
@@ -424,12 +437,15 @@ result = registry.execute_critical_operation("operation_name",
 Returns configuration for a specific critical operation.
 
 **Parameters:**
+
 - `operation_name` (str): Name of the operation
 
 **Returns:**
+
 - `dict`: Operation configuration or None if not found
 
 **Example:**
+
 ```python
 config = registry.get_operation_config("create_financial_document")
 # Returns:
@@ -442,36 +458,42 @@ config = registry.get_operation_config("create_financial_document")
 # }
 ```
 
-#### validate_business_rules(operation_name: str, **kwargs) -> List[str]
+#### validate_business_rules(operation_name: str, \*\*kwargs) -> List[str]
 
 Validates business rules for an operation.
 
 **Parameters:**
+
 - `operation_name` (str): Name of the operation
 - `**kwargs`: Operation parameters for validation
 
 **Returns:**
+
 - `List[str]`: List of business rule violations (empty if no violations)
 
 **Example:**
+
 ```python
 violations = registry.validate_business_rules("create_financial_document",
     amount=15000, doctype="Sales Invoice")
 # Returns: ["Amount €15000 exceeds threshold €1000"]
 ```
 
-#### execute_critical_operation(operation_name: str, **kwargs) -> dict
+#### execute_critical_operation(operation_name: str, \*\*kwargs) -> dict
 
 Executes a critical operation with full security validation.
 
 **Parameters:**
+
 - `operation_name` (str): Name of the operation
 - `**kwargs`: Operation parameters
 
 **Returns:**
+
 - `dict`: Operation result with success status
 
 **Example:**
+
 ```python
 result = registry.execute_critical_operation("create_financial_document",
     doctype="Sales Invoice",

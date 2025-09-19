@@ -80,7 +80,10 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 			setupChapterForm(mockFrm);
 
 			// Assert
-			expect(mockFrm.toggle_display).toHaveBeenCalledWith('establishment_date', true);
+			expect(mockFrm.toggle_display).toHaveBeenCalledWith(
+				'establishment_date',
+				true
+			);
 			expect(mockFrm.set_df_property).toHaveBeenCalledWith(
 				'postal_code_ranges',
 				'description',
@@ -99,7 +102,10 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 			const newChapterName = 'Chapter Noord-Holland';
 
 			// Act
-			const validation = validateChapterNameUniqueness(newChapterName, existingChapters);
+			const validation = validateChapterNameUniqueness(
+				newChapterName,
+				existingChapters
+			);
 
 			// Assert
 			expect(validation.valid).toBe(false);
@@ -123,7 +129,10 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 				displayChapterStatus(mockFrm);
 
 				// Assert
-				expect(mockFrm.dashboard.add_indicator).toHaveBeenCalledWith(status, color);
+				expect(mockFrm.dashboard.add_indicator).toHaveBeenCalledWith(
+					status,
+					color
+				);
 			});
 		});
 
@@ -164,11 +173,11 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 			];
 
 			// Act & Assert
-			validRanges.forEach(range => {
+			validRanges.forEach((range) => {
 				expect(validatePostalCodeRange(range)).toBe(true);
 			});
 
-			invalidRanges.forEach(range => {
+			invalidRanges.forEach((range) => {
 				expect(validatePostalCodeRange(range)).toBe(false);
 			});
 		});
@@ -184,8 +193,14 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 			const nonOverlappingRange = '3000-3999'; // No overlap
 
 			// Act
-			const overlappingValidation = checkPostalCodeOverlap(overlappingRange, existingChapters);
-			const nonOverlappingValidation = checkPostalCodeOverlap(nonOverlappingRange, existingChapters);
+			const overlappingValidation = checkPostalCodeOverlap(
+				overlappingRange,
+				existingChapters
+			);
+			const nonOverlappingValidation = checkPostalCodeOverlap(
+				nonOverlappingRange,
+				existingChapters
+			);
 
 			// Assert
 			expect(overlappingValidation.hasOverlap).toBe(true);
@@ -212,7 +227,8 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(mockFrm.call).toHaveBeenCalledWith({
-				method: 'verenigingen.verenigingen.doctype.chapter.chapter.get_eligible_members',
+				method:
+          'verenigingen.verenigingen.doctype.chapter.chapter.get_eligible_members',
 				args: {
 					chapter_name: chapter.name,
 					postal_code_ranges: chapter.postal_code_ranges
@@ -279,7 +295,8 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(mockFrm.call).toHaveBeenCalledWith({
-				method: 'verenigingen.verenigingen.doctype.chapter.chapter.add_board_member',
+				method:
+          'verenigingen.verenigingen.doctype.chapter.chapter.add_board_member',
 				args: {
 					chapter_name: chapter.name,
 					board_member: boardMemberData
@@ -320,8 +337,14 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 			};
 
 			// Act
-			const conflictValidation = checkBoardRoleConflict(newChairperson, existingBoardMembers);
-			const noConflictValidation = checkBoardRoleConflict(newTreasurer, existingBoardMembers);
+			const conflictValidation = checkBoardRoleConflict(
+				newChairperson,
+				existingBoardMembers
+			);
+			const noConflictValidation = checkBoardRoleConflict(
+				newTreasurer,
+				existingBoardMembers
+			);
 
 			// Assert
 			expect(conflictValidation.hasConflict).toBe(true);
@@ -343,11 +366,11 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 			];
 
 			// Act & Assert
-			validTerms.forEach(term => {
+			validTerms.forEach((term) => {
 				expect(validateBoardTermDates(term)).toBe(true);
 			});
 
-			invalidTerms.forEach(term => {
+			invalidTerms.forEach((term) => {
 				expect(validateBoardTermDates(term)).toBe(false);
 			});
 		});
@@ -368,12 +391,12 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 			displayBoardComposition(mockFrm);
 
 			// Assert
-			expect(mockFrm.fields_dict.board_composition_html.$wrapper.html).toHaveBeenCalledWith(
-				expect.stringContaining('Chairperson')
-			);
-			expect(mockFrm.fields_dict.board_composition_html.$wrapper.html).toHaveBeenCalledWith(
-				expect.stringContaining('Secretary')
-			);
+			expect(
+				mockFrm.fields_dict.board_composition_html.$wrapper.html
+			).toHaveBeenCalledWith(expect.stringContaining('Chairperson'));
+			expect(
+				mockFrm.fields_dict.board_composition_html.$wrapper.html
+			).toHaveBeenCalledWith(expect.stringContaining('Secretary'));
 		});
 
 		test('should handle board member term expiration', () => {
@@ -427,7 +450,8 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(mockFrm.call).toHaveBeenCalledWith({
-				method: 'verenigingen.verenigingen.doctype.chapter.chapter.get_join_requests',
+				method:
+          'verenigingen.verenigingen.doctype.chapter.chapter.get_join_requests',
 				args: { chapter_name: chapter.name }
 			});
 		});
@@ -442,7 +466,8 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(frappe.call).toHaveBeenCalledWith({
-				method: 'verenigingen.verenigingen.doctype.chapter.chapter.approve_join_request',
+				method:
+          'verenigingen.verenigingen.doctype.chapter.chapter.approve_join_request',
 				args: {
 					chapter_name: chapter.name,
 					member_name: member.name
@@ -463,8 +488,14 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 			ineligibleMember.postal_code = '2000';
 
 			// Act
-			const eligibleValidation = validateMemberEligibility(eligibleMember, chapter);
-			const ineligibleValidation = validateMemberEligibility(ineligibleMember, chapter);
+			const eligibleValidation = validateMemberEligibility(
+				eligibleMember,
+				chapter
+			);
+			const ineligibleValidation = validateMemberEligibility(
+				ineligibleMember,
+				chapter
+			);
 
 			// Assert
 			expect(eligibleValidation.eligible).toBe(true);
@@ -475,18 +506,15 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 		test('should handle bulk member assignment', async () => {
 			// Arrange
 			const chapter = testFactory.createChapterData();
-			const memberList = [
-				'Member-001',
-				'Member-002',
-				'Member-003'
-			];
+			const memberList = ['Member-001', 'Member-002', 'Member-003'];
 
 			// Act
 			const result = await bulkAssignMembers(chapter.name, memberList);
 
 			// Assert
 			expect(frappe.call).toHaveBeenCalledWith({
-				method: 'verenigingen.verenigingen.doctype.chapter.chapter.bulk_assign_members',
+				method:
+          'verenigingen.verenigingen.doctype.chapter.chapter.bulk_assign_members',
 				args: {
 					chapter_name: chapter.name,
 					member_list: memberList
@@ -546,8 +574,10 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 			});
 
 			// Act
-			const incompleteValidation = validatePublicationRequirements(incompleteChapter);
-			const completeValidation = validatePublicationRequirements(completeChapter);
+			const incompleteValidation
+        = validatePublicationRequirements(incompleteChapter);
+			const completeValidation
+        = validatePublicationRequirements(completeChapter);
 
 			// Assert
 			expect(incompleteValidation.canPublish).toBe(false);
@@ -616,18 +646,14 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 				'Chapter Groningen/Drenthe'
 			];
 
-			const invalidNames = [
-				'Chapter <script>',
-				'Chapter@#$%',
-				''
-			];
+			const invalidNames = ['Chapter <script>', 'Chapter@#$%', ''];
 
 			// Act & Assert
-			validNames.forEach(name => {
+			validNames.forEach((name) => {
 				expect(validateChapterName(name)).toBe(true);
 			});
 
-			invalidNames.forEach(name => {
+			invalidNames.forEach((name) => {
 				expect(validateChapterName(name)).toBe(false);
 			});
 		});
@@ -661,7 +687,10 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 			];
 
 			// Act
-			const integration = await integrateChapterWithVolunteers(chapter, volunteers);
+			const integration = await integrateChapterWithVolunteers(
+				chapter,
+				volunteers
+			);
 
 			// Assert
 			expect(integration.eligibleVolunteers).toBe(2);
@@ -713,8 +742,11 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 	// Mock business logic functions
 	const setupChapterForm = jest.fn((frm) => {
 		frm.toggle_display('establishment_date', true);
-		frm.set_df_property('postal_code_ranges', 'description',
-			'Enter postal code ranges (e.g., 1000-1999, 2000-2500)');
+		frm.set_df_property(
+			'postal_code_ranges',
+			'description',
+			'Enter postal code ranges (e.g., 1000-1999, 2000-2500)'
+		);
 	});
 
 	const validateChapterNameUniqueness = jest.fn((name, existingNames) => {
@@ -745,20 +777,30 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 	});
 
 	const validatePostalCodeRange = jest.fn((range) => {
-		if (!range) { return false; }
+		if (!range) {
+			return false;
+		}
 
-		const ranges = range.split(',').map(r => r.trim());
+		const ranges = range.split(',').map((r) => r.trim());
 
 		for (const r of ranges) {
 			const parts = r.split('-');
-			if (parts.length !== 2) { return false; }
+			if (parts.length !== 2) {
+				return false;
+			}
 
 			const start = parseInt(parts[0]);
 			const end = parseInt(parts[1]);
 
-			if (isNaN(start) || isNaN(end)) { return false; }
-			if (start >= end) { return false; }
-			if (start < 1000 || end > 9999) { return false; }
+			if (isNaN(start) || isNaN(end)) {
+				return false;
+			}
+			if (start >= end) {
+				return false;
+			}
+			if (start < 1000 || end > 9999) {
+				return false;
+			}
 		}
 
 		return true;
@@ -767,7 +809,7 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 	const checkPostalCodeOverlap = jest.fn((newRange, existingChapters) => {
 		const conflicts = [];
 
-		existingChapters.forEach(chapter => {
+		existingChapters.forEach((chapter) => {
 			if (rangesOverlap(newRange, chapter.postal_code_ranges)) {
 				conflicts.push(chapter.name);
 			}
@@ -786,7 +828,8 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 
 	const assignMembersToChapter = jest.fn(async (frm) => {
 		return frm.call({
-			method: 'verenigingen.verenigingen.doctype.chapter.chapter.get_eligible_members',
+			method:
+        'verenigingen.verenigingen.doctype.chapter.chapter.get_eligible_members',
 			args: {
 				chapter_name: frm.doc.name,
 				postal_code_ranges: frm.doc.postal_code_ranges
@@ -795,12 +838,12 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 	});
 
 	const calculateChapterCoverage = jest.fn((chapter) => {
-		const ranges = chapter.postal_code_ranges.split(',').map(r => r.trim());
+		const ranges = chapter.postal_code_ranges.split(',').map((r) => r.trim());
 		let totalPostalCodes = 0;
 		let largestRange = 0;
 
-		ranges.forEach(range => {
-			const [start, end] = range.split('-').map(n => parseInt(n));
+		ranges.forEach((range) => {
+			const [start, end] = range.split('-').map((n) => parseInt(n));
 			const count = end - start + 1;
 			totalPostalCodes += count;
 			largestRange = Math.max(largestRange, count);
@@ -814,7 +857,7 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 	});
 
 	const validateDutchPostalCodeRange = jest.fn((range) => {
-		const [start, end] = range.split('-').map(n => parseInt(n));
+		const [start, end] = range.split('-').map((n) => parseInt(n));
 		return {
 			valid: start >= 1000 && end <= 9999
 		};
@@ -822,7 +865,8 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 
 	const addBoardMember = jest.fn(async (frm, boardMemberData) => {
 		return frm.call({
-			method: 'verenigingen.verenigingen.doctype.chapter.chapter.add_board_member',
+			method:
+        'verenigingen.verenigingen.doctype.chapter.chapter.add_board_member',
 			args: {
 				chapter_name: frm.doc.name,
 				board_member: boardMemberData
@@ -840,15 +884,18 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 		const birth = new Date(birthDate);
 		let age = today.getFullYear() - birth.getFullYear();
 		const monthDiff = today.getMonth() - birth.getMonth();
-		if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+		if (
+			monthDiff < 0
+      || (monthDiff === 0 && today.getDate() < birth.getDate())
+		) {
 			age--;
 		}
 		return age;
 	});
 
 	const checkBoardRoleConflict = jest.fn((newMember, existingMembers) => {
-		const conflict = existingMembers.find(member =>
-			member.role === newMember.role && member.status === 'Active'
+		const conflict = existingMembers.find(
+			(member) => member.role === newMember.role && member.status === 'Active'
 		);
 
 		return {
@@ -862,20 +909,26 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 		const end = new Date(term.end_date);
 		const today = new Date();
 
-		if (end <= start) { return false; }
-		if (start < today) { return false; }
+		if (end <= start) {
+			return false;
+		}
+		if (start < today) {
+			return false;
+		}
 
 		const yearsDiff = (end - start) / (1000 * 60 * 60 * 24 * 365);
-		if (yearsDiff > 2) { return false; }
+		if (yearsDiff > 2) {
+			return false;
+		}
 
 		return true;
 	});
 
 	const displayBoardComposition = jest.fn((frm) => {
 		if (frm.doc.__onload && frm.doc.__onload.board_members) {
-			const html = frm.doc.__onload.board_members.map(member =>
-				`<div>${member.role}: ${member.volunteer}</div>`
-			).join('');
+			const html = frm.doc.__onload.board_members
+				.map((member) => `<div>${member.role}: ${member.volunteer}</div>`)
+				.join('');
 
 			frm.fields_dict.board_composition_html.$wrapper.html(html);
 		}
@@ -889,14 +942,16 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 
 	const processJoinRequests = jest.fn(async (frm) => {
 		return frm.call({
-			method: 'verenigingen.verenigingen.doctype.chapter.chapter.get_join_requests',
+			method:
+        'verenigingen.verenigingen.doctype.chapter.chapter.get_join_requests',
 			args: { chapter_name: frm.doc.name }
 		});
 	});
 
 	const approveJoinRequest = jest.fn(async (chapterName, memberName) => {
 		return frappe.call({
-			method: 'verenigingen.verenigingen.doctype.chapter.chapter.approve_join_request',
+			method:
+        'verenigingen.verenigingen.doctype.chapter.chapter.approve_join_request',
 			args: {
 				chapter_name: chapterName,
 				member_name: memberName
@@ -909,7 +964,10 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 		const ranges = chapter.postal_code_ranges.split(',');
 
 		for (const range of ranges) {
-			const [start, end] = range.trim().split('-').map(n => parseInt(n));
+			const [start, end] = range
+				.trim()
+				.split('-')
+				.map((n) => parseInt(n));
 			if (memberPostalCode >= start && memberPostalCode <= end) {
 				return { eligible: true };
 			}
@@ -923,7 +981,8 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 
 	const bulkAssignMembers = jest.fn(async (chapterName, memberList) => {
 		return frappe.call({
-			method: 'verenigingen.verenigingen.doctype.chapter.chapter.bulk_assign_members',
+			method:
+        'verenigingen.verenigingen.doctype.chapter.chapter.bulk_assign_members',
 			args: {
 				chapter_name: chapterName,
 				member_list: memberList
@@ -947,8 +1006,12 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 	const validatePublicationRequirements = jest.fn((chapter) => {
 		const missingFields = [];
 
-		if (!chapter.description) { missingFields.push('description'); }
-		if (!chapter.postal_code_ranges) { missingFields.push('postal_code_ranges'); }
+		if (!chapter.description) {
+			missingFields.push('description');
+		}
+		if (!chapter.postal_code_ranges) {
+			missingFields.push('postal_code_ranges');
+		}
 
 		return {
 			canPublish: missingFields.length === 0,
@@ -965,8 +1028,12 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 		const missingFields = [];
 
 		if (chapter.status === 'Active') {
-			if (!chapter.description) { missingFields.push('description'); }
-			if (!chapter.postal_code_ranges) { missingFields.push('postal_code_ranges'); }
+			if (!chapter.description) {
+				missingFields.push('description');
+			}
+			if (!chapter.postal_code_ranges) {
+				missingFields.push('postal_code_ranges');
+			}
 		}
 
 		return {
@@ -981,16 +1048,23 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 
 		return {
 			valid: establishmentDate <= today,
-			message: establishmentDate > today ? 'Establishment date cannot be in the future' : ''
+			message:
+        establishmentDate > today
+        	? 'Establishment date cannot be in the future'
+        	: ''
 		};
 	});
 
 	const validateChapterName = jest.fn((name) => {
-		if (!name || name.trim() === '') { return false; }
+		if (!name || name.trim() === '') {
+			return false;
+		}
 
 		// Check for potentially harmful characters
 		const dangerousChars = /<script|javascript:|on\w+=/i;
-		if (dangerousChars.test(name)) { return false; }
+		if (dangerousChars.test(name)) {
+			return false;
+		}
 
 		return true;
 	});
@@ -1002,10 +1076,13 @@ describe('Chapter DocType - Comprehensive Test Suite', () => {
 		};
 	});
 
-	const integrateChapterWithVolunteers = jest.fn(async (chapter, volunteers) => {
-		return {
-			eligibleVolunteers: volunteers.length,
-			boardCandidates: volunteers.filter(v => validateBoardMemberAge(v)).length
-		};
-	});
+	const integrateChapterWithVolunteers = jest.fn(
+		async (chapter, volunteers) => {
+			return {
+				eligibleVolunteers: volunteers.length,
+				boardCandidates: volunteers.filter((v) => validateBoardMemberAge(v))
+					.length
+			};
+		}
+	);
 });

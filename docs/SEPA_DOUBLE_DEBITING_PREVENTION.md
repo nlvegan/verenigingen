@@ -20,11 +20,13 @@ This document describes the comprehensive double debiting prevention system impl
 **Function**: `create_payment_entry_with_duplicate_check()`
 
 **Protection Against**:
+
 - Creating multiple payments for the same invoice
 - Overpayment scenarios
 - Concurrent payment creation
 
 **Implementation**:
+
 ```python
 # Check existing payments before creating new ones
 existing_payments = frappe.get_all("Payment Entry Reference", ...)
@@ -35,6 +37,7 @@ if total_allocated >= invoice_total:
 ```
 
 **Edge Cases Handled**:
+
 - Partial payments (allows additional payments up to invoice total)
 - Currency rounding differences
 - Concurrent access protection
@@ -44,11 +47,13 @@ if total_allocated >= invoice_total:
 **Function**: `check_batch_processing_status()`
 
 **Protection Against**:
+
 - Reprocessing already completed SEPA batches
 - Processing same batch with different bank transactions
 - Cross-contamination between batches
 
 **Implementation**:
+
 ```python
 # Check for existing payment entries linked to batch
 existing_payments = frappe.get_all("Payment Entry",
@@ -67,11 +72,13 @@ if existing_payments:
 **Function**: `check_return_file_processed()`
 
 **Protection Against**:
+
 - Reprocessing same return file multiple times
 - Duplicate reversal of failed payments
 - Data corruption from repeated processing
 
 **Implementation**:
+
 ```python
 # Use SHA256 hash to uniquely identify return files
 file_hash = hashlib.sha256(return_file_content.encode()).hexdigest()
@@ -85,11 +92,13 @@ if frappe.db.exists("SEPA Return File Log", {"file_hash": file_hash}):
 **Functions**: `acquire_processing_lock()`, `release_processing_lock()`
 
 **Protection Against**:
+
 - Concurrent processing of same resource
 - Race conditions in multi-user environments
 - System conflicts during processing
 
 **Implementation**:
+
 ```python
 # In-memory locks with timeout protection
 _processing_locks = {}
@@ -112,11 +121,13 @@ def acquire_processing_lock(resource_type, resource_id, timeout=300):
 **Functions**: `generate_idempotency_key()`, `execute_idempotent_operation()`
 
 **Protection Against**:
+
 - Duplicate API calls
 - Network retry issues
 - User double-clicking scenarios
 
 **Implementation**:
+
 ```python
 def generate_idempotency_key(bank_transaction, batch, operation):
     content = f"{bank_transaction}:{batch}:{operation}:{frappe.session.user}"
@@ -355,17 +366,20 @@ SEPA_AUTO_AUDIT_INTERVAL = "Daily"  # Automated audit frequency
 The system adds custom fields to standard doctypes:
 
 **Bank Transaction**:
+
 - `custom_sepa_batch`: Link to SEPA Direct Debit Batch
 - `custom_processing_status`: Processing status tracking
 - `custom_manual_review_task`: Link to ToDo for manual review
 
 **Payment Entry**:
+
 - `custom_bank_transaction`: Link to Bank Transaction
 - `custom_sepa_batch`: Link to SEPA batch
 - `custom_original_payment`: For reversal tracking
 - `custom_manual_reconciliation`: Manual processing flag
 
 **SEPA Direct Debit Batch**:
+
 - `custom_reconciliation_status`: Overall reconciliation status
 - `custom_related_bank_transactions`: Transaction references
 
@@ -420,6 +434,7 @@ This enables detailed logging of all prevention mechanisms and processing steps.
 The SEPA Double Debiting Prevention System provides comprehensive protection against financial processing errors through multiple redundant safeguards. The system has been extensively tested with 87 unit tests covering edge cases, concurrency scenarios, and data integrity validation.
 
 Key benefits:
+
 - **Zero duplicate payments** through multi-layer validation
 - **Concurrent processing safety** with lock mechanisms
 - **Comprehensive audit trail** for compliance requirements

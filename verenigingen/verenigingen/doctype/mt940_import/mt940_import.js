@@ -63,20 +63,25 @@ frappe.ui.form.on('MT940 Import', {
 	refresh(frm) {
 		// Add custom buttons
 		if (frm.doc.docstatus === 0) {
-			frm.add_custom_button(__('Process Import'), () => {
-				// Submit the document to trigger import
-				frm.submit();
-			}).addClass('btn-primary');
+			frm
+				.add_custom_button(__('Process Import'), () => {
+					// Submit the document to trigger import
+					frm.submit();
+				})
+				.addClass('btn-primary');
 
 			frm.add_custom_button(__('Test/Debug'), () => {
 				// Call debug function
 				if (!frm.doc.mt940_file || !frm.doc.bank_account) {
-					frappe.msgprint(__('Please select a bank account and upload an MT940 file first.'));
+					frappe.msgprint(
+						__('Please select a bank account and upload an MT940 file first.')
+					);
 					return;
 				}
 
 				frappe.call({
-					method: 'verenigingen.verenigingen.doctype.mt940_import.mt940_import.debug_import',
+					method:
+            'verenigingen.verenigingen.doctype.mt940_import.mt940_import.debug_import',
 					args: {
 						bank_account: frm.doc.bank_account,
 						file_url: frm.doc.mt940_file
@@ -90,10 +95,12 @@ frappe.ui.form.on('MT940 Import', {
 
 							const dialog = new frappe.ui.Dialog({
 								title: 'MT940 Debug Results',
-								fields: [{
-									fieldtype: 'HTML',
-									options: html
-								}]
+								fields: [
+									{
+										fieldtype: 'HTML',
+										options: html
+									}
+								]
 							});
 							dialog.show();
 						}
@@ -104,12 +111,15 @@ frappe.ui.form.on('MT940 Import', {
 			frm.add_custom_button(__('Debug Duplicates'), () => {
 				// Call duplicate detection debug function - use same approach as existing debug
 				if (!frm.doc.mt940_file || !frm.doc.bank_account) {
-					frappe.msgprint(__('Please select a bank account and upload an MT940 file first.'));
+					frappe.msgprint(
+						__('Please select a bank account and upload an MT940 file first.')
+					);
 					return;
 				}
 
 				frappe.call({
-					method: 'verenigingen.verenigingen.doctype.mt940_import.mt940_import.debug_duplicates',
+					method:
+            'verenigingen.verenigingen.doctype.mt940_import.mt940_import.debug_duplicates',
 					args: {
 						bank_account: frm.doc.bank_account,
 						file_url: frm.doc.mt940_file
@@ -123,10 +133,12 @@ frappe.ui.form.on('MT940 Import', {
 
 							const dialog = new frappe.ui.Dialog({
 								title: 'Duplicate Detection Debug',
-								fields: [{
-									fieldtype: 'HTML',
-									options: html
-								}]
+								fields: [
+									{
+										fieldtype: 'HTML',
+										options: html
+									}
+								]
 							});
 							dialog.show();
 						}
@@ -145,10 +157,16 @@ frappe.ui.form.on('MT940 Import', {
 
 				if (frm.doc.statement_from_date && frm.doc.statement_to_date) {
 					// Use the actual statement date range
-					filters['date'] = ['between', [frm.doc.statement_from_date, frm.doc.statement_to_date]];
+					filters['date'] = [
+						'between',
+						[frm.doc.statement_from_date, frm.doc.statement_to_date]
+					];
 				} else {
 					// Fallback to creation date range
-					filters['creation'] = ['>', frappe.datetime.add_days(frm.doc.creation, -1)];
+					filters['creation'] = [
+						'>',
+						frappe.datetime.add_days(frm.doc.creation, -1)
+					];
 				}
 
 				frappe.set_route('List', 'Bank Transaction', filters);
@@ -156,14 +174,19 @@ frappe.ui.form.on('MT940 Import', {
 		}
 
 		// Set help text
-		frm.set_intro(__('Upload an MT940 bank statement file to import bank transactions. The file will be processed when you submit this document.'));
+		frm.set_intro(
+			__(
+				'Upload an MT940 bank statement file to import bank transactions. The file will be processed when you submit this document.'
+			)
+		);
 	},
 
 	bank_account(frm) {
 		// Auto-set company when bank account is selected
 		if (frm.doc.bank_account) {
-			frappe.db.get_value('Bank Account', frm.doc.bank_account, 'company')
-				.then(r => {
+			frappe.db
+				.get_value('Bank Account', frm.doc.bank_account, 'company')
+				.then((r) => {
 					if (r.message && r.message.company) {
 						frm.set_value('company', r.message.company);
 					}

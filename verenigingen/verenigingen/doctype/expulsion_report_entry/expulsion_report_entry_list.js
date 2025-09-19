@@ -102,7 +102,9 @@ frappe.listview_settings['Expulsion Report Entry'] = {
 		},
 
 		chapter_involved(value, df, doc) {
-			if (!value) { return '-'; }
+			if (!value) {
+				return '-';
+			}
 			return `<a href="/app/chapter/${value}">${value}</a>`;
 		},
 
@@ -175,7 +177,8 @@ function show_governance_report_dialog(listview) {
 		primary_action_label: __('Generate Report'),
 		primary_action(values) {
 			frappe.call({
-				method: 'verenigingen.verenigingen.doctype.expulsion_report_entry.expulsion_report_entry.generate_expulsion_governance_report',
+				method:
+          'verenigingen.verenigingen.doctype.expulsion_report_entry.expulsion_report_entry.generate_expulsion_governance_report',
 				args: {
 					date_range: `${values.from_date},${values.to_date}`,
 					chapter: values.chapter,
@@ -198,9 +201,10 @@ function show_governance_report_dialog(listview) {
 function export_expulsion_report(listview) {
 	// Get selected items or all filtered items
 	const selected = listview.get_checked_items();
-	const filters = selected.length > 0
-		? { name: ['in', selected.map(item => item.name)] }
-		: listview.filter_area.get();
+	const filters
+    = selected.length > 0
+    	? { name: ['in', selected.map((item) => item.name)] }
+    	: listview.filter_area.get();
 
 	frappe.call({
 		method: 'frappe.desk.query_report.export_query',
@@ -210,9 +214,16 @@ function export_expulsion_report(listview) {
 			file_format_type: 'Excel',
 			filters,
 			fields: [
-				'name', 'member_name', 'member_id', 'expulsion_date',
-				'expulsion_type', 'chapter_involved', 'status',
-				'under_appeal', 'initiated_by', 'approved_by'
+				'name',
+				'member_name',
+				'member_id',
+				'expulsion_date',
+				'expulsion_type',
+				'chapter_involved',
+				'status',
+				'under_appeal',
+				'initiated_by',
+				'approved_by'
 			]
 		}
 	});
@@ -233,7 +244,7 @@ function bulk_verify_compliance(listview) {
 				method: 'frappe.client.set_value',
 				args: {
 					doctype: 'Expulsion Report Entry',
-					name: selected.map(item => item.name),
+					name: selected.map((item) => item.name),
 					fieldname: {
 						compliance_checked: 1,
 						board_review_date: frappe.datetime.get_today()
@@ -241,10 +252,15 @@ function bulk_verify_compliance(listview) {
 				},
 				callback() {
 					listview.refresh();
-					frappe.show_alert({
-						message: __('Compliance verified for {0} entries', [selected.length]),
-						indicator: 'green'
-					}, 5);
+					frappe.show_alert(
+						{
+							message: __('Compliance verified for {0} entries', [
+								selected.length
+							]),
+							indicator: 'green'
+						},
+						5
+					);
 				}
 			});
 		}
@@ -316,18 +332,25 @@ function generate_governance_report_html(data) {
                 </div>
             </div>
 
-            ${data.compliance_issues.length > 0 ? `
+            ${
+	data.compliance_issues.length > 0
+		? `
                 <div class="mt-4">
                     <h4>Compliance Issues</h4>
                     <ul>
-                        ${data.compliance_issues.map(issue =>
-		`<li class="text-${issue.severity === 'High' ? 'danger' : 'warning'}">
+                        ${data.compliance_issues
+		.map(
+			(issue) =>
+				`<li class="text-${issue.severity === 'High' ? 'danger' : 'warning'}">
                                 ${issue.issue}: ${issue.count} occurrences
                             </li>`
-	).join('')}
+		)
+		.join('')}
                     </ul>
                 </div>
-            ` : ''}
+            `
+		: ''
+}
         </div>
     `;
 }

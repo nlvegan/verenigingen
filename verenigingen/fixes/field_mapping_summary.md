@@ -3,6 +3,7 @@
 ## Critical Field Mapping Problems
 
 ### 1. **Party Creation - Using IDs Instead of Names** ❌
+
 ```python
 # CURRENT (WRONG):
 si.customer = relation_id or "Guest Customer"  # Creates customer like "REL123"
@@ -13,6 +14,7 @@ si.customer = customer.name  # "Acme Corporation B.V."
 ```
 
 ### 2. **No VAT/BTW Handling At All** ❌
+
 ```python
 # CURRENT:
 # No tax lines, no tax template, no BTW processing
@@ -28,6 +30,7 @@ for regel in mutation_detail.get("Regels", []):
 ```
 
 ### 3. **Single Generic Line Item Only** ❌
+
 ```python
 # CURRENT:
 si.append("items", {
@@ -50,6 +53,7 @@ for regel in mutation_detail.get("Regels", []):
 ```
 
 ### 4. **Missing Invoice Metadata** ❌
+
 ```python
 # CURRENT - Missing fields:
 - due_date (can calculate from date + Betalingstermijn)
@@ -66,6 +70,7 @@ si.currency = "EUR"
 ```
 
 ### 5. **Hardcoded Accounts** ❌
+
 ```python
 # CURRENT:
 pe.paid_to = "10000 - Kas - NVV"  # Hardcoded!
@@ -75,6 +80,7 @@ pe.paid_to = get_bank_account_from_mutation(mutation)
 ```
 
 ### 6. **Wrong Field Usage** ❌
+
 ```python
 # CURRENT:
 si.name = invoice_number  # WRONG! This overrides ERPNext naming
@@ -87,6 +93,7 @@ si.custom_eboekhouden_invoice_number = invoice_number
 ## Data Not Being Used From API
 
 The REST API provides these fields that are IGNORED:
+
 - `Regels` (line items) - Contains item details and BTW codes
 - `Betalingstermijn` - Payment terms in days
 - `Referentie` - Reference number

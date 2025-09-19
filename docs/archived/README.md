@@ -5,29 +5,35 @@ This directory contains archived documentation that has been moved from the main
 ## Directory Structure
 
 ### `/completed-implementations/`
+
 Contains documentation for features and improvements that have been **fully implemented and completed**. These documents provide historical context about completed work but are no longer active implementation plans.
 
 **Organization:** Substantially implemented plans (85%+ implementation) are organized in topic-specific subdirectories with detailed implementation status documentation.
 
 #### `/enhanced-logging/`
+
 - `ENHANCED_LOGGING_IMPLEMENTATION_PLAN.md` - ✅ **SUBSTANTIALLY IMPLEMENTED (85-90%)** - Comprehensive audit logging system
 - `ENHANCED_LOGGING_IMPLEMENTATION_PLAN_DEVOPS_ADDENDUM.md` - DevOps integration components
 - `ENHANCED_LOGGING_IMPLEMENTATION_PLAN_ZABBIX_ADDENDUM.md` - Zabbix monitoring integration
 - `IMPLEMENTATION_STATUS.md` - Detailed implementation verification and evidence
 
 #### `/membership-dues/`
+
 - `MEMBERSHIP_DUES_SYSTEM_DETAILED_PLAN.md` - ✅ **SUBSTANTIALLY IMPLEMENTED (85-90%)** - Advanced membership dues management
 - `IMPLEMENTATION_STATUS.md` - Comprehensive implementation analysis and metrics
 
 #### Root Directory (Legacy Completed)
+
 - `EBOEKHOUDEN_CLEANUP_PLAN.md` - ✅ **COMPLETED** - eBoekhouden system cleanup and reorganization (July 2025)
 - `E_BOEKHOUDEN_CODE_CONSOLIDATION_COMPLETE.md` - ✅ **COMPLETED** - Code consolidation reducing codebase by 55%
 - `E_BOEKHOUDEN_SECURITY_IMPROVEMENTS_COMPLETE.md` - ✅ **COMPLETED** - Security vulnerabilities elimination and improvements
 
 ### `/superseded-versions/`
+
 Contains older versions of documents that have been superseded by more comprehensive or updated versions. These are kept for historical reference and version tracking.
 
 **Files:**
+
 - `MEMBERSHIP_DUES_SYSTEM_PLAN.md` - Original membership dues plan (V1)
 - `MEMBERSHIP_DUES_SYSTEM_DETAILED_PLAN_V2.md` - Second version (V2)
 - `MEMBERSHIP_DUES_SYSTEM_ENHANCED_PLAN.md` - Enhanced version
@@ -38,6 +44,7 @@ Contains older versions of documents that have been superseded by more comprehen
 ## Active Documentation
 
 The main `/docs/` directory contains only **active** documentation that is currently relevant for:
+
 - Ongoing development
 - Current system operation
 - Active implementation plans
@@ -46,12 +53,14 @@ The main `/docs/` directory contains only **active** documentation that is curre
 ## Archive Principles
 
 Documents are archived when they:
+
 1. **Completed implementations**: Mark work as "COMPLETED" or "✅ COMPLETED" (100% implementation)
 2. **Substantially implemented**: Mark work as "SUBSTANTIALLY IMPLEMENTED" (85%+ implementation with operational status)
 3. **Superseded versions**: Have been replaced by more comprehensive versions
 4. **Historical reference**: Provide valuable context but are no longer actionable
 
 ### Implementation Categories
+
 - **COMPLETED (100%)**: Full implementation with all features operational
 - **SUBSTANTIALLY IMPLEMENTED (85-90%)**: Core functionality operational with minor optimization opportunities
 - **SUPERSEDED**: Replaced by more comprehensive versions
@@ -59,6 +68,7 @@ Documents are archived when they:
 ## Accessing Archived Content
 
 All archived content remains available for:
+
 - Historical research
 - Implementation reference
 - Version comparison

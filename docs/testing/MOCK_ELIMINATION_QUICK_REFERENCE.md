@@ -1,4 +1,5 @@
 # Mock Elimination Quick Reference Guide
+
 **Daily Developer Companion - Phase 5.1 Proven Pattern**
 
 ---
@@ -6,6 +7,7 @@
 ## 🚀 **Quick Decision Matrix**
 
 ### **Should I Apply Mock Elimination?**
+
 ```
 ✅ YES - Apply pattern if:
 - Financial or regulatory business logic
@@ -25,6 +27,7 @@
 ## ⚡ **5-Minute Setup Template**
 
 ### **Copy-Paste Test Structure**
+
 ```python
 """
 [Your Area] - Real Database Testing
@@ -76,6 +79,7 @@ class Test[YourArea]Real(EnhancedTestCase):
 ## 🎯 **Mock Classification Cheat Sheet**
 
 ### **ELIMINATE These Database Mocks**
+
 ```python
 ❌ @patch("frappe.get_doc")           # → Use real frappe.get_doc()
 ❌ @patch("frappe.db.exists")         # → Use real frappe.db.exists()
@@ -85,6 +89,7 @@ class Test[YourArea]Real(EnhancedTestCase):
 ```
 
 ### **PRESERVE These Infrastructure Mocks**
+
 ```python
 ✅ @patch("frappe.sendmail")          # Keep - Email infrastructure
 ✅ @patch("builtins.open")            # Keep - File operations
@@ -98,6 +103,7 @@ class Test[YourArea]Real(EnhancedTestCase):
 ## 🔧 **Common Fix Patterns**
 
 ### **Field Name Validation Error**
+
 ```python
 # ERROR: FieldValidationError: Field 'wrong_field' not found
 # FIX: Always check DocType JSON first!
@@ -113,6 +119,7 @@ self.test_record = self.create_test_member(
 ```
 
 ### **Mandatory Field Error**
+
 ```python
 # ERROR: MandatoryError: [DocType]: field_name
 # FIX: Add all mandatory fields
@@ -131,6 +138,7 @@ donation = frappe.get_doc({
 ```
 
 ### **Performance Timeout**
+
 ```python
 # ERROR: Test takes >5 seconds
 # FIX: Lightweight setUp() method
@@ -156,6 +164,7 @@ def setUp(self):
 ## 📊 **Success Validation Checklist**
 
 ### **Before Committing Your Test**
+
 ```
 □ Test runs in <5 seconds
 □ At least 1 database mock eliminated
@@ -166,6 +175,7 @@ def setUp(self):
 ```
 
 ### **Success Indicators**
+
 ```
 ✅ GOOD SIGNS:
 - Test discovers field name errors
@@ -186,6 +196,7 @@ def setUp(self):
 ## 🐛 **Production Issue Discovery**
 
 ### **When You Find a Bug (Expected!)**
+
 ```
 1. 🎉 CELEBRATE - You found a real issue!
 2. 📝 DOCUMENT in PRODUCTION_ISSUES_DISCOVERED.md:
@@ -198,6 +209,7 @@ def setUp(self):
 ```
 
 ### **Common Production Issues Found**
+
 - Wrong database field names in queries
 - Missing mandatory fields in document creation
 - Invalid validation logic in business rules
@@ -209,6 +221,7 @@ def setUp(self):
 ## ⏱️ **Time Estimates**
 
 ### **Realistic Time Investment**
+
 ```
 File Assessment:        5 minutes
 Setup & Basic Tests:   20 minutes
@@ -221,6 +234,7 @@ Business Value:        1+ production bugs prevented
 ```
 
 ### **When to Stop**
+
 ```
 ✅ STOP when:
 - 2-5 database mocks eliminated
@@ -240,6 +254,7 @@ Business Value:        1+ production bugs prevented
 ## 🎯 **Target Business Areas**
 
 ### **High-Value Targets (Apply Pattern)**
+
 ```
 1. 🏦 ANBI Tax Compliance ✅ DONE
 2. 💳 SEPA Payment Processing
@@ -251,6 +266,7 @@ Business Value:        1+ production bugs prevented
 ```
 
 ### **Low-Value Areas (Skip for Now)**
+
 ```
 - Pure utility functions
 - Display/formatting logic
@@ -265,6 +281,7 @@ Business Value:        1+ production bugs prevented
 ## 📱 **Need Help?**
 
 ### **Quick Commands**
+
 ```bash
 # Find database mocks to eliminate:
 grep -r "@patch.*frappe\.db\." your_area/
@@ -280,6 +297,7 @@ time bench --site dev.veganisme.net run-tests --module your.test.module
 ```
 
 ### **Resources**
+
 - 📖 Full Methodology: `SYSTEMATIC_MOCK_ELIMINATION_METHODOLOGY.md`
 - 🐛 Production Issues: `PRODUCTION_ISSUES_DISCOVERED_PHASE_5_1.md`
 - ✅ Success Examples: `test_anbi_donation_summary_report_minimal_real.py`

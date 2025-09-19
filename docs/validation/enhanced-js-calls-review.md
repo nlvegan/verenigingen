@@ -1,6 +1,7 @@
 # Enhanced JavaScript Calls Review - Refined Analysis
 
 ## Executive Summary
+
 - **Total JavaScript files analyzed**: 96
 - **Total unique method calls found**: 188
 - **Framework methods (excluded)**: 100
@@ -21,6 +22,7 @@
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 teners();
 		updateStepVisibility();
@@ -36,6 +38,7 @@ teners();
 ```
 
 **Implementation Notes:**
+
 - Should be implemented in `verenigingen/e_boekhouden/api/` directory
 - Requires `@frappe.whitelist()` decorator for web access
 - May need integration with existing e_boekhouden utilities
@@ -52,6 +55,7 @@ teners();
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 tion_label: 'Use Category-based (Recommended)',
 						primary_action: function() {
@@ -63,6 +67,7 @@ tion_label: 'Use Category-based (Recommended)',
 ```
 
 **Implementation Notes:**
+
 - Should be implemented in `verenigingen/e_boekhouden/api/` directory
 - Requires `@frappe.whitelist()` decorator for web access
 - May need integration with existing e_boekhouden utilities
@@ -79,6 +84,7 @@ tion_label: 'Use Category-based (Recommended)',
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 e: __('Please select suggestions to apply'),
 								indicator: 'orange'
@@ -96,6 +102,7 @@ e: __('Please select suggestions to apply'),
 ```
 
 **Implementation Notes:**
+
 - Should be implemented in `verenigingen/e_boekhouden/api/` directory
 - Requires `@frappe.whitelist()` decorator for web access
 - May need integration with existing e_boekhouden utilities
@@ -112,6 +119,7 @@ e: __('Please select suggestions to apply'),
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 iv>
         `;
@@ -129,6 +137,7 @@ iv>
 ```
 
 **Implementation Notes:**
+
 - Should be implemented in `verenigingen/e_boekhouden/api/` directory
 - Requires `@frappe.whitelist()` decorator for web access
 - May need integration with existing e_boekhouden utilities
@@ -145,6 +154,7 @@ iv>
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 Error('Failed to start migration', error);
 		}
@@ -162,6 +172,7 @@ Error('Failed to start migration', error);
 ```
 
 **Implementation Notes:**
+
 - Should be implemented in `verenigingen/e_boekhouden/api/` directory
 - Requires `@frappe.whitelist()` decorator for web access
 - May need integration with existing e_boekhouden utilities
@@ -178,6 +189,7 @@ Error('Failed to start migration', error);
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 indicator: 'red'
 			});
@@ -197,6 +209,7 @@ indicator: 'red'
 ```
 
 **Implementation Notes:**
+
 - Should be implemented in `verenigingen/e_boekhouden/api/` directory
 - Requires `@frappe.whitelist()` decorator for web access
 - May need integration with existing e_boekhouden utilities
@@ -213,6 +226,7 @@ indicator: 'red'
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 (!confirm(__('Are you sure you want to remove this mapping?'))) return;
 
@@ -227,6 +241,7 @@ indicator: 'red'
 ```
 
 **Implementation Notes:**
+
 - Should be implemented in `verenigingen/e_boekhouden/api/` directory
 - Requires `@frappe.whitelist()` decorator for web access
 - May need integration with existing e_boekhouden utilities
@@ -243,6 +258,7 @@ indicator: 'red'
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 AllMappings() {
 		if (!confirm(__('Are you sure you want to clear all mappings? This cannot be undone.'))) return;
@@ -258,6 +274,7 @@ AllMappings() {
 ```
 
 **Implementation Notes:**
+
 - Should be implemented in `verenigingen/e_boekhouden/api/` directory
 - Requires `@frappe.whitelist()` decorator for web access
 - May need integration with existing e_boekhouden utilities
@@ -274,6 +291,7 @@ AllMappings() {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 secondary_action_label: 'Use Group-based',
 						secondary_action: function() {
@@ -286,6 +304,7 @@ secondary_action_label: 'Use Group-based',
 ```
 
 **Implementation Notes:**
+
 - Should be implemented in `verenigingen/e_boekhouden/api/` directory
 - Requires `@frappe.whitelist()` decorator for web access
 - May need integration with existing e_boekhouden utilities
@@ -302,6 +321,7 @@ secondary_action_label: 'Use Group-based',
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 '</div>'
 								}]
@@ -317,6 +337,7 @@ secondary_action_label: 'Use Group-based',
 ```
 
 **Implementation Notes:**
+
 - Should be implemented in `verenigingen/e_boekhouden/api/` directory
 - Requires `@frappe.whitelist()` decorator for web access
 - May need integration with existing e_boekhouden utilities
@@ -333,6 +354,7 @@ secondary_action_label: 'Use Group-based',
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 owError('Failed to remove mapping', error);
 		}
@@ -348,6 +370,7 @@ owError('Failed to remove mapping', error);
 ```
 
 **Implementation Notes:**
+
 - Should be implemented in `verenigingen/e_boekhouden/api/` directory
 - Requires `@frappe.whitelist()` decorator for web access
 - May need integration with existing e_boekhouden utilities
@@ -364,6 +387,7 @@ owError('Failed to remove mapping', error);
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 E-Boekhouden
 	async function stageData() {
@@ -379,6 +403,7 @@ E-Boekhouden
 ```
 
 **Implementation Notes:**
+
 - Should be implemented in `verenigingen/e_boekhouden/api/` directory
 - Requires `@frappe.whitelist()` decorator for web access
 - May need integration with existing e_boekhouden utilities
@@ -395,6 +420,7 @@ E-Boekhouden
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 Migration() {
 		if (!confirm(__('Are you ready to start the migration with your current configuration?'))) return;
@@ -408,6 +434,7 @@ Migration() {
 ```
 
 **Implementation Notes:**
+
 - Should be implemented in `verenigingen/e_boekhouden/api/` directory
 - Requires `@frappe.whitelist()` decorator for web access
 - May need integration with existing e_boekhouden utilities
@@ -424,6 +451,7 @@ Migration() {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 w_alert({
 				message: __('Please provide both account code and type'),
@@ -441,6 +469,7 @@ w_alert({
 ```
 
 **Implementation Notes:**
+
 - Should be implemented in `verenigingen/e_boekhouden/api/` directory
 - Requires `@frappe.whitelist()` decorator for web access
 - May need integration with existing e_boekhouden utilities
@@ -457,6 +486,7 @@ w_alert({
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 Auto-suggest mappings
 	document.getElementById('suggest-mappings-btn').addEventListener('click', async function() {
@@ -468,6 +498,7 @@ Auto-suggest mappings
 ```
 
 **Implementation Notes:**
+
 - Should be implemented in `verenigingen/e_boekhouden/api/` directory
 - Requires `@frappe.whitelist()` decorator for web access
 - May need integration with existing e_boekhouden utilities
@@ -484,6 +515,7 @@ Auto-suggest mappings
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 || mapping.notes
 				}
@@ -499,6 +531,7 @@ Auto-suggest mappings
 ```
 
 **Implementation Notes:**
+
 - Should be implemented in `verenigingen/e_boekhouden/api/` directory
 - Requires `@frappe.whitelist()` decorator for web access
 - May need integration with existing e_boekhouden utilities
@@ -515,6 +548,7 @@ Auto-suggest mappings
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 unt_type || mapping.target_account_type,
 								priority: values.priority || mapping.priority
@@ -531,6 +565,7 @@ unt_type || mapping.target_account_type,
 ```
 
 **Implementation Notes:**
+
 - Should be implemented in `verenigingen/e_boekhouden/api/` directory
 - Requires `@frappe.whitelist()` decorator for web access
 - May need integration with existing e_boekhouden utilities
@@ -549,6 +584,7 @@ unt_type || mapping.target_account_type,
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 anger';
 			default: return 'secondary';
@@ -568,6 +604,7 @@ anger';
 ```
 
 **Implementation Notes:**
+
 - Simple data retrieval method
 - Should use `frappe.db.get_value()` or `frappe.get_doc()`
 - Add appropriate permission checks
@@ -584,6 +621,7 @@ anger';
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 case 'failed': return 'danger';
 			default: return 'secondary';
@@ -601,6 +639,7 @@ case 'failed': return 'danger';
 ```
 
 **Implementation Notes:**
+
 - Simple data retrieval method
 - Should use `frappe.db.get_value()` or `frappe.get_doc()`
 - Add appropriate permission checks
@@ -617,6 +656,7 @@ case 'failed': return 'danger';
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 type: $('#member-type-filter').val(),
 				amount_min: $('#amount-min').val(),
@@ -632,6 +672,7 @@ type: $('#member-type-filter').val(),
 ```
 
 **Implementation Notes:**
+
 - Simple data retrieval method
 - Should use `frappe.db.get_value()` or `frappe.get_doc()`
 - Add appropriate permission checks
@@ -648,6 +689,7 @@ type: $('#member-type-filter').val(),
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 </div>
         `;
@@ -665,6 +707,7 @@ type: $('#member-type-filter').val(),
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -681,6 +724,7 @@ type: $('#member-type-filter').val(),
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 }
 
@@ -699,6 +743,7 @@ type: $('#member-type-filter').val(),
 ```
 
 **Implementation Notes:**
+
 - Simple data retrieval method
 - Should use `frappe.db.get_value()` or `frappe.get_doc()`
 - Add appropriate permission checks
@@ -715,6 +760,7 @@ type: $('#member-type-filter').val(),
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 ution_', '');
 				resolutions[memberId] = value;
@@ -734,6 +780,7 @@ ution_', '');
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -752,6 +799,7 @@ ution_', '');
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 an_approve_members) {
 		frappe.msgprint(__('You do not have permission to email all members.'));
@@ -768,6 +816,7 @@ an_approve_members) {
 ```
 
 **Implementation Notes:**
+
 - Simple data retrieval method
 - Should use `frappe.db.get_value()` or `frappe.get_doc()`
 - Add appropriate permission checks
@@ -786,6 +835,7 @@ an_approve_members) {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 talCode = $('#postal_code').val();
 
@@ -799,6 +849,7 @@ talCode = $('#postal_code').val();
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -817,6 +868,7 @@ talCode = $('#postal_code').val();
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 []);
 
@@ -828,6 +880,7 @@ talCode = $('#postal_code').val();
 ```
 
 **Implementation Notes:**
+
 - Simple data retrieval method
 - Should use `frappe.db.get_value()` or `frappe.get_doc()`
 - Add appropriate permission checks
@@ -844,6 +897,7 @@ talCode = $('#postal_code').val();
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 ship_termination_request.membership_termination_request');
 
@@ -855,6 +909,7 @@ frappe.query_reports['Get Eligible Approvers'] = {
 ```
 
 **Implementation Notes:**
+
 - Simple data retrieval method
 - Should use `frappe.db.get_value()` or `frappe.get_doc()`
 - Add appropriate permission checks
@@ -871,6 +926,7 @@ frappe.query_reports['Get Eligible Approvers'] = {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 ription: __('Filter by specific chapter (optional)')
 			}
@@ -882,6 +938,7 @@ ription: __('Filter by specific chapter (optional)')
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -898,6 +955,7 @@ ription: __('Filter by specific chapter (optional)')
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 '• ' + __('End all board/committee positions') + '<br>' +
         '• ' + __('Update membership status'),
@@ -912,6 +970,7 @@ ription: __('Filter by specific chapter (optional)')
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -928,6 +987,7 @@ ription: __('Filter by specific chapter (optional)')
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 n'];
 			const is_disciplinary = disciplinary_types.includes(values.termination_type);
@@ -939,6 +999,7 @@ n'];
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -957,6 +1018,7 @@ n'];
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 r-radius: 0 5px 5px 0;
                 }
@@ -975,6 +1037,7 @@ function show_debug_postal_code_info(frm) {
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -993,6 +1056,7 @@ function show_debug_postal_code_info(frm) {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 .show();
 }
@@ -1009,6 +1073,7 @@ function show_volunteer_timeline(frm) {
 ```
 
 **Implementation Notes:**
+
 - Simple data retrieval method
 - Should use `frappe.db.get_value()` or `frappe.get_doc()`
 - Add appropriate permission checks
@@ -1025,6 +1090,7 @@ function show_volunteer_timeline(frm) {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 unction create_volunteer_from_member(frm) {
 	frappe.confirm(
@@ -1039,6 +1105,7 @@ unction create_volunteer_from_member(frm) {
 ```
 
 **Implementation Notes:**
+
 - Data creation operation
 - Validate input parameters
 - Use `frappe.get_doc()` and `doc.insert()`
@@ -1057,6 +1124,7 @@ unction create_volunteer_from_member(frm) {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 button(__('Create Payment Entry'), function() {
 				frm.events.make_payment_entry(frm);
@@ -1074,6 +1142,7 @@ button(__('Create Payment Entry'), function() {
 ```
 
 **Implementation Notes:**
+
 - Simple data retrieval method
 - Should use `frappe.db.get_value()` or `frappe.get_doc()`
 - Add appropriate permission checks
@@ -1090,6 +1159,7 @@ button(__('Create Payment Entry'), function() {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 ) {
 					frappe.msgprint(__('Error adding board member: {0}', [r.message]));
@@ -1114,6 +1184,7 @@ function show_board_history(frm) {
 ```
 
 **Implementation Notes:**
+
 - Simple data retrieval method
 - Should use `frappe.db.get_value()` or `frappe.get_doc()`
 - Add appropriate permission checks
@@ -1130,6 +1201,7 @@ function show_board_history(frm) {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 tails
 				frm.set_value('member', membership.member);
@@ -1146,6 +1218,7 @@ tails
 ```
 
 **Implementation Notes:**
+
 - Simple data retrieval method
 - Should use `frappe.db.get_value()` or `frappe.get_doc()`
 - Add appropriate permission checks
@@ -1162,6 +1235,7 @@ tails
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 using dues schedule system
 
@@ -1179,6 +1253,7 @@ function load_impact_preview(frm) {
 ```
 
 **Implementation Notes:**
+
 - Simple data retrieval method
 - Should use `frappe.db.get_value()` or `frappe.get_doc()`
 - Add appropriate permission checks
@@ -1195,6 +1270,7 @@ function load_impact_preview(frm) {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 ee_override_by"]').show();
 		}, 100);
@@ -1214,6 +1290,7 @@ function show_fee_details_dialog(frm) {
 ```
 
 **Implementation Notes:**
+
 - Simple data retrieval method
 - Should use `frappe.db.get_value()` or `frappe.get_doc()`
 - Add appropriate permission checks
@@ -1230,6 +1307,7 @@ function show_fee_details_dialog(frm) {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 ssignments-header"><h4>' + __('Current Assignments') + '</h4></div>').appendTo(assignments_container);
 
@@ -1243,6 +1321,7 @@ ssignments-header"><h4>' + __('Current Assignments') + '</h4></div>').appendTo(a
 ```
 
 **Implementation Notes:**
+
 - Simple data retrieval method
 - Should use `frappe.db.get_value()` or `frappe.get_doc()`
 - Add appropriate permission checks
@@ -1259,6 +1338,7 @@ ssignments-header"><h4>' + __('Current Assignments') + '</h4></div>').appendTo(a
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 Use Promise.all to fetch data concurrently
 		const [skillsResult, assignmentsResult] = await Promise.all([
@@ -1272,6 +1352,7 @@ Use Promise.all to fetch data concurrently
 ```
 
 **Implementation Notes:**
+
 - Simple data retrieval method
 - Should use `frappe.db.get_value()` or `frappe.get_doc()`
 - Add appropriate permission checks
@@ -1288,6 +1369,7 @@ Use Promise.all to fetch data concurrently
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 ,
 					message: r.message ? r.message.error : 'Unknown error',
@@ -1307,6 +1389,7 @@ function show_migration_statistics() {
 ```
 
 **Implementation Notes:**
+
 - Simple data retrieval method
 - Should use `frappe.db.get_value()` or `frappe.get_doc()`
 - Add appropriate permission checks
@@ -1323,6 +1406,7 @@ function show_migration_statistics() {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 Schedule system.
 
@@ -1341,6 +1425,7 @@ function process_payment(frm) {
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -1357,6 +1442,7 @@ function process_payment(frm) {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 _bank_dialog(frm) {
 	frappe.confirm(
@@ -1372,6 +1458,7 @@ _bank_dialog(frm) {
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -1388,6 +1475,7 @@ _bank_dialog(frm) {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 let start_id = values.start_id;
 							let end_id = values.test_mode ? Math.min(values.start_id + 100, values.end_id) : values.end_id;
@@ -1400,6 +1488,7 @@ let start_id = values.start_id;
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -1416,6 +1505,7 @@ let start_id = values.start_id;
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 ction apply_amendment(frm) {
 	frappe.confirm(
@@ -1430,6 +1520,7 @@ ction apply_amendment(frm) {
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -1446,6 +1537,7 @@ ction apply_amendment(frm) {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 ction_label: 'Apply Fixes',
 												primary_action: function() {
@@ -1458,6 +1550,7 @@ ction_label: 'Apply Fixes',
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -1474,6 +1567,7 @@ ction_label: 'Apply Fixes',
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 el: __('Send Welcome Email'),
 						default: 1
@@ -1489,6 +1583,7 @@ el: __('Send Welcome Email'),
 ```
 
 **Implementation Notes:**
+
 - Data creation operation
 - Validate input parameters
 - Use `frappe.get_doc()` and `doc.insert()`
@@ -1505,6 +1600,7 @@ el: __('Send Welcome Email'),
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 }
 		],
@@ -1523,6 +1619,7 @@ el: __('Send Welcome Email'),
 ```
 
 **Implementation Notes:**
+
 - Data creation operation
 - Validate input parameters
 - Use `frappe.get_doc()` and `doc.insert()`
@@ -1539,6 +1636,7 @@ el: __('Send Welcome Email'),
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 Small Text',
 				label: __('Notes')
@@ -1558,6 +1656,7 @@ Small Text',
 ```
 
 **Implementation Notes:**
+
 - Data creation operation
 - Validate input parameters
 - Use `frappe.get_doc()` and `doc.insert()`
@@ -1574,6 +1673,7 @@ Small Text',
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 unction() {
 			frappe.confirm(
@@ -1586,6 +1686,7 @@ unction() {
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -1602,6 +1703,7 @@ unction() {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 ry again.'));
 		}
@@ -1621,6 +1723,7 @@ function mark_as_paid(frm) {
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -1637,6 +1740,7 @@ function mark_as_paid(frm) {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 }
 }
@@ -1657,6 +1761,7 @@ function refresh_membership_dues_info(frm) {
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -1673,6 +1778,7 @@ function refresh_membership_dues_info(frm) {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 for disciplinary terminations'));
 		}
@@ -1693,6 +1799,7 @@ function submit_for_approval(frm) {
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -1709,6 +1816,7 @@ function submit_for_approval(frm) {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 ision}" === "approved"`
 			}
@@ -1726,6 +1834,7 @@ ision}" === "approved"`
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -1742,6 +1851,7 @@ ision}" === "approved"`
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 nactive')) + '</span></td>';
 		html += '</tr>';
@@ -1761,6 +1871,7 @@ function sync_board_with_volunteers(frm) {
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -1777,6 +1888,7 @@ function sync_board_with_volunteers(frm) {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 {
 					fieldname: 'reversal_reason',
@@ -1795,6 +1907,7 @@ function sync_board_with_volunteers(frm) {
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -1811,6 +1924,7 @@ function sync_board_with_volunteers(frm) {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 s'),
 			fieldname: 'approval_notes',
@@ -1829,6 +1943,7 @@ s'),
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -1845,6 +1960,7 @@ s'),
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 'rejection_reason',
 			fieldtype: 'Small Text',
@@ -1862,6 +1978,7 @@ s'),
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -1878,6 +1995,7 @@ s'),
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 ction use)')
 			}
@@ -1896,6 +2014,7 @@ ction use)')
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -1912,6 +2031,7 @@ ction use)')
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 : __('Process Payments'),
 		primary_action(values) {
@@ -1928,6 +2048,7 @@ ction use)')
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -1944,6 +2065,7 @@ ction use)')
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 title: __('Link Donation to Agreement'),
 					fields: fields,
@@ -1959,6 +2081,7 @@ title: __('Link Donation to Agreement'),
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -1975,6 +2098,7 @@ title: __('Link Donation to Agreement'),
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 function(values) {
 			frappe.confirm(
@@ -1991,6 +2115,7 @@ function(values) {
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -2007,6 +2132,7 @@ function(values) {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 t',
 				label: __('Notes')
@@ -2026,6 +2152,7 @@ t',
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -2042,6 +2169,7 @@ t',
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 e ? r.message.error : 'Unknown error',
 								indicator: 'red'
@@ -2062,6 +2190,7 @@ function test_api_connection() {
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -2078,6 +2207,7 @@ function test_api_connection() {
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 yze Accounts',
 						primary_action: function() {
@@ -2090,6 +2220,7 @@ yze Accounts',
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -2106,6 +2237,7 @@ yze Accounts',
 - **Recommended Action**: Add missing method
 
 **Context Preview:**
+
 ```javascript
 hapter saved successfully'),
 		indicator: 'green'
@@ -2126,6 +2258,7 @@ function validate_postal_codes(frm) {
 ```
 
 **Implementation Notes:**
+
 - Implement with appropriate business logic
 - Add input validation and error handling
 - Ensure proper permission checks
@@ -2136,6 +2269,7 @@ function validate_postal_codes(frm) {
 ## Implementation Priorities
 
 ### High Priority (Production Critical)
+
 These methods are likely being called in production interfaces:
 
 - `verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_termination_statistics` (Data Retrieval) - Easy complexity
@@ -2150,6 +2284,7 @@ These methods are likely being called in production interfaces:
 - `verenigingen.api.dd_batch_api.get_eligible_invoices` (Data Retrieval) - Easy complexity
 
 ### Medium Priority (Feature Enhancements)
+
 E-Boekhouden migration interface methods:
 
 - `verenigingen.e_boekhouden.api.get_migration_config_status` (Status Check) - Easy complexity
@@ -2160,6 +2295,7 @@ E-Boekhouden migration interface methods:
 - ... and 12 more e_boekhouden methods
 
 ### Low Priority (Optional Features)
+
 Other missing methods that may be legacy or test functions.
 
 ## Next Steps
@@ -2171,5 +2307,6 @@ Other missing methods that may be legacy or test functions.
 5. **Update Documentation**: Document new API endpoints as they're implemented
 
 ## Files Generated
+
 - **Detailed CSV**: `docs/validation/enhanced-js-calls-review.csv`
 - **Implementation Tracker**: Use this markdown file to track progress

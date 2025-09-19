@@ -1,7 +1,9 @@
 # Membership Dues System - Detailed Implementation Guide V2
-*Updated: January 2025 - Incorporating SEPA Direct Debit Requirements*
+
+_Updated: January 2025 - Incorporating SEPA Direct Debit Requirements_
 
 ## Table of Contents
+
 1. [System Architecture Details](#system-architecture-details)
 2. [SEPA Integration & Batch Processing](#sepa-integration--batch-processing)
 3. [Data Model & Relationships](#data-model--relationships)
@@ -16,6 +18,7 @@
 ## 1. System Architecture Details
 
 ### Core Philosophy
+
 The system treats memberships as **perpetual relationships** with **periodic financial obligations**, using a custom dues schedule system. Members pay dues based on their approval date anniversary, collected via monthly SEPA batches.
 
 ### Key Design Principles
@@ -37,7 +40,7 @@ The system treats memberships as **perpetual relationships** with **periodic fin
    - No proration - full period payment
    - Clear invoice coverage dates
 
-3. **Manual Review Focus**
+4. **Manual Review Focus**
    - All payment failures require manual review
    - No automatic suspensions
    - PSP/Tikkie fallback options available
@@ -925,167 +928,238 @@ def map_r_code_to_type(r_code):
 ```html
 <!-- Membership Application - Payment Step (FINAL step before submission) -->
 <div class="payment-setup-step">
-    <h3>Step 4: Payment & Submission</h3>
+  <h3>Step 4: Payment & Submission</h3>
 
-    <!-- Application Summary -->
-    <div class="application-summary">
-        <h4>Application Summary</h4>
-        <p>Please review your application details before making payment.</p>
-        <div class="summary-details">
-            <p><strong>Name:</strong> {{ applicant_name }}</p>
-            <p><strong>Chapter:</strong> {{ selected_chapter }}</p>
-            <p><strong>Membership Type:</strong> {{ membership_type }}</p>
+  <!-- Application Summary -->
+  <div class="application-summary">
+    <h4>Application Summary</h4>
+    <p>Please review your application details before making payment.</p>
+    <div class="summary-details">
+      <p><strong>Name:</strong> {{ applicant_name }}</p>
+      <p><strong>Chapter:</strong> {{ selected_chapter }}</p>
+      <p><strong>Membership Type:</strong> {{ membership_type }}</p>
+    </div>
+  </div>
+
+  <!-- SEPA Mandate Setup (MUST be completed first) -->
+  <div class="sepa-mandate-section">
+    <h4>1. Setup Recurring Payments - SEPA Direct Debit</h4>
+    <p>
+      We'll collect your monthly membership dues automatically via SEPA direct
+      debit.
+    </p>
+
+    <div class="sepa-details">
+      <div class="form-group">
+        <label>Account Holder Name*</label>
+        <input type="text" name="account_holder" required />
+        <small>Name on the bank account</small>
+      </div>
+
+      <div class="form-group">
+        <label>IBAN*</label>
+        <input
+          type="text"
+          name="iban"
+          pattern="[A-Z]{2}[0-9]{2}[A-Z0-9]+"
+          required
+        />
+        <small>Dutch IBAN starting with NL</small>
+      </div>
+
+      <div class="mandate-info alert alert-info">
+        <h5><i class="fa fa-info-circle"></i> SEPA Direct Debit Mandate</h5>
+        <p>
+          By providing your IBAN and confirming below, you authorize {{
+          organization_name }} to:
+        </p>
+        <ul>
+          <li>
+            Collect monthly membership dues of €{{ monthly_amount }} from your
+            account
+          </li>
+          <li>
+            First SEPA collection will be on {{ first_sepa_date }} (after
+            approval)
+          </li>
+          <li>
+            You'll receive 5 days notice for the first collection, 2 days for
+            recurring
+          </li>
+        </ul>
+
+        <div class="mandate-details">
+          <small>
+            <strong>Creditor ID:</strong> {{ creditor_id }}<br />
+            <strong>Mandate Reference:</strong> Will be assigned upon
+            approval<br />
+            <strong>Your Rights:</strong> You can cancel this mandate at any
+            time through your bank
+          </small>
         </div>
+
+        <label class="consent-checkbox">
+          <input
+            type="checkbox"
+            name="sepa_consent"
+            required
+            onchange="checkPaymentReady()"
+          />
+          <strong
+            >I authorize {{ organization_name }} to collect membership dues via
+            SEPA Direct Debit</strong
+          >
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- First Payment (REQUIRED to submit) -->
+  <div
+    class="first-payment-section"
+    id="firstPaymentSection"
+    style="opacity: 0.5; pointer-events: none;"
+  >
+    <h4>2. First Payment Required</h4>
+    <div class="alert alert-warning">
+      <i class="fa fa-exclamation-triangle"></i>
+      <strong>Important:</strong> Your application will only be submitted after
+      successful payment.
     </div>
 
-    <!-- SEPA Mandate Setup (MUST be completed first) -->
-    <div class="sepa-mandate-section">
-        <h4>1. Setup Recurring Payments - SEPA Direct Debit</h4>
-        <p>We'll collect your monthly membership dues automatically via SEPA direct debit.</p>
+    <p>
+      Pay your first membership fee of
+      <strong>€{{ first_payment_amount }}</strong> covering {{ coverage_period
+      }}.
+    </p>
 
-        <div class="sepa-details">
-            <div class="form-group">
-                <label>Account Holder Name*</label>
-                <input type="text" name="account_holder" required>
-                <small>Name on the bank account</small>
-            </div>
-
-            <div class="form-group">
-                <label>IBAN*</label>
-                <input type="text" name="iban" pattern="[A-Z]{2}[0-9]{2}[A-Z0-9]+" required>
-                <small>Dutch IBAN starting with NL</small>
-            </div>
-
-            <div class="mandate-info alert alert-info">
-                <h5><i class="fa fa-info-circle"></i> SEPA Direct Debit Mandate</h5>
-                <p>By providing your IBAN and confirming below, you authorize {{ organization_name }} to:</p>
-                <ul>
-                    <li>Collect monthly membership dues of €{{ monthly_amount }} from your account</li>
-                    <li>First SEPA collection will be on {{ first_sepa_date }} (after approval)</li>
-                    <li>You'll receive 5 days notice for the first collection, 2 days for recurring</li>
-                </ul>
-
-                <div class="mandate-details">
-                    <small>
-                        <strong>Creditor ID:</strong> {{ creditor_id }}<br>
-                        <strong>Mandate Reference:</strong> Will be assigned upon approval<br>
-                        <strong>Your Rights:</strong> You can cancel this mandate at any time through your bank
-                    </small>
-                </div>
-
-                <label class="consent-checkbox">
-                    <input type="checkbox" name="sepa_consent" required onchange="checkPaymentReady()">
-                    <strong>I authorize {{ organization_name }} to collect membership dues via SEPA Direct Debit</strong>
-                </label>
-            </div>
-        </div>
+    <div class="payment-options">
+      <label class="payment-option">
+        <input type="radio" name="first_payment" value="ideal" checked />
+        <i class="fa fa-bank"></i> iDEAL
+        <span class="badge badge-success">Instant</span>
+      </label>
+      <label class="payment-option">
+        <input type="radio" name="first_payment" value="tikkie" />
+        <i class="fa fa-mobile"></i> Tikkie
+        <span class="badge badge-info">Mobile</span>
+      </label>
     </div>
 
-    <!-- First Payment (REQUIRED to submit) -->
-    <div class="first-payment-section" id="firstPaymentSection" style="opacity: 0.5; pointer-events: none;">
-        <h4>2. First Payment Required</h4>
-        <div class="alert alert-warning">
-            <i class="fa fa-exclamation-triangle"></i>
-            <strong>Important:</strong> Your application will only be submitted after successful payment.
-        </div>
-
-        <p>Pay your first membership fee of <strong>€{{ first_payment_amount }}</strong> covering {{ coverage_period }}.</p>
-
-        <div class="payment-options">
-            <label class="payment-option">
-                <input type="radio" name="first_payment" value="ideal" checked>
-                <i class="fa fa-bank"></i> iDEAL
-                <span class="badge badge-success">Instant</span>
-            </label>
-            <label class="payment-option">
-                <input type="radio" name="first_payment" value="tikkie">
-                <i class="fa fa-mobile"></i> Tikkie
-                <span class="badge badge-info">Mobile</span>
-            </label>
-        </div>
-
-        <div class="payment-note">
-            <p><small><i class="fa fa-shield"></i> Secure payment processed by {{ psp_provider }}</small></p>
-            <p><small><i class="fa fa-undo"></i> Refunds available if your application is not approved*</small></p>
-        </div>
-
-        <button class="btn btn-success btn-lg" onclick="processFirstPaymentAndSubmit()" disabled id="payButton">
-            <i class="fa fa-lock"></i> Pay €{{ first_payment_amount }} & Submit Application
-        </button>
+    <div class="payment-note">
+      <p>
+        <small
+          ><i class="fa fa-shield"></i> Secure payment processed by {{
+          psp_provider }}</small
+        >
+      </p>
+      <p>
+        <small
+          ><i class="fa fa-undo"></i> Refunds available if your application is
+          not approved*</small
+        >
+      </p>
     </div>
 
-    <!-- Terms -->
-    <div class="terms-section">
-        <small>
-            * Refunds are processed for rejections due to eligibility issues, incomplete documentation, or board discretion.
-            Refunds may not be issued for fraudulent applications or deliberate misrepresentation.
-        </small>
-    </div>
+    <button
+      class="btn btn-success btn-lg"
+      onclick="processFirstPaymentAndSubmit()"
+      disabled
+      id="payButton"
+    >
+      <i class="fa fa-lock"></i> Pay €{{ first_payment_amount }} & Submit
+      Application
+    </button>
+  </div>
+
+  <!-- Terms -->
+  <div class="terms-section">
+    <small>
+      * Refunds are processed for rejections due to eligibility issues,
+      incomplete documentation, or board discretion. Refunds may not be issued
+      for fraudulent applications or deliberate misrepresentation.
+    </small>
+  </div>
 </div>
 
 <script>
-function checkPaymentReady() {
-    const sepaConsent = document.querySelector('input[name="sepa_consent"]').checked;
+  function checkPaymentReady() {
+    const sepaConsent = document.querySelector(
+      'input[name="sepa_consent"]',
+    ).checked;
     const iban = document.querySelector('input[name="iban"]').value;
-    const accountHolder = document.querySelector('input[name="account_holder"]').value;
+    const accountHolder = document.querySelector(
+      'input[name="account_holder"]',
+    ).value;
 
     if (sepaConsent && iban && accountHolder) {
-        // Enable payment section
-        document.getElementById('firstPaymentSection').style.opacity = '1';
-        document.getElementById('firstPaymentSection').style.pointerEvents = 'auto';
-        document.getElementById('payButton').disabled = false;
+      // Enable payment section
+      document.getElementById("firstPaymentSection").style.opacity = "1";
+      document.getElementById("firstPaymentSection").style.pointerEvents =
+        "auto";
+      document.getElementById("payButton").disabled = false;
     } else {
-        // Disable payment section
-        document.getElementById('firstPaymentSection').style.opacity = '0.5';
-        document.getElementById('firstPaymentSection').style.pointerEvents = 'none';
-        document.getElementById('payButton').disabled = true;
+      // Disable payment section
+      document.getElementById("firstPaymentSection").style.opacity = "0.5";
+      document.getElementById("firstPaymentSection").style.pointerEvents =
+        "none";
+      document.getElementById("payButton").disabled = true;
     }
-}
+  }
 
-async function processFirstPaymentAndSubmit() {
+  async function processFirstPaymentAndSubmit() {
     // Validate all required fields
     if (!validateApplicationForm()) {
-        return;
+      return;
     }
 
     // Disable button to prevent double submission
-    const button = document.getElementById('payButton');
+    const button = document.getElementById("payButton");
     button.disabled = true;
     button.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Processing...';
 
     try {
-        // 1. Create application with SEPA details
-        const applicationData = collectApplicationData();
-        const response = await createApplication(applicationData);
+      // 1. Create application with SEPA details
+      const applicationData = collectApplicationData();
+      const response = await createApplication(applicationData);
 
-        if (response.success) {
-            // 2. Process payment
-            const paymentMethod = document.querySelector('input[name="first_payment"]:checked').value;
-            const paymentResult = await processPayment(response.payment_request, paymentMethod);
+      if (response.success) {
+        // 2. Process payment
+        const paymentMethod = document.querySelector(
+          'input[name="first_payment"]:checked',
+        ).value;
+        const paymentResult = await processPayment(
+          response.payment_request,
+          paymentMethod,
+        );
 
-            if (paymentResult.success) {
-                // 3. Show success and redirect
-                showSuccessMessage();
-                setTimeout(() => {
-                    window.location.href = '/application-submitted?id=' + response.application;
-                }, 2000);
-            } else {
-                // Payment failed
-                showError('Payment failed: ' + paymentResult.error);
-                button.disabled = false;
-                button.innerHTML = '<i class="fa fa-lock"></i> Pay €{{ first_payment_amount }} & Submit Application';
-            }
+        if (paymentResult.success) {
+          // 3. Show success and redirect
+          showSuccessMessage();
+          setTimeout(() => {
+            window.location.href =
+              "/application-submitted?id=" + response.application;
+          }, 2000);
         } else {
-            showError('Could not create application: ' + response.error);
-            button.disabled = false;
-            button.innerHTML = '<i class="fa fa-lock"></i> Pay €{{ first_payment_amount }} & Submit Application';
+          // Payment failed
+          showError("Payment failed: " + paymentResult.error);
+          button.disabled = false;
+          button.innerHTML =
+            '<i class="fa fa-lock"></i> Pay €{{ first_payment_amount }} & Submit Application';
         }
-    } catch (error) {
-        showError('An error occurred. Please try again.');
+      } else {
+        showError("Could not create application: " + response.error);
         button.disabled = false;
-        button.innerHTML = '<i class="fa fa-lock"></i> Pay €{{ first_payment_amount }} & Submit Application';
+        button.innerHTML =
+          '<i class="fa fa-lock"></i> Pay €{{ first_payment_amount }} & Submit Application';
+      }
+    } catch (error) {
+      showError("An error occurred. Please try again.");
+      button.disabled = false;
+      button.innerHTML =
+        '<i class="fa fa-lock"></i> Pay €{{ first_payment_amount }} & Submit Application';
     }
-}
+  }
 </script>
 ```
 
@@ -1094,87 +1168,90 @@ async function processFirstPaymentAndSubmit() {
 ```html
 <!-- Enhanced Member Payment Dashboard -->
 <div class="member-payment-dashboard">
-    <!-- Payment Status Card -->
-    <div class="payment-status-card">
-        <div class="status-header {{ payment_status_class }}">
-            <i class="fa fa-{{ payment_status_icon }}"></i>
-            <h3>{{ payment_status_text }}</h3>
-        </div>
-
-        {% if payment_status == "active" %}
-        <div class="payment-details">
-            <p>Your membership is active through {{ coverage_end_date }}</p>
-            <p>Next payment: €{{ next_amount }} on {{ next_payment_date }}</p>
-
-            <div class="payment-method">
-                <strong>Payment Method:</strong> SEPA Direct Debit
-                <br>
-                <small>IBAN: ****{{ iban_last_4 }}</small>
-                <a href="#" onclick="updatePaymentMethod()">Change</a>
-            </div>
-        </div>
-
-        {% elif payment_status == "pending_review" %}
-        <div class="alert alert-warning">
-            <p>Your recent payment could not be processed.</p>
-            <p>Our team is reviewing this and will contact you soon.</p>
-
-            <div class="action-buttons">
-                <button class="btn btn-primary" onclick="payWithAlternativeMethod()">
-                    Pay Now with Alternative Method
-                </button>
-                <button class="btn btn-secondary" onclick="contactTreasurer()">
-                    Contact Treasurer
-                </button>
-            </div>
-        </div>
-        {% endif %}
+  <!-- Payment Status Card -->
+  <div class="payment-status-card">
+    <div class="status-header {{ payment_status_class }}">
+      <i class="fa fa-{{ payment_status_icon }}"></i>
+      <h3>{{ payment_status_text }}</h3>
     </div>
 
-    <!-- Coverage Period Display -->
-    <div class="coverage-display">
-        <h4>Current Membership Period</h4>
-        <div class="period-visual">
-            <div class="period-bar">
-                <div class="period-progress" style="width: {{ coverage_progress }}%"></div>
-            </div>
-            <div class="period-dates">
-                <span>{{ coverage_start }}</span>
-                <span>{{ coverage_end }}</span>
-            </div>
-        </div>
+    {% if payment_status == "active" %}
+    <div class="payment-details">
+      <p>Your membership is active through {{ coverage_end_date }}</p>
+      <p>Next payment: €{{ next_amount }} on {{ next_payment_date }}</p>
+
+      <div class="payment-method">
+        <strong>Payment Method:</strong> SEPA Direct Debit
+        <br />
+        <small>IBAN: ****{{ iban_last_4 }}</small>
+        <a href="#" onclick="updatePaymentMethod()">Change</a>
+      </div>
     </div>
 
-    <!-- Payment History -->
-    <div class="payment-history">
-        <h4>Payment History</h4>
-        <table class="table">
-            <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>Period</th>
-                    <th>Amount</th>
-                    <th>Method</th>
-                    <th>Status</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for payment in payment_history %}
-                <tr>
-                    <td>{{ payment.date }}</td>
-                    <td>{{ payment.coverage_start }} - {{ payment.coverage_end }}</td>
-                    <td>€{{ payment.amount }}</td>
-                    <td>{{ payment.method }}</td>
-                    <td>
-                        <span class="badge badge-{{ payment.status_class }}">
-                            {{ payment.status }}
-                        </span>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    {% elif payment_status == "pending_review" %}
+    <div class="alert alert-warning">
+      <p>Your recent payment could not be processed.</p>
+      <p>Our team is reviewing this and will contact you soon.</p>
+
+      <div class="action-buttons">
+        <button class="btn btn-primary" onclick="payWithAlternativeMethod()">
+          Pay Now with Alternative Method
+        </button>
+        <button class="btn btn-secondary" onclick="contactTreasurer()">
+          Contact Treasurer
+        </button>
+      </div>
     </div>
+    {% endif %}
+  </div>
+
+  <!-- Coverage Period Display -->
+  <div class="coverage-display">
+    <h4>Current Membership Period</h4>
+    <div class="period-visual">
+      <div class="period-bar">
+        <div
+          class="period-progress"
+          style="width: {{ coverage_progress }}%"
+        ></div>
+      </div>
+      <div class="period-dates">
+        <span>{{ coverage_start }}</span>
+        <span>{{ coverage_end }}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Payment History -->
+  <div class="payment-history">
+    <h4>Payment History</h4>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Period</th>
+          <th>Amount</th>
+          <th>Method</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for payment in payment_history %}
+        <tr>
+          <td>{{ payment.date }}</td>
+          <td>{{ payment.coverage_start }} - {{ payment.coverage_end }}</td>
+          <td>€{{ payment.amount }}</td>
+          <td>{{ payment.method }}</td>
+          <td>
+            <span class="badge badge-{{ payment.status_class }}">
+              {{ payment.status }}
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 ```
 
@@ -1280,6 +1357,7 @@ def validate_member_eligibility_for_billing(member):
 ### 6.2 Test Requirements for Member Status Validation
 
 **Critical Test Cases:**
+
 1. **Member quits after batch creation but before processing** - Must not be charged
 2. **Member expelled after dues schedule created** - Must not be charged
 3. **Member marked deceased** - Must not be charged
@@ -1289,6 +1367,7 @@ def validate_member_eligibility_for_billing(member):
 7. **Timeline validation** - Member status changes between batch creation and execution
 
 **Test Implementation:**
+
 ```python
 def test_terminated_member_exclusion_from_batch():
     """Test that terminated members are excluded from DD batches"""
@@ -1325,7 +1404,8 @@ def test_post_batch_creation_termination():
     # Verify no charge was processed
     assert no_payment_entry_created_for_member(member)
 ```
-```
+
+````
 
 ### 6.2 SEPA Batch File Generation
 
@@ -1400,7 +1480,7 @@ def generate_sepa_xml(batch):
     batch.save()
 
     return file_doc
-```
+````
 
 ---
 
@@ -1649,6 +1729,7 @@ def chapter_payment_failure_workflow(failure_log):
 ## 8. Key Differences from Original Plan
 
 ### What's Changed:
+
 1. **Payment-first application** - First payment and SEPA consent required BEFORE approval
 2. **No automatic retry** on payment failures - all go to manual review
 3. **Simplified batch timing** - No complex cutoff calculations
@@ -1659,12 +1740,14 @@ def chapter_payment_failure_workflow(failure_log):
 8. **PSP for first payment** while SEPA for recurring
 
 ### What's Simplified:
+
 1. **Removed cutoff date logic** - New members always pay via PSP first, join SEPA next month
 2. **Cleaner separation** - Invoice generation (1st) vs batch creation (flexible)
 3. **Straightforward FRST/RCUR** - First SEPA is always FRST, determined by mandate history
 4. **Manual control** - Treasurer decides when to create batch within pre-notification limits
 
 ### What's Added:
+
 1. **Application payment flow** - Complete payment handling during application
 2. **Invoice generation during application** - Clean financial records from start
 3. **Refund eligibility logic** - Clear rules for when refunds are processed
@@ -1675,6 +1758,7 @@ def chapter_payment_failure_workflow(failure_log):
 8. **Chapter-level financial administration** - Board members with financial admin flag can review failures
 
 ### Critical Process Changes:
+
 1. **Application cannot be submitted without payment** - Ensures commitment
 2. **SEPA mandate created at application time** - Not after approval
 3. **First invoice created and paid during application** - Not after approval
@@ -1724,6 +1808,7 @@ When we originally analyzed ERPNext's core functionality, here were the consider
    - Multi-plan subscriptions
    - Usage-based billing
    - Tiered pricing support
+
 #### **Accounting Integration Risks:**
 
 ### 9.2 Recommended Hybrid Approach
@@ -1733,6 +1818,7 @@ To mitigate these risks while maintaining our SEPA-specific requirements:
 #### **Use ERPNext Core For:**
 
 1. **Invoice Generation**
+
    ```python
    def generate_membership_invoice(member, dues_schedule):
        # USE ERPNEXT's make_sales_invoice
@@ -1755,6 +1841,7 @@ To mitigate these risks while maintaining our SEPA-specific requirements:
    ```
 
 2. **Payment Processing**
+
    ```python
    def create_payment_entry_for_invoice(invoice, payment_ref):
        # USE ERPNEXT's get_payment_entry
@@ -1796,6 +1883,7 @@ To mitigate these risks while maintaining our SEPA-specific requirements:
    - Enhance with custom dashboards
 
 3. **Critical Integration Points**
+
    ```python
    # Always use ERPNext's methods for:
    frappe.get_doc("Sales Invoice").submit()  # Triggers all validations
@@ -1865,6 +1953,7 @@ After analyzing the current codebase, there is **already a comprehensive SEPA Di
 #### **⚠️ Current Limitations:**
 
 1. **Simplified FRST/RCUR Logic**
+
    ```python
    # Current implementation in dd_batch_optimizer.py
    def determine_batch_type(batch_invoices):
@@ -1874,6 +1963,7 @@ After analyzing the current codebase, there is **already a comprehensive SEPA Di
                return "FRST"
        return "RCUR"
    ```
+
    - Uses a simple 30-day rule instead of proper mandate history tracking
    - All invoices in a batch get the same FRST/RCUR type
    - No individual mandate usage tracking
@@ -2010,6 +2100,7 @@ class SEPAMandateUsage(Document):
 #### **Phase 4: Integration Points**
 
 **Extend existing batch creation:**
+
 ```python
 # Modify existing dd_batch_optimizer.py
 def create_dd_batch_document(batch_invoices, target_date, batch_number, config):
@@ -2042,6 +2133,7 @@ def create_dd_batch_document(batch_invoices, target_date, batch_number, config):
 ```
 
 **Enhance existing reconciliation:**
+
 ```python
 # Extend existing sepa_reconciliation.py
 def reconcile_full_sepa_batch(bank_transaction, sepa_batch):

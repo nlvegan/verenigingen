@@ -19,13 +19,13 @@ The Verenigingen API Security Framework provides a comprehensive, production-rea
 
 The framework defines five security classification levels:
 
-| Level | Use Case | Controls Applied |
-|-------|----------|------------------|
+| Level        | Use Case                                      | Controls Applied                                               |
+| ------------ | --------------------------------------------- | -------------------------------------------------------------- |
 | **CRITICAL** | Financial transactions, system administration | Multi-factor auth, IP restrictions, CSRF, rate limiting, audit |
-| **HIGH** | Member data operations, batch processing | Role-based auth, CSRF, rate limiting, audit logging |
-| **MEDIUM** | Reporting, analytics, read operations | Basic authentication, input validation, standard logging |
-| **LOW** | Utility functions, health checks | Minimal authentication, basic validation |
-| **PUBLIC** | Public information, documentation | No authentication required, rate limiting only |
+| **HIGH**     | Member data operations, batch processing      | Role-based auth, CSRF, rate limiting, audit logging            |
+| **MEDIUM**   | Reporting, analytics, read operations         | Basic authentication, input validation, standard logging       |
+| **LOW**      | Utility functions, health checks              | Minimal authentication, basic validation                       |
+| **PUBLIC**   | Public information, documentation             | No authentication required, rate limiting only                 |
 
 ### Operation Types
 
@@ -220,11 +220,13 @@ bench --site dev.veganisme.net execute verenigingen.utils.security.api_classifie
 ```
 
 **Target APIs:**
+
 - All SEPA batch operations (`verenigingen/api/sepa_*`)
 - Payment processing (`verenigingen/api/payment_*`)
 - Administrative functions (`verenigingen/api/*admin*`, `verenigingen/api/*manage*`)
 
 **Implementation:**
+
 ```python
 # Example: Secure SEPA batch creation
 @frappe.whitelist()
@@ -239,6 +241,7 @@ def create_sepa_batch_validated(**batch_data):
 **Priority 2 - Member Data & Core Operations**
 
 **Target APIs:**
+
 - Member creation/modification operations
 - Volunteer management functions
 - Chapter administration
@@ -249,6 +252,7 @@ def create_sepa_batch_validated(**batch_data):
 **Priority 3 - Reporting & Analytics**
 
 **Target APIs:**
+
 - Report generation endpoints
 - Analytics dashboards
 - Data export functions
@@ -259,6 +263,7 @@ def create_sepa_batch_validated(**batch_data):
 **Priority 4 - Remaining Operations**
 
 **Target APIs:**
+
 - Health check endpoints
 - Utility functions
 - Public information APIs
@@ -421,6 +426,7 @@ def validate_security_config():
 ### Audit Trail Requirements
 
 The framework automatically creates audit trails for:
+
 - All authentication events
 - Authorization failures
 - Data access and modifications
@@ -464,6 +470,7 @@ compliance_report = generate_compliance_report(
 ### Emergency Procedures
 
 In case of security incidents:
+
 1. **Immediate response**: Block malicious IPs/users
 2. **Investigation**: Review audit logs and incident details
 3. **Remediation**: Apply security patches and configuration changes

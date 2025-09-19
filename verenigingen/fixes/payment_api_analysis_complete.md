@@ -23,104 +23,113 @@ Two mutations prove this capability:
 ## Detailed Mutation Analysis
 
 ### Mutation 7833 - Simple Customer Payment
+
 ```json
 {
   "type": 3,
   "date": "2025-06-04",
   "invoiceNumber": "2025-55297",
   "relationId": 62976771,
-  "ledgerId": 43981046,  // Bank account
+  "ledgerId": 43981046, // Bank account
   "rows": [
     {
-      "ledgerId": 13201873,  // Customer receivable account
-      "amount": 40.30
+      "ledgerId": 13201873, // Customer receivable account
+      "amount": 40.3
     }
   ]
 }
 ```
+
 **Pattern**: Single invoice, single row, straightforward payment
 
 ### Mutation 5473 - Multi-Invoice Supplier Payment ⭐
+
 ```json
 {
   "type": 4,
   "date": "2024-02-08",
-  "invoiceNumber": "7771-2024-15525,7771-2024-15644",  // TWO INVOICES!
+  "invoiceNumber": "7771-2024-15525,7771-2024-15644", // TWO INVOICES!
   "relationId": 20301647,
-  "ledgerId": 13201869,  // Bank account
+  "ledgerId": 13201869, // Bank account
   "rows": [
     {
-      "ledgerId": 13201883,  // Supplier payable account
-      "amount": 78.65       // Payment for first invoice
+      "ledgerId": 13201883, // Supplier payable account
+      "amount": 78.65 // Payment for first invoice
     },
     {
-      "ledgerId": 13201883,  // Same payable account
-      "amount": 80.16       // Payment for second invoice
+      "ledgerId": 13201883, // Same payable account
+      "amount": 80.16 // Payment for second invoice
     }
   ]
 }
 ```
+
 **Pattern**: Two invoices with comma separator, two rows matching invoice count
 
 ### Mutation 6217 - Direct Payment (No Invoice)
+
 ```json
 {
   "type": 6,
   "date": "2024-11-28",
-  "invoiceNumber": "",  // No invoice
-  "relationId": 0,      // No relation
+  "invoiceNumber": "", // No invoice
+  "relationId": 0, // No relation
   "ledgerId": 13201869, // Bank account
   "rows": [
     {
-      "ledgerId": 31890946,  // Expense account
-      "amount": 75.00
+      "ledgerId": 31890946, // Expense account
+      "amount": 75.0
     },
     {
-      "ledgerId": 44031841,  // Another expense account
-      "amount": 75.00
+      "ledgerId": 44031841, // Another expense account
+      "amount": 75.0
     }
   ]
 }
 ```
+
 **Pattern**: Direct expense payment without invoice reference
 
 ### Mutation 3559 - Multi-Invoice Customer Payment ⭐
+
 ```json
 {
   "type": 3,
   "date": "2021-12-27",
-  "invoiceNumber": "760-1,760",  // TWO INVOICES!
+  "invoiceNumber": "760-1,760", // TWO INVOICES!
   "relationId": 22982915,
-  "ledgerId": 13201869,  // Bank account
+  "ledgerId": 13201869, // Bank account
   "rows": [
     {
-      "ledgerId": 13201876,  // Customer receivable account
-      "amount": 247.50      // Payment for invoice 760-1
+      "ledgerId": 13201876, // Customer receivable account
+      "amount": 247.5 // Payment for invoice 760-1
     },
     {
-      "ledgerId": 13201876,  // Same receivable account
-      "amount": 742.50      // Payment for invoice 760
+      "ledgerId": 13201876, // Same receivable account
+      "amount": 742.5 // Payment for invoice 760
     }
   ]
 }
 ```
+
 **Pattern**: Two invoices, two rows with different amounts
 
 ## API Structure Patterns
 
 ### Payment Entry Structure
+
 ```typescript
 interface PaymentMutation {
   id: number;
-  type: 3 | 4;  // 3 = Customer Payment, 4 = Supplier Payment
+  type: 3 | 4; // 3 = Customer Payment, 4 = Supplier Payment
   date: string;
   description: string;
-  ledgerId: number;  // Bank/Cash account
-  relationId: number;  // Customer/Supplier ID
-  invoiceNumber: string;  // Can be comma-separated for multiple invoices
+  ledgerId: number; // Bank/Cash account
+  relationId: number; // Customer/Supplier ID
+  invoiceNumber: string; // Can be comma-separated for multiple invoices
   rows: Array<{
-    ledgerId: number;  // Receivable/Payable account
-    amount: number;    // Amount allocated to specific invoice
+    ledgerId: number; // Receivable/Payable account
+    amount: number; // Amount allocated to specific invoice
     vatCode: string;
     description: string;
   }>;
@@ -144,6 +153,7 @@ interface PaymentMutation {
 ## Implementation Requirements
 
 ### 1. Invoice Number Parsing
+
 ```python
 def parse_invoice_numbers(invoice_field):
     """Parse comma-separated invoice numbers"""
@@ -160,6 +170,7 @@ def parse_invoice_numbers(invoice_field):
 ```
 
 ### 2. Row-to-Invoice Allocation Logic
+
 ```python
 def allocate_rows_to_invoices(invoice_numbers, rows):
     """Map payment rows to specific invoices"""
@@ -180,6 +191,7 @@ def allocate_rows_to_invoices(invoice_numbers, rows):
 ```
 
 ### 3. Payment Entry Creation
+
 ```python
 def create_payment_entry_with_multiple_invoices(mutation_data):
     """Create payment entry that can handle multiple invoices"""
@@ -209,16 +221,19 @@ def create_payment_entry_with_multiple_invoices(mutation_data):
 ## Critical Implementation Notes
 
 ### 1. Invoice Matching
+
 - Invoice numbers in E-Boekhouden might not match ERPNext exactly
 - May need fuzzy matching or mapping table
 - Consider partial invoice number matching (e.g., "760-1" might be "ACC-SINV-2021-00760-1" in ERPNext)
 
 ### 2. Amount Validation
+
 - Ensure sum of row amounts equals total payment
 - Validate individual allocations against invoice outstanding amounts
 - Handle over/under payments appropriately
 
 ### 3. Missing Invoice Handling
+
 - If invoice not found in ERPNext, options:
   1. Create unallocated payment
   2. Hold in queue for later matching
@@ -226,6 +241,7 @@ def create_payment_entry_with_multiple_invoices(mutation_data):
   4. Log for manual review
 
 ### 4. Bank Account Mapping
+
 - Main `ledgerId` is the bank/cash account
 - Must have proper ledger mapping to ERPNext account
 - Validate account type is Bank or Cash
@@ -256,18 +272,21 @@ def create_payment_entry_with_multiple_invoices(mutation_data):
 ## Recommendations
 
 ### High Priority
+
 1. ✅ Implement comma-separated invoice parsing
 2. ✅ Create row-to-invoice allocation logic
 3. ✅ Update PaymentEntry creation to handle multiple references
 4. ✅ Add validation for total amounts
 
 ### Medium Priority
+
 1. 🔄 Create invoice matching/mapping system
 2. 🔄 Implement unallocated payment handling
 3. 🔄 Add payment reconciliation reports
 4. 🔄 Create manual matching interface
 
 ### Low Priority
+
 1. ⏳ Optimize for large payment batches
 2. ⏳ Add payment reversal detection
 3. ⏳ Implement payment splitting UI
@@ -292,6 +311,7 @@ def create_payment_entry_with_multiple_invoices(mutation_data):
 ## Conclusion
 
 The E-Boekhouden API is more sophisticated than initially assumed. It supports:
+
 - ✅ Multiple invoice payments via comma-separated invoice numbers
 - ✅ Row-level amount allocation
 - ✅ Both customer and supplier payments

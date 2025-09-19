@@ -61,7 +61,9 @@
  * @param {Object} wrapper - Frappe page wrapper element
  * @since 1.0.0
  */
-frappe.pages['membership-application-review'].on_page_load = function (wrapper) {
+frappe.pages['membership-application-review'].on_page_load = function (
+	wrapper
+) {
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: 'Membership Application Review',
@@ -96,22 +98,22 @@ class MembershipApplicationReview {
 					<div class="container">
 						<div class="row">
 							<div class="col-md-8">
-								<h1 class="page-title">${__("Membership Application Review")}</h1>
+								<h1 class="page-title">${__('Membership Application Review')}</h1>
 								<p class="text-muted">Review and process pending membership applications</p>
 							</div>
 							<div class="col-md-4 text-right">
 								<button class="btn btn-default btn-sm" id="btn-refresh">
-									<i class="fa fa-refresh"></i> ${__("Refresh")}
+									<i class="fa fa-refresh"></i> ${__('Refresh')}
 								</button>
 								<div class="btn-group" role="group">
 									<button type="button" class="btn btn-default btn-sm dropdown-toggle" data-toggle="dropdown">
-										<i class="fa fa-cog"></i> ${__("Actions")}
+										<i class="fa fa-cog"></i> ${__('Actions')}
 									</button>
 									<ul class="dropdown-menu">
-										<li><a href="#" id="btn-statistics">${__("View Statistics")}</a></li>
-										<li><a href="#" id="btn-bulk-actions">${__("Bulk Actions")}</a></li>
+										<li><a href="#" id="btn-statistics">${__('View Statistics')}</a></li>
+										<li><a href="#" id="btn-bulk-actions">${__('Bulk Actions')}</a></li>
 										<li class="divider"></li>
-										<li><a href="#" id="btn-email-templates">${__("Create Email Templates")}</a></li>
+										<li><a href="#" id="btn-email-templates">${__('Create Email Templates')}</a></li>
 									</ul>
 								</div>
 							</div>
@@ -124,24 +126,24 @@ class MembershipApplicationReview {
 						<!-- Filters Section -->
 						<div class="row filter-section">
 							<div class="col-md-4">
-								<label>${__("Chapter")}</label>
+								<label>${__('Chapter')}</label>
 								<select class="form-control" id="filter-chapter">
-									<option value="">${__("All Chapters")}</option>
-									<option value="Unassigned">${__("Unassigned")}</option>
+									<option value="">${__('All Chapters')}</option>
+									<option value="Unassigned">${__('Unassigned')}</option>
 								</select>
 							</div>
 							<div class="col-md-4">
-								<label>${__("Days Overdue")}</label>
+								<label>${__('Days Overdue')}</label>
 								<input type="number" class="form-control" id="filter-days-overdue" placeholder="e.g., 14">
 							</div>
 							<div class="col-md-4">
 								<label>&nbsp;</label>
 								<div>
 									<button class="btn btn-primary btn-sm" id="btn-apply-filters">
-										<i class="fa fa-filter"></i> ${__("Apply Filters")}
+										<i class="fa fa-filter"></i> ${__('Apply Filters')}
 									</button>
 									<button class="btn btn-link btn-sm" id="btn-clear-filters">
-										${__("Clear")}
+										${__('Clear')}
 									</button>
 								</div>
 							</div>
@@ -153,7 +155,7 @@ class MembershipApplicationReview {
 								<div class="card stats-card">
 									<div class="card-body text-center">
 										<h3 class="card-title" id="total-pending">-</h3>
-										<p class="card-text text-muted">${__("Total Pending")}</p>
+										<p class="card-text text-muted">${__('Total Pending')}</p>
 									</div>
 								</div>
 							</div>
@@ -161,7 +163,7 @@ class MembershipApplicationReview {
 								<div class="card stats-card overdue-card">
 									<div class="card-body text-center">
 										<h3 class="card-title text-danger" id="overdue-count">-</h3>
-										<p class="card-text text-muted">${__("Overdue (>14 days)")}</p>
+										<p class="card-text text-muted">${__('Overdue (>14 days)')}</p>
 									</div>
 								</div>
 							</div>
@@ -169,7 +171,7 @@ class MembershipApplicationReview {
 								<div class="card stats-card">
 									<div class="card-body text-center">
 										<h3 class="card-title text-success" id="avg-processing">-</h3>
-										<p class="card-text text-muted">${__("Avg Processing (days)")}</p>
+										<p class="card-text text-muted">${__('Avg Processing (days)')}</p>
 									</div>
 								</div>
 							</div>
@@ -177,7 +179,7 @@ class MembershipApplicationReview {
 								<div class="card stats-card">
 									<div class="card-body text-center">
 										<h3 class="card-title text-info" id="volunteer-interest">-</h3>
-										<p class="card-text text-muted">${__("Volunteer Interest %")}</p>
+										<p class="card-text text-muted">${__('Volunteer Interest %')}</p>
 									</div>
 								</div>
 							</div>
@@ -188,13 +190,13 @@ class MembershipApplicationReview {
 							<div class="col-md-12">
 								<div class="card applications-card">
 									<div class="card-header d-flex justify-content-between align-items-center">
-										<h5 class="mb-0">${__("Pending Applications")}</h5>
+										<h5 class="mb-0">${__('Pending Applications')}</h5>
 										<div class="bulk-actions" style="display: none;">
 											<button class="btn btn-success btn-sm" id="btn-bulk-approve">
-												<i class="fa fa-check"></i> ${__("Approve Selected")}
+												<i class="fa fa-check"></i> ${__('Approve Selected')}
 											</button>
 											<button class="btn btn-danger btn-sm" id="btn-bulk-reject">
-												<i class="fa fa-times"></i> ${__("Reject Selected")}
+												<i class="fa fa-times"></i> ${__('Reject Selected')}
 											</button>
 											<span class="selected-count ml-2 text-muted">0 selected</span>
 										</div>
@@ -203,7 +205,7 @@ class MembershipApplicationReview {
 										<div class="applications-list">
 											<div class="loading-state text-center p-4">
 												<i class="fa fa-spinner fa-spin fa-2x text-muted"></i>
-												<p class="text-muted mt-2">${__("Loading applications...")}</p>
+												<p class="text-muted mt-2">${__('Loading applications...')}</p>
 											</div>
 										</div>
 									</div>
@@ -214,7 +216,7 @@ class MembershipApplicationReview {
 						<!-- Last Updated -->
 						<div class="row mt-4">
 							<div class="col-md-12 text-center text-muted">
-								<small>${__("Last updated")}: <span id="last-updated">-</span></small>
+								<small>${__('Last updated')}: <span id="last-updated">-</span></small>
 							</div>
 						</div>
 					</div>
@@ -479,7 +481,8 @@ class MembershipApplicationReview {
 		try {
 			// Check user's chapter management permissions
 			const permissions = await frappe.call({
-				method: 'verenigingen.utils.chapter_security.get_user_chapter_permissions',
+				method:
+          'verenigingen.utils.chapter_security.get_user_chapter_permissions'
 			});
 
 			this.user_permissions = permissions.message || {};
@@ -498,7 +501,6 @@ class MembershipApplicationReview {
 				// Chapter board members see limited view
 				$(this.wrapper).find('.admin-only').hide();
 			}
-
 		} catch (error) {
 			console.error('Error checking permissions:', error);
 			// Fail securely - hide all action buttons if permission check fails
@@ -528,8 +530,10 @@ class MembershipApplicationReview {
 			if (chapters.message) {
 				const $select = $('#filter-chapter');
 				// Keep existing options (All Chapters, Unassigned) and add chapters
-				chapters.message.forEach(chapter => {
-					$select.append(`<option value="${chapter.name}">${chapter.name}</option>`);
+				chapters.message.forEach((chapter) => {
+					$select.append(
+						`<option value="${chapter.name}">${chapter.name}</option>`
+					);
 				});
 			}
 		} catch (error) {
@@ -540,7 +544,8 @@ class MembershipApplicationReview {
 	async load_statistics() {
 		try {
 			const response = await frappe.call({
-				method: 'verenigingen.api.membership_application_review.get_application_stats'
+				method:
+          'verenigingen.api.membership_application_review.get_application_stats'
 			});
 
 			if (response.message) {
@@ -564,7 +569,8 @@ class MembershipApplicationReview {
 
 		try {
 			const response = await frappe.call({
-				method: 'verenigingen.api.membership_application_review.get_pending_applications',
+				method:
+          'verenigingen.api.membership_application_review.get_pending_applications',
 				args: {
 					chapter: this.filters.chapter,
 					days_overdue: this.filters.days_overdue
@@ -595,7 +601,9 @@ class MembershipApplicationReview {
 			return;
 		}
 
-		const html = this.applications.map(app => this.render_application_card(app)).join('');
+		const html = this.applications
+			.map((app) => this.render_application_card(app))
+			.join('');
 		$('.applications-list').html(html);
 
 		// Update statistics
@@ -605,11 +613,13 @@ class MembershipApplicationReview {
 	render_application_card(app) {
 		const overdue = app.days_pending > 14;
 		const overdueClass = overdue ? 'border-danger' : '';
-		const volunteering = app.interested_in_volunteering ? '<span class="badge badge-info ml-2">Volunteer Interest</span>' : '';
+		const volunteering = app.interested_in_volunteering
+			? '<span class="badge badge-info ml-2">Volunteer Interest</span>'
+			: '';
 
 		// Security: Properly escape user input to prevent XSS attacks
 		const escapeHtml = (str) => {
-			if (!str) return '';
+			if (!str) { return ''; }
 			return String(str)
 				.replace(/&/g, '&amp;')
 				.replace(/</g, '&lt;')
@@ -662,9 +672,14 @@ class MembershipApplicationReview {
 
 	update_local_statistics() {
 		const total = this.applications.length;
-		const overdue = this.applications.filter(app => app.days_pending > 14).length;
-		const volunteer_interest = this.applications.filter(app => app.interested_in_volunteering).length;
-		const interest_rate = total > 0 ? Math.round((volunteer_interest / total) * 100) : 0;
+		const overdue = this.applications.filter(
+			(app) => app.days_pending > 14
+		).length;
+		const volunteer_interest = this.applications.filter(
+			(app) => app.interested_in_volunteering
+		).length;
+		const interest_rate
+      = total > 0 ? Math.round((volunteer_interest / total) * 100) : 0;
 
 		$('#total-pending').text(total);
 		$('#overdue-count').text(overdue);
@@ -672,8 +687,8 @@ class MembershipApplicationReview {
 	}
 
 	async approve_application(member_name) {
-		const app = this.applications.find(a => a.name === member_name);
-		if (!app) return;
+		const app = this.applications.find((a) => a.name === member_name);
+		if (!app) { return; }
 
 		// Show approval dialog
 		const dialog = new frappe.ui.Dialog({
@@ -686,14 +701,17 @@ class MembershipApplicationReview {
 					options: 'Membership Type',
 					reqd: 1,
 					default: app.selected_membership_type,
-					get_query: () => ({ filters: { 'is_active': 1 } })
+					get_query: () => ({ filters: { is_active: 1 } })
 				},
 				{
 					fieldtype: 'Link',
 					fieldname: 'chapter',
 					label: 'Chapter Assignment',
 					options: 'Chapter',
-					default: app.current_chapter_display !== 'Unassigned' ? app.current_chapter_display : ''
+					default:
+            app.current_chapter_display !== 'Unassigned'
+            	? app.current_chapter_display
+            	: ''
 				},
 				{
 					fieldtype: 'Small Text',
@@ -711,9 +729,10 @@ class MembershipApplicationReview {
 			primary_action: async (values) => {
 				try {
 					const response = await frappe.call({
-						method: 'verenigingen.api.membership_application_review.approve_membership_application',
+						method:
+              'verenigingen.api.membership_application_review.approve_membership_application',
 						args: {
-							member_name: member_name,
+							member_name,
 							membership_type: values.membership_type,
 							chapter: values.chapter,
 							notes: values.notes,
@@ -740,8 +759,8 @@ class MembershipApplicationReview {
 	}
 
 	async reject_application(member_name) {
-		const app = this.applications.find(a => a.name === member_name);
-		if (!app) return;
+		const app = this.applications.find((a) => a.name === member_name);
+		if (!app) { return; }
 
 		// Show rejection dialog
 		const dialog = new frappe.ui.Dialog({
@@ -751,7 +770,12 @@ class MembershipApplicationReview {
 					fieldtype: 'Select',
 					fieldname: 'rejection_category',
 					label: 'Rejection Category',
-					options: ['General', 'Incomplete Information', 'Ineligible', 'Duplicate Application'],
+					options: [
+						'General',
+						'Incomplete Information',
+						'Ineligible',
+						'Duplicate Application'
+					],
 					reqd: 1
 				},
 				{
@@ -781,9 +805,10 @@ class MembershipApplicationReview {
 			primary_action: async (values) => {
 				try {
 					const response = await frappe.call({
-						method: 'verenigingen.api.membership_application_review.reject_membership_application',
+						method:
+              'verenigingen.api.membership_application_review.reject_membership_application',
 						args: {
-							member_name: member_name,
+							member_name,
 							reason: values.reason,
 							email_template: values.email_template,
 							rejection_category: values.rejection_category,
@@ -814,32 +839,38 @@ class MembershipApplicationReview {
 	}
 
 	show_statistics() {
-		frappe.call({
-			method: 'verenigingen.api.membership_application_review.get_application_stats'
-		}).then(response => {
-			if (response.message) {
-				const stats = response.message;
-				const dialog = new frappe.ui.Dialog({
-					title: 'Application Statistics',
-					size: 'large',
-					fields: [
-						{
-							fieldtype: 'HTML',
-							fieldname: 'stats_html',
-							options: this.render_statistics_html(stats)
-						}
-					]
-				});
-				dialog.show();
-			}
-		});
+		frappe
+			.call({
+				method:
+          'verenigingen.api.membership_application_review.get_application_stats'
+			})
+			.then((response) => {
+				if (response.message) {
+					const stats = response.message;
+					const dialog = new frappe.ui.Dialog({
+						title: 'Application Statistics',
+						size: 'large',
+						fields: [
+							{
+								fieldtype: 'HTML',
+								fieldname: 'stats_html',
+								options: this.render_statistics_html(stats)
+							}
+						]
+					});
+					dialog.show();
+				}
+			});
 	}
 
 	render_statistics_html(stats) {
 		const by_chapter = stats.by_chapter || [];
-		const chapter_rows = by_chapter.map(c =>
-			`<tr><td>${c.current_chapter_display || 'Unassigned'}</td><td>${c.count}</td></tr>`
-		).join('');
+		const chapter_rows = by_chapter
+			.map(
+				(c) =>
+					`<tr><td>${c.current_chapter_display || 'Unassigned'}</td><td>${c.count}</td></tr>`
+			)
+			.join('');
 
 		return `
 			<div class="row">
@@ -847,9 +878,12 @@ class MembershipApplicationReview {
 					<h5>Applications by Status</h5>
 					<table class="table table-bordered">
 						<tr><th>Status</th><th>Count</th></tr>
-						${Object.entries(stats.by_status || {}).map(([status, count]) =>
-							`<tr><td>${status}</td><td>${count}</td></tr>`
-						).join('')}
+						${Object.entries(stats.by_status || {})
+		.map(
+			([status, count]) =>
+				`<tr><td>${status}</td><td>${count}</td></tr>`
+		)
+		.join('')}
 					</table>
 				</div>
 				<div class="col-md-6">
@@ -881,9 +915,11 @@ class MembershipApplicationReview {
 	}
 
 	bulk_approve() {
-		const selected = $('.app-checkbox:checked').map(function() {
-			return $(this).data('member');
-		}).get();
+		const selected = $('.app-checkbox:checked')
+			.map(function () {
+				return $(this).data('member');
+			})
+			.get();
 
 		if (selected.length === 0) {
 			frappe.msgprint('Please select applications to approve.');
@@ -894,7 +930,7 @@ class MembershipApplicationReview {
 			`Are you sure you want to approve ${selected.length} applications?`,
 			() => {
 				// Process each application
-				selected.forEach(member_name => {
+				selected.forEach((member_name) => {
 					this.approve_application(member_name);
 				});
 			}
@@ -902,9 +938,11 @@ class MembershipApplicationReview {
 	}
 
 	bulk_reject() {
-		const selected = $('.app-checkbox:checked').map(function() {
-			return $(this).data('member');
-		}).get();
+		const selected = $('.app-checkbox:checked')
+			.map(function () {
+				return $(this).data('member');
+			})
+			.get();
 
 		if (selected.length === 0) {
 			frappe.msgprint('Please select applications to reject.');
@@ -915,7 +953,7 @@ class MembershipApplicationReview {
 			`Are you sure you want to reject ${selected.length} applications?`,
 			() => {
 				// Process each application
-				selected.forEach(member_name => {
+				selected.forEach((member_name) => {
 					this.reject_application(member_name);
 				});
 			}
@@ -925,7 +963,8 @@ class MembershipApplicationReview {
 	async create_email_templates() {
 		try {
 			const response = await frappe.call({
-				method: 'verenigingen.api.membership_application_review.create_default_email_templates'
+				method:
+          'verenigingen.api.membership_application_review.create_default_email_templates'
 			});
 
 			if (response.message?.success) {

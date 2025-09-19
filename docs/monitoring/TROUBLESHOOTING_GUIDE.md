@@ -12,6 +12,7 @@ This guide provides step-by-step troubleshooting procedures for common monitorin
 ## Quick Reference
 
 ### Common Commands
+
 ```bash
 # Check monitoring dashboard
 curl -f http://localhost/monitoring_dashboard || echo "Dashboard unreachable"
@@ -27,6 +28,7 @@ bench restart
 ```
 
 ### Emergency Contacts
+
 - **Technical Lead**: [Contact Info]
 - **System Administrator**: [Contact Info]
 - **Escalation**: [Contact Info]
@@ -36,17 +38,21 @@ bench restart
 ### Dashboard Won't Load
 
 **Symptoms:**
+
 - `/monitoring_dashboard` returns 404 or 500 error
 - Page loads but shows no data
 - JavaScript errors in browser console
 
 **Diagnosis Steps:**
+
 1. **Check basic connectivity**
+
    ```bash
    curl -I http://localhost/monitoring_dashboard
    ```
 
 2. **Verify permissions**
+
    ```bash
    bench --site dev.veganisme.net console
    >>> import frappe
@@ -60,11 +66,13 @@ bench restart
    ```
 
 **Resolution Steps:**
+
 1. **Permission Issues**
    - Ensure user has "System Manager" or "Verenigingen Administrator" role
    - Check role assignment in User management
 
 2. **File System Issues**
+
    ```bash
    # Check if files exist
    ls -la apps/verenigingen/verenigingen/www/monitoring_dashboard.*
@@ -74,6 +82,7 @@ bench restart
    ```
 
 3. **Database Issues**
+
    ```bash
    # Check if required DocTypes exist
    bench --site dev.veganisme.net mariadb -e "SHOW TABLES LIKE '%System Alert%';"
@@ -89,17 +98,21 @@ bench restart
 ### Dashboard Loads but Shows Errors
 
 **Symptoms:**
+
 - Dashboard displays but metrics show "Failed to load"
 - Empty tables or zero values
 - JavaScript console errors
 
 **Diagnosis Steps:**
+
 1. **Check API endpoints**
+
    ```bash
    curl -X POST http://localhost/api/method/verenigingen.www.monitoring_dashboard.get_system_metrics
    ```
 
 2. **Verify database connectivity**
+
    ```bash
    bench --site dev.veganisme.net mariadb -e "SELECT 1;"
    ```
@@ -112,12 +125,14 @@ bench restart
    ```
 
 **Resolution Steps:**
+
 1. **API Method Issues**
    - Verify whitelisted methods exist
    - Check method signatures match
    - Restart services after code changes
 
 2. **Database Schema Issues**
+
    ```bash
    # Run migrations
    bench --site dev.veganisme.net migrate
@@ -138,17 +153,21 @@ bench restart
 ### Alerts Not Being Generated
 
 **Symptoms:**
+
 - No alerts in dashboard despite obvious issues
 - Scheduled jobs not running
 - Email notifications not sent
 
 **Diagnosis Steps:**
+
 1. **Check scheduler status**
+
    ```bash
    bench --site dev.veganisme.net execute frappe.utils.scheduler.is_scheduler_inactive
    ```
 
 2. **Verify scheduled jobs**
+
    ```bash
    bench --site dev.veganisme.net console
    >>> import frappe
@@ -161,13 +180,16 @@ bench restart
    ```
 
 **Resolution Steps:**
+
 1. **Enable Scheduler**
+
    ```bash
    bench --site dev.veganisme.net enable-scheduler
    bench restart
    ```
 
 2. **Check Alert Thresholds**
+
    ```bash
    bench --site dev.veganisme.net console
    >>> from verenigingen.utils.alert_manager import AlertManager
@@ -176,6 +198,7 @@ bench restart
    ```
 
 3. **Verify Alert Manager Configuration**
+
    ```bash
    # Check if System Alert DocType exists
    bench --site dev.veganisme.net console
@@ -193,12 +216,15 @@ bench restart
 ### False Positive Alerts
 
 **Symptoms:**
+
 - Too many low-priority alerts
 - Alerts for normal system behavior
 - Alert fatigue in operations team
 
 **Diagnosis Steps:**
+
 1. **Review alert statistics**
+
    ```bash
    bench --site dev.veganisme.net execute verenigingen.utils.alert_manager.get_alert_statistics
    ```
@@ -214,7 +240,9 @@ bench restart
    ```
 
 **Resolution Steps:**
+
 1. **Adjust Thresholds**
+
    ```python
    # Edit alert_manager.py thresholds
    self.alert_thresholds = {
@@ -236,12 +264,15 @@ bench restart
 ### High Error Rate Alert
 
 **Symptoms:**
+
 - Alert: "High error rate detected: X errors in the last hour"
 - System sluggish or unresponsive
 - Users reporting issues
 
 **Diagnosis Steps:**
+
 1. **Check recent errors**
+
    ```bash
    bench --site dev.veganisme.net mariadb -e "
    SELECT error, COUNT(*) as count, MAX(creation) as latest
@@ -253,6 +284,7 @@ bench restart
    ```
 
 2. **Identify error patterns**
+
    ```bash
    bench --site dev.veganisme.net logs | grep -i error | tail -20
    ```
@@ -266,6 +298,7 @@ bench restart
    ```
 
 **Resolution Steps:**
+
 1. **Common Error Types**
    - **Database timeouts**: Check slow queries, restart MariaDB
    - **Permission errors**: Review user roles and permissions
@@ -273,6 +306,7 @@ bench restart
    - **API errors**: Review recent code deployments
 
 2. **Immediate Actions**
+
    ```bash
    # Restart services
    bench restart
@@ -293,12 +327,15 @@ bench restart
 ### SEPA Compliance Issues
 
 **Symptoms:**
+
 - Alert: "SEPA compliance issues detected"
 - Failed SEPA processes in audit log
 - Payment processing errors
 
 **Diagnosis Steps:**
+
 1. **Check SEPA audit logs**
+
    ```bash
    bench --site dev.veganisme.net mariadb -e "
    SELECT process_type, action, compliance_status, COUNT(*) as count
@@ -310,6 +347,7 @@ bench restart
    ```
 
 2. **Review SEPA mandate status**
+
    ```bash
    bench --site dev.veganisme.net mariadb -e "
    SELECT status, COUNT(*) as count
@@ -326,6 +364,7 @@ bench restart
    ```
 
 **Resolution Steps:**
+
 1. **Mandate Issues**
    - Check IBAN validation
    - Verify BIC codes
@@ -344,12 +383,15 @@ bench restart
 ### Performance Degradation Alert
 
 **Symptoms:**
+
 - Alert: "Performance degradation detected"
 - Slow page loading
 - High resource usage
 
 **Diagnosis Steps:**
+
 1. **Check system resources**
+
    ```bash
    # Monitor resource usage
    top -p $(pgrep -f frappe)
@@ -362,6 +404,7 @@ bench restart
    ```
 
 2. **Identify slow queries**
+
    ```bash
    bench --site dev.veganisme.net mariadb -e "
    SELECT * FROM \`tabError Log\`
@@ -380,7 +423,9 @@ bench restart
    ```
 
 **Resolution Steps:**
+
 1. **Resource Optimization**
+
    ```bash
    # Restart services to free memory
    bench restart
@@ -391,6 +436,7 @@ bench restart
    ```
 
 2. **Database Optimization**
+
    ```bash
    # Optimize tables
    bench --site dev.veganisme.net mariadb -e "OPTIMIZE TABLE \`tabError Log\`;"
@@ -410,12 +456,15 @@ bench restart
 ### Members Without SEPA Mandates
 
 **Symptoms:**
+
 - Alert: "Found X active members without valid SEPA mandates"
 - Payment processing issues
 - Membership dues collection problems
 
 **Diagnosis Steps:**
+
 1. **Identify affected members**
+
    ```bash
    bench --site dev.veganisme.net mariadb -e "
    SELECT m.name, m.first_name, m.last_name, m.email
@@ -435,6 +484,7 @@ bench restart
    ```
 
 **Resolution Steps:**
+
 1. **Contact Members**
    - Send notifications to affected members
    - Provide SEPA mandate creation links
@@ -448,12 +498,15 @@ bench restart
 ### Stalled Applications
 
 **Symptoms:**
+
 - Alert: "Found X membership applications pending review for over 7 days"
 - Application backlog
 - Member satisfaction issues
 
 **Diagnosis Steps:**
+
 1. **Review stalled applications**
+
    ```bash
    bench --site dev.veganisme.net mariadb -e "
    SELECT name, workflow_state, creation, applicant_name
@@ -471,6 +524,7 @@ bench restart
    ```
 
 **Resolution Steps:**
+
 1. **Process Applications**
    - Assign reviewers to pending applications
    - Fast-track simple approvals
@@ -486,7 +540,9 @@ bench restart
 ### Complete System Failure
 
 **Steps:**
+
 1. **Immediate Assessment (< 5 minutes)**
+
    ```bash
    # Check if services are running
    ps aux | grep -E "(nginx|redis|mariadb|frappe)"
@@ -497,6 +553,7 @@ bench restart
    ```
 
 2. **Service Recovery (< 10 minutes)**
+
    ```bash
    # Restart all services
    sudo systemctl restart mariadb
@@ -505,6 +562,7 @@ bench restart
    ```
 
 3. **Verification (< 5 minutes)**
+
    ```bash
    # Test basic functionality
    bench --site dev.veganisme.net console
@@ -518,13 +576,16 @@ bench restart
 ### Database Recovery
 
 **Steps:**
+
 1. **Check Database Status**
+
    ```bash
    sudo systemctl status mariadb
    bench --site dev.veganisme.net mariadb -e "SELECT 1;"
    ```
 
 2. **Repair Database (if needed)**
+
    ```bash
    bench --site dev.veganisme.net restore [backup-file]
    bench --site dev.veganisme.net migrate
@@ -541,18 +602,21 @@ bench restart
 ## Prevention and Maintenance
 
 ### Daily Prevention Tasks
+
 - Monitor dashboard for 15 minutes
 - Review and acknowledge alerts
 - Check error patterns
 - Verify system health metrics
 
 ### Weekly Prevention Tasks
+
 - Review performance trends
 - Update alert thresholds
 - Analyze recurring issues
 - Plan maintenance activities
 
 ### Monthly Prevention Tasks
+
 - Generate comprehensive reports
 - Review and update procedures
 - Conduct training sessions
@@ -561,6 +625,7 @@ bench restart
 ## Tools and Utilities
 
 ### Monitoring Commands
+
 ```bash
 # System health check
 bench --site dev.veganisme.net execute verenigingen.utils.resource_monitor.get_system_health
@@ -573,6 +638,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.alert_manager.test_ale
 ```
 
 ### Diagnostic Commands
+
 ```bash
 # Check recent errors
 bench --site dev.veganisme.net mariadb -e "SELECT * FROM \`tabError Log\` ORDER BY creation DESC LIMIT 10;"
@@ -585,6 +651,7 @@ top -n 1 | head -20
 ```
 
 ### Recovery Commands
+
 ```bash
 # Emergency restart
 bench restart
@@ -600,11 +667,13 @@ bench doctor
 ## Contact and Escalation
 
 ### Technical Contacts
+
 - **Level 1 Support**: Operations team
 - **Level 2 Support**: Technical team
 - **Level 3 Support**: External vendors
 
 ### Emergency Procedures
+
 - **CRITICAL alerts**: Immediate escalation
 - **System down**: Call technical lead
 - **Data breach**: Follow security procedures
@@ -612,6 +681,7 @@ bench doctor
 ---
 
 **Document Control:**
+
 - **Owner**: Technical Team
 - **Review Frequency**: Quarterly
 - **Last Review**: [Date]

@@ -5,6 +5,7 @@ This document provides comprehensive documentation for the email/newsletter syst
 ## Overview
 
 The email/newsletter system test suite provides comprehensive validation of:
+
 - Security fixes (SQL injection prevention, permission enforcement, input sanitization)
 - Integration with real Frappe DocTypes
 - Business logic and functionality
@@ -17,9 +18,11 @@ The email/newsletter system test suite provides comprehensive validation of:
 ### Test Classes
 
 #### 1. TestEmailNewsletterSystemSecurity
+
 **Purpose**: Validates all security fixes applied to prevent vulnerabilities
 **Priority**: CRITICAL
 **Focus Areas**:
+
 - SQL injection prevention in segmentation queries
 - Permission enforcement without `ignore_permissions=True` bypasses
 - Input sanitization and validation
@@ -28,6 +31,7 @@ The email/newsletter system test suite provides comprehensive validation of:
 - Circular import resolution
 
 **Key Test Methods**:
+
 - `test_sql_injection_prevention_in_segmentation()`: Validates parameterized queries
 - `test_permission_enforcement_no_bypasses()`: Ensures proper permission system usage
 - `test_input_sanitization_and_validation()`: Tests malicious input handling
@@ -35,24 +39,29 @@ The email/newsletter system test suite provides comprehensive validation of:
 - `test_field_reference_validation_chapter_board_member()`: Tests correct field usage
 
 #### 2. TestEmailNewsletterSystemIntegration
+
 **Purpose**: Tests real DocType interactions and relationships
 **Priority**: HIGH
 **Focus Areas**:
+
 - Member-Chapter relationships in email segmentation
 - Volunteer-Member chain in board member queries
 - Email Group synchronization
 - Member opt-out functionality
 
 **Key Test Methods**:
+
 - `test_member_chapter_relationship_integration()`: Validates Member-Chapter links
 - `test_volunteer_member_chain_integration()`: Tests Volunteer->Member->Email chain
 - `test_email_group_synchronization()`: Validates email group creation/sync
 - `test_opt_out_functionality_integration()`: Tests member opt-out handling
 
 #### 3. TestEmailNewsletterSystemBusinessLogic
+
 **Purpose**: Validates core business functionality
 **Priority**: HIGH
 **Focus Areas**:
+
 - Template rendering with variable substitution
 - Advanced segmentation accuracy
 - Engagement score calculation
@@ -60,28 +69,34 @@ The email/newsletter system test suite provides comprehensive validation of:
 - Component validation
 
 **Key Test Methods**:
+
 - `test_template_rendering_with_variables()`: Validates template processing
 - `test_advanced_segmentation_accuracy()`: Tests segment identification
 - `test_engagement_score_calculation()`: Validates analytics calculations
 - `test_campaign_scheduling_and_execution()`: Tests campaign management
 
 #### 4. TestEmailNewsletterSystemPerformance
+
 **Purpose**: Tests system scalability and performance
 **Priority**: MEDIUM
 **Focus Areas**:
+
 - Large member list handling (1000+ members)
 - Complex segmentation query performance
 - Memory usage with large templates
 
 **Key Test Methods**:
+
 - `test_large_member_list_performance()`: Tests with high member counts
 - `test_complex_segmentation_query_performance()`: Validates query efficiency
 - `test_memory_usage_with_large_templates()`: Tests template memory handling
 
 #### 5. TestEmailNewsletterSystemErrorHandling
+
 **Purpose**: Tests system resilience under error conditions
 **Priority**: MEDIUM
 **Focus Areas**:
+
 - Missing DocType graceful handling
 - Invalid email address processing
 - Malformed template variable handling
@@ -91,13 +106,16 @@ The email/newsletter system test suite provides comprehensive validation of:
 ## Test Data Strategy
 
 ### Realistic Data Generation
+
 The test suite uses the `EnhancedTestCase` base class with realistic test data generation:
+
 - **No Mocking**: Tests use actual Frappe DocTypes and database operations
 - **Business Rule Compliance**: Generated data respects all validation rules
 - **Proper Relationships**: Tests create valid Member-Chapter-Volunteer chains
 - **Deterministic Data**: Uses seeds for reproducible test scenarios
 
 ### Test Data Cleanup
+
 - Automatic database rollback via `FrappeTestCase` inheritance
 - No permanent test data pollution
 - Isolated test execution
@@ -105,6 +123,7 @@ The test suite uses the `EnhancedTestCase` base class with realistic test data g
 ## Security Validation Focus
 
 ### Previously Fixed Vulnerabilities
+
 The test suite specifically validates fixes for:
 
 1. **SQL Injection Prevention**
@@ -137,29 +156,35 @@ The test suite specifically validates fixes for:
 ### Critical DocType Fields Tested
 
 #### Member DocType
+
 - `email`: Email address for communication
 - `status`: Member status (Active/Inactive)
 - `opt_out_optional_emails`: Email preference handling
 
 #### Chapter Board Member DocType
+
 - `volunteer`: Link to Volunteer (corrected from `member`)
 - `chapter_role`: Link to Chapter Role
 - `is_active`: Active status flag
 - `from_date`/`to_date`: Term dates
 
 #### Volunteer DocType
+
 - `member`: Link to Member DocType
 - `volunteer_name`: Display name
 - `email`: Contact email
 - `status`: Volunteer status
 
 ### Relationship Chain Validation
+
 The tests validate the corrected relationship chain:
+
 ```
 Chapter Board Member.volunteer -> Volunteer.member -> Member.email
 ```
 
 Previously incorrect:
+
 ```
 Chapter Board Member.member -> Member.email  # WRONG
 ```
@@ -167,6 +192,7 @@ Chapter Board Member.member -> Member.email  # WRONG
 ## Execution Instructions
 
 ### Prerequisites
+
 ```bash
 # Ensure Frappe environment is set up
 cd /home/frappe/frappe-bench/apps/verenigingen
@@ -178,6 +204,7 @@ python -c "from verenigingen.tests.fixtures.enhanced_test_factory import Enhance
 ### Running Tests
 
 #### Complete Test Suite
+
 ```bash
 # Run all tests with detailed reporting
 python scripts/testing/runners/run_email_newsletter_tests.py --suite all --verbose
@@ -190,6 +217,7 @@ python scripts/testing/runners/run_email_newsletter_tests.py --suite all --stop-
 ```
 
 #### Individual Test Suites
+
 ```bash
 # Critical security validation (run first)
 python scripts/testing/runners/run_email_newsletter_tests.py --suite security --verbose
@@ -208,6 +236,7 @@ python scripts/testing/runners/run_email_newsletter_tests.py --suite errors
 ```
 
 #### Using Frappe's Native Test Runner
+
 ```bash
 # Run specific test class
 bench --site dev.veganisme.net run-tests --app verenigingen --module verenigingen.tests.test_email_newsletter_system.TestEmailNewsletterSystemSecurity
@@ -219,6 +248,7 @@ bench --site dev.veganisme.net run-tests --app verenigingen --module vereniginge
 ### Expected Results
 
 #### Successful Test Run
+
 ```
 🚀 STARTING COMPREHENSIVE EMAIL/NEWSLETTER SYSTEM TESTS
 📅 Test Run Started: 2024-01-15 14:30:00
@@ -252,6 +282,7 @@ bench --site dev.veganisme.net run-tests --app verenigingen --module vereniginge
 ```
 
 #### Failed Test Run
+
 ```
 🚨 OVERALL STATUS: TESTS FAILED
 ⚠️  Please review failures before deploying to production.
@@ -265,6 +296,7 @@ bench --site dev.veganisme.net run-tests --app verenigingen --module vereniginge
 ## Performance Benchmarks
 
 ### Expected Performance Metrics
+
 - **Small datasets** (< 100 members): < 1s per test
 - **Medium datasets** (100-500 members): < 3s per test
 - **Large datasets** (500+ members): < 5s per test
@@ -272,6 +304,7 @@ bench --site dev.veganisme.net run-tests --app verenigingen --module vereniginge
 - **Segmentation queries**: < 1s for most segments
 
 ### Performance Test Thresholds
+
 - Query performance: < 5 seconds for large datasets
 - Template rendering: < 2 seconds for complex templates
 - Memory usage: Reasonable bounds for large operations
@@ -281,44 +314,52 @@ bench --site dev.veganisme.net run-tests --app verenigingen --module vereniginge
 ### Common Issues
 
 #### 1. Import Errors
+
 ```bash
 ❌ Failed to import email newsletter tests: No module named 'verenigingen'
 ```
 
 **Solution**: Ensure Frappe environment is properly initialized:
+
 ```bash
 cd /home/frappe/frappe-bench/apps/verenigingen
 frappe --site dev.veganisme.net console
 ```
 
 #### 2. Database Connection Issues
+
 ```bash
 ❌ Failed to initialize Frappe environment: Could not connect to database
 ```
 
 **Solution**: Verify site configuration and database access:
+
 ```bash
 bench --site dev.veganisme.net mariadb
 # Should connect successfully
 ```
 
 #### 3. Permission Errors
+
 ```bash
 ❌ FAILED: test_permission_enforcement_no_bypasses
 ```
 
 **Solution**: Verify user permissions and role assignments:
+
 ```python
 # Check if test user was created properly
 frappe.get_doc("User", "limited-user@test.invalid")
 ```
 
 #### 4. DocType Not Found
+
 ```bash
 ❌ FAILED: Chapter Board Member queries
 ```
 
 **Solution**: Verify DocType exists and fields are correct:
+
 ```python
 frappe.get_meta("Chapter Board Member")
 # Check field list includes 'volunteer' field
@@ -327,6 +368,7 @@ frappe.get_meta("Chapter Board Member")
 ### Debug Mode Execution
 
 For detailed debugging:
+
 ```bash
 # Run with maximum verbosity
 python scripts/testing/runners/run_email_newsletter_tests.py --suite security --verbose --stop-on-fail
@@ -338,7 +380,9 @@ DEBUG=1 python scripts/testing/runners/run_email_newsletter_tests.py --suite sec
 ## Regression Testing
 
 ### After Code Changes
+
 Run the security suite after any changes to email system components:
+
 ```bash
 # Quick security regression check
 python scripts/testing/runners/run_email_newsletter_tests.py --suite security
@@ -348,14 +392,18 @@ python scripts/testing/runners/run_email_newsletter_tests.py --suite all
 ```
 
 ### Before Deployment
+
 Always run complete test suite before production deployment:
+
 ```bash
 # Complete validation with report
 python scripts/testing/runners/run_email_newsletter_tests.py --suite all --generate-report --stop-on-fail
 ```
 
 ### Continuous Integration
+
 For CI/CD pipelines:
+
 ```bash
 # Non-interactive mode with exit codes
 python scripts/testing/runners/run_email_newsletter_tests.py --suite all > test_results.log 2>&1
@@ -365,6 +413,7 @@ echo "Exit code: $?"
 ## Test Coverage Analysis
 
 ### Security Coverage
+
 - ✅ SQL Injection Prevention
 - ✅ Permission Bypass Prevention
 - ✅ Input Sanitization
@@ -373,6 +422,7 @@ echo "Exit code: $?"
 - ✅ Circular Import Resolution
 
 ### Functionality Coverage
+
 - ✅ Email Segmentation (all, board, volunteers)
 - ✅ Template Rendering
 - ✅ Campaign Management
@@ -381,6 +431,7 @@ echo "Exit code: $?"
 - ✅ Email Group Synchronization
 
 ### Integration Coverage
+
 - ✅ Member-Chapter Relationships
 - ✅ Volunteer-Member Chains
 - ✅ DocType Field References
@@ -388,6 +439,7 @@ echo "Exit code: $?"
 - ✅ Email Group Management
 
 ### Performance Coverage
+
 - ✅ Large Dataset Handling
 - ✅ Query Performance
 - ✅ Memory Usage
@@ -396,6 +448,7 @@ echo "Exit code: $?"
 ## Maintenance
 
 ### Adding New Tests
+
 1. Extend appropriate test class
 2. Follow naming convention: `test_[functionality]_[aspect]()`
 3. Use realistic test data via `EnhancedTestCase`
@@ -403,12 +456,14 @@ echo "Exit code: $?"
 5. Update documentation
 
 ### Updating Test Data
+
 1. Modify `EnhancedTestDataFactory` if needed
 2. Ensure business rule compliance
 3. Test data cleanup verification
 4. Update field references as DocTypes evolve
 
 ### Performance Tuning
+
 1. Monitor test execution times
 2. Optimize test data creation
 3. Use appropriate dataset sizes

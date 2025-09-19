@@ -7,11 +7,13 @@ Phase 4 resulted in the removal of 125 test files and consolidation of the test 
 ## 1. Test File Analysis
 
 ### Total Changes
+
 - **Deleted**: 125 test files
 - **Added**: 11 test files (mostly analysis/coverage tools)
 - **Modified**: 1 file (test_data_factory.py)
 
 ### Deletion Breakdown by Directory
+
 - `archived_removal/`: 38 files
 - `archived_unused/`: 28 files
 - `scripts/`: 20 files
@@ -20,7 +22,9 @@ Phase 4 resulted in the removal of 125 test files and consolidation of the test 
 ### Categories of Removed Tests
 
 #### 1.1 Debug/Temporary Tests (Appropriately Removed)
+
 These were one-off debug scripts and should remain removed:
+
 - `test_architectural_fix.py`
 - `test_iterator_fix.py`
 - `test_fixes.py`
@@ -28,23 +32,28 @@ These were one-off debug scripts and should remain removed:
 - Various `*_debug.py` and `*_simple.py` files
 
 #### 1.2 Critical Business Logic Tests (MUST RESTORE)
+
 These test core functionality and their removal creates coverage gaps:
 
 **Expense Workflow Tests**:
+
 - `test_expense_workflow_complete.py` - Complete expense claim workflow validation
 - `test_expense_events.py` - Event handler testing
 - `test_expense_handlers.py` - Business logic validation
 
 **Member Lifecycle Tests**:
+
 - `test_member_lifecycle_simple.py` - Core member state transitions
 - `test_member_status_transitions.py` - Status change validation
 
 **Financial Tests**:
+
 - `test_dues_validation.py` - Membership dues business rules
 - `test_fee_tracking_fix.py` - Fee calculation validation
 - `test_sepa_invoice_validation_fix.py` - SEPA payment validation
 
 #### 1.3 Edge Case Tests (HIGH PRIORITY TO RESTORE)
+
 - `test_edge_case_testing_demo.py` - Contained 4 critical edge case scenarios:
   - Billing frequency conflicts
   - Membership type mismatches
@@ -52,11 +61,13 @@ These test core functionality and their removal creates coverage gaps:
   - Edge case cleanup validation
 
 #### 1.4 Integration Tests (SHOULD RESTORE)
+
 - `test_integration_simple.py`
 - `test_expense_integration_simple.py`
 - `test_all_doctype_fixes_integration.py`
 
 #### 1.5 Security & Monitoring Tests (EVALUATE FOR RESTORATION)
+
 - `test_monitoring_security.py`
 - `test_monitoring_performance.py`
 - `test_monitoring_edge_cases.py`
@@ -64,6 +75,7 @@ These test core functionality and their removal creates coverage gaps:
 ## 2. Factory Method Analysis
 
 ### Methods Removed (15 methods)
+
 ```python
 # Complex data generation methods
 - create_test_chapters(count=5)
@@ -88,6 +100,7 @@ These test core functionality and their removal creates coverage gaps:
 ```
 
 ### Methods Retained (7 methods)
+
 ```python
 # Core creation methods
 - create_test_chapter(**kwargs)
@@ -100,6 +113,7 @@ These test core functionality and their removal creates coverage gaps:
 ```
 
 ### Critical Factory Functionality Lost
+
 1. **Bulk data generation** - No ability to create multiple related records
 2. **Status distribution control** - Cannot create specific member status scenarios
 3. **Coverage ratios** - Lost ability to create partial coverage scenarios
@@ -111,23 +125,27 @@ These test core functionality and their removal creates coverage gaps:
 ### Critical Coverage Gaps
 
 #### 3.1 Business Logic Coverage
+
 - **Member Status Transitions**: No tests for complex state changes
 - **Expense Workflow**: Complete workflow validation removed
 - **Dues Validation**: Business rule enforcement not tested
 - **SEPA Processing**: Payment validation logic untested
 
 #### 3.2 Edge Case Coverage
+
 - **Billing Frequency Conflicts**: No validation of conflicting schedules
 - **Zero-Rate Schedules**: Edge case handling removed
 - **Membership Type Mismatches**: Type consistency validation lost
 - **Concurrent Updates**: No race condition testing
 
 #### 3.3 Integration Coverage
+
 - **End-to-End Workflows**: No complete process testing
 - **Cross-Module Integration**: Module interaction validation removed
 - **Event Handler Chain**: Event propagation not tested
 
 #### 3.4 Performance Coverage
+
 - **Bulk Operations**: No stress testing capability
 - **Query Optimization**: Performance regression testing lost
 - **Memory Usage**: No memory leak detection
@@ -135,6 +153,7 @@ These test core functionality and their removal creates coverage gaps:
 ## 4. Prioritized Restoration List
 
 ### CRITICAL (Must restore immediately)
+
 1. **Expense Workflow Tests**
    - `test_expense_workflow_complete.py`
    - `test_expense_events.py`
@@ -154,6 +173,7 @@ These test core functionality and their removal creates coverage gaps:
    - `create_edge_case_data()`
 
 ### HIGH (Should restore for proper coverage)
+
 1. **Edge Case Tests**
    - Billing frequency conflict validation
    - Zero-rate schedule handling
@@ -168,6 +188,7 @@ These test core functionality and their removal creates coverage gaps:
    - `create_dues_schedule_for_member()`
 
 ### MEDIUM (Valuable to restore)
+
 1. **Security Tests**
    - Permission validation
    - Access control testing
@@ -181,6 +202,7 @@ These test core functionality and their removal creates coverage gaps:
    - Scenario builders
 
 ### LOW (Appropriately removed)
+
 - Debug scripts
 - Temporary fixes
 - Duplicate tests
@@ -189,12 +211,14 @@ These test core functionality and their removal creates coverage gaps:
 ## 5. Specific Restoration Actions
 
 ### 5.1 Immediate Actions
+
 1. Create `test_core_workflows.py` combining:
    - Expense workflow validation
    - Member lifecycle testing
    - Financial process validation
 
 2. Restore factory bulk generation:
+
    ```python
    def create_test_members(self, count=10, status_distribution=None):
        """Create multiple members with controlled status distribution"""
@@ -209,6 +233,7 @@ These test core functionality and their removal creates coverage gaps:
    - Status transition rules
 
 ### 5.2 Phase 4.1 Test Structure
+
 ```
 verenigingen/tests/
 ├── core/
@@ -252,6 +277,7 @@ Before completing Phase 4.1, ensure:
 ## Conclusion
 
 Phase 4's aggressive consolidation removed critical test coverage. The 125 removed files included approximately:
+
 - 30% appropriately removed (debug/temporary)
 - 40% containing valuable test scenarios
 - 30% providing critical business logic validation

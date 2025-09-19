@@ -1,12 +1,15 @@
 # Email Opt-Out Implementation Plan
+
 ## Adding Communication Preferences to Membership Application
 
 ### Overview
+
 Add a checkbox for opting out of optional organizational emails while making it clear that legally required communications (like AGM invitations) cannot be opted out of.
 
 ## Current State Analysis
 
 ### Existing Forms
+
 1. **Enhanced Form**: `/templates/pages/membership_application.html`
    - Multi-step form with personal info, address, contribution, volunteer, payment sections
    - Already has `interested_in_volunteering` checkbox
@@ -18,6 +21,7 @@ Add a checkbox for opting out of optional organizational emails while making it 
    - No current preference fields
 
 ### Member DocType
+
 - **No existing newsletter/opt-in fields**
 - Only has `interested_in_volunteering` and `donation_interest` fields
 - CommunicationManager sends to all members with email addresses
@@ -46,55 +50,63 @@ Add after the volunteer section (Step 4) and before payment (Step 5):
 ```html
 <!-- Communication Preferences Section -->
 <div class="form-step" data-step="5">
-    <div class="form-card">
-        <div class="form-header">
-            <h3>{{ _("Communication Preferences") }}</h3>
-        </div>
-        <div class="form-body">
-            <!-- Legal Notice -->
-            <div class="alert alert-info mb-4">
-                <strong>{{ _("Important Legal Notice") }}</strong>
-                <p class="mb-0 mt-2">
-                    {{ _("As a member, you will receive certain legally required communications that cannot be opted out of, including:") }}
-                </p>
-                <ul class="mt-2 mb-0">
-                    <li>{{ _("Annual General Meeting (AGM) invitations and notices") }}</li>
-                    <li>{{ _("Extraordinary General Meeting notices") }}</li>
-                    <li>{{ _("Statutory voting communications") }}</li>
-                    <li>{{ _("Membership dues and payment notices") }}</li>
-                </ul>
-            </div>
-
-            <!-- Optional Communications Opt-Out -->
-            <div class="input-group">
-                <div class="form-check">
-                    <input type="checkbox"
-                           id="opt_out_optional_emails"
-                           name="opt_out_optional_emails"
-                           class="form-check-input">
-                    <label for="opt_out_optional_emails" class="form-check-label">
-                        <strong>{{ _("Opt-out of optional organizational emails") }}</strong>
-                        <p class="text-muted small mt-1 mb-0">
-                            {{ _("If checked, you will NOT receive:") }}
-                        </p>
-                        <ul class="text-muted small mt-1">
-                            <li>{{ _("Monthly/quarterly newsletters") }}</li>
-                            <li>{{ _("Event announcements (non-statutory)") }}</li>
-                            <li>{{ _("Volunteer opportunities") }}</li>
-                            <li>{{ _("General organizational updates") }}</li>
-                        </ul>
-                    </label>
-                </div>
-            </div>
-
-            <!-- Opt-In for Special Communications -->
-            <div class="input-group mt-4">
-                <p class="text-muted small">
-                    {{ _("You can update your communication preferences at any time through your member portal.") }}
-                </p>
-            </div>
-        </div>
+  <div class="form-card">
+    <div class="form-header">
+      <h3>{{ _("Communication Preferences") }}</h3>
     </div>
+    <div class="form-body">
+      <!-- Legal Notice -->
+      <div class="alert alert-info mb-4">
+        <strong>{{ _("Important Legal Notice") }}</strong>
+        <p class="mb-0 mt-2">
+          {{ _("As a member, you will receive certain legally required
+          communications that cannot be opted out of, including:") }}
+        </p>
+        <ul class="mt-2 mb-0">
+          <li>
+            {{ _("Annual General Meeting (AGM) invitations and notices") }}
+          </li>
+          <li>{{ _("Extraordinary General Meeting notices") }}</li>
+          <li>{{ _("Statutory voting communications") }}</li>
+          <li>{{ _("Membership dues and payment notices") }}</li>
+        </ul>
+      </div>
+
+      <!-- Optional Communications Opt-Out -->
+      <div class="input-group">
+        <div class="form-check">
+          <input
+            type="checkbox"
+            id="opt_out_optional_emails"
+            name="opt_out_optional_emails"
+            class="form-check-input"
+          />
+          <label for="opt_out_optional_emails" class="form-check-label">
+            <strong
+              >{{ _("Opt-out of optional organizational emails") }}</strong
+            >
+            <p class="text-muted small mt-1 mb-0">
+              {{ _("If checked, you will NOT receive:") }}
+            </p>
+            <ul class="text-muted small mt-1">
+              <li>{{ _("Monthly/quarterly newsletters") }}</li>
+              <li>{{ _("Event announcements (non-statutory)") }}</li>
+              <li>{{ _("Volunteer opportunities") }}</li>
+              <li>{{ _("General organizational updates") }}</li>
+            </ul>
+          </label>
+        </div>
+      </div>
+
+      <!-- Opt-In for Special Communications -->
+      <div class="input-group mt-4">
+        <p class="text-muted small">
+          {{ _("You can update your communication preferences at any time
+          through your member portal.") }}
+        </p>
+      </div>
+    </div>
+  </div>
 </div>
 ```
 
@@ -105,31 +117,36 @@ Add before the submit button:
 ```html
 <!-- Communication Preferences -->
 <div class="card mb-4">
-    <div class="card-header">
-        <h4>{{ _("Communication Preferences") }}</h4>
+  <div class="card-header">
+    <h4>{{ _("Communication Preferences") }}</h4>
+  </div>
+  <div class="card-body">
+    <!-- Legal Notice -->
+    <div class="alert alert-info">
+      <strong>{{ _("Legal Notice") }}</strong>: {{ _("AGM invitations and other
+      statutory communications must be sent to all members by law and cannot be
+      opted out of.") }}
     </div>
-    <div class="card-body">
-        <!-- Legal Notice -->
-        <div class="alert alert-info">
-            <strong>{{ _("Legal Notice") }}</strong>:
-            {{ _("AGM invitations and other statutory communications must be sent to all members by law and cannot be opted out of.") }}
-        </div>
 
-        <!-- Opt-Out Checkbox -->
-        <div class="form-check">
-            <input type="checkbox"
-                   class="form-check-input"
-                   id="opt_out_optional_emails"
-                   name="opt_out_optional_emails">
-            <label class="form-check-label" for="opt_out_optional_emails">
-                {{ _("I do NOT wish to receive optional newsletters and organizational updates") }}
-                <br>
-                <small class="text-muted">
-                    {{ _("You will still receive legally required communications such as AGM notices.") }}
-                </small>
-            </label>
-        </div>
+    <!-- Opt-Out Checkbox -->
+    <div class="form-check">
+      <input
+        type="checkbox"
+        class="form-check-input"
+        id="opt_out_optional_emails"
+        name="opt_out_optional_emails"
+      />
+      <label class="form-check-label" for="opt_out_optional_emails">
+        {{ _("I do NOT wish to receive optional newsletters and organizational
+        updates") }}
+        <br />
+        <small class="text-muted">
+          {{ _("You will still receive legally required communications such as
+          AGM notices.") }}
+        </small>
+      </label>
     </div>
+  </div>
 </div>
 ```
 

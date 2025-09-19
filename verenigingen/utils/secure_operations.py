@@ -785,9 +785,11 @@ def execute_bulk_member_operation(
             operation_name="bulk_member_operation",
             operation=operation,
             doc=doc,
-            justification=f"{justification} (batch operation {i + 1})"
-            if justification
-            else f"Bulk member operation {i + 1}",
+            justification=(
+                f"{justification} (batch operation {i + 1})"
+                if justification
+                else f"Bulk member operation {i + 1}"
+            ),
         )
         results.append(result)
 

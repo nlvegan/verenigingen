@@ -9,27 +9,48 @@
 const testCases = [
 	{
 		iban: 'NL91ABNA0417164300',
-		expected: { valid: true, formatted: 'NL91 ABNA 0417 1643 00', bank: 'ABN AMRO', bic: 'ABNANL2A' },
+		expected: {
+			valid: true,
+			formatted: 'NL91 ABNA 0417 1643 00',
+			bank: 'ABN AMRO',
+			bic: 'ABNANL2A'
+		},
 		description: 'Valid Dutch ABN AMRO IBAN'
 	},
 	{
 		iban: 'nl91abna0417164300', // lowercase
-		expected: { valid: true, formatted: 'NL91 ABNA 0417 1643 00', bank: 'ABN AMRO', bic: 'ABNANL2A' },
+		expected: {
+			valid: true,
+			formatted: 'NL91 ABNA 0417 1643 00',
+			bank: 'ABN AMRO',
+			bic: 'ABNANL2A'
+		},
 		description: 'Valid Dutch IBAN (lowercase input)'
 	},
 	{
 		iban: 'NL91 ABNA 0417 1643 00', // with spaces
-		expected: { valid: true, formatted: 'NL91 ABNA 0417 1643 00', bank: 'ABN AMRO', bic: 'ABNANL2A' },
+		expected: {
+			valid: true,
+			formatted: 'NL91 ABNA 0417 1643 00',
+			bank: 'ABN AMRO',
+			bic: 'ABNANL2A'
+		},
 		description: 'Valid Dutch IBAN (with spaces)'
 	},
 	{
 		iban: 'NL91ABNA0417164301', // wrong checksum
-		expected: { valid: false, error: 'Invalid IBAN checksum - please check for typos' },
+		expected: {
+			valid: false,
+			error: 'Invalid IBAN checksum - please check for typos'
+		},
 		description: 'Invalid checksum'
 	},
 	{
 		iban: 'NL91ABNA041716430', // too short
-		expected: { valid: false, error: 'Dutch IBAN must be 18 characters (you have 17)' },
+		expected: {
+			valid: false,
+			error: 'Dutch IBAN must be 18 characters (you have 17)'
+		},
 		description: 'Too short Dutch IBAN'
 	},
 	{
@@ -39,22 +60,42 @@ const testCases = [
 	},
 	{
 		iban: 'BE68539007547034',
-		expected: { valid: true, formatted: 'BE68 5390 0754 7034', bank: null, bic: null },
+		expected: {
+			valid: true,
+			formatted: 'BE68 5390 0754 7034',
+			bank: null,
+			bic: null
+		},
 		description: 'Valid Belgian IBAN (no BIC derivation)'
 	},
 	{
 		iban: 'DE89370400440532013000',
-		expected: { valid: true, formatted: 'DE89 3704 0044 0532 0130 00', bank: null, bic: null },
+		expected: {
+			valid: true,
+			formatted: 'DE89 3704 0044 0532 0130 00',
+			bank: null,
+			bic: null
+		},
 		description: 'Valid German IBAN'
 	},
 	{
 		iban: 'NL44RABO0123456789',
-		expected: { valid: true, formatted: 'NL44 RABO 0123 4567 89', bank: 'Rabobank', bic: 'RABONL2U' },
+		expected: {
+			valid: true,
+			formatted: 'NL44 RABO 0123 4567 89',
+			bank: 'Rabobank',
+			bic: 'RABONL2U'
+		},
 		description: 'Valid Rabobank IBAN'
 	},
 	{
 		iban: 'NL69INGB0123456789',
-		expected: { valid: true, formatted: 'NL69 INGB 0123 4567 89', bank: 'ING', bic: 'INGBNL2A' },
+		expected: {
+			valid: true,
+			formatted: 'NL69 INGB 0123 4567 89',
+			bank: 'ING',
+			bic: 'INGBNL2A'
+		},
 		description: 'Valid ING IBAN'
 	}
 ];
@@ -80,22 +121,46 @@ const mockApp = {
 		const countryCode = cleanIBAN.substring(0, 2);
 
 		const ibanLengths = {
-			AD: 24, AT: 20, BE: 16, CH: 21, CZ: 24,
-			DE: 22, DK: 18, ES: 24, FI: 18, FR: 27,
-			GB: 22, IE: 22, IT: 27, LU: 20, NL: 18,
-			NO: 15, PL: 28, PT: 25, SE: 24
+			AD: 24,
+			AT: 20,
+			BE: 16,
+			CH: 21,
+			CZ: 24,
+			DE: 22,
+			DK: 18,
+			ES: 24,
+			FI: 18,
+			FR: 27,
+			GB: 22,
+			IE: 22,
+			IT: 27,
+			LU: 20,
+			NL: 18,
+			NO: 15,
+			PL: 28,
+			PT: 25,
+			SE: 24
 		};
 
 		if (!(countryCode in ibanLengths)) {
-			return { valid: false, error: `Unsupported country code: ${countryCode}` };
+			return {
+				valid: false,
+				error: `Unsupported country code: ${countryCode}`
+			};
 		}
 
 		const expectedLength = ibanLengths[countryCode];
 		if (cleanIBAN.length !== expectedLength) {
 			const countryNames = {
-				NL: 'Dutch', BE: 'Belgian', DE: 'German',
-				FR: 'French', GB: 'British', IT: 'Italian',
-				ES: 'Spanish', AT: 'Austrian', CH: 'Swiss'
+				NL: 'Dutch',
+				BE: 'Belgian',
+				DE: 'German',
+				FR: 'French',
+				GB: 'British',
+				IT: 'Italian',
+				ES: 'Spanish',
+				AT: 'Austrian',
+				CH: 'Swiss'
 			};
 			const countryName = countryNames[countryCode] || countryCode;
 			return {
@@ -106,13 +171,19 @@ const mockApp = {
 
 		// Perform mod-97 checksum validation
 		const rearranged = cleanIBAN.substring(4) + cleanIBAN.substring(0, 4);
-		const numeric = rearranged.replace(/[A-Z]/g, char => char.charCodeAt(0) - 55);
+		const numeric = rearranged.replace(
+			/[A-Z]/g,
+			(char) => char.charCodeAt(0) - 55
+		);
 		const remainder = numeric.match(/.{1,9}/g).reduce((acc, chunk) => {
 			return (parseInt(acc + chunk) % 97).toString();
 		}, '');
 
 		if (remainder !== '1') {
-			return { valid: false, error: 'Invalid IBAN checksum - please check for typos' };
+			return {
+				valid: false,
+				error: 'Invalid IBAN checksum - please check for typos'
+			};
 		}
 
 		const formatted = cleanIBAN.match(/.{1,4}/g).join(' ');
@@ -121,7 +192,9 @@ const mockApp = {
 	},
 
 	deriveBICFromIBAN(iban) {
-		if (!iban) { return null; }
+		if (!iban) {
+			return null;
+		}
 
 		const cleanIBAN = iban.replace(/\s/g, '').toUpperCase();
 
@@ -147,7 +220,9 @@ const mockApp = {
 	},
 
 	getBankNameFromIBAN(iban) {
-		if (!iban) { return null; }
+		if (!iban) {
+			return null;
+		}
 
 		const cleanIBAN = iban.replace(/\s/g, '').toUpperCase();
 
@@ -176,7 +251,7 @@ const mockApp = {
 console.log('Testing IBAN Validation with Mod-97 Checksum');
 console.log('='.repeat(50));
 
-testCases.forEach(test => {
+testCases.forEach((test) => {
 	console.log(`\nTest: ${test.description}`);
 	console.log(`Input: ${test.iban}`);
 
@@ -190,8 +265,12 @@ testCases.forEach(test => {
 			const bank = mockApp.getBankNameFromIBAN(test.iban);
 			const bic = mockApp.deriveBICFromIBAN(test.iban);
 
-			if (bank) { console.log(`  Bank: ${bank}`); }
-			if (bic) { console.log(`  BIC: ${bic}`); }
+			if (bank) {
+				console.log(`  Bank: ${bank}`);
+			}
+			if (bic) {
+				console.log(`  BIC: ${bic}`);
+			}
 
 			// Check expectations
 			if (result.formatted !== test.expected.formatted) {

@@ -5,6 +5,7 @@
 The analysis of mutations 7833, 5473, and 6217 has been completed successfully. Here are the key findings:
 
 ### Key Findings:
+
 1. ✗ **No multiple invoice payments found in these samples** - The API structure supports it, but these specific mutations don't demonstrate it
 2. ✓ **Additional API fields discovered**: termOfPayment, ledgerId, inExVat, entryNumber, vat
 3. ✓ **Standard payment types found**: Type 3 (Customer Payment) and Type 4 (Supplier Payment)
@@ -12,6 +13,7 @@ The analysis of mutations 7833, 5473, and 6217 has been completed successfully. 
 ## Detailed Analysis
 
 ### Mutation 7833 - Customer Payment
+
 - **Type**: 3 (FactuurbetalingOntvangen - Customer Payment)
 - **Date**: 2025-06-04
 - **Invoice**: 2025-55297
@@ -20,6 +22,7 @@ The analysis of mutations 7833, 5473, and 6217 has been completed successfully. 
 - **Structure**: Single row payment against one invoice
 
 ### Mutation 5473 - Supplier Payment (IMPORTANT!)
+
 - **Type**: 4 (FactuurbetalingVerstuurd - Supplier Payment)
 - **Date**: 2024-02-08
 - **Invoice**: "7771-2024-15525,7771-2024-15644" (comma-separated in single field)
@@ -31,6 +34,7 @@ The analysis of mutations 7833, 5473, and 6217 has been completed successfully. 
   - This shows the API can handle multiple invoices in a payment!
 
 ### Mutation 6217 - Money Spent (Direct Payment)
+
 - **Type**: 6 (GeldUitgegeven - Money Spent)
 - **Date**: 2024-11-28
 - **Invoice**: None
@@ -41,6 +45,7 @@ The analysis of mutations 7833, 5473, and 6217 has been completed successfully. 
 ## API Structure Discoveries
 
 ### Payment Mutation Fields:
+
 ```json
 {
   "id": number,
@@ -68,17 +73,21 @@ The analysis of mutations 7833, 5473, and 6217 has been completed successfully. 
 ## Important Findings for Implementation
 
 ### 1. Multiple Invoice Payments ARE Supported!
+
 Mutation 5473 proves that the API supports multiple invoice payments:
+
 - Invoice numbers are comma-separated in the `invoiceNumber` field
 - Multiple rows can split the payment amounts
 - This is different from our initial assumption!
 
 ### 2. Payment Structure Pattern
+
 - **ledgerId** (main): Bank/Cash account
 - **relationId**: Customer/Supplier reference
 - **rows**: Contains the offsetting entries (typically receivable/payable accounts)
 
 ### 3. Direct Payments (Type 6)
+
 - Can have no invoice reference
 - Still uses the same row structure
 - Used for direct expenses/payments
@@ -86,6 +95,7 @@ Mutation 5473 proves that the API supports multiple invoice payments:
 ## Recommendations for Implementation
 
 ### 1. Update Payment Processing Logic
+
 ```python
 # Parse comma-separated invoice numbers
 invoice_numbers = mutation_data.get("invoiceNumber", "").split(",")
@@ -98,16 +108,20 @@ if len(invoice_numbers) > 1:
 ```
 
 ### 2. Bank Account Identification
+
 - Use the main `ledgerId` field to identify the bank/cash account
 - Cross-reference with ledger mappings to get the correct ERPNext account
 
 ### 3. Enhanced Type Handling
+
 Update the type mapping to properly handle:
+
 - Type 3: Customer payments (may have multiple invoices)
 - Type 4: Supplier payments (may have multiple invoices)
 - Type 6: Direct money spent (no invoice reference)
 
 ### 4. Additional Fields to Consider
+
 - **termOfPayment**: Could be used for payment terms mapping
 - **inExVat**: Important for VAT handling
 - **entryNumber**: Could be used as external reference
@@ -122,6 +136,7 @@ Update the type mapping to properly handle:
 ## Note on API Capabilities
 
 The E-Boekhouden API is more capable than initially thought:
+
 - It DOES support multiple invoice payments (via comma-separated invoice numbers)
 - The structure is consistent across different payment types
 - Row-level data provides flexibility for complex allocations

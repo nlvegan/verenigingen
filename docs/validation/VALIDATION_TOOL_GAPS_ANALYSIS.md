@@ -13,6 +13,7 @@ During Phase 3 Integration Testing implementation, we discovered multiple valida
 **Root Cause**: Our import validation script (`scripts/validation/validate_imports.py`) only checks for app name typos, not module path validity.
 
 **Example Error**:
+
 ```python
 # INCORRECT - Not caught by validation
 from verenigingen.utils.iban_validator import validate_iban
@@ -37,6 +38,7 @@ from verenigingen.utils.validation.iban_validator import validate_iban
 ### 3. Type Comparison Validation Gap
 
 **Issue**: Comparison between string and datetime.date in birth date validation:
+
 ```python
 self.assertTrue(member.birth_date < getdate())  # TypeError if birth_date is string
 ```
@@ -110,11 +112,13 @@ The Phase 3 integration tests revealed these issues precisely because they use r
 ### Validation Tool Limitations
 
 Our current validation tools are optimized for:
+
 - Static analysis of field references
 - Schema-driven validation
 - Basic import typo detection
 
 But they miss:
+
 - Runtime type behavior
 - Dynamic value validation
 - Cross-module dependency validation
@@ -142,11 +146,13 @@ But they miss:
 ## Quality Impact Assessment
 
 ### Before Enhancements
+
 - ❌ Import path errors caught at runtime
 - ❌ Field option errors caught during document save
 - ❌ Type errors caught during test execution
 
 ### After Enhancements
+
 - ✅ Import path errors caught during static analysis
 - ✅ Field option errors caught during test data creation
 - ✅ Type errors caught during code review

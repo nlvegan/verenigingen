@@ -1298,9 +1298,9 @@ def _create_webhook_processing_log(
                 "webhook_hash": webhook_hash,
                 "processed_at": frappe.utils.now_datetime(),
                 "status": status,
-                "processing_result": json.dumps(processing_result, default=str)
-                if processing_result
-                else None,
+                "processing_result": (
+                    json.dumps(processing_result, default=str) if processing_result else None
+                ),
                 "error_details": error_details,
                 "raw_payload": safe_payload,
             }

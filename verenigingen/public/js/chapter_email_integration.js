@@ -12,22 +12,41 @@ frappe.ui.form.on('Chapter', {
 	refresh(frm) {
 		if (!frm.is_new() && frm.doc.name) {
 			// Add email buttons group
-			frm.add_custom_button(__('Send to All Members'), () => {
-				frappe.verenigingen.email.show_email_dialog(frm.doc.name, 'all');
-			}, __('📧 Email'));
+			frm.add_custom_button(
+				__('Send to All Members'),
+				() => {
+					frappe.verenigingen.email.show_email_dialog(frm.doc.name, 'all');
+				},
+				__('📧 Email')
+			);
 
-			frm.add_custom_button(__('Send to Board'), () => {
-				frappe.verenigingen.email.show_email_dialog(frm.doc.name, 'board');
-			}, __('📧 Email'));
+			frm.add_custom_button(
+				__('Send to Board'),
+				() => {
+					frappe.verenigingen.email.show_email_dialog(frm.doc.name, 'board');
+				},
+				__('📧 Email')
+			);
 
-			frm.add_custom_button(__('Send to Volunteers'), () => {
-				frappe.verenigingen.email.show_email_dialog(frm.doc.name, 'volunteers');
-			}, __('📧 Email'));
+			frm.add_custom_button(
+				__('Send to Volunteers'),
+				() => {
+					frappe.verenigingen.email.show_email_dialog(
+						frm.doc.name,
+						'volunteers'
+					);
+				},
+				__('📧 Email')
+			);
 
 			// Add preview button
-			frm.add_custom_button(__('Preview Recipients'), () => {
-				frappe.verenigingen.email.show_recipient_preview(frm.doc.name);
-			}, __('📧 Email'));
+			frm.add_custom_button(
+				__('Preview Recipients'),
+				() => {
+					frappe.verenigingen.email.show_recipient_preview(frm.doc.name);
+				},
+				__('📧 Email')
+			);
 		}
 	}
 });
@@ -35,19 +54,24 @@ frappe.ui.form.on('Chapter', {
 // Email functionality namespace
 frappe.verenigingen.email = {
 	/**
-     * Show email composition dialog
-     */
+   * Show email composition dialog
+   */
 	show_email_dialog(chapter_name, segment) {
 		// First get recipient count
 		frappe.call({
-			method: 'verenigingen.email.simplified_email_manager.get_segment_recipient_count',
+			method:
+        'verenigingen.email.simplified_email_manager.get_segment_recipient_count',
 			args: {
 				chapter_name,
 				segment
 			},
 			callback(r) {
 				if (!r.message || !r.message.success) {
-					frappe.msgprint(__('Could not get recipient count: {0}', [r.message?.error || 'Unknown error']));
+					frappe.msgprint(
+						__('Could not get recipient count: {0}', [
+							r.message?.error || 'Unknown error'
+						])
+					);
 					return;
 				}
 
@@ -56,8 +80,13 @@ frappe.verenigingen.email = {
 
 				// Show the email dialog
 				const dialog = new frappe.ui.Dialog({
-					title: __('Send Email to {0}', [segment === 'all' ? 'All Members'
-						: segment === 'board' ? 'Board Members' : 'Volunteers']),
+					title: __('Send Email to {0}', [
+						segment === 'all'
+							? 'All Members'
+							: segment === 'board'
+								? 'Board Members'
+								: 'Volunteers'
+					]),
 					fields: [
 						{
 							fieldname: 'recipient_info',
@@ -65,9 +94,18 @@ frappe.verenigingen.email = {
 							options: `
                                 <div class="alert alert-info">
                                     <strong>${__('Recipients')}:</strong> ${recipient_count} ${__('members')}<br>
-                                    ${sample_recipients.length > 0
-		? `<small>${__('Sample')}: ${sample_recipients.slice(0, 3)
-			.map(recipient => recipient.full_name || recipient.email).join(', ')}...</small>` : ''}
+                                    ${
+	sample_recipients.length > 0
+		? `<small>${__('Sample')}: ${sample_recipients
+			.slice(0, 3)
+			.map(
+				(recipient) =>
+					recipient.full_name
+                                                || recipient.email
+			)
+			.join(', ')}...</small>`
+		: ''
+}
                                 </div>
                             `
 						},
@@ -102,7 +140,10 @@ frappe.verenigingen.email = {
 							hidden: 1,
 							onchange() {
 								if (this.get_value()) {
-									frappe.verenigingen.email.load_template(dialog, this.get_value());
+									frappe.verenigingen.email.load_template(
+										dialog,
+										this.get_value()
+									);
 								}
 							}
 						},
@@ -151,8 +192,8 @@ frappe.verenigingen.email = {
 	},
 
 	/**
-     * Load email template content
-     */
+   * Load email template content
+   */
 	load_template(dialog, template_name) {
 		frappe.call({
 			method: 'frappe.client.get',
@@ -170,8 +211,8 @@ frappe.verenigingen.email = {
 	},
 
 	/**
-     * Send the actual email
-     */
+   * Send the actual email
+   */
 	send_email(chapter_name, segment, subject, content, test_mode) {
 		if (test_mode) {
 			// Show preview
@@ -203,30 +244,43 @@ frappe.verenigingen.email = {
 			freeze_message: __('Sending emails...'),
 			callback(r) {
 				if (r.message && r.message.success) {
-					frappe.show_alert({
-						message: __('Email queued for {0} recipients', [r.message.recipients_count]),
-						indicator: 'green'
-					}, 5);
+					frappe.show_alert(
+						{
+							message: __('Email queued for {0} recipients', [
+								r.message.recipients_count
+							]),
+							indicator: 'green'
+						},
+						5
+					);
 
 					// Show link to newsletter
 					if (r.message.newsletter) {
-						frappe.msgprint(__('Newsletter created: <a href="/app/newsletter/{0}">{0}</a>',
-							[r.message.newsletter]));
+						frappe.msgprint(
+							__('Newsletter created: <a href="/app/newsletter/{0}">{0}</a>', [
+								r.message.newsletter
+							])
+						);
 					}
 				} else {
-					frappe.msgprint(__('Error sending email: {0}',
-						[r.message?.error || 'Unknown error']));
+					frappe.msgprint(
+						__('Error sending email: {0}', [
+							r.message?.error || 'Unknown error'
+						])
+					);
 				}
 			},
 			error(err) {
-				frappe.msgprint(__('Error sending email: {0}', [err.message || 'Unknown error']));
+				frappe.msgprint(
+					__('Error sending email: {0}', [err.message || 'Unknown error'])
+				);
 			}
 		});
 	},
 
 	/**
-     * Show recipient preview dialog
-     */
+   * Show recipient preview dialog
+   */
 	show_recipient_preview(chapter_name) {
 		const dialog = new frappe.ui.Dialog({
 			title: __('Email Recipients Preview'),
@@ -247,9 +301,10 @@ frappe.verenigingen.email = {
 		let preview_html = '<div class="recipient-preview-container">';
 		let loaded = 0;
 
-		segments.forEach(segment => {
+		segments.forEach((segment) => {
 			frappe.call({
-				method: 'verenigingen.email.simplified_email_manager.get_segment_recipient_count',
+				method:
+          'verenigingen.email.simplified_email_manager.get_segment_recipient_count',
 				args: {
 					chapter_name,
 					segment
@@ -261,18 +316,32 @@ frappe.verenigingen.email = {
 						const data = r.message;
 						preview_html += `
                             <div class="segment-preview" style="margin-bottom: 20px;">
-                                <h5>${segment === 'all' ? 'All Members'
-		: segment === 'board' ? 'Board Members' : 'Volunteers'}</h5>
+                                <h5>${
+	segment === 'all'
+		? 'All Members'
+		: segment === 'board'
+			? 'Board Members'
+			: 'Volunteers'
+}</h5>
                                 <p><strong>${__('Total')}:</strong> ${data.recipients_count} ${__('recipients')}</p>
-                                ${data.sample_recipients && data.sample_recipients.length > 0 ? `
+                                ${
+	data.sample_recipients
+                                  && data.sample_recipients.length > 0
+		? `
                                     <p><strong>${__('Sample')}:</strong></p>
                                     <ul>
-                                        ${data.sample_recipients.map(recipient => `
+                                        ${data.sample_recipients
+		.map(
+			(recipient) => `
                                             <li>${recipient.full_name} (${recipient.email})
                                                 ${recipient.role ? ` - ${recipient.role}` : ''}</li>
-                                        `).join('')}
+                                        `
+		)
+		.join('')}
                                     </ul>
-                                ` : '<p><em>No recipients in this segment</em></p>'}
+                                `
+		: '<p><em>No recipients in this segment</em></p>'
+}
                             </div>
                         `;
 					}
@@ -289,8 +358,10 @@ frappe.verenigingen.email = {
 };
 
 // Organization-wide newsletter functionality (for System Managers)
-if (frappe.boot.user.roles.includes('System Manager')
-    || frappe.boot.user.roles.includes('Verenigingen Manager')) {
+if (
+	frappe.boot.user.roles.includes('System Manager')
+  || frappe.boot.user.roles.includes('Verenigingen Manager')
+) {
 	// Add to navbar
 	$(document).ready(() => {
 		if ($('.navbar-nav .dropdown-help').length) {
@@ -367,7 +438,8 @@ if (frappe.boot.user.roles.includes('System Manager')
 				}
 
 				frappe.call({
-					method: 'verenigingen.email.simplified_email_manager.send_organization_newsletter',
+					method:
+            'verenigingen.email.simplified_email_manager.send_organization_newsletter',
 					args: {
 						subject: values.subject,
 						content: values.content,
@@ -377,15 +449,20 @@ if (frappe.boot.user.roles.includes('System Manager')
 					freeze_message: __('Sending newsletter...'),
 					callback(r) {
 						if (r.message && r.message.success) {
-							frappe.show_alert({
-								message: __('Newsletter queued for {0} recipients',
-									[r.message.recipients_count]),
-								indicator: 'green'
-							}, 5);
+							frappe.show_alert(
+								{
+									message: __('Newsletter queued for {0} recipients', [
+										r.message.recipients_count
+									]),
+									indicator: 'green'
+								},
+								5
+							);
 							dialog.hide();
 						} else {
-							frappe.msgprint(__('Error: {0}',
-								[r.message?.error || 'Unknown error']));
+							frappe.msgprint(
+								__('Error: {0}', [r.message?.error || 'Unknown error'])
+							);
 						}
 					}
 				});

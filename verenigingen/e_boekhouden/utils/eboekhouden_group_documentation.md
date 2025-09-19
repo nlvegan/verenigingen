@@ -7,24 +7,27 @@ The E-Boekhouden API does provide custom group names for accounts through the `/
 ## API Response Structure
 
 When calling the chart of accounts endpoint:
+
 ```python
 api.get_chart_of_accounts()  # GET /v1/ledger
 ```
 
 Each account in the response contains:
+
 ```json
 {
   "id": 13201873,
   "code": "13500",
   "description": "Te ontvangen contributies",
   "category": "DEB",
-  "group": "004"  // Custom group name/identifier
+  "group": "004" // Custom group name/identifier
 }
 ```
 
 ## Available Groups in Test Environment
 
 From the API test, we found 18 unique groups:
+
 - **Group 004**: Receivables/Debtors (6 accounts) - "Te ontvangen" accounts
 - **Group 007**: Personnel costs (6 accounts) - Salary and social charges
 - **Group 014**: Project costs (10 accounts) - Various project expenses
@@ -43,6 +46,7 @@ From the API test, we found 18 unique groups:
 ## Using Groups for Account Categorization
 
 ### Example: Finding All Receivable Accounts
+
 ```python
 # All accounts in group "004" are receivables
 group_004_accounts = [
@@ -55,6 +59,7 @@ group_004_accounts = [
 ```
 
 ### Mapping Groups to ERPNext Account Types
+
 Based on the account descriptions and categories within each group, you can create mappings:
 
 ```python
@@ -114,6 +119,7 @@ def categorize_accounts_by_group(accounts):
 ## Conclusion
 
 Yes, the E-Boekhouden API does provide custom group information through the `group` field. While these are numeric identifiers rather than descriptive names, they can still be very useful for:
+
 - Bulk categorization during migration
 - Understanding the account structure
 - Maintaining consistency when mapping to ERPNext account types

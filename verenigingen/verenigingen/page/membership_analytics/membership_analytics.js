@@ -118,29 +118,29 @@ frappe.pages['membership-analytics'].on_page_load = function (wrapper) {
  */
 class MembershipAnalytics {
 	/**
-	 * @constructor
-	 * @description Initializes the Membership Analytics Dashboard with default configuration
-	 *
-	 * Sets up the analytics environment with comprehensive filtering options,
-	 * chart management, and real-time data refresh capabilities. Establishes
-	 * baseline analytics parameters for member growth tracking and business intelligence.
-	 *
-	 * @param {Object} page - Frappe page object for dashboard rendering
-	 *
-	 * @property {Object} page - Main page container for dashboard UI
-	 * @property {Object} charts - Chart instances management for memory optimization
-	 * @property {Object} filters - Multi-dimensional filtering configuration
-	 * @property {number} filters.year - Current analysis year (default: current year)
-	 * @property {string} filters.period - Analysis period (year/quarter/month)
-	 * @property {boolean} filters.compare_previous - Enable period comparison
-	 * @property {string|null} filters.chapter - Chapter-specific filtering
-	 * @property {string|null} filters.region - Geographic region filtering
-	 * @property {string|null} filters.membership_type - Membership type segmentation
-	 * @property {string|null} filters.age_group - Demographic age grouping
-	 * @property {string|null} filters.payment_method - Payment method analysis
-	 *
-	 * @since 1.0.0
-	 */
+   * @constructor
+   * @description Initializes the Membership Analytics Dashboard with default configuration
+   *
+   * Sets up the analytics environment with comprehensive filtering options,
+   * chart management, and real-time data refresh capabilities. Establishes
+   * baseline analytics parameters for member growth tracking and business intelligence.
+   *
+   * @param {Object} page - Frappe page object for dashboard rendering
+   *
+   * @property {Object} page - Main page container for dashboard UI
+   * @property {Object} charts - Chart instances management for memory optimization
+   * @property {Object} filters - Multi-dimensional filtering configuration
+   * @property {number} filters.year - Current analysis year (default: current year)
+   * @property {string} filters.period - Analysis period (year/quarter/month)
+   * @property {boolean} filters.compare_previous - Enable period comparison
+   * @property {string|null} filters.chapter - Chapter-specific filtering
+   * @property {string|null} filters.region - Geographic region filtering
+   * @property {string|null} filters.membership_type - Membership type segmentation
+   * @property {string|null} filters.age_group - Demographic age grouping
+   * @property {string|null} filters.payment_method - Payment method analysis
+   *
+   * @since 1.0.0
+   */
 	constructor(page) {
 		this.page = page;
 		this.charts = {};
@@ -157,24 +157,24 @@ class MembershipAnalytics {
 	}
 
 	/**
-	 * @method make
-	 * @description Initializes and renders the complete analytics dashboard
-	 *
-	 * Orchestrates the dashboard creation process including HTML template rendering,
-	 * filter setup, button configuration, and initial data loading. Establishes
-	 * auto-refresh mechanism for real-time analytics updates.
-	 *
-	 * Dashboard Components:
-	 * - Summary cards with key performance indicators
-	 * - Interactive charts for growth trends and revenue analysis
-	 * - Advanced filtering interface with multi-dimensional options
-	 * - Goal tracking and progress monitoring
-	 * - Export and snapshot capabilities
-	 * - Predictive analytics and risk assessment tools
-	 *
-	 * @throws {Error} If template rendering fails or backend connectivity issues
-	 * @since 1.0.0
-	 */
+   * @method make
+   * @description Initializes and renders the complete analytics dashboard
+   *
+   * Orchestrates the dashboard creation process including HTML template rendering,
+   * filter setup, button configuration, and initial data loading. Establishes
+   * auto-refresh mechanism for real-time analytics updates.
+   *
+   * Dashboard Components:
+   * - Summary cards with key performance indicators
+   * - Interactive charts for growth trends and revenue analysis
+   * - Advanced filtering interface with multi-dimensional options
+   * - Goal tracking and progress monitoring
+   * - Export and snapshot capabilities
+   * - Predictive analytics and risk assessment tools
+   *
+   * @throws {Error} If template rendering fails or backend connectivity issues
+   * @since 1.0.0
+   */
 	make() {
 		// Add HTML content
 		$(this.page.main).html(frappe.render_template('membership_analytics', {}));
@@ -216,7 +216,9 @@ class MembershipAnalytics {
 		});
 
 		// Advanced filters
-		$('#filter-chapter, #filter-region, #filter-membership-type, #filter-age-group, #filter-payment-method').on('change', () => {
+		$(
+			'#filter-chapter, #filter-region, #filter-membership-type, #filter-age-group, #filter-payment-method'
+		).on('change', () => {
 			this.filters.chapter = $('#filter-chapter').val() || null;
 			this.filters.region = $('#filter-region').val() || null;
 			this.filters.membership_type = $('#filter-membership-type').val() || null;
@@ -227,7 +229,11 @@ class MembershipAnalytics {
 
 		// Reset filters button
 		$('#btn-reset-filters').on('click', () => {
-			$('#filter-chapter, #filter-region, #filter-membership-type, #filter-age-group, #filter-payment-method').val('').trigger('change');
+			$(
+				'#filter-chapter, #filter-region, #filter-membership-type, #filter-age-group, #filter-payment-method'
+			)
+				.val('')
+				.trigger('change');
 		});
 	}
 
@@ -244,8 +250,10 @@ class MembershipAnalytics {
 			callback: (r) => {
 				if (r.message) {
 					const select = $('#filter-chapter');
-					r.message.forEach(chapter => {
-						select.append(`<option value="${chapter.name}">${chapter.name}</option>`);
+					r.message.forEach((chapter) => {
+						select.append(
+							`<option value="${chapter.name}">${chapter.name}</option>`
+						);
 					});
 				}
 			}
@@ -263,7 +271,7 @@ class MembershipAnalytics {
 			callback: (r) => {
 				if (r.message) {
 					const select = $('#filter-membership-type');
-					r.message.forEach(type => {
+					r.message.forEach((type) => {
 						select.append(`<option value="${type.name}">${type.name}</option>`);
 					});
 				}
@@ -272,25 +280,37 @@ class MembershipAnalytics {
 
 		// Regions are hardcoded based on postal codes
 		const regions = [
-			'Noord-Holland', 'Zuid-Holland', 'Utrecht', 'Gelderland',
-			'Noord-Brabant', 'Limburg', 'Zeeland', 'Overijssel', 'Groningen'
+			'Noord-Holland',
+			'Zuid-Holland',
+			'Utrecht',
+			'Gelderland',
+			'Noord-Brabant',
+			'Limburg',
+			'Zeeland',
+			'Overijssel',
+			'Groningen'
 		];
 		const regionSelect = $('#filter-region');
-		regions.forEach(region => {
+		regions.forEach((region) => {
 			regionSelect.append(`<option value="${region}">${region}</option>`);
 		});
 
 		// Age groups are predefined
 		const ageGroups = ['Under 25', '25-34', '35-44', '45-54', '55-64', '65+'];
 		const ageSelect = $('#filter-age-group');
-		ageGroups.forEach(age => {
+		ageGroups.forEach((age) => {
 			ageSelect.append(`<option value="${age}">${age}</option>`);
 		});
 
 		// Payment methods
-		const paymentMethods = ['Bank Transfer', 'Direct Debit', 'Credit Card', 'PayPal'];
+		const paymentMethods = [
+			'Bank Transfer',
+			'Direct Debit',
+			'Credit Card',
+			'PayPal'
+		];
 		const paymentSelect = $('#filter-payment-method');
-		paymentMethods.forEach(method => {
+		paymentMethods.forEach((method) => {
 			paymentSelect.append(`<option value="${method}">${method}</option>`);
 		});
 	}
@@ -351,49 +371,50 @@ class MembershipAnalytics {
 	}
 
 	/**
-	 * @method refresh_dashboard
-	 * @description Refreshes all dashboard data and visualizations with current filter settings
-	 *
-	 * Orchestrates a complete dashboard refresh by fetching updated analytics data
-	 * from the backend and re-rendering all charts, summaries, and insights.
-	 * Implements proper loading states and error handling for enhanced user experience.
-	 *
-	 * Data Refresh Process:
-	 * 1. Display loading state with progress indicator
-	 * 2. Fetch comprehensive analytics data with current filters
-	 * 3. Update summary cards with key performance metrics
-	 * 4. Re-render all interactive charts and visualizations
-	 * 5. Refresh goals, insights, and recommendations
-	 * 6. Update timestamp for data freshness indication
-	 *
-	 * Backend Integration:
-	 * - Calls Python analytics engine for data processing
-	 * - Applies multi-dimensional filtering (time, geography, demographics)
-	 * - Retrieves predictive analytics and trend analysis
-	 * - Includes comparative metrics for period-over-period analysis
-	 *
-	 * Error Handling:
-	 * - Network connectivity issues
-	 * - Backend processing errors
-	 * - Data validation failures
-	 * - User permission restrictions
-	 *
-	 * @throws {Error} If backend communication fails or data processing errors occur
-	 * @since 1.0.0
-	 *
-	 * @example
-	 * // Triggered automatically every 5 minutes
-	 * setInterval(() => this.refresh_dashboard(), 5 * 60 * 1000);
-	 *
-	 * // Manual refresh via button click
-	 * $('#btn-refresh').on('click', () => this.refresh_dashboard());
-	 */
+   * @method refresh_dashboard
+   * @description Refreshes all dashboard data and visualizations with current filter settings
+   *
+   * Orchestrates a complete dashboard refresh by fetching updated analytics data
+   * from the backend and re-rendering all charts, summaries, and insights.
+   * Implements proper loading states and error handling for enhanced user experience.
+   *
+   * Data Refresh Process:
+   * 1. Display loading state with progress indicator
+   * 2. Fetch comprehensive analytics data with current filters
+   * 3. Update summary cards with key performance metrics
+   * 4. Re-render all interactive charts and visualizations
+   * 5. Refresh goals, insights, and recommendations
+   * 6. Update timestamp for data freshness indication
+   *
+   * Backend Integration:
+   * - Calls Python analytics engine for data processing
+   * - Applies multi-dimensional filtering (time, geography, demographics)
+   * - Retrieves predictive analytics and trend analysis
+   * - Includes comparative metrics for period-over-period analysis
+   *
+   * Error Handling:
+   * - Network connectivity issues
+   * - Backend processing errors
+   * - Data validation failures
+   * - User permission restrictions
+   *
+   * @throws {Error} If backend communication fails or data processing errors occur
+   * @since 1.0.0
+   *
+   * @example
+   * // Triggered automatically every 5 minutes
+   * setInterval(() => this.refresh_dashboard(), 5 * 60 * 1000);
+   *
+   * // Manual refresh via button click
+   * $('#btn-refresh').on('click', () => this.refresh_dashboard());
+   */
 	refresh_dashboard() {
 		// Show loading state
 		frappe.dom.freeze('Loading dashboard data...');
 
 		frappe.call({
-			method: 'verenigingen.verenigingen.page.membership_analytics.membership_analytics.get_dashboard_data',
+			method:
+        'verenigingen.verenigingen.page.membership_analytics.membership_analytics.get_dashboard_data',
 			args: {
 				year: this.filters.year,
 				period: this.filters.period,
@@ -453,13 +474,16 @@ class MembershipAnalytics {
 		$('#growth-rate').text(`${summary.growth_rate.toFixed(1)}%`);
 
 		// Projected Revenue
-		$('#projected-revenue').text(this.format_currency(summary.projected_revenue));
+		$('#projected-revenue').text(
+			this.format_currency(summary.projected_revenue)
+		);
 
 		// Show comparison if available
 		if (previous) {
 			const growth_change = summary.net_growth - previous.net_growth;
 			const growth_pct = previous.net_growth
-				? ((growth_change / Math.abs(previous.net_growth)) * 100).toFixed(1) : 0;
+				? ((growth_change / Math.abs(previous.net_growth)) * 100).toFixed(1)
+				: 0;
 
 			$('#net-growth-change').html(
 				`<i class="fa fa-${growth_change >= 0 ? 'arrow-up' : 'arrow-down'}"></i> ${growth_pct}%`
@@ -469,20 +493,24 @@ class MembershipAnalytics {
 
 	render_growth_chart(data) {
 		const chart_data = {
-			labels: data.map(d => d.period),
-			datasets: [{
-				name: __('New Members'),
-				values: data.map(d => d.new_members),
-				chartType: 'bar'
-			}, {
-				name: __('Lost Members'),
-				values: data.map(d => -d.lost_members),
-				chartType: 'bar'
-			}, {
-				name: __('Net Growth'),
-				values: data.map(d => d.net_growth),
-				chartType: 'line'
-			}]
+			labels: data.map((d) => d.period),
+			datasets: [
+				{
+					name: __('New Members'),
+					values: data.map((d) => d.new_members),
+					chartType: 'bar'
+				},
+				{
+					name: __('Lost Members'),
+					values: data.map((d) => -d.lost_members),
+					chartType: 'bar'
+				},
+				{
+					name: __('Net Growth'),
+					values: data.map((d) => d.net_growth),
+					chartType: 'line'
+				}
+			]
 		};
 
 		if (this.charts.growth) {
@@ -506,11 +534,13 @@ class MembershipAnalytics {
 
 	render_revenue_chart(data) {
 		const chart_data = {
-			labels: data.map(d => d.membership_type),
-			datasets: [{
-				name: __('Revenue'),
-				values: data.map(d => d.revenue)
-			}]
+			labels: data.map((d) => d.membership_type),
+			datasets: [
+				{
+					name: __('Revenue'),
+					values: data.map((d) => d.revenue)
+				}
+			]
 		};
 
 		if (this.charts.revenue) {
@@ -522,7 +552,7 @@ class MembershipAnalytics {
 			type: 'bar',
 			height: 300,
 			colors: ['#00d2d3'],
-			format_tooltip_y: d => this.format_currency(d)
+			format_tooltip_y: (d) => this.format_currency(d)
 		});
 	}
 
@@ -531,14 +561,19 @@ class MembershipAnalytics {
 		container.empty();
 
 		if (!goals || goals.length === 0) {
-			container.html(`<p class="text-muted">${__('No goals set for this period')}</p>`);
+			container.html(
+				`<p class="text-muted">${__('No goals set for this period')}</p>`
+			);
 			return;
 		}
 
-		goals.forEach(goal => {
-			const progress_class = goal.achievement_percentage >= 100 ? 'progress-bar-success'
-				: goal.achievement_percentage >= 75 ? 'progress-bar-warning'
-					: 'progress-bar-danger';
+		goals.forEach((goal) => {
+			const progress_class
+        = goal.achievement_percentage >= 100
+        	? 'progress-bar-success'
+        	: goal.achievement_percentage >= 75
+        		? 'progress-bar-warning'
+        		: 'progress-bar-danger';
 
 			const goal_html = `
                 <div class="goal-item mb-3">
@@ -566,13 +601,15 @@ class MembershipAnalytics {
 		container.empty();
 
 		if (!data || data.length === 0) {
-			container.html(`<p class="text-muted">${__('No membership data available')}</p>`);
+			container.html(
+				`<p class="text-muted">${__('No membership data available')}</p>`
+			);
 			return;
 		}
 
 		const total = data.reduce((sum, item) => sum + item.count, 0);
 
-		data.forEach(item => {
+		data.forEach((item) => {
 			const percentage = ((item.count / total) * 100).toFixed(1);
 			const breakdown_html = `
                 <div class="breakdown-item mb-3">
@@ -595,11 +632,13 @@ class MembershipAnalytics {
 		container.empty();
 
 		if (!insights || insights.length === 0) {
-			container.html(`<p class="text-muted">${__('No insights available')}</p>`);
+			container.html(
+				`<p class="text-muted">${__('No insights available')}</p>`
+			);
 			return;
 		}
 
-		insights.forEach(insight => {
+		insights.forEach((insight) => {
 			const insight_html = `
                 <div class="insight-item insight-${insight.type}">
                     <i class="fa fa-${this.get_insight_icon(insight.type)}"></i>
@@ -671,7 +710,8 @@ class MembershipAnalytics {
 			primary_action_label: __('Create Goal'),
 			primary_action: (values) => {
 				frappe.call({
-					method: 'verenigingen.verenigingen.page.membership_analytics.membership_analytics.create_goal',
+					method:
+            'verenigingen.verenigingen.page.membership_analytics.membership_analytics.create_goal',
 					args: {
 						goal_data: values
 					},
@@ -707,7 +747,10 @@ class MembershipAnalytics {
 	}
 
 	format_currency(amount) {
-		return format_currency(amount, frappe.defaults.get_default('currency') || 'EUR');
+		return format_currency(
+			amount,
+			frappe.defaults.get_default('currency') || 'EUR'
+		);
 	}
 
 	format_goal_value(value, goal_type) {
@@ -732,38 +775,60 @@ class MembershipAnalytics {
 	render_segmentation(segmentation) {
 		// Render chapter segmentation
 		if (segmentation.by_chapter) {
-			this.render_segmentation_chart('chapter-segmentation-chart', segmentation.by_chapter, 'Chapter Distribution');
+			this.render_segmentation_chart(
+				'chapter-segmentation-chart',
+				segmentation.by_chapter,
+				'Chapter Distribution'
+			);
 		}
 
 		// Render region segmentation
 		if (segmentation.by_region) {
-			this.render_segmentation_chart('region-segmentation-chart', segmentation.by_region, 'Regional Distribution');
+			this.render_segmentation_chart(
+				'region-segmentation-chart',
+				segmentation.by_region,
+				'Regional Distribution'
+			);
 		}
 
 		// Render age segmentation
 		if (segmentation.by_age) {
-			this.render_segmentation_chart('age-segmentation-chart', segmentation.by_age, 'Age Distribution');
+			this.render_segmentation_chart(
+				'age-segmentation-chart',
+				segmentation.by_age,
+				'Age Distribution'
+			);
 		}
 
 		// Render payment method segmentation
 		if (segmentation.by_payment_method) {
-			this.render_segmentation_chart('payment-method-chart', segmentation.by_payment_method, 'Payment Methods');
+			this.render_segmentation_chart(
+				'payment-method-chart',
+				segmentation.by_payment_method,
+				'Payment Methods'
+			);
 		}
 	}
 
 	render_segmentation_chart(elementId, data, _title) {
 		const container = $(`#${elementId}`);
-		if (!container.length) { return; }
+		if (!container.length) {
+			return;
+		}
 
 		// Sort by total members descending and take top 10
-		const sortedData = data.sort((a, b) => b.total_members - a.total_members).slice(0, 10);
+		const sortedData = data
+			.sort((a, b) => b.total_members - a.total_members)
+			.slice(0, 10);
 
 		const chartData = {
-			labels: sortedData.map(d => d.name),
-			datasets: [{
-				name: __('Total Members'),
-				values: sortedData.map(d => d.total_members)
-			}]
+			labels: sortedData.map((d) => d.name),
+			datasets: [
+				{
+					name: __('Total Members'),
+					values: sortedData.map((d) => d.total_members)
+				}
+			]
 		};
 
 		// Destroy existing chart if any
@@ -785,13 +850,28 @@ class MembershipAnalytics {
 
 	render_cohort_analysis(cohortData) {
 		const container = $('#cohort-heatmap');
-		if (!container.length || !cohortData || cohortData.length === 0) { return; }
+		if (!container.length || !cohortData || cohortData.length === 0) {
+			return;
+		}
 
 		// Create heatmap data
 		const heatmapData = {
 			labels: {
-				months: ['M0', 'M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7', 'M8', 'M9', 'M10', 'M11'],
-				cohorts: cohortData.map(c => c.cohort)
+				months: [
+					'M0',
+					'M1',
+					'M2',
+					'M3',
+					'M4',
+					'M5',
+					'M6',
+					'M7',
+					'M8',
+					'M9',
+					'M10',
+					'M11'
+				],
+				cohorts: cohortData.map((c) => c.cohort)
 			},
 			datasets: []
 		};
@@ -800,7 +880,7 @@ class MembershipAnalytics {
 		cohortData.forEach((cohort, idx) => {
 			const values = [];
 			for (let i = 0; i < 12; i++) {
-				const retention = cohort.retention.find(r => r.month === i);
+				const retention = cohort.retention.find((r) => r.month === i);
 				values.push(retention ? retention.rate : null);
 			}
 			heatmapData.datasets.push({
@@ -831,18 +911,23 @@ class MembershipAnalytics {
 		tableHtml += '</tr></thead><tbody>';
 
 		// Add cohort rows
-		cohortData.forEach(cohort => {
+		cohortData.forEach((cohort) => {
 			tableHtml += `<tr>
                 <td><strong>${cohort.cohort}</strong></td>
                 <td>${cohort.initial}</td>`;
 
 			for (let i = 0; i < 12; i++) {
-				const retention = cohort.retention.find(r => r.month === i);
+				const retention = cohort.retention.find((r) => r.month === i);
 				if (retention) {
 					const rate = retention.rate;
-					const colorClass = rate >= 80 ? 'bg-success'
-						: rate >= 60 ? 'bg-info'
-							: rate >= 40 ? 'bg-warning' : 'bg-danger';
+					const colorClass
+            = rate >= 80
+            	? 'bg-success'
+            	: rate >= 60
+            		? 'bg-info'
+            		: rate >= 40
+            			? 'bg-warning'
+            			: 'bg-danger';
 					tableHtml += `<td class="${colorClass} text-white">${rate.toFixed(0)}%</td>`;
 				} else {
 					tableHtml += '<td>-</td>';
@@ -856,48 +941,49 @@ class MembershipAnalytics {
 	}
 
 	/**
-	 * @method export_data
-	 * @description Exports comprehensive analytics data in multiple formats for reporting
-	 *
-	 * Generates executive-ready reports containing all dashboard analytics data,
-	 * charts, and insights in professional formats suitable for board presentations,
-	 * regulatory compliance, and strategic planning documentation.
-	 *
-	 * Export Formats:
-	 * - Excel: Comprehensive workbook with multiple sheets, charts, and pivot tables
-	 * - PDF: Executive summary with visualizations and key insights
-	 * - CSV: Raw data for further analysis and integration
-	 *
-	 * Report Contents:
-	 * - Membership growth trends and projections
-	 * - Revenue analysis and forecasting
-	 * - Regional and demographic breakdowns
-	 * - Goal progress and achievement metrics
-	 * - Comparative period analysis
-	 * - Key performance indicators summary
-	 *
-	 * Compliance Features:
-	 * - Audit trail with export timestamps
-	 * - Data validation and integrity checks
-	 * - GDPR-compliant member data handling
-	 * - Secure file generation and transfer
-	 *
-	 * @param {string} format - Export format ('excel', 'pdf', 'csv')
-	 * @throws {Error} If export generation fails or format unsupported
-	 * @since 1.5.0
-	 *
-	 * @example
-	 * // Export Excel report
-	 * this.export_data('excel');
-	 *
-	 * // Export PDF summary
-	 * this.export_data('pdf');
-	 */
+   * @method export_data
+   * @description Exports comprehensive analytics data in multiple formats for reporting
+   *
+   * Generates executive-ready reports containing all dashboard analytics data,
+   * charts, and insights in professional formats suitable for board presentations,
+   * regulatory compliance, and strategic planning documentation.
+   *
+   * Export Formats:
+   * - Excel: Comprehensive workbook with multiple sheets, charts, and pivot tables
+   * - PDF: Executive summary with visualizations and key insights
+   * - CSV: Raw data for further analysis and integration
+   *
+   * Report Contents:
+   * - Membership growth trends and projections
+   * - Revenue analysis and forecasting
+   * - Regional and demographic breakdowns
+   * - Goal progress and achievement metrics
+   * - Comparative period analysis
+   * - Key performance indicators summary
+   *
+   * Compliance Features:
+   * - Audit trail with export timestamps
+   * - Data validation and integrity checks
+   * - GDPR-compliant member data handling
+   * - Secure file generation and transfer
+   *
+   * @param {string} format - Export format ('excel', 'pdf', 'csv')
+   * @throws {Error} If export generation fails or format unsupported
+   * @since 1.5.0
+   *
+   * @example
+   * // Export Excel report
+   * this.export_data('excel');
+   *
+   * // Export PDF summary
+   * this.export_data('pdf');
+   */
 	export_data(format) {
 		frappe.dom.freeze('Preparing export...');
 
 		frappe.call({
-			method: 'verenigingen.verenigingen.page.membership_analytics.membership_analytics.export_dashboard_data',
+			method:
+        'verenigingen.verenigingen.page.membership_analytics.membership_analytics.export_dashboard_data',
 			args: {
 				year: this.filters.year,
 				period: this.filters.period,
@@ -907,7 +993,9 @@ class MembershipAnalytics {
 				frappe.dom.unfreeze();
 				if (format === 'excel') {
 					// Handle binary download
-					const blob = new Blob([r.message], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+					const blob = new Blob([r.message], {
+						type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+					});
 					const url = window.URL.createObjectURL(blob);
 					const a = document.createElement('a');
 					a.href = url;
@@ -917,7 +1005,9 @@ class MembershipAnalytics {
 					window.URL.revokeObjectURL(url);
 					document.body.removeChild(a);
 				} else {
-					frappe.msgprint(__('Export feature for {0} is under development', [format]));
+					frappe.msgprint(
+						__('Export feature for {0} is under development', [format])
+					);
 				}
 			},
 			error: () => {
@@ -928,71 +1018,70 @@ class MembershipAnalytics {
 	}
 
 	create_snapshot() {
-		frappe.confirm(
-			__('Create a snapshot of current analytics data?'),
-			() => {
-				frappe.call({
-					method: 'verenigingen.verenigingen.doctype.membership_analytics_snapshot.membership_analytics_snapshot.create_snapshot',
-					args: {
-						snapshot_type: 'Manual',
-						specific_date: frappe.datetime.nowdate()
-					},
-					callback: (r) => {
-						if (r.message) {
-							frappe.show_alert({
-								message: __('Snapshot created successfully'),
-								indicator: 'green'
-							});
-						}
+		frappe.confirm(__('Create a snapshot of current analytics data?'), () => {
+			frappe.call({
+				method:
+          'verenigingen.verenigingen.doctype.membership_analytics_snapshot.membership_analytics_snapshot.create_snapshot',
+				args: {
+					snapshot_type: 'Manual',
+					specific_date: frappe.datetime.nowdate()
+				},
+				callback: (r) => {
+					if (r.message) {
+						frappe.show_alert({
+							message: __('Snapshot created successfully'),
+							indicator: 'green'
+						});
 					}
-				});
-			}
-		);
+				}
+			});
+		});
 	}
 
 	/**
-	 * @method show_predictive_analytics
-	 * @description Displays advanced predictive analytics dialog with machine learning insights
-	 *
-	 * Launches a comprehensive predictive analytics interface featuring 12-month
-	 * membership growth forecasts, revenue projections, scenario modeling, and
-	 * churn risk analysis. Integrates machine learning algorithms for strategic planning.
-	 *
-	 * Predictive Analytics Features:
-	 * - Member growth forecasting with confidence intervals
-	 * - Revenue projection based on membership trends
-	 * - Multiple growth scenarios (conservative, optimistic, aggressive)
-	 * - Churn risk identification and member retention analytics
-	 * - Cohort behavior prediction and lifecycle modeling
-	 * - Actionable recommendations for membership optimization
-	 *
-	 * Machine Learning Integration:
-	 * - Time series analysis for trend extrapolation
-	 * - Regression models for revenue forecasting
-	 * - Classification algorithms for churn prediction
-	 * - Clustering analysis for member segmentation
-	 * - Anomaly detection for unusual membership patterns
-	 *
-	 * Strategic Planning Support:
-	 * - Goal setting with data-driven targets
-	 * - Resource allocation recommendations
-	 * - Risk mitigation strategies
-	 * - Market opportunity identification
-	 * - Performance benchmarking and optimization
-	 *
-	 * @param {number} [months_ahead=12] - Forecast horizon in months
-	 * @throws {Error} If ML backend is unavailable or data insufficient for predictions
-	 * @since 2.0.0
-	 *
-	 * @example
-	 * // Triggered by Predictive Analytics button
-	 * $('#btn-predictive').on('click', () => this.show_predictive_analytics());
-	 */
+   * @method show_predictive_analytics
+   * @description Displays advanced predictive analytics dialog with machine learning insights
+   *
+   * Launches a comprehensive predictive analytics interface featuring 12-month
+   * membership growth forecasts, revenue projections, scenario modeling, and
+   * churn risk analysis. Integrates machine learning algorithms for strategic planning.
+   *
+   * Predictive Analytics Features:
+   * - Member growth forecasting with confidence intervals
+   * - Revenue projection based on membership trends
+   * - Multiple growth scenarios (conservative, optimistic, aggressive)
+   * - Churn risk identification and member retention analytics
+   * - Cohort behavior prediction and lifecycle modeling
+   * - Actionable recommendations for membership optimization
+   *
+   * Machine Learning Integration:
+   * - Time series analysis for trend extrapolation
+   * - Regression models for revenue forecasting
+   * - Classification algorithms for churn prediction
+   * - Clustering analysis for member segmentation
+   * - Anomaly detection for unusual membership patterns
+   *
+   * Strategic Planning Support:
+   * - Goal setting with data-driven targets
+   * - Resource allocation recommendations
+   * - Risk mitigation strategies
+   * - Market opportunity identification
+   * - Performance benchmarking and optimization
+   *
+   * @param {number} [months_ahead=12] - Forecast horizon in months
+   * @throws {Error} If ML backend is unavailable or data insufficient for predictions
+   * @since 2.0.0
+   *
+   * @example
+   * // Triggered by Predictive Analytics button
+   * $('#btn-predictive').on('click', () => this.show_predictive_analytics());
+   */
 	show_predictive_analytics() {
 		frappe.dom.freeze('Loading predictive analytics...');
 
 		frappe.call({
-			method: 'verenigingen.verenigingen.page.membership_analytics.predictive_analytics.get_predictive_analytics',
+			method:
+        'verenigingen.verenigingen.page.membership_analytics.predictive_analytics.get_predictive_analytics',
 			args: {
 				months_ahead: 12
 			},
@@ -1013,10 +1102,12 @@ class MembershipAnalytics {
 		const dialog = new frappe.ui.Dialog({
 			title: __('Predictive Analytics'),
 			size: 'extra-large',
-			fields: [{
-				fieldname: 'content',
-				fieldtype: 'HTML'
-			}],
+			fields: [
+				{
+					fieldname: 'content',
+					fieldtype: 'HTML'
+				}
+			],
 			primary_action_label: __('Close'),
 			primary_action: () => dialog.hide()
 		});
@@ -1028,13 +1119,25 @@ class MembershipAnalytics {
 		// Render charts after dialog is shown
 		setTimeout(() => {
 			// Only render charts if data exists and DOM elements are available
-			if (data.member_growth_forecast && !data.member_growth_forecast.error && document.getElementById('member-forecast-chart')) {
+			if (
+				data.member_growth_forecast
+        && !data.member_growth_forecast.error
+        && document.getElementById('member-forecast-chart')
+			) {
 				this.render_forecast_chart(data.member_growth_forecast);
 			}
-			if (data.revenue_forecast && !data.revenue_forecast.error && document.getElementById('revenue-forecast-chart')) {
+			if (
+				data.revenue_forecast
+        && !data.revenue_forecast.error
+        && document.getElementById('revenue-forecast-chart')
+			) {
 				this.render_revenue_forecast_chart(data.revenue_forecast);
 			}
-			if (data.growth_scenarios && data.growth_scenarios.scenarios && document.getElementById('scenarios-chart')) {
+			if (
+				data.growth_scenarios
+        && data.growth_scenarios.scenarios
+        && document.getElementById('scenarios-chart')
+			) {
 				this.render_scenarios_chart(data.growth_scenarios);
 			}
 		}, 100);
@@ -1052,7 +1155,10 @@ class MembershipAnalytics {
                         <br><small>Please ensure you have at least 12 months of historical member data.</small>
                     </div>
                 </div>`;
-		} else if (data.member_growth_forecast && data.member_growth_forecast.metrics) {
+		} else if (
+			data.member_growth_forecast
+      && data.member_growth_forecast.metrics
+		) {
 			memberGrowthSection = `
                 <div class="section">
                     <h4>${__('Member Growth Forecast')}</h4>
@@ -1099,7 +1205,10 @@ class MembershipAnalytics {
                         <i class="fa fa-exclamation-triangle"></i> ${data.revenue_forecast.error}
                     </div>
                 </div>`;
-		} else if (data.revenue_forecast && data.revenue_forecast.annual_projection !== undefined) {
+		} else if (
+			data.revenue_forecast
+      && data.revenue_forecast.annual_projection !== undefined
+		) {
 			revenueForecastSection = `
                 <div class="section mt-4">
                     <h4>${__('Revenue Forecast')}</h4>
@@ -1318,8 +1427,9 @@ class MembershipAnalytics {
 			return `<p class="text-muted">${__('No high-risk members identified')}</p>`;
 		}
 
-		let html = '<table class="table table-sm"><thead><tr><th>Member</th><th>Risk Score</th><th>Factors</th><th>Action</th></tr></thead><tbody>';
-		members.forEach(member => {
+		let html
+      = '<table class="table table-sm"><thead><tr><th>Member</th><th>Risk Score</th><th>Factors</th><th>Action</th></tr></thead><tbody>';
+		members.forEach((member) => {
 			html += `
                 <tr>
                     <td>${member.member_name}</td>
@@ -1335,7 +1445,7 @@ class MembershipAnalytics {
 
 	build_recommendations_html(recommendations) {
 		let html = '';
-		recommendations.forEach(rec => {
+		recommendations.forEach((rec) => {
 			html += `
                 <div class="recommendation-item">
                     <div class="d-flex justify-content-between align-items-start mb-2">
@@ -1345,7 +1455,7 @@ class MembershipAnalytics {
                     <p class="text-muted">${rec.impact}</p>
                     <h6>${__('Actions')}:</h6>
                     <ul class="mb-0">
-                        ${rec.actions.map(action => `<li>${action}</li>`).join('')}
+                        ${rec.actions.map((action) => `<li>${action}</li>`).join('')}
                     </ul>
                 </div>
             `;
@@ -1354,17 +1464,31 @@ class MembershipAnalytics {
 	}
 
 	render_forecast_chart(forecast) {
-		if (!forecast || !forecast.forecast) { return; }
+		if (!forecast || !forecast.forecast) {
+			return;
+		}
 
 		const chartData = {
-			labels: [...forecast.historical_trend.months, ...forecast.forecast.months],
-			datasets: [{
-				name: __('Historical'),
-				values: [...forecast.historical_trend.values, ...Array(forecast.forecast.values.length).fill(null)]
-			}, {
-				name: __('Forecast'),
-				values: [...Array(forecast.historical_trend.values.length).fill(null), ...forecast.forecast.values]
-			}]
+			labels: [
+				...forecast.historical_trend.months,
+				...forecast.forecast.months
+			],
+			datasets: [
+				{
+					name: __('Historical'),
+					values: [
+						...forecast.historical_trend.values,
+						...Array(forecast.forecast.values.length).fill(null)
+					]
+				},
+				{
+					name: __('Forecast'),
+					values: [
+						...Array(forecast.historical_trend.values.length).fill(null),
+						...forecast.forecast.values
+					]
+				}
+			]
 		};
 
 		new frappe.Chart('#member-forecast-chart', {
@@ -1380,17 +1504,22 @@ class MembershipAnalytics {
 	}
 
 	render_revenue_forecast_chart(forecast) {
-		if (!forecast || !forecast.monthly_forecast) { return; }
+		if (!forecast || !forecast.monthly_forecast) {
+			return;
+		}
 
 		const chartData = {
-			labels: forecast.monthly_forecast.map(d => d.month),
-			datasets: [{
-				name: __('Monthly Revenue'),
-				values: forecast.monthly_forecast.map(d => d.revenue)
-			}, {
-				name: __('Cumulative'),
-				values: forecast.cumulative_revenue
-			}]
+			labels: forecast.monthly_forecast.map((d) => d.month),
+			datasets: [
+				{
+					name: __('Monthly Revenue'),
+					values: forecast.monthly_forecast.map((d) => d.revenue)
+				},
+				{
+					name: __('Cumulative'),
+					values: forecast.cumulative_revenue
+				}
+			]
 		};
 
 		new frappe.Chart('#revenue-forecast-chart', {
@@ -1402,12 +1531,14 @@ class MembershipAnalytics {
 				xAxisMode: 'tick',
 				xIsSeries: true
 			},
-			format_tooltip_y: d => this.format_currency(d)
+			format_tooltip_y: (d) => this.format_currency(d)
 		});
 	}
 
 	render_scenarios_chart(scenarios) {
-		if (!scenarios || !scenarios.scenarios) { return; }
+		if (!scenarios || !scenarios.scenarios) {
+			return;
+		}
 
 		const labels = [];
 		const year1Values = [];
@@ -1421,13 +1552,16 @@ class MembershipAnalytics {
 
 		const chartData = {
 			labels,
-			datasets: [{
-				name: __('Year 1'),
-				values: year1Values
-			}, {
-				name: __('Year 3'),
-				values: year3Values
-			}]
+			datasets: [
+				{
+					name: __('Year 1'),
+					values: year1Values
+				},
+				{
+					name: __('Year 3'),
+					values: year3Values
+				}
+			]
 		};
 
 		new frappe.Chart('#scenarios-chart', {

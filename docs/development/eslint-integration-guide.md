@@ -5,6 +5,7 @@ This guide covers the comprehensive ESLint integration for the Verenigingen Java
 ## Overview
 
 The Verenigingen app now includes comprehensive ESLint integration with:
+
 - **Core ESLint rules** for code quality and consistency
 - **Security plugins** for vulnerability detection
 - **Custom Frappe plugin** for framework-specific patterns
@@ -54,6 +55,7 @@ Our ESLint configuration includes:
 ### Ignored Files (`.eslintignore`)
 
 Files excluded from linting:
+
 - `node_modules/`
 - `archived_unused/` and `archived_removal/`
 - `*.min.js` and `*.bundle.js`
@@ -69,22 +71,22 @@ Files excluded from linting:
 ```javascript
 // ❌ Bad - No error handling
 frappe.call({
-    method: 'my.method',
-    callback: function(r) {
-        // Handle success only
-    }
+  method: "my.method",
+  callback: function (r) {
+    // Handle success only
+  },
 });
 
 // ✅ Good - Includes error handling
 frappe.call({
-    method: 'my.method',
-    callback: function(r) {
-        // Handle success
-    },
-    error: function(r) {
-        console.error('Error:', r);
-        frappe.msgprint('An error occurred');
-    }
+  method: "my.method",
+  callback: function (r) {
+    // Handle success
+  },
+  error: function (r) {
+    console.error("Error:", r);
+    frappe.msgprint("An error occurred");
+  },
 });
 ```
 
@@ -94,11 +96,11 @@ frappe.call({
 
 ```javascript
 // ❌ Bad - Direct HTML injection
-$('#content').html(user_input);
+$("#content").html(user_input);
 element.innerHTML = user_data;
 
 // ✅ Good - Safe alternatives
-$('#content').text(user_input);
+$("#content").text(user_input);
 element.textContent = user_data;
 // or use frappe.render_template() with proper escaping
 ```
@@ -109,13 +111,13 @@ element.textContent = user_data;
 
 ```javascript
 // ❌ Bad - Potential typo
-frm.set_value('customer_id', value);  // Should be 'customer'
+frm.set_value("customer_id", value); // Should be 'customer'
 
 // ✅ Good - Correct field name
-frm.set_value('customer', value);
+frm.set_value("customer", value);
 
 // ❌ Bad - Deprecated field
-frm.doc.compliance_status;  // Renamed to 'severity'
+frm.doc.compliance_status; // Renamed to 'severity'
 
 // ✅ Good - Current field name
 frm.doc.severity;
@@ -127,17 +129,18 @@ frm.doc.severity;
 
 ```javascript
 // ❌ Bad - Missing 'frm' parameter
-frappe.ui.form.on('Member', {
-    refresh: function() {  // Missing frm parameter
-        // ...
-    }
+frappe.ui.form.on("Member", {
+  refresh: function () {
+    // Missing frm parameter
+    // ...
+  },
 });
 
 // ✅ Good - Proper parameter
-frappe.ui.form.on('Member', {
-    refresh: function(frm) {
-        // ...
-    }
+frappe.ui.form.on("Member", {
+  refresh: function (frm) {
+    // ...
+  },
 });
 ```
 
@@ -147,16 +150,16 @@ frappe.ui.form.on('Member', {
 
 ```javascript
 // ❌ Bad - Logging sensitive data
-console.log('IBAN:', frm.doc.iban);
+console.log("IBAN:", frm.doc.iban);
 
 // ✅ Good - Avoid logging sensitive data
-console.log('IBAN validation result:', isValid);
+console.log("IBAN validation result:", isValid);
 
 // ❌ Bad - Direct display of sensitive data
-frappe.msgprint('Your IBAN: ' + iban);
+frappe.msgprint("Your IBAN: " + iban);
 
 // ✅ Good - Masked display
-frappe.msgprint('IBAN ending in: ***' + iban.slice(-4));
+frappe.msgprint("IBAN ending in: ***" + iban.slice(-4));
 ```
 
 ## Security Rules
@@ -165,12 +168,12 @@ frappe.msgprint('IBAN ending in: ***' + iban.slice(-4));
 
 ```javascript
 // ❌ Dangerous patterns detected
-$('#output').html(userInput);
+$("#output").html(userInput);
 document.write(content);
 eval(userCode);
 
 // ✅ Safe alternatives
-$('#output').text(userInput);
+$("#output").text(userInput);
 // Use frappe.render_template() or proper sanitization
 ```
 
@@ -178,12 +181,12 @@ $('#output').text(userInput);
 
 ```javascript
 // ❌ Detected by security plugin
-setTimeout("alert('hello')", 1000);  // String argument
-new RegExp(userInput);  // Non-literal regex
+setTimeout("alert('hello')", 1000); // String argument
+new RegExp(userInput); // Non-literal regex
 
 // ✅ Safe alternatives
-setTimeout(() => alert('hello'), 1000);  // Function argument
-new RegExp(escapeRegex(userInput));  // Escaped input
+setTimeout(() => alert("hello"), 1000); // Function argument
+new RegExp(escapeRegex(userInput)); // Escaped input
 ```
 
 ## IDE Integration
@@ -193,12 +196,14 @@ new RegExp(escapeRegex(userInput));  // Escaped input
 The repository includes VS Code configuration:
 
 **Features:**
+
 - Real-time ESLint validation
 - Auto-fix on save
 - Problem highlighting
 - Task integration
 
 **Tasks Available:**
+
 - `ESLint Check` - Run full validation
 - `ESLint Fix` - Auto-fix issues
 - `ESLint Analysis Report` - Generate comprehensive report
@@ -234,6 +239,7 @@ ESLint runs automatically on commit via pre-commit hooks:
 ```
 
 **What happens:**
+
 1. Pre-commit hook runs ESLint on changed `.js` files
 2. Auto-fixes are applied where possible
 3. Remaining issues block the commit
@@ -257,6 +263,7 @@ python scripts/analysis/eslint_analysis.py --json results.json
 ### Report Contents
 
 The analysis report includes:
+
 - **Summary statistics** (files, errors, warnings)
 - **Most common rule violations**
 - **Security issues** found
@@ -322,6 +329,7 @@ python scripts/analysis/eslint_analysis.py --report review.md
 ### 4. Pre-commit Hook
 
 The pre-commit hook will:
+
 - Run ESLint on changed files
 - Apply auto-fixes
 - Block commit if errors remain
@@ -353,7 +361,7 @@ The pre-commit hook will:
 ```javascript
 /* eslint-disable no-console */
 // Temporary debugging code
-console.log('Debug info');
+console.log("Debug info");
 /* eslint-enable no-console */
 ```
 
@@ -362,7 +370,7 @@ console.log('Debug info');
 ```javascript
 // eslint-disable-next-line frappe/require-frappe-call-error-handling
 frappe.call({
-    method: 'safe.method'  // Known safe method
+  method: "safe.method", // Known safe method
 });
 ```
 
@@ -437,6 +445,7 @@ Add to `.eslintignore` for permanent exclusions.
 The ESLint integration provides comprehensive code quality validation for the Verenigingen JavaScript codebase. It enforces consistency, prevents security vulnerabilities, validates Frappe-specific patterns, and provides actionable feedback to developers.
 
 The system is designed for gradual adoption while immediately providing value through:
+
 - Real-time IDE feedback
 - Automated pre-commit validation
 - Comprehensive analysis reporting

@@ -9,6 +9,7 @@ Complete guide for integrating and using the eBoekhouden accounting API with the
 The integration provides numerous API endpoints organized by functionality. Here are the key categories:
 
 #### Core Migration Functions
+
 ```python
 # Main migration orchestration (e_boekhouden_migration.py)
 @frappe.whitelist()
@@ -25,6 +26,7 @@ def get_cache_statistics()  # API cache performance metrics
 ```
 
 #### Chart of Accounts Management
+
 ```python
 # Chart of Accounts import (eboekhouden_coa_import.py)
 @frappe.whitelist()
@@ -35,6 +37,7 @@ def setup_account_groups()  # Setup account group hierarchy
 ```
 
 #### Data Analysis and Monitoring
+
 ```python
 # REST API iteration and caching (eboekhouden_rest_iterator.py)
 @frappe.whitelist()
@@ -48,6 +51,7 @@ def run_migration_quality_check()  # Comprehensive data validation
 ```
 
 #### Utility Functions
+
 ```python
 # Cleanup and maintenance (cleanup_utils.py)
 @frappe.whitelist()
@@ -64,6 +68,7 @@ def validate_migration_settings()  # Validate configuration
 ### Basic Usage Examples
 
 #### Command Line Execution
+
 ```bash
 # Test API connectivity
 bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator.test_rest_iterator
@@ -82,6 +87,7 @@ bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.migration
 ```
 
 #### Migration DocType Usage
+
 ```python
 # Create and configure migration through UI or code
 migration = frappe.new_doc("E-Boekhouden Migration")
@@ -104,6 +110,7 @@ migration.start_migration()
 Configure eBoekhouden API access in the **E-Boekhouden Settings** doctype (single doctype):
 
 #### Required Settings
+
 ```python
 {
     # Primary REST API settings
@@ -118,8 +125,8 @@ Configure eBoekhouden API access in the **E-Boekhouden Settings** doctype (singl
 }
 ```
 
-
 #### Access the Settings
+
 ```python
 # Get settings in code
 settings = frappe.get_single("E-Boekhouden Settings")
@@ -130,6 +137,7 @@ company = settings.default_company
 ### Authentication Methods
 
 #### REST API Authentication
+
 ```python
 # Implemented in EBoekhoudenRESTClient
 class EBoekhoudenRESTClient:
@@ -147,12 +155,12 @@ class EBoekhoudenRESTClient:
     # Session tokens expire after 60 minutes
 ```
 
-
 ## Data Import Process
 
 ### Complete Migration Workflow
 
 #### 1. Pre-Migration Setup
+
 ```python
 # Validate system readiness
 def pre_migration_validation():
@@ -165,6 +173,7 @@ def pre_migration_validation():
 ```
 
 #### 2. Account Import (Chart of Accounts)
+
 ```python
 # Import complete chart of accounts
 def import_chart_of_accounts():
@@ -179,6 +188,7 @@ def import_chart_of_accounts():
 ```
 
 #### 3. Master Data Import
+
 ```python
 # Import customers and suppliers
 def import_master_data():
@@ -192,6 +202,7 @@ def import_master_data():
 ```
 
 #### 4. Transaction Import
+
 ```python
 # Import all transactions by type
 transaction_types = {
@@ -213,6 +224,7 @@ for transaction_type, name in transaction_types.items():
 ### Smart Transaction Processing
 
 #### Multi-Line Transaction Handling
+
 ```python
 def process_complex_transaction(mutation):
     """
@@ -238,6 +250,7 @@ def process_complex_transaction(mutation):
 ```
 
 #### Zero Amount Transaction Management
+
 ```python
 def handle_zero_amount_transactions(mutation):
     """
@@ -288,6 +301,7 @@ invoice_naming_patterns = {
 ### Document Field Mapping
 
 #### Custom Fields for Traceability
+
 ```python
 # eBoekhouden reference fields added to ERPNext documents
 custom_fields = {
@@ -316,6 +330,7 @@ custom_fields = {
 ### Party Management
 
 #### Automatic Party Creation
+
 ```python
 def create_or_update_party(relation_id, party_type, description):
     """
@@ -340,6 +355,7 @@ def create_or_update_party(relation_id, party_type, description):
 ### Account Type Intelligence
 
 #### Smart Account Classification
+
 ```python
 def classify_account_type(account_code, account_name, balance):
     """
@@ -364,6 +380,7 @@ def classify_account_type(account_code, account_name, balance):
 ```
 
 #### Special Account Handling
+
 ```python
 def handle_special_accounts(account_type, transaction_data):
     """
@@ -386,6 +403,7 @@ def handle_special_accounts(account_type, transaction_data):
 ### Error Handling and Recovery
 
 #### Comprehensive Error Management
+
 ```python
 def error_handling_framework():
     """
@@ -419,6 +437,7 @@ def error_handling_framework():
 ```
 
 #### Automatic Recovery Mechanisms
+
 ```python
 def automatic_recovery_system():
     """
@@ -445,6 +464,7 @@ def automatic_recovery_system():
 ### Real-Time Progress Monitoring
 
 #### Migration Progress Tracking
+
 ```python
 def monitor_migration_progress():
     """
@@ -475,6 +495,7 @@ def monitor_migration_progress():
 ```
 
 #### Health Check System
+
 ```python
 @frappe.whitelist()
 def system_health_check():
@@ -502,6 +523,7 @@ def system_health_check():
 ### Maintenance Operations
 
 #### Regular Maintenance Tasks
+
 ```python
 def maintenance_scheduler():
     """
@@ -540,6 +562,7 @@ def maintenance_scheduler():
 ### Batch Processing Strategies
 
 #### Efficient Data Processing
+
 ```python
 def optimized_batch_processing():
     """
@@ -566,6 +589,7 @@ def optimized_batch_processing():
 ### Database Optimization
 
 #### Index Management
+
 ```python
 def database_optimization():
     """
@@ -592,6 +616,7 @@ def database_optimization():
 ### Implementation Guidelines
 
 #### Pre-Implementation Checklist
+
 ```python
 pre_implementation_checklist = [
     "✓ ERPNext system properly configured",
@@ -605,6 +630,7 @@ pre_implementation_checklist = [
 ```
 
 #### Security Best Practices
+
 ```python
 security_guidelines = {
     "credential_management": [
@@ -623,6 +649,7 @@ security_guidelines = {
 ```
 
 #### Operational Guidelines
+
 ```python
 operational_best_practices = {
     "migration_strategy": [
@@ -645,6 +672,7 @@ operational_best_practices = {
 ### Common Issues and Solutions
 
 #### API Connection Issues
+
 ```python
 def troubleshoot_api_connection():
     """
@@ -667,6 +695,7 @@ def troubleshoot_api_connection():
 ```
 
 #### Data Import Issues
+
 ```python
 def troubleshoot_data_import():
     """
@@ -691,6 +720,7 @@ def troubleshoot_data_import():
 ## Migration Examples
 
 ### Complete Migration Example
+
 ```python
 # Example: Complete eBoekhouden migration
 def complete_migration_example():

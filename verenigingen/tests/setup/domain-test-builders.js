@@ -26,8 +26,8 @@ class FinancialControllerTestBuilder {
 	}
 
 	/**
-     * Generate SEPA compliance tests
-     */
+   * Generate SEPA compliance tests
+   */
 	createSEPATests() {
 		return {
 			'should validate Dutch IBAN correctly': () => {
@@ -39,7 +39,7 @@ class FinancialControllerTestBuilder {
 					{ iban: '', valid: false }
 				];
 
-				testIBANs.forEach(test => {
+				testIBANs.forEach((test) => {
 					const result = validateDutchIBAN(test.iban);
 					expect(result.valid).toBe(test.valid);
 				});
@@ -53,7 +53,7 @@ class FinancialControllerTestBuilder {
 					{ bic: '', valid: false }
 				];
 
-				testBICs.forEach(test => {
+				testBICs.forEach((test) => {
 					const result = validateBIC(test.bic);
 					expect(result.valid).toBe(test.valid);
 				});
@@ -68,7 +68,7 @@ class FinancialControllerTestBuilder {
 					'IT60X0542811101000000123456' // Italy
 				];
 
-				sepaIBANs.forEach(iban => {
+				sepaIBANs.forEach((iban) => {
 					this.controllerTest.mockForm.doc.iban = iban;
 					expect(() => {
 						this.controllerTest.testEvent('refresh');
@@ -79,14 +79,14 @@ class FinancialControllerTestBuilder {
 	}
 
 	/**
-     * Generate payment integration tests
-     */
+   * Generate payment integration tests
+   */
 	createPaymentTests() {
 		return {
 			'should handle payment method configuration': () => {
 				const paymentMethods = ['SEPA', 'Mollie', 'Bank Transfer', 'Cash'];
 
-				paymentMethods.forEach(method => {
+				paymentMethods.forEach((method) => {
 					this.controllerTest.mockForm.doc.payment_method = method;
 					expect(() => {
 						this.controllerTest.testEvent('refresh');
@@ -95,9 +95,9 @@ class FinancialControllerTestBuilder {
 			},
 
 			'should validate payment amounts': () => {
-				const testAmounts = [0, 25.00, 100.50, 1000.99, -50.00];
+				const testAmounts = [0, 25.0, 100.5, 1000.99, -50.0];
 
-				testAmounts.forEach(amount => {
+				testAmounts.forEach((amount) => {
 					this.controllerTest.mockForm.doc.amount = amount;
 					expect(() => {
 						this.controllerTest.testEvent('refresh');
@@ -108,8 +108,8 @@ class FinancialControllerTestBuilder {
 	}
 
 	/**
-     * Generate mandate and authorization tests
-     */
+   * Generate mandate and authorization tests
+   */
 	createMandateTests() {
 		return {
 			'should handle mandate status transitions': () => {
@@ -120,7 +120,7 @@ class FinancialControllerTestBuilder {
 					{ from: 'Active', to: 'Cancelled' }
 				];
 
-				statusTransitions.forEach(transition => {
+				statusTransitions.forEach((transition) => {
 					this.controllerTest.mockForm.doc.status = transition.from;
 					expect(() => {
 						this.controllerTest.testEvent('refresh');
@@ -131,7 +131,8 @@ class FinancialControllerTestBuilder {
 			'should validate mandate authorization': () => {
 				this.controllerTest.mockForm.doc.status = 'Active';
 				this.controllerTest.mockForm.doc.iban = 'NL91ABNA0417164300';
-				this.controllerTest.mockForm.doc.account_holder_name = 'Jan van der Berg';
+				this.controllerTest.mockForm.doc.account_holder_name
+          = 'Jan van der Berg';
 				this.controllerTest.mockForm.doc.mandate_date = '2024-01-15';
 
 				expect(() => {
@@ -152,8 +153,8 @@ class AssociationControllerTestBuilder {
 	}
 
 	/**
-     * Generate Dutch business logic tests
-     */
+   * Generate Dutch business logic tests
+   */
 	createDutchValidationTests() {
 		return {
 			'should validate Dutch postal codes': () => {
@@ -164,7 +165,7 @@ class AssociationControllerTestBuilder {
 					{ code: 'ABCD EF', valid: false }
 				];
 
-				testCodes.forEach(test => {
+				testCodes.forEach((test) => {
 					const result = validateDutchPostalCode(test.code);
 					expect(result.valid).toBe(test.valid);
 				});
@@ -178,7 +179,7 @@ class AssociationControllerTestBuilder {
 					{ first: 'Anne', tussen: 'van', last: 'Dijk' }
 				];
 
-				nameTests.forEach(nameTest => {
+				nameTests.forEach((nameTest) => {
 					this.controllerTest.mockForm.doc.first_name = nameTest.first;
 					this.controllerTest.mockForm.doc.tussenvoegsel = nameTest.tussen;
 					this.controllerTest.mockForm.doc.last_name = nameTest.last;
@@ -197,7 +198,7 @@ class AssociationControllerTestBuilder {
 					{ email: '@example.org', valid: false }
 				];
 
-				testEmails.forEach(test => {
+				testEmails.forEach((test) => {
 					const result = validateDutchEmail(test.email);
 					expect(result.valid).toBe(test.valid);
 				});
@@ -206,14 +207,20 @@ class AssociationControllerTestBuilder {
 	}
 
 	/**
-     * Generate membership lifecycle tests
-     */
+   * Generate membership lifecycle tests
+   */
 	createMembershipTests() {
 		return {
 			'should handle membership status transitions': () => {
-				const statuses = ['Pending', 'Active', 'Inactive', 'Terminated', 'Suspended'];
+				const statuses = [
+					'Pending',
+					'Active',
+					'Inactive',
+					'Terminated',
+					'Suspended'
+				];
 
-				statuses.forEach(status => {
+				statuses.forEach((status) => {
 					this.controllerTest.mockForm.doc.status = status;
 					expect(() => {
 						this.controllerTest.testEvent('refresh');
@@ -222,9 +229,15 @@ class AssociationControllerTestBuilder {
 			},
 
 			'should handle membership types': () => {
-				const membershipTypes = ['Regular', 'Student', 'Senior', 'Family', 'Honorary'];
+				const membershipTypes = [
+					'Regular',
+					'Student',
+					'Senior',
+					'Family',
+					'Honorary'
+				];
 
-				membershipTypes.forEach(type => {
+				membershipTypes.forEach((type) => {
 					this.controllerTest.mockForm.doc.membership_type = type;
 					expect(() => {
 						this.controllerTest.testEvent('refresh');
@@ -246,14 +259,14 @@ class AssociationControllerTestBuilder {
 	}
 
 	/**
-     * Generate geographical organization tests
-     */
+   * Generate geographical organization tests
+   */
 	createGeographicalTests() {
 		return {
 			'should handle chapter assignment': () => {
 				const chapters = ['Amsterdam', 'Rotterdam', 'Utrecht', 'Den Haag'];
 
-				chapters.forEach(chapter => {
+				chapters.forEach((chapter) => {
 					this.controllerTest.mockForm.doc.primary_chapter = chapter;
 					expect(() => {
 						this.controllerTest.testEvent('refresh');
@@ -268,7 +281,7 @@ class AssociationControllerTestBuilder {
 					{ from: '3000 AA', to: '3099 ZZ' }
 				];
 
-				postalCodeRanges.forEach(range => {
+				postalCodeRanges.forEach((range) => {
 					this.controllerTest.mockForm.doc.postal_code_from = range.from;
 					this.controllerTest.mockForm.doc.postal_code_to = range.to;
 
@@ -281,14 +294,19 @@ class AssociationControllerTestBuilder {
 	}
 
 	/**
-     * Generate volunteer management tests
-     */
+   * Generate volunteer management tests
+   */
 	createVolunteerTests() {
 		return {
 			'should handle volunteer roles': () => {
-				const volunteerRoles = ['Board Member', 'Event Coordinator', 'Communications', 'Treasurer'];
+				const volunteerRoles = [
+					'Board Member',
+					'Event Coordinator',
+					'Communications',
+					'Treasurer'
+				];
 
-				volunteerRoles.forEach(role => {
+				volunteerRoles.forEach((role) => {
 					this.controllerTest.mockForm.doc.volunteer_role = role;
 					expect(() => {
 						this.controllerTest.testEvent('refresh');
@@ -305,7 +323,7 @@ class AssociationControllerTestBuilder {
 					'1950-01-15' // Senior
 				];
 
-				birthDates.forEach(birthDate => {
+				birthDates.forEach((birthDate) => {
 					this.controllerTest.mockForm.doc.birth_date = birthDate;
 					expect(() => {
 						this.controllerTest.testEvent('refresh');
@@ -326,14 +344,20 @@ class WorkflowControllerTestBuilder {
 	}
 
 	/**
-     * Generate workflow state tests
-     */
+   * Generate workflow state tests
+   */
 	createWorkflowTests() {
 		return {
 			'should handle document state transitions': () => {
-				const states = ['Draft', 'Pending Approval', 'Approved', 'Rejected', 'Cancelled'];
+				const states = [
+					'Draft',
+					'Pending Approval',
+					'Approved',
+					'Rejected',
+					'Cancelled'
+				];
 
-				states.forEach(state => {
+				states.forEach((state) => {
 					this.controllerTest.mockForm.doc.workflow_state = state;
 					expect(() => {
 						this.controllerTest.testEvent('refresh');
@@ -358,8 +382,8 @@ class WorkflowControllerTestBuilder {
  */
 class TestDataFactory {
 	/**
-     * Create donation test data
-     */
+   * Create donation test data
+   */
 	createDonationData(overrides = {}) {
 		return {
 			doctype: 'Donation',
@@ -367,7 +391,7 @@ class TestDataFactory {
 			docstatus: 0, // Draft by default
 			paid: 0, // Unpaid by default
 			donor_name: 'Test Donor',
-			amount: 100.00,
+			amount: 100.0,
 			currency: 'EUR',
 			donation_date: '2024-07-15',
 			donation_type: 'one-time',
@@ -378,8 +402,8 @@ class TestDataFactory {
 	}
 
 	/**
-     * Create member test data
-     */
+   * Create member test data
+   */
 	createMemberData(overrides = {}) {
 		return {
 			doctype: 'Member',
@@ -401,15 +425,15 @@ class TestDataFactory {
 	}
 
 	/**
-     * Create volunteer expense test data
-     */
+   * Create volunteer expense test data
+   */
 	createVolunteerExpenseData(overrides = {}) {
 		return {
 			doctype: 'Volunteer Expense',
 			name: 'VE-2024-TEST-001',
 			volunteer: 'MEM-2024-TEST-001',
 			expense_date: '2024-07-15',
-			amount: 50.00,
+			amount: 50.0,
 			currency: 'EUR',
 			expense_type: 'Travel',
 			description: 'Travel expenses for chapter meeting',
@@ -428,9 +452,11 @@ function createDomainTestBuilder(controllerTest, domain) {
 
 	// Add data factory methods directly to the builder
 	const builder = {
-		createDonationData: (overrides) => dataFactory.createDonationData(overrides),
+		createDonationData: (overrides) =>
+			dataFactory.createDonationData(overrides),
 		createMemberData: (overrides) => dataFactory.createMemberData(overrides),
-		createVolunteerExpenseData: (overrides) => dataFactory.createVolunteerExpenseData(overrides)
+		createVolunteerExpenseData: (overrides) =>
+			dataFactory.createVolunteerExpenseData(overrides)
 	};
 
 	let domainBuilder;
@@ -454,11 +480,11 @@ function createDomainTestBuilder(controllerTest, domain) {
 
 	// Copy all methods from the domain builder's prototype
 	const prototype = Object.getPrototypeOf(domainBuilder);
-	const methodNames = Object.getOwnPropertyNames(prototype).filter(name =>
-		name !== 'constructor' && typeof prototype[name] === 'function'
+	const methodNames = Object.getOwnPropertyNames(prototype).filter(
+		(name) => name !== 'constructor' && typeof prototype[name] === 'function'
 	);
 
-	methodNames.forEach(methodName => {
+	methodNames.forEach((methodName) => {
 		result[methodName] = domainBuilder[methodName].bind(domainBuilder);
 	});
 

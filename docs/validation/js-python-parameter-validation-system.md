@@ -19,24 +19,28 @@ Frappe applications heavily rely on JavaScript-Python communication through `fra
 ### Core Components
 
 #### 1. JavaScript Parser (`JSPythonParameterValidator`)
+
 - Scans JavaScript/TypeScript files for Frappe API calls
 - Extracts method names and parameter lists
 - Supports multiple call patterns (frappe.call, frm.call, custom API services)
 - Provides contextual information for error reporting
 
 #### 2. Python Function Analyzer
+
 - Uses AST parsing for accurate function signature extraction
 - Identifies `@frappe.whitelist()` decorated functions
 - Distinguishes required vs optional parameters
 - Handles `*args` and `**kwargs` patterns
 
 #### 3. Cross-Reference Validator
+
 - Matches JavaScript calls to Python function signatures
 - Validates parameter counts and names
 - Categorizes issues by severity
 - Provides actionable suggestions for fixes
 
 #### 4. Reporting Engine
+
 - Generates reports in text, JSON, and HTML formats
 - Provides line-by-line issue identification
 - Includes statistics and trend analysis
@@ -88,24 +92,28 @@ def flexible_function(*args, **kwargs):
 ## Validation Types
 
 ### 1. Method Not Found
+
 - **Detection**: JavaScript calls to non-existent Python methods
 - **Severity**: High
 - **Example**: `frappe.call({method: 'typo_in_method_name'})`
 - **Fix**: Correct method name or add `@frappe.whitelist()` decorator
 
 ### 2. Missing Required Parameters
+
 - **Detection**: Required Python parameters not provided in JavaScript
 - **Severity**: High
 - **Example**: Python function requires `member_name` but JavaScript doesn't provide it
 - **Fix**: Add missing parameter to JavaScript call
 
 ### 3. Extra Parameters
+
 - **Detection**: JavaScript provides parameters not accepted by Python function
 - **Severity**: Medium
 - **Example**: JavaScript passes `extra_param` but Python function doesn't accept it
 - **Fix**: Remove parameter from JavaScript or add to Python function
 
 ### 4. Parameter Count Mismatches
+
 - **Detection**: Wrong number of parameters (when function doesn't use `*args`/`**kwargs`)
 - **Severity**: Medium
 - **Example**: Function expects 2 parameters but JavaScript provides 4
@@ -114,6 +122,7 @@ def flexible_function(*args, **kwargs):
 ## Implementation Details
 
 ### File Structure
+
 ```
 scripts/validation/
 ├── js_python_parameter_validator.py    # Main validator class
@@ -124,6 +133,7 @@ scripts/validation/
 ### Key Classes
 
 #### `JSCall`
+
 ```python
 @dataclass
 class JSCall:
@@ -136,6 +146,7 @@ class JSCall:
 ```
 
 #### `PythonFunction`
+
 ```python
 @dataclass
 class PythonFunction:
@@ -151,6 +162,7 @@ class PythonFunction:
 ```
 
 #### `ValidationIssue`
+
 ```python
 @dataclass
 class ValidationIssue:
@@ -173,6 +185,7 @@ class ValidationIssue:
 ## Usage Examples
 
 ### Command Line Interface
+
 ```bash
 # Basic validation
 python scripts/validation/js_python_parameter_validator.py
@@ -189,12 +202,14 @@ python scripts/validation/js_python_parameter_validator.py --output-file report.
 ```
 
 ### Proof of Concept Test
+
 ```bash
 # Run demonstration on key files
 python scripts/validation/test_js_python_validator.py
 ```
 
 ### Programmatic Usage
+
 ```python
 from scripts.validation.js_python_parameter_validator import JSPythonParameterValidator
 
@@ -209,6 +224,7 @@ print(f"High: {results['high_issues']}")
 ## Integration Plan
 
 ### Phase 1: Foundation (Completed)
+
 - ✅ Core validator implementation
 - ✅ Basic JavaScript pattern recognition
 - ✅ Python function signature extraction
@@ -216,18 +232,21 @@ print(f"High: {results['high_issues']}")
 - ✅ Multi-format reporting (text/JSON/HTML)
 
 ### Phase 2: Integration
+
 - **Pre-commit hooks**: Validate on every commit
 - **CI/CD pipeline**: Integrate with existing validation framework
 - **Configuration**: Allow project-specific validation rules
 - **Performance optimization**: Incremental validation for large codebases
 
 ### Phase 3: Enhancement
+
 - **IDE extensions**: Real-time validation in VS Code/PyCharm
 - **Type checking**: Enhanced parameter type validation
 - **Documentation sync**: Automatic documentation updates
 - **Framework support**: Vue.js, React, and other JS frameworks
 
 ### Phase 4: Advanced Features
+
 - **Semantic analysis**: Understanding parameter semantics beyond names
 - **Refactoring support**: Automated parameter rename across JS/Python
 - **Migration assistance**: Helping with API version upgrades
@@ -236,6 +255,7 @@ print(f"High: {results['high_issues']}")
 ## Configuration Options
 
 ### Validation Rules
+
 ```python
 VALIDATION_CONFIG = {
     'ignore_patterns': [
@@ -256,6 +276,7 @@ VALIDATION_CONFIG = {
 ```
 
 ### Project-Specific Settings
+
 ```python
 # Custom patterns for organization-specific code
 CUSTOM_PATTERNS = [
@@ -274,6 +295,7 @@ FRAMEWORK_HANDLERS = {
 ## Proof of Concept Results
 
 ### Test Environment
+
 - **JavaScript files scanned**: 151
 - **Python files scanned**: 1,381
 - **JavaScript calls found**: 362
@@ -283,6 +305,7 @@ FRAMEWORK_HANDLERS = {
 ### Key Findings
 
 #### Successful Matches
+
 The validator successfully matched JavaScript calls to Python functions:
 
 ```
@@ -297,6 +320,7 @@ The validator successfully matched JavaScript calls to Python functions:
 ```
 
 #### Common Issues Detected
+
 1. **Method not found** (240 issues): Calls to non-whitelisted methods
 2. **Parameter mismatches** (1 issue): Extra/missing parameters
 3. **Framework methods** (multiple): Calls to Frappe framework methods not in codebase

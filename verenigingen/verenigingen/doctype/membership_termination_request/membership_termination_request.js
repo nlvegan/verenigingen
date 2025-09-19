@@ -95,9 +95,13 @@ frappe.ui.form.on('Membership Termination Request', {
 
 		// Add view member button
 		if (frm.doc.member) {
-			frm.add_custom_button(__('View Member'), () => {
-				frappe.set_route('Form', 'Member', frm.doc.member);
-			}, __('View'));
+			frm.add_custom_button(
+				__('View Member'),
+				() => {
+					frappe.set_route('Form', 'Member', frm.doc.member);
+				},
+				__('View')
+			);
 		}
 	},
 
@@ -157,37 +161,69 @@ function add_action_buttons(frm) {
 
 	if (frm.doc.status === 'Draft') {
 		// Submit for approval button
-		frm.add_custom_button(__('Submit for Approval'), () => {
-			submit_for_approval(frm);
-		}, __('Actions')).addClass('btn-primary');
+		frm
+			.add_custom_button(
+				__('Submit for Approval'),
+				() => {
+					submit_for_approval(frm);
+				},
+				__('Actions')
+			)
+			.addClass('btn-primary');
 	} else if (frm.doc.status === 'Pending') {
 		// Show approval buttons if user can approve
 		if (can_approve_request(frm)) {
-			frm.add_custom_button(__('Approve'), () => {
-				approve_request(frm, 'approved');
-			}, __('Actions')).addClass('btn-success');
+			frm
+				.add_custom_button(
+					__('Approve'),
+					() => {
+						approve_request(frm, 'approved');
+					},
+					__('Actions')
+				)
+				.addClass('btn-success');
 
-			frm.add_custom_button(__('Reject'), () => {
-				approve_request(frm, 'rejected');
-			}, __('Actions')).addClass('btn-danger');
+			frm
+				.add_custom_button(
+					__('Reject'),
+					() => {
+						approve_request(frm, 'rejected');
+					},
+					__('Actions')
+				)
+				.addClass('btn-danger');
 		}
 	} else if (frm.doc.status === 'Approved') {
 		// Execute termination button
-		frm.add_custom_button(__('Execute Termination'), () => {
-			execute_termination(frm);
-		}, __('Actions')).addClass('btn-warning');
+		frm
+			.add_custom_button(
+				__('Execute Termination'),
+				() => {
+					execute_termination(frm);
+				},
+				__('Actions')
+			)
+			.addClass('btn-warning');
 	}
 
 	// View member button
 	if (frm.doc.member) {
-		frm.add_custom_button(__('View Member'), () => {
-			frappe.set_route('Form', 'Member', frm.doc.member);
-		}, __('View'));
+		frm.add_custom_button(
+			__('View Member'),
+			() => {
+				frappe.set_route('Form', 'Member', frm.doc.member);
+			},
+			__('View')
+		);
 	}
 }
 
 function toggle_disciplinary_fields(frm) {
-	const disciplinary_types = ['Policy Violation', 'Disciplinary Action', 'Expulsion'];
+	const disciplinary_types = [
+		'Policy Violation',
+		'Disciplinary Action',
+		'Expulsion'
+	];
 	const is_disciplinary = disciplinary_types.includes(frm.doc.termination_type);
 
 	// Show/hide disciplinary documentation
@@ -203,14 +239,24 @@ function toggle_disciplinary_fields(frm) {
 }
 
 function set_approval_requirements(frm) {
-	const disciplinary_types = ['Policy Violation', 'Disciplinary Action', 'Expulsion'];
-	const requires_approval = disciplinary_types.includes(frm.doc.termination_type);
+	const disciplinary_types = [
+		'Policy Violation',
+		'Disciplinary Action',
+		'Expulsion'
+	];
+	const requires_approval = disciplinary_types.includes(
+		frm.doc.termination_type
+	);
 
 	frm.set_value('requires_secondary_approval', requires_approval ? 1 : 0);
 }
 
 function set_default_dates(frm) {
-	const disciplinary_types = ['Policy Violation', 'Disciplinary Action', 'Expulsion'];
+	const disciplinary_types = [
+		'Policy Violation',
+		'Disciplinary Action',
+		'Expulsion'
+	];
 	const is_disciplinary = disciplinary_types.includes(frm.doc.termination_type);
 
 	if (is_disciplinary) {
@@ -226,7 +272,10 @@ function set_default_dates(frm) {
 		}
 		if (!frm.doc.grace_period_end && frm.doc.termination_type !== 'Deceased') {
 			// 30-day grace period for non-disciplinary, non-deceased
-			frm.set_value('grace_period_end', frappe.datetime.add_days(frappe.datetime.get_today(), 30));
+			frm.set_value(
+				'grace_period_end',
+				frappe.datetime.add_days(frappe.datetime.get_today(), 30)
+			);
 		}
 	}
 }
@@ -234,22 +283,31 @@ function set_default_dates(frm) {
 function set_secondary_approver_filter(frm) {
 	frm.set_query('secondary_approver', () => {
 		return {
-			query: 'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_eligible_approvers'
+			query:
+        'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_eligible_approvers'
 		};
 	});
 }
 
 function validate_required_fields(frm) {
-	const disciplinary_types = ['Policy Violation', 'Disciplinary Action', 'Expulsion'];
+	const disciplinary_types = [
+		'Policy Violation',
+		'Disciplinary Action',
+		'Expulsion'
+	];
 	const is_disciplinary = disciplinary_types.includes(frm.doc.termination_type);
 
 	if (is_disciplinary) {
 		if (!frm.doc.disciplinary_documentation) {
-			frappe.throw(__('Documentation is required for disciplinary terminations'));
+			frappe.throw(
+				__('Documentation is required for disciplinary terminations')
+			);
 		}
 
 		if (frm.doc.status === 'Pending' && !frm.doc.secondary_approver) {
-			frappe.throw(__('Secondary approver is required for disciplinary terminations'));
+			frappe.throw(
+				__('Secondary approver is required for disciplinary terminations')
+			);
 		}
 	}
 }
@@ -264,10 +322,13 @@ function submit_for_approval(frm) {
 		callback(r) {
 			if (r.message) {
 				frm.refresh();
-				frappe.show_alert({
-					message: __('Request submitted for approval'),
-					indicator: 'green'
-				}, 5);
+				frappe.show_alert(
+					{
+						message: __('Request submitted for approval'),
+						indicator: 'green'
+					},
+					5
+				);
 			}
 		}
 	});
@@ -283,7 +344,10 @@ function can_approve_request(frm) {
 	}
 
 	// Association managers can approve disciplinary terminations
-	if (user_roles.includes('Verenigingen Administrator') && frm.doc.requires_secondary_approval) {
+	if (
+		user_roles.includes('Verenigingen Administrator')
+    && frm.doc.requires_secondary_approval
+	) {
 		return true;
 	}
 
@@ -328,14 +392,18 @@ function approve_request(frm, decision) {
 						frm.refresh();
 						dialog.hide();
 
-						const message = decision === 'approved'
-							? __('Request approved successfully')
-							: __('Request rejected');
+						const message
+              = decision === 'approved'
+              	? __('Request approved successfully')
+              	: __('Request rejected');
 
-						frappe.show_alert({
-							message,
-							indicator: decision === 'approved' ? 'green' : 'red'
-						}, 5);
+						frappe.show_alert(
+							{
+								message,
+								indicator: decision === 'approved' ? 'green' : 'red'
+							},
+							5
+						);
 					}
 				}
 			});
@@ -348,12 +416,13 @@ function approve_request(frm, decision) {
 function execute_termination(frm) {
 	// Show confirmation dialog
 	frappe.confirm(
-		`${__('Are you sure you want to execute this termination? This action cannot be undone and will:')
-		}<br><br>`
-        + `• ${__('Cancel all SEPA mandates')}<br>`
-        + `• ${__('Unsubscribe from member newsletters')}<br>`
-        + `• ${__('End all board/committee positions')}<br>`
-        + `• ${__('Update membership status')}`,
+		`${__(
+			'Are you sure you want to execute this termination? This action cannot be undone and will:'
+		)}<br><br>`
+      + `• ${__('Cancel all SEPA mandates')}<br>`
+      + `• ${__('Unsubscribe from member newsletters')}<br>`
+      + `• ${__('End all board/committee positions')}<br>`
+      + `• ${__('Update membership status')}`,
 		() => {
 			// User confirmed
 			frappe.call({
@@ -364,10 +433,13 @@ function execute_termination(frm) {
 				callback(r) {
 					if (r.message) {
 						frm.refresh();
-						frappe.show_alert({
-							message: __('Termination executed successfully'),
-							indicator: 'green'
-						}, 7);
+						frappe.show_alert(
+							{
+								message: __('Termination executed successfully'),
+								indicator: 'green'
+							},
+							7
+						);
 					}
 				}
 			});
@@ -417,25 +489,33 @@ window.show_enhanced_termination_dialog = function (member_id, member_name) {
 				fieldname: 'disciplinary_documentation',
 				fieldtype: 'Text Editor',
 				label: __('Documentation Required'),
-				depends_on: 'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)',
-				mandatory_depends_on: 'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)',
-				description: __('Required for disciplinary actions - will be included in expulsion report')
+				depends_on:
+          'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)',
+				mandatory_depends_on:
+          'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)',
+				description: __(
+					'Required for disciplinary actions - will be included in expulsion report'
+				)
 			},
 			{
 				fieldtype: 'Section Break',
 				label: __('Approval'),
-				depends_on: 'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)'
+				depends_on:
+          'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)'
 			},
 			{
 				fieldname: 'secondary_approver',
 				fieldtype: 'Link',
 				label: __('Secondary Approver'),
 				options: 'User',
-				depends_on: 'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)',
-				mandatory_depends_on: 'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)',
+				depends_on:
+          'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)',
+				mandatory_depends_on:
+          'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)',
 				get_query() {
 					return {
-						query: 'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_eligible_approvers'
+						query:
+              'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_eligible_approvers'
 					};
 				}
 			},
@@ -476,13 +556,20 @@ window.show_enhanced_termination_dialog = function (member_id, member_name) {
 			};
 
 			// Call the appropriate method based on termination type
-			const disciplinary_types = ['Policy Violation', 'Disciplinary Action', 'Expulsion'];
-			const is_disciplinary = disciplinary_types.includes(values.termination_type);
+			const disciplinary_types = [
+				'Policy Violation',
+				'Disciplinary Action',
+				'Expulsion'
+			];
+			const is_disciplinary = disciplinary_types.includes(
+				values.termination_type
+			);
 
 			if (is_disciplinary) {
 				// Use disciplinary workflow
 				frappe.call({
-					method: 'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.initiate_disciplinary_termination',
+					method:
+            'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.initiate_disciplinary_termination',
 					args: {
 						member_id,
 						termination_data
@@ -490,7 +577,11 @@ window.show_enhanced_termination_dialog = function (member_id, member_name) {
 					callback(r) {
 						if (r.message) {
 							dialog.hide();
-							frappe.set_route('Form', 'Membership Termination Request', r.message.request_id);
+							frappe.set_route(
+								'Form',
+								'Membership Termination Request',
+								r.message.request_id
+							);
 						}
 					}
 				});
@@ -514,7 +605,11 @@ window.show_enhanced_termination_dialog = function (member_id, member_name) {
 };
 
 function toggle_dialog_fields(dialog, termination_type) {
-	const disciplinary_types = ['Policy Violation', 'Disciplinary Action', 'Expulsion'];
+	const disciplinary_types = [
+		'Policy Violation',
+		'Disciplinary Action',
+		'Expulsion'
+	];
 	const is_disciplinary = disciplinary_types.includes(termination_type);
 
 	// Toggle visibility of disciplinary-specific fields
@@ -526,12 +621,15 @@ function toggle_dialog_fields(dialog, termination_type) {
 }
 
 // Server-side query for eligible approvers
-frappe.provide('verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request');
+frappe.provide(
+	'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request'
+);
 
 frappe.query_reports['Get Eligible Approvers'] = {
 	execute(filters) {
 		return frappe.call({
-			method: 'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_eligible_approvers',
+			method:
+        'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_eligible_approvers',
 			args: filters
 		});
 	}

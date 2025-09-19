@@ -30,19 +30,12 @@ verenigingen/
 Page templates extend Frappe's base web template:
 
 ```html
-{% extends "templates/web.html" %}
-
-{% block title %}{{ _("Apply for Membership") }}{% endblock %}
-
-{% block style %}
+{% extends "templates/web.html" %} {% block title %}{{ _("Apply for Membership")
+}}{% endblock %} {% block style %}
 <!-- Custom CSS -->
-{% endblock %}
-
-{% block page_content %}
+{% endblock %} {% block page_content %}
 <!-- Page content -->
-{% endblock %}
-
-{% block script %}
+{% endblock %} {% block script %}
 <!-- Custom JavaScript -->
 {% endblock %}
 ```
@@ -56,37 +49,55 @@ Page templates extend Frappe's base web template:
 ```html
 <!-- CSS Block for Custom Styling -->
 {% block style %}
-<link href="/assets/verenigingen/css/membership_application.css" rel="stylesheet">
+<link
+  href="/assets/verenigingen/css/membership_application.css"
+  rel="stylesheet"
+/>
 {% endblock %}
 
 <!-- Main Content Block -->
 {% block page_content %}
 <div class="membership-application-form">
-    <!-- Organization branding -->
-    <div class="page-header text-center">
-        <div class="organization-logo mb-3">
-            <img src="/assets/verenigingen/images/logo.png" alt="Organization Logo" class="logo-img">
-        </div>
-        <h1>{{ _("Become a Member") }}</h1>
-        <p class="lead">{{ _("Join our association and become part of our community!") }}</p>
+  <!-- Organization branding -->
+  <div class="page-header text-center">
+    <div class="organization-logo mb-3">
+      <img
+        src="/assets/verenigingen/images/logo.png"
+        alt="Organization Logo"
+        class="logo-img"
+      />
     </div>
+    <h1>{{ _("Become a Member") }}</h1>
+    <p class="lead">
+      {{ _("Join our association and become part of our community!") }}
+    </p>
+  </div>
 
-    <!-- Progress indicator -->
-    <div class="progress-container mb-4">
-        <div class="progress">
-            <div class="progress-bar" role="progressbar" style="width: 16.67%" id="form-progress"></div>
-        </div>
-        <div class="progress-steps">
-            <span class="step active" data-step="1">Personal Info</span>
-            <span class="step" data-step="2">Address</span>
-            <!-- ... more steps ... -->
-        </div>
+  <!-- Progress indicator -->
+  <div class="progress-container mb-4">
+    <div class="progress">
+      <div
+        class="progress-bar"
+        role="progressbar"
+        style="width: 16.67%"
+        id="form-progress"
+      ></div>
     </div>
+    <div class="progress-steps">
+      <span class="step active" data-step="1">Personal Info</span>
+      <span class="step" data-step="2">Address</span>
+      <!-- ... more steps ... -->
+    </div>
+  </div>
 
-    <!-- Multi-step form -->
-    <form id="membership-application-form" class="application-form" onsubmit="return false;">
-        <!-- Form steps -->
-    </form>
+  <!-- Multi-step form -->
+  <form
+    id="membership-application-form"
+    class="application-form"
+    onsubmit="return false;"
+  >
+    <!-- Form steps -->
+  </form>
 </div>
 {% endblock %}
 ```
@@ -199,222 +210,238 @@ def create_member_application(data):
 ```css
 /* CSS Variables for Brand Consistency */
 :root {
-    --primary-color: #007bff;
-    --secondary-color: #6c757d;
-    --success-color: #28a745;
-    --danger-color: #dc3545;
-    --warning-color: #ffc107;
-    --info-color: #17a2b8;
+  --primary-color: #007bff;
+  --secondary-color: #6c757d;
+  --success-color: #28a745;
+  --danger-color: #dc3545;
+  --warning-color: #ffc107;
+  --info-color: #17a2b8;
 
-    --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    --border-radius: 0.375rem;
-    --box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
-    --transition: all 0.15s ease-in-out;
+  --font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --border-radius: 0.375rem;
+  --box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+  --transition: all 0.15s ease-in-out;
 }
 
 /* Component-based styling */
 .membership-application-form {
-    /* Container styles */
+  /* Container styles */
 }
 
 .organization-logo {
-    /* Logo container */
+  /* Logo container */
 }
 
 .progress-container {
-    /* Progress indicator */
+  /* Progress indicator */
 }
 
 .form-step {
-    /* Individual form steps */
+  /* Individual form steps */
 }
 
 .card {
-    /* Form section cards */
+  /* Form section cards */
 }
 
 /* Responsive breakpoints */
-@media (max-width: 1200px) { /* Large devices */ }
-@media (max-width: 992px) { /* Medium devices */ }
-@media (max-width: 768px) { /* Small devices */ }
-@media (max-width: 576px) { /* Extra small devices */ }
+@media (max-width: 1200px) {
+  /* Large devices */
+}
+@media (max-width: 992px) {
+  /* Medium devices */
+}
+@media (max-width: 768px) {
+  /* Small devices */
+}
+@media (max-width: 576px) {
+  /* Extra small devices */
+}
 ```
 
 ### 4. JavaScript Enhancement (`membership_application.js`)
 
 ```javascript
 class MembershipApplicationForm {
-    constructor() {
-        this.currentStep = 1;
-        this.totalSteps = 6;
-        this.formData = {};
+  constructor() {
+    this.currentStep = 1;
+    this.totalSteps = 6;
+    this.formData = {};
 
-        this.init();
+    this.init();
+  }
+
+  init() {
+    this.bindEvents();
+    this.setupValidation();
+    this.loadSavedData();
+  }
+
+  bindEvents() {
+    // Navigation buttons
+    $(document).on("click", ".btn-next", (e) => this.nextStep(e));
+    $(document).on("click", ".btn-prev", (e) => this.prevStep(e));
+
+    // Form submission
+    $(document).on("click", ".btn-submit", (e) => this.submitForm(e));
+
+    // Auto-save functionality
+    $(document).on("input", ".form-control", (e) => this.autoSave(e));
+  }
+
+  setupValidation() {
+    // Real-time validation
+    $(".form-control").on("blur", function () {
+      $(this).closest(".form-group").find(".invalid-feedback").hide();
+
+      if (this.checkValidity()) {
+        $(this).removeClass("is-invalid").addClass("is-valid");
+      } else {
+        $(this).removeClass("is-valid").addClass("is-invalid");
+        $(this).closest(".form-group").find(".invalid-feedback").show();
+      }
+    });
+  }
+
+  nextStep(e) {
+    e.preventDefault();
+
+    if (this.validateCurrentStep()) {
+      if (this.currentStep < this.totalSteps) {
+        this.currentStep++;
+        this.updateStep();
+      }
     }
+  }
 
-    init() {
-        this.bindEvents();
-        this.setupValidation();
-        this.loadSavedData();
+  prevStep(e) {
+    e.preventDefault();
+
+    if (this.currentStep > 1) {
+      this.currentStep--;
+      this.updateStep();
     }
+  }
 
-    bindEvents() {
-        // Navigation buttons
-        $(document).on('click', '.btn-next', (e) => this.nextStep(e));
-        $(document).on('click', '.btn-prev', (e) => this.prevStep(e));
+  updateStep() {
+    // Hide all steps
+    $(".form-step").removeClass("active");
+    $(".progress-steps .step").removeClass("active");
 
-        // Form submission
-        $(document).on('click', '.btn-submit', (e) => this.submitForm(e));
+    // Show current step
+    $(`.form-step[data-step="${this.currentStep}"]`).addClass("active");
+    $(`.progress-steps .step[data-step="${this.currentStep}"]`).addClass(
+      "active",
+    );
 
-        // Auto-save functionality
-        $(document).on('input', '.form-control', (e) => this.autoSave(e));
-    }
+    // Update progress bar
+    const progress = (this.currentStep / this.totalSteps) * 100;
+    $(".progress-bar").css("width", `${progress}%`);
 
-    setupValidation() {
-        // Real-time validation
-        $('.form-control').on('blur', function() {
-            $(this).closest('.form-group').find('.invalid-feedback').hide();
+    // Scroll to top
+    $(".membership-application-form").get(0).scrollIntoView({
+      behavior: "smooth",
+    });
+  }
 
-            if (this.checkValidity()) {
-                $(this).removeClass('is-invalid').addClass('is-valid');
-            } else {
-                $(this).removeClass('is-valid').addClass('is-invalid');
-                $(this).closest('.form-group').find('.invalid-feedback').show();
-            }
-        });
-    }
+  validateCurrentStep() {
+    const currentStepElement = $(`.form-step[data-step="${this.currentStep}"]`);
+    const requiredFields = currentStepElement.find("[required]");
+    let isValid = true;
 
-    nextStep(e) {
-        e.preventDefault();
+    requiredFields.each(function () {
+      if (!this.checkValidity()) {
+        $(this).addClass("is-invalid");
+        isValid = false;
+      } else {
+        $(this).removeClass("is-invalid").addClass("is-valid");
+      }
+    });
 
-        if (this.validateCurrentStep()) {
-            if (this.currentStep < this.totalSteps) {
-                this.currentStep++;
-                this.updateStep();
-            }
+    return isValid;
+  }
+
+  autoSave(e) {
+    const field = e.target;
+    this.formData[field.name] = field.value;
+
+    // Save to localStorage
+    localStorage.setItem(
+      "membership_application_draft",
+      JSON.stringify(this.formData),
+    );
+  }
+
+  loadSavedData() {
+    const savedData = localStorage.getItem("membership_application_draft");
+    if (savedData) {
+      this.formData = JSON.parse(savedData);
+
+      // Populate form fields
+      Object.keys(this.formData).forEach((fieldName) => {
+        const field = document.querySelector(`[name="${fieldName}"]`);
+        if (field) {
+          field.value = this.formData[fieldName];
         }
+      });
+    }
+  }
+
+  async submitForm(e) {
+    e.preventDefault();
+
+    // Validate all steps
+    let allValid = true;
+    for (let step = 1; step <= this.totalSteps; step++) {
+      this.currentStep = step;
+      if (!this.validateCurrentStep()) {
+        allValid = false;
+        break;
+      }
     }
 
-    prevStep(e) {
-        e.preventDefault();
-
-        if (this.currentStep > 1) {
-            this.currentStep--;
-            this.updateStep();
-        }
+    if (!allValid) {
+      frappe.msgprint("Please fill all required fields");
+      return;
     }
 
-    updateStep() {
-        // Hide all steps
-        $('.form-step').removeClass('active');
-        $('.progress-steps .step').removeClass('active');
+    // Collect form data
+    const formData = new FormData(
+      document.getElementById("membership-application-form"),
+    );
+    const data = Object.fromEntries(formData.entries());
 
-        // Show current step
-        $(`.form-step[data-step="${this.currentStep}"]`).addClass('active');
-        $(`.progress-steps .step[data-step="${this.currentStep}"]`).addClass('active');
+    try {
+      // Show loading
+      $(".btn-submit").prop("disabled", true).text("Submitting...");
 
-        // Update progress bar
-        const progress = (this.currentStep / this.totalSteps) * 100;
-        $('.progress-bar').css('width', `${progress}%`);
+      // Submit application
+      const response = await frappe.call({
+        method:
+          "verenigingen.templates.pages.apply_for_membership.submit_application",
+        args: { data: data },
+      });
 
-        // Scroll to top
-        $('.membership-application-form').get(0).scrollIntoView({
-            behavior: 'smooth'
-        });
+      if (response.message.success) {
+        // Clear saved data
+        localStorage.removeItem("membership_application_draft");
+
+        // Show success message
+        this.showSuccessMessage(response.message.application_id);
+      } else {
+        frappe.msgprint(response.message.message);
+      }
+    } catch (error) {
+      console.error("Submission error:", error);
+      frappe.msgprint("An error occurred while submitting your application");
+    } finally {
+      $(".btn-submit").prop("disabled", false).text("Submit Application");
     }
+  }
 
-    validateCurrentStep() {
-        const currentStepElement = $(`.form-step[data-step="${this.currentStep}"]`);
-        const requiredFields = currentStepElement.find('[required]');
-        let isValid = true;
-
-        requiredFields.each(function() {
-            if (!this.checkValidity()) {
-                $(this).addClass('is-invalid');
-                isValid = false;
-            } else {
-                $(this).removeClass('is-invalid').addClass('is-valid');
-            }
-        });
-
-        return isValid;
-    }
-
-    autoSave(e) {
-        const field = e.target;
-        this.formData[field.name] = field.value;
-
-        // Save to localStorage
-        localStorage.setItem('membership_application_draft', JSON.stringify(this.formData));
-    }
-
-    loadSavedData() {
-        const savedData = localStorage.getItem('membership_application_draft');
-        if (savedData) {
-            this.formData = JSON.parse(savedData);
-
-            // Populate form fields
-            Object.keys(this.formData).forEach(fieldName => {
-                const field = document.querySelector(`[name="${fieldName}"]`);
-                if (field) {
-                    field.value = this.formData[fieldName];
-                }
-            });
-        }
-    }
-
-    async submitForm(e) {
-        e.preventDefault();
-
-        // Validate all steps
-        let allValid = true;
-        for (let step = 1; step <= this.totalSteps; step++) {
-            this.currentStep = step;
-            if (!this.validateCurrentStep()) {
-                allValid = false;
-                break;
-            }
-        }
-
-        if (!allValid) {
-            frappe.msgprint('Please fill all required fields');
-            return;
-        }
-
-        // Collect form data
-        const formData = new FormData(document.getElementById('membership-application-form'));
-        const data = Object.fromEntries(formData.entries());
-
-        try {
-            // Show loading
-            $('.btn-submit').prop('disabled', true).text('Submitting...');
-
-            // Submit application
-            const response = await frappe.call({
-                method: 'verenigingen.templates.pages.apply_for_membership.submit_application',
-                args: { data: data }
-            });
-
-            if (response.message.success) {
-                // Clear saved data
-                localStorage.removeItem('membership_application_draft');
-
-                // Show success message
-                this.showSuccessMessage(response.message.application_id);
-            } else {
-                frappe.msgprint(response.message.message);
-            }
-
-        } catch (error) {
-            console.error('Submission error:', error);
-            frappe.msgprint('An error occurred while submitting your application');
-        } finally {
-            $('.btn-submit').prop('disabled', false).text('Submit Application');
-        }
-    }
-
-    showSuccessMessage(applicationId) {
-        const successHtml = `
+  showSuccessMessage(applicationId) {
+    const successHtml = `
             <div class="alert alert-success text-center">
                 <h4>Application Submitted Successfully!</h4>
                 <p>Your application ID is: <strong>${applicationId}</strong></p>
@@ -423,29 +450,32 @@ class MembershipApplicationForm {
             </div>
         `;
 
-        $('.membership-application-form').html(successHtml);
-    }
+    $(".membership-application-form").html(successHtml);
+  }
 }
 
 // Initialize when page loads
-$(document).ready(function() {
-    new MembershipApplicationForm();
+$(document).ready(function () {
+  new MembershipApplicationForm();
 });
 ```
 
 ## Asset Management
 
 ### CSS Processing
+
 - **Location**: `/public/css/membership_application.css`
 - **Processing**: Linked via `bench build` command
 - **URL**: `/assets/verenigingen/css/membership_application.css`
 
 ### Image Assets
+
 - **Location**: `/public/images/`
 - **Processing**: Automatically linked by Frappe
 - **URL**: `/assets/verenigingen/images/filename.ext`
 
 ### JavaScript Processing
+
 - **Location**: `/public/js/membership_application.js`
 - **Processing**: Linked via template or hooks.py
 - **URL**: `/assets/verenigingen/js/membership_application.js`
@@ -453,6 +483,7 @@ $(document).ready(function() {
 ## Build Process
 
 ### Asset Linking
+
 ```bash
 # Link assets
 bench build --app verenigingen
@@ -462,6 +493,7 @@ bench watch --app verenigingen
 ```
 
 ### Template Compilation
+
 - Templates are automatically compiled by Frappe
 - Changes take effect immediately (no restart required)
 - Jinja2 template engine processes variables and logic
@@ -469,6 +501,7 @@ bench watch --app verenigingen
 ## Testing Strategy
 
 ### 1. Unit Testing (Python)
+
 ```python
 # test_apply_for_membership.py
 import unittest
@@ -505,32 +538,33 @@ class TestMembershipApplication(unittest.TestCase):
 ```
 
 ### 2. Frontend Testing (JavaScript)
+
 ```javascript
 // test_membership_form.js
-describe('Membership Application Form', function() {
+describe("Membership Application Form", function () {
+  beforeEach(function () {
+    // Set up DOM
+    document.body.innerHTML = '<div id="test-container"></div>';
+  });
 
-    beforeEach(function() {
-        // Set up DOM
-        document.body.innerHTML = '<div id="test-container"></div>';
-    });
+  it("should validate required fields", function () {
+    const form = new MembershipApplicationForm();
 
-    it('should validate required fields', function() {
-        const form = new MembershipApplicationForm();
+    // Test validation logic
+    expect(form.validateCurrentStep()).toBe(false);
+  });
 
-        // Test validation logic
-        expect(form.validateCurrentStep()).toBe(false);
-    });
+  it("should progress through steps", function () {
+    const form = new MembershipApplicationForm();
 
-    it('should progress through steps', function() {
-        const form = new MembershipApplicationForm();
-
-        form.nextStep();
-        expect(form.currentStep).toBe(2);
-    });
+    form.nextStep();
+    expect(form.currentStep).toBe(2);
+  });
 });
 ```
 
 ### 3. Integration Testing
+
 ```python
 # Test complete workflow
 def test_membership_application_workflow():
@@ -543,16 +577,19 @@ def test_membership_application_workflow():
 ## Performance Optimization
 
 ### 1. CSS Optimization
+
 - **Minimize unused styles**
 - **Use CSS variables for consistency**
 - **Optimize for critical rendering path**
 
 ### 2. JavaScript Optimization
+
 - **Lazy load non-critical functionality**
 - **Debounce auto-save operations**
 - **Use efficient DOM queries**
 
 ### 3. Image Optimization
+
 - **Compress images appropriately**
 - **Use responsive image techniques**
 - **Consider WebP format for modern browsers**
@@ -560,15 +597,18 @@ def test_membership_application_workflow():
 ## Security Considerations
 
 ### 1. Input Validation
+
 - **Server-side validation is mandatory**
 - **Client-side validation is UX enhancement only**
 - **Sanitize all user inputs**
 
 ### 2. CSRF Protection
+
 - **Frappe automatically handles CSRF tokens**
 - **Use `@frappe.whitelist()` decorator appropriately**
 
 ### 3. Permission Checks
+
 - **Validate user permissions in Python controllers**
 - **Don't rely on client-side permission checks**
 
@@ -588,21 +628,25 @@ def test_membership_application_workflow():
 ### Common Issues
 
 **CSS not loading:**
+
 - Check file path and permissions
 - Rebuild assets: `bench build --app verenigingen`
 - Clear browser cache
 
 **JavaScript errors:**
+
 - Check browser console for errors
 - Verify jQuery is loaded
 - Check for variable naming conflicts
 
 **Form submission fails:**
+
 - Check Python method whitelisting
 - Verify field validation
 - Check server logs for errors
 
 **Images not displaying:**
+
 - Verify file exists in `/public/images/`
 - Check image path in template
 - Rebuild assets
@@ -610,6 +654,7 @@ def test_membership_application_workflow():
 ### Debug Tools
 
 **Python debugging:**
+
 ```python
 # Add to Python methods
 frappe.log_error(f"Debug: {variable_name}")
@@ -617,13 +662,15 @@ print(f"Debug output: {data}")
 ```
 
 **JavaScript debugging:**
+
 ```javascript
 // Add to JavaScript
-console.log('Debug:', variable);
-frappe.msgprint('Debug message');
+console.log("Debug:", variable);
+frappe.msgprint("Debug message");
 ```
 
 **Template debugging:**
+
 ```html
 <!-- Add to template -->
 {{ frappe.utils.pretty_date(frappe.utils.now()) }}

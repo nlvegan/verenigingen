@@ -7,18 +7,21 @@ The Donation Campaign system provides comprehensive tools for planning, executin
 ## Key Features
 
 ### Campaign Management
+
 - **Flexible Campaign Types**: Support for Annual Giving, Capital Campaigns, Emergency Relief, Project Funding, Endowment, Event, and custom campaign types
 - **Goal Setting**: Set monetary and donor count targets with automatic progress tracking
 - **Visibility Controls**: Configure public visibility, website display, and donor privacy settings
 - **Rich Content**: Add campaign stories, impact statements, images, and videos
 
 ### Accounting Integration (NEW)
+
 - **Automatic Dimension Generation**: Unique accounting dimension codes auto-generated from campaign names
 - **Project Integration**: Optional ERPNext Project linking for comprehensive activity tracking
 - **Financial Reporting**: Consolidated view of campaign income, expenses, and GL entries
 - **Donation Inheritance**: All campaign donations automatically inherit accounting dimensions
 
 ### Progress Tracking
+
 - **Real-time Updates**: Progress automatically calculated from linked donations
 - **Multiple Metrics**: Track monetary progress, donor count, and average donation amounts
 - **Completion Percentages**: Visual progress indicators based on your goals
@@ -56,6 +59,7 @@ When you create a campaign, the system automatically generates a unique **Campai
 - **Links all donations** to this dimension for financial reporting
 
 **Example Dimension Generations:**
+
 ```
 Campaign Name: "Emergency Relief Fund"
 → Dimension Value: "EMERGENCY_RELIEF_FUND"
@@ -91,12 +95,14 @@ For campaigns requiring task management and expense tracking:
 **Best for**: Basic fundraising campaigns with straightforward financial tracking
 
 **Setup Process**:
+
 1. Create campaign with basic information
 2. Set monetary and donor goals
 3. Leave project field empty
 4. Launch campaign (status = "Active")
 
 **What You Get**:
+
 - All donations automatically tagged with campaign dimension
 - Financial reports filtered by campaign
 - GL entries linked to campaign
@@ -107,6 +113,7 @@ For campaigns requiring task management and expense tracking:
 **Best for**: Multi-phase campaigns, events, or campaigns with significant planning requirements
 
 **Setup Process**:
+
 1. Create campaign with full details
 2. Set comprehensive goals and timeline
 3. Create linked project via "Create Project" button
@@ -114,6 +121,7 @@ For campaigns requiring task management and expense tracking:
 5. Launch campaign
 
 **What You Get**:
+
 - Everything from simple campaign, plus:
 - Task management and milestone tracking
 - Expense tracking and budget management
@@ -123,6 +131,7 @@ For campaigns requiring task management and expense tracking:
 ### Campaign Launch Checklist
 
 Before changing status to "Active":
+
 - ✅ Campaign name is final (affects accounting dimension)
 - ✅ Goals are set and realistic
 - ✅ Start and end dates are confirmed
@@ -138,6 +147,7 @@ Before changing status to "Active":
 When a donation is linked to your campaign:
 
 1. **Automatic Dimension Inheritance**:
+
    ```
    Campaign: "Annual Appeal 2025" (Dimension: "ANNUAL_APPEAL_2025")
    → Donation: Automatically tagged with "ANNUAL_APPEAL_2025"
@@ -156,6 +166,7 @@ When a donation is linked to your campaign:
 ### Donation Workflow Integration
 
 The system automatically:
+
 - **Updates progress** when donations are processed
 - **Calculates metrics** (total raised, donor count, averages)
 - **Tags financial entries** with campaign information
@@ -166,6 +177,7 @@ The system automatically:
 ### Real-Time Dashboard
 
 Access campaign progress through:
+
 - **Campaign List View**: Quick overview of all campaigns
 - **Campaign Detail View**: Comprehensive metrics and charts
 - **Dashboard Widgets**: Key performance indicators
@@ -215,6 +227,7 @@ Access campaign progress through:
 #### Standard Frappe Reports
 
 Access through Reports menu:
+
 - **Donation Campaign Summary**: Overview of all campaigns
 - **Campaign Performance Analysis**: Comparative metrics
 - **Accounting Dimension Reports**: Financial breakdown by campaign
@@ -290,6 +303,7 @@ Access through Reports menu:
 ### Suggested Donation Amounts
 
 Configure suggested amounts to guide donor decisions:
+
 - **Format**: Comma-separated values (e.g., "25,50,100,250,500")
 - **Strategy**: Include range from small to major gift levels
 - **Psychology**: End with amounts slightly above target average
@@ -298,6 +312,7 @@ Configure suggested amounts to guide donor decisions:
 ### Campaign Types
 
 Choose the most appropriate type for reporting and categorization:
+
 - **Annual Giving**: Regular, recurring fundraising campaigns
 - **Capital Campaign**: Major facility or equipment fundraising
 - **Emergency Relief**: Crisis response and urgent needs
@@ -332,13 +347,13 @@ Choose the most appropriate type for reporting and categorization:
 
 ### Error Messages and Solutions
 
-| Error Message | Cause | Solution |
-|---------------|--------|----------|
-| "End date cannot be before start date" | Invalid date range | Correct the start/end date values |
-| "Monetary goal must be positive" | Negative goal amount | Enter positive goal values |
-| "Project with name already exists" | Duplicate project name | Use a different project name or link existing project |
-| "Campaign already has a project linked" | Trying to create second project | Use existing project or remove current link first |
-| "Please select a Donor" | Missing donor information | Ensure donor exists or create new donor record |
+| Error Message                           | Cause                           | Solution                                              |
+| --------------------------------------- | ------------------------------- | ----------------------------------------------------- |
+| "End date cannot be before start date"  | Invalid date range              | Correct the start/end date values                     |
+| "Monetary goal must be positive"        | Negative goal amount            | Enter positive goal values                            |
+| "Project with name already exists"      | Duplicate project name          | Use a different project name or link existing project |
+| "Campaign already has a project linked" | Trying to create second project | Use existing project or remove current link first     |
+| "Please select a Donor"                 | Missing donor information       | Ensure donor exists or create new donor record        |
 
 ### Performance Considerations
 

@@ -48,10 +48,18 @@ describe('Member Lifecycle - Client Side', () => {
 			const errors = [];
 
 			// Required fields
-			const requiredFields = ['first_name', 'last_name', 'email', 'birth_date',
-				'address_line1', 'city', 'postal_code', 'country'];
+			const requiredFields = [
+				'first_name',
+				'last_name',
+				'email',
+				'birth_date',
+				'address_line1',
+				'city',
+				'postal_code',
+				'country'
+			];
 
-			requiredFields.forEach(field => {
+			requiredFields.forEach((field) => {
 				if (!data[field] || data[field].trim() === '') {
 					errors.push(`${field} is required`);
 				}
@@ -128,7 +136,9 @@ describe('Member Lifecycle - Client Side', () => {
 
 			const result = validateApplicationForm(underageData);
 			expect(result.valid).toBe(false);
-			expect(result.errors).toContain('Applicant must be at least 18 years old');
+			expect(result.errors).toContain(
+				'Applicant must be at least 18 years old'
+			);
 		});
 
 		it('should validate IBAN for Direct Debit payments', () => {
@@ -192,7 +202,8 @@ describe('Member Lifecycle - Client Side', () => {
 				primary_action_label: 'Submit Review',
 				primary_action: async (values) => {
 					await frappe.call({
-						method: 'verenigingen.api.membership_application.review_application',
+						method:
+              'verenigingen.api.membership_application.review_application',
 						args: {
 							application: frm.doc.name,
 							action: values.action,
@@ -234,7 +245,9 @@ describe('Member Lifecycle - Client Side', () => {
 			};
 
 			expect(validateReview({ action: 'Approve' }).valid).toBe(false);
-			expect(validateReview({ review_notes: 'Looks good', action: 'Approve' }).valid).toBe(true);
+			expect(
+				validateReview({ review_notes: 'Looks good', action: 'Approve' }).valid
+			).toBe(true);
 		});
 	});
 
@@ -319,7 +332,7 @@ describe('Member Lifecycle - Client Side', () => {
 		it('should handle payment confirmation dialog', async () => {
 			const paymentData = {
 				member: 'MEM-2025-00001',
-				amount: 50.00,
+				amount: 50.0,
 				payment_method: 'Bank Transfer'
 			};
 
@@ -419,19 +432,25 @@ describe('Member Lifecycle - Client Side', () => {
 	describe('Stage 6: Volunteer Creation', () => {
 		it('should validate volunteer interest before creation', () => {
 			const shouldCreateVolunteer = (member) => {
-				return member.interested_in_volunteering === 1
-					   && member.application_status === 'Approved';
+				return (
+					member.interested_in_volunteering === 1
+          && member.application_status === 'Approved'
+				);
 			};
 
-			expect(shouldCreateVolunteer({
-				interested_in_volunteering: 1,
-				application_status: 'Approved'
-			})).toBe(true);
+			expect(
+				shouldCreateVolunteer({
+					interested_in_volunteering: 1,
+					application_status: 'Approved'
+				})
+			).toBe(true);
 
-			expect(shouldCreateVolunteer({
-				interested_in_volunteering: 0,
-				application_status: 'Approved'
-			})).toBe(false);
+			expect(
+				shouldCreateVolunteer({
+					interested_in_volunteering: 0,
+					application_status: 'Approved'
+				})
+			).toBe(false);
 		});
 
 		it('should prepare volunteer data correctly', () => {
@@ -474,7 +493,10 @@ describe('Member Lifecycle - Client Side', () => {
 					errors.push('Role selection is required');
 				}
 
-				if (assignmentData.role === 'Team Lead' && !assignmentData.approval_notes) {
+				if (
+					assignmentData.role === 'Team Lead'
+          && !assignmentData.approval_notes
+				) {
 					errors.push('Approval notes required for Team Lead role');
 				}
 
@@ -488,7 +510,9 @@ describe('Member Lifecycle - Client Side', () => {
 
 			const result = validateTeamAssignment(invalidAssignment);
 			expect(result.valid).toBe(false);
-			expect(result.errors).toContain('Approval notes required for Team Lead role');
+			expect(result.errors).toContain(
+				'Approval notes required for Team Lead role'
+			);
 		});
 
 		it('should track member activity history', () => {
@@ -503,8 +527,14 @@ describe('Member Lifecycle - Client Side', () => {
 				});
 			};
 
-			logActivity({ type: 'team_join', description: 'Joined Communications Team' });
-			logActivity({ type: 'expense_submit', description: 'Submitted expense for €25.50' });
+			logActivity({
+				type: 'team_join',
+				description: 'Joined Communications Team'
+			});
+			logActivity({
+				type: 'expense_submit',
+				description: 'Submitted expense for €25.50'
+			});
 
 			expect(activityLog).toHaveLength(2);
 			expect(activityLog[0].type).toBe('team_join');
@@ -517,14 +547,19 @@ describe('Member Lifecycle - Client Side', () => {
 			const isEligibleForRenewal = (membership) => {
 				const today = new Date(frappe.datetime.nowdate());
 				const expiryDate = new Date(membership.to_date);
-				const daysUntilExpiry = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
+				const daysUntilExpiry = Math.ceil(
+					(expiryDate - today) / (1000 * 60 * 60 * 24)
+				);
 
 				return {
 					eligible: daysUntilExpiry <= 30 && daysUntilExpiry >= -30,
 					daysUntilExpiry,
-					message: daysUntilExpiry > 30 ? 'Too early to renew'
-						: daysUntilExpiry < -30 ? 'Membership expired'
-							: 'Eligible for renewal'
+					message:
+            daysUntilExpiry > 30
+            	? 'Too early to renew'
+            	: daysUntilExpiry < -30
+            		? 'Membership expired'
+            		: 'Eligible for renewal'
 				};
 			};
 
@@ -580,21 +615,28 @@ describe('Member Lifecycle - Client Side', () => {
 				}
 
 				if (!suspensionData.notes || suspensionData.notes.length < 10) {
-					return { valid: false, error: 'Detailed notes required (min 10 characters)' };
+					return {
+						valid: false,
+						error: 'Detailed notes required (min 10 characters)'
+					};
 				}
 
 				return { valid: true };
 			};
 
-			expect(validateSuspension({
-				reason: 'Payment Default',
-				notes: 'Multiple failed payment attempts'
-			}).valid).toBe(true);
+			expect(
+				validateSuspension({
+					reason: 'Payment Default',
+					notes: 'Multiple failed payment attempts'
+				}).valid
+			).toBe(true);
 
-			expect(validateSuspension({
-				reason: 'Other',
-				notes: 'Test'
-			}).valid).toBe(false);
+			expect(
+				validateSuspension({
+					reason: 'Other',
+					notes: 'Test'
+				}).valid
+			).toBe(false);
 		});
 
 		it('should track suspension and reactivation history', () => {
@@ -647,12 +689,19 @@ describe('Member Lifecycle - Client Side', () => {
 
 				if (!request.effective_date) {
 					errors.push('Effective date is required');
-				} else if (new Date(request.effective_date) < new Date(frappe.datetime.nowdate())) {
+				} else if (
+					new Date(request.effective_date) < new Date(frappe.datetime.nowdate())
+				) {
 					errors.push('Effective date must be today or in the future');
 				}
 
-				if (request.reason === 'Other' && (!request.details || request.details.length < 20)) {
-					errors.push('Detailed explanation required for "Other" reason (min 20 characters)');
+				if (
+					request.reason === 'Other'
+          && (!request.details || request.details.length < 20)
+				) {
+					errors.push(
+						'Detailed explanation required for "Other" reason (min 20 characters)'
+					);
 				}
 
 				return { valid: errors.length === 0, errors };
@@ -686,9 +735,13 @@ describe('Member Lifecycle - Client Side', () => {
 				};
 
 				// Check for unused membership period
-				if (member.membership_to_date && new Date(member.membership_to_date) > new Date(terminationDate)) {
+				if (
+					member.membership_to_date
+          && new Date(member.membership_to_date) > new Date(terminationDate)
+				) {
 					const daysRemaining = Math.floor(
-						(new Date(member.membership_to_date) - new Date(terminationDate)) / (1000 * 60 * 60 * 24)
+						(new Date(member.membership_to_date) - new Date(terminationDate))
+              / (1000 * 60 * 60 * 24)
 					);
 					const dailyRate = member.membership_fee / 365;
 					const refundAmount = daysRemaining * dailyRate;
@@ -709,8 +762,14 @@ describe('Member Lifecycle - Client Side', () => {
 				}
 
 				// Calculate total
-				const totalRefunds = settlement.refunds.reduce((sum, r) => sum + r.amount, 0);
-				const totalOutstanding = settlement.outstanding.reduce((sum, o) => sum + o.amount, 0);
+				const totalRefunds = settlement.refunds.reduce(
+					(sum, r) => sum + r.amount,
+					0
+				);
+				const totalOutstanding = settlement.outstanding.reduce(
+					(sum, o) => sum + o.amount,
+					0
+				);
 				settlement.total = totalRefunds - totalOutstanding;
 
 				return settlement;
@@ -738,7 +797,7 @@ describe('Member Lifecycle - Client Side', () => {
 				],
 
 				completeStep(stepName) {
-					const step = this.steps.find(s => s.name === stepName);
+					const step = this.steps.find((s) => s.name === stepName);
 					if (step) {
 						step.status = 'completed';
 						step.completedAt = new Date().toISOString();
@@ -746,8 +805,12 @@ describe('Member Lifecycle - Client Side', () => {
 				},
 
 				canProceed() {
-					const currentStepIndex = this.steps.findIndex(s => s.status === 'pending');
-					if (currentStepIndex === 0) { return true; }
+					const currentStepIndex = this.steps.findIndex(
+						(s) => s.status === 'pending'
+					);
+					if (currentStepIndex === 0) {
+						return true;
+					}
 					return this.steps[currentStepIndex - 1].status === 'completed';
 				}
 			};

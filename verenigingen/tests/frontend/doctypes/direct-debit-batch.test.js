@@ -68,14 +68,17 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 				'Generate SEPA XML',
 				expect.any(Function)
 			);
-			expect(mockFrm.toggle_enable).toHaveBeenCalledWith(['collection_date'], true);
+			expect(mockFrm.toggle_enable).toHaveBeenCalledWith(
+				['collection_date'],
+				true
+			);
 		});
 
 		test('should show correct buttons for generated batch', () => {
 			// Arrange
 			const generatedBatch = testFactory.createDirectDebitBatchData({
 				status: 'Generated',
-				total_amount: 2500.00,
+				total_amount: 2500.0,
 				total_entries: 25
 			});
 			mockFrm.doc = generatedBatch;
@@ -93,7 +96,10 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 				'Submit to Bank',
 				expect.any(Function)
 			);
-			expect(mockFrm.toggle_enable).toHaveBeenCalledWith(['collection_date'], false);
+			expect(mockFrm.toggle_enable).toHaveBeenCalledWith(
+				['collection_date'],
+				false
+			);
 		});
 
 		test('should display status indicators correctly', () => {
@@ -115,7 +121,10 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 				displayBatchStatus(mockFrm);
 
 				// Assert
-				expect(mockFrm.dashboard.add_indicator).toHaveBeenCalledWith(text, color);
+				expect(mockFrm.dashboard.add_indicator).toHaveBeenCalledWith(
+					text,
+					color
+				);
 			});
 		});
 
@@ -164,7 +173,7 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 			// Arrange
 			const batchWithEntries = testFactory.createDirectDebitBatchData({
 				status: 'Draft',
-				total_amount: 1250.00,
+				total_amount: 1250.0,
 				total_entries: 5
 			});
 			mockFrm.doc = batchWithEntries;
@@ -173,7 +182,7 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 			const sepaEntries = Array.from({ length: 5 }, (_, i) => ({
 				member: `Member-${i + 1}`,
 				iban: testFactory.generateDutchIBAN(),
-				amount: 250.00,
+				amount: 250.0,
 				mandate_id: `MANDATE-${i + 1}`,
 				mandate_date: '2024-01-01'
 			}));
@@ -185,7 +194,8 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(mockFrm.call).toHaveBeenCalledWith({
-				method: 'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.generate_sepa_xml',
+				method:
+          'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.generate_sepa_xml',
 				args: { batch_name: batchWithEntries.name }
 			});
 
@@ -208,11 +218,11 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 			];
 
 			// Act & Assert
-			validIBANs.forEach(iban => {
+			validIBANs.forEach((iban) => {
 				expect(validateIBANForSEPA(iban)).toBe(true);
 			});
 
-			invalidIBANs.forEach(iban => {
+			invalidIBANs.forEach((iban) => {
 				expect(validateIBANForSEPA(iban)).toBe(false);
 			});
 		});
@@ -221,7 +231,7 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 			// Arrange
 			const sequenceTypes = ['FRST', 'RCUR', 'OOFF', 'FNAL'];
 
-			sequenceTypes.forEach(seqType => {
+			sequenceTypes.forEach((seqType) => {
 				// Act
 				const batch = testFactory.createDirectDebitBatchData({
 					sequence_type: seqType
@@ -238,17 +248,17 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 		test('should calculate correct control sum for batch', () => {
 			// Arrange
 			const entries = [
-				{ amount: 25.00 },
-				{ amount: 50.00 },
-				{ amount: 75.00 },
-				{ amount: 100.00 }
+				{ amount: 25.0 },
+				{ amount: 50.0 },
+				{ amount: 75.0 },
+				{ amount: 100.0 }
 			];
 
 			// Act
 			const controlSum = calculateBatchControlSum(entries);
 
 			// Assert
-			expect(controlSum).toBe(250.00);
+			expect(controlSum).toBe(250.0);
 			expect(Number.isInteger(controlSum * 100)).toBe(true); // Proper cent handling
 		});
 
@@ -282,14 +292,14 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 				{
 					sales_invoice: 'INV-001',
 					member: 'Member-001',
-					outstanding_amount: 25.00,
+					outstanding_amount: 25.0,
 					iban: testFactory.generateDutchIBAN(),
 					mandate_status: 'Active'
 				},
 				{
 					sales_invoice: 'INV-002',
 					member: 'Member-002',
-					outstanding_amount: 50.00,
+					outstanding_amount: 50.0,
 					iban: testFactory.generateDutchIBAN(),
 					mandate_status: 'Active'
 				}
@@ -302,11 +312,12 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(mockFrm.call).toHaveBeenCalledWith({
-				method: 'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.get_outstanding_invoices',
+				method:
+          'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.get_outstanding_invoices',
 				args: { collection_date: draftBatch.collection_date }
 			});
 
-			expect(mockFrm.set_value).toHaveBeenCalledWith('total_amount', 75.00);
+			expect(mockFrm.set_value).toHaveBeenCalledWith('total_amount', 75.0);
 			expect(mockFrm.set_value).toHaveBeenCalledWith('total_entries', 2);
 		});
 
@@ -320,7 +331,7 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 			const returnData = [
 				{
 					member: 'Member-001',
-					amount: 25.00,
+					amount: 25.0,
 					return_code: 'AC04', // Insufficient funds
 					return_reason: 'Insufficient Funds'
 				}
@@ -333,7 +344,8 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(mockFrm.call).toHaveBeenCalledWith({
-				method: 'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.process_returns',
+				method:
+          'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.process_returns',
 				args: {
 					batch_name: processedBatch.name,
 					returns: returnData
@@ -371,7 +383,8 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(mockFrm.call).toHaveBeenCalledWith({
-				method: 'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.submit_to_bank',
+				method:
+          'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.submit_to_bank',
 				args: { batch_name: generatedBatch.name }
 			});
 
@@ -423,9 +436,11 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 				'invalid-date' // Wrong format
 			];
 
-			invalidDates.forEach(date => {
+			invalidDates.forEach((date) => {
 				// Act
-				const validation = validateCollectionDate({ doc: { collection_date: date } });
+				const validation = validateCollectionDate({
+					doc: { collection_date: date }
+				});
 
 				// Assert
 				expect(validation.valid).toBe(false);
@@ -442,7 +457,9 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 			mockFrm.call.mockRejectedValue(bankError);
 
 			// Act & Assert
-			await expect(submitBatchToBank(mockFrm)).rejects.toThrow('Bank connection timeout');
+			await expect(submitBatchToBank(mockFrm)).rejects.toThrow(
+				'Bank connection timeout'
+			);
 
 			expect(frappe.msgprint).toHaveBeenCalledWith(
 				expect.stringContaining('bank error'),
@@ -454,7 +471,7 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 			// Arrange
 			const largeBatch = testFactory.createDirectDebitBatchData({
 				total_entries: 10000,
-				total_amount: 250000.00
+				total_amount: 250000.0
 			});
 
 			// Act
@@ -471,7 +488,7 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 			// Arrange
 			const currencies = ['EUR', 'USD', 'GBP'];
 
-			currencies.forEach(currency => {
+			currencies.forEach((currency) => {
 				// Act
 				const validation = validateCurrencyForSEPA(currency);
 
@@ -495,7 +512,9 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 			});
 
 			// Act
-			const validation = checkForDuplicateBatch(duplicateBatch, [existingBatch]);
+			const validation = checkForDuplicateBatch(duplicateBatch, [
+				existingBatch
+			]);
 
 			// Assert
 			expect(validation.isDuplicate).toBe(true);
@@ -508,15 +527,15 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 	describe('Financial Validation and Calculations', () => {
 		test('should validate amount formatting for SEPA', () => {
 			// Arrange
-			const validAmounts = [25.00, 50.50, 100.99, 0.01];
-			const invalidAmounts = [0, -25.00, 25.555]; // Zero, negative, too many decimals
+			const validAmounts = [25.0, 50.5, 100.99, 0.01];
+			const invalidAmounts = [0, -25.0, 25.555]; // Zero, negative, too many decimals
 
 			// Act & Assert
-			validAmounts.forEach(amount => {
+			validAmounts.forEach((amount) => {
 				expect(validateSEPAAmount(amount)).toBe(true);
 			});
 
-			invalidAmounts.forEach(amount => {
+			invalidAmounts.forEach((amount) => {
 				expect(validateSEPAAmount(amount)).toBe(false);
 			});
 		});
@@ -534,26 +553,22 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 
 		test('should calculate batch totals accurately', () => {
 			// Arrange
-			const entries = [
-				{ amount: 25.50 },
-				{ amount: 30.25 },
-				{ amount: 44.75 }
-			];
+			const entries = [{ amount: 25.5 }, { amount: 30.25 }, { amount: 44.75 }];
 
 			// Act
 			const totals = calculateBatchTotals(entries);
 
 			// Assert
-			expect(totals.totalAmount).toBe(100.50);
+			expect(totals.totalAmount).toBe(100.5);
 			expect(totals.totalEntries).toBe(3);
-			expect(totals.averageAmount).toBe(33.50);
+			expect(totals.averageAmount).toBe(33.5);
 		});
 
 		test('should validate maximum SEPA transaction limits', () => {
 			// Arrange
 			const amounts = [
 				{ amount: 999999.99, valid: true }, // Within limit
-				{ amount: 1000000.00, valid: false }, // At limit
+				{ amount: 1000000.0, valid: false }, // At limit
 				{ amount: 1000000.01, valid: false } // Over limit
 			];
 
@@ -574,8 +589,8 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 			// Arrange
 			const batch = testFactory.createDirectDebitBatchData();
 			const invoices = [
-				{ name: 'INV-001', outstanding_amount: 25.00 },
-				{ name: 'INV-002', outstanding_amount: 50.00 }
+				{ name: 'INV-001', outstanding_amount: 25.0 },
+				{ name: 'INV-002', outstanding_amount: 50.0 }
 			];
 
 			// Act
@@ -584,7 +599,7 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 			// Assert
 			expect(integration.success).toBe(true);
 			expect(integration.linkedInvoices).toBe(2);
-			expect(integration.totalAmount).toBe(75.00);
+			expect(integration.totalAmount).toBe(75.0);
 		});
 
 		test('should integrate with mandate system', async () => {
@@ -678,7 +693,9 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 	const validateSEPANotice = jest.fn((frm) => {
 		const collectionDate = new Date(frm.doc.collection_date);
 		const today = new Date();
-		const daysDiff = Math.ceil((collectionDate - today) / (1000 * 60 * 60 * 24));
+		const daysDiff = Math.ceil(
+			(collectionDate - today) / (1000 * 60 * 60 * 24)
+		);
 
 		const requiredDays = frm.doc.sequence_type === 'FRST' ? 5 : 2;
 
@@ -694,7 +711,8 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 
 	const generateSEPAXML = jest.fn(async (frm) => {
 		await frm.call({
-			method: 'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.generate_sepa_xml',
+			method:
+        'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.generate_sepa_xml',
 			args: { batch_name: frm.doc.name }
 		});
 
@@ -702,12 +720,18 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 	});
 
 	const validateIBANForSEPA = jest.fn((iban) => {
-		if (!iban) { return false; }
+		if (!iban) {
+			return false;
+		}
 		const cleaned = iban.replace(/\s/g, '').toUpperCase();
 
 		// Basic IBAN validation
-		if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{4,}$/.test(cleaned)) { return false; }
-		if (cleaned.length < 15 || cleaned.length > 34) { return false; }
+		if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{4,}$/.test(cleaned)) {
+			return false;
+		}
+		if (cleaned.length < 15 || cleaned.length > 34) {
+			return false;
+		}
 
 		// Country code validation (simplified)
 		const countryCodes = ['NL', 'DE', 'BE', 'FR', 'AT', 'LU'];
@@ -727,18 +751,24 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 
 	const generateBatchReference = jest.fn((batch) => {
 		const date = new Date().toISOString().split('T')[0].replace(/-/g, '');
-		const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+		const random = Math.floor(Math.random() * 1000)
+			.toString()
+			.padStart(3, '0');
 		return `DD-${date}-${random}`;
 	});
 
 	const loadOutstandingInvoices = jest.fn(async (frm) => {
 		const result = await frm.call({
-			method: 'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.get_outstanding_invoices',
+			method:
+        'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.get_outstanding_invoices',
 			args: { collection_date: frm.doc.collection_date }
 		});
 
 		if (result.message) {
-			const totalAmount = result.message.reduce((sum, inv) => sum + inv.outstanding_amount, 0);
+			const totalAmount = result.message.reduce(
+				(sum, inv) => sum + inv.outstanding_amount,
+				0
+			);
 			frm.set_value('total_amount', totalAmount);
 			frm.set_value('total_entries', result.message.length);
 		}
@@ -746,7 +776,8 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 
 	const processPaymentReturns = jest.fn(async (frm, returnData) => {
 		return frm.call({
-			method: 'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.process_returns',
+			method:
+        'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.process_returns',
 			args: {
 				batch_name: frm.doc.name,
 				returns: returnData
@@ -760,7 +791,8 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 
 	const submitBatchToBank = jest.fn(async (frm) => {
 		await frm.call({
-			method: 'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.submit_to_bank',
+			method:
+        'verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch.submit_to_bank',
 			args: { batch_name: frm.doc.name }
 		});
 
@@ -768,7 +800,9 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 	});
 
 	const calculateProcessingProgress = jest.fn((batch) => {
-		const percentage = Math.floor((batch.processed_entries / batch.total_entries) * 100);
+		const percentage = Math.floor(
+			(batch.processed_entries / batch.total_entries) * 100
+		);
 		return {
 			percentage,
 			completed: batch.processed_entries,
@@ -796,24 +830,33 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 	});
 
 	const checkForDuplicateBatch = jest.fn((newBatch, existingBatches) => {
-		const duplicate = existingBatches.find(batch =>
-			batch.collection_date === newBatch.collection_date
-      && batch.status !== 'Cancelled'
+		const duplicate = existingBatches.find(
+			(batch) =>
+				batch.collection_date === newBatch.collection_date
+        && batch.status !== 'Cancelled'
 		);
 
 		return {
 			isDuplicate: !!duplicate,
-			message: duplicate ? 'An existing batch already exists for this collection date' : ''
+			message: duplicate
+				? 'An existing batch already exists for this collection date'
+				: ''
 		};
 	});
 
 	const validateSEPAAmount = jest.fn((amount) => {
-		if (amount <= 0) { return false; }
-		if (amount > 999999.99) { return false; }
+		if (amount <= 0) {
+			return false;
+		}
+		if (amount > 999999.99) {
+			return false;
+		}
 
 		// Check for more than 2 decimal places
 		const decimals = amount.toString().split('.')[1];
-		if (decimals && decimals.length > 2) { return false; }
+		if (decimals && decimals.length > 2) {
+			return false;
+		}
 
 		return true;
 	});
@@ -835,19 +878,22 @@ describe('Direct Debit Batch DocType - Comprehensive Test Suite', () => {
 	});
 
 	const validateSEPATransactionLimit = jest.fn((amount) => {
-		return amount < 1000000.00;
+		return amount < 1000000.0;
 	});
 
 	const integrateBatchWithInvoices = jest.fn(async (batch, invoices) => {
 		return {
 			success: true,
 			linkedInvoices: invoices.length,
-			totalAmount: invoices.reduce((sum, inv) => sum + inv.outstanding_amount, 0)
+			totalAmount: invoices.reduce(
+				(sum, inv) => sum + inv.outstanding_amount,
+				0
+			)
 		};
 	});
 
 	const integrateBatchWithMandates = jest.fn(async (batch, mandates) => {
-		const validMandates = mandates.filter(m => m.status === 'Active').length;
+		const validMandates = mandates.filter((m) => m.status === 'Active').length;
 		const invalidMandates = mandates.length - validMandates;
 
 		return {

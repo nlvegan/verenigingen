@@ -11,6 +11,7 @@ This document outlines the comprehensive plan to secure test and debug functions
 ## Background and Problem Statement
 
 ### Discovery Process
+
 The investigation began with "duplicate account creation requests" and evolved to reveal systematic security architecture challenges:
 
 1. **Initial Assessment Error**: Incorrectly concluded "no API security middleware exists"
@@ -20,6 +21,7 @@ The investigation began with "duplicate account creation requests" and evolved t
 ### Current Security Architecture
 
 **Existing Framework**: `verenigingen/utils/security/api_security_framework.py`
+
 - ✅ 5-level security classification (CRITICAL, HIGH, MEDIUM, LOW, PUBLIC)
 - ✅ Role-based access control with context-aware permissions
 - ✅ Rate limiting, CSRF protection, audit logging
@@ -30,12 +32,14 @@ The investigation began with "duplicate account creation requests" and evolved t
 ### Critical Risk: Frappe Cloud Deployment
 
 **Deployment Reality**:
+
 - Frappe Cloud deploys entire codebase without filtering
 - All `@frappe.whitelist()` functions become public APIs
 - No automatic exclusion of test/debug utilities
 - Production URLs like `/api/method/create_test_member_with_subscription` are accessible
 
 **Immediate Risks**:
+
 - Test data pollution in production databases
 - Debug utilities exposing sensitive system information
 - Administrative tools accessible without proper authorization
@@ -44,14 +48,17 @@ The investigation began with "duplicate account creation requests" and evolved t
 ## Strategic Approach: Hybrid Solution
 
 ### Option 1: Deployment Filtering (Infrastructure)
+
 **Advantages**: Immediate protection, automatic coverage
 **Disadvantages**: Limited control with Frappe Cloud, risk of breaking dependencies
 
 ### Option 2: Code-Level Security (Decorator)
+
 **Advantages**: Works with any deployment, granular control, framework integration
 **Disadvantages**: 475 functions to update, ongoing maintenance
 
 **Selected Approach**: **Hybrid Implementation**
+
 - Immediate deployment filtering for obvious test directories
 - Code-level `@development_only()` decorators for mixed content files
 - Long-term framework enhancement with environment controls
@@ -63,10 +70,12 @@ The investigation began with "duplicate account creation requests" and evolved t
 **Objective**: Understand current code structure before applying security measures
 
 **Tools Created**:
+
 - `scripts/code_organization_analyzer.py` - Analyzes mixed test/production files
 - `scripts/security_migration_inventory_generator.py` - Comprehensive function inventory
 
 **Key Findings**:
+
 - 700 files with mixed test/production content
 - 160 test functions in production modules
 - 205 production functions in test modules
@@ -74,6 +83,7 @@ The investigation began with "duplicate account creation requests" and evolved t
 - 56 functions requiring relocation
 
 **Deliverables**:
+
 - Detailed organization assessment report
 - Function-by-function security recommendations
 - Safe vs. risky function classifications
@@ -83,9 +93,11 @@ The investigation began with "duplicate account creation requests" and evolved t
 **Objective**: Secure highest-confidence test functions immediately
 
 **Tools Created**:
+
 - `scripts/secure_test_functions_tool.py` - Safe decorator application with content analysis
 
 **Safety Features**:
+
 - Content analysis to confirm test/debug purpose
 - Dependency checking to avoid breaking production
 - Dry-run mode for change preview
@@ -93,11 +105,13 @@ The investigation began with "duplicate account creation requests" and evolved t
 - Rollback capability
 
 **Target Functions**: 104 high-confidence test functions
+
 - Clear test/debug naming patterns (`test_`, `debug_`, `create_test`)
 - Low complexity (≤3 complexity score)
 - Strong test-related content indicators
 
 **Application Process**:
+
 ```bash
 # 1. Preview changes
 python scripts/secure_test_functions_tool.py --dry-run
@@ -116,12 +130,14 @@ python scripts/secure_test_functions_tool.py --dry-run --min-confidence 60
 **3.1 File Categorization Strategy**:
 
 **Production Modules**: Keep core business logic
+
 - `/api/` - Public API endpoints
 - `/utils/` - Business utilities
 - `/doctype/` - Document type logic
 - `/templates/` - Web interface logic
 
 **Test Modules**: Move test/debug utilities
+
 - `/tests/` - Unit and integration tests
 - `/tests/utilities/` - Test helper functions
 - `/utils/debug/` - Development debugging tools
@@ -130,11 +146,13 @@ python scripts/secure_test_functions_tool.py --dry-run --min-confidence 60
 **3.2 Function Relocation Process**:
 
 **High Priority Relocations** (56 functions):
+
 - Complex test functions (>10 complexity score)
 - Functions with extensive test logic
 - Clear test utilities in production modules
 
 **Relocation Steps**:
+
 1. **Identify target location** based on function purpose
 2. **Create appropriate test module** if doesn't exist
 3. **Move function with proper imports**
@@ -166,6 +184,7 @@ verenigingen/
 **4.1 Framework Enhancement**:
 
 Add environment awareness to `api_security_framework.py`:
+
 ```python
 class EnvironmentLevel(Enum):
     PRODUCTION = "production"
@@ -188,6 +207,7 @@ def environment_restricted(allowed_environments: List[EnvironmentLevel]):
 **4.2 Migration to Framework Controls**:
 
 Replace manual `@development_only()` with framework-integrated environment controls:
+
 ```python
 @frappe.whitelist()
 @utility_api(environments=[EnvironmentLevel.DEVELOPMENT, EnvironmentLevel.STAGING])
@@ -254,18 +274,21 @@ jobs:
 ### Code Analysis Safety Features
 
 **1. Content Analysis Validation**:
+
 - Function name pattern matching
 - Content keyword analysis (test vs production keywords)
 - AST parsing for complexity assessment
 - Dependency analysis for production usage
 
 **2. Confidence Scoring System**:
+
 - **≥80**: High confidence, safe for automatic application
 - **60-79**: Medium confidence, manual review recommended
 - **50-59**: Low confidence, requires careful analysis
 - **<50**: Not recommended for automatic securing
 
 **3. Safety Checks**:
+
 - Production usage indicator detection
 - High-risk operation identification (database deletions, etc.)
 - Dependency analysis for production code imports
@@ -274,22 +297,26 @@ jobs:
 ### Quality Assurance Process
 
 **1. Dry-Run Validation**:
+
 ```bash
 # Always preview changes first
 python scripts/secure_test_functions_tool.py --dry-run
 ```
 
 **2. Graduated Rollout**:
+
 - Start with highest confidence functions (≥80 score)
 - Manual review for medium confidence (60-79 score)
 - Skip or relocate low confidence functions
 
 **3. Rollback Capability**:
+
 - Automatic backup creation before changes
 - Complete rollback functionality
 - Change tracking and audit trail
 
 **4. Testing Protocol**:
+
 - Validate core functionality still works
 - Test production API endpoints
 - Verify no broken imports or dependencies
@@ -300,16 +327,19 @@ python scripts/secure_test_functions_tool.py --dry-run
 ### High-Risk Functions (Require Manual Review)
 
 **Financial Operations**:
+
 - Any function touching payment, invoice, or financial data
 - Functions with `ignore_permissions=True` for financial records
 - SEPA or banking-related functions
 
 **Data Manipulation**:
+
 - Functions that delete or modify member data
 - Bulk operations on production data
 - Database schema modifications
 
 **System Administration**:
+
 - Functions that modify system settings
 - User account creation or modification
 - Permission or role changes
@@ -317,16 +347,19 @@ python scripts/secure_test_functions_tool.py --dry-run
 ### Risk Mitigation Strategies
 
 **1. Phased Implementation**:
+
 - Start with obvious test functions only
 - Gradually expand to more complex cases
 - Always manual review for ambiguous functions
 
 **2. Environment Validation**:
+
 - Test in development environment first
 - Staging environment validation
 - Gradual production rollout
 
 **3. Monitoring and Alerting**:
+
 - Monitor for unexpected API access patterns
 - Alert on attempts to access blocked functions
 - Audit log analysis for security events
@@ -336,11 +369,13 @@ python scripts/secure_test_functions_tool.py --dry-run
 ### Immediate Security Improvements (Phase 1-2)
 
 **Quantitative Metrics**:
+
 - 104 high-confidence test functions secured
 - 475 production-exposed test utilities identified
 - 100% of obvious test functions protected
 
 **Security Risk Reduction**:
+
 - Eliminate test data creation in production
 - Block debug information disclosure
 - Prevent accidental production data corruption
@@ -348,11 +383,13 @@ python scripts/secure_test_functions_tool.py --dry-run
 ### Structural Improvements (Phase 3-4)
 
 **Code Organization**:
+
 - Clear separation between test and production code
 - Standardized file structure across project
 - Reduced complexity in mixed-content files
 
 **Framework Enhancement**:
+
 - Environment-aware security controls
 - Consistent security patterns across codebase
 - Improved developer experience for security
@@ -360,11 +397,13 @@ python scripts/secure_test_functions_tool.py --dry-run
 ### Long-term Benefits (Phase 5)
 
 **Deployment Security**:
+
 - Defense-in-depth approach with multiple protection layers
 - Automated filtering for production deployments
 - CI/CD integration preventing security regressions
 
 **Operational Excellence**:
+
 - Reduced security incident risk
 - Improved compliance posture (GDPR, etc.)
 - Enhanced developer confidence in production deployments
@@ -372,26 +411,31 @@ python scripts/secure_test_functions_tool.py --dry-run
 ## Implementation Timeline
 
 ### Week 1: Analysis and Planning
+
 - **Days 1-2**: Code organization analysis
 - **Days 3-4**: Function inventory and categorization
 - **Days 5-7**: Tool testing and validation in development
 
 ### Week 2: Immediate Risk Mitigation
+
 - **Days 1-2**: Secure high-confidence functions (≥80 score)
 - **Days 3-4**: Manual review of medium-confidence functions
 - **Days 5-7**: Validation and testing of security changes
 
 ### Weeks 3-6: Structural Reorganization
+
 - **Week 3**: Plan file relocations and create target structure
 - **Week 4**: Relocate complex test functions (56 functions)
 - **Week 5**: Update imports, references, and dependencies
 - **Week 6**: Testing and validation of reorganized code
 
 ### Weeks 7-8: Framework Integration
+
 - **Week 7**: Enhance API security framework with environment controls
 - **Week 8**: Migrate from manual decorators to framework controls
 
 ### Weeks 9-12: Deployment Infrastructure
+
 - **Week 9**: Develop deployment filtering scripts
 - **Week 10**: CI/CD integration and testing
 - **Week 11**: Production deployment validation
@@ -402,16 +446,19 @@ python scripts/secure_test_functions_tool.py --dry-run
 ### Stakeholders and Responsibilities
 
 **Security Team**:
+
 - Tool development and testing
 - Security analysis and validation
 - Risk assessment and mitigation
 
 **Development Team**:
+
 - Code review and validation
 - Function relocation assistance
 - Testing and integration support
 
 **DevOps Team**:
+
 - Deployment infrastructure
 - CI/CD pipeline integration
 - Production environment validation
@@ -419,11 +466,13 @@ python scripts/secure_test_functions_tool.py --dry-run
 ### Communication Plan
 
 **Weekly Updates**:
+
 - Progress against timeline
 - Issues and blockers identified
 - Security metrics and improvements
 
 **Key Milestones**:
+
 - Phase completion notifications
 - Security validation results
 - Production deployment readiness
@@ -433,21 +482,25 @@ python scripts/secure_test_functions_tool.py --dry-run
 ### Technical Success Criteria
 
 **Phase 1 Success**:
+
 - [ ] All 104 high-confidence functions secured
 - [ ] Zero production test utility exposures in critical functions
 - [ ] All changes validated in development environment
 
 **Phase 2 Success**:
+
 - [ ] Mixed test/production files properly organized
 - [ ] 56 complex functions relocated to appropriate modules
 - [ ] No broken dependencies or imports
 
 **Phase 3 Success**:
+
 - [ ] API security framework enhanced with environment controls
 - [ ] Consistent security patterns across all new development
 - [ ] Framework adoption rate increased to >50%
 
 **Overall Success**:
+
 - [ ] Zero test utilities accessible in production
 - [ ] Improved security posture without functionality regression
 - [ ] Clear code organization standards established
@@ -456,6 +509,7 @@ python scripts/secure_test_functions_tool.py --dry-run
 ### Validation Process
 
 **1. Automated Testing**:
+
 ```bash
 # Validate no test functions exposed
 python scripts/validate_production_security.py
@@ -468,11 +522,13 @@ python scripts/security_framework_validator.py
 ```
 
 **2. Manual Verification**:
+
 - Production deployment testing
 - API endpoint accessibility validation
 - Security audit and compliance check
 
 **3. Performance Impact Assessment**:
+
 - API response time comparison
 - Security framework overhead measurement
 - Production system performance monitoring
@@ -484,6 +540,7 @@ This comprehensive plan addresses the critical security gap of test utilities ex
 The hybrid strategy combining immediate decorator application with long-term structural improvements provides both short-term risk mitigation and sustainable security architecture enhancement.
 
 **Next Steps**:
+
 1. Execute Phase 1 code organization analysis
 2. Begin immediate risk mitigation with high-confidence functions
 3. Establish weekly progress reviews and stakeholder communication
@@ -491,4 +548,4 @@ The hybrid strategy combining immediate decorator application with long-term str
 
 ---
 
-*This plan builds upon the corrected security assessment that recognized the existing quality API security framework and focuses on the real challenge: comprehensive adoption and environment differentiation.*
+_This plan builds upon the corrected security assessment that recognized the existing quality API security framework and focuses on the real challenge: comprehensive adoption and environment differentiation._

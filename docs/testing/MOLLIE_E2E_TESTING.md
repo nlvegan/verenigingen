@@ -37,6 +37,7 @@ tests/
 ## Test Coverage
 
 ### Happy Path Scenarios
+
 - ✅ Complete recurring donation flow
 - ✅ Single donation processing
 - ✅ Mollie payment page redirect and completion
@@ -46,6 +47,7 @@ tests/
 - ✅ Mollie integration field population
 
 ### Error Scenarios
+
 - ✅ Form validation errors
 - ✅ Invalid email format handling
 - ✅ Payment failure processing
@@ -54,6 +56,7 @@ tests/
 - ✅ Rate limiting and security validation
 
 ### Performance Testing
+
 - ✅ Concurrent donation processing
 - ✅ Webhook processing under load
 - ✅ Database performance validation
@@ -87,7 +90,9 @@ tests/
 ## Test Execution Modes
 
 ### Full Test Suite (`--full`)
+
 Executes all test scenarios including:
+
 - Complete recurring donation flow (Happy Path)
 - Single donation processing
 - Error scenario validation
@@ -98,7 +103,9 @@ Executes all test scenarios including:
 **Coverage**: Complete validation of all functionality
 
 ### Quick Test Suite (`--quick`)
+
 Essential tests for rapid validation:
+
 - Basic happy path donation flow
 - Single donation processing
 - Core error scenarios
@@ -107,7 +114,9 @@ Essential tests for rapid validation:
 **Coverage**: Core functionality validation
 
 ### Smoke Tests (`--smoke`)
+
 Minimal validation for basic functionality:
+
 - Happy path recurring donation only
 
 **Duration**: ~2-3 minutes
@@ -129,11 +138,13 @@ Minimal validation for basic functionality:
 ## Browser Support
 
 ### Supported Browsers
+
 - **Chrome** (Desktop) - Default, most comprehensive testing
 - **Firefox** (Desktop) - Cross-browser validation
 - **Mobile Safari** (iPhone 13) - Mobile responsiveness testing
 
 ### Browser-Specific Testing
+
 ```bash
 # Chrome (default)
 ./run_mollie_e2e_tests.sh --browser chrome
@@ -148,6 +159,7 @@ Minimal validation for basic functionality:
 ## Test Data Generation
 
 ### Dutch Test Data Features
+
 The test suite generates realistic Dutch test data:
 
 ```javascript
@@ -170,6 +182,7 @@ The test suite generates realistic Dutch test data:
 ```
 
 ### Data Validation
+
 - **Business Rules**: Age validation, required fields, format checking
 - **Field Safety**: Validates against actual DocType schemas
 - **Cleanup**: Automatic test data removal after execution
@@ -177,6 +190,7 @@ The test suite generates realistic Dutch test data:
 ## Database Validation
 
 ### Comprehensive Record Verification
+
 The test suite validates creation and updates of:
 
 - **Donor Records**: Personal information, contact details
@@ -187,14 +201,15 @@ The test suite validates creation and updates of:
 - **Webhook Processing Logs**: Audit trail
 
 ### Validation Example
+
 ```javascript
 // Verify complete donation processing chain
 const results = await dbValidator.verifyCompleteDonationChain({
   email: testData.email,
-  amount: 25.00,
-  donationType: 'recurring',
+  amount: 25.0,
+  donationType: "recurring",
   molliePaymentId: paymentResult.id,
-  paymentCompleted: true
+  paymentCompleted: true,
 });
 
 // Results include all created records with validation
@@ -206,6 +221,7 @@ expect(results.donation.mollie_subscription_id).toBeTruthy();
 ## Webhook Processing Testing
 
 ### Comprehensive Webhook Validation
+
 - **Signature Verification**: HMAC SHA256 validation
 - **Payload Processing**: Complete webhook data handling
 - **Database Updates**: Record creation and field updates
@@ -213,16 +229,17 @@ expect(results.donation.mollie_subscription_id).toBeTruthy();
 - **Rate Limiting**: DDoS protection validation
 
 ### Webhook Test Features
+
 ```javascript
 // Simulate webhook with comprehensive data
 const webhookResult = await webhookSimulator.sendMollieWebhook({
-  paymentId: 'tr_test_12345',
-  status: 'paid',
-  amount: 25.00,
+  paymentId: "tr_test_12345",
+  status: "paid",
+  amount: 25.0,
   metadata: {
     donor_email: testData.email,
-    donation_type: 'recurring'
-  }
+    donation_type: "recurring",
+  },
 });
 
 expect(webhookResult.processed).toBe(true);
@@ -231,13 +248,16 @@ expect(webhookResult.processed).toBe(true);
 ## Performance Testing
 
 ### Concurrent Processing
+
 Tests system behavior under load:
+
 - Multiple simultaneous donations
 - Concurrent webhook processing
 - Database performance validation
 - Memory usage monitoring
 
 ### Performance Metrics
+
 - **Throughput**: Donations processed per minute
 - **Response Time**: Average processing duration
 - **Error Rate**: Failed transactions under load
@@ -246,6 +266,7 @@ Tests system behavior under load:
 ## Error Scenarios
 
 ### Comprehensive Error Coverage
+
 - **Form Validation**: Required fields, format validation
 - **Payment Failures**: Mollie payment processing errors
 - **Webhook Errors**: Invalid signatures, processing failures
@@ -253,6 +274,7 @@ Tests system behavior under load:
 - **Network Issues**: Timeout handling, retry mechanisms
 
 ### Error Recovery Testing
+
 - **Automatic Retries**: Failed payment retry logic
 - **Data Consistency**: Transaction rollback validation
 - **User Experience**: Error message display and handling
@@ -260,6 +282,7 @@ Tests system behavior under load:
 ## Reporting and Debugging
 
 ### Test Results
+
 After test execution, comprehensive reports are generated:
 
 ```
@@ -272,6 +295,7 @@ test-results/
 ```
 
 ### Debug Mode Features
+
 ```bash
 # Enable comprehensive debugging
 ./run_mollie_e2e_tests.sh --debug
@@ -285,6 +309,7 @@ test-results/
 ```
 
 ### Viewing Results
+
 ```bash
 # Open HTML report
 npx playwright show-report test-results/html-report
@@ -296,6 +321,7 @@ jq '.' test-results/test-summary.json
 ## CI/CD Integration
 
 ### Automated Testing
+
 ```bash
 # CI mode configuration
 ./run_mollie_e2e_tests.sh --ci
@@ -309,6 +335,7 @@ jq '.' test-results/test-summary.json
 ```
 
 ### GitHub Actions Example
+
 ```yaml
 name: Mollie E2E Tests
 on: [push, pull_request]
@@ -320,7 +347,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
         with:
-          node-version: '18'
+          node-version: "18"
 
       - name: Install dependencies
         run: npm install
@@ -341,6 +368,7 @@ jobs:
 ## Environment Configuration
 
 ### Required Settings
+
 ```bash
 # Environment variables
 export MOLLIE_TEST_API_KEY="test_dHar4XY7LxsDOtmnkVtjNVWXLSlXsM"
@@ -349,6 +377,7 @@ export NODE_ENV="testing"
 ```
 
 ### Mollie Settings Configuration
+
 1. Navigate to **Verenigingen Payments → Mollie Settings**
 2. Enable **Test Mode**
 3. Configure **Test API Key**
@@ -359,6 +388,7 @@ export NODE_ENV="testing"
 ### Common Issues
 
 #### Test Environment Not Accessible
+
 ```bash
 # Verify development server is running
 curl -k https://dev.veganisme.net
@@ -368,6 +398,7 @@ bench start
 ```
 
 #### Mollie Configuration Issues
+
 ```bash
 # Check Mollie settings via console
 bench --site dev.veganisme.net console
@@ -375,12 +406,14 @@ bench --site dev.veganisme.net console
 ```
 
 #### Test Data Cleanup Issues
+
 ```bash
 # Manual cleanup if needed
 ./run_mollie_e2e_tests.sh --no-setup --no-report
 ```
 
 ### Debug Information
+
 - **Test Artifacts**: Screenshots and videos in `test-results/`
 - **Console Logs**: Detailed execution logs in debug mode
 - **Database State**: Pre/post test database validation
@@ -389,28 +422,31 @@ bench --site dev.veganisme.net console
 ## Advanced Usage
 
 ### Custom Test Data
+
 ```javascript
 // Generate specific test scenarios
 const testDataGenerator = new DutchTestDataGenerator({ seed: 12345 });
 const customData = testDataGenerator.generateDonorData({
   includeDetails: true,
-  donationType: 'recurring',
-  useTussenvoegsel: true
+  donationType: "recurring",
+  useTussenvoegsel: true,
 });
 ```
 
 ### Extended Validation
+
 ```javascript
 // Custom validation chains
 const validationResult = await dbValidator.verifyCompleteDonationChain({
-  email: 'custom@test.nl',
-  amount: 50.00,
+  email: "custom@test.nl",
+  amount: 50.0,
   requiresMollie: true,
-  validateAccountingIntegration: true
+  validateAccountingIntegration: true,
 });
 ```
 
 ### Performance Monitoring
+
 ```javascript
 // Performance test configuration
 const performanceTests = await webhookSimulator.runComprehensiveWebhookTests();
@@ -441,6 +477,7 @@ class TestMollieIntegration(EnhancedTestCase):
 This comprehensive E2E testing suite provides production-ready validation of the complete Mollie donation flow. With realistic test data, comprehensive error scenarios, and detailed reporting, it ensures the donation system functions correctly under all conditions.
 
 The test suite is designed for:
+
 - **Development Teams**: Local testing and debugging
 - **QA Teams**: Comprehensive validation and regression testing
 - **CI/CD Pipelines**: Automated testing and deployment validation

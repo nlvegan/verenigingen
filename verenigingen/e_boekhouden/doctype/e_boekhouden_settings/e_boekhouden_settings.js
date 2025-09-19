@@ -55,49 +55,57 @@
 frappe.ui.form.on('E-Boekhouden Settings', {
 	refresh(frm) {
 		// Add custom buttons for testing
-		frm.add_custom_button(__('Test REST API Connection'), () => {
-			if (!frm.doc.api_token) {
-				frappe.msgprint(__('Please enter your API token first.'));
-				return;
-			}
-
-			frappe.call({
-				method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.test_connection',
-				callback(r) {
-					if (r.message && r.message.success) {
-						frappe.show_alert({
-							message: __('Connection test successful!'),
-							indicator: 'green'
-						});
-					} else {
-						frappe.show_alert({
-							message: __('Connection test failed. Check your API token.'),
-							indicator: 'red'
-						});
-					}
-					frm.reload_doc();
+		frm
+			.add_custom_button(__('Test REST API Connection'), () => {
+				if (!frm.doc.api_token) {
+					frappe.msgprint(__('Please enter your API token first.'));
+					return;
 				}
-			});
-		}).addClass('btn-primary');
+
+				frappe.call({
+					method:
+            'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.test_connection',
+					callback(r) {
+						if (r.message && r.message.success) {
+							frappe.show_alert({
+								message: __('Connection test successful!'),
+								indicator: 'green'
+							});
+						} else {
+							frappe.show_alert({
+								message: __('Connection test failed. Check your API token.'),
+								indicator: 'red'
+							});
+						}
+						frm.reload_doc();
+					}
+				});
+			})
+			.addClass('btn-primary');
 
 		// Add test API call buttons
 		if (frm.doc.connection_status && frm.doc.connection_status.includes('✅')) {
 			frm.add_custom_button(__('Test Chart of Accounts'), () => {
 				frappe.call({
-					method: 'verenigingen.e_boekhouden.utils.eboekhouden_api.preview_chart_of_accounts',
+					method:
+            'verenigingen.e_boekhouden.utils.eboekhouden_api.preview_chart_of_accounts',
 					callback(r) {
 						if (r.message && r.message.success) {
 							const dialog = new frappe.ui.Dialog({
 								title: 'Chart of Accounts Preview',
-								fields: [{
-									fieldtype: 'HTML',
-									options: `<div class="text-muted">
+								fields: [
+									{
+										fieldtype: 'HTML',
+										options: `<div class="text-muted">
 										<h5>Found ${r.message.total_count} accounts:</h5>
 										<pre style="max-height: 400px; overflow-y: auto; background: #f8f9fa; padding: 10px; border-radius: 3px;">${JSON.stringify(r.message.accounts, null, 2)}</pre>
 									</div>`
-								}],
+									}
+								],
 								primary_action_label: 'Close',
-								primary_action() { dialog.hide(); }
+								primary_action() {
+									dialog.hide();
+								}
 							});
 							dialog.show();
 						} else {
@@ -113,50 +121,63 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 		}
 
 		// Phase 2: Cost Center Creation Engine buttons
-		if (frm.doc.cost_center_mappings && frm.doc.cost_center_mappings.length > 0) {
+		if (
+			frm.doc.cost_center_mappings
+      && frm.doc.cost_center_mappings.length > 0
+		) {
 			// Add preview button
-			frm.add_custom_button(__('Preview Cost Center Creation'), () => {
-				frappe.call({
-					method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.preview_cost_center_creation',
-					callback(r) {
-						if (r.message && r.message.success) {
-							frm.show_cost_center_preview(r.message);
-						} else {
-							frappe.msgprint({
-								title: 'Preview Failed',
-								message: r.message.error || 'Failed to preview cost center creation',
-								indicator: 'red'
-							});
+			frm
+				.add_custom_button(__('Preview Cost Center Creation'), () => {
+					frappe.call({
+						method:
+              'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.preview_cost_center_creation',
+						callback(r) {
+							if (r.message && r.message.success) {
+								frm.show_cost_center_preview(r.message);
+							} else {
+								frappe.msgprint({
+									title: 'Preview Failed',
+									message:
+                    r.message.error || 'Failed to preview cost center creation',
+									indicator: 'red'
+								});
+							}
 						}
-					}
-				});
-			}).addClass('btn-info');
+					});
+				})
+				.addClass('btn-info');
 
 			// Add create button
-			frm.add_custom_button(__('Create Cost Centers'), () => {
-				frappe.confirm(
-					__('This will create actual Cost Centers in ERPNext based on your configuration. This action cannot be undone. Continue?'),
-					() => {
-						frappe.call({
-							method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.create_cost_centers_from_mappings',
-							callback(r) {
-								if (r.message && r.message.success) {
-									frm.show_cost_center_results(r.message);
-								} else {
-									frappe.msgprint({
-										title: 'Creation Failed',
-										message: r.message.error || 'Failed to create cost centers',
-										indicator: 'red'
-									});
+			frm
+				.add_custom_button(__('Create Cost Centers'), () => {
+					frappe.confirm(
+						__(
+							'This will create actual Cost Centers in ERPNext based on your configuration. This action cannot be undone. Continue?'
+						),
+						() => {
+							frappe.call({
+								method:
+                  'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.create_cost_centers_from_mappings',
+								callback(r) {
+									if (r.message && r.message.success) {
+										frm.show_cost_center_results(r.message);
+									} else {
+										frappe.msgprint({
+											title: 'Creation Failed',
+											message:
+                        r.message.error || 'Failed to create cost centers',
+											indicator: 'red'
+										});
+									}
 								}
-							}
-						});
-					},
-					() => {
-						// User cancelled
-					}
-				);
-			}).addClass('btn-success');
+							});
+						},
+						() => {
+							// User cancelled
+						}
+					);
+				})
+				.addClass('btn-success');
 		}
 
 		// Helper function for showing migration test results
@@ -221,7 +242,9 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 								</tr>
 							</thead>
 							<tbody>
-								${results.preview_results.map(item => `
+								${results.preview_results
+		.map(
+			(item) => `
 									<tr>
 										<td><code>${item.group_code}</code><br><small class="text-muted">${item.group_name}</small></td>
 										<td>
@@ -240,7 +263,9 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 											</span>
 										</td>
 									</tr>
-								`).join('')}
+								`
+		)
+		.join('')}
 							</tbody>
 						</table>
 					</div>
@@ -249,12 +274,16 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 
 			const dialog = new frappe.ui.Dialog({
 				title: 'Cost Center Creation Preview',
-				fields: [{
-					fieldtype: 'HTML',
-					options: preview_html
-				}],
+				fields: [
+					{
+						fieldtype: 'HTML',
+						options: preview_html
+					}
+				],
 				primary_action_label: 'Close',
-				primary_action() { dialog.hide(); }
+				primary_action() {
+					dialog.hide();
+				}
 			});
 			dialog.show();
 		};
@@ -292,7 +321,9 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 					</div>
 					<hr>
 
-					${results.created_count > 0 ? `
+					${
+	results.created_count > 0
+		? `
 						<h6 class="text-success">Successfully Created Cost Centers:</h6>
 						<div class="created-list" style="max-height: 200px; overflow-y: auto; margin-bottom: 20px;">
 							<table class="table table-sm table-bordered">
@@ -300,7 +331,9 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 									<tr><th>Group</th><th>Cost Center</th><th>Type</th></tr>
 								</thead>
 								<tbody>
-									${results.created_cost_centers.map(item => `
+									${results.created_cost_centers
+		.map(
+			(item) => `
 										<tr>
 											<td><code>${item.group_code}</code></td>
 											<td>
@@ -313,13 +346,19 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 												</span>
 											</td>
 										</tr>
-									`).join('')}
+									`
+		)
+		.join('')}
 								</tbody>
 							</table>
 						</div>
-					` : ''}
+					`
+		: ''
+}
 
-					${results.skipped_count > 0 ? `
+					${
+	results.skipped_count > 0
+		? `
 						<h6 class="text-warning">Skipped (Already Exist):</h6>
 						<div class="skipped-list" style="max-height: 200px; overflow-y: auto; margin-bottom: 20px;">
 							<table class="table table-sm table-bordered">
@@ -327,19 +366,27 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 									<tr><th>Group</th><th>Cost Center</th><th>Reason</th></tr>
 								</thead>
 								<tbody>
-									${results.skipped_cost_centers.map(item => `
+									${results.skipped_cost_centers
+		.map(
+			(item) => `
 										<tr>
 											<td><code>${item.group_code}</code></td>
 											<td><strong>${item.cost_center_name}</strong></td>
 											<td><small class="text-muted">${item.reason}</small></td>
 										</tr>
-									`).join('')}
+									`
+		)
+		.join('')}
 								</tbody>
 							</table>
 						</div>
-					` : ''}
+					`
+		: ''
+}
 
-					${results.failed_count > 0 ? `
+					${
+	results.failed_count > 0
+		? `
 						<h6 class="text-danger">Failed:</h6>
 						<div class="failed-list" style="max-height: 200px; overflow-y: auto;">
 							<table class="table table-sm table-bordered">
@@ -347,36 +394,48 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 									<tr><th>Group</th><th>Cost Center</th><th>Error</th></tr>
 								</thead>
 								<tbody>
-									${results.failed_cost_centers.map(item => `
+									${results.failed_cost_centers
+		.map(
+			(item) => `
 										<tr>
 											<td><code>${item.group_code}</code></td>
 											<td><strong>${item.cost_center_name}</strong></td>
 											<td><small class="text-danger">${item.error}</small></td>
 										</tr>
-									`).join('')}
+									`
+		)
+		.join('')}
 								</tbody>
 							</table>
 						</div>
-					` : ''}
+					`
+		: ''
+}
 				</div>
 			`;
 
 			const dialog = new frappe.ui.Dialog({
 				title: 'Cost Center Creation Results',
 				size: 'large',
-				fields: [{
-					fieldtype: 'HTML',
-					options: results_html
-				}],
+				fields: [
+					{
+						fieldtype: 'HTML',
+						options: results_html
+					}
+				],
 				primary_action_label: 'Close',
-				primary_action() { dialog.hide(); }
+				primary_action() {
+					dialog.hide();
+				}
 			});
 			dialog.show();
 
 			// Show summary message
 			if (results.created_count > 0) {
 				frappe.show_alert({
-					message: __('Created {0} cost centers successfully', [results.created_count]),
+					message: __('Created {0} cost centers successfully', [
+						results.created_count
+					]),
 					indicator: 'green'
 				});
 			}
@@ -386,14 +445,17 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 	default_company(frm) {
 		// Auto-set cost center when company changes
 		if (frm.doc.default_company) {
-			frappe.db.get_value('Cost Center',
-				{ company: frm.doc.default_company, is_group: 0 },
-				'name'
-			).then(r => {
-				if (r.message && r.message.name) {
-					frm.set_value('default_cost_center', r.message.name);
-				}
-			});
+			frappe.db
+				.get_value(
+					'Cost Center',
+					{ company: frm.doc.default_company, is_group: 0 },
+					'name'
+				)
+				.then((r) => {
+					if (r.message && r.message.name) {
+						frm.set_value('default_cost_center', r.message.name);
+					}
+				});
 		}
 	},
 
@@ -405,7 +467,8 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 		}
 
 		frappe.call({
-			method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.parse_groups_and_suggest_cost_centers',
+			method:
+        'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.parse_groups_and_suggest_cost_centers',
 			args: {
 				group_mappings_text: frm.doc.account_group_mappings,
 				company: frm.doc.default_company
@@ -430,8 +493,10 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 					frm.refresh_field('cost_center_mappings');
 
 					frappe.show_alert({
-						message: __('Parsed {0} groups with {1} cost center suggestions',
-							[r.message.total_groups, r.message.suggested_count]),
+						message: __('Parsed {0} groups with {1} cost center suggestions', [
+							r.message.total_groups,
+							r.message.suggested_count
+						]),
 						indicator: 'green'
 					});
 
@@ -451,5 +516,9 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 
 // Add help text
 frappe.ui.form.on('E-Boekhouden Settings', 'onload', (frm) => {
-	frm.set_intro(__('Configure your e-Boekhouden API token to enable data migration to ERPNext. You can find your API token in your e-Boekhouden account settings under "API Access" or "Integrations".'));
+	frm.set_intro(
+		__(
+			'Configure your e-Boekhouden API token to enable data migration to ERPNext. You can find your API token in your e-Boekhouden account settings under "API Access" or "Integrations".'
+		)
+	);
 });

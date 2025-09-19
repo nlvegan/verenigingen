@@ -57,9 +57,21 @@ describe('Periodic Donation Agreement DocType - Comprehensive Test Suite', () =>
 			const agreement = require('../../../../verenigingen/doctype/periodic_donation_agreement/periodic_donation_agreement.js');
 			agreement.refresh(mockFrm);
 
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('Link Donation', expect.any(Function), 'Actions');
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('Cancel Agreement', expect.any(Function), 'Actions');
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('Generate PDF', expect.any(Function), 'Actions');
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
+				'Link Donation',
+				expect.any(Function),
+				'Actions'
+			);
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
+				'Cancel Agreement',
+				expect.any(Function),
+				'Actions'
+			);
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
+				'Generate PDF',
+				expect.any(Function),
+				'Actions'
+			);
 		});
 
 		test('should add activate button for draft agreements', () => {
@@ -69,7 +81,11 @@ describe('Periodic Donation Agreement DocType - Comprehensive Test Suite', () =>
 			const agreement = require('../../../../verenigingen/doctype/periodic_donation_agreement/periodic_donation_agreement.js');
 			agreement.refresh(mockFrm);
 
-			expect(mockFrm.add_custom_button).toHaveBeenCalledWith('Activate Agreement', expect.any(Function), 'Actions');
+			expect(mockFrm.add_custom_button).toHaveBeenCalledWith(
+				'Activate Agreement',
+				expect.any(Function),
+				'Actions'
+			);
 		});
 	});
 
@@ -135,7 +151,7 @@ describe('Periodic Donation Agreement DocType - Comprehensive Test Suite', () =>
 			agreement.refresh(mockFrm);
 
 			const activateButton = mockFrm.add_custom_button.mock.calls.find(
-				call => call[0] === 'Activate Agreement'
+				(call) => call[0] === 'Activate Agreement'
 			);
 			if (activateButton) {
 				await activateButton[1]();
@@ -158,7 +174,7 @@ describe('Periodic Donation Agreement DocType - Comprehensive Test Suite', () =>
 			agreement.refresh(mockFrm);
 
 			const linkButton = mockFrm.add_custom_button.mock.calls.find(
-				call => call[0] === 'Link Donation'
+				(call) => call[0] === 'Link Donation'
 			);
 			if (linkButton) {
 				linkButton[1]();
@@ -198,9 +214,9 @@ function setupGlobalMocks() {
 	global.frappe = {
 		ui: { Dialog: jest.fn(), form: { on: jest.fn() } },
 		call: jest.fn(),
-		__: jest.fn(str => str)
+		__: jest.fn((str) => str)
 	};
-	global.__ = jest.fn(str => str);
+	global.__ = jest.fn((str) => str);
 }
 
 function teardownGlobalMocks() {

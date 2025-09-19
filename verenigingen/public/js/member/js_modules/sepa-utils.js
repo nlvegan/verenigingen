@@ -95,13 +95,16 @@
 function generateMandateReference(memberDoc) {
 	// Format: M-[MemberID]-[YYYYMMDD]-[Random3Digits]
 	const today = new Date();
-	const dateStr = today.getFullYear().toString()
-                   + (today.getMonth() + 1).toString().padStart(2, '0')
-                   + today.getDate().toString().padStart(2, '0');
+	const dateStr
+    = today.getFullYear().toString()
+    + (today.getMonth() + 1).toString().padStart(2, '0')
+    + today.getDate().toString().padStart(2, '0');
 
 	const randomSuffix = Math.floor(Math.random() * 900) + 100; // 3-digit random number
 
-	const memberId = memberDoc.member_id || memberDoc.name.replace('Assoc-Member-', '').replace(/-/g, '');
+	const memberId
+    = memberDoc.member_id
+    || memberDoc.name.replace('Assoc-Member-', '').replace(/-/g, '');
 
 	return `M-${memberId}-${dateStr}-${randomSuffix}`;
 }
@@ -114,7 +117,9 @@ function create_sepa_mandate_with_dialog(frm, message = null) {
 
 	const suggestedReference = generateMandateReference(frm.doc);
 
-	const confirmMessage = message || __('Would you like to create a new SEPA mandate for this bank account?');
+	const confirmMessage
+    = message
+    || __('Would you like to create a new SEPA mandate for this bank account?');
 
 	frappe.confirm(
 		confirmMessage,
@@ -149,7 +154,9 @@ function create_sepa_mandate_with_dialog(frm, message = null) {
 						fieldtype: 'Data',
 						label: __('BIC/SWIFT Code'),
 						default: frm.doc.bic || '',
-						description: __('Bank Identifier Code (auto-derived from IBAN if empty)')
+						description: __(
+							'Bank Identifier Code (auto-derived from IBAN if empty)'
+						)
 					},
 					{
 						fieldname: 'account_holder_name',
@@ -197,7 +204,7 @@ function create_sepa_mandate_with_dialog(frm, message = null) {
 						fieldname: 'update_payment_method',
 						fieldtype: 'Check',
 						label: __('Update Member Payment Method to SEPA Direct Debit'),
-						default: (frm.doc.payment_method !== 'SEPA Direct Debit') ? 1 : 0
+						default: frm.doc.payment_method !== 'SEPA Direct Debit' ? 1 : 0
 					},
 					{
 						fieldname: 'notes',
@@ -232,7 +239,9 @@ function create_sepa_mandate_with_dialog(frm, message = null) {
 			// Auto-derive BIC and validate IBAN when it changes
 			d.fields_dict.iban.df.onchange = function () {
 				const iban = d.get_value('iban');
-				if (!iban) { return; }
+				if (!iban) {
+					return;
+				}
 
 				// Use comprehensive IBAN validation if available
 				if (window.IBANValidator) {
@@ -259,10 +268,13 @@ function create_sepa_mandate_with_dialog(frm, message = null) {
 							// Show bank name if available
 							const bankName = window.IBANValidator.getBankName(iban);
 							if (bankName) {
-								frappe.show_alert({
-									message: __('Bank identified: {0}', [bankName]),
-									indicator: 'green'
-								}, 3);
+								frappe.show_alert(
+									{
+										message: __('Bank identified: {0}', [bankName]),
+										indicator: 'green'
+									},
+									3
+								);
 							}
 						}
 					}
@@ -271,7 +283,8 @@ function create_sepa_mandate_with_dialog(frm, message = null) {
 				// Fallback to server-side BIC derivation
 				if (!d.get_value('bic')) {
 					frappe.call({
-						method: 'verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban',
+						method:
+              'verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban',
 						args: { iban },
 						callback(r) {
 							if (r.message && r.message.bic) {
@@ -283,7 +296,12 @@ function create_sepa_mandate_with_dialog(frm, message = null) {
 			};
 		},
 		() => {
-			frappe.show_alert(__('No new SEPA mandate created. The existing mandate will remain active.'), 5);
+			frappe.show_alert(
+				__(
+					'No new SEPA mandate created. The existing mandate will remain active.'
+				),
+				5
+			);
 		}
 	);
 }
@@ -293,7 +311,8 @@ function create_mandate_with_values(frm, values, dialog) {
 
 	// Get server-side validation data
 	frappe.call({
-		method: 'verenigingen.verenigingen.doctype.member.member.validate_mandate_creation',
+		method:
+      'verenigingen.verenigingen.doctype.member.member.validate_mandate_creation',
 		args: {
 			member: frm.doc.name,
 			iban: values.iban,
@@ -304,14 +323,20 @@ function create_mandate_with_values(frm, values, dialog) {
 
 			if (serverData && serverData.existing_mandate) {
 				additionalArgs.replace_existing = serverData.existing_mandate;
-				frappe.show_alert({
-					message: __('Existing mandate {0} will be replaced', [serverData.existing_mandate]),
-					indicator: 'orange'
-				}, 5);
+				frappe.show_alert(
+					{
+						message: __('Existing mandate {0} will be replaced', [
+							serverData.existing_mandate
+						]),
+						indicator: 'orange'
+					},
+					5
+				);
 			}
 
 			frappe.call({
-				method: 'verenigingen.verenigingen.doctype.member.member.create_and_link_mandate_enhanced',
+				method:
+          'verenigingen.verenigingen.doctype.member.member.create_and_link_mandate_enhanced',
 				args: {
 					member: frm.doc.name,
 					mandate_id: values.mandate_id,
@@ -327,23 +352,34 @@ function create_mandate_with_values(frm, values, dialog) {
 				},
 				callback(r) {
 					if (r.message) {
-						let alertMessage = __('SEPA Mandate {0} created successfully', [values.mandate_id]);
+						let alertMessage = __('SEPA Mandate {0} created successfully', [
+							values.mandate_id
+						]);
 						if (serverData && serverData.existing_mandate) {
 							alertMessage += `. ${__('Previous mandate has been marked as replaced.')}`;
 						}
 
-						frappe.show_alert({
-							message: alertMessage,
-							indicator: 'green'
-						}, 7);
+						frappe.show_alert(
+							{
+								message: alertMessage,
+								indicator: 'green'
+							},
+							7
+						);
 
 						// Update payment method if requested
-						if (values.update_payment_method && frm.doc.payment_method !== 'SEPA Direct Debit') {
+						if (
+							values.update_payment_method
+              && frm.doc.payment_method !== 'SEPA Direct Debit'
+						) {
 							frm.set_value('payment_method', 'SEPA Direct Debit');
-							frappe.show_alert({
-								message: __('Payment method updated to SEPA Direct Debit'),
-								indicator: 'blue'
-							}, 5);
+							frappe.show_alert(
+								{
+									message: __('Payment method updated to SEPA Direct Debit'),
+									indicator: 'blue'
+								},
+								5
+							);
 						}
 
 						// Reset dialog flag and close dialog
@@ -376,7 +412,9 @@ function check_sepa_mandate_status(frm) {
 	const check_key = `${frm.doc.iban}-${frm.doc.payment_method || 'none'}`;
 
 	// Prevent duplicate checks for the same IBAN/payment method combination
-	if (frm._sepa_check_key === check_key) { return; }
+	if (frm._sepa_check_key === check_key) {
+		return;
+	}
 	frm._sepa_check_key = check_key;
 
 	// Clear existing SEPA UI elements before checking
@@ -387,7 +425,8 @@ function check_sepa_mandate_status(frm) {
 		let currentMandate = null;
 
 		frappe.call({
-			method: 'verenigingen.verenigingen.doctype.member.member.get_active_sepa_mandate',
+			method:
+        'verenigingen.verenigingen.doctype.member.member.get_active_sepa_mandate',
 			args: {
 				member: frm.doc.name,
 				iban: frm.doc.iban
@@ -409,24 +448,41 @@ function check_sepa_mandate_status(frm) {
 						Draft: 'orange'
 					};
 					const color = status_colors[currentMandate.status] || 'red';
-					const indicator_text = currentMandate.status === 'Active'
-						? __('SEPA Mandate: {0}', [currentMandate.mandate_id])
-						: __('SEPA Mandate: {0} ({1})', [currentMandate.mandate_id, currentMandate.status]);
+					const indicator_text
+            = currentMandate.status === 'Active'
+            	? __('SEPA Mandate: {0}', [currentMandate.mandate_id])
+            	: __('SEPA Mandate: {0} ({1})', [
+            		currentMandate.mandate_id,
+            		currentMandate.status
+            	]);
 
 					frm.dashboard.add_indicator(indicator_text, color);
 
 					// Add view mandate button
-					frm.add_custom_button(__('View SEPA Mandate'), () => {
-						frappe.set_route('Form', 'SEPA Mandate', currentMandate.name);
-					}, __('SEPA'));
+					frm.add_custom_button(
+						__('View SEPA Mandate'),
+						() => {
+							frappe.set_route('Form', 'SEPA Mandate', currentMandate.name);
+						},
+						__('SEPA')
+					);
 				} else {
 					// No active mandate found
 					if (frm.doc.iban && frm.doc.payment_method === 'SEPA Direct Debit') {
 						frm.dashboard.add_indicator(__('No SEPA Mandate'), 'red');
 
-						frm.add_custom_button(__('Create SEPA Mandate'), () => {
-							create_sepa_mandate_with_dialog(frm, __('No active SEPA mandate found for this IBAN. Would you like to create one?'));
-						}, __('SEPA'));
+						frm.add_custom_button(
+							__('Create SEPA Mandate'),
+							() => {
+								create_sepa_mandate_with_dialog(
+									frm,
+									__(
+										'No active SEPA mandate found for this IBAN. Would you like to create one?'
+									)
+								);
+							},
+							__('SEPA')
+						);
 					}
 				}
 			},
@@ -440,10 +496,13 @@ function check_sepa_mandate_status(frm) {
 function clear_sepa_ui_elements(frm) {
 	// Remove SEPA-related dashboard indicators
 	if (frm.dashboard && frm.dashboard.stats_area_row) {
-		$(frm.dashboard.stats_area_row).find('.indicator').filter(function () {
-			const text = $(this).text().toLowerCase();
-			return text.includes('sepa') || text.includes('mandate');
-		}).remove();
+		$(frm.dashboard.stats_area_row)
+			.find('.indicator')
+			.filter(function () {
+				const text = $(this).text().toLowerCase();
+				return text.includes('sepa') || text.includes('mandate');
+			})
+			.remove();
 	}
 
 	// Remove SEPA-related custom buttons more thoroughly
@@ -457,10 +516,12 @@ function clear_sepa_ui_elements(frm) {
 		}
 
 		// Also remove any stray SEPA buttons
-		$('.btn-custom').filter(function () {
-			const label = $(this).attr('data-label') || $(this).text();
-			return label && (label.includes('SEPA') || label.includes('Mandate'));
-		}).remove();
+		$('.btn-custom')
+			.filter(function () {
+				const label = $(this).attr('data-label') || $(this).text();
+				return label && (label.includes('SEPA') || label.includes('Mandate'));
+			})
+			.remove();
 	}
 }
 

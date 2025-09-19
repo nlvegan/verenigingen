@@ -7,16 +7,19 @@ The `calculate_totals` method in `direct_debit_batch.py` has been enhanced to en
 ## Issues Addressed
 
 ### 1. **NULL/None Value Handling**
+
 **Problem**: The original Python fallback did not handle `None` values in `invoice.amount`, which could cause `TypeError` exceptions, while the SQL version used `COALESCE(amount, 0)` to handle NULL values gracefully.
 
 **Solution**: Enhanced Python fallback to use `(invoice.amount or 0.0)` pattern matching SQL's `COALESCE` behavior.
 
 ### 2. **Edge Case Data Type Handling**
+
 **Problem**: Python fallback could fail with string amounts or invalid data types that might exist due to data import issues or corruption.
 
 **Solution**: Added comprehensive type checking and conversion with graceful fallback to 0 for invalid data.
 
 ### 3. **Precision Consistency**
+
 **Problem**: Potential floating-point precision differences between SQL and Python calculations.
 
 **Solution**: Added `round(total, 2)` to ensure currency precision consistency.
@@ -104,6 +107,7 @@ def calculate_totals(self):
 Comprehensive testing confirms functional equivalence:
 
 ### Core Functionality Test Results
+
 - **Empty batch**: ✅ Passed (0 count, 0.0 total)
 - **Normal amounts**: ✅ Passed (3 count, 150.50 total)
 - **Zero amounts**: ✅ Passed (3 count, 25.00 total)
@@ -112,6 +116,7 @@ Comprehensive testing confirms functional equivalence:
 **Success Rate**: 4/4 tests passed (100%)
 
 ### Edge Case Test Results
+
 - **All None amounts**: ✅ Passed (graceful handling, 0.0 total)
 - **String amounts**: ✅ Passed (converted correctly, 66.25 total)
 - **Empty string amounts**: ✅ Passed (treated as 0, 0.0 total)

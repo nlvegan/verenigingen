@@ -8,66 +8,77 @@
 The following workspace auto-correction functions have been disabled with safety guards to prevent accidental workspace corruption:
 
 ### 1. `workspace_content_fixer.py`
+
 - **Function**: `fix_workspace_content()`
 - **Risk**: Automatically removes "orphaned cards" from workspace content
 - **Disabled**: Requires `force_enable=True` to run
 - **Location**: `/verenigingen/utils/workspace_content_fixer.py`
 
 ### 2. `check_and_fix_workspace.py`
+
 - **Function**: `check_and_fix_workspace()`
 - **Risk**: Automatically adds Communication section to workspace
 - **Disabled**: Requires `force_enable=True` to run
 - **Location**: `/verenigingen/api/check_and_fix_workspace.py`
 
 ### 3. `rebuild_workspace.py` ⚠️ HIGHLY DESTRUCTIVE
+
 - **Function**: `rebuild_workspace()`
 - **Risk**: Completely rebuilds workspace from fixtures (destructive)
 - **Disabled**: Requires `force_enable=True` to run
 - **Location**: `/verenigingen/api/rebuild_workspace.py`
 
 ### 4. `fix_workspace.py`
+
 - **Function**: `fix_workspace()`
 - **Risk**: Automatically adds Newsletter links to workspace
 - **Disabled**: Requires `force_enable=True` to run
 - **Location**: `/verenigingen/api/fix_workspace.py`
 
 ### 5. `execute_workspace_reorg.py`
+
 - **Function**: `fix_content_sync()`
 - **Risk**: Executes workspace reorganization without user consent
 - **Disabled**: Requires `force_enable=True` to run
 - **Location**: `/verenigingen/utils/execute_workspace_reorg.py`
 
 ### 6. `fix_workspace_links.py`
+
 - **Function**: `fix_workspace_links()`
 - **Risk**: Automatically removes broken links from workspace
 - **Disabled**: Requires `force_enable=True` to run
 - **Location**: `/verenigingen/api/fix_workspace_links.py`
 
 ### 7. `restore_workspace.py` ⚠️ HIGHLY DESTRUCTIVE
+
 - **Function**: `restore_workspace()`
 - **Risk**: Overwrites current workspace with fixture data
 - **Disabled**: Requires `force_enable=True` to run
 - **Location**: `/verenigingen/api/restore_workspace.py`
 
 ### 8. `fix_eboekhouden_workspace.py`
+
 - **Function**: `install_eboekhouden_workspace()`
 - **Risk**: Creates/modifies E-Boekhouden workspace
 - **Disabled**: Requires `force_enable=True` to run
 - **Location**: `/scripts/fix_eboekhouden_workspace.py`
 
 ### 9. `add_workflow_demo_to_workspace.py` ⚠️ MIGRATION PATCH
+
 - **Function**: `execute()`
 - **Risk**: Reloads workspace from fixtures during migration
 - **Disabled**: Patch completely skipped for safety
 - **Location**: `/verenigingen/patches/v2_0/add_workflow_demo_to_workspace.py`
 
 ### 10. `scripts/api_maintenance/fix_workspace.py`
+
 - **Function**: `install_eboekhouden_workspace()`
 - **Risk**: Installs E-Boekhouden workspace
 - **Disabled**: Requires `force_enable=True` to run
 - **Location**: `/scripts/api_maintenance/fix_workspace.py`
 
 ### 11. `workspace_reorganization.py` ⚠️ EXTREMELY DESTRUCTIVE
+
 - **Function**: `reorganize_workspace()`
 - **Risk**: DELETES ALL WORKSPACE LINKS then rebuilds from scratch
 - **Disabled**: Requires `force_enable=True` to run (NOT RECOMMENDED)

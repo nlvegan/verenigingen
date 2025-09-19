@@ -30,370 +30,423 @@
  */
 
 module.exports = {
-	env: {
-		browser: true,
-		es2022: true,
-		node: true,
-		jquery: true
-	},
-	extends: [
-		'eslint:recommended',
-		'plugin:vue/vue3-recommended'
-	],
-	parserOptions: {
-		ecmaVersion: 2022,
-		sourceType: 'module'
-	},
-	plugins: [
-		'vue'
-	],
-	globals: {
-		// Core Frappe globals
-		frappe: 'readonly',
-		verenigingen: 'readonly',
-		frm: 'readonly',
-		cur_frm: 'readonly',
-		locals: 'readonly',
-		__: 'readonly',
-		cint: 'readonly',
-		cstr: 'readonly',
-		flt: 'readonly',
-		format_currency: 'readonly',
-		$: 'readonly',
-		jQuery: 'readonly',
-		moment: 'readonly',
-		// Frappe UI globals
-		Dialog: 'readonly',
-		msgprint: 'readonly',
-		show_alert: 'readonly',
-		// Browser globals
-		window: 'readonly',
-		document: 'readonly',
-		console: 'readonly',
-		setTimeout: 'readonly',
-		setInterval: 'readonly',
-		clearTimeout: 'readonly',
-		clearInterval: 'readonly',
-		XMLHttpRequest: 'readonly',
-		fetch: 'readonly',
-		Promise: 'readonly',
-		Map: 'readonly',
-		Set: 'readonly',
-		WeakMap: 'readonly',
-		WeakSet: 'readonly',
-		Symbol: 'readonly',
-		Proxy: 'readonly',
-		Reflect: 'readonly',
-		// Testing globals
-		QUnit: 'readonly',
-		Cypress: 'readonly',
-		cy: 'readonly',
-		it: 'readonly',
-		describe: 'readonly',
-		before: 'readonly',
-		beforeEach: 'readonly',
-		after: 'readonly',
-		afterEach: 'readonly',
-		expect: 'readonly',
-		jest: 'readonly',
-		// Test utilities
-		createTestMember: 'readonly',
-		waitForDialogs: 'readonly',
-		// Chart library
-		Chart: 'readonly',
-		// Custom utilities
-		update_other_members_at_address: 'readonly',
-		IBANValidator: 'readonly',
-		PaymentUtils: 'readonly',
-		SepaUtils: 'readonly',
-		VolunteerUtils: 'readonly',
-		ChapterUtils: 'readonly',
-		ChapterHistoryUtils: 'readonly',
-		ChapterConfig: 'readonly',
-		ChapterValidation: 'readonly',
-		TerminationUtils: 'readonly',
-		UIUtils: 'readonly',
-		// Service classes
-		APIService: 'readonly',
-		ValidationService: 'readonly',
-		StorageService: 'readonly',
-		ErrorHandler: 'readonly',
-		StepManager: 'readonly',
-		// Membership application classes
-		MembershipApplication: 'readonly',
-		PersonalInfoStep: 'readonly',
-		AddressStep: 'readonly',
-		MembershipStep: 'readonly',
-		VolunteerStep: 'readonly',
-		PaymentStep: 'readonly',
-		ConfirmationStep: 'readonly',
-		MembershipAPI: 'readonly',
-		membershipApp: 'writable',
-		UIManager: 'readonly'
-	},
-	rules: {
-		// Basic formatting
-		indent: ['error', 'tab', {
-			SwitchCase: 1,
-			VariableDeclarator: 1,
-			outerIIFEBody: 1,
-			MemberExpression: 1,
-			FunctionDeclaration: { parameters: 1, body: 1 },
-			FunctionExpression: { parameters: 1, body: 1 },
-			CallExpression: { arguments: 1 },
-			ArrayExpression: 1,
-			ObjectExpression: 1,
-			ImportDeclaration: 1,
-			flatTernaryExpressions: false,
-			ignoreComments: false
-		}],
-		quotes: ['error', 'single', { allowTemplateLiterals: true }],
-		semi: ['error', 'always'],
-		'linebreak-style': ['error', 'unix'],
-		'eol-last': ['error', 'always'],
-		// Variable handling
-		'no-unused-vars': ['error', {
-			vars: 'all',
-			args: 'after-used',
-			ignoreRestSiblings: false,
-			varsIgnorePattern: '^(frappe|frm|cur_frm|locals|__|_)',
-			argsIgnorePattern: '^_|^(r|e|event|state|error|response|data|result|ctx|context|idx|index)$|.*_data$|.*_response$|.*_result$'
-		}],
-		'no-undef': ['error', { typeof: false }],
-		'no-undef-init': 'error',
-		'no-use-before-define': ['error', { functions: false, classes: false, variables: true }],
-		// Console and debugging
-		'no-console': ['warn', { allow: ['warn', 'error'] }],
-		'no-debugger': 'error',
-		'no-alert': 'off', // Allow confirm() and alert() for user interactions
-		// Best practices
-		eqeqeq: ['error', 'always', { null: 'ignore' }],
-		curly: ['error', 'all'],
-		'no-eval': 'error',
-		'no-implied-eval': 'error',
-		'no-with': 'error',
-		'no-new-func': 'error',
-		'no-script-url': 'error',
-		'no-return-assign': 'error',
-		'no-self-compare': 'error',
-		'no-throw-literal': 'error',
-		'no-unmodified-loop-condition': 'error',
-		'no-unused-expressions': ['error', { allowShortCircuit: true, allowTernary: true }],
-		'no-useless-concat': 'error',
-		'no-useless-return': 'error',
-		radix: 'error',
-		yoda: 'error',
-		// Code style
-		'array-bracket-spacing': ['error', 'never'],
-		'block-spacing': ['error', 'always'],
-		'brace-style': ['error', '1tbs', { allowSingleLine: true }],
-		// Disable camelcase rule in favor of id-match for proper regex support
-		camelcase: 'off',
+  env: {
+    browser: true,
+    es2022: true,
+    node: true,
+    jquery: true,
+  },
+  extends: ["eslint:recommended", "plugin:vue/vue3-recommended"],
+  parserOptions: {
+    ecmaVersion: 2022,
+    sourceType: "module",
+  },
+  plugins: ["vue"],
+  globals: {
+    // Core Frappe globals
+    frappe: "readonly",
+    verenigingen: "readonly",
+    frm: "readonly",
+    cur_frm: "readonly",
+    locals: "readonly",
+    __: "readonly",
+    cint: "readonly",
+    cstr: "readonly",
+    flt: "readonly",
+    format_currency: "readonly",
+    $: "readonly",
+    jQuery: "readonly",
+    moment: "readonly",
+    // Frappe UI globals
+    Dialog: "readonly",
+    msgprint: "readonly",
+    show_alert: "readonly",
+    // Browser globals
+    window: "readonly",
+    document: "readonly",
+    console: "readonly",
+    setTimeout: "readonly",
+    setInterval: "readonly",
+    clearTimeout: "readonly",
+    clearInterval: "readonly",
+    XMLHttpRequest: "readonly",
+    fetch: "readonly",
+    Promise: "readonly",
+    Map: "readonly",
+    Set: "readonly",
+    WeakMap: "readonly",
+    WeakSet: "readonly",
+    Symbol: "readonly",
+    Proxy: "readonly",
+    Reflect: "readonly",
+    // Testing globals
+    QUnit: "readonly",
+    Cypress: "readonly",
+    cy: "readonly",
+    it: "readonly",
+    describe: "readonly",
+    before: "readonly",
+    beforeEach: "readonly",
+    after: "readonly",
+    afterEach: "readonly",
+    expect: "readonly",
+    jest: "readonly",
+    // Test utilities
+    createTestMember: "readonly",
+    waitForDialogs: "readonly",
+    // Chart library
+    Chart: "readonly",
+    // Custom utilities
+    update_other_members_at_address: "readonly",
+    IBANValidator: "readonly",
+    PaymentUtils: "readonly",
+    SepaUtils: "readonly",
+    VolunteerUtils: "readonly",
+    ChapterUtils: "readonly",
+    ChapterHistoryUtils: "readonly",
+    ChapterConfig: "readonly",
+    ChapterValidation: "readonly",
+    TerminationUtils: "readonly",
+    UIUtils: "readonly",
+    // Service classes
+    APIService: "readonly",
+    ValidationService: "readonly",
+    StorageService: "readonly",
+    ErrorHandler: "readonly",
+    StepManager: "readonly",
+    // Membership application classes
+    MembershipApplication: "readonly",
+    PersonalInfoStep: "readonly",
+    AddressStep: "readonly",
+    MembershipStep: "readonly",
+    VolunteerStep: "readonly",
+    PaymentStep: "readonly",
+    ConfirmationStep: "readonly",
+    MembershipAPI: "readonly",
+    membershipApp: "writable",
+    UIManager: "readonly",
+  },
+  rules: {
+    // Basic formatting
+    indent: [
+      "error",
+      "tab",
+      {
+        SwitchCase: 1,
+        VariableDeclarator: 1,
+        outerIIFEBody: 1,
+        MemberExpression: 1,
+        FunctionDeclaration: { parameters: 1, body: 1 },
+        FunctionExpression: { parameters: 1, body: 1 },
+        CallExpression: { arguments: 1 },
+        ArrayExpression: 1,
+        ObjectExpression: 1,
+        ImportDeclaration: 1,
+        flatTernaryExpressions: false,
+        ignoreComments: false,
+      },
+    ],
+    quotes: ["error", "single", { allowTemplateLiterals: true }],
+    semi: ["error", "always"],
+    "linebreak-style": ["error", "unix"],
+    "eol-last": ["error", "always"],
+    // Variable handling
+    "no-unused-vars": [
+      "error",
+      {
+        vars: "all",
+        args: "after-used",
+        ignoreRestSiblings: false,
+        varsIgnorePattern: "^(frappe|frm|cur_frm|locals|__|_)",
+        argsIgnorePattern:
+          "^_|^(r|e|event|state|error|response|data|result|ctx|context|idx|index)$|.*_data$|.*_response$|.*_result$",
+      },
+    ],
+    "no-undef": ["error", { typeof: false }],
+    "no-undef-init": "error",
+    "no-use-before-define": [
+      "error",
+      { functions: false, classes: false, variables: true },
+    ],
+    // Console and debugging
+    "no-console": ["warn", { allow: ["warn", "error"] }],
+    "no-debugger": "error",
+    "no-alert": "off", // Allow confirm() and alert() for user interactions
+    // Best practices
+    eqeqeq: ["error", "always", { null: "ignore" }],
+    curly: ["error", "all"],
+    "no-eval": "error",
+    "no-implied-eval": "error",
+    "no-with": "error",
+    "no-new-func": "error",
+    "no-script-url": "error",
+    "no-return-assign": "error",
+    "no-self-compare": "error",
+    "no-throw-literal": "error",
+    "no-unmodified-loop-condition": "error",
+    "no-unused-expressions": [
+      "error",
+      { allowShortCircuit: true, allowTernary: true },
+    ],
+    "no-useless-concat": "error",
+    "no-useless-return": "error",
+    radix: "error",
+    yoda: "error",
+    // Code style
+    "array-bracket-spacing": ["error", "never"],
+    "block-spacing": ["error", "always"],
+    "brace-style": ["error", "1tbs", { allowSingleLine: true }],
+    // Disable camelcase rule in favor of id-match for proper regex support
+    camelcase: "off",
 
-		// Snake_case enforcement for Frappe/ERPNext framework compatibility
-		// Uses regex patterns to allow snake_case (Frappe standard), camelCase (JavaScript standard),
-		// PascalCase (classes), and CONSTANTS
-		'id-match': ['error', '^([a-z]+(_[a-z0-9]+)*|[a-z][a-zA-Z0-9]*|[A-Z][a-zA-Z0-9]*|[A-Z_]+|__.*__|_[a-z]+(_[a-z0-9]+)*|\\$[a-zA-Z][a-zA-Z0-9]*)$', {
-			properties: false,
-			onlyDeclarations: false,
-			ignoreDestructuring: true
-		}],
-		'comma-dangle': ['error', 'never'],
-		'comma-spacing': ['error', { before: false, after: true }],
-		'comma-style': ['error', 'last'],
-		'computed-property-spacing': ['error', 'never'],
-		'func-call-spacing': ['error', 'never'],
-		'key-spacing': ['error', { beforeColon: false, afterColon: true }],
-		'keyword-spacing': ['error', { before: true, after: true }],
-		'max-len': ['warn', {
-			code: 120,
-			tabWidth: 4,
-			ignoreUrls: true,
-			ignoreComments: false,
-			ignoreRegExpLiterals: true,
-			ignoreStrings: true,
-			ignoreTemplateLiterals: true
-		}],
-		'new-cap': ['error', { newIsCap: true, capIsNew: false, properties: true }],
-		'new-parens': 'error',
-		'no-array-constructor': 'error',
-		'no-mixed-spaces-and-tabs': 'error',
-		'no-multiple-empty-lines': ['error', { max: 2, maxBOF: 0, maxEOF: 0 }],
-		'no-new-object': 'error',
-		'no-tabs': 'off',
-		'no-trailing-spaces': 'error',
-		'no-unneeded-ternary': ['error', { defaultAssignment: false }],
-		'no-whitespace-before-property': 'error',
-		'object-curly-spacing': ['error', 'always'],
-		'one-var': ['error', 'never'],
-		'operator-assignment': ['error', 'always'],
-		'operator-linebreak': ['error', 'before'],
-		'padded-blocks': ['error', 'never'],
-		'quote-props': ['error', 'as-needed', { keywords: false, unnecessary: true, numbers: false }],
-		'semi-spacing': ['error', { before: false, after: true }],
-		'space-before-blocks': 'error',
-		'space-before-function-paren': ['error', { anonymous: 'always', named: 'never', asyncArrow: 'always' }],
-		'space-in-parens': ['error', 'never'],
-		'space-infix-ops': 'error',
-		'space-unary-ops': ['error', { words: true, nonwords: false }],
-		'spaced-comment': ['error', 'always', { line: { markers: ['*package', '!', '/', ',', '='] } }],
-		// ES6+
-		'arrow-spacing': ['error', { before: true, after: true }],
-		'constructor-super': 'error',
-		'generator-star-spacing': ['error', { before: false, after: true }],
-		'no-class-assign': 'error',
-		'no-confusing-arrow': ['error', { allowParens: true }],
-		'no-const-assign': 'error',
-		'no-dupe-class-members': 'error',
-		'no-duplicate-imports': 'error',
-		'no-new-symbol': 'error',
-		'no-this-before-super': 'error',
-		'no-useless-computed-key': 'error',
-		'no-useless-constructor': 'error',
-		'no-useless-rename': ['error', { ignoreDestructuring: false, ignoreImport: false, ignoreExport: false }],
-		'no-var': 'warn',
-		'object-shorthand': ['error', 'always', { ignoreConstructors: false, avoidQuotes: true }],
-		'prefer-arrow-callback': ['error', { allowNamedFunctions: false, allowUnboundThis: true }],
-		'prefer-const': ['error', { destructuring: 'any', ignoreReadBeforeAssign: true }],
-		'prefer-numeric-literals': 'error',
-		'prefer-rest-params': 'error',
-		'prefer-spread': 'error',
-		'prefer-template': 'error',
-		'rest-spread-spacing': ['error', 'never'],
-		'symbol-description': 'error',
-		'template-curly-spacing': 'error',
-		'yield-star-spacing': ['error', 'after'],
-		// Additional best practices
-		'no-delete-var': 'error',
-		'no-label-var': 'error',
-		'no-restricted-globals': ['error', 'event', 'fdescribe'],
-		'no-shadow': ['error', { builtinGlobals: false, hoist: 'functions', allow: [] }],
-		'no-shadow-restricted-names': 'error',
-		'no-new-wrappers': 'error',
-		'no-caller': 'error',
-		'no-extend-native': 'error',
-		'no-extra-bind': 'error',
-		'no-invalid-this': 'off', // Allow 'this' in DOM event handlers and jQuery callbacks
-		'no-multi-spaces': 'error',
-		'no-multi-str': 'error',
-		'no-global-assign': 'error',
-		// Vue-specific rules
-		'vue/no-v-html': 'off',
-		'vue/no-mutating-props': 'off',
-		'vue/multi-word-component-names': 'off',
-		'vue/html-indent': ['error', 'tab'],
-		'vue/max-attributes-per-line': ['error', {
-			singleline: 3,
-			multiline: 1
-		}]
-		// Additional security best practices (already defined above)
-		// 'no-eval': 'error',
-		// 'no-implied-eval': 'error',
-	},
-	overrides: [
-		{
-			files: ['**/*.test.js', '**/*.spec.js', '**/test_*.js', 'cypress/**/*.js'],
-			env: {
-				jest: true,
-				mocha: true
-			},
-			rules: {
-				'no-unused-expressions': 'off',
-				'max-len': 'off',
-				'no-console': 'off',
-				'no-undef': 'off',
-				'no-use-before-define': 'off',
-				'no-unused-vars': 'warn',
-				radix: 'off'
-			}
-		},
-		{
-			files: ['verenigingen/tests/frontend/**/*.js'],
-			env: {
-				jest: true,
-				mocha: true
-			},
-			rules: {
-				'no-unused-expressions': 'off',
-				'max-len': 'off',
-				'no-console': 'off',
-				'no-undef': 'off',
-				'no-use-before-define': 'off',
-				'no-unused-vars': 'warn',
-				radix: 'off'
-			}
-		},
-		{
-			files: ['verenigingen/public/js/**/*.js'],
-			rules: {
-				'no-implicit-globals': 'error',
-				'prefer-const': 'warn'
-			}
-		},
-		{
-			files: ['verenigingen/verenigingen/doctype/**/*.js'],
-			rules: {
-				'no-implicit-globals': 'warn'
-			}
-		},
-		{
-			files: ['verenigingen/public/js/membership_application.js'],
-			rules: {
-				'max-len': 'off',
-				camelcase: 'off',
-				'no-use-before-define': 'off'
-			}
-		},
-		{
-			files: ['verenigingen/public/js/member_counter.js'],
-			rules: {
-				camelcase: 'off'
-			}
-		},
-		{
-			files: ['verenigingen/e_boekhouden/cleanup_backups/**/*.js'],
-			rules: {
-				'no-console': 'off',
-				'no-unused-vars': 'off',
-				'max-len': 'off',
-				'no-shadow': 'off',
-				radix: 'off'
-			}
-		},
-		{
-			files: ['verenigingen/e_boekhouden/doctype/e_boekhouden_migration/**/*.js'],
-			rules: {
-				'no-unused-vars': 'warn',
-				'max-len': 'warn',
-				'no-shadow': 'warn'
-			}
-		},
-		{
-			files: ['verenigingen/verenigingen/page/system_health_dashboard/**/*.js'],
-			rules: {
-				'no-console': 'off'
-			}
-		},
-		{
-			files: ['scripts/testing/**/*.js'],
-			rules: {
-				'no-unused-vars': 'warn',
-				'no-global-assign': 'warn',
-				'no-return-assign': 'warn',
-				'id-match': 'warn'
-			}
-		},
-		{
-			files: ['verenigingen/public/js/**/*.js', 'verenigingen/tests/**/*.js'],
-			rules: {
-				'id-match': 'off',
-				'no-console': 'warn',
-				'no-unused-vars': 'warn',
-				'no-redeclare': 'warn',
-				'no-case-declarations': 'warn',
-				radix: 'warn',
-				'max-len': 'warn'
-			}
-		}
-	]
+    // Snake_case enforcement for Frappe/ERPNext framework compatibility
+    // Uses regex patterns to allow snake_case (Frappe standard), camelCase (JavaScript standard),
+    // PascalCase (classes), and CONSTANTS
+    "id-match": [
+      "error",
+      "^([a-z]+(_[a-z0-9]+)*|[a-z][a-zA-Z0-9]*|[A-Z][a-zA-Z0-9]*|[A-Z_]+|__.*__|_[a-z]+(_[a-z0-9]+)*|\\$[a-zA-Z][a-zA-Z0-9]*)$",
+      {
+        properties: false,
+        onlyDeclarations: false,
+        ignoreDestructuring: true,
+      },
+    ],
+    "comma-dangle": ["error", "never"],
+    "comma-spacing": ["error", { before: false, after: true }],
+    "comma-style": ["error", "last"],
+    "computed-property-spacing": ["error", "never"],
+    "func-call-spacing": ["error", "never"],
+    "key-spacing": ["error", { beforeColon: false, afterColon: true }],
+    "keyword-spacing": ["error", { before: true, after: true }],
+    "max-len": [
+      "warn",
+      {
+        code: 120,
+        tabWidth: 4,
+        ignoreUrls: true,
+        ignoreComments: false,
+        ignoreRegExpLiterals: true,
+        ignoreStrings: true,
+        ignoreTemplateLiterals: true,
+      },
+    ],
+    "new-cap": ["error", { newIsCap: true, capIsNew: false, properties: true }],
+    "new-parens": "error",
+    "no-array-constructor": "error",
+    "no-mixed-spaces-and-tabs": "error",
+    "no-multiple-empty-lines": ["error", { max: 2, maxBOF: 0, maxEOF: 0 }],
+    "no-new-object": "error",
+    "no-tabs": "off",
+    "no-trailing-spaces": "error",
+    "no-unneeded-ternary": ["error", { defaultAssignment: false }],
+    "no-whitespace-before-property": "error",
+    "object-curly-spacing": ["error", "always"],
+    "one-var": ["error", "never"],
+    "operator-assignment": ["error", "always"],
+    "operator-linebreak": ["error", "before"],
+    "padded-blocks": ["error", "never"],
+    "quote-props": [
+      "error",
+      "as-needed",
+      { keywords: false, unnecessary: true, numbers: false },
+    ],
+    "semi-spacing": ["error", { before: false, after: true }],
+    "space-before-blocks": "error",
+    "space-before-function-paren": [
+      "error",
+      { anonymous: "always", named: "never", asyncArrow: "always" },
+    ],
+    "space-in-parens": ["error", "never"],
+    "space-infix-ops": "error",
+    "space-unary-ops": ["error", { words: true, nonwords: false }],
+    "spaced-comment": [
+      "error",
+      "always",
+      { line: { markers: ["*package", "!", "/", ",", "="] } },
+    ],
+    // ES6+
+    "arrow-spacing": ["error", { before: true, after: true }],
+    "constructor-super": "error",
+    "generator-star-spacing": ["error", { before: false, after: true }],
+    "no-class-assign": "error",
+    "no-confusing-arrow": ["error", { allowParens: true }],
+    "no-const-assign": "error",
+    "no-dupe-class-members": "error",
+    "no-duplicate-imports": "error",
+    "no-new-symbol": "error",
+    "no-this-before-super": "error",
+    "no-useless-computed-key": "error",
+    "no-useless-constructor": "error",
+    "no-useless-rename": [
+      "error",
+      { ignoreDestructuring: false, ignoreImport: false, ignoreExport: false },
+    ],
+    "no-var": "warn",
+    "object-shorthand": [
+      "error",
+      "always",
+      { ignoreConstructors: false, avoidQuotes: true },
+    ],
+    "prefer-arrow-callback": [
+      "error",
+      { allowNamedFunctions: false, allowUnboundThis: true },
+    ],
+    "prefer-const": [
+      "error",
+      { destructuring: "any", ignoreReadBeforeAssign: true },
+    ],
+    "prefer-numeric-literals": "error",
+    "prefer-rest-params": "error",
+    "prefer-spread": "error",
+    "prefer-template": "error",
+    "rest-spread-spacing": ["error", "never"],
+    "symbol-description": "error",
+    "template-curly-spacing": "error",
+    "yield-star-spacing": ["error", "after"],
+    // Additional best practices
+    "no-delete-var": "error",
+    "no-label-var": "error",
+    "no-restricted-globals": ["error", "event", "fdescribe"],
+    "no-shadow": [
+      "error",
+      { builtinGlobals: false, hoist: "functions", allow: [] },
+    ],
+    "no-shadow-restricted-names": "error",
+    "no-new-wrappers": "error",
+    "no-caller": "error",
+    "no-extend-native": "error",
+    "no-extra-bind": "error",
+    "no-invalid-this": "off", // Allow 'this' in DOM event handlers and jQuery callbacks
+    "no-multi-spaces": "error",
+    "no-multi-str": "error",
+    "no-global-assign": "error",
+    // Vue-specific rules
+    "vue/no-v-html": "off",
+    "vue/no-mutating-props": "off",
+    "vue/multi-word-component-names": "off",
+    "vue/html-indent": ["error", "tab"],
+    "vue/max-attributes-per-line": [
+      "error",
+      {
+        singleline: 3,
+        multiline: 1,
+      },
+    ],
+    // Additional security best practices (already defined above)
+    // 'no-eval': 'error',
+    // 'no-implied-eval': 'error',
+  },
+  overrides: [
+    {
+      files: [
+        "**/*.test.js",
+        "**/*.spec.js",
+        "**/test_*.js",
+        "cypress/**/*.js",
+      ],
+      env: {
+        jest: true,
+        mocha: true,
+      },
+      rules: {
+        "no-unused-expressions": "off",
+        "max-len": "off",
+        "no-console": "off",
+        "no-undef": "off",
+        "no-use-before-define": "off",
+        "no-unused-vars": "warn",
+        radix: "off",
+      },
+    },
+    {
+      files: ["verenigingen/tests/frontend/**/*.js"],
+      env: {
+        jest: true,
+        mocha: true,
+      },
+      rules: {
+        "no-unused-expressions": "off",
+        "max-len": "off",
+        "no-console": "off",
+        "no-undef": "off",
+        "no-use-before-define": "off",
+        "no-unused-vars": "warn",
+        radix: "off",
+      },
+    },
+    {
+      files: ["verenigingen/public/js/**/*.js"],
+      rules: {
+        "no-implicit-globals": "error",
+        "prefer-const": "warn",
+      },
+    },
+    {
+      files: ["verenigingen/verenigingen/doctype/**/*.js"],
+      rules: {
+        "no-implicit-globals": "warn",
+      },
+    },
+    {
+      files: ["verenigingen/public/js/membership_application.js"],
+      rules: {
+        "max-len": "off",
+        camelcase: "off",
+        "no-use-before-define": "off",
+      },
+    },
+    {
+      files: ["verenigingen/public/js/member_counter.js"],
+      rules: {
+        camelcase: "off",
+      },
+    },
+    {
+      files: ["verenigingen/e_boekhouden/cleanup_backups/**/*.js"],
+      rules: {
+        "no-console": "off",
+        "no-unused-vars": "off",
+        "max-len": "off",
+        "no-shadow": "off",
+        radix: "off",
+      },
+    },
+    {
+      files: [
+        "verenigingen/e_boekhouden/doctype/e_boekhouden_migration/**/*.js",
+      ],
+      rules: {
+        "no-unused-vars": "warn",
+        "max-len": "warn",
+        "no-shadow": "warn",
+      },
+    },
+    {
+      files: ["verenigingen/verenigingen/page/system_health_dashboard/**/*.js"],
+      rules: {
+        "no-console": "off",
+      },
+    },
+    {
+      files: ["scripts/testing/**/*.js"],
+      rules: {
+        "no-unused-vars": "warn",
+        "no-global-assign": "warn",
+        "no-return-assign": "warn",
+        "id-match": "warn",
+      },
+    },
+    {
+      files: ["verenigingen/public/js/**/*.js", "verenigingen/tests/**/*.js"],
+      rules: {
+        "id-match": "off",
+        "no-console": "warn",
+        "no-unused-vars": "warn",
+        "no-redeclare": "warn",
+        "no-case-declarations": "warn",
+        radix: "warn",
+        "max-len": "warn",
+      },
+    },
+  ],
 };

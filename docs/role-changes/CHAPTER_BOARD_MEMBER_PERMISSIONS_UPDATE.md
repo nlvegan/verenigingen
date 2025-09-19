@@ -13,11 +13,13 @@ The analysis revealed that the **Verenigingen Chapter Manager** role was essenti
 ### Added to Verenigingen Chapter Board Member Role:
 
 #### 1. Region DocType Access
+
 - **Added:** Read permissions for Region DocType
 - **Rationale:** Chapter board members need to understand their chapter's geographic/organizational context
 - **Scope:** Read-only access to region information
 
 #### 2. Verenigingen Volunteer DocType Access
+
 - **Added:** Read permissions for Verenigingen Volunteer DocType
 - **Rationale:** Chapter board members need visibility into volunteer records for chapter management
 - **Scope:** Read-only access to volunteer information
@@ -25,6 +27,7 @@ The analysis revealed that the **Verenigingen Chapter Manager** role was essenti
 ## Current Permission Matrix
 
 ### Chapter Board Member Permissions After Update:
+
 ```
 ✅ Member management (chapter-scoped)
 ✅ Volunteer management (chapter-scoped) - NEWLY ADDED
@@ -36,6 +39,7 @@ The analysis revealed that the **Verenigingen Chapter Manager** role was essenti
 ```
 
 ### Chapter Manager Permissions (now redundant):
+
 ```
 ✅ Member management (chapter-scoped)
 ✅ Volunteer management (chapter-scoped)
@@ -46,6 +50,7 @@ The analysis revealed that the **Verenigingen Chapter Manager** role was essenti
 ## Technical Implementation
 
 ### 1. Region DocType Update
+
 **File:** `verenigingen/verenigingen/doctype/region/region.json`
 
 ```json
@@ -61,6 +66,7 @@ The analysis revealed that the **Verenigingen Chapter Manager** role was essenti
 ```
 
 ### 2. Volunteer DocType Update
+
 **File:** `verenigingen/verenigingen/doctype/volunteer/volunteer.json`
 
 ```json
@@ -85,12 +91,14 @@ The analysis revealed that the **Verenigingen Chapter Manager** role was essenti
 ## Impact Assessment
 
 ### Positive Impacts:
+
 1. **Role Simplification:** Eliminates redundant Chapter Manager role
 2. **Consistent Permissions:** Single role for chapter-level management
 3. **Reduced Complexity:** Simpler role assignment and management
 4. **Maintained Security:** Chapter-scoped access remains enforced
 
 ### No Breaking Changes:
+
 - Existing Chapter Board Member workflows unaffected
 - Security boundaries maintained (chapter-scoped access)
 - No write/create permissions added beyond existing scope
@@ -116,4 +124,4 @@ With these permission additions, the **Verenigingen Chapter Manager** role can b
 
 ---
 
-*This update consolidates chapter management functionality under a single, well-defined role while maintaining all security boundaries and chapter-scoped access controls.*
+_This update consolidates chapter management functionality under a single, well-defined role while maintaining all security boundaries and chapter-scoped access controls._

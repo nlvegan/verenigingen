@@ -1,4 +1,5 @@
 # Phase 4.1 Stabilization Plan v2 (With Concrete Restoration Details)
+
 ## Testing Infrastructure Quality Recovery - Evidence-Based Approach
 
 **Document Version**: 2.0
@@ -15,15 +16,18 @@ Git analysis reveals Phase 4 removed 125 test files, with only 30% being appropr
 ## CRITICAL FINDINGS FROM GIT ANALYSIS
 
 ### **Test File Removal Breakdown**
+
 - **Total Removed**: 125 files (from 427 to 302)
 - **Appropriate Removals**: 30% (debug/temporary files) ✅
 - **Valuable Scenarios Lost**: 40% (should be preserved) ⚠️
 - **Critical Business Logic Lost**: 30% (must be restored) 🚨
 
 ### **Factory Method Reduction Impact**
+
 **Before**: 22 methods → **After**: 7 methods
 
 **Lost Critical Capabilities**:
+
 ```python
 # Bulk Generation Methods (CRITICAL - Must Restore)
 - create_test_members(count=10)
@@ -47,11 +51,13 @@ Git analysis reveals Phase 4 removed 125 test files, with only 30% being appropr
 ## PHASE 4.1 IMPLEMENTATION STAGES (UPDATED)
 
 ### **Phase 4.1a: Critical Test Restoration** (3-4 days)
+
 **Status**: Ready to Start - Specific Files Identified
 
 **Objective**: Restore critical business logic tests that were incorrectly removed
 
 **CRITICAL FILES TO RESTORE**:
+
 ```python
 # Expense Workflow Tests (3 files)
 test_expense_full_integration.py
@@ -74,6 +80,7 @@ test_sepa_mandate_lifecycle.py
 ```
 
 **Factory Methods to Restore**:
+
 ```python
 # Priority 1: Bulk Generation
 def create_test_members(self, count=10, **kwargs):
@@ -91,17 +98,20 @@ def create_billing_conflict_scenario(self):
 ```
 
 **Implementation Actions**:
+
 1. Restore files from git history using specific commit references
 2. Update import paths to match current structure
 3. Fix type annotations and Dutch regional data
 4. Validate restored tests execute successfully
 
 ### **Phase 4.1b: Integration Test Recovery** (4-5 days)
+
 **Status**: Specific Gaps Identified
 
 **Objective**: Restore integration tests that validate cross-module functionality
 
 **INTEGRATION TEST GAPS TO ADDRESS**:
+
 ```python
 # End-to-End Workflow Tests
 - Member signup → approval → payment → volunteer assignment
@@ -120,6 +130,7 @@ def create_billing_conflict_scenario(self):
 ```
 
 **Specific Files to Create/Restore**:
+
 ```python
 # New Integration Test Suite
 verenigingen/tests/integration/
@@ -131,11 +142,13 @@ verenigingen/tests/integration/
 ```
 
 ### **Phase 4.1c: Factory Enhancement & Edge Cases** (3-4 days)
+
 **Status**: Clear Requirements Defined
 
 **Objective**: Enhance factory methods with lost capabilities while maintaining streamlined structure
 
 **Factory Enhancement Strategy**:
+
 ```python
 class EnhancedTestDataFactory(TestDataFactory):
     """Restore critical factory capabilities within streamlined structure"""
@@ -166,6 +179,7 @@ class EnhancedTestDataFactory(TestDataFactory):
 ```
 
 **Edge Case Coverage to Restore**:
+
 - Billing frequency conflicts (Monthly vs Annual on same member)
 - Zero-rate membership schedules
 - Concurrent update scenarios
@@ -177,6 +191,7 @@ class EnhancedTestDataFactory(TestDataFactory):
 ## CONCRETE RESTORATION ACTIONS
 
 ### **Week 1: Critical Business Logic**
+
 ```bash
 # Day 1-2: Restore expense workflow tests
 git show HEAD~1:test_expense_full_integration.py > verenigingen/tests/test_expense_full_integration_restored.py
@@ -189,6 +204,7 @@ git show HEAD~1:test_member_lifecycle.py > verenigingen/tests/test_member_lifecy
 ```
 
 ### **Week 2: Integration & Factory Methods**
+
 ```bash
 # Day 1-2: Create integration test suite structure
 mkdir -p verenigingen/tests/integration
@@ -204,6 +220,7 @@ mkdir -p verenigingen/tests/integration
 ## VALIDATION CRITERIA
 
 ### **Restoration Success Metrics**
+
 ```python
 RESTORATION_TARGETS = {
     'critical_business_tests': {
@@ -228,6 +245,7 @@ RESTORATION_TARGETS = {
 ```
 
 ### **Quality Gates**
+
 1. **Each restored test must pass** before proceeding
 2. **No regression in existing tests** after restoration
 3. **Performance benchmarks maintained** from Phase 2
@@ -238,17 +256,20 @@ RESTORATION_TARGETS = {
 ## PRIORITY RESTORATION LIST
 
 ### **CRITICAL (Immediate - Days 1-4)**
+
 1. **Expense Workflow Tests** - Complete business process validation
 2. **Member Lifecycle Tests** - Core business logic preservation
 3. **Factory Bulk Methods** - Essential for performance testing
 4. **Financial Validation Tests** - Payment processing integrity
 
 ### **HIGH (Week 1 - Days 5-7)**
+
 1. **Edge Case Scenarios** - Billing conflicts, zero-rates
 2. **Integration Test Suite** - End-to-end workflows
 3. **Factory Scenario Builders** - Complex test data generation
 
 ### **MEDIUM (Week 2)**
+
 1. **Additional Factory Methods** - Specialized creators
 2. **Security Monitoring Tests** - From removed security suite
 3. **Performance Test Scenarios** - Stress testing capabilities
@@ -258,6 +279,7 @@ RESTORATION_TARGETS = {
 ## ROLLBACK SAFETY
 
 ### **Incremental Restoration Approach**
+
 ```bash
 # Each restoration is a separate commit
 git add verenigingen/tests/test_expense_workflow_restored.py
@@ -270,6 +292,7 @@ bench --site dev.veganisme.net run-tests --module test_expense_workflow_restored
 ```
 
 ### **Restoration Tracking**
+
 ```python
 # Track restoration progress
 RESTORATION_LOG = {
@@ -285,6 +308,7 @@ RESTORATION_LOG = {
 ## SUCCESS CRITERIA
 
 **Phase 4.1 Completion Requirements**:
+
 - ✅ All CRITICAL tests restored and passing
 - ✅ Factory methods support bulk and scenario generation
 - ✅ Integration test coverage >= 90% of pre-Phase 4 levels

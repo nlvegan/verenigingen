@@ -1,14 +1,10 @@
 {
- "app": "verenigingen",
+  "app": "verenigingen",
   "autoname": "field:category_name",
   "creation": "2025-05-17 12:43:45.267592",
   "doctype": "DocType",
   "engine": "InnoDB",
-  "field_order": [
-    "category_name",
-    "description",
-    "parent_category"
-  ],
+  "field_order": ["category_name", "description", "parent_category"],
   "fields": [
     {
       "fieldname": "category_name",

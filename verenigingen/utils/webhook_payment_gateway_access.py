@@ -90,9 +90,11 @@ def _get_mollie_settings_for_webhook(gateway_name: str = "Default") -> Dict[str,
             "enabled": is_enabled,
             "is_sandbox": getattr(settings_doc, "test_mode", True),
             "api_key": api_key,
-            "webhook_url": getattr(settings_doc, "testing_webhook_url", "")
-            if getattr(settings_doc, "test_mode", True)
-            else getattr(settings_doc, "live_webhook_url", ""),
+            "webhook_url": (
+                getattr(settings_doc, "testing_webhook_url", "")
+                if getattr(settings_doc, "test_mode", True)
+                else getattr(settings_doc, "live_webhook_url", "")
+            ),
             "currency": "EUR",  # Mollie supports many currencies, EUR is default
             "company": "",  # Not stored in Mollie Settings
             # Don't expose: admin settings, webhook secrets, configuration URLs
@@ -126,9 +128,9 @@ def _get_stripe_settings_for_webhook(gateway_name: str = "Default") -> Dict[str,
             "enabled": getattr(settings_doc, "enabled", False),
             "is_sandbox": getattr(settings_doc, "is_sandbox", True),
             "publishable_key": getattr(settings_doc, "publishable_key", ""),
-            "webhook_endpoint_secret": settings_doc.get_webhook_secret()
-            if hasattr(settings_doc, "get_webhook_secret")
-            else "",
+            "webhook_endpoint_secret": (
+                settings_doc.get_webhook_secret() if hasattr(settings_doc, "get_webhook_secret") else ""
+            ),
             "currency": getattr(settings_doc, "currency", "EUR"),
             "company": getattr(settings_doc, "company", ""),
         }

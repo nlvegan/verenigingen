@@ -376,3 +376,179 @@ class MolliePaymentService:
                 f"Refund creation error for payment {payment_id}: {str(e)}", "Mollie Refund Error"
             )
             return {"status": "error", "message": _("Refund processing temporarily unavailable")}
+
+    def create_subscription(self, member, amount, interval, description=None):
+        """
+        Create a Mollie subscription for a member
+
+        Args:
+            member: Member document or name
+            amount: Subscription amount
+            interval: Payment interval (e.g., "1 month")
+            description: Optional description
+
+        Returns:
+            Dict with subscription creation result
+        """
+        try:
+            # Get member document if name provided
+            if isinstance(member, str):
+                member = frappe.get_doc("Member", member)
+
+            # Validate member has required fields
+            if not hasattr(member, "email") or not member.email:
+                return {"success": False, "error": "Member must have email address"}
+
+            # Create or get Mollie customer
+            customer_result = self._create_or_get_mollie_customer(
+                member.email, member.get_full_name(), {"member_id": member.name}
+            )
+
+            if not customer_result.get("success"):
+                return customer_result
+
+            customer_id = customer_result["customer_id"]
+
+            # Create actual Mollie subscription
+            subscription_data = {
+                "amount": {"currency": "EUR", "value": f"{float(amount):.2f}"},
+                "interval": interval,
+                "description": description or f"Membership subscription for {member.get_full_name()}",
+                "webhookUrl": f"{frappe.utils.get_url()}/api/method/verenigingen.api.mollie_payment_webhook",
+                "metadata": {"member_id": member.name, "member_name": member.get_full_name()},
+            }
+
+            # Create subscription via Mollie API
+            subscription = self.gateway.client.customer_subscriptions.with_parent_id(customer_id).create(
+                subscription_data
+            )
+            subscription_id = subscription.id
+
+            # Update member with Mollie information
+            member.mollie_customer_id = customer_id
+            member.mollie_subscription_id = subscription_id
+            member.subscription_status = "active"
+            member.next_payment_date = frappe.utils.add_days(frappe.utils.today(), 30)  # Monthly
+            member.payment_method = "Mollie"
+            member.save()
+
+            # Log subscription creation
+            frappe.logger().info(f"Mollie subscription created for member {member.name}: {subscription_id}")
+
+            return {
+                "success": True,
+                "mollie_customer_id": customer_id,
+                "subscription_id": subscription_id,
+                "status": "active",
+                "next_payment_date": member.next_payment_date,
+                "member_updated": True,
+            }
+
+        except Exception as e:
+            frappe.log_error(f"Subscription creation error: {str(e)}", "Mollie Subscription Error")
+            return {"success": False, "error": str(e)}
+
+    def update_subscription_amount(self, member, new_amount):
+        """
+        Update subscription amount for a member
+
+        Args:
+            member: Member document or name
+            new_amount: New subscription amount
+
+        Returns:
+            Dict with update result
+        """
+        try:
+            # Get member document if name provided
+            if isinstance(member, str):
+                member = frappe.get_doc("Member", member)
+
+            # Validate member has subscription
+            if not member.mollie_subscription_id:
+                return {"success": False, "error": "Member does not have an active subscription"}
+
+            # Update actual Mollie subscription
+            subscription_id = member.mollie_subscription_id
+
+            # Update subscription amount via Mollie API
+            self.gateway.client.customer_subscriptions.with_parent_id(
+                member.mollie_customer_id
+            ).update(subscription_id, {"amount": {"currency": "EUR", "value": f"{float(new_amount):.2f}"}})
+
+            # Log the successful update
+            frappe.logger().info(
+                f"Successfully updated Mollie subscription {subscription_id} amount to {new_amount}"
+            )
+
+            # Update member record after successful API call
+            member.add_comment("Comment", f"Subscription amount updated to {new_amount}")
+            member.save()
+
+            return {
+                "success": True,
+                "subscription_id": subscription_id,
+                "old_amount": member.get("subscription_amount", 0),
+                "new_amount": new_amount,
+                "updated_at": frappe.utils.now(),
+                "member_name": member.name,
+            }
+
+        except Exception as e:
+            frappe.log_error(f"Subscription update error: {str(e)}", "Mollie Subscription Error")
+            return {"success": False, "error": str(e)}
+
+    def cancel_subscription(self, member):
+        """
+        Cancel a member's subscription
+
+        Args:
+            member: Member document
+
+        Returns:
+            Dict with cancellation result
+        """
+        try:
+            # Validate member and subscription
+            if not member:
+                frappe.logger().warning("Cancel subscription called with no member")
+                return {"success": False, "error": "Member document is required"}
+
+            if not hasattr(member, "mollie_subscription_id") or not member.mollie_subscription_id:
+                frappe.logger().warning(f"Member {member.name} has no active subscription to cancel")
+                return {"success": False, "error": "No active subscription found for member"}
+
+            subscription_id = member.mollie_subscription_id
+            frappe.logger().info(f"Cancelling subscription {subscription_id} for member {member.name}")
+
+            # Cancel subscription via Mollie API
+            self.gateway.client.customer_subscriptions.with_parent_id(
+                member.mollie_customer_id
+            ).delete(subscription_id)
+
+            # Update member record
+            old_status = member.subscription_status
+            member.subscription_status = "cancelled"
+            member.subscription_cancelled_at = frappe.utils.now()
+            member.next_payment_date = None
+            member.save()
+
+            frappe.logger().info(
+                f"Successfully cancelled subscription {subscription_id} for member {member.name}"
+            )
+
+            return {
+                "success": True,
+                "subscription_id": subscription_id,
+                "old_status": old_status,
+                "new_status": "cancelled",
+                "cancelled_at": member.subscription_cancelled_at,
+                "member_name": member.name,
+            }
+
+        except Exception as e:
+            frappe.log_error(f"Subscription cancellation error: {str(e)}", "Mollie Subscription Error")
+            frappe.logger().error(
+                f"Failed to cancel subscription for member {member.name if member else 'unknown'}: {str(e)}"
+            )
+            return {"success": False, "error": str(e)}

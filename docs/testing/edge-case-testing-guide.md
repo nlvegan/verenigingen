@@ -135,21 +135,25 @@ def test_inappropriate_zero_rates(self):
 ## Benefits of This Approach
 
 ### ✅ **Works with Business Rules**
+
 - Respects the system's protective mechanisms
 - Tests realistic scenarios that could occur through admin actions
 - No need for complex mocking or validation bypassing
 
 ### ✅ **Comprehensive Testing**
+
 - Can test both the protection (business rules) and the validation (your code)
 - Tests what happens when business rules are bypassed through normal workflows
 - Enables testing of complex multi-schedule scenarios
 
 ### ✅ **Maintainable Tests**
+
 - Clear, readable test flow that matches real-world admin actions
 - Self-documenting test scenarios
 - Automatic cleanup through existing tracking mechanisms
 
 ### ✅ **Realistic Edge Cases**
+
 - Tests scenarios that could actually happen in production
 - Validates defensive programming against admin errors
 - Covers gaps between business rules and validation logic
@@ -157,6 +161,7 @@ def test_inappropriate_zero_rates(self):
 ## Best Practices
 
 ### 1. **Use Clear Test Names**
+
 ```python
 def test_billing_frequency_conflict_detection(self):
 def test_membership_type_mismatch_validation(self):
@@ -164,6 +169,7 @@ def test_inappropriate_zero_rate_prevention(self):
 ```
 
 ### 2. **Document Test Scenarios**
+
 ```python
 def test_complex_edge_case(self):
     """
@@ -173,6 +179,7 @@ def test_complex_edge_case(self):
 ```
 
 ### 3. **Test Both Valid and Invalid Cases**
+
 ```python
 # Test that valid configurations pass
 result = valid_schedule.validate_something()
@@ -184,6 +191,7 @@ self.assertFalse(result["valid"])
 ```
 
 ### 4. **Use Appropriate Assertions**
+
 ```python
 # Test validation results structure
 self.assertIn("valid", result)
@@ -197,6 +205,7 @@ self.assertIn("Type mismatch", result["reason"])
 ## Migration Guide
 
 ### Before (Complex Workarounds)
+
 ```python
 def test_validation_old_way(self):
     # Create template schedule to avoid business rules
@@ -209,6 +218,7 @@ def test_validation_old_way(self):
 ```
 
 ### After (Clean Edge Case Testing)
+
 ```python
 def test_validation_new_way(self):
     # Create realistic test data

@@ -9,6 +9,7 @@ I've successfully created a cost-effective alternative to the expensive ALYF Ban
 ### 1. MT940 Import Utility (`/home/frappe/frappe-bench/apps/verenigingen/verenigingen/utils/mt940_import.py`)
 
 **Key Features:**
+
 - **License-free**: Uses the open-source WoLpH/mt940 library (BSD-3-Clause license)
 - **Dutch bank compatibility**: Tested and working with ING and Triodos MT940 formats
 - **ERPNext integration**: Creates Bank Transaction records compatible with your existing workflow
@@ -16,6 +17,7 @@ I've successfully created a cost-effective alternative to the expensive ALYF Ban
 - **Duplicate prevention**: Checks for existing transactions to avoid duplicates
 
 **Main Functions:**
+
 - `import_mt940_file()` - Import MT940 file directly into ERPNext Bank Transactions
 - `validate_mt940_file()` - Validate MT940 file without importing
 - `convert_mt940_to_csv()` - Convert to CSV for use with ERPNext's existing import tool
@@ -37,6 +39,7 @@ The existing CAMT import utility now provides clear guidance to use MT940 format
 ### Usage Examples
 
 **1. Direct Import (Recommended)**
+
 ```python
 # Import MT940 file directly
 result = frappe.call("verenigingen.utils.mt940_import.import_mt940_file", {
@@ -47,6 +50,7 @@ result = frappe.call("verenigingen.utils.mt940_import.import_mt940_file", {
 ```
 
 **2. Validation Before Import**
+
 ```python
 # Validate file first
 validation = frappe.call("verenigingen.utils.mt940_import.validate_mt940_file", {
@@ -55,6 +59,7 @@ validation = frappe.call("verenigingen.utils.mt940_import.validate_mt940_file", 
 ```
 
 **3. CSV Conversion (Alternative)**
+
 ```python
 # Convert to CSV for ERPNext's Bank Statement Import
 csv_result = frappe.call("verenigingen.utils.mt940_import.convert_mt940_to_csv", {
@@ -66,12 +71,14 @@ csv_result = frappe.call("verenigingen.utils.mt940_import.convert_mt940_to_csv",
 ## Dutch Bank Compatibility
 
 ### ING Bank
+
 - **Format**: MT940 (SWIFT standard)
 - **Download**: Available through ING Business Banking portal
 - **IBAN validation**: Automatic validation against your Bank Account setup
 - **Currency**: EUR (Euro)
 
 ### Triodos Bank
+
 - **Format**: MT940 (SWIFT standard)
 - **Download**: Available through Triodos online banking
 - **IBAN validation**: Automatic validation against your Bank Account setup
@@ -88,6 +95,7 @@ csv_result = frappe.call("verenigingen.utils.mt940_import.convert_mt940_to_csv",
 ## Integration with Your Workflow
 
 The MT940 import creates standard ERPNext Bank Transaction records that integrate seamlessly with your existing:
+
 - Member payment tracking
 - SEPA mandate processing
 - Financial reporting
@@ -104,6 +112,7 @@ The MT940 import creates standard ERPNext Bank Transaction records that integrat
 ## Error Handling
 
 The solution includes comprehensive error handling for:
+
 - Invalid file formats
 - IBAN mismatches between file and bank account
 - Duplicate transaction detection
@@ -138,10 +147,10 @@ This approach uses ERPNext's built-in import validation and error handling.
 
 ## Cost Comparison
 
-| Solution | Cost | Features |
-|----------|------|----------|
-| **ALYF EBICS License** | €€€ (expensive) | Automated retrieval, CAMT.053 parsing |
-| **Our MT940 Solution** | Free | Manual upload, MT940 parsing, same ERPNext integration |
+| Solution               | Cost            | Features                                               |
+| ---------------------- | --------------- | ------------------------------------------------------ |
+| **ALYF EBICS License** | €€€ (expensive) | Automated retrieval, CAMT.053 parsing                  |
+| **Our MT940 Solution** | Free            | Manual upload, MT940 parsing, same ERPNext integration |
 
 ## Conclusion
 

@@ -619,16 +619,20 @@ def extract_mollie_payment_data(payment):
     return {
         "payment_id": payment.id,
         "status": payment.status,
-        "amount": payment.amount.get("value")
-        if isinstance(payment.amount, dict)
-        else getattr(payment.amount, "value", None)
-        if hasattr(payment, "amount")
-        else None,
-        "currency": payment.amount.get("currency")
-        if isinstance(payment.amount, dict)
-        else getattr(payment.amount, "currency", None)
-        if hasattr(payment, "amount")
-        else None,
+        "amount": (
+            payment.amount.get("value")
+            if isinstance(payment.amount, dict)
+            else getattr(payment.amount, "value", None)
+            if hasattr(payment, "amount")
+            else None
+        ),
+        "currency": (
+            payment.amount.get("currency")
+            if isinstance(payment.amount, dict)
+            else getattr(payment.amount, "currency", None)
+            if hasattr(payment, "amount")
+            else None
+        ),
         "method": getattr(payment, "method", None),
         "customer_id": getattr(payment, "customer_id", None),
         "mandate_id": getattr(payment, "mandate_id", None),

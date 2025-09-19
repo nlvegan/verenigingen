@@ -7,6 +7,7 @@ This comprehensive Cypress E2E testing suite validates the **actual JavaScript D
 ## Key Testing Philosophy
 
 ### ✅ What We Test
+
 - **Real JavaScript Controllers**: Tests run against actual `member.js`, `direct_debit_batch.js`, and `chapter.js` controllers
 - **Actual Form Events**: Validates `frappe.ui.form.on()` event handlers in real runtime environment
 - **Business Logic Validation**: Tests Dutch naming conventions, IBAN validation, postal code assignment
@@ -14,6 +15,7 @@ This comprehensive Cypress E2E testing suite validates the **actual JavaScript D
 - **Authentic Data**: Uses real Dutch IBANs, postal codes, member names, and addresses
 
 ### ❌ What We Don't Test
+
 - Mocked API responses or artificial edge cases
 - Backend Python logic (covered by separate unit tests)
 - Database operations in isolation
@@ -36,6 +38,7 @@ cypress/integration/
 **Focus**: 3,241 lines of JavaScript with 107 API calls and UI interactions
 
 **Key Test Scenarios**:
+
 - ✅ Dutch naming field setup (`setup_dutch_naming_fields()`)
 - ✅ Real-time IBAN validation with Dutch bank detection
 - ✅ Age calculation and volunteer eligibility checking
@@ -45,11 +48,12 @@ cypress/integration/
 - ✅ Form refresh and JavaScript module loading
 
 **Example Test**:
+
 ```javascript
-it('should validate Dutch IBAN with real-time bank detection', () => {
-  cy.get('input[data-fieldname="iban"]').type('NL91 ABNA 0417 1643 00');
-  cy.get('.bank-info-display').should('contain', 'ABN AMRO Bank');
-  cy.get('input[data-fieldname="bic"]').should('have.value', 'ABNANL2A');
+it("should validate Dutch IBAN with real-time bank detection", () => {
+  cy.get('input[data-fieldname="iban"]').type("NL91 ABNA 0417 1643 00");
+  cy.get(".bank-info-display").should("contain", "ABN AMRO Bank");
+  cy.get('input[data-fieldname="bic"]').should("have.value", "ABNANL2A");
 });
 ```
 
@@ -58,6 +62,7 @@ it('should validate Dutch IBAN with real-time bank detection', () => {
 **Focus**: SEPA payment processing workflow with 842 lines of JavaScript
 
 **Key Test Scenarios**:
+
 - ✅ Status-based UI configuration (Draft → Generated → Submitted → Processed)
 - ✅ SEPA mandate validation with Dutch banking compliance
 - ✅ XML file generation and download functionality
@@ -65,11 +70,12 @@ it('should validate Dutch IBAN with real-time bank detection', () => {
 - ✅ Dutch creditor identifier validation
 
 **Example Test**:
+
 ```javascript
-it('should generate valid SEPA XML with Dutch compliance', () => {
+it("should generate valid SEPA XML with Dutch compliance", () => {
   cy.get('button[data-label="Generate SEPA File"]').click();
-  cy.get('.sepa-xml-preview').should('contain', 'pain.008.001.02');
-  cy.get('.validation-status').should('contain', 'Dutch SEPA compliant');
+  cy.get(".sepa-xml-preview").should("contain", "pain.008.001.02");
+  cy.get(".validation-status").should("contain", "Dutch SEPA compliant");
 });
 ```
 
@@ -78,6 +84,7 @@ it('should generate valid SEPA XML with Dutch compliance', () => {
 **Focus**: Geographic organization with postal code management
 
 **Key Test Scenarios**:
+
 - ✅ Dutch postal code validation and overlap detection
 - ✅ Member assignment based on geographic rules
 - ✅ Board member management with role validation
@@ -88,6 +95,7 @@ it('should generate valid SEPA XML with Dutch compliance', () => {
 **Focus**: Cultural conventions and regulatory compliance
 
 **Key Test Scenarios**:
+
 - ✅ Tussenvoegsel (Dutch name particles) handling
 - ✅ Dutch postal code format and geographic lookup
 - ✅ IBAN validation for all major Dutch banks
@@ -100,57 +108,61 @@ The testing suite includes specialized Cypress commands for JavaScript controlle
 
 ```javascript
 // Enhanced field filling with JavaScript event triggering
-cy.fill_field('iban', 'NL91 ABNA 0417 1643 00');
+cy.fill_field("iban", "NL91 ABNA 0417 1643 00");
 
 // JavaScript module verification
-cy.verify_js_module('SEPAUtils');
+cy.verify_js_module("SEPAUtils");
 
 // Form controller readiness checking
-cy.wait_for_form_ready('Member');
+cy.wait_for_form_ready("Member");
 
 // Dutch-specific validation testing
-cy.test_dutch_validation('postal_code', '1016 GV', {
+cy.test_dutch_validation("postal_code", "1016 GV", {
   valid: true,
-  message: 'Valid Amsterdam postal code'
+  message: "Valid Amsterdam postal code",
 });
 
 // Custom button interaction with state verification
-cy.click_custom_button('Create SEPA Mandate');
+cy.click_custom_button("Create SEPA Mandate");
 ```
 
 ## Real Data Testing Examples
 
 ### Dutch Banking Data
+
 ```javascript
 const dutchBanks = [
-  { bank: 'ABN AMRO', iban: 'NL91 ABNA 0417 1643 00', bic: 'ABNANL2A' },
-  { bank: 'Rabobank', iban: 'NL91 RABO 0315 2648 11', bic: 'RABONL2U' },
-  { bank: 'ING Bank', iban: 'NL91 INGB 0002 4458 88', bic: 'INGBNL2A' },
-  { bank: 'Triodos', iban: 'NL91 TRIO 0391 9424 00', bic: 'TRIONL2U' }
+  { bank: "ABN AMRO", iban: "NL91 ABNA 0417 1643 00", bic: "ABNANL2A" },
+  { bank: "Rabobank", iban: "NL91 RABO 0315 2648 11", bic: "RABONL2U" },
+  { bank: "ING Bank", iban: "NL91 INGB 0002 4458 88", bic: "INGBNL2A" },
+  { bank: "Triodos", iban: "NL91 TRIO 0391 9424 00", bic: "TRIONL2U" },
 ];
 ```
 
 ### Dutch Geographic Data
+
 ```javascript
 const postalCodeTests = [
-  { code: '1016 GV', city: 'Amsterdam', province: 'Noord-Holland' },
-  { code: '3011 AB', city: 'Rotterdam', province: 'Zuid-Holland' },
-  { code: '9700 AA', city: 'Groningen', province: 'Groningen' }
+  { code: "1016 GV", city: "Amsterdam", province: "Noord-Holland" },
+  { code: "3011 AB", city: "Rotterdam", province: "Zuid-Holland" },
+  { code: "9700 AA", city: "Groningen", province: "Groningen" },
 ];
 ```
 
 ### Dutch Naming Conventions
+
 ```javascript
 const dutchNames = [
-  { first: 'Jan', tussenvoegsel: 'van der', last: 'Berg' },
-  { first: 'Maria', tussenvoegsel: 'de', last: 'Jong' },
-  { first: 'Willem', tussenvoegsel: "'t", last: 'Hart' }
+  { first: "Jan", tussenvoegsel: "van der", last: "Berg" },
+  { first: "Maria", tussenvoegsel: "de", last: "Jong" },
+  { first: "Willem", tussenvoegsel: "'t", last: "Hart" },
 ];
 ```
 
 ## Running the Tests
 
 ### Quick Start
+
 ```bash
 # Run all 25+ JavaScript controller tests (production-ready)
 scripts/testing/runners/run_controller_tests.sh --all --headless
@@ -171,6 +183,7 @@ scripts/testing/runners/run_controller_tests.sh --all --parallel --coverage --pe
 ```
 
 ### Individual Test Execution
+
 ```bash
 # Run specific controller tests directly
 npx cypress run --spec "cypress/integration/member-controller.spec.js"
@@ -181,6 +194,7 @@ npx cypress run --spec "cypress/integration/direct-debit-batch-controller.spec.j
 ### Test Execution Priorities
 
 **High Priority (Financial & Core Operations - 6 DocTypes):**
+
 - SEPA Mandate Controller: European banking compliance
 - Direct Debit Batch Controller: Payment processing workflows
 - Member Payment History Controller: Financial tracking
@@ -189,6 +203,7 @@ npx cypress run --spec "cypress/integration/direct-debit-batch-controller.spec.j
 - Member Controller: Core member lifecycle
 
 **Medium Priority (Administration & Reporting - 7 DocTypes):**
+
 - Chapter Controller: Geographic organization
 - Volunteer Team Controller: Team coordination
 - Verenigingen Settings Controller: System configuration
@@ -198,6 +213,7 @@ npx cypress run --spec "cypress/integration/direct-debit-batch-controller.spec.j
 - Volunteer Expense Controller: Expense processing
 
 **Lower Priority (Extended Functionality - 12+ DocTypes):**
+
 - Event Controller, Campaign Controller, Volunteer Controller
 - Board Member Controller, Periodic Donation Agreement Controller
 - SEPA Payment Retry Controller, E-Boekhouden Settings Controller
@@ -208,6 +224,7 @@ npx cypress run --spec "cypress/integration/direct-debit-batch-controller.spec.j
 ### Production Environment Configuration
 
 The test suite is configured for production environment testing:
+
 - **Base URL**: https://dev.veganisme.net (HTTPS staginginstance)
 - **Authentication**: Session-based login with proper credential handling
 - **Test Data Isolation**: Scoped test data with automatic cleanup
@@ -226,6 +243,7 @@ The test suite is configured for production environment testing:
 ## Common Issues and Debugging
 
 ### JavaScript Module Loading Issues
+
 ```javascript
 // Check if modules loaded correctly
 cy.window().then((win) => {
@@ -236,19 +254,21 @@ cy.window().then((win) => {
 ```
 
 ### Form Controller Verification
+
 ```javascript
 // Verify form controller is ready
 cy.window().then((win) => {
-  const form = win.frappe.ui.form.get_form('Member');
+  const form = win.frappe.ui.form.get_form("Member");
   expect(form.doc.__islocal).to.be.true; // For new documents
 });
 ```
 
 ### Field Validation Debugging
+
 ```javascript
 // Check validation state and error messages
-cy.get('input[data-fieldname="iban"]').should('have.class', 'is-valid');
-cy.get('.invalid-feedback').should('contain', 'Expected error message');
+cy.get('input[data-fieldname="iban"]').should("have.class", "is-valid");
+cy.get(".invalid-feedback").should("contain", "Expected error message");
 ```
 
 ## Benefits of This Testing Approach
@@ -304,12 +324,14 @@ cypress/integration/
 ## Getting Started
 
 ### Prerequisites Verification
+
 ```bash
 # Verify environment is ready for testing
 scripts/testing/runners/run_controller_tests.sh --validate-only
 ```
 
 ### Run Your First Test
+
 ```bash
 # Start with a single controller test
 npx cypress run --spec "cypress/integration/member-controller.spec.js" --headless
@@ -322,6 +344,7 @@ scripts/testing/runners/run_controller_tests.sh --all --headless
 ```
 
 ### Expected Results
+
 - **Connection**: ✅ Should connect to https://dev.veganisme.net
 - **Authentication**: ⚠️ Will need production credentials (expected for production environment)
 - **Test Structure**: ✅ Should load test specifications correctly

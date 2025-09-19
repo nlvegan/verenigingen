@@ -5,6 +5,7 @@
 > for reference but this version supersedes them all with the most complete implementation details.
 
 ## Table of Contents
+
 1. [System Architecture Details](#system-architecture-details)
 2. [Data Model & Relationships](#data-model--relationships)
 3. [Business Process Flows](#business-process-flows)
@@ -19,6 +20,7 @@
 ## 1. System Architecture Details
 
 ### Core Philosophy
+
 The system treats memberships as **perpetual relationships** with **periodic financial obligations**, not commercial subscriptions. This fundamental shift drives all design decisions.
 
 ### Component Architecture
@@ -928,149 +930,167 @@ def dues_system_health_check():
 ```html
 <!-- Enhanced Membership Fee Selection Form -->
 <div class="contribution-selection-card">
-    <h3>Choose Your Annual Contribution</h3>
+  <h3>Choose Your Annual Contribution</h3>
 
-    <div class="fee-structure-info">
-        <p>Our minimum annual membership fee is €{{ membership_type.minimum_annual_fee }},
-        but many members choose to contribute more to support our mission.</p>
+  <div class="fee-structure-info">
+    <p>
+      Our minimum annual membership fee is €{{
+      membership_type.minimum_annual_fee }}, but many members choose to
+      contribute more to support our mission.
+    </p>
+  </div>
+
+  <!-- Suggested Contribution Tiers -->
+  <div class="contribution-tiers">
+    {% for tier in membership_type.suggested_contribution_tiers %}
+    <div class="tier-option" data-amount="{{ tier.annual_amount }}">
+      <div class="tier-header">
+        <h4>{{ tier.tier_name }}</h4>
+        <span class="tier-amount">€{{ tier.annual_amount }}/year</span>
+      </div>
+      <p class="tier-description">{{ tier.description }}</p>
+      <button
+        class="btn btn-outline-primary select-tier"
+        onclick="selectTier({{ tier.annual_amount }})"
+      >
+        Select This Amount
+      </button>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Custom Amount Selection -->
+  <div class="custom-amount-section">
+    <h4>Choose Your Own Amount</h4>
+    <div class="custom-amount-input">
+      <label
+        >Annual Contribution (minimum €{{ membership_type.minimum_annual_fee
+        }})</label
+      >
+      <div class="input-group">
+        <span class="input-group-text">€</span>
+        <input
+          type="number"
+          id="custom_amount"
+          class="form-control"
+          min="{{ membership_type.minimum_annual_fee }}"
+          step="1"
+          placeholder="{{ membership_type.standard_annual_fee }}"
+        />
+        <span class="input-group-text">/year</span>
+      </div>
+      <small class="form-text text-muted">
+        You can adjust this amount at any time through your member portal.
+      </small>
+    </div>
+  </div>
+
+  <!-- Special Circumstances -->
+  <div class="special-circumstances">
+    <h4>Special Circumstances</h4>
+
+    <div class="circumstances-options">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="student_rate" />
+        <label class="form-check-label" for="student_rate">
+          I am a student ({{ membership_type.student_discount_percentage }}%
+          discount available)
+        </label>
+      </div>
+
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="hardship_rate" />
+        <label class="form-check-label" for="hardship_rate">
+          I am experiencing financial hardship
+        </label>
+      </div>
     </div>
 
-    <!-- Suggested Contribution Tiers -->
-    <div class="contribution-tiers">
-        {% for tier in membership_type.suggested_contribution_tiers %}
-        <div class="tier-option" data-amount="{{ tier.annual_amount }}">
-            <div class="tier-header">
-                <h4>{{ tier.tier_name }}</h4>
-                <span class="tier-amount">€{{ tier.annual_amount }}/year</span>
-            </div>
-            <p class="tier-description">{{ tier.description }}</p>
-            <button class="btn btn-outline-primary select-tier"
-                    onclick="selectTier({{ tier.annual_amount }})">
-                Select This Amount
-            </button>
-        </div>
-        {% endfor %}
+    <div id="hardship_explanation" style="display: none;">
+      <p class="text-info">
+        <i class="fa fa-info-circle"></i>
+        If you're experiencing financial difficulties, we offer reduced rates
+        starting at €{{ membership_type.hardship_minimum_amount }}. Your request
+        will be reviewed confidentially.
+      </p>
+      <textarea
+        class="form-control"
+        id="hardship_reason"
+        placeholder="Please briefly explain your circumstances (optional - this information is kept confidential)"
+      ></textarea>
     </div>
+  </div>
 
-    <!-- Custom Amount Selection -->
-    <div class="custom-amount-section">
-        <h4>Choose Your Own Amount</h4>
-        <div class="custom-amount-input">
-            <label>Annual Contribution (minimum €{{ membership_type.minimum_annual_fee }})</label>
-            <div class="input-group">
-                <span class="input-group-text">€</span>
-                <input type="number"
-                       id="custom_amount"
-                       class="form-control"
-                       min="{{ membership_type.minimum_annual_fee }}"
-                       step="1"
-                       placeholder="{{ membership_type.standard_annual_fee }}">
-                <span class="input-group-text">/year</span>
-            </div>
-            <small class="form-text text-muted">
-                You can adjust this amount at any time through your member portal.
-            </small>
-        </div>
-    </div>
-
-    <!-- Special Circumstances -->
-    <div class="special-circumstances">
-        <h4>Special Circumstances</h4>
-
-        <div class="circumstances-options">
-            <div class="form-check">
-                <input class="form-check-input" type="checkbox" id="student_rate">
-                <label class="form-check-label" for="student_rate">
-                    I am a student ({{ membership_type.student_discount_percentage }}% discount available)
-                </label>
-            </div>
-
-            <div class="form-check">
-                <input class="form-check-input" type="checkbox" id="hardship_rate">
-                <label class="form-check-label" for="hardship_rate">
-                    I am experiencing financial hardship
-                </label>
-            </div>
-        </div>
-
-        <div id="hardship_explanation" style="display: none;">
-            <p class="text-info">
-                <i class="fa fa-info-circle"></i>
-                If you're experiencing financial difficulties, we offer reduced rates starting at
-                €{{ membership_type.hardship_minimum_amount }}. Your request will be reviewed confidentially.
-            </p>
-            <textarea class="form-control"
-                      id="hardship_reason"
-                      placeholder="Please briefly explain your circumstances (optional - this information is kept confidential)"></textarea>
-        </div>
-    </div>
-
-    <!-- Final Selection Display -->
-    <div class="selected-amount-display">
-        <h4>Selected Annual Contribution: €<span id="final_amount">{{ membership_type.standard_annual_fee }}</span></h4>
-        <p id="amount_breakdown"></p>
-    </div>
+  <!-- Final Selection Display -->
+  <div class="selected-amount-display">
+    <h4>
+      Selected Annual Contribution: €<span id="final_amount"
+        >{{ membership_type.standard_annual_fee }}</span
+      >
+    </h4>
+    <p id="amount_breakdown"></p>
+  </div>
 </div>
 
 <script>
-function selectTier(amount) {
-    document.getElementById('custom_amount').value = amount;
-    updateFinalAmount(amount);
-    document.querySelectorAll('.tier-option').forEach(t => t.classList.remove('selected'));
-    event.target.closest('.tier-option').classList.add('selected');
-}
+  function selectTier(amount) {
+      document.getElementById('custom_amount').value = amount;
+      updateFinalAmount(amount);
+      document.querySelectorAll('.tier-option').forEach(t => t.classList.remove('selected'));
+      event.target.closest('.tier-option').classList.add('selected');
+  }
 
-function updateFinalAmount(amount) {
-    document.getElementById('final_amount').textContent = amount;
+  function updateFinalAmount(amount) {
+      document.getElementById('final_amount').textContent = amount;
 
-    let breakdown = '';
-    if (amount > {{ membership_type.standard_annual_fee }}) {
-        breakdown = `Thank you for your generous support! Your extra contribution of €${amount - {{ membership_type.standard_annual_fee }}} helps fund our programs.`;
-    } else if (amount == {{ membership_type.minimum_annual_fee }}) {
-        breakdown = 'Minimum membership fee selected.';
-    } else {
-        breakdown = 'Standard membership contribution selected.';
-    }
+      let breakdown = '';
+      if (amount > {{ membership_type.standard_annual_fee }}) {
+          breakdown = `Thank you for your generous support! Your extra contribution of €${amount - {{ membership_type.standard_annual_fee }}} helps fund our programs.`;
+      } else if (amount == {{ membership_type.minimum_annual_fee }}) {
+          breakdown = 'Minimum membership fee selected.';
+      } else {
+          breakdown = 'Standard membership contribution selected.';
+      }
 
-    document.getElementById('amount_breakdown').textContent = breakdown;
-}
+      document.getElementById('amount_breakdown').textContent = breakdown;
+  }
 
-// Handle special circumstances
-document.getElementById('hardship_rate').addEventListener('change', function() {
-    document.getElementById('hardship_explanation').style.display =
-        this.checked ? 'block' : 'none';
+  // Handle special circumstances
+  document.getElementById('hardship_rate').addEventListener('change', function() {
+      document.getElementById('hardship_explanation').style.display =
+          this.checked ? 'block' : 'none';
 
-    if (this.checked) {
-        document.getElementById('custom_amount').value = {{ membership_type.hardship_minimum_amount }};
-        updateFinalAmount({{ membership_type.hardship_minimum_amount }});
-    }
-});
+      if (this.checked) {
+          document.getElementById('custom_amount').value = {{ membership_type.hardship_minimum_amount }};
+          updateFinalAmount({{ membership_type.hardship_minimum_amount }});
+      }
+  });
 
-document.getElementById('student_rate').addEventListener('change', function() {
-    if (this.checked) {
-        const studentAmount = Math.max(
-            {{ membership_type.minimum_annual_fee }},
-            {{ membership_type.standard_annual_fee }} * (1 - {{ membership_type.student_discount_percentage }}/100)
-        );
-        document.getElementById('custom_amount').value = studentAmount;
-        updateFinalAmount(studentAmount);
-    }
-});
+  document.getElementById('student_rate').addEventListener('change', function() {
+      if (this.checked) {
+          const studentAmount = Math.max(
+              {{ membership_type.minimum_annual_fee }},
+              {{ membership_type.standard_annual_fee }} * (1 - {{ membership_type.student_discount_percentage }}/100)
+          );
+          document.getElementById('custom_amount').value = studentAmount;
+          updateFinalAmount(studentAmount);
+      }
+  });
 
-// Real-time validation
-document.getElementById('custom_amount').addEventListener('input', function() {
-    const amount = parseFloat(this.value);
-    const minimum = {{ membership_type.minimum_annual_fee }};
+  // Real-time validation
+  document.getElementById('custom_amount').addEventListener('input', function() {
+      const amount = parseFloat(this.value);
+      const minimum = {{ membership_type.minimum_annual_fee }};
 
-    if (amount < minimum) {
-        this.setCustomValidity(`Minimum amount is €${minimum}`);
-        this.classList.add('is-invalid');
-    } else {
-        this.setCustomValidity('');
-        this.classList.remove('is-invalid');
-        updateFinalAmount(amount);
-    }
-});
+      if (amount < minimum) {
+          this.setCustomValidity(`Minimum amount is €${minimum}`);
+          this.classList.add('is-invalid');
+      } else {
+          this.setCustomValidity('');
+          this.classList.remove('is-invalid');
+          updateFinalAmount(amount);
+      }
+  });
 </script>
 ```
 
@@ -1081,40 +1101,45 @@ document.getElementById('custom_amount').addEventListener('input', function() {
 ```html
 <!-- Member Payment Dashboard -->
 <div class="payment-status-card">
-    <div class="status-indicator {{ status_class }}">
-        <i class="fa fa-{{ status_icon }}"></i>
-        <span>{{ status_text }}</span>
-    </div>
+  <div class="status-indicator {{ status_class }}">
+    <i class="fa fa-{{ status_icon }}"></i>
+    <span>{{ status_text }}</span>
+  </div>
 
-    {% if status == "Current" %}
-    <div class="next-due-info">
-        <p>Your next payment of €{{ next_amount }} is due on {{ next_date|date:"F d, Y" }}</p>
-        <button class="btn btn-sm btn-primary">Enable Auto-Pay</button>
+  {% if status == "Current" %}
+  <div class="next-due-info">
+    <p>
+      Your next payment of €{{ next_amount }} is due on {{ next_date|date:"F d,
+      Y" }}
+    </p>
+    <button class="btn btn-sm btn-primary">Enable Auto-Pay</button>
+  </div>
+  {% endif %} {% if outstanding_amount > 0 %}
+  <div class="outstanding-alert">
+    <p>You have an outstanding balance of €{{ outstanding_amount }}</p>
+    <div class="action-buttons">
+      <button class="btn btn-primary" onclick="payNow()">Pay Now</button>
+      <button class="btn btn-secondary" onclick="requestPaymentPlan()">
+        Payment Plan
+      </button>
+      <button class="btn btn-link" onclick="contactUs()">Need Help?</button>
     </div>
-    {% endif %}
+  </div>
+  {% endif %}
 
-    {% if outstanding_amount > 0 %}
-    <div class="outstanding-alert">
-        <p>You have an outstanding balance of €{{ outstanding_amount }}</p>
-        <div class="action-buttons">
-            <button class="btn btn-primary" onclick="payNow()">Pay Now</button>
-            <button class="btn btn-secondary" onclick="requestPaymentPlan()">Payment Plan</button>
-            <button class="btn btn-link" onclick="contactUs()">Need Help?</button>
-        </div>
+  <div class="payment-history-summary">
+    <h4>Recent Payments</h4>
+    {% for payment in recent_payments %}
+    <div class="payment-row">
+      <span>{{ payment.date|date:"M d" }}</span>
+      <span>€{{ payment.amount }}</span>
+      <span class="status-badge {{ payment.status|lower }}"
+        >{{ payment.status }}</span
+      >
     </div>
-    {% endif %}
-
-    <div class="payment-history-summary">
-        <h4>Recent Payments</h4>
-        {% for payment in recent_payments %}
-        <div class="payment-row">
-            <span>{{ payment.date|date:"M d" }}</span>
-            <span>€{{ payment.amount }}</span>
-            <span class="status-badge {{ payment.status|lower }}">{{ payment.status }}</span>
-        </div>
-        {% endfor %}
-        <a href="/payment-history">View Full History →</a>
-    </div>
+    {% endfor %}
+    <a href="/payment-history">View Full History →</a>
+  </div>
 </div>
 ```
 
@@ -1198,27 +1223,27 @@ def member_update_payment_method():
 ```javascript
 // Add action buttons to report
 frappe.query_reports["Overdue Member Payments"] = {
-    onload: function(report) {
-        // Add custom buttons
-        report.page.add_inner_button(__("Send Bulk Reminders"), function() {
-            handle_bulk_reminders(report);
-        });
+  onload: function (report) {
+    // Add custom buttons
+    report.page.add_inner_button(__("Send Bulk Reminders"), function () {
+      handle_bulk_reminders(report);
+    });
 
-        report.page.add_inner_button(__("Create Payment Plans"), function() {
-            handle_bulk_payment_plans(report);
-        });
+    report.page.add_inner_button(__("Create Payment Plans"), function () {
+      handle_bulk_payment_plans(report);
+    });
 
-        report.page.add_inner_button(__("Export for Mail Merge"), function() {
-            export_for_mail_merge(report);
-        });
-    },
+    report.page.add_inner_button(__("Export for Mail Merge"), function () {
+      export_for_mail_merge(report);
+    });
+  },
 
-    formatter: function(value, row, column, data, default_formatter) {
-        value = default_formatter(value, row, column, data);
+  formatter: function (value, row, column, data, default_formatter) {
+    value = default_formatter(value, row, column, data);
 
-        // Add action buttons to each row
-        if (column.fieldname == "member_name" && data) {
-            value += `
+    // Add action buttons to each row
+    if (column.fieldname == "member_name" && data) {
+      value += `
                 <div class="row-actions" style="float: right;">
                     <button class="btn btn-xs btn-default"
                         onclick="send_reminder('${data.member_name}')">
@@ -1234,60 +1259,63 @@ frappe.query_reports["Overdue Member Payments"] = {
                     </button>
                 </div>
             `;
-        }
-
-        return value;
     }
+
+    return value;
+  },
 };
 
 function handle_bulk_reminders(report) {
-    // Get selected members or all if none selected
-    let members = report.get_checked_items() || report.data;
+  // Get selected members or all if none selected
+  let members = report.get_checked_items() || report.data;
 
-    frappe.prompt([
-        {
-            fieldname: 'template',
-            label: 'Reminder Template',
-            fieldtype: 'Select',
-            options: [
-                'Gentle Reminder',
-                'Overdue Notice',
-                'Final Notice',
-                'Custom'
-            ],
-            default: 'Gentle Reminder'
-        },
-        {
-            fieldname: 'custom_message',
-            label: 'Additional Message',
-            fieldtype: 'Text',
-            depends_on: 'eval:doc.template=="Custom"'
-        },
-        {
-            fieldname: 'skip_recent',
-            label: 'Skip if contacted in last X days',
-            fieldtype: 'Int',
-            default: 7
-        }
+  frappe.prompt(
+    [
+      {
+        fieldname: "template",
+        label: "Reminder Template",
+        fieldtype: "Select",
+        options: [
+          "Gentle Reminder",
+          "Overdue Notice",
+          "Final Notice",
+          "Custom",
+        ],
+        default: "Gentle Reminder",
+      },
+      {
+        fieldname: "custom_message",
+        label: "Additional Message",
+        fieldtype: "Text",
+        depends_on: 'eval:doc.template=="Custom"',
+      },
+      {
+        fieldname: "skip_recent",
+        label: "Skip if contacted in last X days",
+        fieldtype: "Int",
+        default: 7,
+      },
     ],
-    function(values) {
-        frappe.call({
-            method: 'verenigingen.api.send_bulk_payment_reminders',
-            args: {
-                members: members.map(m => m.member_name),
-                template: values.template,
-                custom_message: values.custom_message,
-                skip_recent_days: values.skip_recent
-            },
-            callback: function(r) {
-                frappe.msgprint(`Sent ${r.message.sent} reminders, skipped ${r.message.skipped}`);
-                report.refresh();
-            }
-        });
+    function (values) {
+      frappe.call({
+        method: "verenigingen.api.send_bulk_payment_reminders",
+        args: {
+          members: members.map((m) => m.member_name),
+          template: values.template,
+          custom_message: values.custom_message,
+          skip_recent_days: values.skip_recent,
+        },
+        callback: function (r) {
+          frappe.msgprint(
+            `Sent ${r.message.sent} reminders, skipped ${r.message.skipped}`,
+          );
+          report.refresh();
+        },
+      });
     },
-    'Send Bulk Reminders',
-    'Send'
-    );
+    "Send Bulk Reminders",
+    "Send",
+  );
 }
 ```
 
@@ -1295,81 +1323,81 @@ function handle_bulk_reminders(report) {
 
 ```javascript
 function create_payment_plan(member_name) {
-    frappe.call({
-        method: 'verenigingen.api.get_member_outstanding_details',
-        args: { member: member_name },
-        callback: function(r) {
-            let outstanding = r.message.outstanding_amount;
-            let options = r.message.suggested_plans;
+  frappe.call({
+    method: "verenigingen.api.get_member_outstanding_details",
+    args: { member: member_name },
+    callback: function (r) {
+      let outstanding = r.message.outstanding_amount;
+      let options = r.message.suggested_plans;
 
-            let dialog = new frappe.ui.Dialog({
-                title: `Create Payment Plan for ${member_name}`,
-                fields: [
-                    {
-                        fieldname: 'outstanding_display',
-                        fieldtype: 'HTML',
-                        options: `<h4>Outstanding Amount: €${outstanding}</h4>`
-                    },
-                    {
-                        fieldname: 'plan_type',
-                        label: 'Payment Plan Type',
-                        fieldtype: 'Select',
-                        options: options.map(o => o.name).join('\n'),
-                        default: options[0].name,
-                        onchange: function() {
-                            update_plan_preview(dialog, options);
-                        }
-                    },
-                    {
-                        fieldname: 'start_date',
-                        label: 'Start Date',
-                        fieldtype: 'Date',
-                        default: frappe.datetime.get_today()
-                    },
-                    {
-                        fieldname: 'preview',
-                        fieldtype: 'HTML',
-                        label: 'Payment Schedule Preview'
-                    },
-                    {
-                        fieldname: 'notes',
-                        label: 'Notes',
-                        fieldtype: 'Text'
-                    },
-                    {
-                        fieldname: 'send_confirmation',
-                        label: 'Send Confirmation Email',
-                        fieldtype: 'Check',
-                        default: 1
-                    }
-                ],
-                primary_action_label: 'Create Plan',
-                primary_action(values) {
-                    frappe.call({
-                        method: 'verenigingen.api.create_payment_plan',
-                        args: {
-                            member: member_name,
-                            plan_type: values.plan_type,
-                            start_date: values.start_date,
-                            notes: values.notes,
-                            send_confirmation: values.send_confirmation
-                        },
-                        callback: function(r) {
-                            dialog.hide();
-                            frappe.show_alert({
-                                message: 'Payment plan created successfully',
-                                indicator: 'green'
-                            });
-                            frappe.set_route('Form', 'Member Payment Plan', r.message);
-                        }
-                    });
-                }
-            });
+      let dialog = new frappe.ui.Dialog({
+        title: `Create Payment Plan for ${member_name}`,
+        fields: [
+          {
+            fieldname: "outstanding_display",
+            fieldtype: "HTML",
+            options: `<h4>Outstanding Amount: €${outstanding}</h4>`,
+          },
+          {
+            fieldname: "plan_type",
+            label: "Payment Plan Type",
+            fieldtype: "Select",
+            options: options.map((o) => o.name).join("\n"),
+            default: options[0].name,
+            onchange: function () {
+              update_plan_preview(dialog, options);
+            },
+          },
+          {
+            fieldname: "start_date",
+            label: "Start Date",
+            fieldtype: "Date",
+            default: frappe.datetime.get_today(),
+          },
+          {
+            fieldname: "preview",
+            fieldtype: "HTML",
+            label: "Payment Schedule Preview",
+          },
+          {
+            fieldname: "notes",
+            label: "Notes",
+            fieldtype: "Text",
+          },
+          {
+            fieldname: "send_confirmation",
+            label: "Send Confirmation Email",
+            fieldtype: "Check",
+            default: 1,
+          },
+        ],
+        primary_action_label: "Create Plan",
+        primary_action(values) {
+          frappe.call({
+            method: "verenigingen.api.create_payment_plan",
+            args: {
+              member: member_name,
+              plan_type: values.plan_type,
+              start_date: values.start_date,
+              notes: values.notes,
+              send_confirmation: values.send_confirmation,
+            },
+            callback: function (r) {
+              dialog.hide();
+              frappe.show_alert({
+                message: "Payment plan created successfully",
+                indicator: "green",
+              });
+              frappe.set_route("Form", "Member Payment Plan", r.message);
+            },
+          });
+        },
+      });
 
-            dialog.show();
-            update_plan_preview(dialog, options);
-        }
-    });
+      dialog.show();
+      update_plan_preview(dialog, options);
+    },
+  });
 }
 ```
 
@@ -2274,18 +2302,21 @@ def validate_migration_completeness():
 # Daily Dues Management Checklist
 
 ## Morning (9 AM)
+
 - [ ] Review overnight invoice generation report
 - [ ] Check for failed invoice generations
 - [ ] Review critical overdue accounts (>60 days)
 - [ ] Process any pending payment plan requests
 
 ## Afternoon (2 PM)
+
 - [ ] Review payment notifications queue
 - [ ] Handle member inquiries about dues
 - [ ] Process manual adjustments/corrections
 - [ ] Update payment plans as needed
 
 ## End of Day (5 PM)
+
 - [ ] Verify tomorrow's invoice generation queue
 - [ ] Review suspension candidates
 - [ ] Check system health dashboard
@@ -2335,6 +2366,7 @@ def month_end_dues_reconciliation():
 # Exception Handling Guide
 
 ## Member Claims Non-Receipt of Invoice
+
 1. Check Email Queue for delivery status
 2. Verify email address on file
 3. Check spam folder instructions
@@ -2342,6 +2374,7 @@ def month_end_dues_reconciliation():
 5. Update communication preferences if needed
 
 ## Payment Plan Default
+
 1. Check if payment was attempted
 2. Review bank rejection reasons
 3. Contact member within 48 hours
@@ -2349,6 +2382,7 @@ def month_end_dues_reconciliation():
 5. Document all communications
 
 ## System Errors
+
 1. Check error logs for details
 2. Verify schedule configuration
 3. Run manual invoice generation if needed
@@ -2356,6 +2390,7 @@ def month_end_dues_reconciliation():
 5. Update affected members on resolution
 
 ## Disputed Charges
+
 1. Review membership history
 2. Verify invoice accuracy
 3. Check for system errors
@@ -3352,29 +3387,30 @@ def apply_report_permissions(report_name, data, user):
 ```javascript
 // Dynamic column visibility based on permissions
 frappe.query_reports["Overdue Member Payments"] = {
-    onload: function(report) {
-        frappe.call({
-            method: 'verenigingen.api.get_user_financial_access_level',
-            callback: function(r) {
-                const access_level = r.message;
+  onload: function (report) {
+    frappe.call({
+      method: "verenigingen.api.get_user_financial_access_level",
+      callback: function (r) {
+        const access_level = r.message;
 
-                // Hide financial columns for limited access
-                if (access_level === 'limited') {
-                    report.columns = report.columns.filter(col =>
-                        !['total_overdue', 'outstanding_amount'].includes(col.fieldname)
-                    );
-                    report.refresh();
-                }
+        // Hide financial columns for limited access
+        if (access_level === "limited") {
+          report.columns = report.columns.filter(
+            (col) =>
+              !["total_overdue", "outstanding_amount"].includes(col.fieldname),
+          );
+          report.refresh();
+        }
 
-                // Add appropriate action buttons
-                if (access_level === 'full' || access_level === 'chapter') {
-                    report.page.add_inner_button(__("Financial Actions"), function() {
-                        show_financial_actions_menu(report, access_level);
-                    });
-                }
-            }
-        });
-    }
+        // Add appropriate action buttons
+        if (access_level === "full" || access_level === "chapter") {
+          report.page.add_inner_button(__("Financial Actions"), function () {
+            show_financial_actions_menu(report, access_level);
+          });
+        }
+      },
+    });
+  },
 };
 ```
 
@@ -3510,7 +3546,7 @@ class ChapterRole(Document):
 
 2. **Data Masking**
    - Bank account numbers partially hidden
-   - IBAN shown as NL**TEST****6789
+   - IBAN shown as NL**TEST\*\***6789
    - Full details only for authorized users
 
 3. **Access Logging**
@@ -3534,6 +3570,7 @@ class ChapterRole(Document):
 ## Summary
 
 The access control system ensures that:
+
 - **National board members** and **administrators** have full visibility for organizational oversight
 - **Chapter board members with finance access** can effectively manage their chapter's financial health
 - **Chapter board members without finance access** can see member status without sensitive financial details

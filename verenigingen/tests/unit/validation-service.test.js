@@ -76,12 +76,17 @@ describe('Validation Service - Standalone Utilities', () => {
 	const getPatternErrorMessage = (fieldName) => {
 		const messages = {
 			email: 'Please enter a valid email address',
-			firstName: 'Name can only contain letters, spaces, hyphens, and apostrophes',
-			lastName: 'Name can only contain letters, spaces, hyphens, and apostrophes',
+			firstName:
+        'Name can only contain letters, spaces, hyphens, and apostrophes',
+			lastName:
+        'Name can only contain letters, spaces, hyphens, and apostrophes',
 			phone: 'Please enter a valid phone number',
 			city: 'City name can only contain letters, spaces, hyphens, and apostrophes'
 		};
-		return messages[fieldName] || `Please enter a valid ${getFieldLabel(fieldName).toLowerCase()}`;
+		return (
+			messages[fieldName]
+      || `Please enter a valid ${getFieldLabel(fieldName).toLowerCase()}`
+		);
 	};
 
 	const getStepFields = (stepNumber) => {
@@ -103,7 +108,7 @@ describe('Validation Service - Standalone Utilities', () => {
 			warnings: 0
 		};
 
-		Object.values(results).forEach(result => {
+		Object.values(results).forEach((result) => {
 			if (result.valid) {
 				summary.valid++;
 				if (result.warning) {
@@ -189,12 +194,16 @@ describe('Validation Service - Standalone Utilities', () => {
 
 			test('should return helpful first name error message', () => {
 				const message = getPatternErrorMessage('firstName');
-				expect(message).toBe('Name can only contain letters, spaces, hyphens, and apostrophes');
+				expect(message).toBe(
+					'Name can only contain letters, spaces, hyphens, and apostrophes'
+				);
 			});
 
 			test('should return helpful last name error message', () => {
 				const message = getPatternErrorMessage('lastName');
-				expect(message).toBe('Name can only contain letters, spaces, hyphens, and apostrophes');
+				expect(message).toBe(
+					'Name can only contain letters, spaces, hyphens, and apostrophes'
+				);
 			});
 
 			test('should return helpful phone error message', () => {
@@ -204,7 +213,9 @@ describe('Validation Service - Standalone Utilities', () => {
 
 			test('should return helpful city error message', () => {
 				const message = getPatternErrorMessage('city');
-				expect(message).toBe('City name can only contain letters, spaces, hyphens, and apostrophes');
+				expect(message).toBe(
+					'City name can only contain letters, spaces, hyphens, and apostrophes'
+				);
 			});
 		});
 

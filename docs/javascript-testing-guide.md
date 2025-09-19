@@ -17,6 +17,7 @@ This guide is part of a comprehensive JavaScript testing documentation set:
 ## Test Structure
 
 ### Unit Tests
+
 Located in `/tests/unit/`, these test individual form components in isolation:
 
 - `chapter-form.spec.js` - Tests for Chapter doctype JavaScript
@@ -25,6 +26,7 @@ Located in `/tests/unit/`, these test individual form components in isolation:
 - `volunteer-form.spec.js` - Tests for Volunteer doctype JavaScript
 
 ### Integration Tests
+
 Located in `/tests/integration/`, these test interactions between doctypes:
 
 - `test_doctype_js_integration.js` - Cross-doctype workflow tests
@@ -32,17 +34,20 @@ Located in `/tests/integration/`, these test interactions between doctypes:
 ## Running Tests
 
 ### Install Dependencies
+
 ```bash
 cd /home/frappe/frappe-bench/apps/verenigingen
 npm install --save-dev jest @types/jest jest-environment-jsdom
 ```
 
 ### Run All Tests
+
 ```bash
 node tests/run-js-tests.js
 ```
 
 ### Run Specific Test Suites
+
 ```bash
 # Run only unit tests
 node tests/run-js-tests.js unit
@@ -58,6 +63,7 @@ node tests/run-js-tests.js membership
 ```
 
 ### Run with Coverage
+
 ```bash
 npx jest --coverage
 ```
@@ -65,6 +71,7 @@ npx jest --coverage
 ## Test Coverage Areas
 
 ### 1. Chapter Form Tests
+
 - **Board Member Management**
   - Adding/removing board members
   - Date validation for terms
@@ -81,6 +88,7 @@ npx jest --coverage
   - Profile creation
 
 ### 2. Member Form Tests
+
 - **IBAN Validation**
   - Mod-97 checksum validation
   - BIC auto-derivation
@@ -107,6 +115,7 @@ npx jest --coverage
   - Status transitions
 
 ### 3. Membership Form Tests
+
 - **Type Selection**
   - Amount updates
   - Custom amounts
@@ -120,6 +129,7 @@ npx jest --coverage
   - Payment method handling
 
 ### 4. Volunteer Form Tests
+
 - **Member Integration**
   - Data inheritance
   - Email generation
@@ -141,6 +151,7 @@ npx jest --coverage
   - Export functionality
 
 ### 5. Integration Tests
+
 - **Cross-Doctype Workflows**
   - Member → Chapter assignment
   - Member → Volunteer creation
@@ -157,130 +168,149 @@ npx jest --coverage
 ## Writing New Tests
 
 ### Test Structure Template
+
 ```javascript
-describe('Feature Name', () => {
-    let frm;
-    let frappe;
+describe("Feature Name", () => {
+  let frm;
+  let frappe;
 
-    beforeEach(() => {
-        // Set up mocks
-        frappe = {
-            call: jest.fn(),
-            msgprint: jest.fn(),
-            // ... other mocks
-        };
+  beforeEach(() => {
+    // Set up mocks
+    frappe = {
+      call: jest.fn(),
+      msgprint: jest.fn(),
+      // ... other mocks
+    };
 
-        frm = {
-            doc: { /* test data */ },
-            set_value: jest.fn(),
-            // ... other form methods
-        };
+    frm = {
+      doc: {
+        /* test data */
+      },
+      set_value: jest.fn(),
+      // ... other form methods
+    };
+  });
+
+  it("should do something specific", async () => {
+    // Arrange
+    frappe.call.mockResolvedValue({
+      message: {
+        /* expected response */
+      },
     });
 
-    it('should do something specific', async () => {
-        // Arrange
-        frappe.call.mockResolvedValue({
-            message: { /* expected response */ }
-        });
+    // Act
+    await functionToTest(frm);
 
-        // Act
-        await functionToTest(frm);
-
-        // Assert
-        expect(frappe.call).toHaveBeenCalledWith(
-            expect.objectContaining({ /* expected args */ })
-        );
-    });
+    // Assert
+    expect(frappe.call).toHaveBeenCalledWith(
+      expect.objectContaining({
+        /* expected args */
+      }),
+    );
+  });
 });
 ```
 
 ### Mocking Best Practices
 
 1. **Mock Frappe Framework**
+
 ```javascript
 global.frappe = {
-    call: jest.fn(),
-    model: {
-        set_value: jest.fn(),
-        get_value: jest.fn()
-    },
-    datetime: {
-        get_today: jest.fn(() => '2024-01-01')
-    }
+  call: jest.fn(),
+  model: {
+    set_value: jest.fn(),
+    get_value: jest.fn(),
+  },
+  datetime: {
+    get_today: jest.fn(() => "2024-01-01"),
+  },
 };
 ```
 
 2. **Mock Form Object**
+
 ```javascript
 const frm = {
-    doc: { /* document data */ },
-    fields_dict: { /* field references */ },
-    set_value: jest.fn(),
-    add_custom_button: jest.fn()
+  doc: {
+    /* document data */
+  },
+  fields_dict: {
+    /* field references */
+  },
+  set_value: jest.fn(),
+  add_custom_button: jest.fn(),
 };
 ```
 
 3. **Mock jQuery**
+
 ```javascript
 global.$ = jest.fn(() => ({
-    html: jest.fn(),
-    on: jest.fn(),
-    find: jest.fn().mockReturnThis()
+  html: jest.fn(),
+  on: jest.fn(),
+  find: jest.fn().mockReturnThis(),
 }));
 ```
 
 ## Common Testing Patterns
 
 ### 1. Testing Async Operations
+
 ```javascript
-it('should handle async call', async () => {
-    frappe.call.mockResolvedValue({
-        message: { success: true }
-    });
+it("should handle async call", async () => {
+  frappe.call.mockResolvedValue({
+    message: { success: true },
+  });
 
-    await someAsyncFunction();
+  await someAsyncFunction();
 
-    expect(frappe.call).toHaveBeenCalled();
+  expect(frappe.call).toHaveBeenCalled();
 });
 ```
 
 ### 2. Testing Validation
+
 ```javascript
-it('should validate input', () => {
-    expect(() => {
-        validateFunction('invalid input');
-    }).toThrow('Expected error message');
+it("should validate input", () => {
+  expect(() => {
+    validateFunction("invalid input");
+  }).toThrow("Expected error message");
 });
 ```
 
 ### 3. Testing UI Updates
+
 ```javascript
-it('should update UI element', () => {
-    const mockElement = { html: jest.fn() };
-    $.mockReturnValue(mockElement);
+it("should update UI element", () => {
+  const mockElement = { html: jest.fn() };
+  $.mockReturnValue(mockElement);
 
-    updateUIFunction();
+  updateUIFunction();
 
-    expect(mockElement.html).toHaveBeenCalledWith(
-        expect.stringContaining('expected content')
-    );
+  expect(mockElement.html).toHaveBeenCalledWith(
+    expect.stringContaining("expected content"),
+  );
 });
 ```
 
 ### 4. Testing Event Handlers
+
 ```javascript
-it('should handle field change', () => {
-    frm.doc.field_name = 'new value';
+it("should handle field change", () => {
+  frm.doc.field_name = "new value";
 
-    formEvents.field_name(frm);
+  formEvents.field_name(frm);
 
-    expect(frm.set_value).toHaveBeenCalled();
+  expect(frm.set_value).toHaveBeenCalled();
 });
 ```
 
 ## Debugging Tests
 
 ### View Test Output
+
 ```bash
 # Verbose output
 npx jest --verbose
@@ -348,15 +378,21 @@ When adding new features:
 ## Next Steps
 
 ### For Infrastructure Setup
+
 If you need to set up testing infrastructure or CI/CD pipelines, see:
+
 - **[JavaScript Testing Infrastructure](testing/javascript-testing-guide.md)** - Jest/Cypress setup, GitHub Actions, coverage reporting
 
 ### For Strategic Context
+
 To understand our testing philosophy and performance requirements, see:
+
 - **[Testing Strategy Overview](testing-strategy.md)** - Coverage goals, performance benchmarks, testing categories
 
 ### For Navigation Help
+
 If you're looking for different testing documentation, see:
+
 - **[JavaScript Testing Index](testing/javascript-testing-index.md)** - Quick navigation to all JavaScript testing guides
 
 ## Resources

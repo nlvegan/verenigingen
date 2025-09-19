@@ -316,115 +316,123 @@ class RealtimeSecurityMonitor:
 ```html
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Security Monitoring Dashboard</title>
-    <link rel="stylesheet" href="/assets/verenigingen/css/security_dashboard.css">
+    <link
+      rel="stylesheet"
+      href="/assets/verenigingen/css/security_dashboard.css"
+    />
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-</head>
-<body>
+  </head>
+  <body>
     <div class="security-dashboard">
-        <!-- Dashboard Header -->
-        <header class="dashboard-header">
-            <h1>Security Monitoring Dashboard</h1>
-            <div class="last-updated">
-                Last Updated: <span id="last-updated-time">Loading...</span>
-            </div>
-        </header>
+      <!-- Dashboard Header -->
+      <header class="dashboard-header">
+        <h1>Security Monitoring Dashboard</h1>
+        <div class="last-updated">
+          Last Updated: <span id="last-updated-time">Loading...</span>
+        </div>
+      </header>
 
-        <!-- Security Score Section -->
-        <section class="security-score-section">
-            <div class="score-widget">
-                <h2>Security Score</h2>
-                <div class="score-display">
-                    <div class="score-circle" id="security-score-circle">
-                        <span class="score-value" id="security-score-value">--</span>
-                        <span class="score-grade" id="security-score-grade">-</span>
-                    </div>
-                </div>
-                <div class="score-breakdown" id="score-breakdown">
-                    <!-- Score breakdown will be populated by JavaScript -->
-                </div>
+      <!-- Security Score Section -->
+      <section class="security-score-section">
+        <div class="score-widget">
+          <h2>Security Score</h2>
+          <div class="score-display">
+            <div class="score-circle" id="security-score-circle">
+              <span class="score-value" id="security-score-value">--</span>
+              <span class="score-grade" id="security-score-grade">-</span>
             </div>
-        </section>
+          </div>
+          <div class="score-breakdown" id="score-breakdown">
+            <!-- Score breakdown will be populated by JavaScript -->
+          </div>
+        </div>
+      </section>
 
-        <!-- Main Metrics Grid -->
-        <div class="metrics-grid">
-            <!-- API Coverage Widget -->
-            <div class="metric-widget api-coverage">
-                <h3>API Security Coverage</h3>
-                <div class="coverage-display">
-                    <div class="progress-ring" id="coverage-ring">
-                        <span class="coverage-percentage" id="coverage-percentage">--</span>
-                    </div>
-                    <div class="coverage-details">
-                        <p><span id="secured-apis">--</span> of <span id="total-apis">--</span> APIs secured</p>
-                        <p class="coverage-target">Target: 75%</p>
-                    </div>
-                </div>
+      <!-- Main Metrics Grid -->
+      <div class="metrics-grid">
+        <!-- API Coverage Widget -->
+        <div class="metric-widget api-coverage">
+          <h3>API Security Coverage</h3>
+          <div class="coverage-display">
+            <div class="progress-ring" id="coverage-ring">
+              <span class="coverage-percentage" id="coverage-percentage"
+                >--</span
+              >
             </div>
-
-            <!-- Active Incidents Widget -->
-            <div class="metric-widget incidents">
-                <h3>Security Incidents</h3>
-                <div class="incident-display">
-                    <div class="incident-count" id="active-incidents">--</div>
-                    <div class="incident-label">Active Incidents</div>
-                    <div class="incident-history">
-                        <span id="resolved-24h">--</span> resolved in last 24h
-                    </div>
-                </div>
+            <div class="coverage-details">
+              <p>
+                <span id="secured-apis">--</span> of
+                <span id="total-apis">--</span> APIs secured
+              </p>
+              <p class="coverage-target">Target: 75%</p>
             </div>
-
-            <!-- Performance Widget -->
-            <div class="metric-widget performance">
-                <h3>Security Performance</h3>
-                <div class="performance-display">
-                    <div class="performance-metric">
-                        <span class="metric-value" id="avg-overhead">--</span>
-                        <span class="metric-unit">ms avg</span>
-                    </div>
-                    <div class="performance-trend" id="performance-trend">
-                        <!-- Trend indicator -->
-                    </div>
-                </div>
-            </div>
-
-            <!-- Compliance Widget -->
-            <div class="metric-widget compliance">
-                <h3>Compliance Status</h3>
-                <div class="compliance-display">
-                    <div class="compliance-items" id="compliance-items">
-                        <!-- Compliance status items -->
-                    </div>
-                </div>
-            </div>
+          </div>
         </div>
 
-        <!-- Charts Section -->
-        <div class="charts-section">
-            <div class="chart-container">
-                <h3>Security Trends</h3>
-                <canvas id="security-trends-chart"></canvas>
+        <!-- Active Incidents Widget -->
+        <div class="metric-widget incidents">
+          <h3>Security Incidents</h3>
+          <div class="incident-display">
+            <div class="incident-count" id="active-incidents">--</div>
+            <div class="incident-label">Active Incidents</div>
+            <div class="incident-history">
+              <span id="resolved-24h">--</span> resolved in last 24h
             </div>
-            <div class="chart-container">
-                <h3>Incident History</h3>
-                <canvas id="incident-history-chart"></canvas>
-            </div>
+          </div>
         </div>
 
-        <!-- Recent Activity Section -->
-        <section class="recent-activity">
-            <h3>Recent Security Activity</h3>
-            <div class="activity-list" id="activity-list">
-                <!-- Activity items will be populated by JavaScript -->
+        <!-- Performance Widget -->
+        <div class="metric-widget performance">
+          <h3>Security Performance</h3>
+          <div class="performance-display">
+            <div class="performance-metric">
+              <span class="metric-value" id="avg-overhead">--</span>
+              <span class="metric-unit">ms avg</span>
             </div>
-        </section>
+            <div class="performance-trend" id="performance-trend">
+              <!-- Trend indicator -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Compliance Widget -->
+        <div class="metric-widget compliance">
+          <h3>Compliance Status</h3>
+          <div class="compliance-display">
+            <div class="compliance-items" id="compliance-items">
+              <!-- Compliance status items -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Charts Section -->
+      <div class="charts-section">
+        <div class="chart-container">
+          <h3>Security Trends</h3>
+          <canvas id="security-trends-chart"></canvas>
+        </div>
+        <div class="chart-container">
+          <h3>Incident History</h3>
+          <canvas id="incident-history-chart"></canvas>
+        </div>
+      </div>
+
+      <!-- Recent Activity Section -->
+      <section class="recent-activity">
+        <h3>Recent Security Activity</h3>
+        <div class="activity-list" id="activity-list">
+          <!-- Activity items will be populated by JavaScript -->
+        </div>
+      </section>
     </div>
 
     <script src="/assets/verenigingen/js/security_dashboard.js"></script>
-</body>
+  </body>
 </html>
 ```
 
@@ -439,115 +447,118 @@ class RealtimeSecurityMonitor:
  */
 
 class SecurityDashboard {
-    constructor() {
-        this.websocket = null;
-        this.charts = {};
-        this.refreshInterval = 30000; // 30 seconds
-        this.init();
+  constructor() {
+    this.websocket = null;
+    this.charts = {};
+    this.refreshInterval = 30000; // 30 seconds
+    this.init();
+  }
+
+  init() {
+    this.setupWebSocket();
+    this.loadInitialData();
+    this.setupAutoRefresh();
+    this.setupEventListeners();
+  }
+
+  setupWebSocket() {
+    // Setup WebSocket connection for real-time updates
+    if (window.frappe && frappe.realtime) {
+      frappe.realtime.on("security_update_score", (data) => {
+        this.updateSecurityScore(data.data);
+      });
+
+      frappe.realtime.on("security_update_coverage", (data) => {
+        this.updateCoverageStats(data.data);
+      });
+
+      frappe.realtime.on("security_incident", (data) => {
+        this.handleSecurityIncident(data.incident);
+      });
+
+      frappe.realtime.on("performance_alert", (data) => {
+        this.handlePerformanceAlert(data.alert);
+      });
+    }
+  }
+
+  async loadInitialData() {
+    try {
+      const response = await frappe.call({
+        method:
+          "verenigingen.api.security_dashboard.get_security_dashboard_overview",
+      });
+
+      if (response.message.success) {
+        this.updateDashboard(response.message.data);
+      }
+    } catch (error) {
+      console.error("Failed to load dashboard data:", error);
+      this.showError("Failed to load security dashboard data");
+    }
+  }
+
+  updateDashboard(data) {
+    this.updateSecurityScore(data.security_score);
+    this.updateCoverageStats(data.api_coverage);
+    this.updatePerformanceMetrics(data.performance_metrics);
+    this.updateThreatSummary(data.threat_summary);
+    this.updateComplianceStatus(data.compliance_status);
+    this.updateLastUpdated(data.last_updated);
+  }
+
+  updateSecurityScore(scoreData) {
+    const scoreValue = document.getElementById("security-score-value");
+    const scoreGrade = document.getElementById("security-score-grade");
+    const scoreBreakdown = document.getElementById("score-breakdown");
+
+    if (scoreValue) scoreValue.textContent = scoreData.overall_score;
+    if (scoreGrade) scoreGrade.textContent = scoreData.grade;
+
+    // Update score circle color based on grade
+    const scoreCircle = document.getElementById("security-score-circle");
+    if (scoreCircle) {
+      scoreCircle.className = `score-circle grade-${scoreData.grade.toLowerCase()}`;
     }
 
-    init() {
-        this.setupWebSocket();
-        this.loadInitialData();
-        this.setupAutoRefresh();
-        this.setupEventListeners();
-    }
-
-    setupWebSocket() {
-        // Setup WebSocket connection for real-time updates
-        if (window.frappe && frappe.realtime) {
-            frappe.realtime.on("security_update_score", (data) => {
-                this.updateSecurityScore(data.data);
-            });
-
-            frappe.realtime.on("security_update_coverage", (data) => {
-                this.updateCoverageStats(data.data);
-            });
-
-            frappe.realtime.on("security_incident", (data) => {
-                this.handleSecurityIncident(data.incident);
-            });
-
-            frappe.realtime.on("performance_alert", (data) => {
-                this.handlePerformanceAlert(data.alert);
-            });
-        }
-    }
-
-    async loadInitialData() {
-        try {
-            const response = await frappe.call({
-                method: "verenigingen.api.security_dashboard.get_security_dashboard_overview"
-            });
-
-            if (response.message.success) {
-                this.updateDashboard(response.message.data);
-            }
-        } catch (error) {
-            console.error("Failed to load dashboard data:", error);
-            this.showError("Failed to load security dashboard data");
-        }
-    }
-
-    updateDashboard(data) {
-        this.updateSecurityScore(data.security_score);
-        this.updateCoverageStats(data.api_coverage);
-        this.updatePerformanceMetrics(data.performance_metrics);
-        this.updateThreatSummary(data.threat_summary);
-        this.updateComplianceStatus(data.compliance_status);
-        this.updateLastUpdated(data.last_updated);
-    }
-
-    updateSecurityScore(scoreData) {
-        const scoreValue = document.getElementById('security-score-value');
-        const scoreGrade = document.getElementById('security-score-grade');
-        const scoreBreakdown = document.getElementById('score-breakdown');
-
-        if (scoreValue) scoreValue.textContent = scoreData.overall_score;
-        if (scoreGrade) scoreGrade.textContent = scoreData.grade;
-
-        // Update score circle color based on grade
-        const scoreCircle = document.getElementById('security-score-circle');
-        if (scoreCircle) {
-            scoreCircle.className = `score-circle grade-${scoreData.grade.toLowerCase()}`;
-        }
-
-        // Update score breakdown
-        if (scoreBreakdown && scoreData.component_scores) {
-            scoreBreakdown.innerHTML = Object.entries(scoreData.component_scores)
-                .map(([component, score]) =>
-                    `<div class="score-component">
+    // Update score breakdown
+    if (scoreBreakdown && scoreData.component_scores) {
+      scoreBreakdown.innerHTML = Object.entries(scoreData.component_scores)
+        .map(
+          ([component, score]) =>
+            `<div class="score-component">
                         <span class="component-name">${this.formatComponentName(component)}</span>
                         <span class="component-score">${score}</span>
-                    </div>`
-                ).join('');
-        }
+                    </div>`,
+        )
+        .join("");
     }
+  }
 
-    updateCoverageStats(coverageData) {
-        const coveragePercentage = document.getElementById('coverage-percentage');
-        const securedApis = document.getElementById('secured-apis');
-        const totalApis = document.getElementById('total-apis');
+  updateCoverageStats(coverageData) {
+    const coveragePercentage = document.getElementById("coverage-percentage");
+    const securedApis = document.getElementById("secured-apis");
+    const totalApis = document.getElementById("total-apis");
 
-        if (coveragePercentage) {
-            coveragePercentage.textContent = `${coverageData.coverage_percentage}%`;
-        }
-        if (securedApis) securedApis.textContent = coverageData.secured_apis;
-        if (totalApis) totalApis.textContent = coverageData.total_apis;
-
-        // Update coverage ring visual
-        this.updateCoverageRing(coverageData.coverage_percentage);
+    if (coveragePercentage) {
+      coveragePercentage.textContent = `${coverageData.coverage_percentage}%`;
     }
+    if (securedApis) securedApis.textContent = coverageData.secured_apis;
+    if (totalApis) totalApis.textContent = coverageData.total_apis;
 
-    updateCoverageRing(percentage) {
-        const ring = document.getElementById('coverage-ring');
-        if (ring) {
-            const circumference = 2 * Math.PI * 45; // radius = 45
-            const strokeDasharray = `${(percentage / 100) * circumference} ${circumference}`;
+    // Update coverage ring visual
+    this.updateCoverageRing(coverageData.coverage_percentage);
+  }
 
-            // Create or update SVG ring
-            if (!ring.querySelector('svg')) {
-                ring.innerHTML = `
+  updateCoverageRing(percentage) {
+    const ring = document.getElementById("coverage-ring");
+    if (ring) {
+      const circumference = 2 * Math.PI * 45; // radius = 45
+      const strokeDasharray = `${(percentage / 100) * circumference} ${circumference}`;
+
+      // Create or update SVG ring
+      if (!ring.querySelector("svg")) {
+        ring.innerHTML = `
                     <svg width="120" height="120" class="coverage-ring-svg">
                         <circle cx="60" cy="60" r="45" stroke="#e5e7eb" stroke-width="8" fill="none"/>
                         <circle cx="60" cy="60" r="45" stroke="#cf3131" stroke-width="8" fill="none"
@@ -556,89 +567,90 @@ class SecurityDashboard {
                                 transform="rotate(-90 60 60)"/>
                     </svg>
                 `;
-            } else {
-                const progressCircle = ring.querySelector('svg circle:last-child');
-                if (progressCircle) {
-                    progressCircle.setAttribute('stroke-dasharray', strokeDasharray);
-                }
-            }
+      } else {
+        const progressCircle = ring.querySelector("svg circle:last-child");
+        if (progressCircle) {
+          progressCircle.setAttribute("stroke-dasharray", strokeDasharray);
         }
+      }
+    }
+  }
+
+  updatePerformanceMetrics(performanceData) {
+    const avgOverhead = document.getElementById("avg-overhead");
+    const performanceTrend = document.getElementById("performance-trend");
+
+    if (avgOverhead) {
+      avgOverhead.textContent = performanceData.average_overhead_ms;
     }
 
-    updatePerformanceMetrics(performanceData) {
-        const avgOverhead = document.getElementById('avg-overhead');
-        const performanceTrend = document.getElementById('performance-trend');
-
-        if (avgOverhead) {
-            avgOverhead.textContent = performanceData.average_overhead_ms;
-        }
-
-        if (performanceTrend && performanceData.performance_trend) {
-            const trend = performanceData.performance_trend;
-            const isImproving = trend.direction === 'improving';
-            performanceTrend.innerHTML = `
-                <span class="trend-icon ${isImproving ? 'improving' : 'declining'}">
-                    ${isImproving ? '↗️' : '↘️'}
+    if (performanceTrend && performanceData.performance_trend) {
+      const trend = performanceData.performance_trend;
+      const isImproving = trend.direction === "improving";
+      performanceTrend.innerHTML = `
+                <span class="trend-icon ${isImproving ? "improving" : "declining"}">
+                    ${isImproving ? "↗️" : "↘️"}
                 </span>
                 <span class="trend-value">${trend.change}ms from last week</span>
             `;
-        }
     }
+  }
 
-    handleSecurityIncident(incident) {
-        // Show real-time incident notification
-        this.showNotification(`Security Incident: ${incident.type}`, 'warning');
+  handleSecurityIncident(incident) {
+    // Show real-time incident notification
+    this.showNotification(`Security Incident: ${incident.type}`, "warning");
 
-        // Update active incidents count
-        const activeIncidents = document.getElementById('active-incidents');
-        if (activeIncidents) {
-            const currentCount = parseInt(activeIncidents.textContent) || 0;
-            activeIncidents.textContent = currentCount + 1;
-        }
+    // Update active incidents count
+    const activeIncidents = document.getElementById("active-incidents");
+    if (activeIncidents) {
+      const currentCount = parseInt(activeIncidents.textContent) || 0;
+      activeIncidents.textContent = currentCount + 1;
     }
+  }
 
-    handlePerformanceAlert(alert) {
-        this.showNotification(`Performance Alert: ${alert.message}`, 'warning');
-    }
+  handlePerformanceAlert(alert) {
+    this.showNotification(`Performance Alert: ${alert.message}`, "warning");
+  }
 
-    showNotification(message, type = 'info') {
-        // Create and show notification
-        const notification = document.createElement('div');
-        notification.className = `notification notification-${type}`;
-        notification.innerHTML = `
+  showNotification(message, type = "info") {
+    // Create and show notification
+    const notification = document.createElement("div");
+    notification.className = `notification notification-${type}`;
+    notification.innerHTML = `
             <span class="notification-message">${message}</span>
             <button class="notification-close" onclick="this.parentElement.remove()">×</button>
         `;
 
-        document.body.appendChild(notification);
+    document.body.appendChild(notification);
 
-        // Auto-remove after 5 seconds
-        setTimeout(() => {
-            if (notification.parentElement) {
-                notification.remove();
-            }
-        }, 5000);
-    }
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+      if (notification.parentElement) {
+        notification.remove();
+      }
+    }, 5000);
+  }
 
-    formatComponentName(component) {
-        return component.replace(/_/g, ' ')
-                       .replace(/\b\w/g, l => l.toUpperCase());
-    }
+  formatComponentName(component) {
+    return component
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (l) => l.toUpperCase());
+  }
 
-    setupAutoRefresh() {
-        setInterval(() => {
-            this.loadInitialData();
-        }, this.refreshInterval);
-    }
+  setupAutoRefresh() {
+    setInterval(() => {
+      this.loadInitialData();
+    }, this.refreshInterval);
+  }
 
-    setupEventListeners() {
-        // Setup any additional event listeners for user interactions
-    }
+  setupEventListeners() {
+    // Setup any additional event listeners for user interactions
+  }
 }
 
 // Initialize dashboard when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-    new SecurityDashboard();
+document.addEventListener("DOMContentLoaded", () => {
+  new SecurityDashboard();
 });
 ```
 
@@ -653,319 +665,330 @@ document.addEventListener('DOMContentLoaded', () => {
  */
 
 .security-dashboard {
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 20px;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 /* Dashboard Header */
 .dashboard-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 30px;
-    padding-bottom: 15px;
-    border-bottom: 2px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #e5e7eb;
 }
 
 .dashboard-header h1 {
-    color: #cf3131;
-    font-size: 2.5rem;
-    font-weight: 600;
-    margin: 0;
+  color: #cf3131;
+  font-size: 2.5rem;
+  font-weight: 600;
+  margin: 0;
 }
 
 .last-updated {
-    color: #6b7280;
-    font-size: 0.9rem;
+  color: #6b7280;
+  font-size: 0.9rem;
 }
 
 /* Security Score Section */
 .security-score-section {
-    margin-bottom: 30px;
+  margin-bottom: 30px;
 }
 
 .score-widget {
-    background: linear-gradient(135deg, #cf3131, #01796f);
-    color: white;
-    padding: 30px;
-    border-radius: 15px;
-    box-shadow: 0 10px 30px rgba(207, 49, 49, 0.3);
+  background: linear-gradient(135deg, #cf3131, #01796f);
+  color: white;
+  padding: 30px;
+  border-radius: 15px;
+  box-shadow: 0 10px 30px rgba(207, 49, 49, 0.3);
 }
 
 .score-display {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
 }
 
 .score-circle {
-    width: 150px;
-    height: 150px;
-    border: 8px solid rgba(255, 255, 255, 0.3);
-    border-radius: 50%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    position: relative;
+  width: 150px;
+  height: 150px;
+  border: 8px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
 }
 
-.score-circle.grade-a { border-color: #10b981; }
-.score-circle.grade-b { border-color: #3b82f6; }
-.score-circle.grade-c { border-color: #f59e0b; }
-.score-circle.grade-d { border-color: #ef4444; }
-.score-circle.grade-f { border-color: #dc2626; }
+.score-circle.grade-a {
+  border-color: #10b981;
+}
+.score-circle.grade-b {
+  border-color: #3b82f6;
+}
+.score-circle.grade-c {
+  border-color: #f59e0b;
+}
+.score-circle.grade-d {
+  border-color: #ef4444;
+}
+.score-circle.grade-f {
+  border-color: #dc2626;
+}
 
 .score-value {
-    font-size: 3rem;
-    font-weight: 700;
-    line-height: 1;
+  font-size: 3rem;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .score-grade {
-    font-size: 1.5rem;
-    font-weight: 600;
-    opacity: 0.8;
+  font-size: 1.5rem;
+  font-weight: 600;
+  opacity: 0.8;
 }
 
 .score-breakdown {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 15px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
 }
 
 .score-component {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px 15px;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 15px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
 }
 
 .component-name {
-    font-weight: 500;
+  font-weight: 500;
 }
 
 .component-score {
-    font-weight: 700;
-    font-size: 1.1rem;
+  font-weight: 700;
+  font-size: 1.1rem;
 }
 
 /* Metrics Grid */
 .metrics-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 20px;
-    margin-bottom: 30px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+  margin-bottom: 30px;
 }
 
 .metric-widget {
-    background: white;
-    padding: 25px;
-    border-radius: 12px;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-    border: 1px solid #e5e7eb;
+  background: white;
+  padding: 25px;
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e5e7eb;
 }
 
 .metric-widget h3 {
-    color: #374151;
-    font-size: 1.2rem;
-    font-weight: 600;
-    margin: 0 0 20px 0;
-    padding-bottom: 10px;
-    border-bottom: 2px solid #cf3131;
+  color: #374151;
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin: 0 0 20px 0;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #cf3131;
 }
 
 /* API Coverage Widget */
 .coverage-display {
-    display: flex;
-    align-items: center;
-    gap: 20px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
 }
 
 .progress-ring {
-    position: relative;
-    width: 120px;
-    height: 120px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  position: relative;
+  width: 120px;
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .coverage-percentage {
-    position: absolute;
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: #cf3131;
+  position: absolute;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #cf3131;
 }
 
 .coverage-details p {
-    margin: 5px 0;
-    color: #6b7280;
+  margin: 5px 0;
+  color: #6b7280;
 }
 
 .coverage-target {
-    color: #01796f !important;
-    font-weight: 600;
+  color: #01796f !important;
+  font-weight: 600;
 }
 
 /* Incidents Widget */
 .incident-display {
-    text-align: center;
+  text-align: center;
 }
 
 .incident-count {
-    font-size: 3rem;
-    font-weight: 700;
-    color: #cf3131;
-    line-height: 1;
+  font-size: 3rem;
+  font-weight: 700;
+  color: #cf3131;
+  line-height: 1;
 }
 
 .incident-label {
-    font-size: 1.1rem;
-    color: #6b7280;
-    margin: 10px 0;
+  font-size: 1.1rem;
+  color: #6b7280;
+  margin: 10px 0;
 }
 
 .incident-history {
-    font-size: 0.9rem;
-    color: #01796f;
-    font-weight: 500;
+  font-size: 0.9rem;
+  color: #01796f;
+  font-weight: 500;
 }
 
 /* Performance Widget */
 .performance-display {
-    text-align: center;
+  text-align: center;
 }
 
 .performance-metric {
-    margin-bottom: 15px;
+  margin-bottom: 15px;
 }
 
 .metric-value {
-    font-size: 2.5rem;
-    font-weight: 700;
-    color: #cf3131;
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: #cf3131;
 }
 
 .metric-unit {
-    font-size: 1rem;
-    color: #6b7280;
-    margin-left: 5px;
+  font-size: 1rem;
+  color: #6b7280;
+  margin-left: 5px;
 }
 
 .performance-trend {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
 }
 
 .trend-icon.improving {
-    color: #10b981;
+  color: #10b981;
 }
 
 .trend-icon.declining {
-    color: #ef4444;
+  color: #ef4444;
 }
 
 /* Charts Section */
 .charts-section {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
-    margin-bottom: 30px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 30px;
 }
 
 .chart-container {
-    background: white;
-    padding: 25px;
-    border-radius: 12px;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  background: white;
+  padding: 25px;
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
 }
 
 .chart-container h3 {
-    color: #374151;
-    font-size: 1.2rem;
-    font-weight: 600;
-    margin: 0 0 20px 0;
+  color: #374151;
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin: 0 0 20px 0;
 }
 
 /* Recent Activity */
 .recent-activity {
-    background: white;
-    padding: 25px;
-    border-radius: 12px;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  background: white;
+  padding: 25px;
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
 }
 
 .recent-activity h3 {
-    color: #374151;
-    font-size: 1.2rem;
-    font-weight: 600;
-    margin: 0 0 20px 0;
+  color: #374151;
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin: 0 0 20px 0;
 }
 
 /* Notifications */
 .notification {
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    padding: 15px 20px;
-    border-radius: 8px;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-    z-index: 1000;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    max-width: 400px;
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 15px 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 400px;
 }
 
 .notification-info {
-    background: #3b82f6;
-    color: white;
+  background: #3b82f6;
+  color: white;
 }
 
 .notification-warning {
-    background: #f59e0b;
-    color: white;
+  background: #f59e0b;
+  color: white;
 }
 
 .notification-error {
-    background: #ef4444;
-    color: white;
+  background: #ef4444;
+  color: white;
 }
 
 .notification-close {
-    background: none;
-    border: none;
-    color: inherit;
-    font-size: 1.2rem;
-    cursor: pointer;
-    padding: 0;
-    margin-left: auto;
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0;
+  margin-left: auto;
 }
 
 /* Responsive Design */
 @media (max-width: 768px) {
-    .charts-section {
-        grid-template-columns: 1fr;
-    }
+  .charts-section {
+    grid-template-columns: 1fr;
+  }
 
-    .coverage-display {
-        flex-direction: column;
-        text-align: center;
-    }
+  .coverage-display {
+    flex-direction: column;
+    text-align: center;
+  }
 
-    .dashboard-header {
-        flex-direction: column;
-        gap: 10px;
-        text-align: center;
-    }
+  .dashboard-header {
+    flex-direction: column;
+    gap: 10px;
+    text-align: center;
+  }
 }
 ```
 
@@ -1023,6 +1046,7 @@ frappe.get_doc({
 **URL**: `https://dev.veganisme.net/security_dashboard`
 
 **Required Roles**:
+
 - System Manager
 - Verenigingen Administrator
 - Security Dashboard User

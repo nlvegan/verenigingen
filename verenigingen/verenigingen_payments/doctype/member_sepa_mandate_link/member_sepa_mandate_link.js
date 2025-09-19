@@ -43,7 +43,9 @@ frappe.ui.form.on('Member SEPA Mandate Link', {
 		const row = locals[cdt][cdn];
 
 		if (row.sepa_mandate) {
-			frappe.db.get_value('SEPA Mandate', row.sepa_mandate,
+			frappe.db.get_value(
+				'SEPA Mandate',
+				row.sepa_mandate,
 				['mandate_id', 'status', 'sign_date', 'expiry_date'],
 				(r) => {
 					if (r) {
@@ -65,7 +67,12 @@ frappe.ui.form.on('Member SEPA Mandate Link', {
 			// Unset current on other mandates
 			frm.doc.sepa_mandates.forEach((mandate) => {
 				if (mandate.name !== cdn && mandate.is_current) {
-					frappe.model.set_value(mandate.doctype, mandate.name, 'is_current', 0);
+					frappe.model.set_value(
+						mandate.doctype,
+						mandate.name,
+						'is_current',
+						0
+					);
 				}
 			});
 		}

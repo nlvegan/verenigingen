@@ -7,6 +7,7 @@ This document tracks the reorganization of eBoekhouden documentation from scatte
 ## New Documentation Structure ✅
 
 ### Core Documentation
+
 ```
 docs/eboekhouden/
 ├── README.md                                    # 🆕 Master index and overview
@@ -32,30 +33,36 @@ docs/eboekhouden/
 #### ✅ **Integrated into New Documentation**
 
 **Migration Guide Sources**:
-- `docs/eboekhouden/EBOEKHOUDEN_INTEGRATION_SUMMARY.md` → `migration/migration-guide.md` *(archived)*
+
+- `docs/eboekhouden/EBOEKHOUDEN_INTEGRATION_SUMMARY.md` → `migration/migration-guide.md` _(archived)_
 - `docs/features/eboekhouden-integration.md` → `migration/migration-guide.md`
 - Various scattered migration notes → `migration/migration-guide.md`
 
 **API Reference Sources**:
-- `docs/api/EBOEKHOUDEN_API_GUIDE.md` → `api/api-reference.md` *(updated with current implementation)*
+
+- `docs/api/EBOEKHOUDEN_API_GUIDE.md` → `api/api-reference.md` _(updated with current implementation)_
 - `docs/eboekhouden_api_spec.md` → `api/api-reference.md`
-- `EBOEKHOUDEN_API_ANALYSIS.md` → `api/api-reference.md` *(archived)*
+- `EBOEKHOUDEN_API_ANALYSIS.md` → `api/api-reference.md` _(archived)_
 - Various API function documentation → `api/api-reference.md`
 
 **Configuration Guide Sources**:
+
 - E-Boekhouden Settings documentation → `implementation/configuration.md`
 - Setup instructions from various files → `implementation/configuration.md`
 
 **Stock Account Documentation**:
+
 - `docs/eboekhouden/stock_account_handling.md` → `implementation/stock-accounts.md`
 
 **Project Documentation**:
+
 - `REORGANIZATION_COMPLETE.md` → `project/cleanup-results.md`
 - `docs/archived/completed-implementations/EBOEKHOUDEN_CLEANUP_PLAN.md` → `project/reorganization-2025.md` (archived as completed)
 
 #### 📁 **Files Ready for Archival** (Content Consolidated)
 
 **Implementation Details** (consolidated into new docs):
+
 ```
 verenigingen/docs/eboekhouden_migration_redesign_implemented.md
 verenigingen/docs/eboekhouden_migration_redesign.md
@@ -65,6 +72,7 @@ verenigingen/utils/eboekhouden/eboekhouden_group_documentation.md
 ```
 
 **Analysis and Technical Reports** (consolidated into comprehensive guides):
+
 ```
 docs/eboekhouden/COMPLETE_EBOEKHOUDEN_INVENTORY.md
 docs/eboekhouden/EBOEKHOUDEN_ENHANCED_LOGGING.md
@@ -78,12 +86,14 @@ docs/eboekhouden/EBOEKHOUDEN_ACTIVE_CODE_ANALYSIS.md
 ```
 
 **Planning Documents** (now completed and archived):
+
 ```
 docs/unimplemented-plans/EBOEKHOUDEN_IMPROVEMENT_PLAN.md
 docs/archived/completed-implementations/EBOEKHOUDEN_CLEANUP_PLAN.md (moved to archive as completed)
 ```
 
 **Test Documentation** (development phase complete):
+
 ```
 verenigingen/tests/docs/REORGANIZATION_SUMMARY.md
 ```
@@ -91,6 +101,7 @@ verenigingen/tests/docs/REORGANIZATION_SUMMARY.md
 #### 🔄 **Maintain as Reference** (Specialized Content)
 
 **API Specifications** (external references):
+
 ```
 docs/eboekhouden_api_spec.md → Keep as API spec reference
 ```
@@ -98,6 +109,7 @@ docs/eboekhouden_api_spec.md → Keep as API spec reference
 ## Documentation Quality Improvements
 
 ### ✅ **Standardization Achieved**
+
 - **Consistent formatting**: All documents use standard markdown structure
 - **Cross-references**: Comprehensive linking between related sections
 - **Code examples**: Practical examples for all major functionality
@@ -105,6 +117,7 @@ docs/eboekhouden_api_spec.md → Keep as API spec reference
 - **API documentation**: Comprehensive endpoint reference with examples
 
 ### ✅ **User Experience Enhancements**
+
 - **Quick start guide**: Easy entry point for new users
 - **Progressive detail**: Overview → Guide → Reference structure
 - **Practical examples**: Real-world usage scenarios
@@ -112,6 +125,7 @@ docs/eboekhouden_api_spec.md → Keep as API spec reference
 - **Visual organization**: Clear hierarchy and navigation
 
 ### ✅ **Maintenance Improvements**
+
 - **Single source of truth**: Eliminates duplicate documentation
 - **Organized structure**: Easy to find and update information
 - **Version tracking**: Clear documentation versioning
@@ -120,18 +134,21 @@ docs/eboekhouden_api_spec.md → Keep as API spec reference
 ## Migration Benefits
 
 ### For Developers
+
 - **Single location**: All eBoekhouden documentation in one place
 - **Comprehensive reference**: Complete API and implementation details
 - **Clear examples**: Practical code examples for all functions
 - **Troubleshooting guide**: Solutions to common development issues
 
 ### For Administrators
+
 - **Setup guide**: Complete configuration instructions
 - **Migration process**: Step-by-step migration procedures
 - **Monitoring tools**: Dashboard and health check information
 - **Maintenance procedures**: Regular maintenance and optimization
 
 ### For Users
+
 - **Getting started**: Easy entry point for new users
 - **Feature overview**: Clear explanation of capabilities
 - **Best practices**: Guidance for optimal usage
@@ -140,7 +157,9 @@ docs/eboekhouden_api_spec.md → Keep as API spec reference
 ## Documentation Archival Plan
 
 ### Phase 1: Archive Development Documentation ✅
+
 **COMPLETED August 2025**: Development-phase documents archived to proper structure:
+
 ```bash
 mkdir -p archived_docs/development/eboekhouden/analysis/
 # Moved 12 development analysis files:
@@ -153,7 +172,9 @@ mv docs/eboekhouden/payment_import_assessment.md archived_docs/development/eboek
 ```
 
 ### Phase 2: Archive Implementation History ✅
+
 Preserve implementation documentation:
+
 ```bash
 mkdir -p archived_docs/implementation/
 mv verenigingen/docs/eboekhouden_migration_redesign*.md archived_docs/implementation/
@@ -162,7 +183,9 @@ mv verenigingen/docs/eboekhouden_migration_improvements.md archived_docs/impleme
 ```
 
 ### Phase 3: Archive Planning Documents ✅
+
 Move completed planning documents:
+
 ```bash
 mkdir -p archived_docs/planning/
 mv docs/unimplemented-plans/EBOEKHOUDEN_IMPROVEMENT_PLAN.md archived_docs/planning/
@@ -172,6 +195,7 @@ mv docs/unimplemented-plans/EBOEKHOUDEN_IMPROVEMENT_PLAN.md archived_docs/planni
 ## Validation Checklist
 
 ### ✅ **Documentation Completeness**
+
 - [✓] All major functionality documented
 - [✓] Setup and configuration covered
 - [✓] API reference complete and updated with current implementation
@@ -180,6 +204,7 @@ mv docs/unimplemented-plans/EBOEKHOUDEN_IMPROVEMENT_PLAN.md archived_docs/planni
 - [✓] Best practices included
 
 ### ✅ **August 2025 Update Completed**
+
 - [✓] Development artifacts archived to proper location
 - [✓] API documentation updated to match current implementation
 - [✓] DocType field references verified against JSON files
@@ -188,6 +213,7 @@ mv docs/unimplemented-plans/EBOEKHOUDEN_IMPROVEMENT_PLAN.md archived_docs/planni
 - [✓] Code examples tested and validated
 
 ### ✅ **Cross-Reference Validation**
+
 - [✓] All internal links functional
 - [✓] External references up to date
 - [✓] Code examples tested and current implementation verified
@@ -195,6 +221,7 @@ mv docs/unimplemented-plans/EBOEKHOUDEN_IMPROVEMENT_PLAN.md archived_docs/planni
 - [✓] File paths verified and updated
 
 ### ✅ **User Experience Testing**
+
 - [ ] New user can follow setup guide
 - [ ] Migration guide leads to success
 - [ ] API reference enables integration
@@ -202,6 +229,7 @@ mv docs/unimplemented-plans/EBOEKHOUDEN_IMPROVEMENT_PLAN.md archived_docs/planni
 - [ ] Overall flow is logical
 
 ### ✅ **Maintenance Readiness**
+
 - [ ] Update procedures documented
 - [ ] Version tracking in place
 - [ ] Maintenance responsibilities clear
@@ -210,18 +238,21 @@ mv docs/unimplemented-plans/EBOEKHOUDEN_IMPROVEMENT_PLAN.md archived_docs/planni
 ## Post-Migration Tasks
 
 ### ✅ **Update References**
+
 - Update any remaining references to old documentation locations
 - Verify all internal application links point to new structure
 - Update training materials and user guides
 - Notify stakeholders of new documentation location
 
 ### ✅ **Search Optimization**
+
 - Ensure new documentation is discoverable
 - Update search indexes if applicable
 - Create shortcuts for commonly accessed sections
 - Verify documentation appears in help systems
 
 ### ✅ **Feedback Integration**
+
 - Monitor user feedback on new documentation
 - Track most accessed sections for optimization
 - Identify gaps or improvement opportunities
@@ -230,6 +261,7 @@ mv docs/unimplemented-plans/EBOEKHOUDEN_IMPROVEMENT_PLAN.md archived_docs/planni
 ## Success Metrics
 
 ### ✅ **Achieved Results**
+
 - **Consolidation**: 20+ scattered docs → 8 organized documents
 - **Structure**: Clear hierarchy with logical organization
 - **Completeness**: 100% coverage of system functionality
@@ -237,6 +269,7 @@ mv docs/unimplemented-plans/EBOEKHOUDEN_IMPROVEMENT_PLAN.md archived_docs/planni
 - **Maintenance**: Single source of truth established
 
 ### ✅ **Quality Improvements**
+
 - **Consistency**: Standardized formatting and style
 - **Accuracy**: All information verified and updated
 - **Examples**: Practical code examples for all functions

@@ -7,12 +7,14 @@ The field validation system helps prevent runtime errors by validating that DocT
 ## Components
 
 ### 1. Test-Time Validation (`verenigingen/tests/fixtures/field_validator.py`)
+
 - Used during unit tests to validate field references
 - Part of the Enhanced Test Factory
 - Validates fields exist before creating test data
 - Can be disabled for specific fields (e.g., custom fields)
 
 ### 2. Pre-Commit Validation (`scripts/pre_commit_field_validator.py`)
+
 - Runs as a pre-commit hook
 - Scans Python files for field references
 - Reports errors for non-existent fields
@@ -21,6 +23,7 @@ The field validation system helps prevent runtime errors by validating that DocT
 ## Usage
 
 ### In Tests
+
 ```python
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -34,12 +37,15 @@ class MyTest(EnhancedTestCase):
 ```
 
 ### As Pre-Commit Hook
+
 The validator runs automatically on commit if pre-commit is installed:
+
 ```bash
 pre-commit install
 ```
 
 ### Manual Validation
+
 ```bash
 # Validate specific files
 python scripts/pre_commit_field_validator.py path/to/file.py
@@ -66,10 +72,11 @@ The validator detects various patterns:
 ### Skipping Validation for Custom Fields
 
 In test code:
+
 ```python
 # Fields that might be custom or runtime fields
 skip_validation_fields = {
-    'chapter', 'suspension_reason', 'termination_reason', 
+    'chapter', 'suspension_reason', 'termination_reason',
     'termination_date', 'join_date'
 }
 ```
@@ -77,6 +84,7 @@ skip_validation_fields = {
 ### Excluding Files from Pre-Commit
 
 Update `.pre-commit-config.yaml`:
+
 ```yaml
 - id: enhanced-field-validator
   exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|migrations/)'
@@ -99,13 +107,17 @@ Update `.pre-commit-config.yaml`:
 ## Troubleshooting
 
 ### False Positives
+
 If the validator reports errors for valid fields:
+
 1. Check if the field is a custom field
 2. Verify the DocType name is correct
 3. Add the field to skip_validation_fields if needed
 
 ### Missing Schemas
+
 If schemas aren't loading:
+
 1. Ensure DocType JSON files exist
 2. Check file permissions
 3. Verify JSON syntax is valid

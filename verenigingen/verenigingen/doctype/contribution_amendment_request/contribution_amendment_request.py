@@ -35,9 +35,9 @@ def format_error_for_logging(error, context=""):
 
     return {
         "error_type": type(error).__name__ if hasattr(error, "__class__") else "Unknown",
-        "error_message": error_str
-        if len(error_str) <= ERROR_MESSAGE_MAX_LENGTH
-        else error_str[:ERROR_MESSAGE_MAX_LENGTH],
+        "error_message": (
+            error_str if len(error_str) <= ERROR_MESSAGE_MAX_LENGTH else error_str[:ERROR_MESSAGE_MAX_LENGTH]
+        ),
         "full_error_logged": len(error_str) > ERROR_MESSAGE_MAX_LENGTH,
         "context": context,
     }

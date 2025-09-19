@@ -13,16 +13,19 @@ This methodology emerged from successful remediation of critical test quality is
 ## Core Principles
 
 ### 1. Integrated Approach Over Isolated Fixes
+
 - **Don't**: Fix individual issues in isolation
 - **Do**: Apply multiple quality improvements simultaneously for maximum impact
 - **Example**: Convert `unittest.TestCase` → `EnhancedTestCase` WHILE eliminating inappropriate mocks WHILE fixing permission bypasses
 
 ### 2. Business Logic vs Infrastructure Boundaries
+
 - **Business Logic**: Never mock internal application logic (`frappe.enqueue`, `frappe.get_doc`, account creation workflows)
 - **Infrastructure**: Mock external services with clear justification (`requests.post`, `frappe.sendmail`)
 - **Test Principle**: Tests should fail when real integration fails - no simulation workarounds
 
 ### 3. Honest Failure Modes
+
 - **Anti-pattern**: Simulation fallbacks that mask real failures
 - **Pattern**: Tests that expose genuine integration issues
 - **Benefit**: Production confidence through real validation
@@ -32,22 +35,26 @@ This methodology emerged from successful remediation of critical test quality is
 ### Phase 1: Assessment and Categorization
 
 **High-Value Targets** (maximum impact):
+
 - Legacy base classes (`unittest.TestCase`, `FrappeTestCase`) + inappropriate mocks
 - Files with permission bypasses (`ignore_permissions=True` in test logic)
 - Complex manual setup/tearDown + business logic mocking
 
 **Medium-Value Targets**:
+
 - Clean legacy base class conversions (no mocks)
 - Permission bypasses without other issues
 - Performance assertion validation
 
 **Low-Value Targets**:
+
 - Already using Enhanced Test Factory
 - Pure validation logic without database operations
 
 ### Phase 2: Integrated Remediation
 
 **Step 1: Enhanced Test Factory Conversion**
+
 ```python
 # Before
 class TestExample(unittest.TestCase):
@@ -66,6 +73,7 @@ class TestExample(EnhancedTestCase):
 ```
 
 **Step 2: Phase 4D Mock Elimination**
+
 ```python
 # Before (inappropriate business logic mock)
 @patch('frappe.enqueue')
@@ -80,6 +88,7 @@ def test_job_creation_real_business_logic(self):
 ```
 
 **Step 3: Permission Security**
+
 ```python
 # Before (permission bypass)
 member.save(ignore_permissions=True)
@@ -97,12 +106,14 @@ finally:
 ### Phase 3: Validation and Documentation
 
 **Quality Metrics**:
+
 - Permission bypasses eliminated from test logic
 - Business logic mocks replaced with real operations
 - Manual setup/teardown replaced with automatic patterns
 - Simulation workarounds removed
 
 **Documentation Updates**:
+
 - Update inventory with specific improvements
 - Document mock classification decisions
 - Record performance baselines if applicable
@@ -110,6 +121,7 @@ finally:
 ## Mock Classification Guidelines
 
 ### ❌ **Eliminate (Business Logic Mocks)**
+
 - `@patch('frappe.enqueue')` - Internal job queueing
 - `@patch('frappe.get_doc')` - Document retrieval and creation
 - `@patch('frappe.db.exists')` - Database business logic
@@ -118,6 +130,7 @@ finally:
 - Simulation methods that fake success responses
 
 ### ✅ **Keep with Justification (Infrastructure Mocks)**
+
 - `@patch('requests.post')` # External API call
 - `@patch('frappe.sendmail')` # External SMTP service
 - `@patch('redis.Redis')` # External cache service for failure testing
@@ -125,6 +138,7 @@ finally:
 - Network connectivity mocks for resilience validation
 
 ### ⚠️ **Evaluate Case-by-Case**
+
 - Client initialization mocks (prefer real initialization with fallback)
 - Configuration and settings mocks (prefer test configuration)
 - Time/date mocking (consider test data approach)
@@ -134,16 +148,19 @@ finally:
 ### For Remaining 409 Test Files:
 
 **Batch Processing Approach**:
+
 1. **High-Value Batch** (~50 files): Legacy classes + inappropriate mocks
 2. **Permission Security Batch** (~100 files): Focus on bypasses elimination
 3. **Clean Conversion Batch** (~259 files): Systematic Enhanced Test Factory adoption
 
 **Quality Gates**:
+
 - Each batch must show measurable critical error reduction
 - Phase 4D compliance validation for mock elimination
 - Permission security audit for bypass elimination
 
 **Success Metrics**:
+
 - Critical errors: Current ~200 → Target 0
 - Test files converted: Current 28+ → Target 434 (100%)
 - Business logic mocks eliminated: Current 10+ → Target All identified
@@ -152,16 +169,19 @@ finally:
 ## Broader Applicability
 
 ### Production Code Quality
+
 - **Validation Patterns**: Apply business logic vs infrastructure principles
 - **Error Handling**: Ensure honest failure modes in production error handling
 - **Permission Management**: Audit and eliminate inappropriate permission bypasses
 
 ### Architecture Review
+
 - **Mock Analysis**: Review production mocking patterns for inappropriate abstractions
 - **Boundary Definition**: Clear separation between business logic and infrastructure concerns
 - **Integration Points**: Validate real integration behavior vs simulated success
 
 ### Documentation and Standards
+
 - **Quality Guidelines**: Establish clear patterns for future development
 - **Review Checklists**: Include mock classification and permission audit
 - **Training Materials**: Document proven methodology for team adoption
@@ -169,18 +189,21 @@ finally:
 ## Lessons Learned
 
 ### What Worked Well
+
 1. **Integrated Approach**: Multiple improvements simultaneously for maximum impact
 2. **Clear Boundaries**: Business logic vs infrastructure distinction prevents confusion
 3. **Systematic Execution**: Consistent methodology scales effectively
 4. **Real Validation**: Tests that fail honestly build production confidence
 
 ### Common Pitfalls to Avoid
+
 1. **Isolated Fixes**: Addressing single issues without broader context
 2. **Simulation Workarounds**: Masking real failures with fake success
 3. **Arbitrary Baselines**: Performance assertions without measurement
 4. **Mock Creep**: Gradually expanding inappropriate mocking
 
 ### Success Factors
+
 1. **Clear Classification**: Explicit decision-making for mock appropriateness
 2. **Production Focus**: Quality improvements that enhance deployment confidence
 3. **Measurable Progress**: Tracking critical error reduction and compliance

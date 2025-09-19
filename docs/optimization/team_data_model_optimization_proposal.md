@@ -11,6 +11,7 @@ Analysis of the Team DocType reveals **significant performance optimization oppo
 ### 1. Missing Primary Indexes - Team Table
 
 **Core Team Management Fields:**
+
 - `status` field - No index for Active/Inactive/Completed/Archived filtering
 - `team_type` field - No index for Committee/Working Group/Task Force/Project Team filtering
 - `chapter` field - Chapter relationship lookups unindexed
@@ -19,6 +20,7 @@ Analysis of the Team DocType reveals **significant performance optimization oppo
 - `cost_center` field - Financial integration queries unindexed
 
 **Timeline and Scheduling Fields:**
+
 - `start_date` field - Chronological team queries unindexed
 - `end_date` field - Team completion/archival queries unindexed
 
@@ -36,6 +38,7 @@ The Team Member child table contains **2 fetch_from fields** creating query mult
 ### 3. Child Table Performance Issues
 
 **Team Member Table:**
+
 - `volunteer` field - Volunteer relationship filtering, no index
 - `team_role` field - Role relationship filtering, no index
 - `from_date` / `to_date` fields - Membership period queries, no indexes
@@ -43,16 +46,19 @@ The Team Member child table contains **2 fetch_from fields** creating query mult
 - `status` field - Active/Inactive/Completed/On Leave filtering, no index
 
 **Team Role Profile Assignment Table:**
+
 - `team_role` field - Role-based profile assignment lookups, no index
 - `role_profile` field - Profile assignment filtering, no index
 
 **Team Responsibility Table:**
+
 - `assigned_to` field - Team member assignment lookups, no index
 - `status` field - Pending/In Progress/Completed/On Hold filtering, no index
 
 ### 4. Team Management and Search Performance
 
 **Current Limitations:**
+
 - Team member searches require full table scans
 - Role-based team filtering lacks proper indexing
 - Date range queries for active memberships unoptimized
@@ -112,6 +118,7 @@ ALTER TABLE `tabTeam Member` ADD INDEX `idx_volunteer_role_period` (`volunteer`,
 **Solution:** Optimized JOIN queries for team member data
 
 **Before (N+1 pattern):**
+
 ```python
 # Current: 1 + N queries for team member list
 team_members = frappe.get_all('Team Member', fields=['*'])  # 1 query
@@ -119,6 +126,7 @@ team_members = frappe.get_all('Team Member', fields=['*'])  # 1 query
 ```
 
 **After (Optimized JOINs):**
+
 ```python
 # Optimized: Single query with JOINs
 team_members = frappe.db.sql("""
@@ -137,6 +145,7 @@ team_members = frappe.db.sql("""
 ## Expected Performance Improvements
 
 ### Query Performance Gains:
+
 - **Team list filtering:** 80-90% faster with status/type/chapter indexes
 - **Team member searches:** 85-95% faster with volunteer/role indexes
 - **Active membership queries:** 90-95% faster with date range and status indexes
@@ -144,6 +153,7 @@ team_members = frappe.db.sql("""
 - **Chapter-team relationship queries:** 80-90% faster with chapter index
 
 ### Team Management Impact:
+
 - **Team list views:** From 2-3 queries per row to 1 optimized query
 - **Member assignment workflows:** From sequential scans to index seeks
 - **Role-based filtering:** From table scans to indexed lookups
@@ -152,12 +162,14 @@ team_members = frappe.db.sql("""
 ## Strategic Business Value
 
 ### Enhanced Team Operations:
+
 - **Faster team creation and management** - Quick filtering by type and chapter
 - **Improved member assignment efficiency** - Rapid volunteer and role lookups
 - **Better project coordination** - Optimized active team and member queries
 - **Enhanced reporting** - Sub-second team analytics and member tracking
 
 ### Scalability Benefits:
+
 - Support for 500+ active teams without performance degradation
 - Efficient member assignment algorithms for complex team structures
 - Fast role-based permission management through profile assignments
@@ -166,12 +178,14 @@ team_members = frappe.db.sql("""
 ## Risk Assessment and Implementation
 
 ### Implementation Risks: **LOW**
+
 - All optimizations are non-breaking index additions
 - Existing team workflows remain fully functional
 - Gradual performance improvement as indexes are utilized
 - No data migration or schema changes required
 
 ### Resource Requirements:
+
 - **Disk Space:** ~2-3% increase for index storage
 - **Memory Usage:** ~4-6% increase for index caching
 - **Implementation Time:** 1-2 hours for complete optimization
@@ -179,14 +193,17 @@ team_members = frappe.db.sql("""
 ## Implementation Strategy
 
 ### Phase 1: Core Indexes (Priority 1) - 0.5 days
+
 - Team table status, type, chapter, and leadership indexes
 - Immediate impact on team list and filtering operations
 
 ### Phase 2: Child Table Optimization (Priority 2) - 0.5 days
+
 - Team Member and role assignment table indexes
 - Significant impact on member management and role tracking
 
 ### Phase 3: Query Optimization (Priority 3) - 1 day
+
 - Replace fetch_from patterns with optimized JOINs
 - Implement composite indexes for complex queries
 - Performance validation and monitoring setup
@@ -196,6 +213,7 @@ team_members = frappe.db.sql("""
 ## Success Metrics
 
 **Before/After Benchmarks:**
+
 1. Team list view load time (target: <200ms for 50 teams)
 2. Team member assignment speed (target: <100ms)
 3. Active membership queries (target: <50ms)
@@ -203,6 +221,7 @@ team_members = frappe.db.sql("""
 5. Chapter-team relationship queries (target: <25ms)
 
 **Database Performance:**
+
 - Query execution time reduction: 80-95%
 - Index utilization rate: >85%
 - Slow query log reduction: >80%

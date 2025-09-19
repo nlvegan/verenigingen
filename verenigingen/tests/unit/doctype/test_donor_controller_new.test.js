@@ -13,7 +13,9 @@
 /* global describe, it, expect, jest, beforeEach, afterEach, beforeAll */
 
 // Import centralized test infrastructure
-const { createControllerTestSuite } = require('../../setup/controller-test-base');
+const {
+	createControllerTestSuite
+} = require('../../setup/controller-test-base');
 const { createDomainTestBuilder } = require('../../setup/domain-test-builders');
 
 // Initialize test environment
@@ -22,7 +24,8 @@ require('../../setup/frappe-mocks').setupTestMocks();
 // Controller configuration
 const donorConfig = {
 	doctype: 'Donor',
-	controllerPath: '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/donor/donor.js',
+	controllerPath:
+    '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/donor/donor.js',
 	expectedHandlers: ['refresh', 'donor_type', 'bsn_rsin'],
 	defaultDoc: {
 		donor_name: 'Jan van der Berg',
@@ -31,7 +34,7 @@ const donorConfig = {
 		phone: '+31612345678',
 		bsn_rsin: '123456789',
 		anbi_eligible: 1,
-		total_donations: 1500.00,
+		total_donations: 1500.0,
 		first_donation_date: '2024-01-15',
 		last_donation_date: '2024-12-15',
 		postal_code: '1012 AB',
@@ -98,7 +101,7 @@ const customDonorTests = {
 
 		it('should handle ANBI eligibility checks', () => {
 			getControllerTest().mockForm.doc.anbi_eligible = 1;
-			getControllerTest().mockForm.doc.total_donations = 1500.00;
+			getControllerTest().mockForm.doc.total_donations = 1500.0;
 
 			expect(() => {
 				getControllerTest().testEvent('refresh');
@@ -106,7 +109,10 @@ const customDonorTests = {
 		});
 
 		it('should validate Dutch postal codes', () => {
-			const associationBuilder = createDomainTestBuilder(getControllerTest(), 'association');
+			const associationBuilder = createDomainTestBuilder(
+				getControllerTest(),
+				'association'
+			);
 			const dutchTests = associationBuilder.createDutchValidationTests();
 			dutchTests['should validate Dutch postal codes']();
 		});
@@ -116,7 +122,7 @@ const customDonorTests = {
 		it('should handle donor type changes', () => {
 			const donorTypes = ['Individual', 'Organization', 'Foundation', 'Trust'];
 
-			donorTypes.forEach(type => {
+			donorTypes.forEach((type) => {
 				getControllerTest().mockForm.doc.donor_type = type;
 
 				// Test donor_type handler if it exists
@@ -149,12 +155,12 @@ const customDonorTests = {
 						message: [
 							{
 								donation_date: '2024-01-15',
-								amount: 500.00,
+								amount: 500.0,
 								type: 'Monthly'
 							},
 							{
 								donation_date: '2024-06-15',
-								amount: 1000.00,
+								amount: 1000.0,
 								type: 'One-time'
 							}
 						]
@@ -164,18 +170,18 @@ const customDonorTests = {
 		});
 
 		it('should calculate total donations correctly', () => {
-			getControllerTest().mockForm.doc.total_donations = 1500.00;
+			getControllerTest().mockForm.doc.total_donations = 1500.0;
 
 			getControllerTest().testEvent('refresh');
 
 			// Should maintain donation totals
-			expect(getControllerTest().mockForm.doc.total_donations).toBe(1500.00);
+			expect(getControllerTest().mockForm.doc.total_donations).toBe(1500.0);
 		});
 
 		it('should track donation frequency patterns', () => {
 			const frequencies = ['Monthly', 'Quarterly', 'Annually', 'One-time'];
 
-			frequencies.forEach(frequency => {
+			frequencies.forEach((frequency) => {
 				getControllerTest().mockForm.doc.donation_frequency = frequency;
 
 				expect(() => {
@@ -197,7 +203,7 @@ const customDonorTests = {
 	'Tax Compliance and Reporting': (getControllerTest) => {
 		it('should generate ANBI reporting data', () => {
 			getControllerTest().mockForm.doc.anbi_eligible = 1;
-			getControllerTest().mockForm.doc.total_donations = 1500.00;
+			getControllerTest().mockForm.doc.total_donations = 1500.0;
 			getControllerTest().mockForm.doc.__islocal = 0;
 
 			expect(() => {
@@ -208,12 +214,12 @@ const customDonorTests = {
 		it('should validate tax deduction thresholds', () => {
 			// Dutch tax deduction thresholds for ANBI donations
 			const testAmounts = [
-				{ amount: 60.00, threshold: 'Basic' }, // Above €60 threshold
-				{ amount: 500.00, threshold: 'Standard' }, // Standard deduction
-				{ amount: 5000.00, threshold: 'High' } // High-value donation
+				{ amount: 60.0, threshold: 'Basic' }, // Above €60 threshold
+				{ amount: 500.0, threshold: 'Standard' }, // Standard deduction
+				{ amount: 5000.0, threshold: 'High' } // High-value donation
 			];
 
-			testAmounts.forEach(test => {
+			testAmounts.forEach((test) => {
 				getControllerTest().mockForm.doc.total_donations = test.amount;
 
 				expect(() => {
@@ -234,7 +240,10 @@ const customDonorTests = {
 
 	'Contact Information Management': (getControllerTest) => {
 		it('should validate email format', () => {
-			const associationBuilder = createDomainTestBuilder(getControllerTest(), 'association');
+			const associationBuilder = createDomainTestBuilder(
+				getControllerTest(),
+				'association'
+			);
 			const dutchTests = associationBuilder.createDutchValidationTests();
 			dutchTests['should validate Dutch email format']();
 		});
@@ -256,7 +265,7 @@ const customDonorTests = {
 				'020-1234567' // Local landline with dash
 			];
 
-			dutchPhoneNumbers.forEach(phone => {
+			dutchPhoneNumbers.forEach((phone) => {
 				getControllerTest().mockForm.doc.phone = phone;
 
 				expect(() => {
@@ -297,7 +306,7 @@ const customDonorTests = {
 
 		it('should handle recurring donation setups', () => {
 			getControllerTest().mockForm.doc.donation_frequency = 'Monthly';
-			getControllerTest().mockForm.doc.recurring_amount = 25.00;
+			getControllerTest().mockForm.doc.recurring_amount = 25.0;
 
 			expect(() => {
 				getControllerTest().testEvent('refresh');
@@ -307,7 +316,10 @@ const customDonorTests = {
 };
 
 // Create and export the test suite
-describe('Donor Controller (New Infrastructure)', createControllerTestSuite(donorConfig, customDonorTests));
+describe(
+	'Donor Controller (New Infrastructure)',
+	createControllerTestSuite(donorConfig, customDonorTests)
+);
 
 // Export test utilities for reuse
 module.exports = {

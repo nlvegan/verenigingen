@@ -1,486 +1,486 @@
 {
- "actions": [],
- "autoname": "field:schedule_name",
- "creation": "2025-07-16 10:00:00",
- "doctype": "DocType",
- "engine": "InnoDB",
- "field_order": [
-  "schedule_name",
-  "is_template",
-  "section_membership",
-  "member",
-  "membership",
-  "member_name",
-  "membership_type",
-  "template_reference",
-  "column_break_1",
-  "status",
-  "billing_frequency",
-  "custom_frequency_number",
-  "custom_frequency_unit",
-  "auto_generate",
-  "test_mode",
-  "section_schedule",
-  "next_invoice_date",
-  "last_invoice_date",
-  "end_date",
-  "invoice_days_before",
-  "billing_day",
-  "column_break_tooo",
-  "payment_terms_template",
-  "currency",
-  "dues_rate",
-  "section_coverage_tracking",
-  "next_billing_period_start_date",
-  "next_billing_period_end_date",
-  "column_break_coverage",
-  "last_generated_invoice",
-  "last_invoice_coverage_start",
-  "last_invoice_coverage_end",
-  "section_notes",
-  "notes",
-  "section_contribution",
-  "contribution_mode",
-  "selected_tier",
-  "base_multiplier",
-  "column_break_contrib",
-  "minimum_amount",
-  "suggested_amount",
-  "uses_custom_amount",
-  "section_custom_amount",
-  "custom_amount_reason",
-  "custom_amount_approved",
-  "custom_amount_approved_by",
-  "column_break_custom",
-  "custom_amount_approved_date",
-  "section_billing_schedule",
-  "billing_schedule_notes",
-  "section_error_recovery",
-  "custom_invoice_retry_count",
-  "custom_last_invoice_failure_date",
-  "column_break_error_recovery",
-  "custom_last_invoice_error",
-  "custom_requires_manual_review"
- ],
- "fields": [
-  {
-   "fieldname": "schedule_name",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Schedule Name",
-   "reqd": 1,
-   "unique": 1
-  },
-  {
-   "default": "0",
-   "fieldname": "is_template",
-   "fieldtype": "Check",
-   "in_list_view": 1,
-   "label": "Is Template"
-  },
-  {
-   "fieldname": "section_membership",
-   "fieldtype": "Section Break",
-   "label": "Membership Details"
-  },
-  {
-   "depends_on": "eval:!doc.is_template",
-   "fieldname": "member",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Member",
-   "mandatory_depends_on": "eval:!doc.is_template",
-   "options": "Member"
-  },
-  {
-   "depends_on": "eval:!doc.is_template",
-   "description": "The membership record this dues schedule is linked to",
-   "fieldname": "membership",
-   "fieldtype": "Link",
-   "label": "Membership",
-   "options": "Membership"
-  },
-  {
-   "fieldname": "membership_type",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Membership Type",
-   "options": "Membership Type",
-   "reqd": 1
-  },
-  {
-   "fetch_from": "member.full_name",
-   "fieldname": "member_name",
-   "fieldtype": "Data",
-   "label": "Member Name",
-   "read_only": 1
-  },
-  {
-   "depends_on": "eval:!doc.is_template",
-   "fieldname": "template_reference",
-   "fieldtype": "Link",
-   "label": "Created From Template",
-   "options": "Membership Dues Schedule",
-   "read_only": 1
-  },
-  {
-   "fieldname": "column_break_1",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "Active",
-   "fieldname": "status",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Status",
-   "options": "Active\nPaused\nCancelled\nTest",
-   "reqd": 1
-  },
-  {
-   "default": "Annual",
-   "fieldname": "billing_frequency",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "Billing Frequency",
-   "options": "Annual\nSemi-Annual\nQuarterly\nMonthly\nDaily\nCustom",
-   "reqd": 1
-  },
-  {
-   "depends_on": "eval:doc.billing_frequency == 'Custom'",
-   "description": "Number of units for custom frequency (e.g., 2 for every 2 months)",
-   "fieldname": "custom_frequency_number",
-   "fieldtype": "Int",
-   "label": "Custom Frequency Number"
-  },
-  {
-   "depends_on": "eval:doc.billing_frequency == 'Custom'",
-   "description": "Unit for custom frequency",
-   "fieldname": "custom_frequency_unit",
-   "fieldtype": "Select",
-   "label": "Custom Frequency Unit",
-   "options": "Days\nWeeks\nMonths\nYears"
-  },
-  {
-   "default": "1",
-   "fieldname": "auto_generate",
-   "fieldtype": "Check",
-   "label": "Auto Generate Invoices"
-  },
-  {
-   "default": "0",
-   "fieldname": "test_mode",
-   "fieldtype": "Check",
-   "label": "Test Mode (Don't create actual invoices)"
-  },
-  {
-   "fieldname": "section_schedule",
-   "fieldtype": "Section Break",
-   "label": "Billing Schedule"
-  },
-  {
-   "fieldname": "next_invoice_date",
-   "fieldtype": "Date",
-   "in_list_view": 1,
-   "label": "Next Invoice Date",
-   "mandatory_depends_on": "eval:!doc.is_template"
-  },
-  {
-   "fieldname": "last_invoice_date",
-   "fieldtype": "Date",
-   "label": "Last Invoice Date",
-   "read_only": 1
-  },
-  {
-   "depends_on": "eval:doc.status === 'Cancelled'",
-   "description": "Date when this dues schedule was terminated or cancelled",
-   "fieldname": "end_date",
-   "fieldtype": "Date",
-   "label": "End Date"
-  },
-  {
-   "default": "30",
-   "description": "Generate invoice this many days before due date",
-   "fieldname": "invoice_days_before",
-   "fieldtype": "Int",
-   "label": "Invoice Days Before Due"
-  },
-  {
-   "default": "1",
-   "description": "Day of month for anniversary billing (1-31). Defaults to member anniversary or 1st of month.",
-   "fieldname": "billing_day",
-   "fieldtype": "Int",
-   "label": "Billing Day"
-  },
-  {
-   "fieldname": "section_coverage_tracking",
-   "fieldtype": "Section Break",
-   "label": "Coverage Period Tracking"
-  },
-  {
-   "description": "Start date for the next billing period to be generated",
-   "fieldname": "next_billing_period_start_date",
-   "fieldtype": "Date",
-   "label": "Next Billing Period Start",
-   "read_only": 1
-  },
-  {
-   "description": "End date for the next billing period to be generated",
-   "fieldname": "next_billing_period_end_date",
-   "fieldtype": "Date",
-   "label": "Next Billing Period End",
-   "read_only": 1
-  },
-  {
-   "fieldname": "column_break_coverage",
-   "fieldtype": "Column Break"
-  },
-  {
-   "description": "Direct link to the most recently generated invoice",
-   "fieldname": "last_generated_invoice",
-   "fieldtype": "Link",
-   "label": "Last Generated Invoice",
-   "options": "Sales Invoice",
-   "read_only": 1
-  },
-  {
-   "description": "Coverage start date for the last generated invoice",
-   "fieldname": "last_invoice_coverage_start",
-   "fieldtype": "Date",
-   "label": "Last Invoice Coverage Start",
-   "read_only": 1
-  },
-  {
-   "description": "Coverage end date for the last generated invoice",
-   "fieldname": "last_invoice_coverage_end",
-   "fieldtype": "Date",
-   "label": "Last Invoice Coverage End",
-   "read_only": 1
-  },
-  {
-   "fieldname": "dues_rate",
-   "fieldtype": "Currency",
-   "in_list_view": 1,
-   "label": "Dues Rate",
-   "mandatory_depends_on": "eval:!doc.is_template"
-  },
-  {
-   "default": "EUR",
-   "fieldname": "currency",
-   "fieldtype": "Link",
-   "label": "Currency",
-   "options": "Currency",
-   "reqd": 1
-  },
-  {
-   "fieldname": "payment_terms_template",
-   "fieldtype": "Link",
-   "label": "Payment Terms Template",
-   "options": "Payment Terms Template"
-  },
-  {
-   "fieldname": "section_notes",
-   "fieldtype": "Section Break",
-   "label": "Notes"
-  },
-  {
-   "fieldname": "notes",
-   "fieldtype": "Text",
-   "label": "Notes"
-  },
-  {
-   "fieldname": "section_contribution",
-   "fieldtype": "Section Break",
-   "label": "Contribution Configuration"
-  },
-  {
-   "default": "Calculator",
-   "fieldname": "contribution_mode",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "Contribution Mode",
-   "options": "Tier\nCalculator\nCustom"
-  },
-  {
-   "depends_on": "eval:doc.contribution_mode == 'Tier'",
-   "fieldname": "selected_tier",
-   "fieldtype": "Link",
-   "label": "Selected Tier",
-   "options": "Membership Tier"
-  },
-  {
-   "default": "1",
-   "depends_on": "eval:doc.contribution_mode == 'Calculator'",
-   "description": "Multiplier applied to suggested amount (e.g., 1.5 = 150% of suggested)",
-   "fieldname": "base_multiplier",
-   "fieldtype": "Float",
-   "label": "Base Multiplier",
-   "precision": "2"
-  },
-  {
-   "fieldname": "column_break_contrib",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "minimum_amount",
-   "fieldtype": "Currency",
-   "label": "Minimum Amount",
-   "read_only": 1
-  },
-  {
-   "fieldname": "suggested_amount",
-   "fieldtype": "Currency",
-   "label": "Suggested Amount",
-   "read_only": 1
-  },
-  {
-   "default": "0",
-   "fieldname": "uses_custom_amount",
-   "fieldtype": "Check",
-   "label": "Uses Custom Amount"
-  },
-  {
-   "depends_on": "eval:doc.uses_custom_amount",
-   "fieldname": "section_custom_amount",
-   "fieldtype": "Section Break",
-   "label": "Custom Amount Details"
-  },
-  {
-   "depends_on": "eval:doc.uses_custom_amount",
-   "fieldname": "custom_amount_reason",
-   "fieldtype": "Text",
-   "label": "Custom Amount Reason"
-  },
-  {
-   "default": "0",
-   "depends_on": "eval:doc.uses_custom_amount",
-   "fieldname": "custom_amount_approved",
-   "fieldtype": "Check",
-   "label": "Custom Amount Approved"
-  },
-  {
-   "depends_on": "eval:doc.custom_amount_approved",
-   "fieldname": "custom_amount_approved_by",
-   "fieldtype": "Link",
-   "label": "Custom Amount Approved By",
-   "options": "User"
-  },
-  {
-   "fieldname": "column_break_custom",
-   "fieldtype": "Column Break"
-  },
-  {
-   "depends_on": "eval:doc.custom_amount_approved",
-   "fieldname": "custom_amount_approved_date",
-   "fieldtype": "Date",
-   "label": "Custom Amount Approved Date"
-  },
-  {
-   "fieldname": "section_billing_schedule",
-   "fieldtype": "Section Break",
-   "label": "Additional Configuration"
-  },
-  {
-   "description": "Additional notes about this billing schedule",
-   "fieldname": "billing_schedule_notes",
-   "fieldtype": "Text",
-   "label": "Billing Schedule Notes"
-  },
-  {
-   "fieldname": "section_error_recovery",
-   "fieldtype": "Section Break",
-   "label": "Error Recovery Tracking",
-   "collapsible": 1
-  },
-  {
-   "default": "0",
-   "description": "Number of consecutive invoice generation failures",
-   "fieldname": "custom_invoice_retry_count",
-   "fieldtype": "Int",
-   "label": "Retry Count",
-   "read_only": 1
-  },
-  {
-   "description": "Date of most recent invoice generation failure",
-   "fieldname": "custom_last_invoice_failure_date",
-   "fieldtype": "Date",
-   "label": "Last Failure Date",
-   "read_only": 1
-  },
-  {
-   "fieldname": "column_break_error_recovery",
-   "fieldtype": "Column Break"
-  },
-  {
-   "description": "Error message from most recent failure (truncated)",
-   "fieldname": "custom_last_invoice_error",
-   "fieldtype": "Text",
-   "label": "Last Error Message",
-   "read_only": 1
-  },
-  {
-   "default": "0",
-   "description": "Schedule requires manual administrator review",
-   "fieldname": "custom_requires_manual_review",
-   "fieldtype": "Check",
-   "label": "Requires Manual Review",
-   "read_only": 1
-  },
-  {
-   "fieldname": "column_break_tooo",
-   "fieldtype": "Column Break"
-  }
- ],
- "links": [],
- "modified": "2025-09-09 08:24:32.224211",
- "modified_by": "Administrator",
- "module": "Verenigingen",
- "name": "Membership Dues Schedule",
- "naming_rule": "Expression",
- "owner": "Administrator",
- "permissions": [
-  {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "print": 1,
-   "read": 1,
-   "role": "System Manager",
-   "share": 1,
-   "write": 1
-  },
-  {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "print": 1,
-   "read": 1,
-   "role": "Verenigingen Administrator",
-   "share": 1,
-   "write": 1
-  },
-  {
-   "email": 1,
-   "print": 1,
-   "read": 1,
-   "role": "Verenigingen Manager",
-   "share": 1,
-   "write": 1
-  },
-  {
-   "email": 1,
-   "print": 1,
-   "read": 1,
-   "role": "Verenigingen Member",
-   "write": 1
-  }
- ],
- "row_format": "Dynamic",
- "search_fields": "member_name,membership_type",
- "sort_field": "next_invoice_date",
- "sort_order": "ASC",
- "states": [],
- "track_changes": 1
+  "actions": [],
+  "autoname": "field:schedule_name",
+  "creation": "2025-07-16 10:00:00",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "schedule_name",
+    "is_template",
+    "section_membership",
+    "member",
+    "membership",
+    "member_name",
+    "membership_type",
+    "template_reference",
+    "column_break_1",
+    "status",
+    "billing_frequency",
+    "custom_frequency_number",
+    "custom_frequency_unit",
+    "auto_generate",
+    "test_mode",
+    "section_schedule",
+    "next_invoice_date",
+    "last_invoice_date",
+    "end_date",
+    "invoice_days_before",
+    "billing_day",
+    "column_break_tooo",
+    "payment_terms_template",
+    "currency",
+    "dues_rate",
+    "section_coverage_tracking",
+    "next_billing_period_start_date",
+    "next_billing_period_end_date",
+    "column_break_coverage",
+    "last_generated_invoice",
+    "last_invoice_coverage_start",
+    "last_invoice_coverage_end",
+    "section_notes",
+    "notes",
+    "section_contribution",
+    "contribution_mode",
+    "selected_tier",
+    "base_multiplier",
+    "column_break_contrib",
+    "minimum_amount",
+    "suggested_amount",
+    "uses_custom_amount",
+    "section_custom_amount",
+    "custom_amount_reason",
+    "custom_amount_approved",
+    "custom_amount_approved_by",
+    "column_break_custom",
+    "custom_amount_approved_date",
+    "section_billing_schedule",
+    "billing_schedule_notes",
+    "section_error_recovery",
+    "custom_invoice_retry_count",
+    "custom_last_invoice_failure_date",
+    "column_break_error_recovery",
+    "custom_last_invoice_error",
+    "custom_requires_manual_review"
+  ],
+  "fields": [
+    {
+      "fieldname": "schedule_name",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Schedule Name",
+      "reqd": 1,
+      "unique": 1
+    },
+    {
+      "default": "0",
+      "fieldname": "is_template",
+      "fieldtype": "Check",
+      "in_list_view": 1,
+      "label": "Is Template"
+    },
+    {
+      "fieldname": "section_membership",
+      "fieldtype": "Section Break",
+      "label": "Membership Details"
+    },
+    {
+      "depends_on": "eval:!doc.is_template",
+      "fieldname": "member",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Member",
+      "mandatory_depends_on": "eval:!doc.is_template",
+      "options": "Member"
+    },
+    {
+      "depends_on": "eval:!doc.is_template",
+      "description": "The membership record this dues schedule is linked to",
+      "fieldname": "membership",
+      "fieldtype": "Link",
+      "label": "Membership",
+      "options": "Membership"
+    },
+    {
+      "fieldname": "membership_type",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Membership Type",
+      "options": "Membership Type",
+      "reqd": 1
+    },
+    {
+      "fetch_from": "member.full_name",
+      "fieldname": "member_name",
+      "fieldtype": "Data",
+      "label": "Member Name",
+      "read_only": 1
+    },
+    {
+      "depends_on": "eval:!doc.is_template",
+      "fieldname": "template_reference",
+      "fieldtype": "Link",
+      "label": "Created From Template",
+      "options": "Membership Dues Schedule",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "default": "Active",
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Status",
+      "options": "Active\nPaused\nCancelled\nTest",
+      "reqd": 1
+    },
+    {
+      "default": "Annual",
+      "fieldname": "billing_frequency",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "label": "Billing Frequency",
+      "options": "Annual\nSemi-Annual\nQuarterly\nMonthly\nDaily\nCustom",
+      "reqd": 1
+    },
+    {
+      "depends_on": "eval:doc.billing_frequency == 'Custom'",
+      "description": "Number of units for custom frequency (e.g., 2 for every 2 months)",
+      "fieldname": "custom_frequency_number",
+      "fieldtype": "Int",
+      "label": "Custom Frequency Number"
+    },
+    {
+      "depends_on": "eval:doc.billing_frequency == 'Custom'",
+      "description": "Unit for custom frequency",
+      "fieldname": "custom_frequency_unit",
+      "fieldtype": "Select",
+      "label": "Custom Frequency Unit",
+      "options": "Days\nWeeks\nMonths\nYears"
+    },
+    {
+      "default": "1",
+      "fieldname": "auto_generate",
+      "fieldtype": "Check",
+      "label": "Auto Generate Invoices"
+    },
+    {
+      "default": "0",
+      "fieldname": "test_mode",
+      "fieldtype": "Check",
+      "label": "Test Mode (Don't create actual invoices)"
+    },
+    {
+      "fieldname": "section_schedule",
+      "fieldtype": "Section Break",
+      "label": "Billing Schedule"
+    },
+    {
+      "fieldname": "next_invoice_date",
+      "fieldtype": "Date",
+      "in_list_view": 1,
+      "label": "Next Invoice Date",
+      "mandatory_depends_on": "eval:!doc.is_template"
+    },
+    {
+      "fieldname": "last_invoice_date",
+      "fieldtype": "Date",
+      "label": "Last Invoice Date",
+      "read_only": 1
+    },
+    {
+      "depends_on": "eval:doc.status === 'Cancelled'",
+      "description": "Date when this dues schedule was terminated or cancelled",
+      "fieldname": "end_date",
+      "fieldtype": "Date",
+      "label": "End Date"
+    },
+    {
+      "default": "30",
+      "description": "Generate invoice this many days before due date",
+      "fieldname": "invoice_days_before",
+      "fieldtype": "Int",
+      "label": "Invoice Days Before Due"
+    },
+    {
+      "default": "1",
+      "description": "Day of month for anniversary billing (1-31). Defaults to member anniversary or 1st of month.",
+      "fieldname": "billing_day",
+      "fieldtype": "Int",
+      "label": "Billing Day"
+    },
+    {
+      "fieldname": "section_coverage_tracking",
+      "fieldtype": "Section Break",
+      "label": "Coverage Period Tracking"
+    },
+    {
+      "description": "Start date for the next billing period to be generated",
+      "fieldname": "next_billing_period_start_date",
+      "fieldtype": "Date",
+      "label": "Next Billing Period Start",
+      "read_only": 1
+    },
+    {
+      "description": "End date for the next billing period to be generated",
+      "fieldname": "next_billing_period_end_date",
+      "fieldtype": "Date",
+      "label": "Next Billing Period End",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_coverage",
+      "fieldtype": "Column Break"
+    },
+    {
+      "description": "Direct link to the most recently generated invoice",
+      "fieldname": "last_generated_invoice",
+      "fieldtype": "Link",
+      "label": "Last Generated Invoice",
+      "options": "Sales Invoice",
+      "read_only": 1
+    },
+    {
+      "description": "Coverage start date for the last generated invoice",
+      "fieldname": "last_invoice_coverage_start",
+      "fieldtype": "Date",
+      "label": "Last Invoice Coverage Start",
+      "read_only": 1
+    },
+    {
+      "description": "Coverage end date for the last generated invoice",
+      "fieldname": "last_invoice_coverage_end",
+      "fieldtype": "Date",
+      "label": "Last Invoice Coverage End",
+      "read_only": 1
+    },
+    {
+      "fieldname": "dues_rate",
+      "fieldtype": "Currency",
+      "in_list_view": 1,
+      "label": "Dues Rate",
+      "mandatory_depends_on": "eval:!doc.is_template"
+    },
+    {
+      "default": "EUR",
+      "fieldname": "currency",
+      "fieldtype": "Link",
+      "label": "Currency",
+      "options": "Currency",
+      "reqd": 1
+    },
+    {
+      "fieldname": "payment_terms_template",
+      "fieldtype": "Link",
+      "label": "Payment Terms Template",
+      "options": "Payment Terms Template"
+    },
+    {
+      "fieldname": "section_notes",
+      "fieldtype": "Section Break",
+      "label": "Notes"
+    },
+    {
+      "fieldname": "notes",
+      "fieldtype": "Text",
+      "label": "Notes"
+    },
+    {
+      "fieldname": "section_contribution",
+      "fieldtype": "Section Break",
+      "label": "Contribution Configuration"
+    },
+    {
+      "default": "Calculator",
+      "fieldname": "contribution_mode",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "label": "Contribution Mode",
+      "options": "Tier\nCalculator\nCustom"
+    },
+    {
+      "depends_on": "eval:doc.contribution_mode == 'Tier'",
+      "fieldname": "selected_tier",
+      "fieldtype": "Link",
+      "label": "Selected Tier",
+      "options": "Membership Tier"
+    },
+    {
+      "default": "1",
+      "depends_on": "eval:doc.contribution_mode == 'Calculator'",
+      "description": "Multiplier applied to suggested amount (e.g., 1.5 = 150% of suggested)",
+      "fieldname": "base_multiplier",
+      "fieldtype": "Float",
+      "label": "Base Multiplier",
+      "precision": "2"
+    },
+    {
+      "fieldname": "column_break_contrib",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "minimum_amount",
+      "fieldtype": "Currency",
+      "label": "Minimum Amount",
+      "read_only": 1
+    },
+    {
+      "fieldname": "suggested_amount",
+      "fieldtype": "Currency",
+      "label": "Suggested Amount",
+      "read_only": 1
+    },
+    {
+      "default": "0",
+      "fieldname": "uses_custom_amount",
+      "fieldtype": "Check",
+      "label": "Uses Custom Amount"
+    },
+    {
+      "depends_on": "eval:doc.uses_custom_amount",
+      "fieldname": "section_custom_amount",
+      "fieldtype": "Section Break",
+      "label": "Custom Amount Details"
+    },
+    {
+      "depends_on": "eval:doc.uses_custom_amount",
+      "fieldname": "custom_amount_reason",
+      "fieldtype": "Text",
+      "label": "Custom Amount Reason"
+    },
+    {
+      "default": "0",
+      "depends_on": "eval:doc.uses_custom_amount",
+      "fieldname": "custom_amount_approved",
+      "fieldtype": "Check",
+      "label": "Custom Amount Approved"
+    },
+    {
+      "depends_on": "eval:doc.custom_amount_approved",
+      "fieldname": "custom_amount_approved_by",
+      "fieldtype": "Link",
+      "label": "Custom Amount Approved By",
+      "options": "User"
+    },
+    {
+      "fieldname": "column_break_custom",
+      "fieldtype": "Column Break"
+    },
+    {
+      "depends_on": "eval:doc.custom_amount_approved",
+      "fieldname": "custom_amount_approved_date",
+      "fieldtype": "Date",
+      "label": "Custom Amount Approved Date"
+    },
+    {
+      "fieldname": "section_billing_schedule",
+      "fieldtype": "Section Break",
+      "label": "Additional Configuration"
+    },
+    {
+      "description": "Additional notes about this billing schedule",
+      "fieldname": "billing_schedule_notes",
+      "fieldtype": "Text",
+      "label": "Billing Schedule Notes"
+    },
+    {
+      "fieldname": "section_error_recovery",
+      "fieldtype": "Section Break",
+      "label": "Error Recovery Tracking",
+      "collapsible": 1
+    },
+    {
+      "default": "0",
+      "description": "Number of consecutive invoice generation failures",
+      "fieldname": "custom_invoice_retry_count",
+      "fieldtype": "Int",
+      "label": "Retry Count",
+      "read_only": 1
+    },
+    {
+      "description": "Date of most recent invoice generation failure",
+      "fieldname": "custom_last_invoice_failure_date",
+      "fieldtype": "Date",
+      "label": "Last Failure Date",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_error_recovery",
+      "fieldtype": "Column Break"
+    },
+    {
+      "description": "Error message from most recent failure (truncated)",
+      "fieldname": "custom_last_invoice_error",
+      "fieldtype": "Text",
+      "label": "Last Error Message",
+      "read_only": 1
+    },
+    {
+      "default": "0",
+      "description": "Schedule requires manual administrator review",
+      "fieldname": "custom_requires_manual_review",
+      "fieldtype": "Check",
+      "label": "Requires Manual Review",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_tooo",
+      "fieldtype": "Column Break"
+    }
+  ],
+  "links": [],
+  "modified": "2025-09-09 08:24:32.224211",
+  "modified_by": "Administrator",
+  "module": "Verenigingen",
+  "name": "Membership Dues Schedule",
+  "naming_rule": "Expression",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "print": 1,
+      "read": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "print": 1,
+      "read": 1,
+      "role": "Verenigingen Administrator",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "email": 1,
+      "print": 1,
+      "read": 1,
+      "role": "Verenigingen Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "email": 1,
+      "print": 1,
+      "read": 1,
+      "role": "Verenigingen Member",
+      "write": 1
+    }
+  ],
+  "row_format": "Dynamic",
+  "search_fields": "member_name,membership_type",
+  "sort_field": "next_invoice_date",
+  "sort_order": "ASC",
+  "states": [],
+  "track_changes": 1
 }

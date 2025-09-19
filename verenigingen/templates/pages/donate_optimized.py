@@ -333,9 +333,9 @@ def create_donation_record(donor, form_data):
             "payment_method": form_data.payment_method,
             "chapter": form_data.get("chapter"),
             "is_recurring": form_data.get("is_recurring", 0),
-            "recurring_frequency": form_data.get("recurring_frequency")
-            if form_data.get("is_recurring")
-            else None,
+            "recurring_frequency": (
+                form_data.get("recurring_frequency") if form_data.get("is_recurring") else None
+            ),
             "belastingdienst_reportable": form_data.get("belastingdienst_reportable", 0),
             "anbi_agreement_number": form_data.get("anbi_agreement_number"),
             "anbi_agreement_date": form_data.get("anbi_agreement_date"),

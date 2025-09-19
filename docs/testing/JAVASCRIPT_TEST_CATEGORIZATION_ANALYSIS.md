@@ -1,4 +1,5 @@
 # JavaScript Test Categorization Analysis
+
 ## Hybrid Testing Strategy Implementation
 
 ### Executive Summary
@@ -17,11 +18,13 @@ The current test suite has **275 failed tests out of 527 total tests** (52% fail
 ### JavaScript File Categorization
 
 #### Category A: Frappe-Dependent DocType Controllers (69 files)
+
 **Testing Strategy: Cypress E2E Tests**
 
 These files require `frappe` global object, form context, DocType framework, and server integration:
 
 **Core Business DocTypes:**
+
 - `/verenigingen/doctype/member/member.js` (3,241 lines - complex member lifecycle)
 - `/verenigingen_payments/doctype/direct_debit_batch/direct_debit_batch.js` (842 lines)
 - `/e_boekhouden/doctype/e_boekhouden_migration/e_boekhouden_migration.js` (2,104 lines)
@@ -31,26 +34,30 @@ These files require `frappe` global object, form context, DocType framework, and
 - `/verenigingen/doctype/donor/donor.js`
 
 **Payment & Financial:**
+
 - `/verenigingen_payments/doctype/sepa_mandate/sepa_mandate.js`
 - `/verenigingen_payments/doctype/sepa_payment_retry/sepa_payment_retry.js`
 - `/verenigingen_payments/doctype/mollie_settings/mollie_settings.js`
 
 **Administrative & Configuration:**
+
 - `/verenigingen/doctype/verenigingen_settings/verenigingen_settings.js`
 - `/verenigingen/doctype/brand_settings/brand_settings.js`
 - `/verenigingen/doctype/chapter_join_request/chapter_join_request.js`
 - `/verenigingen/doctype/member_csv_import/member_csv_import.js`
 
 **All these files contain patterns like:**
+
 ```javascript
-frappe.ui.form.on('DocType', {
-    refresh: function(frm) {
-        // Complex form logic requiring Frappe context
-    }
+frappe.ui.form.on("DocType", {
+  refresh: function (frm) {
+    // Complex form logic requiring Frappe context
+  },
 });
 ```
 
 #### Category B: Standalone Utility Functions (3 files)
+
 **Testing Strategy: Jest Unit Tests**
 
 These files are pure JavaScript utilities that don't depend on Frappe framework:
@@ -73,6 +80,7 @@ These files are pure JavaScript utilities that don't depend on Frappe framework:
 ### Hybrid Testing Strategy Implementation
 
 #### Phase 1: Remove Failing Mock-Based Tests
+
 **Goal**: Stop the bleeding - remove tests that don't provide value
 
 ```bash
@@ -82,100 +90,105 @@ rm -rf verenigingen/tests/frontend/integration/
 ```
 
 #### Phase 2: Implement Cypress E2E for Business Workflows
+
 **Goal**: Test actual user workflows with real data
 
 **Priority 1: Core Member Workflows**
+
 ```javascript
 // cypress/integration/member-lifecycle.spec.js
-describe('Member Lifecycle Management', () => {
-  it('should create new member with realistic data', () => {
+describe("Member Lifecycle Management", () => {
+  it("should create new member with realistic data", () => {
     // Test actual member creation workflow
-    cy.login('admin@example.com');
-    cy.visit('/desk#Form/Member/new');
+    cy.login("admin@example.com");
+    cy.visit("/desk#Form/Member/new");
 
     // Use real Dutch names and addresses
     cy.fillMemberForm({
-      first_name: 'Pieter',
-      last_name: 'van der Berg',
+      first_name: "Pieter",
+      last_name: "van der Berg",
       email: `test.member.${Date.now()}@example.com`,
-      birth_date: '1985-03-15',
-      postal_code: '1016 DK',
-      house_number: '123'
+      birth_date: "1985-03-15",
+      postal_code: "1016 DK",
+      house_number: "123",
     });
 
     cy.saveDocument();
-    cy.contains('Member created successfully');
+    cy.contains("Member created successfully");
   });
 });
 ```
 
 **Priority 2: Payment Processing Workflows**
+
 ```javascript
 // cypress/integration/sepa-mandate-creation.spec.js
-describe('SEPA Mandate Creation', () => {
-  it('should create mandate with valid IBAN', () => {
+describe("SEPA Mandate Creation", () => {
+  it("should create mandate with valid IBAN", () => {
     cy.createTestMember().then((member) => {
       cy.visit(`/desk#Form/SEPA Mandate/new`);
       cy.selectMember(member.name);
-      cy.fillIBAN('NL91 ABNA 0417 1643 00'); // Real valid IBAN
+      cy.fillIBAN("NL91 ABNA 0417 1643 00"); // Real valid IBAN
       cy.saveDocument();
-      cy.should('contain', 'SEPA Mandate created');
+      cy.should("contain", "SEPA Mandate created");
     });
   });
 });
 ```
 
 **Priority 3: Chapter Assignment Workflows**
+
 ```javascript
 // cypress/integration/chapter-management.spec.js
-describe('Chapter Management', () => {
-  it('should assign member to chapter based on postal code', () => {
+describe("Chapter Management", () => {
+  it("should assign member to chapter based on postal code", () => {
     cy.createTestChapter({
-      name: 'Amsterdam Chapter',
-      postal_codes: '1000-1099'
+      name: "Amsterdam Chapter",
+      postal_codes: "1000-1099",
     });
 
     cy.createTestMember({
-      postal_code: '1016 DK'
+      postal_code: "1016 DK",
     }).then((member) => {
       cy.visit(`/desk#Form/Member/${member.name}`);
-      cy.clickButton('Assign to Chapter');
-      cy.should('contain', 'Amsterdam Chapter');
+      cy.clickButton("Assign to Chapter");
+      cy.should("contain", "Amsterdam Chapter");
     });
   });
 });
 ```
 
 #### Phase 3: Focused Jest Tests for Utilities Only
+
 **Goal**: Test pure JavaScript functions with realistic business data
 
 ```javascript
 // tests/unit/iban-validator.test.js
-import { IBANValidator } from '../../public/js/utils/iban-validator.js';
+import { IBANValidator } from "../../public/js/utils/iban-validator.js";
 
-describe('IBAN Validator', () => {
-  describe('Dutch IBANs', () => {
-    test('should validate correct Dutch IBAN', () => {
-      const result = IBANValidator.validate('NL91 ABNA 0417 1643 00');
+describe("IBAN Validator", () => {
+  describe("Dutch IBANs", () => {
+    test("should validate correct Dutch IBAN", () => {
+      const result = IBANValidator.validate("NL91 ABNA 0417 1643 00");
       expect(result.valid).toBe(true);
-      expect(result.formatted).toBe('NL91ABNA0417164300');
+      expect(result.formatted).toBe("NL91ABNA0417164300");
     });
 
-    test('should reject invalid Dutch IBAN checksum', () => {
-      const result = IBANValidator.validate('NL91 ABNA 0417 1643 01');
+    test("should reject invalid Dutch IBAN checksum", () => {
+      const result = IBANValidator.validate("NL91 ABNA 0417 1643 01");
       expect(result.valid).toBe(false);
-      expect(result.error).toContain('checksum');
+      expect(result.error).toContain("checksum");
     });
   });
 
-  describe('European IBANs', () => {
-    test('should validate German IBAN', () => {
-      const result = IBANValidator.validate('DE89 3704 0044 0532 0130 00');
+  describe("European IBANs", () => {
+    test("should validate German IBAN", () => {
+      const result = IBANValidator.validate("DE89 3704 0044 0532 0130 00");
       expect(result.valid).toBe(true);
     });
 
-    test('should validate Belgian IBAN', () => {
-      const result = IBANValidator.validate('BE68 5390 0754 7034');
+    test("should validate Belgian IBAN", () => {
+      const result = IBANValidator.validate("BE68 5390 0754 7034");
       expect(result.valid).toBe(true);
     });
   });
@@ -185,6 +198,7 @@ describe('IBAN Validator', () => {
 ### Updated Test Infrastructure
 
 #### Updated package.json Scripts
+
 ```json
 {
   "scripts": {
@@ -201,18 +215,19 @@ describe('IBAN Validator', () => {
 ```
 
 #### Updated Jest Configuration
+
 ```javascript
 // jest.config.js
 module.exports = {
-  testEnvironment: 'jsdom',
+  testEnvironment: "jsdom",
   testMatch: [
-    '**/tests/unit/**/*.test.js'  // Only test pure utilities
+    "**/tests/unit/**/*.test.js", // Only test pure utilities
   ],
   collectCoverageFrom: [
-    'verenigingen/public/js/utils/**/*.js',
-    'verenigingen/public/js/services/**/*.js',
-    '!**/*frappe*/**',  // Exclude Frappe-dependent files
-    '!**/tests/**'
+    "verenigingen/public/js/utils/**/*.js",
+    "verenigingen/public/js/services/**/*.js",
+    "!**/*frappe*/**", // Exclude Frappe-dependent files
+    "!**/tests/**",
   ],
   // Remove setupFilesAfterEnv - no Frappe mocking needed
 };
@@ -231,6 +246,7 @@ module.exports = {
 ### Business Workflow Test Coverage
 
 **High Priority Workflows (Cypress):**
+
 1. Member registration and profile creation
 2. SEPA mandate creation and validation
 3. Chapter assignment based on geography
@@ -240,6 +256,7 @@ module.exports = {
 7. Administrative approval processes
 
 **Utility Function Coverage (Jest):**
+
 1. IBAN validation with real European bank codes
 2. Client-side form validation rules
 3. Browser storage management utilities

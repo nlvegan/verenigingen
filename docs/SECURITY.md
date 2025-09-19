@@ -7,17 +7,20 @@
 **Issue**: The Analytics Alert Rule doctype contained an `exec()` function that could execute arbitrary Python code.
 
 **Files Affected**:
+
 - `verenigingen/doctype/analytics_alert_rule/analytics_alert_rule.py`
 
 **Risk Level**: CRITICAL
 **Impact**: Remote code execution, privilege escalation
 
 **Mitigation Applied**:
+
 - ✅ Disabled exec() function execution
 - ✅ Added error logging and user notification
 - ✅ Added TODO for implementing safer alternative
 
 **Recommended Long-term Solution**:
+
 ```python
 # Option 1: Use restricted execution with whitelisted functions
 ALLOWED_FUNCTIONS = {'len', 'str', 'int', 'float', 'sum', 'max', 'min'}
@@ -29,6 +32,7 @@ ALLOWED_FUNCTIONS = {'len', 'str', 'int', 'float', 'sum', 'max', 'min'}
 ### MEDIUM: SQL Query Patterns
 
 **Files Affected**:
+
 - `verenigingen/doctype/e_boekhouden_migration/e_boekhouden_migration.py`
 
 **Issue**: Raw SQL queries with regex patterns
@@ -36,6 +40,7 @@ ALLOWED_FUNCTIONS = {'len', 'str', 'int', 'float', 'sum', 'max', 'min'}
 **Impact**: Potential SQL injection if validation fails
 
 **Recommendations**:
+
 1. Use Frappe's ORM methods where possible
 2. Add input validation for regex patterns
 3. Consider using parameterized stored procedures
@@ -43,6 +48,7 @@ ALLOWED_FUNCTIONS = {'len', 'str', 'int', 'float', 'sum', 'max', 'min'}
 ### LOW: Missing Security Headers
 
 **Files Affected**:
+
 - `.gitignore`
 
 **Issue**: Missing patterns for sensitive files
@@ -50,26 +56,30 @@ ALLOWED_FUNCTIONS = {'len', 'str', 'int', 'float', 'sum', 'max', 'min'}
 **Impact**: Potential credential exposure
 
 **Mitigation Applied**:
+
 - ✅ Added comprehensive .gitignore patterns for:
-  - Environment files (.env, .env.*)
-  - Credential files (*.pem, *.key, secrets.json)
-  - Backup files (*.sql, *.dump, *.backup)
+  - Environment files (.env, .env.\*)
+  - Credential files (_.pem, _.key, secrets.json)
+  - Backup files (_.sql, _.dump, \*.backup)
   - Site configuration files
 
 ## 🛡️ Security Best Practices Implemented
 
 ### Code Quality & Security
+
 - ✅ Pre-commit hooks with security checks
 - ✅ Linting and code formatting
 - ✅ No hardcoded secrets in code
 - ✅ Proper .gitignore for sensitive files
 
 ### Dependencies
+
 - ✅ NPM audit shows 0 vulnerabilities
 - ✅ Frappe framework managed through bench
 - ✅ No direct installation of potentially vulnerable packages
 
 ### Access Control
+
 - ✅ Role-based permissions system
 - ✅ API rate limiting implemented
 - ✅ Input validation for forms
@@ -78,6 +88,7 @@ ALLOWED_FUNCTIONS = {'len', 'str', 'int', 'float', 'sum', 'max', 'min'}
 ## 🚨 Security Monitoring
 
 ### Regular Security Checks
+
 Run these commands regularly:
 
 ```bash
@@ -95,6 +106,7 @@ git status --ignored
 ```
 
 ### Recommended Tools
+
 - **bandit**: Python security linter
 - **safety**: Python dependency checker
 - **npm audit**: Node.js dependency checker
@@ -113,16 +125,19 @@ git status --ignored
 ## 🔄 Regular Security Tasks
 
 ### Monthly
+
 - [ ] Run `npm audit` and address issues
 - [ ] Review access logs for suspicious activity
 - [ ] Update dependencies with security patches
 
 ### Quarterly
+
 - [ ] Review and update security policies
 - [ ] Conduct security training
 - [ ] Review user permissions and access
 
 ### Annually
+
 - [ ] Full security audit
 - [ ] Penetration testing
 - [ ] Update security documentation

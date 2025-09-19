@@ -29,18 +29,21 @@ verenigingen/tests/e_boekhouden/
 ## Key Features
 
 ### ✅ Realistic Data Generation
+
 - **Dutch RGS Compliance**: Uses authentic Dutch accounting terminology and code structures
 - **Business Rule Validation**: Prevents creation of impossible test scenarios
 - **Deterministic Generation**: Same seed produces identical test data for reproducible tests
 - **No Mocking**: Uses actual Frappe document creation instead of mocks
 
 ### ✅ Comprehensive Coverage
+
 - **Happy Path Scenarios**: Ideal workflows with successful outcomes
 - **Edge Cases**: Special characters, boundary conditions, large datasets
 - **Error Scenarios**: Duplicate handling, validation failures, missing data
 - **Performance Testing**: Scalability validation with 500+ account groups
 
 ### ✅ Enhanced Test Factory
+
 - **Extends EnhancedTestCase**: Inherits automatic cleanup and validation
 - **Field Validation**: Verifies all field references against DocType schemas
 - **Business Logic**: Enforces Dutch accounting rules during data generation
@@ -68,13 +71,13 @@ bench --site dev.veganisme.net run-tests --app verenigingen --module vereniginge
 
 ### Test Execution Options
 
-| Option | Description | Example |
-|--------|-------------|---------|
-| `--suite` | Specific test category | `--suite business_logic` |
-| `--verbose` | Detailed output | `--verbose` |
-| `--performance-metrics` | Show timing data | `--performance-metrics` |
-| `--stop-on-failure` | Stop on first failure | `--stop-on-failure` |
-| `--save-results` | Save to JSON file | `--save-results results.json` |
+| Option                  | Description            | Example                       |
+| ----------------------- | ---------------------- | ----------------------------- |
+| `--suite`               | Specific test category | `--suite business_logic`      |
+| `--verbose`             | Detailed output        | `--verbose`                   |
+| `--performance-metrics` | Show timing data       | `--performance-metrics`       |
+| `--stop-on-failure`     | Stop on first failure  | `--stop-on-failure`           |
+| `--save-results`        | Save to JSON file      | `--save-results results.json` |
 
 ## Test Data Factory
 
@@ -100,14 +103,14 @@ text_input = factory.format_groups_as_text_input(groups)
 
 ### Scenario Types
 
-| Scenario | Description | Use Case |
-|----------|-------------|----------|
-| `happy_path` | Ideal expense/revenue groups | Basic functionality testing |
-| `mixed_suggestions` | Mixed group types | Business logic validation |
-| `hierarchical` | Parent-child structures | Hierarchy testing |
-| `large_dataset` | 150+ groups | Performance validation |
-| `edge_cases` | Special characters | Boundary testing |
-| `error_prone` | Invalid data | Error handling |
+| Scenario            | Description                  | Use Case                    |
+| ------------------- | ---------------------------- | --------------------------- |
+| `happy_path`        | Ideal expense/revenue groups | Basic functionality testing |
+| `mixed_suggestions` | Mixed group types            | Business logic validation   |
+| `hierarchical`      | Parent-child structures      | Hierarchy testing           |
+| `large_dataset`     | 150+ groups                  | Performance validation      |
+| `edge_cases`        | Special characters           | Boundary testing            |
+| `error_prone`       | Invalid data                 | Error handling              |
 
 ## Test Classes and Methods
 
@@ -249,10 +252,10 @@ The test suite validates error handling for:
 ### Benchmarks
 
 | Dataset Size | Parse Time | Create Time | Memory Usage |
-|--------------|------------|-------------|--------------|
-| 10 groups | <0.1s | <0.5s | <10MB |
-| 100 groups | <1.0s | <5.0s | <50MB |
-| 500 groups | <5.0s | <25.0s | <100MB |
+| ------------ | ---------- | ----------- | ------------ |
+| 10 groups    | <0.1s      | <0.5s       | <10MB        |
+| 100 groups   | <1.0s      | <5.0s       | <50MB        |
+| 500 groups   | <5.0s      | <25.0s      | <100MB       |
 
 ### Performance Tests
 
@@ -271,12 +274,12 @@ def test_concurrent_processing_safety(self):
 
 ### API Endpoint Coverage
 
-| Endpoint | Test Coverage | Scenarios |
-|----------|---------------|-----------|
-| `parse_groups_and_suggest_cost_centers` | ✅ Complete | Success, validation, errors |
-| `preview_cost_center_creation` | ✅ Complete | Valid preview, empty mappings |
-| `create_cost_centers_from_mappings` | ✅ Complete | Success, duplicates, failures |
-| `create_single_cost_center` | ✅ Complete | Individual creation, validation |
+| Endpoint                                | Test Coverage | Scenarios                       |
+| --------------------------------------- | ------------- | ------------------------------- |
+| `parse_groups_and_suggest_cost_centers` | ✅ Complete   | Success, validation, errors     |
+| `preview_cost_center_creation`          | ✅ Complete   | Valid preview, empty mappings   |
+| `create_cost_centers_from_mappings`     | ✅ Complete   | Success, duplicates, failures   |
+| `create_single_cost_center`             | ✅ Complete   | Individual creation, validation |
 
 ### UI Workflow Testing
 
@@ -359,16 +362,19 @@ def _generate_custom_scenario(self) -> Dict[str, Any]:
 ### Common Issues
 
 1. **Import Errors**: Ensure running in Frappe environment
+
    ```bash
    bench --site dev.veganisme.net execute verenigingen.scripts.testing.run_cost_center_tests
    ```
 
 2. **Database Permissions**: Ensure proper test user permissions
+
    ```python
    frappe.set_user("Administrator")
    ```
 
 3. **Field Validation Errors**: Check DocType JSON files for field names
+
    ```python
    # Always read DocType JSON before creating test data
    meta = frappe.get_meta("Cost Center")

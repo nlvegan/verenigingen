@@ -9,17 +9,20 @@ Analysis of the Chapter DocType and related child tables reveals several perform
 ### 1. Missing Database Indexes
 
 **Chapter Table:**
+
 - `region` field lacks indexing for geographic queries
 - `status` field needs indexing for active/inactive filtering
 - `published` field should be indexed for public chapter queries
 
 **Chapter Board Member Child Table:**
+
 - `volunteer` field lacks indexing for JOIN operations
 - `chapter_role` field needs indexing for role-based filtering
 - `from_date`/`to_date` need composite index for date range queries
 - `is_active` field should be indexed for status filtering
 
 **Chapter Member Child Table:**
+
 - `member` field lacks indexing despite being primary relationship
 - `status` field needs indexing for Pending/Active/Inactive filtering
 - `chapter_join_date` should be indexed for chronological queries
@@ -28,6 +31,7 @@ Analysis of the Chapter DocType and related child tables reveals several perform
 ### 2. N+1 Query Problems
 
 **Chapter Board Member fetch_from Fields:**
+
 ```json
 "fetch_from": "volunteer.volunteer_name"
 "fetch_from": "volunteer.email"
@@ -79,6 +83,7 @@ ALTER TABLE `tabChapter Member` ADD INDEX `idx_enabled` (`enabled`);
 **Common Query Patterns to Optimize:**
 
 1. **Active Board Members Query:**
+
 ```python
 # Current inefficient pattern
 board_members = frappe.get_all('Chapter Board Member',
@@ -97,6 +102,7 @@ active_members = frappe.db.sql("""
 ```
 
 2. **Chapter Member Lookup by Member:**
+
 ```python
 # Optimized member-to-chapters query
 chapters = frappe.db.sql("""

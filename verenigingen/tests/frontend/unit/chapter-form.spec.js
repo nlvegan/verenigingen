@@ -9,7 +9,7 @@ describe('Chapter Form', () => {
 
 	beforeEach(() => {
 		// Mock Frappe framework
-		global.__ = jest.fn(str => str);
+		global.__ = jest.fn((str) => str);
 		global.cur_frm = {};
 
 		frappe = {
@@ -30,7 +30,7 @@ describe('Chapter Form', () => {
 			route_options: {},
 			set_route: jest.fn(),
 			datetime: {
-				str_to_user: jest.fn(date => date),
+				str_to_user: jest.fn((date) => date),
 				get_today: jest.fn(() => '2024-01-01'),
 				add_days: jest.fn()
 			},
@@ -200,11 +200,11 @@ describe('Chapter Form', () => {
 				'' // Empty
 			];
 
-			validPatterns.forEach(pattern => {
+			validPatterns.forEach((pattern) => {
 				expect(isValidPostalCodeRegex(pattern)).toBe(true);
 			});
 
-			invalidPatterns.forEach(pattern => {
+			invalidPatterns.forEach((pattern) => {
 				expect(isValidPostalCodeRegex(pattern)).toBe(false);
 			});
 		});
@@ -225,7 +225,10 @@ describe('Chapter Form', () => {
 					method: expect.stringContaining('suggest_postal_codes_for_region')
 				})
 			);
-			expect(frm.set_value).toHaveBeenCalledWith('postal_code_regex', '^101[0-9]');
+			expect(frm.set_value).toHaveBeenCalledWith(
+				'postal_code_regex',
+				'^101[0-9]'
+			);
 		});
 
 		it('should show postal code distribution', async () => {
@@ -321,7 +324,11 @@ describe('Chapter Form', () => {
 			chapterForm.create_volunteer_for_board_member(frm, 'John Doe');
 
 			expect(frappe.route_options.volunteer_name).toBe('John Doe');
-			expect(frappe.set_route).toHaveBeenCalledWith('Form', 'Volunteer', 'New Volunteer');
+			expect(frappe.set_route).toHaveBeenCalledWith(
+				'Form',
+				'Volunteer',
+				'New Volunteer'
+			);
 		});
 
 		it('should sync board member with volunteer system', async () => {
@@ -343,7 +350,9 @@ describe('Chapter Form', () => {
 
 // Helper functions that would be in the actual implementation
 function isValidPostalCodeRegex(pattern) {
-	if (!pattern) { return false; }
+	if (!pattern) {
+		return false;
+	}
 	try {
 		new RegExp(pattern);
 		return pattern.includes('^') && /\d/.test(pattern);
@@ -359,8 +368,8 @@ function validateBoardMemberDates(member) {
 }
 
 function validateChapterHeadAssignment(frm, memberName) {
-	const existingHead = frm.doc.members.find(m =>
-		m.is_chapter_head && m.is_active && m.member !== memberName
+	const existingHead = frm.doc.members.find(
+		(m) => m.is_chapter_head && m.is_active && m.member !== memberName
 	);
 	return !existingHead;
 }

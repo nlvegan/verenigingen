@@ -1,4 +1,5 @@
 # Phase 3 Migration Strategy Document
+
 ## Evolutionary Architecture Improvements
 
 **Document Version**: 1.0
@@ -11,6 +12,7 @@
 The SQL usage analysis revealed **70 CRITICAL UNSAFE queries** requiring immediate migration, alongside 135 complex queries that need securing. This document outlines the migration strategy prioritizing security-critical issues while preserving business functionality through an evolutionary approach.
 
 **Key Findings:**
+
 - **70 UNSAFE queries** (f-string interpolation, string formatting) - IMMEDIATE MIGRATION REQUIRED
 - **135 COMPLEX queries** (JOINs, aggregations) - SECURE WITH PARAMETERS
 - **28 PERFORMANCE_CRITICAL queries** - OPTIMIZE AND SECURE
@@ -27,11 +29,13 @@ The SQL usage analysis revealed **70 CRITICAL UNSAFE queries** requiring immedia
 
 **Security Risk Assessment:**
 The 70 unsafe queries represent immediate security vulnerabilities due to:
+
 - F-string interpolation in SQL queries
 - String formatting with user-controllable data
 - Dynamic query construction without parameterization
 
 **High-Risk Files Identified:**
+
 1. `verenigingen/fixtures/add_sepa_database_indexes.py` - 3 unsafe queries
 2. `verenigingen/utils/simple_robust_cleanup.py` - 4 unsafe queries
 3. `verenigingen/api/database_index_manager.py` - 2 unsafe queries
@@ -41,6 +45,7 @@ The 70 unsafe queries represent immediate security vulnerabilities due to:
 **Migration Strategy for UNSAFE Queries:**
 
 #### Example Migration Pattern:
+
 ```python
 # BEFORE (UNSAFE - f-string interpolation)
 existing_indexes = frappe.db.sql(
@@ -61,6 +66,7 @@ existing_indexes = frappe.db.sql(
 ```
 
 **Immediate Actions Required:**
+
 1. **Audit all 70 unsafe queries** for actual security impact
 2. **Replace f-string interpolation** with parameterized queries
 3. **Validate table names** against known DocType tables
@@ -71,6 +77,7 @@ existing_indexes = frappe.db.sql(
 **Strategy**: Convert simple SELECT/INSERT queries to Frappe ORM patterns.
 
 **Migration Pattern:**
+
 ```python
 # BEFORE (SQL)
 result = frappe.db.sql("SELECT name FROM tabMember WHERE status = %s", ("Active",))
@@ -87,6 +94,7 @@ result = frappe.get_all("Member",
 **Strategy**: Keep complex SQL but secure with proper parameterization.
 
 **Complex Query Pattern:**
+
 ```python
 # KEEP BUT SECURE - Complex JOIN with parameterization
 def get_member_payment_summary(status, from_date):
@@ -121,6 +129,7 @@ def get_member_payment_summary(status, from_date):
 **Strategy**: Optimize performance-critical SQL while maintaining security.
 
 **Optimization Patterns:**
+
 - Add appropriate database indexes
 - Use LIMIT clauses for large datasets
 - Implement batch processing for bulk operations
@@ -132,6 +141,7 @@ def get_member_payment_summary(status, from_date):
 ### Current State Analysis
 
 The Member class currently uses multiple mixins:
+
 - `PaymentMixin` (1,126 lines) - Payment history and processing
 - `SEPAMandateMixin` - SEPA mandate management
 - `ChapterMixin` - Chapter relationship management
@@ -208,6 +218,7 @@ class PaymentMixin:
 **Objective**: Complete service layer implementation while maintaining backward compatibility.
 
 #### Service Layer Benefits:
+
 1. **Centralized business logic** - SEPA operations in one place
 2. **Enhanced error handling** - Comprehensive logging and recovery
 3. **Better testability** - Service methods easier to unit test
@@ -230,23 +241,27 @@ mandate = SEPAService.create_mandate_enhanced(member_name, iban, bic)
 ## IMPLEMENTATION TIMELINE
 
 ### Week 1-2: UNSAFE SQL Migration (Critical)
+
 - **Day 1-2**: Audit all 70 unsafe queries
 - **Day 3-5**: Migrate database index management queries (highest risk)
 - **Day 6-8**: Migrate cleanup and rollback utilities
 - **Day 9-10**: Test and validate all migrations
 
 ### Week 3-4: Service Layer Foundation
+
 - **Day 1-3**: Create SEPAService class with core methods
 - **Day 4-6**: Update existing mixins with deprecation warnings
 - **Day 7-8**: Create comprehensive test suite for service layer
 - **Day 9-10**: Documentation and migration guides
 
 ### Week 5-6: SIMPLE and COMPLEX SQL Migration
+
 - **Day 1-2**: Migrate 6 simple SQL queries to ORM
 - **Day 3-8**: Secure 135 complex queries with parameterization
 - **Day 9-10**: Performance testing and optimization
 
 ### Week 7-8: Integration and Documentation
+
 - **Day 1-5**: Complete service layer integration
 - **Day 6-8**: Update calling code to use service patterns
 - **Day 9-10**: Final testing and documentation
@@ -256,16 +271,19 @@ mandate = SEPAService.create_mandate_enhanced(member_name, iban, bic)
 ## SUCCESS CRITERIA
 
 ### Security Improvements
+
 - ✅ **Zero unsafe SQL queries** remaining in codebase
 - ✅ **All parameterized queries** properly implemented
 - ✅ **Security audit passes** for all modified code
 
 ### Architecture Improvements
+
 - ✅ **Service layer operational** for SEPA operations
 - ✅ **Backward compatibility maintained** for existing code
 - ✅ **Clear migration path established** for future work
 
 ### Performance Preservation
+
 - ✅ **No performance regressions** in critical operations
 - ✅ **Complex queries optimized** where possible
 - ✅ **Database indexes utilized** effectively
@@ -275,6 +293,7 @@ mandate = SEPAService.create_mandate_enhanced(member_name, iban, bic)
 ## ROLLBACK PROCEDURES
 
 ### Phase 3.2 Rollback (SQL Migration)
+
 ```bash
 # Restore original files from git
 git checkout HEAD~1 -- verenigingen/fixtures/add_sepa_database_indexes.py
@@ -285,6 +304,7 @@ python scripts/validation/test_sql_migration_rollback.py
 ```
 
 ### Phase 3.3 Rollback (Service Layer)
+
 ```python
 # Remove service layer files
 rm -rf verenigingen/utils/services/
@@ -298,12 +318,14 @@ git checkout HEAD~1 -- verenigingen/verenigingen/doctype/member/mixins/
 ## MONITORING AND VALIDATION
 
 ### Continuous Monitoring During Migration
+
 1. **SQL Query Monitoring**: Track all database queries for security issues
 2. **Performance Monitoring**: Ensure no regression in operation times
 3. **Error Rate Monitoring**: Watch for increased error rates during migration
 4. **Business Logic Validation**: Verify all SEPA operations continue working
 
 ### Validation Checkpoints
+
 - **After each unsafe query migration**: Run security tests
 - **After service layer introduction**: Run comprehensive business logic tests
 - **Before each phase completion**: Full regression test suite
@@ -316,12 +338,14 @@ git checkout HEAD~1 -- verenigingen/verenigingen/doctype/member/mixins/
 This migration strategy provides a systematic approach to improving data access patterns while maintaining system stability. The evolutionary approach ensures business continuity while gradually improving architecture quality.
 
 **Key Success Factors:**
+
 1. **Priority-based migration** - Address security issues first
 2. **Evolutionary rather than revolutionary** - Keep existing patterns working
 3. **Comprehensive testing** - Validate each change thoroughly
 4. **Clear rollback procedures** - Quick recovery if issues arise
 
 **Expected Outcomes:**
+
 - **Eliminated security vulnerabilities** from unsafe SQL queries
 - **Improved maintainability** through service layer introduction
 - **Preserved business functionality** throughout migration

@@ -77,7 +77,9 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 				fieldname: 'name',
 				doctype: 'Donor'
 			});
-			expect(frappe.contacts.render_address_and_contact).toHaveBeenCalledWith(mockFrm);
+			expect(frappe.contacts.render_address_and_contact).toHaveBeenCalledWith(
+				mockFrm
+			);
 		});
 
 		test('should hide address and contact fields for new donors', () => {
@@ -93,7 +95,9 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 				['address_html', 'contact_html'],
 				false
 			);
-			expect(frappe.contacts.clear_address_and_contact).toHaveBeenCalledWith(mockFrm);
+			expect(frappe.contacts.clear_address_and_contact).toHaveBeenCalledWith(
+				mockFrm
+			);
 		});
 
 		test('should setup donation history and ANBI features for existing donors', () => {
@@ -257,7 +261,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			donor.bsn_citizen_service_number(mockFrm);
 
 			// Wait for async validation
-			await new Promise(resolve => setTimeout(resolve, 0));
+			await new Promise((resolve) => setTimeout(resolve, 0));
 
 			// Assert
 			expect(frappe.call).toHaveBeenCalledWith({
@@ -289,7 +293,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			// Find sync button and execute
 			donor.refresh(mockFrm);
 			const syncButton = mockFrm.add_custom_button.mock.calls.find(
-				call => call[0] === 'Sync Donation History'
+				(call) => call[0] === 'Sync Donation History'
 			);
 			if (syncButton) {
 				await syncButton[1](); // Execute the callback
@@ -297,7 +301,8 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(frappe.call).toHaveBeenCalledWith({
-				method: 'verenigingen.utils.donation_history_manager.sync_donor_history',
+				method:
+          'verenigingen.utils.donation_history_manager.sync_donor_history',
 				args: {
 					donor_name: donorName
 				},
@@ -324,7 +329,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			// Find sync button and execute
 			donor.refresh(mockFrm);
 			const syncButton = mockFrm.add_custom_button.mock.calls.find(
-				call => call[0] === 'Sync Donation History'
+				(call) => call[0] === 'Sync Donation History'
 			);
 			if (syncButton) {
 				await syncButton[1]();
@@ -349,7 +354,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 
 			// Find new donation button and execute
 			const newDonationButton = mockFrm.add_custom_button.mock.calls.find(
-				call => call[0] === 'New Donation'
+				(call) => call[0] === 'New Donation'
 			);
 			if (newDonationButton) {
 				newDonationButton[1](); // Execute the callback
@@ -390,7 +395,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			donor.refresh(mockFrm);
 
 			// Wait for async load
-			await new Promise(resolve => setTimeout(resolve, 0));
+			await new Promise((resolve) => setTimeout(resolve, 0));
 
 			// Assert
 			expect(frappe.call).toHaveBeenCalledWith({
@@ -421,7 +426,11 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			const validateBSNFormat = (dialog, bsn) => {
 				const cleanBSN = bsn.replace(/\D/g, '');
 				if (cleanBSN.length !== 9) {
-					dialog.set_df_property('bsn', 'description', 'Invalid: BSN must be exactly 9 digits');
+					dialog.set_df_property(
+						'bsn',
+						'description',
+						'Invalid: BSN must be exactly 9 digits'
+					);
 					return false;
 				}
 				return true;
@@ -445,7 +454,11 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			const validateBSNFormat = (dialog, bsn) => {
 				const cleanBSN = bsn.replace(/\D/g, '');
 				if (cleanBSN === '111111111') {
-					dialog.set_df_property('bsn', 'description', 'Invalid: BSN cannot be all the same digit');
+					dialog.set_df_property(
+						'bsn',
+						'description',
+						'Invalid: BSN cannot be all the same digit'
+					);
 					return false;
 				}
 				return true;
@@ -480,7 +493,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 
 			// Find BSN validation button and execute
 			const bsnButton = mockFrm.add_custom_button.mock.calls.find(
-				call => call[0] === 'Validate BSN'
+				(call) => call[0] === 'Validate BSN'
 			);
 			if (bsnButton) {
 				bsnButton[1](); // Execute the callback
@@ -511,7 +524,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 
 			// Find tax ID update button and execute
 			const taxIdButton = mockFrm.add_custom_button.mock.calls.find(
-				call => call[0] === 'Update Tax ID'
+				(call) => call[0] === 'Update Tax ID'
 			);
 			if (taxIdButton) {
 				taxIdButton[1](); // Execute the callback
@@ -542,17 +555,20 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 
 			// Find donation agreement button and execute
 			const agreementButton = mockFrm.add_custom_button.mock.calls.find(
-				call => call[0] === 'Create Donation Agreement'
+				(call) => call[0] === 'Create Donation Agreement'
 			);
 			if (agreementButton) {
 				agreementButton[1](); // Execute the callback
 			}
 
 			// Assert
-			expect(frappe.new_doc).toHaveBeenCalledWith('Periodic Donation Agreement', {
-				donor: mockDoc.name,
-				donor_name: mockDoc.donor_name
-			});
+			expect(frappe.new_doc).toHaveBeenCalledWith(
+				'Periodic Donation Agreement',
+				{
+					donor: mockDoc.name,
+					donor_name: mockDoc.donor_name
+				}
+			);
 		});
 	});
 
@@ -581,7 +597,8 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			// Simulate tax ID update
 			const updateTaxIdentifiers = (frm, values) => {
 				return frappe.call({
-					method: 'verenigingen.api.anbi_operations.update_donor_tax_identifiers',
+					method:
+            'verenigingen.api.anbi_operations.update_donor_tax_identifiers',
 					args: {
 						donor: frm.doc.name,
 						bsn: values.bsn || null,
@@ -627,7 +644,8 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			// Simulate failed tax ID update
 			const updateTaxIdentifiers = (frm, values) => {
 				return frappe.call({
-					method: 'verenigingen.api.anbi_operations.update_donor_tax_identifiers',
+					method:
+            'verenigingen.api.anbi_operations.update_donor_tax_identifiers',
 					args: {
 						donor: frm.doc.name,
 						bsn: values.bsn || null,
@@ -645,7 +663,10 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 				});
 			};
 
-			await updateTaxIdentifiers(mockFrm, { bsn: 'invalid', verification_method: 'Manual' });
+			await updateTaxIdentifiers(mockFrm, {
+				bsn: 'invalid',
+				verification_method: 'Manual'
+			});
 
 			// Assert error handling (can't directly test callback, but structure is validated)
 			expect(frappe.call).toHaveBeenCalled();
@@ -724,7 +745,7 @@ describe('Donor DocType - Comprehensive Test Suite', () => {
 			donor.refresh(mockFrm);
 
 			// Wait for async operations
-			await new Promise(resolve => setTimeout(resolve, 0));
+			await new Promise((resolve) => setTimeout(resolve, 0));
 
 			// Should handle empty data gracefully
 			expect(frappe.call).toHaveBeenCalled();
@@ -871,12 +892,12 @@ function setupGlobalMocks() {
 		datetime: {
 			nowdate: jest.fn().mockReturnValue('2025-08-19'),
 			now_datetime: jest.fn().mockReturnValue('2025-08-19 14:30:00'),
-			str_to_user: jest.fn(date => date)
+			str_to_user: jest.fn((date) => date)
 		},
-		__: jest.fn(str => str) // Simple translation mock
+		__: jest.fn((str) => str) // Simple translation mock
 	};
 
-	global.__ = jest.fn(str => str);
+	global.__ = jest.fn((str) => str);
 }
 
 /**

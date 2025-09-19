@@ -18,7 +18,9 @@ This comprehensive guide provides step-by-step error recovery procedures for com
 ## Quick Emergency Response
 
 ### 🚨 **CRITICAL**: System Down Completely
+
 1. **Immediate Actions (< 5 minutes)**
+
    ```bash
    # Check service status
    bench status
@@ -34,6 +36,7 @@ This comprehensive guide provides step-by-step error recovery procedures for com
 3. **Log location**: `/home/frappe/frappe-bench/logs/bench.log`
 
 ### Emergency Contacts
+
 - **Technical Support Level 1**: [Contact Info]
 - **Critical Escalation**: [Contact Info]
 - **After Hours**: [Contact Info]
@@ -45,12 +48,14 @@ This comprehensive guide provides step-by-step error recovery procedures for com
 ### SEPA Direct Debit Failures
 
 #### Symptoms
+
 - Error message: "SEPA mandate validation failed"
 - Payment status shows "Failed" in batch processing
 - Members receive notifications about failed payments
 - Dashboard shows declined direct debit transactions
 
 #### Root Causes
+
 - **Invalid IBAN**: Incorrect or expired bank account details
 - **Insufficient Funds**: Member account has insufficient balance
 - **Mandate Expiry**: SEPA mandate has expired or been cancelled
@@ -58,6 +63,7 @@ This comprehensive guide provides step-by-step error recovery procedures for com
 - **System Integration**: Connection issues with banking systems
 
 #### Diagnostic Commands
+
 ```bash
 # Check recent SEPA failures
 bench --site dev.veganisme.net mariadb -e "
@@ -79,6 +85,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.sepa_mandate_service.t
 #### Recovery Steps
 
 **1. Individual Payment Failures**
+
 ```bash
 # Identify failed payment
 bench --site dev.veganisme.net mariadb -e "
@@ -97,6 +104,7 @@ bench --site dev.veganisme.net console
 ```
 
 **2. Bulk Failure Recovery**
+
 ```bash
 # Generate retry batch for failed payments
 bench --site dev.veganisme.net execute verenigingen.utils.sepa_retry_manager.create_retry_batch --args "['[ORIGINAL_BATCH_ID]']"
@@ -106,6 +114,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.sepa_admin_reporting.p
 ```
 
 **3. Mandate Renewal Process**
+
 ```bash
 # Generate mandate renewal notifications
 bench --site dev.veganisme.net execute verenigingen.utils.sepa_notification_manager.send_mandate_renewal_requests
@@ -115,6 +124,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.sepa_mandate_lifecycle
 ```
 
 #### Prevention
+
 - **Monthly**: Review mandate expiry dates
 - **Quarterly**: Validate all active mandates
 - **Before each batch**: Run pre-validation checks
@@ -125,12 +135,14 @@ bench --site dev.veganisme.net execute verenigingen.utils.sepa_mandate_lifecycle
 ### Mandate Creation Errors
 
 #### Symptoms
+
 - Error: "Failed to create SEPA mandate"
 - Incomplete member registration process
 - Members unable to complete payment setup
 - Missing mandate records in system
 
 #### Diagnostic Steps
+
 ```bash
 # Check recent mandate creation attempts
 bench --site dev.veganisme.net mariadb -e "
@@ -144,6 +156,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.sepa_input_validation.
 ```
 
 #### Recovery Steps
+
 ```bash
 # Manual mandate creation for specific member
 bench --site dev.veganisme.net console
@@ -162,6 +175,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.sepa_mandate_service.b
 ```
 
 #### Prevention
+
 - Enhanced IBAN validation on frontend
 - Real-time BIC code validation
 - Clear error messages for users
@@ -172,12 +186,14 @@ bench --site dev.veganisme.net execute verenigingen.utils.sepa_mandate_service.b
 ### Payment Reconciliation Issues
 
 #### Symptoms
+
 - Payments marked as "Unreconciled" for extended periods
 - Duplicate payment entries
 - Missing payment records
 - Mismatched amounts between bank and system
 
 #### Diagnostic Commands
+
 ```bash
 # Find unreconciled payments
 bench --site dev.veganisme.net execute verenigingen.api.get_unreconciled_payments.get_unreconciled_payments
@@ -195,6 +211,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.payment_utils.analyze_
 ```
 
 #### Recovery Steps
+
 ```bash
 # Auto-reconcile by reference number
 bench --site dev.veganisme.net execute verenigingen.utils.sepa_reconciliation.auto_reconcile_payments
@@ -219,12 +236,14 @@ bench --site dev.veganisme.net execute verenigingen.utils.payment_utils.resolve_
 ### Login Failures and Password Resets
 
 #### Symptoms
+
 - "Invalid username or password" errors
 - Users unable to access member portal
 - Password reset emails not received
 - Account lockout messages
 
 #### Diagnostic Steps
+
 ```bash
 # Check user account status
 bench --site dev.veganisme.net mariadb -e "
@@ -245,6 +264,7 @@ bench --site dev.veganisme.net execute frappe.core.doctype.user.user.test_passwo
 ```
 
 #### Recovery Steps
+
 ```bash
 # Reset user password (admin action)
 bench --site dev.veganisme.net set-password [USER_EMAIL]
@@ -267,6 +287,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.member_portal_utils.bu
 ```
 
 #### Prevention
+
 - Clear password complexity requirements
 - Automated account unlock after time period
 - Enhanced email delivery monitoring
@@ -277,12 +298,14 @@ bench --site dev.veganisme.net execute verenigingen.utils.member_portal_utils.bu
 ### Permission Denied Errors
 
 #### Symptoms
+
 - "You don't have permission to access this resource"
 - Missing menu items or pages
 - Partial page loading
 - API endpoint access denied
 
 #### Diagnostic Commands
+
 ```bash
 # Check user roles and permissions
 bench --site dev.veganisme.net console
@@ -302,6 +325,7 @@ bench --site dev.veganisme.net execute verenigingen.api.check_specific_report_pe
 ```
 
 #### Recovery Steps
+
 ```bash
 # Assign missing role to user
 bench --site dev.veganisme.net console
@@ -325,12 +349,14 @@ bench --site dev.veganisme.net execute verenigigingen.utils.member_portal_utils.
 ### Session Timeout Issues
 
 #### Symptoms
+
 - Frequent logouts during active use
 - "Session expired" messages
 - Loss of form data
 - Inability to perform actions
 
 #### Recovery Steps
+
 ```bash
 # Extend session timeout (system-wide)
 bench --site dev.veganisme.net console
@@ -346,6 +372,7 @@ bench --site dev.veganisme.net mariadb -e "DELETE FROM \`tabSessions\` WHERE cre
 ```
 
 #### Prevention
+
 - Increase session timeout for portal users
 - Implement session extension warnings
 - Auto-save form data
@@ -358,6 +385,7 @@ bench --site dev.veganisme.net mariadb -e "DELETE FROM \`tabSessions\` WHERE cre
 ### Import Failures
 
 #### Symptoms
+
 - "Import failed" notifications
 - Partial data import
 - Data validation errors during import
@@ -366,6 +394,7 @@ bench --site dev.veganisme.net mariadb -e "DELETE FROM \`tabSessions\` WHERE cre
 #### Common Import Types and Recovery
 
 **Member Data Import**
+
 ```bash
 # Diagnose member import issues
 bench --site dev.veganisme.net execute verenigingen.utils.data_quality_utils.validate_member_import --args "['[IMPORT_FILE_PATH]']"
@@ -381,6 +410,7 @@ bench --site dev.veganisme.net console
 ```
 
 **Financial Data Import**
+
 ```bash
 # Check eBoekhouden import status
 bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.eboekhouden_api.check_import_status
@@ -393,6 +423,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.payment_utils.validate
 ```
 
 #### General Import Recovery
+
 ```bash
 # Check import logs
 bench --site dev.veganisme.net mariadb -e "
@@ -413,6 +444,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.data_quality_utils.bul
 ### Validation Errors During Form Submission
 
 #### Symptoms
+
 - Form submission fails with validation messages
 - "Mandatory field missing" errors
 - Data format validation failures
@@ -421,6 +453,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.data_quality_utils.bul
 #### Common Validation Issues
 
 **Member Registration Validation**
+
 ```bash
 # Check member validation rules
 bench --site dev.veganisme.net console
@@ -441,6 +474,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.member_portal_utils.va
 ```
 
 **SEPA Validation Errors**
+
 ```bash
 # Test IBAN validation
 bench --site dev.veganisme.net execute verenigingen.utils.sepa_input_validation.validate_iban --args "['[IBAN]']"
@@ -450,6 +484,7 @@ bench --site dev.veganisme.net execute verenigigingen.utils.sepa_validator.valid
 ```
 
 #### Recovery Steps
+
 ```bash
 # Bypass validation temporarily (admin only)
 bench --site dev.veganisme.net console
@@ -470,12 +505,14 @@ bench --site dev.veganisme.net execute verenigigingen.utils.data_quality_utils.b
 ### Duplicate Entry Prevention and Resolution
 
 #### Symptoms
+
 - "Duplicate entry" database errors
 - Conflicting member records
 - Multiple payment entries for same transaction
 - Conflicting SEPA mandates
 
 #### Diagnostic Steps
+
 ```bash
 # Find duplicate members by email
 bench --site dev.veganisme.net mariadb -e "
@@ -498,6 +535,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.payment_utils.find_dup
 ```
 
 #### Resolution Steps
+
 ```bash
 # Merge duplicate members
 bench --site dev.veganisme.net execute verenigigingen.utils.member_portal_utils.merge_duplicate_members --args "['[PRIMARY_ID]', '[DUPLICATE_ID]']"
@@ -516,12 +554,14 @@ bench --site dev.veganisme.net execute verenigingen.utils.payment_utils.merge_du
 ### eBoekhouden Connection Errors
 
 #### Symptoms
+
 - "API connection timeout" errors
 - Authentication failures with eBoekhouden
 - Data sync interruptions
 - Missing financial data
 
 #### Diagnostic Commands
+
 ```bash
 # Test eBoekhouden connectivity
 bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.eboekhouden_rest_client.test_connection
@@ -542,6 +582,7 @@ LIMIT 10;"
 ```
 
 #### Recovery Steps
+
 ```bash
 # Refresh API credentials
 bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.eboekhouden_api.refresh_credentials
@@ -557,6 +598,7 @@ bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.eboekhoud
 ```
 
 #### Prevention
+
 - Automated API health monitoring
 - Retry mechanisms with exponential backoff
 - Connection pooling and timeout management
@@ -567,12 +609,14 @@ bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.eboekhoud
 ### API Timeout and Rate Limiting
 
 #### Symptoms
+
 - "Request timeout" errors
 - "Rate limit exceeded" messages
 - Slow API response times
 - Intermittent connection failures
 
 #### Recovery Steps
+
 ```bash
 # Check API rate limit status
 bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.eboekhouden_api.check_rate_limits
@@ -591,12 +635,14 @@ bench --site dev.veganisme.net execute verenigingen.utils.payment_retry.retry_wi
 ### Webhook Failures
 
 #### Symptoms
+
 - Webhook endpoints returning errors
 - Missing webhook notifications
 - Payment status not updating
 - Integration data out of sync
 
 #### Diagnostic Steps
+
 ```bash
 # Check webhook logs
 bench --site dev.veganisme.net mariadb -e "
@@ -615,6 +661,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.webhook_validator.vali
 ```
 
 #### Recovery Steps
+
 ```bash
 # Retry failed webhooks
 bench --site dev.veganisme.net execute verenigingen.api.webhook_handler.retry_failed_webhooks
@@ -631,12 +678,14 @@ bench --site dev.veganisme.net execute verenigingen.api.webhook_handler.process_
 ### Email Delivery Issues
 
 #### Symptoms
+
 - Members not receiving notifications
 - Email queue showing failed emails
 - SMTP authentication errors
 - Email templates not being sent
 
 #### Diagnostic Commands
+
 ```bash
 # Check email queue status
 bench --site dev.veganisme.net mariadb -e "
@@ -665,6 +714,7 @@ bench --site dev.veganisme.net execute verenigingen.api.email_template_manager.c
 #### Recovery Steps
 
 **1. SMTP Configuration Issues**
+
 ```bash
 # Check and fix SMTP settings
 bench --site dev.veganisme.net console
@@ -679,6 +729,7 @@ bench --site dev.veganisme.net console
 ```
 
 **2. Failed Email Queue Processing**
+
 ```bash
 # Retry failed emails
 bench --site dev.veganisme.net execute frappe.email.queue.retry_sending
@@ -694,6 +745,7 @@ bench --site dev.veganisme.net execute frappe.email.queue.flush
 ```
 
 **3. Email Template Issues**
+
 ```bash
 # Recreate missing email templates
 bench --site dev.veganisme.net execute verenigingen.api.email_template_manager.create_comprehensive_email_templates
@@ -706,6 +758,7 @@ bench --site dev.veganisme.net execute verenigingen.api.email_template_manager.v
 ```
 
 **4. Bulk Notification Recovery**
+
 ```bash
 # Resend failed SEPA notifications
 bench --site dev.veganisme.net execute verenigingen.utils.sepa_notification_manager.resend_failed_notifications --args "['2025-08-06']"
@@ -718,6 +771,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.notification_helpers.t
 ```
 
 #### Prevention
+
 - Monitor email queue daily
 - Set up email delivery alerts
 - Regular SMTP connection testing
@@ -730,12 +784,14 @@ bench --site dev.veganisme.net execute verenigingen.utils.notification_helpers.t
 ### Database Connection Problems
 
 #### Symptoms
+
 - "Database connection lost" errors
 - Query timeout messages
 - Slow database responses
 - Connection pool exhaustion
 
 #### Diagnostic Commands
+
 ```bash
 # Check database status
 bench --site dev.veganisme.net mariadb -e "SHOW STATUS LIKE 'Threads_%';"
@@ -751,6 +807,7 @@ bench --site dev.veganisme.net console
 ```
 
 #### Recovery Steps
+
 ```bash
 # Restart database service
 sudo systemctl restart mariadb
@@ -774,12 +831,14 @@ bench restart
 ### Redis/Cache Issues
 
 #### Symptoms
+
 - Slow page loading
 - Stale data display
 - Cache-related errors
 - Session management issues
 
 #### Recovery Steps
+
 ```bash
 # Check Redis status
 redis-cli ping
@@ -804,12 +863,14 @@ bench --site dev.veganisme.net console
 ### Background Job Failures
 
 #### Symptoms
+
 - Jobs stuck in "Queued" status
 - Failed background jobs
 - Email notifications not sent
 - Scheduled tasks not running
 
 #### Diagnostic Steps
+
 ```bash
 # Check job queue status
 bench --site dev.veganisme.net console
@@ -831,6 +892,7 @@ LIMIT 10;"
 ```
 
 #### Recovery Steps
+
 ```bash
 # Enable scheduler
 bench --site dev.veganisme.net enable-scheduler
@@ -855,18 +917,21 @@ bench --site dev.veganisme.net execute verenigingen.utils.background_jobs.proces
 ### When to Escalate to Technical Support
 
 **Immediate Escalation (Level 1)**:
+
 - Complete system outage
 - Database corruption
 - Security breaches
 - Data loss scenarios
 
 **Standard Escalation (Level 2)**:
+
 - Integration failures affecting multiple users
 - Performance degradation > 50%
 - Payment processing failures affecting > 10 transactions
 - Data integrity issues
 
 **Advisory Escalation (Level 3)**:
+
 - Recurring issues requiring architectural changes
 - Performance optimization needs
 - Feature enhancement requests
@@ -907,24 +972,28 @@ bench --site dev.veganisme.net execute verenigingen.utils.resource_monitor.get_s
 ## Preventive Measures
 
 ### Daily Checks
+
 - [ ] Monitor system health dashboard
 - [ ] Review error log summary
 - [ ] Check payment processing status
 - [ ] Verify backup completion
 
 ### Weekly Checks
+
 - [ ] Review performance metrics
 - [ ] Validate integration connections
 - [ ] Check user access issues
 - [ ] Update system documentation
 
 ### Monthly Checks
+
 - [ ] Review recurring issues
 - [ ] Update recovery procedures
 - [ ] Test backup restoration
 - [ ] Conduct user training
 
 ### Quarterly Reviews
+
 - [ ] Assess system architecture
 - [ ] Plan infrastructure upgrades
 - [ ] Review security measures
@@ -935,6 +1004,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.resource_monitor.get_s
 ## Useful Commands Reference
 
 ### System Health
+
 ```bash
 # Complete system check
 bench doctor
@@ -947,6 +1017,7 @@ bench status
 ```
 
 ### Database Operations
+
 ```bash
 # Database repair
 bench --site dev.veganisme.net mariadb-repair
@@ -959,6 +1030,7 @@ bench --site dev.veganisme.net restore [backup-file]
 ```
 
 ### Application Operations
+
 ```bash
 # Clear all caches
 bench --site dev.veganisme.net clear-cache
@@ -975,13 +1047,14 @@ bench --site dev.veganisme.net rebuild-global-search
 
 ## Version History
 
-| Version | Date | Changes |
-|---------|------|---------|
-| 1.0 | August 2025 | Initial creation with comprehensive error recovery procedures |
+| Version | Date        | Changes                                                       |
+| ------- | ----------- | ------------------------------------------------------------- |
+| 1.0     | August 2025 | Initial creation with comprehensive error recovery procedures |
 
 ---
 
 **Document Control:**
+
 - **Owner**: Technical Team
 - **Review Frequency**: Quarterly
 - **Last Review**: August 2025

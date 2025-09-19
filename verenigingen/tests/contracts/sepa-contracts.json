@@ -107,7 +107,13 @@
           },
           "reason": {
             "type": "string",
-            "enum": ["customer_request", "invalid_account", "fraud_suspicion", "deceased", "other"]
+            "enum": [
+              "customer_request",
+              "invalid_account",
+              "fraud_suspicion",
+              "deceased",
+              "other"
+            ]
           },
           "reason_details": {
             "type": "string",
@@ -125,7 +131,7 @@
         "properties": {
           "success": { "type": "boolean" },
           "status": { "type": "string" },
-          "revocation_date": { 
+          "revocation_date": {
             "type": "string",
             "format": "date-time"
           },
@@ -165,7 +171,7 @@
                   "to": { "type": "string", "format": "date" }
                 }
               },
-              "max_amount": { 
+              "max_amount": {
                 "type": "number",
                 "minimum": 0.01,
                 "maximum": 999999.99
@@ -173,7 +179,7 @@
               "exclude_failed": { "type": "boolean" }
             }
           },
-          "test_mode": { 
+          "test_mode": {
             "type": "boolean",
             "default": false
           }
@@ -181,7 +187,12 @@
       },
       "response": {
         "type": "object",
-        "required": ["success", "batch_id", "transaction_count", "total_amount"],
+        "required": [
+          "success",
+          "batch_id",
+          "transaction_count",
+          "total_amount"
+        ],
         "properties": {
           "success": { "type": "boolean" },
           "batch_id": {
@@ -198,7 +209,14 @@
           },
           "status": {
             "type": "string",
-            "enum": ["Draft", "Submitted", "Processing", "Completed", "Failed", "Cancelled"]
+            "enum": [
+              "Draft",
+              "Submitted",
+              "Processing",
+              "Completed",
+              "Failed",
+              "Cancelled"
+            ]
           },
           "xml_file": { "type": "string" },
           "validation_errors": {
@@ -257,7 +275,7 @@
                 },
                 "reason_description": { "type": "string" },
                 "amount": { "type": "number" },
-                "retry_date": { 
+                "retry_date": {
                   "type": "string",
                   "format": "date"
                 }
@@ -321,7 +339,11 @@
       },
       "response": {
         "type": "object",
-        "required": ["success", "transactions_imported", "reconciliation_status"],
+        "required": [
+          "success",
+          "transactions_imported",
+          "reconciliation_status"
+        ],
         "properties": {
           "success": { "type": "boolean" },
           "transactions_imported": { "type": "integer" },

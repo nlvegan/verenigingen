@@ -88,10 +88,10 @@
  */
 frappe.ui.form.on('Team', {
 	/**
-	 * @method refresh
-	 * @description Initializes team management interface with role profile functionality
-	 * @param {Object} frm - Frappe form object
-	 */
+   * @method refresh
+   * @description Initializes team management interface with role profile functionality
+   * @param {Object} frm - Frappe form object
+   */
 	refresh(frm) {
 		setup_team_role_profile_ui(frm);
 		setup_team_buttons(frm);
@@ -99,19 +99,19 @@ frappe.ui.form.on('Team', {
 	},
 
 	/**
-	 * @method enable_role_specific_profiles
-	 * @description Handles toggle for role-specific profile configuration
-	 * @param {Object} frm - Form object
-	 */
+   * @method enable_role_specific_profiles
+   * @description Handles toggle for role-specific profile configuration
+   * @param {Object} frm - Form object
+   */
 	enable_role_specific_profiles(frm) {
 		handle_role_specific_profiles_toggle(frm);
 	},
 
 	/**
-	 * @method default_role_profile
-	 * @description Validates default role profile selection
-	 * @param {Object} frm - Form object
-	 */
+   * @method default_role_profile
+   * @description Validates default role profile selection
+   * @param {Object} frm - Form object
+   */
 	default_role_profile(frm) {
 		validate_default_role_profile(frm);
 	}
@@ -122,17 +122,17 @@ frappe.ui.form.on('Team', {
  */
 frappe.ui.form.on('Team Role Profile Assignment', {
 	/**
-	 * @method team_role
-	 * @description Validates team role selection and checks for duplicates
-	 */
+   * @method team_role
+   * @description Validates team role selection and checks for duplicates
+   */
 	team_role(frm, cdt, cdn) {
 		validate_team_role_assignment(frm, cdt, cdn);
 	},
 
 	/**
-	 * @method role_profile
-	 * @description Validates role profile selection for team role
-	 */
+   * @method role_profile
+   * @description Validates role profile selection for team role
+   */
 	role_profile(frm, cdt, cdn) {
 		validate_role_profile_assignment(frm, cdt, cdn);
 	}
@@ -146,12 +146,20 @@ frappe.ui.form.on('Team Role Profile Assignment', {
  */
 function setup_team_role_profile_ui(frm) {
 	// Set conditional visibility for role-specific profiles table
-	frm.toggle_display('role_specific_profiles', frm.doc.enable_role_specific_profiles);
+	frm.toggle_display(
+		'role_specific_profiles',
+		frm.doc.enable_role_specific_profiles
+	);
 
 	// Add helpful descriptions
 	if (frm.doc.enable_role_specific_profiles) {
-		frm.set_df_property('role_specific_profiles', 'description',
-			__('Configure different role profiles for different team roles. This overrides the default role profile for specific roles.'));
+		frm.set_df_property(
+			'role_specific_profiles',
+			'description',
+			__(
+				'Configure different role profiles for different team roles. This overrides the default role profile for specific roles.'
+			)
+		);
 	}
 }
 
@@ -162,14 +170,22 @@ function setup_team_role_profile_ui(frm) {
 function setup_team_buttons(frm) {
 	if (!frm.doc.__islocal && frm.doc.status === 'Active') {
 		// Add role profile management button
-		frm.add_custom_button(__('Manage Role Profiles'), () => {
-			show_role_profile_management_dialog(frm);
-		}, __('Team Management'));
+		frm.add_custom_button(
+			__('Manage Role Profiles'),
+			() => {
+				show_role_profile_management_dialog(frm);
+			},
+			__('Team Management')
+		);
 
 		// Add member role assignment button
-		frm.add_custom_button(__('Apply Role Profiles to Members'), () => {
-			apply_role_profiles_to_team_members(frm);
-		}, __('Team Management'));
+		frm.add_custom_button(
+			__('Apply Role Profiles to Members'),
+			() => {
+				apply_role_profiles_to_team_members(frm);
+			},
+			__('Team Management')
+		);
 	}
 }
 
@@ -203,23 +219,37 @@ function setup_team_member_grid(frm) {
  * @param {Object} frm - Form object
  */
 function handle_role_specific_profiles_toggle(frm) {
-	frm.toggle_display('role_specific_profiles', frm.doc.enable_role_specific_profiles);
+	frm.toggle_display(
+		'role_specific_profiles',
+		frm.doc.enable_role_specific_profiles
+	);
 
 	if (frm.doc.enable_role_specific_profiles) {
-		frappe.show_alert({
-			message: __('You can now configure different role profiles for different team roles'),
-			indicator: 'blue'
-		}, 5);
+		frappe.show_alert(
+			{
+				message: __(
+					'You can now configure different role profiles for different team roles'
+				),
+				indicator: 'blue'
+			},
+			5
+		);
 
 		// Refresh the child table
 		frm.refresh_field('role_specific_profiles');
 	} else {
 		// Clear role-specific profiles if disabled
-		if (frm.doc.role_specific_profiles && frm.doc.role_specific_profiles.length > 0) {
-			frappe.confirm(__('This will clear all role-specific profile assignments. Continue?'), () => {
-				frm.clear_table('role_specific_profiles');
-				frm.refresh_field('role_specific_profiles');
-			});
+		if (
+			frm.doc.role_specific_profiles
+      && frm.doc.role_specific_profiles.length > 0
+		) {
+			frappe.confirm(
+				__('This will clear all role-specific profile assignments. Continue?'),
+				() => {
+					frm.clear_table('role_specific_profiles');
+					frm.refresh_field('role_specific_profiles');
+				}
+			);
 		}
 	}
 }
@@ -231,16 +261,23 @@ function handle_role_specific_profiles_toggle(frm) {
 function validate_default_role_profile(frm) {
 	if (frm.doc.default_role_profile) {
 		// Validate that the role profile exists and is active
-		frappe.db.get_value('Role Profile', frm.doc.default_role_profile, 'disabled', (r) => {
-			if (r && r.disabled) {
-				frappe.msgprint({
-					title: __('Invalid Role Profile'),
-					message: __('The selected role profile is disabled. Please choose an active role profile.'),
-					indicator: 'orange'
-				});
-				frm.set_value('default_role_profile', '');
+		frappe.db.get_value(
+			'Role Profile',
+			frm.doc.default_role_profile,
+			'disabled',
+			(r) => {
+				if (r && r.disabled) {
+					frappe.msgprint({
+						title: __('Invalid Role Profile'),
+						message: __(
+							'The selected role profile is disabled. Please choose an active role profile.'
+						),
+						indicator: 'orange'
+					});
+					frm.set_value('default_role_profile', '');
+				}
 			}
-		});
+		);
 	}
 }
 
@@ -252,17 +289,21 @@ function validate_default_role_profile(frm) {
  */
 function validate_team_role_assignment(frm, cdt, cdn) {
 	const row = locals[cdt][cdn];
-	if (!row.team_role) { return; }
+	if (!row.team_role) {
+		return;
+	}
 
 	// Check for duplicate role assignments
-	const existing_assignment = frm.doc.role_specific_profiles.find(r =>
-		r.name !== cdn && r.team_role === row.team_role
+	const existing_assignment = frm.doc.role_specific_profiles.find(
+		(r) => r.name !== cdn && r.team_role === row.team_role
 	);
 
 	if (existing_assignment) {
 		frappe.msgprint({
 			title: __('Duplicate Role Assignment'),
-			message: __('This team role already has a role profile assignment. Please choose a different role.'),
+			message: __(
+				'This team role already has a role profile assignment. Please choose a different role.'
+			),
 			indicator: 'red'
 		});
 		frappe.model.set_value(cdt, cdn, 'team_role', '');
@@ -271,8 +312,12 @@ function validate_team_role_assignment(frm, cdt, cdn) {
 
 	// Auto-suggest description based on role
 	if (row.team_role && !row.description) {
-		frappe.model.set_value(cdt, cdn, 'description',
-			__('Role profile assignment for {0} role', [row.team_role]));
+		frappe.model.set_value(
+			cdt,
+			cdn,
+			'description',
+			__('Role profile assignment for {0} role', [row.team_role])
+		);
 	}
 }
 
@@ -284,14 +329,18 @@ function validate_team_role_assignment(frm, cdt, cdn) {
  */
 function validate_role_profile_assignment(frm, cdt, cdn) {
 	const row = locals[cdt][cdn];
-	if (!row.role_profile) { return; }
+	if (!row.role_profile) {
+		return;
+	}
 
 	// Validate that the role profile is active
 	frappe.db.get_value('Role Profile', row.role_profile, 'disabled', (r) => {
 		if (r && r.disabled) {
 			frappe.msgprint({
 				title: __('Invalid Role Profile'),
-				message: __('The selected role profile is disabled. Please choose an active role profile.'),
+				message: __(
+					'The selected role profile is disabled. Please choose an active role profile.'
+				),
 				indicator: 'orange'
 			});
 			frappe.model.set_value(cdt, cdn, 'role_profile', '');
@@ -356,9 +405,12 @@ function generate_role_profile_summary_html(frm) {
 
 	// Role-specific profiles
 	html += `<h5>${__('Role-Specific Profiles')}</h5>`;
-	if (frm.doc.enable_role_specific_profiles && frm.doc.role_specific_profiles?.length > 0) {
+	if (
+		frm.doc.enable_role_specific_profiles
+    && frm.doc.role_specific_profiles?.length > 0
+	) {
 		html += '<ul class="list-unstyled">';
-		frm.doc.role_specific_profiles.forEach(assignment => {
+		frm.doc.role_specific_profiles.forEach((assignment) => {
 			html += `<li class="text-info"><i class="fa fa-user"></i> ${assignment.team_role}: ${assignment.role_profile}</li>`;
 		});
 		html += '</ul>';
@@ -381,10 +433,13 @@ function apply_role_profiles_to_team_members(frm) {
 	}
 
 	frappe.confirm(
-		__('This will apply role profiles to all team members based on your configuration. Continue?'),
+		__(
+			'This will apply role profiles to all team members based on your configuration. Continue?'
+		),
 		() => {
 			frappe.call({
-				method: 'verenigingen.utils.team_role_profile_manager.bulk_assign_team_role_profiles',
+				method:
+          'verenigingen.utils.team_role_profile_manager.bulk_assign_team_role_profiles',
 				args: {
 					team_name: frm.doc.name
 				},
@@ -392,12 +447,22 @@ function apply_role_profiles_to_team_members(frm) {
 				freeze_message: __('Applying role profiles...'),
 				callback(r) {
 					if (r.message && r.message.success) {
-						frappe.show_alert({
-							message: __('Role profiles applied successfully to {0} members', [r.message.members_updated || 0]),
-							indicator: 'green'
-						}, 5);
+						frappe.show_alert(
+							{
+								message: __(
+									'Role profiles applied successfully to {0} members',
+									[r.message.members_updated || 0]
+								),
+								indicator: 'green'
+							},
+							5
+						);
 					} else {
-						frappe.msgprint(__('No members were updated. Please check your team configuration.'));
+						frappe.msgprint(
+							__(
+								'No members were updated. Please check your team configuration.'
+							)
+						);
 					}
 				},
 				error(r) {
@@ -409,4 +474,5 @@ function apply_role_profiles_to_team_members(frm) {
 }
 
 // Make apply_role_profiles_to_team_members globally accessible for dialog
-window.apply_role_profiles_to_team_members = apply_role_profiles_to_team_members;
+window.apply_role_profiles_to_team_members
+  = apply_role_profiles_to_team_members;

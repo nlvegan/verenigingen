@@ -1,240 +1,240 @@
 [
- {
-  "doctype": "Module Profile",
-  "docstatus": 0,
-  "name": "Verenigingen Member",
-  "module_profile_name": "Verenigingen Member",
-  "modules": [
-   {
-    "module": "Verenigingen"
-   },
-   {
-    "module": "Portal"
-   },
-   {
-    "module": "Communication"
-   },
-   {
-    "module": "Selling"
-   },
-   {
-    "module": "Desk"
-   }
-  ]
- },
- {
-  "doctype": "Module Profile",
-  "docstatus": 0,
-  "name": "Verenigingen Volunteer",
-  "module_profile_name": "Verenigingen Volunteer",
-  "modules": [
-   {
-    "module": "Verenigingen"
-   },
-   {
-    "module": "Portal"
-   },
-   {
-    "module": "Communication"
-   },
-   {
-    "module": "Selling"
-   },
-   {
-    "module": "Buying"
-   },
-   {
-    "module": "Projects"
-   },
-   {
-    "module": "HR"
-   },
-   {
-    "module": "Support"
-   },
-   {
-    "module": "Desk"
-   }
-  ]
- },
- {
-  "doctype": "Module Profile",
-  "docstatus": 0,
-  "name": "Verenigingen Board Member",
-  "module_profile_name": "Verenigingen Board Member",
-  "modules": [
-   {
-    "module": "Verenigingen"
-   },
-   {
-    "module": "Portal"
-   },
-   {
-    "module": "Communication"
-   },
-   {
-    "module": "Selling"
-   },
-   {
-    "module": "Buying"
-   },
-   {
-    "module": "Projects"
-   },
-   {
-    "module": "HR"
-   },
-   {
-    "module": "Support"
-   },
-   {
-    "module": "Reports"
-   },
-   {
-    "module": "Desk"
-   }
-  ]
- },
- {
-  "doctype": "Module Profile",
-  "docstatus": 0,
-  "name": "Verenigingen Auditor",
-  "module_profile_name": "Verenigingen Auditor",
-  "modules": [
-   {
-    "module": "Verenigingen"
-   },
-   {
-    "module": "Portal"
-   },
-   {
-    "module": "Communication"
-   },
-   {
-    "module": "Selling"
-   },
-   {
-    "module": "Buying"
-   },
-   {
-    "module": "Projects"
-   },
-   {
-    "module": "HR"
-   },
-   {
-    "module": "Support"
-   },
-   {
-    "module": "Accounts"
-   },
-   {
-    "module": "Banking"
-   },
-   {
-    "module": "Reports"
-   },
-   {
-    "module": "Desk"
-   }
-  ]
- },
- {
-  "doctype": "Module Profile",
-  "docstatus": 0,
-  "name": "Verenigingen National Board Member",
-  "module_profile_name": "Verenigingen National Board Member",
-  "modules": [
-   {
-    "module": "Verenigingen"
-   },
-   {
-    "module": "Portal"
-   },
-   {
-    "module": "Communication"
-   },
-   {
-    "module": "Selling"
-   },
-   {
-    "module": "Buying"
-   },
-   {
-    "module": "Projects"
-   },
-   {
-    "module": "HR"
-   },
-   {
-    "module": "Support"
-   },
-   {
-    "module": "Accounts"
-   },
-   {
-    "module": "Banking"
-   },
-   {
-    "module": "Reports"
-   },
-   {
-    "module": "Website"
-   },
-   {
-    "module": "Desk"
-   }
-  ]
- },
- {
-  "doctype": "Module Profile",
-  "docstatus": 0,
-  "name": "Verenigingen Treasurer",
-  "module_profile_name": "Verenigingen Treasurer",
-  "modules": [
-   {
-    "module": "Verenigingen"
-   },
-   {
-    "module": "Portal"
-   },
-   {
-    "module": "Communication"
-   },
-   {
-    "module": "Accounts"
-   },
-   {
-    "module": "Banking"
-   },
-   {
-    "module": "Selling"
-   },
-   {
-    "module": "Buying"
-   },
-   {
-    "module": "Stock"
-   },
-   {
-    "module": "Payroll"
-   },
-   {
-    "module": "Assets"
-   },
-   {
-    "module": "Reports"
-   },
-   {
-    "module": "Desk"
-   }
-  ]
- },
- {
-  "doctype": "Module Profile",
-  "docstatus": 0,
-  "name": "Verenigingen Webhook User",
-  "module_profile_name": "Verenigingen Webhook User",
-  "modules": []
- }
+  {
+    "doctype": "Module Profile",
+    "docstatus": 0,
+    "name": "Verenigingen Member",
+    "module_profile_name": "Verenigingen Member",
+    "modules": [
+      {
+        "module": "Verenigingen"
+      },
+      {
+        "module": "Portal"
+      },
+      {
+        "module": "Communication"
+      },
+      {
+        "module": "Selling"
+      },
+      {
+        "module": "Desk"
+      }
+    ]
+  },
+  {
+    "doctype": "Module Profile",
+    "docstatus": 0,
+    "name": "Verenigingen Volunteer",
+    "module_profile_name": "Verenigingen Volunteer",
+    "modules": [
+      {
+        "module": "Verenigingen"
+      },
+      {
+        "module": "Portal"
+      },
+      {
+        "module": "Communication"
+      },
+      {
+        "module": "Selling"
+      },
+      {
+        "module": "Buying"
+      },
+      {
+        "module": "Projects"
+      },
+      {
+        "module": "HR"
+      },
+      {
+        "module": "Support"
+      },
+      {
+        "module": "Desk"
+      }
+    ]
+  },
+  {
+    "doctype": "Module Profile",
+    "docstatus": 0,
+    "name": "Verenigingen Board Member",
+    "module_profile_name": "Verenigingen Board Member",
+    "modules": [
+      {
+        "module": "Verenigingen"
+      },
+      {
+        "module": "Portal"
+      },
+      {
+        "module": "Communication"
+      },
+      {
+        "module": "Selling"
+      },
+      {
+        "module": "Buying"
+      },
+      {
+        "module": "Projects"
+      },
+      {
+        "module": "HR"
+      },
+      {
+        "module": "Support"
+      },
+      {
+        "module": "Reports"
+      },
+      {
+        "module": "Desk"
+      }
+    ]
+  },
+  {
+    "doctype": "Module Profile",
+    "docstatus": 0,
+    "name": "Verenigingen Auditor",
+    "module_profile_name": "Verenigingen Auditor",
+    "modules": [
+      {
+        "module": "Verenigingen"
+      },
+      {
+        "module": "Portal"
+      },
+      {
+        "module": "Communication"
+      },
+      {
+        "module": "Selling"
+      },
+      {
+        "module": "Buying"
+      },
+      {
+        "module": "Projects"
+      },
+      {
+        "module": "HR"
+      },
+      {
+        "module": "Support"
+      },
+      {
+        "module": "Accounts"
+      },
+      {
+        "module": "Banking"
+      },
+      {
+        "module": "Reports"
+      },
+      {
+        "module": "Desk"
+      }
+    ]
+  },
+  {
+    "doctype": "Module Profile",
+    "docstatus": 0,
+    "name": "Verenigingen National Board Member",
+    "module_profile_name": "Verenigingen National Board Member",
+    "modules": [
+      {
+        "module": "Verenigingen"
+      },
+      {
+        "module": "Portal"
+      },
+      {
+        "module": "Communication"
+      },
+      {
+        "module": "Selling"
+      },
+      {
+        "module": "Buying"
+      },
+      {
+        "module": "Projects"
+      },
+      {
+        "module": "HR"
+      },
+      {
+        "module": "Support"
+      },
+      {
+        "module": "Accounts"
+      },
+      {
+        "module": "Banking"
+      },
+      {
+        "module": "Reports"
+      },
+      {
+        "module": "Website"
+      },
+      {
+        "module": "Desk"
+      }
+    ]
+  },
+  {
+    "doctype": "Module Profile",
+    "docstatus": 0,
+    "name": "Verenigingen Treasurer",
+    "module_profile_name": "Verenigingen Treasurer",
+    "modules": [
+      {
+        "module": "Verenigingen"
+      },
+      {
+        "module": "Portal"
+      },
+      {
+        "module": "Communication"
+      },
+      {
+        "module": "Accounts"
+      },
+      {
+        "module": "Banking"
+      },
+      {
+        "module": "Selling"
+      },
+      {
+        "module": "Buying"
+      },
+      {
+        "module": "Stock"
+      },
+      {
+        "module": "Payroll"
+      },
+      {
+        "module": "Assets"
+      },
+      {
+        "module": "Reports"
+      },
+      {
+        "module": "Desk"
+      }
+    ]
+  },
+  {
+    "doctype": "Module Profile",
+    "docstatus": 0,
+    "name": "Verenigingen Webhook User",
+    "module_profile_name": "Verenigingen Webhook User",
+    "modules": []
+  }
 ]

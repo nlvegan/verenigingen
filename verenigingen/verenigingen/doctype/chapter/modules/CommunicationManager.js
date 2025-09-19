@@ -55,10 +55,26 @@ export class CommunicationManager {
 	}
 
 	addButtons() {
-		this.frm.add_custom_button(__('Email Board Members'), () => this.showEmailBoardDialog(), __('Communication'));
-		this.frm.add_custom_button(__('Email All Members'), () => this.showEmailMembersDialog(), __('Communication'));
-		this.frm.add_custom_button(__('Send Newsletter'), () => this.showNewsletterDialog(), __('Communication'));
-		this.frm.add_custom_button(__('Communication History'), () => this.showCommunicationHistory(), __('Communication'));
+		this.frm.add_custom_button(
+			__('Email Board Members'),
+			() => this.showEmailBoardDialog(),
+			__('Communication')
+		);
+		this.frm.add_custom_button(
+			__('Email All Members'),
+			() => this.showEmailMembersDialog(),
+			__('Communication')
+		);
+		this.frm.add_custom_button(
+			__('Send Newsletter'),
+			() => this.showNewsletterDialog(),
+			__('Communication')
+		);
+		this.frm.add_custom_button(
+			__('Communication History'),
+			() => this.showCommunicationHistory(),
+			__('Communication')
+		);
 	}
 
 	async showEmailBoardDialog() {
@@ -67,11 +83,15 @@ export class CommunicationManager {
 			const boardMembers = this.getActiveBoardMembersWithEmail();
 
 			if (!boardMembers.length) {
-				frappe.msgprint(__('No active board members with email addresses found'));
+				frappe.msgprint(
+					__('No active board members with email addresses found')
+				);
 				return;
 			}
 
-			const recipientList = boardMembers.map(m => `${m.volunteer_name} (${m.email})`).join('\n');
+			const recipientList = boardMembers
+				.map((m) => `${m.volunteer_name} (${m.email})`)
+				.join('\n');
 
 			const dialog = new frappe.ui.Dialog({
 				title: __('Email Board Members'),
@@ -131,7 +151,9 @@ export class CommunicationManager {
 						fieldname: 'send_individually',
 						fieldtype: 'Check',
 						label: __('Send as Individual Emails'),
-						description: __('Send separate emails to each recipient instead of using BCC')
+						description: __(
+							'Send separate emails to each recipient instead of using BCC'
+						)
 					}
 				],
 				primary_action_label: __('Send'),
@@ -246,7 +268,9 @@ export class CommunicationManager {
 
 			dialog.show();
 		} catch (error) {
-			frappe.msgprint(__('Error preparing member email dialog: {0}', [error.message]));
+			frappe.msgprint(
+				__('Error preparing member email dialog: {0}', [error.message])
+			);
 		}
 	}
 
@@ -337,7 +361,9 @@ export class CommunicationManager {
 					fieldname: 'footer_message',
 					fieldtype: 'Small Text',
 					label: __('Footer Message'),
-					default: __('This newsletter is sent to members of {0} Chapter', [this.frm.doc.name])
+					default: __('This newsletter is sent to members of {0} Chapter', [
+						this.frm.doc.name
+					])
 				},
 				{
 					fieldname: 'include_social_links',
@@ -369,7 +395,15 @@ export class CommunicationManager {
 					reference_doctype: 'Chapter',
 					reference_name: this.frm.doc.name
 				},
-				fields: ['name', 'subject', 'creation', 'sent_or_received', 'recipients', 'communication_medium', 'status'],
+				fields: [
+					'name',
+					'subject',
+					'creation',
+					'sent_or_received',
+					'recipients',
+					'communication_medium',
+					'status'
+				],
 				order_by: 'creation desc',
 				limit: 100
 			});
@@ -379,10 +413,12 @@ export class CommunicationManager {
 			const dialog = new frappe.ui.Dialog({
 				title: __('Communication History - {0}', [this.frm.doc.name]),
 				size: 'large',
-				fields: [{
-					fieldtype: 'HTML',
-					options: html
-				}],
+				fields: [
+					{
+						fieldtype: 'HTML',
+						options: html
+					}
+				],
 				primary_action_label: __('Close'),
 				primary_action() {
 					this.hide();
@@ -391,7 +427,9 @@ export class CommunicationManager {
 
 			dialog.show();
 		} catch (error) {
-			frappe.msgprint(__('Error loading communication history: {0}', [error.message]));
+			frappe.msgprint(
+				__('Error loading communication history: {0}', [error.message])
+			);
 		} finally {
 			this.state.setLoading('communicationHistory', false);
 		}
@@ -418,9 +456,11 @@ export class CommunicationManager {
                     <tbody>
         `;
 
-		communications.forEach(comm => {
+		communications.forEach((comm) => {
 			const statusColor = comm.status === 'Sent' ? 'green' : 'orange';
-			const recipientCount = comm.recipients ? comm.recipients.split(',').length : 0;
+			const recipientCount = comm.recipients
+				? comm.recipients.split(',').length
+				: 0;
 
 			html += `
                 <tr>
@@ -450,8 +490,8 @@ export class CommunicationManager {
 
 	getActiveBoardMembersWithEmail() {
 		return (this.frm.doc.board_members || [])
-			.filter(member => member.is_active && member.email)
-			.map(member => ({
+			.filter((member) => member.is_active && member.email)
+			.map((member) => ({
 				volunteer: member.volunteer,
 				volunteer_name: member.volunteer_name,
 				email: member.email,
@@ -461,10 +501,12 @@ export class CommunicationManager {
 
 	async getChapterMembersWithEmail() {
 		const memberIds = (this.frm.doc.members || [])
-			.filter(m => m.enabled)
-			.map(m => m.member);
+			.filter((m) => m.enabled)
+			.map((m) => m.member);
 
-		if (memberIds.length === 0) { return []; }
+		if (memberIds.length === 0) {
+			return [];
+		}
 
 		return await this.api.getList('Member', {
 			filters: [
@@ -480,7 +522,7 @@ export class CommunicationManager {
 		try {
 			this.state.setLoading('sendEmail', true);
 
-			const recipients = boardMembers.map(m => m.email);
+			const recipients = boardMembers.map((m) => m.email);
 
 			if (values.send_individually) {
 				// Send individual emails
@@ -511,7 +553,9 @@ export class CommunicationManager {
 					use_bcc: true
 				});
 
-				frappe.msgprint(__('Email sent to {0} board members', [boardMembers.length]));
+				frappe.msgprint(
+					__('Email sent to {0} board members', [boardMembers.length])
+				);
 			}
 		} catch (error) {
 			frappe.msgprint(__('Error sending emails: {0}', [error.message]));
@@ -528,7 +572,7 @@ export class CommunicationManager {
 			let filteredMembers = members;
 
 			if (values.member_status && values.member_status.length > 0) {
-				filteredMembers = filteredMembers.filter(m =>
+				filteredMembers = filteredMembers.filter((m) =>
 					values.member_status.includes(m.status)
 				);
 			}
@@ -538,7 +582,7 @@ export class CommunicationManager {
 				// For now, we'll use all filtered members
 			}
 
-			const recipients = filteredMembers.map(m => m.email);
+			const recipients = filteredMembers.map((m) => m.email);
 
 			if (recipients.length === 0) {
 				frappe.msgprint(__('No recipients match the selected criteria'));
@@ -570,8 +614,12 @@ export class CommunicationManager {
 					send_after: values.send_after
 				});
 
-				frappe.msgprint(__('Email scheduled to be sent to {0} members after {1}',
-					[recipients.length, frappe.datetime.str_to_user(values.send_after)]));
+				frappe.msgprint(
+					__('Email scheduled to be sent to {0} members after {1}', [
+						recipients.length,
+						frappe.datetime.str_to_user(values.send_after)
+					])
+				);
 			}
 		} catch (error) {
 			frappe.msgprint(__('Error sending member emails: {0}', [error.message]));
@@ -596,12 +644,12 @@ export class CommunicationManager {
 					break;
 				case __('Active Members Only'):
 					const members = await this.getChapterMembersWithEmail();
-					recipients = members.filter(m => m.status === 'Active');
+					recipients = members.filter((m) => m.status === 'Active');
 					break;
 				case __('Custom Selection'):
 					recipients = values.custom_recipients
 						.split(',')
-						.map(email => ({ email: email.trim() }));
+						.map((email) => ({ email: email.trim() }));
 					break;
 			}
 
@@ -614,7 +662,7 @@ export class CommunicationManager {
 			const newsletterHTML = this.generateNewsletterHTML(values);
 
 			// Send newsletter
-			const recipientEmails = recipients.map(r => r.email).join(',');
+			const recipientEmails = recipients.map((r) => r.email).join(',');
 
 			await this.sendEmail({
 				recipients: recipientEmails,
@@ -624,7 +672,9 @@ export class CommunicationManager {
 				is_newsletter: true
 			});
 
-			frappe.msgprint(__('Newsletter sent to {0} recipients', [recipients.length]));
+			frappe.msgprint(
+				__('Newsletter sent to {0} recipients', [recipients.length])
+			);
 		} catch (error) {
 			frappe.msgprint(__('Error sending newsletter: {0}', [error.message]));
 		} finally {
@@ -652,7 +702,7 @@ export class CommunicationManager {
 
 		// Sections
 		if (values.sections && values.sections.length > 0) {
-			values.sections.forEach(section => {
+			values.sections.forEach((section) => {
 				html += `
                     <div style="margin-bottom: 30px; padding: 20px; background: #f8f9fa; border-radius: 5px;">
                         <h2 style="color: #333; margin-bottom: 15px;">${section.title}</h2>
@@ -668,7 +718,8 @@ export class CommunicationManager {
 		}
 
 		// Footer
-		html += '<div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; text-align: center; color: #666;">';
+		html
+      += '<div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; text-align: center; color: #666;">';
 
 		if (values.footer_message) {
 			html += `<p>${values.footer_message}</p>`;
@@ -689,10 +740,12 @@ export class CommunicationManager {
 		const previewDialog = new frappe.ui.Dialog({
 			title: __('Newsletter Preview'),
 			size: 'large',
-			fields: [{
-				fieldtype: 'HTML',
-				options: `<div style="border: 1px solid #ddd; padding: 20px; background: white;">${html}</div>`
-			}]
+			fields: [
+				{
+					fieldtype: 'HTML',
+					options: `<div style="border: 1px solid #ddd; padding: 20px; background: white;">${html}</div>`
+				}
+			]
 		});
 
 		previewDialog.show();
@@ -717,7 +770,10 @@ export class CommunicationManager {
 			args.recipients = frappe.session.user_email || 'noreply@example.com';
 		}
 
-		return await this.api.call('frappe.core.doctype.communication.email.make', args);
+		return await this.api.call(
+			'frappe.core.doctype.communication.email.make',
+			args
+		);
 	}
 
 	async scheduleEmail(options) {
@@ -737,7 +793,10 @@ export class CommunicationManager {
 	personalizeContent(content, recipient) {
 		// Replace placeholders with recipient data
 		return content
-			.replace(/\{name\}/g, recipient.volunteer_name || recipient.full_name || '')
+			.replace(
+				/\{name\}/g,
+				recipient.volunteer_name || recipient.full_name || ''
+			)
 			.replace(/\{email\}/g, recipient.email || '')
 			.replace(/\{role\}/g, recipient.role || '')
 			.replace(/\{chapter\}/g, this.frm.doc.name || '');
@@ -788,27 +847,37 @@ export class CommunicationManager {
 			return;
 		}
 
-		let subject; let message;
+		let subject;
+		let message;
 
 		switch (eventType) {
 			case 'chapter_submitted':
 				subject = __('Chapter {0} has been submitted', [this.frm.doc.name]);
-				message = __('The chapter {0} has been submitted and is now active.', [this.frm.doc.name]);
+				message = __('The chapter {0} has been submitted and is now active.', [
+					this.frm.doc.name
+				]);
 				break;
 
 			case 'member_added':
 				subject = __('New member added to {0}', [this.frm.doc.name]);
-				message = __('A new member has been added to chapter {0}.', [this.frm.doc.name]);
+				message = __('A new member has been added to chapter {0}.', [
+					this.frm.doc.name
+				]);
 				break;
 
 			case 'board_change':
 				subject = __('Board change in {0}', [this.frm.doc.name]);
-				message = __('There has been a change in the board members of chapter {0}.', [this.frm.doc.name]);
+				message = __(
+					'There has been a change in the board members of chapter {0}.',
+					[this.frm.doc.name]
+				);
 				break;
 
 			default:
 				subject = __('Chapter {0} notification', [this.frm.doc.name]);
-				message = __('This is a notification from chapter {0}.', [this.frm.doc.name]);
+				message = __('This is a notification from chapter {0}.', [
+					this.frm.doc.name
+				]);
 		}
 
 		// Add custom data to message
@@ -818,7 +887,7 @@ export class CommunicationManager {
 
 		try {
 			await this.sendEmail({
-				recipients: boardMembers.map(m => m.email).join(','),
+				recipients: boardMembers.map((m) => m.email).join(','),
 				subject,
 				content: message,
 				use_bcc: true
@@ -832,9 +901,12 @@ export class CommunicationManager {
 
 	async trackEmailOpen(communicationId) {
 		try {
-			await this.api.call('frappe.core.doctype.communication.communication.mark_email_as_seen', {
-				communication: communicationId
-			});
+			await this.api.call(
+				'frappe.core.doctype.communication.communication.mark_email_as_seen',
+				{
+					communication: communicationId
+				}
+			);
 		} catch (error) {
 			console.error('Error tracking email open:', error);
 		}
@@ -858,7 +930,7 @@ export class CommunicationManager {
 				order_by: 'creation desc'
 			});
 
-			communications.forEach(comm => {
+			communications.forEach((comm) => {
 				if (comm.sent_or_received === 'Sent') {
 					stats.total_sent++;
 				} else {

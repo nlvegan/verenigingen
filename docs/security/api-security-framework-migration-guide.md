@@ -5,6 +5,7 @@
 This guide provides comprehensive instructions for migrating existing API endpoints to use the new security framework implemented in the Verenigingen application. **Updated based on July 2025 security review findings (82/100 score)**.
 
 ### Recent Updates (July 2025)
+
 - **Security Score**: 82/100 (Excellent) with 55.4% API coverage
 - **Critical Systems**: 100% of high-risk financial and member data APIs secured
 - **Import Conflicts**: 2 files identified requiring standardization
@@ -41,24 +42,24 @@ The API Security Framework provides a unified, layered security approach that st
 
 ### Security Levels
 
-| Level | Description | Use Cases | Security Controls |
-|-------|-------------|-----------|-------------------|
-| **CRITICAL** | Highest security | Financial transactions, admin operations | CSRF + Rate limiting + Audit + IP restrictions |
-| **HIGH** | Strong security | Member data, batch operations | CSRF + Rate limiting + Audit |
-| **MEDIUM** | Standard security | Reporting, read operations | Rate limiting + Audit |
-| **LOW** | Basic security | Utility functions, health checks | Basic validation |
-| **PUBLIC** | No authentication | Public information, documentation | Rate limiting only |
+| Level        | Description       | Use Cases                                | Security Controls                              |
+| ------------ | ----------------- | ---------------------------------------- | ---------------------------------------------- |
+| **CRITICAL** | Highest security  | Financial transactions, admin operations | CSRF + Rate limiting + Audit + IP restrictions |
+| **HIGH**     | Strong security   | Member data, batch operations            | CSRF + Rate limiting + Audit                   |
+| **MEDIUM**   | Standard security | Reporting, read operations               | Rate limiting + Audit                          |
+| **LOW**      | Basic security    | Utility functions, health checks         | Basic validation                               |
+| **PUBLIC**   | No authentication | Public information, documentation        | Rate limiting only                             |
 
 ### Operation Types
 
-| Type | Description | Default Security Level | Examples |
-|------|-------------|----------------------|----------|
-| **FINANCIAL** | Payment processing, invoicing | CRITICAL | SEPA batches, payment processing |
-| **MEMBER_DATA** | Member information access/modification | HIGH | Member profiles, registrations |
-| **ADMIN** | System administration | CRITICAL | Settings, user management |
-| **REPORTING** | Data export, analytics | MEDIUM | Reports, dashboards |
-| **UTILITY** | Health checks, status | LOW | System status, health endpoints |
-| **PUBLIC** | Public information | PUBLIC | Documentation, public pages |
+| Type            | Description                            | Default Security Level | Examples                         |
+| --------------- | -------------------------------------- | ---------------------- | -------------------------------- |
+| **FINANCIAL**   | Payment processing, invoicing          | CRITICAL               | SEPA batches, payment processing |
+| **MEMBER_DATA** | Member information access/modification | HIGH                   | Member profiles, registrations   |
+| **ADMIN**       | System administration                  | CRITICAL               | Settings, user management        |
+| **REPORTING**   | Data export, analytics                 | MEDIUM                 | Reports, dashboards              |
+| **UTILITY**     | Health checks, status                  | LOW                    | System status, health endpoints  |
+| **PUBLIC**      | Public information                     | PUBLIC                 | Documentation, public pages      |
 
 ## Migration Strategy
 
@@ -73,6 +74,7 @@ The API Security Framework provides a unified, layered security approach that st
 **Status**: 100% of critical financial and member data APIs are secured
 
 #### Financial APIs ✅
+
 - `sepa_batch_ui_secure.py` - SEPA batch processing **COMPLETED**
 - `payment_processing.py` - Payment operations **COMPLETED**
 - `payment_plan_management.py` **COMPLETED**
@@ -80,6 +82,7 @@ The API Security Framework provides a unified, layered security approach that st
 - `dd_batch_workflow_controller.py` **COMPLETED**
 
 #### Administrative APIs ✅
+
 - `member_management.py` - Member operations **COMPLETED**
 - `donor_customer_management.py` **COMPLETED**
 - `donor_auto_creation_management.py` **COMPLETED**
@@ -90,10 +93,12 @@ The API Security Framework provides a unified, layered security approach that st
 **Files Affected**: 2 files with import conflicts
 
 #### Issues Identified:
+
 1. `get_user_chapters.py` - Non-existent decorator imports
 2. Path correction needed for deprecated security module references
 
 #### Resolution Steps:
+
 ```python
 # Fix import conflicts in affected files
 # Change:
@@ -108,6 +113,7 @@ from verenigingen.utils.security.api_security_framework import high_security_api
 **Files Identified**: 3 medium-risk unsecured files
 
 #### Target APIs:
+
 - `workspace_validator_enhanced.py` - System validation
 - `check_account_types.py` - Account validation
 - `check_sepa_indexes.py` - Database validation
@@ -138,6 +144,7 @@ from verenigingen.utils.security.enhanced_validation import validate_with_schema
 ```
 
 #### Import Validation Checklist:
+
 - [ ] Use `api_security_framework` module as primary source
 - [ ] Avoid deprecated `authorization`, `csrf_protection`, `rate_limiting` modules
 - [ ] Import decorators, not individual security components
@@ -235,6 +242,7 @@ def create_member(**member_data):
 ```
 
 Available schemas:
+
 - `member_data` - Member information validation
 - `payment_data` - Payment processing validation
 - `sepa_batch` - SEPA batch operation validation
@@ -286,6 +294,7 @@ For each API endpoint:
 ### Security Review Validation (July 2025)
 
 **Current Test Results**:
+
 - ✅ Security framework functionality: 95/100
 - ✅ All critical operations protected
 - ⚠️ Import conflicts in 2 files (requires immediate fix)
@@ -468,6 +477,7 @@ POST /api/method/verenigingen.utils.security.security_monitoring.resolve_securit
 **Symptom**: "ModuleNotFoundError" or "ImportError" when loading secured APIs
 **Cause**: Mixed imports from deprecated and new security modules
 **Solution**: Use standardized imports from `api_security_framework` only
+
 ```python
 # Fix import conflicts
 from verenigingen.utils.security.api_security_framework import high_security_api
@@ -558,6 +568,7 @@ GET /api/method/verenigingen.api.sepa_batch_ui_secure.sepa_security_health_check
 ### Completed Phases ✅
 
 **Phase 1 Complete**: Critical APIs (100% coverage achieved)
+
 - SEPA batch processing ✅
 - Payment operations ✅
 - Administrative functions ✅
@@ -566,21 +577,25 @@ GET /api/method/verenigingen.api.sepa_batch_ui_secure.sepa_security_health_check
 ### Current Priority (July 2025)
 
 **Immediate (30 minutes)**: Import Conflict Resolution
+
 - Fix `get_user_chapters.py` import statements
 - Standardize security framework imports
 - Validate all security imports work correctly
 
 **Short-term (1 week)**: Medium-Risk API Security
+
 - Secure workspace validation APIs
 - Add security to account validation utilities
 - Implement monitoring dashboard
 
 **Medium-term (2-4 weeks)**: Documentation & Monitoring
+
 - Complete standardization guidelines
 - Enhance security monitoring dashboard
 - Implement automated security testing
 
 **Long-term (1-3 months)**: coverage
+
 - Secure remaining low-risk utilities
 - Implement advanced security features
 - Complete security testing automation
@@ -588,12 +603,14 @@ GET /api/method/verenigingen.api.sepa_batch_ui_secure.sepa_security_health_check
 ### Success Metrics
 
 **Current Achievement (July 2025)**:
+
 - ✅ **Security Score**: 82/100 (Excellent - exceeds industry standards)
 - ✅ **Critical Coverage**: 100% of high-risk APIs secured
 - ✅ **Performance Impact**: <10ms security overhead (exceeds target)
 - ✅ **Compliance**: GDPR/ISO 27001 ready with audit trails
 
 **Remaining Targets**:
+
 - **Security Coverage**: Achieve 75% total API coverage (current: 55.4%)
 - **Import Standardization**: 100% consistent import patterns
 - **Security Score**: Maintain >80% score while expanding coverage
@@ -637,6 +654,7 @@ The API Security Framework migration has achieved **excellent security posture**
 ### Achievement Summary (July 2025 Review)
 
 **Security Transformation**:
+
 - ✅ **400% security improvement** from baseline
 - ✅ **55.4% API coverage** with all critical systems protected
 - ✅ **quality features**: Rate limiting, CSRF protection, audit logging
@@ -644,6 +662,7 @@ The API Security Framework migration has achieved **excellent security posture**
 - ✅ **Compliance ready**: GDPR/ISO 27001 aligned
 
 **Next Steps**:
+
 1. **Immediate**: Fix import conflicts (30 minutes)
 2. **Short-term**: Secure medium-risk APIs (4 hours)
 3. **Ongoing**: Enhance monitoring and documentation
@@ -651,6 +670,7 @@ The API Security Framework migration has achieved **excellent security posture**
 The framework demonstrates **best-practice implementation** that significantly enhances security while maintaining usability and performance. The foundation is production-ready and provides excellent scalability for future security requirements.
 
 ### Framework Characteristics
+
 - **Comprehensive**: Multi-layered security with 5 security levels
 - **Intelligent**: Operation-type aware security profiles
 - **Performant**: Minimal overhead with excellent scalability

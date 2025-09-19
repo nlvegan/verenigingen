@@ -1,4 +1,5 @@
 # Comprehensive Architectural Refactoring Plan
+
 ## Verenigingen Association Management System
 
 **Document Version**: 1.0
@@ -20,18 +21,21 @@ This plan addresses critical architectural issues through a **4-phase approach**
 ### HIGH PRIORITY ISSUES (1-2 months):
 
 **1. API Security Inconsistencies**
+
 - **80+ API files** have mixed security patterns (old vs new decorators)
 - **Financial operations** lack consistent `@critical_api` protection
 - **SEPA mandate APIs** missing proper permission validation
 - **Risk**: Unauthorized access to financial/member data
 
 **2. Performance Issues**
+
 - **Synchronous event handlers** cause UI blocking (Payment Entry events)
 - **N+1 query patterns** in payment history loading (20+ queries per member)
 - **Full history rebuilds** instead of incremental updates
 - **Impact**: 3x slower payment operations, potential timeouts
 
 **3. Data Access Coupling**
+
 - **Mixed SQL/ORM patterns** across 10+ files create maintenance burden
 - **Raw SQL bypasses** Frappe validation and permissions
 - **Transaction boundaries** unclear between different access patterns
@@ -39,16 +43,19 @@ This plan addresses critical architectural issues through a **4-phase approach**
 ### MEDIUM PRIORITY ISSUES (3-6 months):
 
 **4. Over-engineered Testing**
+
 - **268 test files** for 1,396 code files (19% test ratio - excessive)
 - **Multiple overlapping** test frameworks causing complexity
 - **Factory method explosion** with 50+ specialized methods
 
 **5. Mixin Pattern Overuse**
+
 - **Member class uses 6 mixins** creating debugging complexity
 - **PaymentMixin** is 1,127 lines (too large)
 - **Method name conflicts** between overlapping mixins
 
 **6. Database Query Optimization**
+
 - **N+1 problems** in payment/invoice loading
 - **Missing indexes** for common query patterns
 - **Inefficient permission checks** without caching
@@ -56,16 +63,21 @@ This plan addresses critical architectural issues through a **4-phase approach**
 ---
 
 ## PHASE 1: CRITICAL SECURITY STANDARDIZATION
+
 **Timeline**: Weeks 1-2 | **Effort**: 40 hours | **Priority**: CRITICAL
 
 ### Objective
+
 Eliminate security inconsistencies across 80+ API files and establish unified security framework for all financial operations.
 
 ### Phase 1.1: Security Assessment & Discovery
+
 **Duration**: 2 days
 
 **Actions**:
+
 1. **Comprehensive API Security Audit**:
+
    ```bash
    # Identify files with old security patterns
    grep -r "from verenigingen.utils.security.authorization import" verenigingen/api/
@@ -83,15 +95,19 @@ Eliminate security inconsistencies across 80+ API files and establish unified se
    - Map permission requirements for each API endpoint
 
 **Deliverables**:
+
 - Security audit report with file-by-file analysis
 - Migration checklist with risk assessment
 - Baseline security test results
 
 ### Phase 1.2: Security Import Standardization
+
 **Duration**: 3 days
 
 **Actions**:
+
 1. **Execute Security Import Fix**:
+
    ```bash
    # Run the existing security migration script
    python verenigingen/api/fix_security_imports.py --execute
@@ -106,15 +122,19 @@ Eliminate security inconsistencies across 80+ API files and establish unified se
    - Test API endpoints still function correctly
 
 **Success Criteria**:
+
 - Zero import conflicts across all API files
 - All security imports use standardized framework
 - Existing API functionality unchanged
 
 ### Phase 1.3: Financial API Security Enhancement
+
 **Duration**: 3 days
 
 **Actions**:
+
 1. **Apply Critical API Decorators**:
+
    ```python
    # Target files for @critical_api decoration:
    # - verenigingen/api/sepa_mandate_management.py
@@ -138,16 +158,20 @@ Eliminate security inconsistencies across 80+ API files and establish unified se
    - Add audit logging for critical operations
 
 **Files to Modify**:
+
 - `verenigingen/api/sepa_mandate_management.py`
 - `verenigingen/api/sepa_duplicate_prevention.py`
 - All payment-related API files
 - Member data access APIs
 
 ### Phase 1.4: Security Testing & Validation
+
 **Duration**: 2 days
 
 **Actions**:
+
 1. **Create Security Test Suite**:
+
    ```python
    # New file: verenigingen/tests/test_api_security_comprehensive.py
    class TestAPISecurityComprehensive(VereningingenTestCase):
@@ -162,6 +186,7 @@ Eliminate security inconsistencies across 80+ API files and establish unified se
    ```
 
 2. **Run Comprehensive Security Validation**:
+
    ```bash
    # Execute security-focused tests
    bench --site dev.veganisme.net run-tests --app verenigingen --module verenigingen.tests.test_api_security_comprehensive
@@ -171,6 +196,7 @@ Eliminate security inconsistencies across 80+ API files and establish unified se
    ```
 
 **Success Criteria**:
+
 - All financial APIs require proper authorization
 - Unauthorized access attempts properly blocked
 - Security test suite passes 100%
@@ -179,16 +205,21 @@ Eliminate security inconsistencies across 80+ API files and establish unified se
 ---
 
 ## PHASE 2: PERFORMANCE OPTIMIZATION
+
 **Timeline**: Weeks 3-4 | **Effort**: 50 hours | **Priority**: HIGH
 
 ### Objective
+
 Eliminate UI blocking operations and optimize database query patterns for 3x performance improvement in payment operations.
 
 ### Phase 2.1: Event Handler Analysis
+
 **Duration**: 1 day
 
 **Actions**:
+
 1. **Analyze Synchronous Event Handlers**:
+
    ```bash
    # Review hooks.py for heavy synchronous operations
    grep -A 10 -B 5 "on_submit\|on_save\|on_update" verenigingen/hooks.py
@@ -203,6 +234,7 @@ Eliminate UI blocking operations and optimize database query patterns for 3x per
    - Map dependencies between event handlers
 
 **Target Event Handlers** (from hooks.py):
+
 ```python
 "Payment Entry": {
     "on_submit": [
@@ -215,10 +247,13 @@ Eliminate UI blocking operations and optimize database query patterns for 3x per
 ```
 
 ### Phase 2.2: Background Job Implementation
+
 **Duration**: 4 days
 
 **Actions**:
+
 1. **Convert Heavy Event Handlers to Background Jobs**:
+
    ```python
    # Example transformation:
    # OLD - Synchronous in hooks.py
@@ -235,6 +270,7 @@ Eliminate UI blocking operations and optimize database query patterns for 3x per
    ```
 
 2. **Queue Configuration**:
+
    ```python
    # Add to site_config.json
    {
@@ -253,15 +289,19 @@ Eliminate UI blocking operations and optimize database query patterns for 3x per
    - Create retry mechanisms for failed jobs
 
 **Files to Modify**:
+
 - `verenigingen/hooks.py` - Convert event handlers
 - `verenigingen/utils/background_jobs.py` - New job management
 - `verenigingen/api/job_status.py` - New status API
 
 ### Phase 2.3: Payment History Refactoring
+
 **Duration**: 4 days
 
 **Actions**:
+
 1. **Eliminate N+1 Queries in Payment Mixin**:
+
    ```python
    # Current problematic pattern in payment_mixin.py:
    for invoice in invoices:
@@ -277,6 +317,7 @@ Eliminate UI blocking operations and optimize database query patterns for 3x per
    ```
 
 2. **Implement Incremental Updates**:
+
    ```python
    # Add to payment_mixin.py
    def refresh_payment_entry(self, payment_entry_name):
@@ -292,10 +333,13 @@ Eliminate UI blocking operations and optimize database query patterns for 3x per
 **Target File**: `verenigingen/verenigingen/doctype/member/mixins/payment_mixin.py`
 
 ### Phase 2.4: Database Index Optimization
+
 **Duration**: 2 days
 
 **Actions**:
+
 1. **Analyze Query Patterns**:
+
    ```bash
    # Enable slow query logging
    # Analyze most frequent queries in payment operations
@@ -303,6 +347,7 @@ Eliminate UI blocking operations and optimize database query patterns for 3x per
    ```
 
 2. **Add Missing Indexes**:
+
    ```sql
    -- Common query patterns requiring indexes
    ALTER TABLE `tabSales Invoice` ADD INDEX idx_customer_status (customer, status);
@@ -316,10 +361,13 @@ Eliminate UI blocking operations and optimize database query patterns for 3x per
    - Monitor index usage over time
 
 ### Phase 2.5: Performance Testing & Validation
+
 **Duration**: 1 day
 
 **Actions**:
+
 1. **Benchmark Payment Operations**:
+
    ```python
    # Create performance benchmark test
    def test_payment_processing_performance():
@@ -335,6 +383,7 @@ Eliminate UI blocking operations and optimize database query patterns for 3x per
    - Monitor memory usage and query counts
 
 **Success Criteria**:
+
 - Payment operations complete 3x faster
 - Background jobs process without blocking UI
 - Database query count reduced by 50%
@@ -343,16 +392,21 @@ Eliminate UI blocking operations and optimize database query patterns for 3x per
 ---
 
 ## PHASE 3: ARCHITECTURE REFACTORING
+
 **Timeline**: Weeks 5-6 | **Effort**: 60 hours | **Priority**: MEDIUM-HIGH
 
 ### Objective
+
 Unify data access patterns and simplify business logic architecture through mixin consolidation and service layer introduction.
 
 ### Phase 3.1: Data Access Pattern Audit
+
 **Duration**: 2 days
 
 **Actions**:
+
 1. **Identify Mixed SQL/ORM Usage**:
+
    ```bash
    # Find all raw SQL usage
    grep -r "frappe.db.sql" verenigingen/ --include="*.py" > sql_usage_audit.txt
@@ -367,15 +421,19 @@ Unify data access patterns and simplify business logic architecture through mixi
    - Plan ORM equivalents for each SQL operation
 
 **Target Files** (from architectural review):
+
 - `verenigingen/api/sepa_mandate_management.py`
 - `verenigingen/verenigingen/doctype/member/mixins/payment_mixin.py`
 - Multiple files with direct SQL usage
 
 ### Phase 3.2: SQL to ORM Migration
+
 **Duration**: 4 days
 
 **Actions**:
+
 1. **Replace Raw SQL with Frappe ORM**:
+
    ```python
    # Example transformation:
    # OLD - Raw SQL
@@ -391,6 +449,7 @@ Unify data access patterns and simplify business logic architecture through mixi
    ```
 
 2. **Implement Proper Transaction Boundaries**:
+
    ```python
    # Add transaction management
    def process_sepa_mandates():
@@ -409,10 +468,13 @@ Unify data access patterns and simplify business logic architecture through mixi
    - Maintain performance characteristics
 
 ### Phase 3.3: Mixin Architecture Analysis
+
 **Duration**: 2 days
 
 **Actions**:
+
 1. **Analyze Current Mixin Usage**:
+
    ```python
    # Current Member class structure:
    class Member(Document, PaymentMixin, ExpenseMixin, SEPAMandateMixin,
@@ -425,6 +487,7 @@ Unify data access patterns and simplify business logic architecture through mixi
    - **Keep**: `ChapterMixin`, `TerminationMixin`, `ExpenseMixin`
 
 3. **Service Layer Design**:
+
    ```python
    # New service layer structure
    class SEPAService:
@@ -438,10 +501,13 @@ Unify data access patterns and simplify business logic architecture through mixi
    ```
 
 ### Phase 3.4: Execute Mixin Consolidation
+
 **Duration**: 4 days
 
 **Actions**:
+
 1. **Create Consolidated Financial Mixin**:
+
    ```python
    # New file: verenigingen/verenigingen/doctype/member/mixins/financial_operations_mixin.py
    class FinancialOperationsMixin:
@@ -450,6 +516,7 @@ Unify data access patterns and simplify business logic architecture through mixi
    ```
 
 2. **Extract SEPA Service Layer**:
+
    ```python
    # New file: verenigingen/utils/services/sepa_service.py
    class SEPAService:
@@ -458,6 +525,7 @@ Unify data access patterns and simplify business logic architecture through mixi
    ```
 
 3. **Update Member Class**:
+
    ```python
    # Simplified Member class
    class Member(Document, FinancialOperationsMixin, ChapterMixin, TerminationMixin):
@@ -470,6 +538,7 @@ Unify data access patterns and simplify business logic architecture through mixi
    - Ensure no functionality loss
 
 **Success Criteria**:
+
 - Member class reduced to 3 focused mixins
 - All SEPA operations moved to service layer
 - No functionality regressions
@@ -478,16 +547,21 @@ Unify data access patterns and simplify business logic architecture through mixi
 ---
 
 ## PHASE 4: TESTING INFRASTRUCTURE RATIONALIZATION
+
 **Timeline**: Weeks 7-8 | **Effort**: 30 hours | **Priority**: MEDIUM
 
 ### Objective
+
 Streamline testing infrastructure from 268 to ~150 focused test files with unified framework and optimized factory methods.
 
 ### Phase 4.1: Test Infrastructure Audit
+
 **Duration**: 2 days
 
 **Actions**:
+
 1. **Comprehensive Test File Analysis**:
+
    ```bash
    # Count and categorize all test files
    find verenigingen/tests/ -name "test_*.py" | wc -l
@@ -503,16 +577,20 @@ Streamline testing infrastructure from 268 to ~150 focused test files with unifi
    - Identify unused or redundant test utilities
 
 **Analysis Categories**:
+
 - **Core Business Logic Tests**: Keep and consolidate
 - **Edge Case Tests**: Merge similar scenarios
 - **Integration Tests**: Streamline to essential workflows
 - **Debug/Temporary Tests**: Remove or consolidate
 
 ### Phase 4.2: Test Framework Consolidation
+
 **Duration**: 3 days
 
 **Actions**:
+
 1. **Standardize on Single Base Class**:
+
    ```python
    # Migrate all tests to use:
    from verenigingen.tests.utils.base import VereningingenTestCase
@@ -535,10 +613,13 @@ Streamline testing infrastructure from 268 to ~150 focused test files with unifi
    ```
 
 ### Phase 4.3: Factory Method Optimization
+
 **Duration**: 3 days
 
 **Actions**:
+
 1. **Streamline TestDataFactory**:
+
    ```python
    # Current: 50+ factory methods
    # Target: ~20 core business object methods
@@ -566,6 +647,7 @@ Streamline testing infrastructure from 268 to ~150 focused test files with unifi
    - Implement lazy loading for complex relationships
 
 **Success Criteria**:
+
 - Test count reduced from 268 to ~150 files
 - Single unified test base class
 - 20-25 core factory methods (down from 50+)
@@ -577,6 +659,7 @@ Streamline testing infrastructure from 268 to ~150 focused test files with unifi
 ## IMPLEMENTATION METHODOLOGY
 
 ### Development Environment Setup
+
 ```bash
 # Create feature branch for each phase
 git checkout -b phase-1-security-standardization
@@ -586,7 +669,9 @@ git checkout -b phase-4-testing-rationalization
 ```
 
 ### Validation & Testing Protocol
+
 1. **Before Each Phase**:
+
    ```bash
    # Run baseline tests
    bench --site dev.veganisme.net run-tests --app verenigingen
@@ -596,6 +681,7 @@ git checkout -b phase-4-testing-rationalization
    ```
 
 2. **During Implementation**:
+
    ```bash
    # Continuous validation
    bench restart  # After significant changes
@@ -603,6 +689,7 @@ git checkout -b phase-4-testing-rationalization
    ```
 
 3. **After Each Phase**:
+
    ```bash
    # Comprehensive testing
    bench --site dev.veganisme.net run-tests --app verenigingen --module verenigingen.tests.test_comprehensive_validation
@@ -614,6 +701,7 @@ git checkout -b phase-4-testing-rationalization
 ### Risk Mitigation Strategies
 
 1. **Rollback Procedures**:
+
    ```bash
    # Each phase maintains rollback capability
    git tag phase-1-rollback-point
@@ -634,21 +722,25 @@ git checkout -b phase-4-testing-rationalization
 ### Success Metrics
 
 **Security Metrics**:
+
 - 100% API endpoints using standardized security framework
 - Zero unauthorized access incidents in testing
 - Complete audit trail for all financial operations
 
 **Performance Metrics**:
+
 - 3x improvement in payment operation response times
 - 50% reduction in database query count for payment history
 - Zero timeout errors under normal load
 
 **Architecture Metrics**:
+
 - Unified data access patterns (100% ORM, 0% raw SQL)
 - Member class complexity reduced (6→3 mixins)
 - Codebase maintainability score improvement
 
 **Testing Metrics**:
+
 - Test file count reduced by 30% (268→~150 files)
 - Test execution time improved by 25%
 - Single unified test framework across all tests
@@ -662,6 +754,7 @@ git checkout -b phase-4-testing-rationalization
 **Documentation**: 20 hours (architectural decision records, updated guides)
 
 **Team Requirements**:
+
 - **Lead Developer**: All phases (familiar with Frappe patterns)
 - **Security Review**: Phase 1 (validate security implementations)
 - **Performance Testing**: Phase 2 (validate performance improvements)
@@ -674,6 +767,7 @@ git checkout -b phase-4-testing-rationalization
 This comprehensive plan provides a structured approach to addressing all architectural issues while maintaining system stability and ensuring measurable improvements in security, performance, and maintainability. The phased approach allows for incremental progress with validation at each step, reducing risk while delivering significant value.
 
 **Next Steps**:
+
 1. Review and approve this implementation plan
 2. Set up development environment and branching strategy
 3. Begin Phase 1: Critical Security Standardization

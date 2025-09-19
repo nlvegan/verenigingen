@@ -17,6 +17,7 @@ This document summarizes the webhook security implementation completed to addres
 **File**: `verenigingen/verenigingen_payments/doctype/mollie_settings/mollie_settings.json`
 
 Added new field to store webhook secret securely:
+
 ```json
 {
   "fieldname": "webhook_secret_key",
@@ -29,6 +30,7 @@ Added new field to store webhook secret securely:
 **File**: `verenigingen/verenigingen_payments/doctype/mollie_settings/mollie_settings.py`
 
 Updated `get_webhook_secret()` method to retrieve the encrypted secret:
+
 ```python
 def get_webhook_secret(self):
     """Get webhook secret key for signature verification"""
@@ -47,6 +49,7 @@ Created security utilities including:
 - `WebhookAuthenticationError`: Custom exception for webhook authentication failures
 
 Key security features:
+
 - Constant-time signature comparison to prevent timing attacks
 - Proper error handling and logging
 - Support for Mollie's `sha256=` signature format
@@ -62,6 +65,7 @@ Updated both webhook endpoints to use authentication:
 - `mollie_subscription_webhook()`: Subscription webhook with signature verification
 
 Both endpoints now:
+
 1. Authenticate webhook using signature verification
 2. Log security events (success/failure)
 3. Return proper error responses for authentication failures
@@ -88,12 +92,14 @@ Comprehensive testing confirmed:
 ### 2. Update Mollie Dashboard
 
 Configure your webhook endpoints in the Mollie Dashboard:
+
 - Payment webhook: `https://your-domain/api/method/verenigingen.verenigingen_payments.utils.payment_gateways.mollie_webhook`
 - Subscription webhook: `https://your-domain/api/method/verenigingen.verenigingen_payments.utils.payment_gateways.mollie_subscription_webhook`
 
 ### 3. Monitor Security Events
 
 Check Frappe error logs for webhook security events:
+
 - ✅ Successful authentications logged as INFO
 - ⚠️ Security warnings logged as WARNINGS
 - ❌ Authentication failures logged as ERRORS
@@ -109,6 +115,7 @@ Check Frappe error logs for webhook security events:
 ## Testing Commands
 
 Test the webhook authentication:
+
 ```bash
 # Run webhook signature verification test (development mode only)
 bench --site dev.veganisme.net execute "verenigingen.utils.webhook_security.test_webhook_signature_verification"
@@ -126,6 +133,7 @@ bench --site dev.veganisme.net execute "verenigingen.utils.webhook_security.test
 This implementation addresses the QCE security review findings and implements industry-standard webhook security practices as recommended by Mollie documentation.
 
 ---
+
 **Status**: ✅ COMPLETED
 **Date**: 2025-08-30
 **Security Rating**: 🔒 HIGH - Webhook endpoints now properly secured with signature verification

@@ -30,6 +30,7 @@ Account Creation System
 ### 1. **Secure Account Creation Request System** 🔐
 
 **DocType**: Account Creation Request
+
 ```json
 {
   "member": "Link to Member record",
@@ -43,6 +44,7 @@ Account Creation System
 ```
 
 **Security Controls**:
+
 - All requests require administrative approval
 - Role assignments validated against user permissions
 - Business justification mandatory for audit purposes
@@ -53,12 +55,14 @@ Account Creation System
 **Location**: `verenigingen/utils/account_creation_manager.py`
 
 **Core Methods**:
+
 - `create_account_request()` - Secure request creation
 - `approve_request()` - Administrative approval with validation
 - `create_user_account()` - Actual account creation with security checks
 - `bulk_create_accounts()` - Batch processing with error handling
 
 **Security Features**:
+
 - Permission validation at every step
 - Comprehensive error handling and rollback
 - Audit logging integration
@@ -67,11 +71,13 @@ Account Creation System
 ### 3. **Enhanced Role Profile Management** 👥
 
 **Components**:
+
 - `ChapterRoleProfileManager` - Chapter-specific role assignments
 - `TeamRoleProfileManager` - Team-based role management
 - Integration with existing Verenigingen role hierarchy
 
 **Dutch Association Features**:
+
 - Chapter board member role automation
 - Volunteer-specific role profiles
 - Age-based role restrictions (16+ for volunteers)
@@ -80,6 +86,7 @@ Account Creation System
 ### 4. **Comprehensive Testing Infrastructure** 🧪
 
 **Test Suite Components**:
+
 - `test_account_creation_suite.py` - Main test orchestration
 - `test_account_creation_manager_comprehensive.py` - Core functionality tests
 - `test_account_creation_security_deep.py` - Security validation tests
@@ -87,6 +94,7 @@ Account Creation System
 - `test_account_creation_background_processing.py` - Async processing tests
 
 **Test Coverage**: 80+ individual test cases covering:
+
 - Security controls and permission validation
 - Dutch business logic compliance
 - Background processing reliability
@@ -132,6 +140,7 @@ frappe.enqueue(
 ### **Permission Validation Pipeline**
 
 Every operation includes:
+
 1. **User Permission Check**: Can user perform this action?
 2. **Role Validation**: Are requested roles appropriate?
 3. **Business Rule Compliance**: Dutch association requirements met?
@@ -142,6 +151,7 @@ Every operation includes:
 **Quality Control Expert (QCE) Rating**: ⭐⭐⭐⭐⭐⭐⭐ (7/7)
 
 ### **Security Strengths Identified**:
+
 - ✅ **Enterprise-Grade Security Controls**: Request-response model with approval workflow
 - ✅ **Zero Permission Bypasses**: Complete elimination of `ignore_permissions=True`
 - ✅ **Comprehensive Audit Trail**: Full lifecycle tracking and logging
@@ -151,6 +161,7 @@ Every operation includes:
 - ✅ **Dutch Compliance**: Association-specific business logic integration
 
 ### **Legacy Security Issue Addressed**:
+
 - **Deprecated**: `member_account_service.py` with 6 security violations
 - **Replacement**: Secure AccountCreationManager with zero permission bypasses
 - **Migration Path**: Clear guidance provided for existing code
@@ -158,6 +169,7 @@ Every operation includes:
 ## Usage Examples
 
 ### **Basic Account Creation Request**
+
 ```python
 from verenigingen.utils.account_creation_manager import AccountCreationManager
 
@@ -171,6 +183,7 @@ request = manager.create_account_request(
 ```
 
 ### **Administrative Approval**
+
 ```python
 # Admin approves request
 approval = manager.approve_request(
@@ -181,6 +194,7 @@ approval = manager.approve_request(
 ```
 
 ### **Bulk Account Creation**
+
 ```python
 # Process multiple requests securely
 results = manager.bulk_create_accounts(
@@ -190,29 +204,32 @@ results = manager.bulk_create_accounts(
 ```
 
 ### **Dashboard Integration**
+
 ```javascript
 // Account Creation Dashboard - Management interface
-frappe.pages['account-creation-dashboard'].on_page_load = function(wrapper) {
-    frappe.ui.make_app_page({
-        parent: wrapper,
-        title: 'Account Creation Dashboard',
-        single_column: true
-    });
+frappe.pages["account-creation-dashboard"].on_page_load = function (wrapper) {
+  frappe.ui.make_app_page({
+    parent: wrapper,
+    title: "Account Creation Dashboard",
+    single_column: true,
+  });
 
-    // Load pending requests, approval interface, audit logs
-    new AccountCreationDashboard(wrapper);
+  // Load pending requests, approval interface, audit logs
+  new AccountCreationDashboard(wrapper);
 };
 ```
 
 ## Business Logic Integration
 
 ### **Dutch Association Requirements**
+
 - **Age Validation**: Volunteers must be 16+ (automated check)
 - **Chapter Assignment**: Geographic-based chapter allocation
 - **Role Hierarchy**: Board members > Regular members > Guests
 - **GDPR Compliance**: Proper consent and data handling
 
 ### **Verenigingen-Specific Features**
+
 - **Member Portal Access**: Automatic portal user creation for active members
 - **SEPA Integration**: Bank account management role assignments
 - **Volunteer Coordination**: Team-based role profile automation
@@ -221,18 +238,21 @@ frappe.pages['account-creation-dashboard'].on_page_load = function(wrapper) {
 ## Monitoring & Audit
 
 ### **Audit Logging**
+
 - All account creation requests logged with timestamps
 - User actions tracked for compliance reporting
 - Role assignment changes recorded with justification
 - Failed attempts logged for security monitoring
 
 ### **Dashboard Metrics**
+
 - Pending requests count
 - Average approval time
 - Success/failure rates
 - Role assignment statistics
 
 ### **Performance Monitoring**
+
 - Background job processing times
 - Error rates and types
 - System resource usage
@@ -241,6 +261,7 @@ frappe.pages['account-creation-dashboard'].on_page_load = function(wrapper) {
 ## Migration from Legacy System
 
 ### **Deprecated Component**: `member_account_service.py`
+
 ```python
 # ❌ DEPRECATED - Security violations
 def create_member_account(member_name):
@@ -249,6 +270,7 @@ def create_member_account(member_name):
 ```
 
 ### **Secure Replacement**: `AccountCreationManager`
+
 ```python
 # ✅ SECURE - Proper permission validation
 def create_account_request(member_name, roles, justification):
@@ -264,6 +286,7 @@ def create_account_request(member_name, roles, justification):
 ```
 
 ### **Migration Checklist**
+
 - [ ] Replace all calls to deprecated `member_account_service.py`
 - [ ] Update imports to use `AccountCreationManager`
 - [ ] Implement request-approval workflow where direct creation was used
@@ -273,12 +296,14 @@ def create_account_request(member_name, roles, justification):
 ## Future Enhancements
 
 ### **Planned Features**
+
 - **Multi-Language Support**: Dutch/English interface localization
 - **Advanced Approval Workflows**: Multi-stage approval for sensitive roles
 - **Integration APIs**: RESTful endpoints for external system integration
 - **Automated Role Recommendations**: AI-powered role suggestion based on member profile
 
 ### **Security Enhancements**
+
 - **Two-Factor Authentication**: Optional 2FA for high-privilege accounts
 - **Session Management**: Enhanced session security and monitoring
 - **Risk Scoring**: Automated risk assessment for account requests

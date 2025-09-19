@@ -1,4 +1,5 @@
 # Monitoring System Maintenance Procedures
+
 **Comprehensive Maintenance Guide for Phase 3 Monitoring Implementation**
 
 **Document Version:** 1.0
@@ -19,7 +20,9 @@ This document provides detailed maintenance procedures for the comprehensive mon
 **Frequency:** Every morning
 
 #### Steps:
+
 1. **Access Monitoring Dashboard**
+
    ```bash
    # Verify dashboard accessibility
    curl -s -o /dev/null -w "%{http_code}" http://localhost/monitoring_dashboard
@@ -39,12 +42,14 @@ This document provides detailed maintenance procedures for the comprehensive mon
    - Critical Alerts - target: 0
 
 #### Expected Results:
+
 - Dashboard loads within 5 seconds
 - All metric cards display data (no "error" messages)
 - Overall system status: "healthy"
 - Critical issues: 0
 
 #### Escalation Criteria:
+
 - Dashboard inaccessible (HTTP 500/503 errors)
 - System status: "critical"
 - Critical issues > 0
@@ -57,7 +62,9 @@ This document provides detailed maintenance procedures for the comprehensive mon
 **Frequency:** Daily
 
 #### Steps:
+
 1. **Review Recent Errors**
+
    ```bash
    # Quick error check
    bench --site dev.veganisme.net execute "frappe.db.count('Error Log', {'creation': ('>=', frappe.utils.add_hours(frappe.utils.now(), -24))})"
@@ -73,6 +80,7 @@ This document provides detailed maintenance procedures for the comprehensive mon
    - Check for error clustering (multiple errors at same time)
 
 #### Escalation Criteria:
+
 - New critical error types
 - Error count > 20 in 1 hour
 - Recurring errors (same error > 10 times in 24h)
@@ -84,7 +92,9 @@ This document provides detailed maintenance procedures for the comprehensive mon
 **Frequency:** Daily
 
 #### Steps:
+
 1. **Test Analytics APIs**
+
    ```bash
    # Test analytics summary
    curl -X GET "http://localhost/api/method/verenigingen.www.monitoring_dashboard.get_analytics_summary"
@@ -96,11 +106,13 @@ This document provides detailed maintenance procedures for the comprehensive mon
    - Confirm compliance metrics load
 
 #### Expected Results:
+
 - Analytics APIs return data within 10 seconds
 - All analytics sections show recent timestamps
 - No "error" messages in analytics data
 
 #### Escalation Criteria:
+
 - Analytics APIs timeout or error
 - Analytics data older than 6 hours
 - Compliance metrics show "error"
@@ -112,17 +124,20 @@ This document provides detailed maintenance procedures for the comprehensive mon
 **Frequency:** Daily
 
 #### Steps:
+
 1. **Quick Performance Check**
    - Note database response time from dashboard
    - Check API average response time
    - Review cache hit rates if available
 
 #### Target Metrics:
+
 - Database response: < 50ms
 - API response: < 200ms
 - Cache hit rate: > 70%
 
 #### Escalation Criteria:
+
 - Database response > 100ms consistently
 - API response > 500ms
 - Cache hit rate < 50%
@@ -136,7 +151,9 @@ This document provides detailed maintenance procedures for the comprehensive mon
 **Frequency:** Every Monday
 
 #### Steps:
+
 1. **Generate Weekly Analytics Report**
+
    ```bash
    # Generate comprehensive report
    bench --site dev.veganisme.net execute "verenigingen.utils.analytics_engine.generate_insights_report"
@@ -160,13 +177,16 @@ This document provides detailed maintenance procedures for the comprehensive mon
    - Review regulatory violations
 
 #### Documentation:
+
 Create weekly summary with:
+
 - Key findings from analytics
 - Action items identified
 - Trends to monitor
 - Recommendations implemented
 
 #### Escalation Criteria:
+
 - Error trend increasing > 25% week-over-week
 - Compliance score drops > 5 points
 - Forecast confidence < 60%
@@ -179,7 +199,9 @@ Create weekly summary with:
 **Frequency:** Weekly
 
 #### Steps:
+
 1. **Review Optimization Status**
+
    ```bash
    # Check optimization status
    bench --site dev.veganisme.net execute "verenigingen.utils.performance_optimizer.get_optimization_status"
@@ -202,6 +224,7 @@ Create weekly summary with:
    - Plan optimization implementations
 
 #### Expected Outcomes:
+
 - Performance metrics stable or improving
 - Cache hit rates > 75%
 - No performance degradation alerts
@@ -214,6 +237,7 @@ Create weekly summary with:
 **Frequency:** Weekly
 
 #### Steps:
+
 1. **Review Health Trends**
    - Analyze system health over 7 days
    - Check error rate trends
@@ -241,6 +265,7 @@ Create weekly summary with:
 **Frequency:** First Monday of each month
 
 #### Steps:
+
 1. **Full Analytics Audit** (30 minutes)
    - Run 30-day error pattern analysis
    - Complete compliance audit
@@ -260,6 +285,7 @@ Create weekly summary with:
    - Refine monitoring settings
 
 #### Deliverables:
+
 - Monthly performance report
 - Optimization implementation summary
 - Updated configuration documentation
@@ -272,6 +298,7 @@ Create weekly summary with:
 **Frequency:** Monthly
 
 #### Steps:
+
 1. **Update Maintenance Procedures**
    - Review and refine daily tasks
    - Update escalation criteria based on experience
@@ -294,6 +321,7 @@ Create weekly summary with:
 **Frequency:** Monthly
 
 #### Steps:
+
 1. **Team Knowledge Session**
    - Review monthly findings with team
    - Share new procedures and insights
@@ -314,6 +342,7 @@ Create weekly summary with:
 **Frequency:** Every 3 months
 
 #### Steps:
+
 1. **Full System Assessment** (2 hours)
    - Complete 90-day analytics review
    - Full performance audit
@@ -333,6 +362,7 @@ Create weekly summary with:
    - Budget planning for improvements
 
 #### Deliverables:
+
 - Quarterly performance report
 - Infrastructure planning recommendations
 - Security assessment summary
@@ -345,6 +375,7 @@ Create weekly summary with:
 **Frequency:** Quarterly
 
 #### Steps:
+
 1. **Backup Verification**
    - Test monitoring configuration backups
    - Verify data recovery procedures
@@ -367,7 +398,9 @@ Create weekly summary with:
 **Trigger:** Monitoring dashboard inaccessible or system status "critical"
 
 #### Immediate Actions (0-5 minutes):
+
 1. **Assess Impact**
+
    ```bash
    # Check system status
    bench status
@@ -385,6 +418,7 @@ Create weekly summary with:
    - Check service status: `systemctl status nginx mysql`
 
 3. **Immediate Stabilization**
+
    ```bash
    # Restart services if needed
    bench restart
@@ -397,6 +431,7 @@ Create weekly summary with:
    ```
 
 #### Follow-up Actions (5-30 minutes):
+
 1. **System Recovery**
    - Restore from backup if necessary
    - Rebuild monitoring configurations
@@ -417,7 +452,9 @@ Create weekly summary with:
 **Trigger:** Response times > 500ms consistently or optimization failures
 
 #### Immediate Actions:
+
 1. **Performance Assessment**
+
    ```bash
    # Check database performance
    bench --site dev.veganisme.net execute "import time; start=time.time(); frappe.db.sql('SELECT 1'); print(f'DB Response: {(time.time()-start)*1000:.2f}ms')"
@@ -428,6 +465,7 @@ Create weekly summary with:
    ```
 
 2. **Quick Optimization**
+
    ```bash
    # Clear all caches
    bench --site dev.veganisme.net clear-cache
@@ -446,7 +484,9 @@ Create weekly summary with:
 **Trigger:** Analytics APIs return errors or empty data
 
 #### Immediate Actions:
+
 1. **Service Restart**
+
    ```bash
    # Restart services
    bench restart
@@ -468,6 +508,7 @@ Create weekly summary with:
 ## Monitoring Checklist Templates
 
 ### Daily Checklist
+
 ```
 □ Dashboard accessible and loads within 5 seconds
 □ System status shows "healthy"
@@ -484,6 +525,7 @@ Escalations Made: ________________
 ```
 
 ### Weekly Checklist
+
 ```
 □ Weekly analytics report generated and reviewed
 □ Error patterns analyzed for trends
@@ -500,6 +542,7 @@ Follow-up Required: ________________
 ```
 
 ### Monthly Checklist
+
 ```
 □ Comprehensive analytics audit completed
 □ Performance optimization cycle executed
@@ -518,21 +561,25 @@ Next Month's Focus: ________________
 ## Escalation Procedures
 
 ### Level 1: Operations Team
+
 **Scope:** Daily maintenance, routine issues, standard troubleshooting
 **Response Time:** Immediate during business hours
 **Contact:** operations@vereniging.nl
 
 ### Level 2: Technical Team
+
 **Scope:** Complex technical issues, optimization failures, system degradation
 **Response Time:** 2 hours during business hours, 4 hours after hours
 **Contact:** tech-team@vereniging.nl
 
 ### Level 3: External Support
+
 **Scope:** Critical system failures, data recovery, infrastructure issues
 **Response Time:** As per support contract
 **Contact:** support-vendor@company.com
 
 ### Emergency Contacts
+
 - **Technical Lead:** [Name] - [Phone] - [Email]
 - **DevOps Engineer:** [Name] - [Phone] - [Email]
 - **Operations Manager:** [Name] - [Phone] - [Email]
@@ -541,18 +588,21 @@ Next Month's Focus: ________________
 ## Performance Targets and SLAs
 
 ### Monitoring System SLAs
+
 - **Dashboard Availability:** 99.5% uptime
 - **Analytics Response Time:** < 30 seconds
 - **Alert Generation:** < 5 minutes from trigger
 - **Data Freshness:** < 15 minutes lag
 
 ### Performance Targets
+
 - **Database Response:** < 50ms average
 - **API Response:** < 200ms average
 - **Error Rate:** < 1% of total operations
 - **Cache Hit Rate:** > 75%
 
 ### Maintenance Windows
+
 - **Daily Tasks:** 9:00-9:10 AM (business days)
 - **Weekly Tasks:** Monday 8:00-9:00 AM
 - **Monthly Tasks:** First Monday 7:00-10:00 AM
@@ -561,6 +611,7 @@ Next Month's Focus: ________________
 ---
 
 **Document Maintenance:**
+
 - **Review Frequency:** Monthly
 - **Update Trigger:** After incidents, system changes, or procedure improvements
 - **Owner:** Operations Team Lead

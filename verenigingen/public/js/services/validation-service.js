@@ -79,8 +79,8 @@ class ValidationService {
 	}
 
 	/**
-     * Initialize validation rules
-     */
+   * Initialize validation rules
+   */
 	_initializeRules() {
 		return {
 			email: {
@@ -136,8 +136,8 @@ class ValidationService {
 	}
 
 	/**
-     * Validate a single field
-     */
+   * Validate a single field
+   */
 	async validateField(fieldName, value, context = {}) {
 		const rule = this.validationRules[fieldName];
 		if (!rule) {
@@ -159,8 +159,8 @@ class ValidationService {
 	}
 
 	/**
-     * Validate multiple fields
-     */
+   * Validate multiple fields
+   */
 	async validateFields(data, fieldNames = null) {
 		const fieldsToValidate = fieldNames || Object.keys(this.validationRules);
 		const results = {};
@@ -188,16 +188,16 @@ class ValidationService {
 	}
 
 	/**
-     * Validate a complete step
-     */
+   * Validate a complete step
+   */
 	async validateStep(stepNumber, data) {
 		const stepFields = this._getStepFields(stepNumber);
 		return await this.validateFields(data, stepFields);
 	}
 
 	/**
-     * Basic synchronous validation
-     */
+   * Basic synchronous validation
+   */
 	_validateBasic(fieldName, value, rule) {
 		// Required check
 		if (rule.required && (!value || value.toString().trim() === '')) {
@@ -245,8 +245,8 @@ class ValidationService {
 	}
 
 	/**
-     * Async validation with debouncing and caching
-     */
+   * Async validation with debouncing and caching
+   */
 	async _validateAsync(fieldName, value, rule, context) {
 		const cacheKey = `${fieldName}:${value}`;
 
@@ -271,8 +271,12 @@ class ValidationService {
 					if (rule.customValidation) {
 						result = await rule.customValidation(value, context);
 					} else {
-					// API validation
-						result = await this._performAPIValidation(fieldName, value, context);
+						// API validation
+						result = await this._performAPIValidation(
+							fieldName,
+							value,
+							context
+						);
 					}
 
 					// Cache successful results
@@ -298,8 +302,8 @@ class ValidationService {
 	}
 
 	/**
-     * Perform API-based validation
-     */
+   * Perform API-based validation
+   */
 	async _performAPIValidation(fieldName, value, context) {
 		switch (fieldName) {
 			case 'email':
@@ -320,8 +324,8 @@ class ValidationService {
 	}
 
 	/**
-     * Custom validation functions
-     */
+   * Custom validation functions
+   */
 	async _validateAge(birthDate, context) {
 		const result = await this.api.validateBirthDate(birthDate);
 
@@ -357,8 +361,8 @@ class ValidationService {
 	}
 
 	/**
-     * Real-time validation for UI
-     */
+   * Real-time validation for UI
+   */
 	setupRealTimeValidation(element, fieldName, context = {}) {
 		this._ensureFeedbackElement(element);
 
@@ -374,7 +378,11 @@ class ValidationService {
 				this._showValidationState(element, 'validating');
 			}
 
-			const result = await this.validateField(fieldName, value, typeof context === 'function' ? context() : context);
+			const result = await this.validateField(
+				fieldName,
+				value,
+				typeof context === 'function' ? context() : context
+			);
 			this._showValidationResult(element, result);
 		};
 
@@ -386,14 +394,18 @@ class ValidationService {
 	}
 
 	/**
-     * Show validation result in UI
-     */
+   * Show validation result in UI
+   */
 	_showValidationResult(element, result) {
 		const feedback = this._ensureFeedbackElement(element);
 
 		// Remove existing classes
 		element.classList.remove('is-valid', 'is-invalid', 'is-validating');
-		feedback.classList.remove('valid-feedback', 'invalid-feedback', 'text-warning');
+		feedback.classList.remove(
+			'valid-feedback',
+			'invalid-feedback',
+			'text-warning'
+		);
 
 		if (result.valid) {
 			element.classList.add('is-valid');
@@ -422,7 +434,11 @@ class ValidationService {
 		if (state === 'validating') {
 			element.classList.add('is-validating');
 			const feedback = this._ensureFeedbackElement(element);
-			feedback.classList.remove('valid-feedback', 'invalid-feedback', 'text-warning');
+			feedback.classList.remove(
+				'valid-feedback',
+				'invalid-feedback',
+				'text-warning'
+			);
 			feedback.classList.add('text-muted');
 			feedback.textContent = 'Validating...';
 		}
@@ -441,8 +457,8 @@ class ValidationService {
 	}
 
 	/**
-     * Utility functions
-     */
+   * Utility functions
+   */
 	_getStepFields(stepNumber) {
 		const stepFieldMap = {
 			1: ['firstName', 'lastName', 'email', 'birthDate'], // Personal Info
@@ -474,13 +490,18 @@ class ValidationService {
 	_getPatternErrorMessage(fieldName) {
 		const messages = {
 			email: 'Please enter a valid email address',
-			firstName: 'Name can only contain letters, spaces, hyphens, and apostrophes',
-			lastName: 'Name can only contain letters, spaces, hyphens, and apostrophes',
+			firstName:
+        'Name can only contain letters, spaces, hyphens, and apostrophes',
+			lastName:
+        'Name can only contain letters, spaces, hyphens, and apostrophes',
 			phone: 'Please enter a valid phone number',
 			city: 'City name can only contain letters, spaces, hyphens, and apostrophes'
 		};
 
-		return messages[fieldName] || `Please enter a valid ${this._getFieldLabel(fieldName).toLowerCase()}`;
+		return (
+			messages[fieldName]
+      || `Please enter a valid ${this._getFieldLabel(fieldName).toLowerCase()}`
+		);
 	}
 
 	_generateValidationSummary(results) {
@@ -491,7 +512,7 @@ class ValidationService {
 			warnings: 0
 		};
 
-		Object.values(results).forEach(result => {
+		Object.values(results).forEach((result) => {
 			if (result.valid) {
 				summary.valid++;
 				if (result.warning) {
@@ -506,8 +527,8 @@ class ValidationService {
 	}
 
 	/**
-     * Clear validation cache
-     */
+   * Clear validation cache
+   */
 	clearCache(pattern = null) {
 		if (pattern) {
 			for (const key of this.validationCache.keys()) {
@@ -521,8 +542,8 @@ class ValidationService {
 	}
 
 	/**
-     * Get validation statistics
-     */
+   * Get validation statistics
+   */
 	getValidationStats() {
 		return {
 			cacheSize: this.validationCache.size,

@@ -1,5 +1,5 @@
 {
- "app": "verenigingen",
+  "app": "verenigingen",
   "autoname": "field:role_name",
   "creation": "2025-05-05 12:00:00.000000",
   "doctype": "DocType",

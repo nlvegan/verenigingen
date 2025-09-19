@@ -1,6 +1,7 @@
 # Account Mapping Improvements Implementation Plan
 
 ## Current Issues
+
 - Hardcoded account mappings
 - No validation of mapped accounts
 - Missing many account categories
@@ -11,6 +12,7 @@
 ### Step 1: Create Account Mapping DocType
 
 1. **E-Boekhouden Account Mapping DocType**
+
    ```
    Fields:
    - eboekhouden_account_code (Data, unique)
@@ -25,6 +27,7 @@
    ```
 
 2. **Validation Logic**
+
    ```python
    def validate(self):
        # Ensure ERPNext account matches expected type
@@ -43,6 +46,7 @@
 ### Step 2: Auto-Mapping Algorithm
 
 1. **Pattern-Based Mapping**
+
    ```python
    ACCOUNT_PATTERNS = {
        'bank': {
@@ -75,6 +79,7 @@
    ```
 
 2. **Smart Account Creation**
+
    ```python
    def get_or_create_account(ebh_account_code):
        # Check existing mapping
@@ -104,19 +109,20 @@
 
 2. **Mapping Wizard**
    ```javascript
-   frappe.pages['account-mapping-wizard'] = {
-       refresh: function(wrapper) {
-           // Show unmapped accounts
-           // Suggest matches
-           // Allow manual selection
-           // Bulk operations
-       }
-   }
+   frappe.pages["account-mapping-wizard"] = {
+     refresh: function (wrapper) {
+       // Show unmapped accounts
+       // Suggest matches
+       // Allow manual selection
+       // Bulk operations
+     },
+   };
    ```
 
 ### Step 4: Integration with Import Process
 
 1. **Pre-Import Validation**
+
    ```python
    def validate_account_mappings(company):
        unmapped = get_unmapped_accounts(company)
@@ -133,6 +139,7 @@
    ```
 
 2. **Dynamic Mapping During Import**
+
    ```python
    def get_account_for_transaction(transaction, company):
        account_code = transaction.get('accountCode')

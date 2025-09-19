@@ -113,7 +113,8 @@ function refresh_membership_dues_info(frm) {
 
 			// Updated to refresh dues schedule summary
 			frappe.call({
-				method: 'verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details',
+				method:
+          'verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details',
 				args: {
 					member: frm.doc.name
 				},
@@ -129,7 +130,8 @@ function refresh_membership_dues_info(frm) {
 
 			// Refresh fee change history from dues schedules
 			frappe.call({
-				method: 'verenigingen.verenigingen.doctype.member.member.refresh_fee_change_history',
+				method:
+          'verenigingen.verenigingen.doctype.member.member.refresh_fee_change_history',
 				args: {
 					member_name: frm.doc.name
 				},
@@ -150,10 +152,13 @@ function refresh_membership_dues_info(frm) {
                 ${stats.unreconciled} unreconciled payments, ${stats.donations} linked to donations<br>
                 Total: ${format_currency(stats.total_amount)}, Outstanding: ${format_currency(stats.outstanding)}</div>`;
 
-			frappe.show_alert({
-				message,
-				indicator: stats.outstanding > 0 ? 'orange' : 'green'
-			}, 10);
+			frappe.show_alert(
+				{
+					message,
+					indicator: stats.outstanding > 0 ? 'orange' : 'green'
+				},
+				10
+			);
 		}
 	});
 }
@@ -172,16 +177,28 @@ function calculate_financial_stats(records) {
 		outstanding: 0
 	};
 
-	records.forEach(record => {
+	records.forEach((record) => {
 		stats.total_amount += flt(record.amount || 0);
 		stats.outstanding += flt(record.outstanding_amount || 0);
 
 		if (record.transaction_type === 'Regular Invoice') {
 			stats.invoices++;
-			if (record.payment_status === 'Paid') { stats.paid++; } else if (record.payment_status === 'Overdue') { stats.overdue++; } else if (['Unpaid', 'Partially Paid'].includes(record.payment_status)) { stats.unpaid++; }
+			if (record.payment_status === 'Paid') {
+				stats.paid++;
+			} else if (record.payment_status === 'Overdue') {
+				stats.overdue++;
+			} else if (['Unpaid', 'Partially Paid'].includes(record.payment_status)) {
+				stats.unpaid++;
+			}
 		} else if (record.transaction_type === 'Membership Invoice') {
 			stats.membership_invoices++;
-			if (record.payment_status === 'Paid') { stats.paid++; } else if (record.payment_status === 'Overdue') { stats.overdue++; } else if (['Unpaid', 'Partially Paid'].includes(record.payment_status)) { stats.unpaid++; }
+			if (record.payment_status === 'Paid') {
+				stats.paid++;
+			} else if (record.payment_status === 'Overdue') {
+				stats.overdue++;
+			} else if (['Unpaid', 'Partially Paid'].includes(record.payment_status)) {
+				stats.unpaid++;
+			}
 		} else if (record.transaction_type === 'Donation Payment') {
 			stats.donations++;
 		} else if (record.transaction_type === 'Unreconciled Payment') {

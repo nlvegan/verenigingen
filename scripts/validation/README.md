@@ -5,7 +5,9 @@ This directory contains historical field validation implementations that have be
 ## Archived Files
 
 ### Duplicate DocType Field Validators
+
 These validators performed similar DocType field validation with minor variations:
+
 - `ultimate_field_validator.py` - Similar to doctype_field_validator.py
 - `final_field_validator.py` - Legacy implementation
 - `accurate_field_validator.py` - Early version
@@ -17,6 +19,7 @@ These validators performed similar DocType field validation with minor variation
 - `enhanced_field_validator_v2.py` - Version 2 iteration
 
 ### Testing/Development Variants
+
 - `quick_db_field_validator.py` - Fast testing variant
 - `smart_field_validator.py` - Experimental approach
 - `optimized_field_validator.py` - Performance optimization
@@ -24,10 +27,12 @@ These validators performed similar DocType field validation with minor variation
 - `comprehensive_field_validator.py` - Duplicate of validation_suite_runner.py
 
 ### SQL Validators (Consolidated)
+
 - `enhanced_sql_field_validator.py` - Enhanced SQL validation
 - `database_query_field_validator.py` - Database query validation
 
 ### JavaScript Validators (Consolidated)
+
 - `advanced_javascript_field_validator.py` - Advanced JS validation
 - `javascript_field_validator_integration.py` - JS integration testing
 
@@ -45,4 +50,5 @@ The following renamed validators are currently active:
 - `sql_query_field_validator.py` (was: sql_field_validator.py) - SQL query validation
 
 ## Migration Date
+
 Archived on: 2025-01-20

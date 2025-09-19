@@ -18,7 +18,7 @@ require('whatwg-fetch');
 // Mock DOM APIs that JSDOM doesn't fully support
 Object.defineProperty(window, 'matchMedia', {
 	writable: true,
-	value: jest.fn().mockImplementation(query => ({
+	value: jest.fn().mockImplementation((query) => ({
 		matches: false,
 		media: query,
 		onchange: null,
@@ -71,11 +71,11 @@ Object.defineProperty(global, 'crypto', {
 const createStorage = () => {
 	let store = {};
 	return {
-		getItem: jest.fn(key => store[key] || null),
+		getItem: jest.fn((key) => store[key] || null),
 		setItem: jest.fn((key, value) => {
 			store[key] = value.toString();
 		}),
-		removeItem: jest.fn(key => {
+		removeItem: jest.fn((key) => {
 			delete store[key];
 		}),
 		clear: jest.fn(() => {
@@ -84,7 +84,7 @@ const createStorage = () => {
 		get length() {
 			return Object.keys(store).length;
 		},
-		key: jest.fn(index => Object.keys(store)[index] || null)
+		key: jest.fn((index) => Object.keys(store)[index] || null)
 	};
 };
 

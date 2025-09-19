@@ -34,9 +34,11 @@ Tests validate actual service logic rather than framework integration:
 ## Test Files and Coverage
 
 ### 1. SEPAMandateIdentityService Tests
+
 **File**: `verenigingen/tests/test_sepa_mandate_identity_service.py`
 
 **Coverage**:
+
 - `generate_mandate_id()` with custom and default patterns
 - `_generate_mandate_id_with_counter()` logic and date token replacement
 - `validate_mandate_reference()` format validation (SEPA compliance)
@@ -44,6 +46,7 @@ Tests validate actual service logic rather than framework integration:
 - Settings caching and error handling
 
 **Key Test Scenarios**:
+
 ```python
 def test_generate_mandate_id_with_custom_pattern(self):
     # Tests Dutch association patterns like "VEG-{YYYY}-{MM}-{DD}-###"
@@ -56,15 +59,18 @@ def test_validate_mandate_reference_sepa_compliance(self):
 ```
 
 ### 2. SEPAMandateValidationService Tests
+
 **File**: `verenigingen/tests/test_sepa_mandate_validation_service.py`
 
 **Coverage**:
+
 - `validate_mandate_dates()` with various date scenarios
 - `validate_mandate_iban()` with Dutch IBAN validation and BIC derivation
 - `validate_mandate_business_rules()` constraint checking
 - `validate_mandate_uniqueness()` conflict detection
 
 **Key Test Scenarios**:
+
 ```python
 def test_validate_mandate_iban_valid_dutch_iban(self):
     # Tests with realistic Dutch bank IBANs (ING, Rabobank, etc.)
@@ -77,9 +83,11 @@ def test_realistic_dutch_mandate_validation(self):
 ```
 
 ### 3. SEPAMandateLifecycleService Tests
+
 **File**: `verenigingen/tests/test_sepa_mandate_lifecycle_service.py`
 
 **Coverage**:
+
 - `set_status_based_on_dates()` automatic status calculation
 - `handle_status_transition()` workflow validation
 - `process_mandate_cancellation()` cancellation workflow
@@ -87,6 +95,7 @@ def test_realistic_dutch_mandate_validation(self):
 - Event handling: `handle_mandate_creation()` and `handle_mandate_update()`
 
 **Key Test Scenarios**:
+
 ```python
 def test_set_status_based_on_dates_expired_mandate(self):
     # Tests automatic expiration based on dates
@@ -99,9 +108,11 @@ def test_complete_mandate_lifecycle_workflow(self):
 ```
 
 ### 4. SEPAMandateMemberIntegrationService Tests
+
 **File**: `verenigingen/tests/test_sepa_mandate_member_integration_service.py`
 
 **Coverage**:
+
 - `update_member_mandate_relationship()` core integration logic
 - `_validate_sepa_mandate_permissions()` security validation
 - `_validate_mandate_link_fields()` field existence validation
@@ -110,6 +121,7 @@ def test_complete_mandate_lifecycle_workflow(self):
 - Audit logging and error handling
 
 **Key Test Scenarios**:
+
 ```python
 def test_execute_secure_mandate_link_update_existing_link(self):
     # Tests SQL operations for updating existing member-mandate links
@@ -124,6 +136,7 @@ def test_realistic_dutch_member_integration(self):
 ## Running the Tests
 
 ### Test Runner Script
+
 Use the comprehensive test runner for various execution modes:
 
 ```bash
@@ -144,6 +157,7 @@ python verenigingen/tests/run_sepa_service_tests.py --all --coverage
 ```
 
 ### Individual Test Execution
+
 Run individual test files using Python unittest:
 
 ```bash
@@ -158,6 +172,7 @@ python -m unittest verenigingen.tests.test_sepa_mandate_identity_service.TestSEP
 ```
 
 ### Frappe Environment Execution
+
 For full integration with Frappe framework:
 
 ```bash
@@ -192,11 +207,13 @@ Tests use realistic data patterns for Dutch associations:
 ## Mock Strategy
 
 ### What We Mock
+
 - **External Services**: Database operations, notifications, logging
 - **Framework Calls**: Frappe-specific methods and utilities
 - **Time-Dependent Operations**: Date/time functions for predictable tests
 
 ### What We Don't Mock
+
 - **Business Logic**: Actual service methods and validation logic
 - **Data Structures**: Real DocType field validation and constraints
 - **Calculations**: Date calculations, counter increments, format validation
@@ -204,11 +221,13 @@ Tests use realistic data patterns for Dutch associations:
 ## Performance Considerations
 
 ### Test Performance
+
 - **Fast Execution**: Minimal database interaction through mocking
 - **Isolated Tests**: Each test runs independently with clean state
 - **Efficient Mocking**: Only mock what's necessary for isolation
 
 ### Query Monitoring
+
 ```python
 def test_database_performance(self):
     with self.assertQueryCount(5):  # Monitor database queries
@@ -218,6 +237,7 @@ def test_database_performance(self):
 ## Integration with Testing Infrastructure
 
 ### Enhanced Test Factory Integration
+
 ```python
 class TestMyService(EnhancedTestCase):
     def test_with_realistic_data(self):
@@ -230,6 +250,7 @@ class TestMyService(EnhancedTestCase):
 ```
 
 ### Continuous Integration
+
 - Tests run as part of the comprehensive test suite
 - Coverage reporting when coverage tools are available
 - Performance benchmarking for service methods
@@ -238,12 +259,14 @@ class TestMyService(EnhancedTestCase):
 ## Error Handling and Edge Cases
 
 ### Exception Testing
+
 - Network timeouts and database connection failures
 - Invalid data input and malformed requests
 - Permission denied scenarios
 - Concurrent access and race conditions
 
 ### Boundary Testing
+
 - Date boundaries (year changes, leap years)
 - Maximum field lengths and data limits
 - Counter overflow and wraparound scenarios
@@ -252,12 +275,14 @@ class TestMyService(EnhancedTestCase):
 ## Documentation and Maintenance
 
 ### Test Documentation
+
 - Each test file includes comprehensive docstrings
 - Test methods have descriptive names explaining the scenario
 - Complex test scenarios include inline comments
 - Edge cases are documented with business context
 
 ### Maintenance Guidelines
+
 - Add new tests when adding service methods
 - Update existing tests when business rules change
 - Ensure realistic data patterns match production usage
@@ -266,18 +291,21 @@ class TestMyService(EnhancedTestCase):
 ## Best Practices
 
 ### Test Design
+
 1. **Test One Thing**: Each test method focuses on a single scenario
 2. **Descriptive Names**: Test names clearly describe the scenario being tested
 3. **Realistic Data**: Use data that resembles production scenarios
 4. **Minimal Mocking**: Mock only external dependencies
 
 ### Data Generation
+
 1. **Business Rule Compliance**: Generated data must respect all business rules
 2. **Deterministic**: Same test should produce same results every time
 3. **Edge Case Coverage**: Include boundary conditions and unusual scenarios
 4. **Dutch Context**: Data patterns appropriate for Dutch associations
 
 ### Error Scenarios
+
 1. **Graceful Failure**: Test that services handle errors appropriately
 2. **Error Messages**: Validate that error messages are helpful and accurate
 3. **State Consistency**: Ensure partial failures don't leave inconsistent state

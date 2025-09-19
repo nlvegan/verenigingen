@@ -27,6 +27,7 @@ This infrastructure guide is part of a comprehensive JavaScript testing document
 ### Tools Frappe Uses (That We've Adopted)
 
 Based on Frappe's testing setup:
+
 - **GitHub Actions** for CI/CD
 - **Cypress with coverage** for UI testing
 - **Codecov** for coverage reporting
@@ -86,16 +87,16 @@ yarn format
 
 ```javascript
 // tests/unit/member_validation.spec.js
-describe('Member Validation', () => {
+describe("Member Validation", () => {
   beforeEach(() => {
     // Setup test environment
   });
 
-  it('should validate email format', () => {
-    const validEmail = 'test@example.com';
+  it("should validate email format", () => {
+    const validEmail = "test@example.com";
     expect(isValidEmail(validEmail)).toBe(true);
 
-    const invalidEmail = 'invalid-email';
+    const invalidEmail = "invalid-email";
     expect(isValidEmail(invalidEmail)).toBe(false);
   });
 });
@@ -105,18 +106,18 @@ describe('Member Validation', () => {
 
 ```javascript
 // cypress/integration/volunteer_flow.spec.js
-describe('Volunteer Management', () => {
+describe("Volunteer Management", () => {
   beforeEach(() => {
     cy.login();
-    cy.visit('/app/volunteer');
+    cy.visit("/app/volunteer");
   });
 
-  it('should create new volunteer', () => {
-    cy.new_doc('Verenigingen Volunteer');
-    cy.fill_field('volunteer_name', 'Test Volunteer');
-    cy.fill_field('email', 'volunteer@test.com');
+  it("should create new volunteer", () => {
+    cy.new_doc("Verenigingen Volunteer");
+    cy.fill_field("volunteer_name", "Test Volunteer");
+    cy.fill_field("email", "volunteer@test.com");
     cy.save();
-    cy.verify_field('status', 'Active');
+    cy.verify_field("status", "Active");
   });
 });
 ```
@@ -156,12 +157,13 @@ open coverage/lcov-report/index.html
 ### Coverage Thresholds
 
 Current Jest configuration requires:
+
 - **Statements**: 70%
 - **Branches**: 70%
 - **Functions**: 70%
 - **Lines**: 70%
 
-*Note: These thresholds are defined in `jest.config.js` and enforced by CI/CD pipelines. See [Testing Strategy](../testing-strategy.md) for coverage philosophy.*
+_Note: These thresholds are defined in `jest.config.js` and enforced by CI/CD pipelines. See [Testing Strategy](../testing-strategy.md) for coverage philosophy._
 
 ## Best Practices
 
@@ -176,14 +178,14 @@ Current Jest configuration requires:
 
 ```javascript
 // Mock frappe calls
-jest.mock('frappe', () => ({
-  call: jest.fn().mockResolvedValue({ message: 'success' })
+jest.mock("frappe", () => ({
+  call: jest.fn().mockResolvedValue({ message: "success" }),
 }));
 
 // Mock in Cypress
-cy.intercept('POST', '/api/method/create_member', {
+cy.intercept("POST", "/api/method/create_member", {
   statusCode: 200,
-  body: { message: { name: 'MEM-0001' } }
+  body: { message: { name: "MEM-0001" } },
 });
 ```
 
@@ -203,13 +205,13 @@ cy.get('[data-test-id="submit-button"]').click();
 
 ```javascript
 // Jest
-it('should fetch data', async () => {
+it("should fetch data", async () => {
   const data = await fetchMemberData();
-  expect(data).toHaveProperty('name');
+  expect(data).toHaveProperty("name");
 });
 
 // Cypress automatically handles async
-cy.get('.member-list').should('have.length', 5);
+cy.get(".member-list").should("have.length", 5);
 ```
 
 ## Common Testing Scenarios
@@ -217,22 +219,22 @@ cy.get('.member-list').should('have.length', 5);
 ### Form Validation
 
 ```javascript
-it('should show validation errors', () => {
-  cy.get('#submit').click();
-  cy.get('.error-message').should('contain', 'Email is required');
+it("should show validation errors", () => {
+  cy.get("#submit").click();
+  cy.get(".error-message").should("contain", "Email is required");
 });
 ```
 
 ### API Testing
 
 ```javascript
-it('should create member via API', () => {
-  cy.request('POST', '/api/method/create_member', {
-    first_name: 'Test',
-    last_name: 'User'
+it("should create member via API", () => {
+  cy.request("POST", "/api/method/create_member", {
+    first_name: "Test",
+    last_name: "User",
   }).then((response) => {
     expect(response.status).to.eq(200);
-    expect(response.body.message).to.have.property('name');
+    expect(response.body.message).to.have.property("name");
   });
 });
 ```
@@ -240,10 +242,10 @@ it('should create member via API', () => {
 ### Permission Testing
 
 ```javascript
-it('should restrict access for non-admin users', () => {
-  cy.login('user@example.com', 'password');
-  cy.visit('/app/system-settings');
-  cy.get('.error-message').should('contain', 'Not Permitted');
+it("should restrict access for non-admin users", () => {
+  cy.login("user@example.com", "password");
+  cy.visit("/app/system-settings");
+  cy.get(".error-message").should("contain", "Not Permitted");
 });
 ```
 
@@ -266,10 +268,10 @@ console.log('Debug info:', variable);
 cy.pause();
 
 // Debug specific element
-cy.get('.element').debug();
+cy.get(".element").debug();
 
 // Take screenshot
-cy.screenshot('debug-state');
+cy.screenshot("debug-state");
 ```
 
 ## Integration with VS Code
@@ -302,15 +304,21 @@ cy.screenshot('debug-state');
 ## Next Steps
 
 ### For DocType Testing Patterns
+
 Once your infrastructure is set up, learn practical testing patterns:
+
 - **[DocType JavaScript Testing](../javascript-testing-guide.md)** - Form controller testing, mocking strategies, business logic validation
 
 ### For Strategic Context
+
 To understand our testing philosophy and coverage goals:
+
 - **[Testing Strategy Overview](../testing-strategy.md)** - Testing categories, performance benchmarks, coverage requirements
 
 ### For Navigation Help
+
 If you're looking for different testing documentation:
+
 - **[JavaScript Testing Index](javascript-testing-index.md)** - Quick navigation to all JavaScript testing guides
 
 ## Resources

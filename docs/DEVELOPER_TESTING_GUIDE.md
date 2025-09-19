@@ -39,12 +39,14 @@ class TestMyFeature(VereningingenTestCase):
 ### Key Benefits
 
 #### Automatic Document Cleanup
+
 - **All documents tracked**: Every document created is automatically tracked
 - **Reverse dependency cleanup**: Documents cleaned up in reverse creation order
 - **Customer cleanup**: Automatic customer record cleanup for member-related tests
 - **No manual tearDown**: Base class handles all cleanup automatically
 
 #### Factory Methods
+
 Consistent test data generation with proper relationships:
 
 ```python
@@ -78,6 +80,7 @@ membership = self.create_test_membership(
 ```
 
 #### Mock Banking Support
+
 Realistic test data with full validation compliance:
 
 ```python
@@ -98,6 +101,7 @@ mandate = self.create_sepa_mandate(
 ```
 
 #### Enhanced Assertions
+
 Domain-specific assertions for better test readability:
 
 ```python
@@ -111,6 +115,7 @@ self.assertDocumentValid(document)
 ```
 
 #### Performance Monitoring
+
 Built-in performance tracking:
 
 ```python
@@ -130,6 +135,7 @@ def test_performance_critical_operation(self):
 ### Mandatory Test Patterns
 
 #### 1. Use VereningingenTestCase
+
 ```python
 # ✅ Correct - Enhanced base class
 class TestMyFeature(VereningingenTestCase):
@@ -141,6 +147,7 @@ class TestMyFeature(FrappeTestCase):     # No factory methods
 ```
 
 #### 2. Use Factory Methods
+
 ```python
 # ✅ Correct - Factory method with automatic cleanup
 member = self.create_test_member(
@@ -158,6 +165,7 @@ member.insert(ignore_permissions=True)  # Permission violation
 ```
 
 #### 3. Read DocType JSON First
+
 **CRITICAL**: Always read the DocType JSON file before writing any code that creates/modifies documents:
 
 ```python
@@ -176,6 +184,7 @@ member = self.create_test_member(
 ```
 
 #### 4. Never Bypass Validation
+
 ```python
 # ✅ Correct - Let Frappe validate
 doc = frappe.new_doc("DocType")
@@ -189,6 +198,7 @@ frappe.db.sql("INSERT INTO ...")  # Bypasses ORM entirely
 ```
 
 #### 5. Document Tracking
+
 ```python
 # ✅ Automatic tracking with factory methods
 member = self.create_test_member()  # Automatically tracked
@@ -202,6 +212,7 @@ self.track_doc("DocType", custom_doc.name)  # Manual tracking
 ### Forbidden Patterns
 
 #### Permission Violations
+
 ```python
 # ❌ NEVER use these patterns
 doc.insert(ignore_permissions=True)
@@ -219,6 +230,7 @@ frappe.db.sql("DELETE FROM tabDocType ...")
 ```
 
 #### Legacy Test Patterns
+
 ```python
 # ❌ NEVER use these base classes
 class TestMyFeature(unittest.TestCase):     # No cleanup
@@ -234,6 +246,7 @@ def tearDown(self):
 ## Test Organization Structure
 
 ### Current Directory Structure (2025)
+
 ```
 verenigingen/tests/
 ├── backend/
@@ -267,11 +280,13 @@ verenigingen/tests/
 ### Migration Status
 
 #### ✅ Completed Phases:
+
 - **Phase 1**: Critical business logic tests migrated to VereningingenTestCase
 - **Phase 2**: Core component tests migrated with factory methods
 - **Phase 3**: Workflow and integration tests migrated and tested
 
 #### 🚧 Ongoing Work:
+
 - **Permission Cleanup**: Remove remaining `ignore_permissions=True` violations
 - **DocType Fixes**: Address tests for missing doctypes
 - **Complex Workflows**: Fix advanced workflow framework dependencies
@@ -296,23 +311,27 @@ python test_file.py  # Fails with "ModuleNotFoundError: No module named 'frappe'
 ### Test Categories
 
 #### Quick Validation (30 seconds)
+
 ```bash
 bench --site dev.veganisme.net run-tests --app verenigingen --module verenigingen.tests.test_validation_regression
 ```
 
 #### Core Functionality (1-2 minutes)
+
 ```bash
 bench --site dev.veganisme.net run-tests --app verenigingen --module verenigingen.tests.test_critical_business_logic
 bench --site dev.veganisme.net run-tests --app verenigingen --module verenigingen.tests.test_iban_validator
 ```
 
 #### Workflow Tests (2-5 minutes)
+
 ```bash
 bench --site dev.veganisme.net run-tests --app verenigingen --module verenigingen.tests.backend.workflows.test_member_lifecycle_simple
 bench --site dev.veganisme.net run-tests --app verenigingen --module verenigingen.tests.backend.integration.test_suspension_integration
 ```
 
 #### Custom Test Runners
+
 ```bash
 # Organized test runners from scripts/testing/runners/
 python scripts/testing/runners/run_volunteer_portal_tests.py --suite core
@@ -322,6 +341,7 @@ python scripts/testing/runners/regression_test_runner.py
 ### Working Test Examples
 
 #### Successfully Migrated Tests:
+
 1. **test_member_lifecycle_simple.py** - ✅ Complete 10-stage lifecycle test
 2. **test_suspension_integration.py** - ✅ All 8 integration tests pass
 3. **test_critical_business_logic.py** - ✅ Core business logic validation
@@ -332,11 +352,13 @@ python scripts/testing/runners/regression_test_runner.py
 ### Test Failures Due to Validation
 
 #### Problem: Test fails with validation errors
+
 ```
 frappe.exceptions.ValidationError: Missing required field 'birth_date'
 ```
 
 #### Solution: Read DocType JSON and provide required fields
+
 ```python
 # Step 1: Read DocType JSON file to identify required fields
 # Step 2: Update factory method or test data
@@ -353,11 +375,13 @@ member = self.create_test_member(
 ### Permission Errors
 
 #### Problem: Permission denied errors in tests
+
 ```
 frappe.exceptions.PermissionError: Not permitted to create Member
 ```
 
 #### Solution: Use proper test user setup or factory methods
+
 ```python
 # ✅ Factory methods handle permissions properly
 member = self.create_test_member()  # Uses proper user context
@@ -371,11 +395,13 @@ with self.set_user("test@example.com"):
 ### Database Schema Issues
 
 #### Problem: Unknown column errors
+
 ```
 pymysql.err.OperationalError: (1054, "Unknown column 'field_name' in 'SELECT'")
 ```
 
 #### Solution: Check DocType exists and field names are correct
+
 ```python
 # ✅ Verify DocType exists
 if frappe.db.exists("DocType", "DocType Name"):
@@ -445,6 +471,7 @@ class TestMyNewFeature(VereningingenTestCase):
 ## Best Practices Summary
 
 ### Do's ✅
+
 - **Always** inherit from VereningingenTestCase
 - **Always** read DocType JSON files before writing tests
 - **Always** use factory methods for test data
@@ -453,6 +480,7 @@ class TestMyNewFeature(VereningingenTestCase):
 - **Always** let Frappe validation run (no bypassing)
 
 ### Don'ts ❌
+
 - **Never** use `ignore_permissions=True` in tests
 - **Never** use `ignore_validate=True` in tests
 - **Never** use direct SQL for document CRUD

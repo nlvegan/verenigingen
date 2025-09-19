@@ -101,7 +101,10 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 			refreshHandler(mockFrm);
 
 			// Assert
-			expect(mockFrm.toggle_display).toHaveBeenCalledWith('tussenvoegsel', true);
+			expect(mockFrm.toggle_display).toHaveBeenCalledWith(
+				'tussenvoegsel',
+				true
+			);
 			expect(mockFrm.set_df_property).toHaveBeenCalledWith(
 				'tussenvoegsel',
 				'description',
@@ -137,11 +140,11 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 			const invalidPostalCodes = ['123 AB', '1234 A', 'ABCD EF', '12345'];
 
 			// Act & Assert
-			validPostalCodes.forEach(code => {
+			validPostalCodes.forEach((code) => {
 				expect(validateDutchPostalCode(code)).toBe(true);
 			});
 
-			invalidPostalCodes.forEach(code => {
+			invalidPostalCodes.forEach((code) => {
 				expect(validateDutchPostalCode(code)).toBe(false);
 			});
 		});
@@ -156,11 +159,11 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 			const invalidIBANs = ['123456789', 'NL12', '', null];
 
 			// Act & Assert
-			validIBANs.forEach(iban => {
+			validIBANs.forEach((iban) => {
 				expect(validateIBAN(iban)).toBe(true);
 			});
 
-			invalidIBANs.forEach(iban => {
+			invalidIBANs.forEach((iban) => {
 				expect(validateIBAN(iban)).toBe(false);
 			});
 		});
@@ -194,11 +197,11 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 			];
 
 			// Act & Assert
-			validEmails.forEach(email => {
+			validEmails.forEach((email) => {
 				expect(validateEmail(email)).toBe(true);
 			});
 
-			invalidEmails.forEach(email => {
+			invalidEmails.forEach((email) => {
 				expect(validateEmail(email)).toBe(false);
 			});
 		});
@@ -206,7 +209,9 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 		test('should calculate age correctly for edge cases', () => {
 			// Arrange - Mock current date to January 5, 2025
 			const mockCurrentDate = new Date('2025-01-05');
-			jest.spyOn(Date, 'now').mockImplementation(() => mockCurrentDate.getTime());
+			jest
+				.spyOn(Date, 'now')
+				.mockImplementation(() => mockCurrentDate.getTime());
 
 			const testCases = [
 				{ birthDate: '2000-01-01', expectedAge: 25 },
@@ -237,9 +242,16 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 			paymentChangeHandler(mockFrm);
 
 			// Assert
-			expect(mockFrm.toggle_display).toHaveBeenCalledWith('bank_details_section', true);
+			expect(mockFrm.toggle_display).toHaveBeenCalledWith(
+				'bank_details_section',
+				true
+			);
 			expect(mockFrm.set_df_property).toHaveBeenCalledWith('iban', 'reqd', 1);
-			expect(mockFrm.set_df_property).toHaveBeenCalledWith('bank_account_name', 'reqd', 1);
+			expect(mockFrm.set_df_property).toHaveBeenCalledWith(
+				'bank_account_name',
+				'reqd',
+				1
+			);
 		});
 
 		test('should hide bank details for non-SEPA payment methods', () => {
@@ -251,7 +263,10 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 			paymentChangeHandler(mockFrm);
 
 			// Assert
-			expect(mockFrm.toggle_display).toHaveBeenCalledWith('bank_details_section', false);
+			expect(mockFrm.toggle_display).toHaveBeenCalledWith(
+				'bank_details_section',
+				false
+			);
 			expect(mockFrm.set_df_property).toHaveBeenCalledWith('iban', 'reqd', 0);
 		});
 
@@ -273,7 +288,8 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(mockFrm.call).toHaveBeenCalledWith({
-				method: 'verenigingen.verenigingen.doctype.member.member.check_sepa_mandate',
+				method:
+          'verenigingen.verenigingen.doctype.member.member.check_sepa_mandate',
 				args: { member_name: memberWithSEPA.name }
 			});
 
@@ -298,7 +314,8 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(mockFrm.call).toHaveBeenCalledWith({
-				method: 'verenigingen.verenigingen.doctype.member.member.create_sepa_mandate',
+				method:
+          'verenigingen.verenigingen.doctype.member.member.create_sepa_mandate',
 				args: { member_name: memberData.name }
 			});
 			expect(mockFrm.reload_doc).toHaveBeenCalled();
@@ -329,7 +346,8 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(mockFrm.call).toHaveBeenCalledWith({
-				method: 'verenigingen.verenigingen.doctype.member.member.assign_to_chapter',
+				method:
+          'verenigingen.verenigingen.doctype.member.member.assign_to_chapter',
 				args: { member_name: memberData.name }
 			});
 		});
@@ -369,7 +387,8 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(mockFrm.call).toHaveBeenCalledWith({
-				method: 'verenigingen.verenigingen.doctype.member.member.create_chapter_join_request',
+				method:
+          'verenigingen.verenigingen.doctype.member.member.create_chapter_join_request',
 				args: {
 					member_name: memberData.name,
 					chapter: chapterData.name
@@ -393,7 +412,8 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(mockFrm.call).toHaveBeenCalledWith({
-				method: 'verenigingen.verenigingen.doctype.member.member.create_volunteer',
+				method:
+          'verenigingen.verenigingen.doctype.member.member.create_volunteer',
 				args: { member_name: eligibleMember.name }
 			});
 		});
@@ -432,9 +452,9 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 			displayVolunteerDetails(mockFrm);
 
 			// Assert
-			expect(mockFrm.fields_dict.volunteer_details_html.$wrapper.html).toHaveBeenCalledWith(
-				expect.stringContaining('Active Volunteer')
-			);
+			expect(
+				mockFrm.fields_dict.volunteer_details_html.$wrapper.html
+			).toHaveBeenCalledWith(expect.stringContaining('Active Volunteer'));
 		});
 	});
 
@@ -465,10 +485,16 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 			];
 
 			// Act & Assert
-			testCases.forEach(({ first_name, tussenvoegsel, last_name, expected }) => {
-				const fullName = generateFullName(first_name, tussenvoegsel, last_name);
-				expect(fullName).toBe(expected);
-			});
+			testCases.forEach(
+				({ first_name, tussenvoegsel, last_name, expected }) => {
+					const fullName = generateFullName(
+						first_name,
+						tussenvoegsel,
+						last_name
+					);
+					expect(fullName).toBe(expected);
+				}
+			);
 		});
 
 		test('should validate Dutch mobile number formats', () => {
@@ -487,11 +513,11 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 			];
 
 			// Act & Assert
-			validNumbers.forEach(number => {
+			validNumbers.forEach((number) => {
 				expect(validateDutchMobile(number)).toBe(true);
 			});
 
-			invalidNumbers.forEach(number => {
+			invalidNumbers.forEach((number) => {
 				expect(validateDutchMobile(number)).toBe(false);
 			});
 		});
@@ -523,7 +549,8 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(mockFrm.call).toHaveBeenCalledWith({
-				method: 'verenigingen.verenigingen.doctype.member.member.create_customer',
+				method:
+          'verenigingen.verenigingen.doctype.member.member.create_customer',
 				args: { member_name: memberData.name }
 			});
 		});
@@ -539,7 +566,9 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 			await initiateTermination(mockFrm);
 
 			// Assert
-			expect(frappe.new_doc).toHaveBeenCalledWith('Membership Termination Request');
+			expect(frappe.new_doc).toHaveBeenCalledWith(
+				'Membership Termination Request'
+			);
 			expect(frappe.new_doc().member).toBe(activeMember.name);
 		});
 
@@ -570,7 +599,7 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 			const paymentHistory = [
 				{
 					payment_date: '2025-01-01',
-					amount: 25.00,
+					amount: 25.0,
 					status: 'Paid',
 					reference: 'INV-001'
 				}
@@ -583,7 +612,8 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 
 			// Assert
 			expect(mockFrm.call).toHaveBeenCalledWith({
-				method: 'verenigingen.verenigingen.doctype.member.member.get_payment_history',
+				method:
+          'verenigingen.verenigingen.doctype.member.member.get_payment_history',
 				args: { member_name: memberData.name }
 			});
 		});
@@ -594,7 +624,9 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 	describe('Edge Cases and Error Handling', () => {
 		test('should handle maximum length names properly', () => {
 			// Arrange
-			const longNameMember = testFactory.createEdgeCaseScenario('maximum_length_names');
+			const longNameMember = testFactory.createEdgeCaseScenario(
+				'maximum_length_names'
+			);
 			mockFrm.doc = longNameMember;
 
 			// Act
@@ -611,7 +643,9 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 
 		test('should handle special characters in email validation', () => {
 			// Arrange
-			const specialCharMember = testFactory.createEdgeCaseScenario('special_characters_email');
+			const specialCharMember = testFactory.createEdgeCaseScenario(
+				'special_characters_email'
+			);
 
 			// Act & Assert
 			expect(validateEmail(specialCharMember.email)).toBe(true);
@@ -619,7 +653,9 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 
 		test('should handle international members correctly', () => {
 			// Arrange
-			const internationalMember = testFactory.createEdgeCaseScenario('international_member');
+			const internationalMember = testFactory.createEdgeCaseScenario(
+				'international_member'
+			);
 			mockFrm.doc = internationalMember;
 
 			// Act
@@ -640,7 +676,9 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 			mockFrm.call.mockRejectedValue(apiError);
 
 			// Act
-			await expect(checkSEPAMandateStatus(mockFrm)).rejects.toThrow('Network error');
+			await expect(checkSEPAMandateStatus(mockFrm)).rejects.toThrow(
+				'Network error'
+			);
 
 			// Assert
 			expect(frappe.msgprint).toHaveBeenCalledWith(
@@ -661,7 +699,13 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 			// Act & Assert
 			expect(validateEmail(emptyFieldMember.email)).toBe(false);
 			expect(calculateAge(emptyFieldMember.birth_date)).toBeNaN();
-			expect(generateFullName(emptyFieldMember.first_name, '', emptyFieldMember.last_name)).toBe(' ');
+			expect(
+				generateFullName(
+					emptyFieldMember.first_name,
+					'',
+					emptyFieldMember.last_name
+				)
+			).toBe(' ');
 		});
 	});
 
@@ -747,43 +791,60 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 
 	// Mock validation functions
 	const validateDutchPostalCode = jest.fn((code) => {
-		if (!code) { return false; }
+		if (!code) {
+			return false;
+		}
 		return /^[0-9]{4}\s?[A-Z]{2}$/.test(code);
 	});
 
 	const validateIBAN = jest.fn((iban) => {
-		if (!iban) { return false; }
+		if (!iban) {
+			return false;
+		}
 		const cleaned = iban.replace(/\s/g, '').toUpperCase();
 		return /^[A-Z]{2}[0-9]{2}[A-Z0-9]+$/.test(cleaned) && cleaned.length >= 15;
 	});
 
 	const validateEmail = jest.fn((email) => {
-		if (!email) { return false; }
+		if (!email) {
+			return false;
+		}
 		const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 		return re.test(email);
 	});
 
 	const validateDutchMobile = jest.fn((number) => {
-		if (!number) { return false; }
+		if (!number) {
+			return false;
+		}
 		const cleaned = number.replace(/\s/g, '');
 		return /^(\+31|0)6[0-9]{8}$/.test(cleaned);
 	});
 
 	const calculateAge = jest.fn((birthDate) => {
-		if (!birthDate) { return NaN; }
+		if (!birthDate) {
+			return NaN;
+		}
 		const today = new Date();
 		const birth = new Date(birthDate);
 		let age = today.getFullYear() - birth.getFullYear();
 		const monthDiff = today.getMonth() - birth.getMonth();
-		if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+		if (
+			monthDiff < 0
+      || (monthDiff === 0 && today.getDate() < birth.getDate())
+		) {
 			age--;
 		}
 		return age;
 	});
 
 	const generateFullName = jest.fn((firstName, tussenvoegsel, lastName) => {
-		if (!firstName && !lastName) { return ' '; }
-		const parts = [firstName, tussenvoegsel, lastName].filter(part => part && part.trim());
+		if (!firstName && !lastName) {
+			return ' ';
+		}
+		const parts = [firstName, tussenvoegsel, lastName].filter(
+			(part) => part && part.trim()
+		);
 		return parts.join(' ');
 	});
 
@@ -795,14 +856,16 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 
 	const checkSEPAMandateStatus = jest.fn(async (frm) => {
 		return frm.call({
-			method: 'verenigingen.verenigingen.doctype.member.member.check_sepa_mandate',
+			method:
+        'verenigingen.verenigingen.doctype.member.member.check_sepa_mandate',
 			args: { member_name: frm.doc.name }
 		});
 	});
 
 	const createSEPAMandate = jest.fn(async (frm) => {
 		await frm.call({
-			method: 'verenigingen.verenigingen.doctype.member.member.create_sepa_mandate',
+			method:
+        'verenigingen.verenigingen.doctype.member.member.create_sepa_mandate',
 			args: { member_name: frm.doc.name }
 		});
 		frm.reload_doc();
@@ -810,19 +873,24 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 
 	const assignToChapter = jest.fn(async (frm) => {
 		return frm.call({
-			method: 'verenigingen.verenigingen.doctype.member.member.assign_to_chapter',
+			method:
+        'verenigingen.verenigingen.doctype.member.member.assign_to_chapter',
 			args: { member_name: frm.doc.name }
 		});
 	});
 
 	const createVolunteerProfile = jest.fn(async (frm) => {
 		if (!canCreateVolunteerProfile(frm.doc)) {
-			frappe.msgprint('Member must be at least 16 years old', 'Age Requirement');
+			frappe.msgprint(
+				'Member must be at least 16 years old',
+				'Age Requirement'
+			);
 			return;
 		}
 
 		return frm.call({
-			method: 'verenigingen.verenigingen.doctype.member.member.create_volunteer',
+			method:
+        'verenigingen.verenigingen.doctype.member.member.create_volunteer',
 			args: { member_name: frm.doc.name }
 		});
 	});
@@ -842,14 +910,15 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 
 	const updatePaymentHistory = jest.fn(async (frm) => {
 		return frm.call({
-			method: 'verenigingen.verenigingen.doctype.member.member.get_payment_history',
+			method:
+        'verenigingen.verenigingen.doctype.member.member.get_payment_history',
 			args: { member_name: frm.doc.name }
 		});
 	});
 
 	const displayChapterJoinRequests = jest.fn((frm) => {
 		if (frm.doc.__onload && frm.doc.__onload.chapter_join_requests) {
-			frm.doc.__onload.chapter_join_requests.forEach(request => {
+			frm.doc.__onload.chapter_join_requests.forEach((request) => {
 				if (request.status === 'Pending') {
 					frm.dashboard.add_indicator('Pending Chapter Request', 'orange');
 				}
@@ -874,7 +943,8 @@ describe('Member DocType - Comprehensive Test Suite', () => {
 
 	const createChapterJoinRequest = jest.fn(async (frm, chapterName) => {
 		return frm.call({
-			method: 'verenigingen.verenigingen.doctype.member.member.create_chapter_join_request',
+			method:
+        'verenigingen.verenigingen.doctype.member.member.create_chapter_join_request',
 			args: {
 				member_name: frm.doc.name,
 				chapter: chapterName

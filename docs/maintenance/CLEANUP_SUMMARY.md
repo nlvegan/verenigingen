@@ -6,7 +6,9 @@
 ## Files Moved to Archive
 
 ### Root Directory Test Scripts (5 files)
+
 ✅ **Moved to** `archived_unused/root_test_scripts/`
+
 - `console_test_quality.py`
 - `test_enhanced_item_management.py`
 - `test_no_fallback_accounts.py`
@@ -14,9 +16,11 @@
 - `test_payment_manually.py`
 
 ### Debug Scripts (25+ files)
+
 ✅ **Organized into** `archived_unused/debug_scripts/`
 
 #### Account Fixes (5 files)
+
 - `fix_9999_as_equity.py`
 - `fix_balancing_account.py`
 - `fix_company_expense_account.py`
@@ -24,12 +28,14 @@
 - `check_and_fix_9999_account.py`
 
 #### Mutation-Specific (4 files)
+
 - `debug_mutation_1345_direct.py`
 - `delete_latest_je_1345.py`
 - `test_mutation_1345_reimport.py`
 - `check_mutation_1345_status.py`
 
 #### Memorial Fixes (5 files)
+
 - `test_memorial_fix.py`
 - `test_memorial_signed_amounts.py`
 - `test_memorial_specific.py`
@@ -37,24 +43,29 @@
 - `test_memorial_fix_final.py`
 
 #### Payment Fixes (3 files)
+
 - `fix_payment_vs_journal_logic.py`
 - `fix_duplicate_and_logging.py`
 - `debug_duplicate.py`
 
 #### Stock Fixes (2 files)
+
 - `fix_stock_account_balancing.py`
 - `check_pinv_stock_account.py`
 
 #### General Test Scripts (4 files)
+
 - `test_non_opening_mutations.py`
 - `test_account_group_framework.py`
 - `test_mapping_issues.py`
 - `test_import_without_fallbacks.py`
 
 ### One-Off Scripts (20+ files)
+
 ✅ **Moved to** `archived_unused/one_off_scripts/`
 
 #### Mutation-Specific Scripts
+
 - `fetch_mutation_4595.py`
 - `fetch_mutation_6316.py`
 - `fetch_mutation_6353.py`
@@ -62,6 +73,7 @@
 - `verify_mutation_1345_fix.py`
 
 #### Setup/Fix Scripts
+
 - `create_2018_fiscal_year.py`
 - `create_verrekeningen_mapping_correct.py`
 - `setup_account_group_mappings.py`
@@ -71,6 +83,7 @@
 - `update_mapping_for_verrekeningen.py`
 
 #### eBoekhouden Test Scripts
+
 - `test_single_mutation.py`
 - `test_migration_fix.py`
 - `test_phase4_item_management.py`
@@ -78,6 +91,7 @@
 - `debug_mutation_7296.py`
 
 #### Root Debug Scripts
+
 - `debug_foppe_sepa.py`
 - `debug_member_creation.py`
 - `debug_member_data.py`
@@ -88,7 +102,9 @@
 ## Files Deliberately Kept
 
 ### Valuable Debug Tools (Still Active)
+
 These remain in `verenigingen/utils/debug/` for ongoing troubleshooting:
+
 - `analyze_payment_api.py` - Payment API analysis
 - `analyze_payment_mutations.py` - Payment structure debugging
 - `check_opening_balance_import.py` - Balance validation
@@ -100,6 +116,7 @@ These remain in `verenigingen/utils/debug/` for ongoing troubleshooting:
 - `fix_receivable_payable_accounts.py` - Account fixes
 
 ### Root Level Utilities (Kept)
+
 - `check_ledger_mappings.py` - Still useful for debugging
 - `check_scheduler_logs.py` - System monitoring tool
 - `run_chapter_member_tests_bench.py` - Specific test runner
@@ -107,6 +124,7 @@ These remain in `verenigingen/utils/debug/` for ongoing troubleshooting:
 ## Impact Summary
 
 ### Quantitative Impact
+
 - **Total Files Archived**: ~50+ files
 - **Root Scripts Removed**: 5 files
 - **Debug Scripts Organized**: 25+ files
@@ -115,6 +133,7 @@ These remain in `verenigingen/utils/debug/` for ongoing troubleshooting:
 - **Disk Space Freed**: Preserved in archive for reference
 
 ### Qualitative Benefits
+
 1. **Cleaner Codebase**: Removed one-off patches and temporary fixes
 2. **Better Organization**: Valuable debug tools remain accessible
 3. **Preserved History**: All files archived with documentation for future reference
@@ -126,6 +145,7 @@ These remain in `verenigingen/utils/debug/` for ongoing troubleshooting:
 This archival effort aligns with **Phase 1: Immediate Safe Cleanup** from the eBoekhouden Cleanup Plan:
 
 ✅ **Completed Tasks**:
+
 - Remove orphaned debug files (35+ files)
 - Remove root directory test scripts (5 files)
 - Remove one-off utility scripts (15+ files)

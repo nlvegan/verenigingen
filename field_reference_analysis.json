@@ -8,12 +8,7 @@
     "Sales Invoice.member": {
       "reference_count": 7078,
       "files_affected": 697,
-      "file_types": [
-        "python",
-        "javascript",
-        "template",
-        "json"
-      ],
+      "file_types": ["python", "javascript", "template", "json"],
       "references": [
         {
           "file": "verenigingen/test_chapter_join_request_comprehensive.py",
@@ -90,12 +85,7 @@
     "Customer.member": {
       "reference_count": 7078,
       "files_affected": 697,
-      "file_types": [
-        "python",
-        "javascript",
-        "template",
-        "json"
-      ],
+      "file_types": ["python", "javascript", "template", "json"],
       "references": [
         {
           "file": "verenigingen/test_chapter_join_request_comprehensive.py",
@@ -172,12 +162,7 @@
     "Sales Invoice.membership": {
       "reference_count": 1077,
       "files_affected": 189,
-      "file_types": [
-        "python",
-        "javascript",
-        "template",
-        "json"
-      ],
+      "file_types": ["python", "javascript", "template", "json"],
       "references": [
         {
           "file": "verenigingen/debug_coverage.py",
@@ -254,10 +239,7 @@
     "Sales Invoice.is_membership_invoice": {
       "reference_count": 141,
       "files_affected": 22,
-      "file_types": [
-        "python",
-        "json"
-      ],
+      "file_types": ["python", "json"],
       "references": [
         {
           "file": "verenigingen/tests/test_invoice_edge_cases.py",
@@ -334,10 +316,7 @@
     "Sales Invoice.eboekhouden_mutation_nr": {
       "reference_count": 126,
       "files_affected": 38,
-      "file_types": [
-        "python",
-        "json"
-      ],
+      "file_types": ["python", "json"],
       "references": [
         {
           "file": "verenigingen/tests/test_payment_api_mutations.py",
@@ -414,10 +393,7 @@
     "Purchase Invoice.eboekhouden_mutation_nr": {
       "reference_count": 126,
       "files_affected": 38,
-      "file_types": [
-        "python",
-        "json"
-      ],
+      "file_types": ["python", "json"],
       "references": [
         {
           "file": "verenigingen/tests/test_payment_api_mutations.py",
@@ -494,10 +470,7 @@
     "Journal Entry.eboekhouden_mutation_nr": {
       "reference_count": 126,
       "files_affected": 38,
-      "file_types": [
-        "python",
-        "json"
-      ],
+      "file_types": ["python", "json"],
       "references": [
         {
           "file": "verenigingen/tests/test_payment_api_mutations.py",
@@ -574,10 +547,7 @@
     "Payment Entry.eboekhouden_mutation_nr": {
       "reference_count": 126,
       "files_affected": 38,
-      "file_types": [
-        "python",
-        "json"
-      ],
+      "file_types": ["python", "json"],
       "references": [
         {
           "file": "verenigingen/tests/test_payment_api_mutations.py",
@@ -654,10 +624,7 @@
     "Sales Invoice.eboekhouden_invoice_number": {
       "reference_count": 51,
       "files_affected": 16,
-      "file_types": [
-        "python",
-        "json"
-      ],
+      "file_types": ["python", "json"],
       "references": [
         {
           "file": "verenigingen/fixes/correct_implementation_example.py",
@@ -734,10 +701,7 @@
     "Purchase Invoice.eboekhouden_invoice_number": {
       "reference_count": 51,
       "files_affected": 16,
-      "file_types": [
-        "python",
-        "json"
-      ],
+      "file_types": ["python", "json"],
       "references": [
         {
           "file": "verenigingen/fixes/correct_implementation_example.py",
@@ -814,10 +778,7 @@
     "Journal Entry.eboekhouden_invoice_number": {
       "reference_count": 51,
       "files_affected": 16,
-      "file_types": [
-        "python",
-        "json"
-      ],
+      "file_types": ["python", "json"],
       "references": [
         {
           "file": "verenigingen/fixes/correct_implementation_example.py",
@@ -894,10 +855,7 @@
     "Customer.eboekhouden_relation_code": {
       "reference_count": 42,
       "files_affected": 9,
-      "file_types": [
-        "python",
-        "json"
-      ],
+      "file_types": ["python", "json"],
       "references": [
         {
           "file": "verenigingen/fixtures/custom_field.json",
@@ -974,11 +932,7 @@
     "Account.eboekhouden_grootboek_nummer": {
       "reference_count": 39,
       "files_affected": 14,
-      "file_types": [
-        "python",
-        "javascript",
-        "json"
-      ],
+      "file_types": ["python", "javascript", "json"],
       "references": [
         {
           "file": "verenigingen/fixtures/custom_field.json",
@@ -1055,9 +1009,7 @@
     "Journal Entry.eboekhouden_section": {
       "reference_count": 2,
       "files_affected": 1,
-      "file_types": [
-        "json"
-      ],
+      "file_types": ["json"],
       "references": [
         {
           "file": "verenigingen/fixtures/custom_field.json",
@@ -1078,10 +1030,7 @@
     "Journal Entry.eboekhouden_relation_code": {
       "reference_count": 42,
       "files_affected": 9,
-      "file_types": [
-        "python",
-        "json"
-      ],
+      "file_types": ["python", "json"],
       "references": [
         {
           "file": "verenigingen/fixtures/custom_field.json",
@@ -1158,10 +1107,7 @@
     "Journal Entry.eboekhouden_main_ledger_id": {
       "reference_count": 6,
       "files_affected": 2,
-      "file_types": [
-        "python",
-        "json"
-      ],
+      "file_types": ["python", "json"],
       "references": [
         {
           "file": "verenigingen/fixtures/custom_field.json",
@@ -1210,10 +1156,7 @@
     "Journal Entry.eboekhouden_mutation_type": {
       "reference_count": 5,
       "files_affected": 3,
-      "file_types": [
-        "python",
-        "json"
-      ],
+      "file_types": ["python", "json"],
       "references": [
         {
           "file": "verenigingen/fixtures/custom_field.json",
@@ -1255,10 +1198,7 @@
     "Supplier.eboekhouden_relation_code": {
       "reference_count": 42,
       "files_affected": 9,
-      "file_types": [
-        "python",
-        "json"
-      ],
+      "file_types": ["python", "json"],
       "references": [
         {
           "file": "verenigingen/fixtures/custom_field.json",
@@ -1335,10 +1275,7 @@
     "Payment Entry.eboekhouden_mutation_type": {
       "reference_count": 5,
       "files_affected": 3,
-      "file_types": [
-        "python",
-        "json"
-      ],
+      "file_types": ["python", "json"],
       "references": [
         {
           "file": "verenigingen/fixtures/custom_field.json",

@@ -1,6 +1,7 @@
 # Mollie Backend API - Operations Runbook
 
 ## Table of Contents
+
 1. [Daily Operations](#daily-operations)
 2. [Monitoring & Alerts](#monitoring--alerts)
 3. [Incident Response](#incident-response)
@@ -211,12 +212,12 @@ done
 
 ### Severity Levels
 
-| Level | Description | Response Time | Escalation |
-|-------|-------------|---------------|------------|
-| P1 - Critical | Complete service outage | 15 minutes | Immediate |
-| P2 - High | Major feature unavailable | 30 minutes | Within 1 hour |
-| P3 - Medium | Minor feature issue | 2 hours | Within 4 hours |
-| P4 - Low | Cosmetic or minor bug | Next business day | As needed |
+| Level         | Description               | Response Time     | Escalation     |
+| ------------- | ------------------------- | ----------------- | -------------- |
+| P1 - Critical | Complete service outage   | 15 minutes        | Immediate      |
+| P2 - High     | Major feature unavailable | 30 minutes        | Within 1 hour  |
+| P3 - Medium   | Minor feature issue       | 2 hours           | Within 4 hours |
+| P4 - Low      | Cosmetic or minor bug     | Next business day | As needed      |
 
 ### Incident Response Procedures
 
@@ -866,6 +867,6 @@ diagnose_performance()
 
 ---
 
-*Last Updated: August 2024*
-*Version: 1.0.0*
-*Emergency Contact: ops@company.com | +31 6 12345678*
+_Last Updated: August 2024_
+_Version: 1.0.0_
+_Emergency Contact: ops@company.com | +31 6 12345678_

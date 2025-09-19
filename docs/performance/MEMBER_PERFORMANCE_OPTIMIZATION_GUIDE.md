@@ -160,6 +160,7 @@ frappe.enqueue(
 ```
 
 **Background Tasks**:
+
 - Welcome email sending
 - Member card generation
 - External system synchronization
@@ -176,6 +177,7 @@ frappe.enqueue(
 All endpoints are whitelisted and secured with proper permission validation:
 
 #### 1. Optimized Member Creation
+
 ```python
 @frappe.whitelist()
 def create_member_optimized(member_data: str) -> Dict[str, Any]:
@@ -183,26 +185,28 @@ def create_member_optimized(member_data: str) -> Dict[str, Any]:
 ```
 
 **Usage Example**:
+
 ```javascript
 frappe.call({
-    method: 'verenigingen.api.member_performance_api.create_member_optimized',
-    args: {
-        member_data: JSON.stringify({
-            first_name: 'John',
-            last_name: 'Doe',
-            birth_date: '1985-01-01',
-            email_address: 'john.doe@example.com'
-        })
-    },
-    callback: function(r) {
-        if (r.message.success) {
-            console.log('Member created:', r.message.member_name);
-        }
+  method: "verenigingen.api.member_performance_api.create_member_optimized",
+  args: {
+    member_data: JSON.stringify({
+      first_name: "John",
+      last_name: "Doe",
+      birth_date: "1985-01-01",
+      email_address: "john.doe@example.com",
+    }),
+  },
+  callback: function (r) {
+    if (r.message.success) {
+      console.log("Member created:", r.message.member_name);
     }
+  },
 });
 ```
 
 #### 2. Fast Member Search
+
 ```python
 @frappe.whitelist()
 def search_members_fast(filters: str = None, limit: int = 20) -> Dict[str, Any]:
@@ -210,6 +214,7 @@ def search_members_fast(filters: str = None, limit: int = 20) -> Dict[str, Any]:
 ```
 
 #### 3. Cached Dashboard Data
+
 ```python
 @frappe.whitelist()
 def get_member_dashboard_fast(member_name: str) -> Dict[str, Any]:
@@ -217,6 +222,7 @@ def get_member_dashboard_fast(member_name: str) -> Dict[str, Any]:
 ```
 
 #### 4. Performance Monitoring
+
 ```python
 @frappe.whitelist()
 def get_performance_stats() -> Dict[str, Any]:
@@ -260,6 +266,7 @@ class TestMemberPerformanceOptimization(EnhancedTestCase):
 ```
 
 **Test Execution**:
+
 ```bash
 FRAPPE_SITE=dev.veganisme.net bench --site dev.veganisme.net run-tests --module verenigingen.tests.test_member_performance_optimization
 ```
@@ -270,22 +277,24 @@ FRAPPE_SITE=dev.veganisme.net bench --site dev.veganisme.net run-tests --module 
 
 ### Target Performance Metrics
 
-| Operation | Before | After | Improvement |
-|-----------|--------|-------|-------------|
-| Member Creation | 692 queries | ~100 queries | 85% reduction |
-| Member Search | 15-20 queries | <5 queries | 75% reduction |
-| Dashboard Load | 8-12 queries | <3 queries | 70% reduction |
-| Bulk Operations (5 members) | 3460 queries | ~500 queries | 85% reduction |
+| Operation                   | Before        | After        | Improvement   |
+| --------------------------- | ------------- | ------------ | ------------- |
+| Member Creation             | 692 queries   | ~100 queries | 85% reduction |
+| Member Search               | 15-20 queries | <5 queries   | 75% reduction |
+| Dashboard Load              | 8-12 queries  | <3 queries   | 70% reduction |
+| Bulk Operations (5 members) | 3460 queries  | ~500 queries | 85% reduction |
 
 ### Real-World Performance Impact
 
 **User Experience Improvements**:
+
 - Member creation: 3-5 seconds → <1 second
 - Member search: 2-3 seconds → <0.5 seconds
 - Dashboard loading: 1-2 seconds → <0.3 seconds
 - Bulk operations: 15-20 seconds → 3-5 seconds
 
 **Server Resource Benefits**:
+
 - 85% reduction in database query load
 - Improved response times under high concurrent usage
 - Reduced memory usage through intelligent caching
@@ -305,6 +314,7 @@ FRAPPE_SITE=dev.veganisme.net bench --site dev.veganisme.net run-tests --module 
 ### 2. Installation Steps
 
 1. **Deploy Code**:
+
    ```bash
    # Performance optimizer is already integrated in existing codebase
    bench --site your-site migrate
@@ -312,16 +322,19 @@ FRAPPE_SITE=dev.veganisme.net bench --site dev.veganisme.net run-tests --module 
    ```
 
 2. **Verify Installation**:
+
    ```bash
    # Test API endpoints
    bench --site your-site console
    ```
+
    ```python
    from verenigingen.api.member_performance_api import get_performance_stats
    print(get_performance_stats())
    ```
 
 3. **Configure Caching**:
+
    ```bash
    # Ensure Redis is running and configured
    redis-cli ping  # Should return PONG
@@ -335,11 +348,13 @@ FRAPPE_SITE=dev.veganisme.net bench --site dev.veganisme.net run-tests --module 
 ### 3. Monitoring and Maintenance
 
 #### Performance Monitoring
+
 - Monitor query counts using `get_performance_stats()` API
 - Track cache hit rates for optimization effectiveness
 - Monitor background job queue for processing delays
 
 #### Cache Management
+
 ```python
 # Clear specific member cache
 frappe.call('verenigingen.api.member_performance_api.clear_member_cache',
@@ -350,7 +365,9 @@ frappe.call('verenigingen.api.member_performance_api.clear_member_cache')
 ```
 
 #### Performance Alerting
+
 Set up monitoring for:
+
 - Query count thresholds (>200 queries per member creation)
 - Response time thresholds (>2 seconds per operation)
 - Cache hit rate drops (<80% hit rate)
@@ -422,29 +439,37 @@ Performance optimizations preserve complete audit capabilities:
 ### Common Issues and Solutions
 
 #### 1. Cache Miss Rate Too High
+
 **Problem**: Low cache hit rate affecting performance
 **Solution**:
+
 - Check Redis server status and memory allocation
 - Consider increasing cache timeout for stable data
 - Monitor cache key patterns for optimization opportunities
 
 #### 2. Background Jobs Not Processing
+
 **Problem**: Non-critical tasks accumulating in queue
 **Solution**:
+
 - Check Redis queue worker status: `bench --site site worker`
 - Monitor job failures in Error Log
 - Adjust queue timeout settings
 
 #### 3. Query Count Still High
+
 **Problem**: Optimizations not achieving target query reduction
 **Solution**:
+
 - Run performance tests to identify bottlenecks
 - Check for N+1 query patterns in hooks
 - Review custom validations and business rules
 
 #### 4. Cache Invalidation Issues
+
 **Problem**: Stale data being served from cache
 **Solution**:
+
 - Implement proper cache invalidation triggers
 - Monitor cache TTL settings
 - Use manual cache clearing when needed
@@ -501,6 +526,7 @@ logger.debug(f'Query executed: {query}')
 The Member Performance Optimization system provides production-ready performance improvements that significantly reduce database load while maintaining full business logic integrity and security controls. The 85% query reduction achieved through intelligent caching, bulk operations, and background processing delivers tangible user experience improvements and better system scalability.
 
 **Key Success Factors**:
+
 1. **Comprehensive Approach**: Addresses multiple performance bottlenecks systematically
 2. **Production Ready**: Includes monitoring, error handling, and configuration options
 3. **Backward Compatible**: Works alongside existing member operations without disruption
@@ -511,5 +537,5 @@ The implementation establishes a foundation for continued performance optimizati
 
 ---
 
-*Documentation prepared for production deployment*
-*Performance optimization system ready for enterprise use*
+_Documentation prepared for production deployment_
+_Performance optimization system ready for enterprise use_

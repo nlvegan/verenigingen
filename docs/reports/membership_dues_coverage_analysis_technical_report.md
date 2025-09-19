@@ -52,6 +52,7 @@ execute()
 ### Database Schema
 
 **Required Tables and Fields:**
+
 - `tabMember`: name, status, customer, first_name, last_name
 - `tabMembership`: member, start_date, cancellation_date, status, docstatus
 - `tabMembership Dues Schedule`: member, billing_frequency, dues_rate, status
@@ -60,6 +61,7 @@ execute()
 ### Sample Test Results
 
 **Member: Jan van den Berg**
+
 - Active membership period: 8 days (2025-07-23 to 2025-07-30)
 - Coverage: 100% (8/8 days covered)
 - Outstanding: €3.0
@@ -67,6 +69,7 @@ execute()
 - Gaps: None
 
 **Member: TestLifecycle Member**
+
 - Active membership period: 8 days
 - Coverage: 100% (8/8 days covered)
 - Outstanding: €15.0
@@ -74,6 +77,7 @@ execute()
 - Gaps: None
 
 **Member: Sophie Jansen (Example with gaps)**
+
 - Active membership period: Various periods
 - Coverage: 80% (2-day gap identified)
 - Catchup required: €8.0
@@ -89,12 +93,14 @@ execute()
 ## Report Features
 
 ### 1. Coverage Analysis
+
 - Calculates total active days per member based on membership periods
 - Maps invoice coverage periods to membership timeline
 - Identifies overlapping coverage and removes duplicates
 - Calculates coverage percentage with precision
 
 ### 2. Gap Detection
+
 - Identifies periods without invoice coverage
 - Classifies gaps by severity:
   - **Minor**: ≤ 7 days
@@ -103,12 +109,14 @@ execute()
   - **Critical**: > 90 days
 
 ### 3. Catchup Calculations
+
 - Calculates billing periods needed to fill gaps
 - Respects member's billing frequency (Monthly/Quarterly/Annual)
 - Calculates exact amounts based on dues rates
 - Generates detailed period breakdowns
 
 ### 4. Outstanding Tracking
+
 - Tracks unpaid invoice amounts
 - Links outstanding amounts to coverage periods
 - Distinguishes between paid, unpaid, and overdue invoices
@@ -116,6 +124,7 @@ execute()
 ## Implementation Details
 
 ### File Locations
+
 - **Report Script**: `/verenigingen/verenigingen/report/membership_dues_coverage_analysis/membership_dues_coverage_analysis.py`
 - **Report Config**: `/verenigingen/verenigingen/report/membership_dues_coverage_analysis/membership_dues_coverage_analysis.json`
 - **Debug Utilities**: `/verenigingen/utils/debug_coverage_analysis.py`
@@ -138,6 +147,7 @@ execute()
    - Returns detailed gap information
 
 ### Error Handling
+
 - Robust exception handling at member level
 - Graceful degradation for data issues
 - Detailed error logging for troubleshooting
@@ -188,6 +198,7 @@ execute()
    - Click "Run Report"
 
 2. **Via Console**:
+
    ```python
    from verenigingen.verenigingen.report.membership_dues_coverage_analysis.membership_dues_coverage_analysis import execute
    columns, data = execute({"from_date": "2025-01-01", "to_date": "2025-12-31"})
@@ -210,27 +221,28 @@ execute()
 
 ### Report Columns
 
-| Column | Description | Type |
-|--------|-------------|------|
-| Member | Member ID | Link |
-| Member Name | Full name | Data |
-| Membership Start | Start date | Date |
-| Status | Membership status | Data |
-| Total Active Days | Days in membership period | Int |
-| Covered Days | Days with invoice coverage | Int |
-| Gap Days | Days without coverage | Int |
-| Coverage % | Percentage coverage | Percent |
-| Current Gaps | Gap details and severity | Small Text |
-| Outstanding Amount | Unpaid invoice total | Currency |
-| Billing Frequency | Member's billing type | Data |
-| Catchup Required | Whether catchup needed | Check |
-| Catchup Amount | Amount needed for catchup | Currency |
+| Column             | Description                | Type       |
+| ------------------ | -------------------------- | ---------- |
+| Member             | Member ID                  | Link       |
+| Member Name        | Full name                  | Data       |
+| Membership Start   | Start date                 | Date       |
+| Status             | Membership status          | Data       |
+| Total Active Days  | Days in membership period  | Int        |
+| Covered Days       | Days with invoice coverage | Int        |
+| Gap Days           | Days without coverage      | Int        |
+| Coverage %         | Percentage coverage        | Percent    |
+| Current Gaps       | Gap details and severity   | Small Text |
+| Outstanding Amount | Unpaid invoice total       | Currency   |
+| Billing Frequency  | Member's billing type      | Data       |
+| Catchup Required   | Whether catchup needed     | Check      |
+| Catchup Amount     | Amount needed for catchup  | Currency   |
 
 ## Maintenance and Troubleshooting
 
 ### Regular Maintenance Tasks
 
 1. **Data Quality Checks**:
+
    ```bash
    bench --site dev.veganisme.net execute verenigingen.utils.debug.coverage_analysis_debugger.quick_coverage_test
    ```

@@ -9,12 +9,14 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
 ## Role Profiles
 
 ### 1. **Verenigingen Member**
+
 - **For**: Regular association members
 - **Access**: Basic member portal, view their own information, communication
 - **Modules**: Verenigingen, Portal, Communication, Desk
 - **Use Case**: Members who need to manage their own profile, view membership status, and access member resources
 
 ### 2. **Verenigingen Volunteer**
+
 - **For**: Active volunteers participating in teams or projects
 - **Access**: Member access + project participation, expense submission
 - **Modules**: Adds Projects, Support, Activity
@@ -25,6 +27,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
   - Track volunteer hours
 
 ### 3. **Verenigingen Team Leader**
+
 - **For**: Volunteers leading teams or specific projects
 - **Access**: Volunteer access + team management, expense approval
 - **Additional Roles**: Expense Approver, Leave Approver
@@ -35,6 +38,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
   - Access HR features for team management
 
 ### 4. **Verenigingen Chapter Board**
+
 - **For**: Elected board members of local chapters
 - **Access**: Enhanced volunteer access + chapter oversight
 - **Key Features**:
@@ -44,6 +48,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
   - Participate in governance
 
 ### 5. **Verenigingen Treasurer**
+
 - **For**: Chapter treasurers and financial officers
 - **Access**: Limited financial management capabilities
 - **Modules**: Accounts, Banking, Selling
@@ -54,6 +59,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
   - Manage chapter budgets
 
 ### 6. **Verenigingen Chapter Administrator**
+
 - **For**: Chapter secretaries and operational administrators
 - **Access**: Chapter operations and communications
 - **Additional Modules**: Website, Newsletter, Blog
@@ -64,6 +70,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
   - Maintain member records
 
 ### 7. **Verenigingen Communications Officer** (NEW)
+
 - **For**: Dedicated communications staff
 - **Access**: Full communications and content management
 - **Key Features**:
@@ -73,6 +80,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
   - Blog and news updates
 
 ### 8. **Verenigingen Event Coordinator** (NEW)
+
 - **For**: Event organizers and coordinators
 - **Access**: Project and event management tools
 - **Key Features**:
@@ -82,6 +90,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
   - Generate event reports
 
 ### 9. **Verenigingen Manager**
+
 - **For**: National office staff and regional managers
 - **Access**: Comprehensive management capabilities
 - **Key Features**:
@@ -92,6 +101,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
   - Advanced reporting
 
 ### 10. **Verenigingen Finance Manager** (NEW)
+
 - **For**: Senior financial staff
 - **Access**: Full financial management
 - **Additional Modules**: Buying, Stock, Assets
@@ -102,6 +112,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
   - Financial planning
 
 ### 11. **Verenigingen System Administrator**
+
 - **For**: IT administrators and system managers
 - **Access**: Full system access
 - **Key Features**:
@@ -111,6 +122,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
   - Technical administration
 
 ### 12. **Verenigingen Auditor**
+
 - **For**: Internal auditors and compliance officers
 - **Access**: Read-only access to financial and governance data
 - **Key Features**:
@@ -120,6 +132,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
   - Quality management tools
 
 ### 13. **Verenigingen Guest** (NEW)
+
 - **For**: Non-members and public users
 - **Access**: Public website only
 - **Key Features**:
@@ -130,6 +143,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
 ## Module Access Summary
 
 ### Excluded Modules (Not relevant for associations):
+
 - Manufacturing
 - Education
 - Healthcare
@@ -139,6 +153,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
 - Distribution
 
 ### Conditionally Included Modules:
+
 - **Stock**: Only for Finance Managers (for inventory if needed)
 - **Buying**: Only for Finance Managers (for procurement)
 - **Assets**: For Managers and Finance roles (equipment tracking)
@@ -146,6 +161,7 @@ Role profiles in Verenigingen are designed to provide appropriate access levels 
 - **HR**: For Team Leaders and Managers
 
 ### Core Modules for All Members:
+
 - Verenigingen (custom association management)
 - Portal (member self-service)
 - Communication (messaging and notifications)
@@ -201,17 +217,20 @@ If you need to modify role profiles:
 ## Troubleshooting
 
 ### User can't access expected features
+
 1. Check if role profile is properly assigned
 2. Verify module profile is linked to role profile
 3. Clear cache: `bench --site [sitename] clear-cache`
 4. Check individual role permissions
 
 ### Too much access
+
 1. Review assigned role profiles (users might have multiple)
 2. Check for individually assigned roles outside profiles
 3. Verify module profile restrictions are working
 
 ### Module not visible
+
 1. Check if module is included in the module profile
 2. Verify the module is installed and enabled
 3. Check module-level permissions

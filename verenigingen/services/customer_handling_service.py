@@ -196,7 +196,9 @@ class CustomerHandlingService:
             Validation result dict
         """
         try:
-            if not customer_name or not DocumentExistenceValidator.check_document_exists("Customer", customer_name):
+            if not customer_name or not DocumentExistenceValidator.check_document_exists(
+                "Customer", customer_name
+            ):
                 return {"status": "invalid", "message": f"Customer {customer_name} does not exist"}
 
             customer = frappe.get_doc("Customer", customer_name)
@@ -242,7 +244,9 @@ class CustomerHandlingService:
             Dict with Mollie customer and mandate IDs
         """
         try:
-            if not customer_name or not DocumentExistenceValidator.check_document_exists("Customer", customer_name):
+            if not customer_name or not DocumentExistenceValidator.check_document_exists(
+                "Customer", customer_name
+            ):
                 return {"customer_id": None, "mandate_id": None}
 
             customer = frappe.get_doc("Customer", customer_name)

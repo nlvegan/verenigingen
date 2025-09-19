@@ -2358,16 +2358,35 @@ class EnhancedTestCase(FrappeTestCase):
     def _get_or_create_income_account(self, company):
         """Get or create a basic income account for testing"""
         account_name = f"Test Sales Income - {company}"
-        
+
         # Check if account already exists
         existing = frappe.db.get_value("Account", {"account_name": "Test Sales Income", "company": company})
         if existing:
             return existing
-        
-        # Create new income account
+
+        # Find existing Income parent account
+        income_parent = frappe.db.get_value("Account", {
+            "company": company,
+            "root_type": "Income",
+            "is_group": 1
+        }, order_by="lft")
+
+        if not income_parent:
+            # Create Income group first if it doesn't exist
+            income_group = frappe.new_doc("Account")
+            income_group.account_name = "Income"
+            income_group.company = company
+            income_group.root_type = "Income"
+            income_group.report_type = "Profit and Loss"
+            income_group.is_group = 1
+            income_group.save()
+            income_parent = income_group.name
+
+        # Create new income account under proper parent
         account = frappe.new_doc("Account")
         account.account_name = "Test Sales Income"
         account.company = company
+        account.parent_account = income_parent
         account.account_type = "Income Account"
         account.root_type = "Income"
         account.report_type = "Profit and Loss"
@@ -3284,6 +3303,163 @@ def validate_business_rules(doctype):
             return customer
         else:
             return frappe.get_doc("Customer", customer_name)
+
+    # Bridge methods to specialized factories
+    def create_test_sepa_mandate(self, member_name, iban=None, **kwargs):
+        """Bridge to SEPA test factory for mandate creation"""
+        try:
+            from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
+            sepa_factory = SEPATestDataFactory(seed=self.factory._seed, use_faker=self.factory.use_faker)
+            return sepa_factory.create_test_sepa_mandate(member=member_name, iban=iban, **kwargs)
+        except ImportError:
+            # Fallback implementation
+            mandate = frappe.new_doc("SEPA Mandate")
+            mandate.update({
+                "member": member_name,
+                "iban": iban or "NL91ABNA0417164300",
+                "mandate_id": f"TST{frappe.utils.now_datetime().strftime('%Y%m%d%H%M%S')}",
+                "status": "Active",
+                "sign_date": frappe.utils.today(),
+                **kwargs
+            })
+            mandate.insert()
+            return mandate
+
+    def create_test_dues_schedule(self, member, membership_type=None, amount=25.0, frequency="monthly", **kwargs):
+        """Bridge method for dues schedule creation"""
+        try:
+            from verenigingen.tests.fixtures.sepa_test_factory import SEPATestDataFactory
+            sepa_factory = SEPATestDataFactory(seed=self.factory._seed, use_faker=self.factory.use_faker)
+            return sepa_factory.create_test_membership_dues_schedule(
+                member=member,
+                dues_rate=amount,
+                billing_frequency=frequency.title(),
+                **kwargs
+            )
+        except ImportError:
+            # Fallback implementation
+            schedule = frappe.new_doc("Membership Dues Schedule")
+            schedule.update({
+                "member": member,
+                "dues_amount": amount,
+                "frequency": frequency,
+                "status": "Active",
+                **kwargs
+            })
+            schedule.insert()
+            return schedule
+
+    def create_test_member_application(self, **kwargs):
+        """Create test member application"""
+        application = frappe.new_doc("Member Application")
+        defaults = {
+            "first_name": "Test",
+            "last_name": "Applicant",
+            "email": f"test.applicant.{frappe.utils.now_datetime().strftime('%Y%m%d%H%M%S')}@test.nl",
+            "birth_date": "1990-01-01",
+            "workflow_state": "Pending Review"
+        }
+        defaults.update(kwargs)
+        application.update(defaults)
+        application.insert()
+        return application
+
+    def assign_member_to_chapter_by_postal_code(self, member, postal_code):
+        """Auto-assign member to chapter based on postal code"""
+        # Simple implementation - find chapter that matches postal code range
+        chapters = frappe.get_all("Chapter", filters={"disabled": 0}, fields=["name", "postal_codes"])
+
+        for chapter_data in chapters:
+            if chapter_data.postal_codes:
+                # Simple range check (simplified for testing)
+                postal_ranges = chapter_data.postal_codes.split(",")
+                for postal_range in postal_ranges:
+                    if "-" in postal_range:
+                        start_code = postal_range.split("-")[0].strip()
+                        if postal_code[:4] >= start_code[:4]:
+                            chapter = frappe.get_doc("Chapter", chapter_data.name)
+                            # Create Chapter Member record
+                            chapter_member = frappe.new_doc("Chapter Member")
+                            chapter_member.update({
+                                "member": member.name,
+                                "chapter": chapter.name,
+                                "status": "Active",
+                                "join_date": frappe.utils.today()
+                            })
+                            chapter_member.insert()
+                            return chapter
+
+        # Return first available chapter as fallback
+        if chapters:
+            return frappe.get_doc("Chapter", chapters[0].name)
+        return None
+
+    def convert_application_to_member(self, application):
+        """Convert approved application to active member"""
+        member = frappe.new_doc("Member")
+        member.update({
+            "first_name": application.first_name,
+            "last_name": application.last_name,
+            "email": application.email,
+            "birth_date": application.birth_date,
+            "status": "Active"
+        })
+
+        # Create customer
+        customer = self.factory.create_test_customer(customer_name=f"{application.first_name} {application.last_name}")
+        member.customer = customer.name
+
+        # Set chapter if specified
+        if hasattr(application, 'chapter') and application.chapter:
+            member.chapter = application.chapter
+
+        member.insert()
+        return member
+
+    def transition_member_status(self, member, new_status):
+        """Transition member status with business rule validation"""
+        member.status = new_status
+        if new_status == "Terminated":
+            member.membership_end_date = frappe.utils.today()
+        member.save()
+
+    def generate_sort_name(self, member):
+        """Generate sorting name for Dutch names with tussenvoegsel"""
+        # Simple implementation for testing
+        return f"{member.last_name}, {member.first_name}"
+
+    def generate_dues_invoice(self, dues_schedule):
+        """Generate invoice from dues schedule"""
+        # Get member's customer
+        member = frappe.get_doc("Member", dues_schedule.member)
+        if not member.customer:
+            customer = self.factory.create_test_customer(customer_name=member.full_name)
+            member.customer = customer.name
+            member.save()
+
+        # Create sales invoice
+        invoice = self.create_test_sales_invoice(
+            customer=member.customer,
+            grand_total=getattr(dues_schedule, 'dues_amount', 25.0)
+        )
+        return invoice
+
+    def validate_dutch_iban(self, iban):
+        """Validate Dutch IBAN format"""
+        # Simple validation for testing
+        return iban.startswith("NL") and len(iban.replace(" ", "")) == 18
+
+    def derive_bic_from_iban(self, iban):
+        """Derive BIC from Dutch IBAN"""
+        # Simple mapping for testing
+        bank_code = iban[4:8]
+        bic_mapping = {
+            "ABNA": "ABNANL2A",
+            "RABO": "RABONL2U",
+            "INGB": "INGBNL2A",
+            "TRIO": "TRIONL2U"
+        }
+        return bic_mapping.get(bank_code, "ABNANL2A")
 
 
 if __name__ == "__main__":

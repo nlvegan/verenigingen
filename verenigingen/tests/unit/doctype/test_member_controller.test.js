@@ -20,7 +20,6 @@
  * @version 2.0.0 - Updated to use real controller loading
  */
 
-
 // Import test setup utilities
 const {
 	setupTestMocks,
@@ -61,7 +60,8 @@ describe('Real Member Controller', () => {
 
 	beforeAll(() => {
 		// Load the real Member controller
-		const controllerPath = '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/member/member.js';
+		const controllerPath
+      = '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/member/member.js';
 		const allHandlers = loadFrappeController(controllerPath);
 		memberHandlers = allHandlers.Member;
 
@@ -173,7 +173,7 @@ describe('Real Member Controller', () => {
 		it('should handle different member statuses without errors', () => {
 			const statuses = ['Active', 'Inactive', 'Pending', 'Terminated'];
 
-			statuses.forEach(status => {
+			statuses.forEach((status) => {
 				frm.doc.status = status;
 				expect(() => {
 					testFormEvent('Member', 'refresh', frm, { Member: memberHandlers });
@@ -276,7 +276,7 @@ describe('Real Member Controller', () => {
 				{ code: 'ABCD EF', valid: false }
 			];
 
-			testCodes.forEach(test => {
+			testCodes.forEach((test) => {
 				const result = validateDutchPostalCode(test.code);
 				expect(result.valid).toBe(test.valid);
 			});
@@ -306,7 +306,7 @@ describe('Real Member Controller', () => {
 				{ iban: 'INVALID_IBAN', valid: false }
 			];
 
-			testIBANs.forEach(test => {
+			testIBANs.forEach((test) => {
 				const result = validateDutchIBAN(test.iban);
 				expect(result.valid).toBe(test.valid);
 			});
@@ -331,7 +331,7 @@ describe('Real Member Controller', () => {
 				{ from: 'Active', to: 'Terminated' }
 			];
 
-			statusTransitions.forEach(transition => {
+			statusTransitions.forEach((transition) => {
 				frm.doc.status = transition.from;
 
 				expect(() => {
@@ -390,13 +390,15 @@ describe('Real Member Controller', () => {
 		it('should handle membership type changes', () => {
 			const membershipTypes = ['Regular', 'Student', 'Senior', 'Family'];
 
-			membershipTypes.forEach(type => {
+			membershipTypes.forEach((type) => {
 				frm.doc.membership_type = type;
 
 				// Test membership_type handler if it exists
 				if (memberHandlers.membership_type) {
 					expect(() => {
-						testFormEvent('Member', 'membership_type', frm, { Member: memberHandlers });
+						testFormEvent('Member', 'membership_type', frm, {
+							Member: memberHandlers
+						});
 					}).not.toThrow();
 				}
 			});
@@ -434,7 +436,7 @@ describe('Real Member Controller', () => {
 				{ email: '@example.org', valid: false }
 			];
 
-			testEmails.forEach(test => {
+			testEmails.forEach((test) => {
 				const result = validateDutchEmail(test.email);
 				expect(result.valid).toBe(test.valid);
 			});
@@ -478,7 +480,9 @@ describe('Real Member Controller', () => {
 		it('should handle network errors during API calls', () => {
 			// Mock network error
 			global.frappe.call.mockImplementation(({ error }) => {
-				if (error) { error('Network timeout'); }
+				if (error) {
+					error('Network timeout');
+				}
 			});
 
 			expect(() => {

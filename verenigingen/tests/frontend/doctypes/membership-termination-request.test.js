@@ -71,8 +71,14 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 			terminationRequest.onload(mockFrm);
 
 			// Assert
-			expect(mockFrm.set_value).toHaveBeenCalledWith('request_date', expect.any(String));
-			expect(mockFrm.set_value).toHaveBeenCalledWith('requested_by', 'test@example.com');
+			expect(mockFrm.set_value).toHaveBeenCalledWith(
+				'request_date',
+				expect.any(String)
+			);
+			expect(mockFrm.set_value).toHaveBeenCalledWith(
+				'requested_by',
+				'test@example.com'
+			);
 			expect(mockFrm.set_value).toHaveBeenCalledWith('status', 'Draft');
 		});
 
@@ -85,7 +91,10 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 			terminationRequest.refresh(mockFrm);
 
 			// Assert
-			expect(mockFrm.page.set_indicator).toHaveBeenCalledWith('Pending', 'yellow');
+			expect(mockFrm.page.set_indicator).toHaveBeenCalledWith(
+				'Pending',
+				'yellow'
+			);
 		});
 
 		test('should add view member button when member is specified', () => {
@@ -111,7 +120,11 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 			terminationRequest.refresh(mockFrm);
 
 			// Assert
-			expect(mockFrm.set_df_property).toHaveBeenCalledWith('audit_trail', 'read_only', 1);
+			expect(mockFrm.set_df_property).toHaveBeenCalledWith(
+				'audit_trail',
+				'read_only',
+				1
+			);
 		});
 	});
 
@@ -125,10 +138,22 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 			terminationRequest.termination_type(mockFrm);
 
 			// Assert
-			expect(mockFrm.toggle_display).toHaveBeenCalledWith('disciplinary_documentation', true);
-			expect(mockFrm.toggle_reqd).toHaveBeenCalledWith('disciplinary_documentation', true);
-			expect(mockFrm.toggle_display).toHaveBeenCalledWith('secondary_approver', true);
-			expect(mockFrm.toggle_reqd).toHaveBeenCalledWith('secondary_approver', true);
+			expect(mockFrm.toggle_display).toHaveBeenCalledWith(
+				'disciplinary_documentation',
+				true
+			);
+			expect(mockFrm.toggle_reqd).toHaveBeenCalledWith(
+				'disciplinary_documentation',
+				true
+			);
+			expect(mockFrm.toggle_display).toHaveBeenCalledWith(
+				'secondary_approver',
+				true
+			);
+			expect(mockFrm.toggle_reqd).toHaveBeenCalledWith(
+				'secondary_approver',
+				true
+			);
 		});
 
 		test('should hide disciplinary fields for voluntary terminations', () => {
@@ -140,10 +165,22 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 			terminationRequest.termination_type(mockFrm);
 
 			// Assert
-			expect(mockFrm.toggle_display).toHaveBeenCalledWith('disciplinary_documentation', false);
-			expect(mockFrm.toggle_reqd).toHaveBeenCalledWith('disciplinary_documentation', false);
-			expect(mockFrm.toggle_display).toHaveBeenCalledWith('secondary_approver', false);
-			expect(mockFrm.toggle_reqd).toHaveBeenCalledWith('secondary_approver', false);
+			expect(mockFrm.toggle_display).toHaveBeenCalledWith(
+				'disciplinary_documentation',
+				false
+			);
+			expect(mockFrm.toggle_reqd).toHaveBeenCalledWith(
+				'disciplinary_documentation',
+				false
+			);
+			expect(mockFrm.toggle_display).toHaveBeenCalledWith(
+				'secondary_approver',
+				false
+			);
+			expect(mockFrm.toggle_reqd).toHaveBeenCalledWith(
+				'secondary_approver',
+				false
+			);
 		});
 
 		test('should set immediate termination date for disciplinary actions', () => {
@@ -156,7 +193,10 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 			terminationRequest.termination_type(mockFrm);
 
 			// Assert
-			expect(mockFrm.set_value).toHaveBeenCalledWith('termination_date', expect.any(String));
+			expect(mockFrm.set_value).toHaveBeenCalledWith(
+				'termination_date',
+				expect.any(String)
+			);
 			expect(mockFrm.set_value).toHaveBeenCalledWith('grace_period_end', null);
 		});
 
@@ -171,8 +211,14 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 			terminationRequest.termination_type(mockFrm);
 
 			// Assert
-			expect(mockFrm.set_value).toHaveBeenCalledWith('termination_date', expect.any(String));
-			expect(mockFrm.set_value).toHaveBeenCalledWith('grace_period_end', expect.any(String));
+			expect(mockFrm.set_value).toHaveBeenCalledWith(
+				'termination_date',
+				expect.any(String)
+			);
+			expect(mockFrm.set_value).toHaveBeenCalledWith(
+				'grace_period_end',
+				expect.any(String)
+			);
 		});
 	});
 
@@ -245,7 +291,7 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 			// Find submit button and execute
 			terminationRequest.refresh(mockFrm);
 			const submitButton = mockFrm.add_custom_button.mock.calls.find(
-				call => call[0] === 'Submit for Approval'
+				(call) => call[0] === 'Submit for Approval'
 			);
 			if (submitButton) {
 				await submitButton[1](); // Execute the callback
@@ -295,7 +341,10 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 			terminationRequest.onload(mockFrm);
 
 			// Assert
-			expect(mockFrm.set_query).toHaveBeenCalledWith('secondary_approver', expect.any(Function));
+			expect(mockFrm.set_query).toHaveBeenCalledWith(
+				'secondary_approver',
+				expect.any(Function)
+			);
 		});
 
 		test('should check approval authorization for disciplinary terminations', () => {
@@ -311,8 +360,15 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 			// Simulate can_approve_request function
 			const canApprove = (frm) => {
 				const userRoles = frappe.user_roles;
-				if (userRoles.includes('System Manager')) { return true; }
-				if (userRoles.includes('Verenigingen Administrator') && frm.doc.requires_secondary_approval) { return true; }
+				if (userRoles.includes('System Manager')) {
+					return true;
+				}
+				if (
+					userRoles.includes('Verenigingen Administrator')
+          && frm.doc.requires_secondary_approval
+				) {
+					return true;
+				}
 				return frm.doc.secondary_approver === frappe.session.user;
 			};
 
@@ -346,7 +402,7 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 
 			// Find execute button and execute
 			const executeButton = mockFrm.add_custom_button.mock.calls.find(
-				call => call[0] === 'Execute Termination'
+				(call) => call[0] === 'Execute Termination'
 			);
 			if (executeButton) {
 				executeButton[1](); // Execute the callback
@@ -354,7 +410,9 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 
 			// Assert confirmation dialog is shown
 			expect(frappe.confirm).toHaveBeenCalledWith(
-				expect.stringContaining('Are you sure you want to execute this termination'),
+				expect.stringContaining(
+					'Are you sure you want to execute this termination'
+				),
 				expect.any(Function)
 			);
 		});
@@ -375,7 +433,7 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 
 			// Find execute button and execute
 			const executeButton = mockFrm.add_custom_button.mock.calls.find(
-				call => call[0] === 'Execute Termination'
+				(call) => call[0] === 'Execute Termination'
 			);
 			if (executeButton) {
 				await executeButton[1]();
@@ -506,7 +564,7 @@ describe('Membership Termination Request DocType - Comprehensive Test Suite', ()
 
 			// Assert no approval buttons are shown
 			const approveButton = mockFrm.add_custom_button.mock.calls.find(
-				call => call[0] === 'Approve'
+				(call) => call[0] === 'Approve'
 			);
 			expect(approveButton).toBeUndefined();
 		});
@@ -564,7 +622,9 @@ describe('Membership Termination Request List View - Status and Workflow Managem
 
 		testCases.forEach(({ status, expectedColor }) => {
 			// Arrange
-			const docData = testFactory.createMembershipTerminationRequestData({ status });
+			const docData = testFactory.createMembershipTerminationRequestData({
+				status
+			});
 
 			// Act
 			const listSettings = require('../../../../verenigingen/doctype/membership_termination_request/membership_termination_request_list.js');
@@ -577,9 +637,13 @@ describe('Membership Termination Request List View - Status and Workflow Managem
 
 	test('should format disciplinary termination types with red indicator', () => {
 		// Arrange
-		const disciplinaryTypes = ['Policy Violation', 'Disciplinary Action', 'Expulsion'];
+		const disciplinaryTypes = [
+			'Policy Violation',
+			'Disciplinary Action',
+			'Expulsion'
+		];
 
-		disciplinaryTypes.forEach(type => {
+		disciplinaryTypes.forEach((type) => {
 			// Act
 			const listSettings = require('../../../../verenigingen/doctype/membership_termination_request/membership_termination_request_list.js');
 			const formatted = listSettings.formatters.termination_type(type);
@@ -593,7 +657,7 @@ describe('Membership Termination Request List View - Status and Workflow Managem
 		// Arrange
 		const voluntaryTypes = ['Voluntary', 'Non-payment', 'Deceased'];
 
-		voluntaryTypes.forEach(type => {
+		voluntaryTypes.forEach((type) => {
 			// Act
 			const listSettings = require('../../../../verenigingen/doctype/membership_termination_request/membership_termination_request_list.js');
 			const formatted = listSettings.formatters.termination_type(type);
@@ -605,8 +669,12 @@ describe('Membership Termination Request List View - Status and Workflow Managem
 
 	test('should show review button only for pending requests', () => {
 		// Arrange
-		const pendingDoc = testFactory.createMembershipTerminationRequestData({ status: 'Pending' });
-		const draftDoc = testFactory.createMembershipTerminationRequestData({ status: 'Draft' });
+		const pendingDoc = testFactory.createMembershipTerminationRequestData({
+			status: 'Pending'
+		});
+		const draftDoc = testFactory.createMembershipTerminationRequestData({
+			status: 'Draft'
+		});
 
 		// Act
 		const listSettings = require('../../../../verenigingen/doctype/membership_termination_request/membership_termination_request_list.js');
@@ -716,11 +784,13 @@ describe('Membership Termination Request List View - Status and Workflow Managem
 		const listSettings = require('../../../../verenigingen/doctype/membership_termination_request/membership_termination_request_list.js');
 
 		// Simulate bulk process menu click
-		mockListview.page.add_menu_item.mockImplementationOnce((label, callback) => {
-			if (label === 'Bulk Process Terminations') {
-				callback();
+		mockListview.page.add_menu_item.mockImplementationOnce(
+			(label, callback) => {
+				if (label === 'Bulk Process Terminations') {
+					callback();
+				}
 			}
-		});
+		);
 
 		listSettings.onload(mockListview);
 
@@ -778,16 +848,16 @@ function setupGlobalMocks() {
 		datetime: {
 			get_today: jest.fn().mockReturnValue('2025-08-19'),
 			add_days: jest.fn((date, days) => '2025-09-18'),
-			str_to_user: jest.fn(date => date)
+			str_to_user: jest.fn((date) => date)
 		},
 		session: {
 			user: 'test@example.com'
 		},
 		user_roles: ['Limited User'],
-		__: jest.fn(str => str) // Simple translation mock
+		__: jest.fn((str) => str) // Simple translation mock
 	};
 
-	global.__ = jest.fn(str => str);
+	global.__ = jest.fn((str) => str);
 	global.window = { show_enhanced_termination_dialog: jest.fn() };
 }
 

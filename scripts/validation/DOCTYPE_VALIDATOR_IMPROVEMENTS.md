@@ -7,27 +7,31 @@ Successfully improved the DocType field validator to reduce false positives from
 ## Key Improvements Implemented
 
 ### 1. Manager Property Detection
+
 - Added detection of `@property` decorated methods in DocType classes
 - Scans Python files to identify property methods that look like field access
 - Includes common manager patterns: `_manager`, `_handler`, `_mixin`, etc.
 - Example: `chapter.member_manager` is now correctly identified as a property, not a missing field
 
 ### 2. Confidence Scoring System
+
 - Implemented three-tier confidence levels: high, medium, low
 - Factors that reduce confidence:
   - Custom field patterns (`custom_*`) - 40 point reduction
-  - Test/debug files - 30 point reduction  
+  - Test/debug files - 30 point reduction
   - SQL context - 50 point reduction
   - API/external data context - 40 point reduction
 - Factors that increase confidence:
   - Similar fields exist (likely typo) - 20 point increase
 
 ### 3. Pre-commit Mode Enhancement
+
 - Added `--pre-commit` flag that only fails on high confidence issues
 - Medium and low confidence issues are shown as warnings but don't block commits
 - Prevents developers from being blocked by false positives
 
 ### 4. Enhanced Context Detection
+
 - Improved detection of child table contexts
 - Better handling of SQL result objects
 - More accurate DocType detection from variable assignments
@@ -35,11 +39,13 @@ Successfully improved the DocType field validator to reduce false positives from
 ## Results
 
 ### Before Improvements
+
 - Total issues: 4374
 - False positive rate: ~98%
 - Unusable for pre-commit hooks
 
 ### After Improvements
+
 - Total issues: 595
 - High confidence: 555
 - Medium confidence: 39
@@ -48,6 +54,7 @@ Successfully improved the DocType field validator to reduce false positives from
 - Suitable for pre-commit hooks
 
 ### Pre-commit Mode
+
 - Only blocks on high confidence issues
 - Shows warnings for medium/low confidence
 - Exit code 0 if no high confidence issues
@@ -55,10 +62,12 @@ Successfully improved the DocType field validator to reduce false positives from
 ## Implementation Details
 
 ### Modified Files
+
 1. `doctype_field_validator.py` - Added improvements to existing validator
 2. `enhanced_doctype_validator.py` - Created clean architecture version for future consolidation
 
 ### Key Methods Added
+
 - `_load_manager_properties()` - Detects @property methods
 - `_calculate_confidence()` - Calculates confidence scores
 - Enhanced pre-commit support in `main()`
@@ -107,16 +116,19 @@ python scripts/validation/doctype_field_validator.py path/to/file.py
 ## Validation Confidence Guidelines
 
 ### High Confidence (≥80%)
+
 - Direct DocType field access
 - Clear typos with similar fields available
 - Not in SQL/API context
 
 ### Medium Confidence (50-79%)
+
 - Some contextual uncertainty
 - May be in mixed contexts
 - Partial pattern matches
 
 ### Low Confidence (<50%)
+
 - Custom field patterns
 - SQL/API contexts
 - Test/debug files

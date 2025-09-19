@@ -1,6 +1,7 @@
 """
 Check real Mollie payments for our test subscription
 """
+
 import frappe
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api

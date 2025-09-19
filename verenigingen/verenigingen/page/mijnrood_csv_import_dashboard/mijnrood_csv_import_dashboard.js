@@ -9,7 +9,9 @@
  * @since 1.0.0
  */
 
-frappe.pages['mijnrood-csv-import-dashboard'].on_page_load = function (wrapper) {
+frappe.pages['mijnrood-csv-import-dashboard'].on_page_load = function (
+	wrapper
+) {
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: 'Mijnrood CSV Import',
@@ -138,7 +140,15 @@ class MijnroodCSVImportPage {
 			method: 'frappe.client.get_list',
 			args: {
 				doctype: 'Mijnrood CSV Import',
-				fields: ['name', 'descriptive_name', 'import_status', 'import_date', 'members_created', 'members_updated', 'members_skipped'],
+				fields: [
+					'name',
+					'descriptive_name',
+					'import_status',
+					'import_date',
+					'members_created',
+					'members_updated',
+					'members_skipped'
+				],
 				order_by: 'creation desc',
 				limit: 10
 			},
@@ -146,21 +156,26 @@ class MijnroodCSVImportPage {
 				if (r.message && r.message.length > 0) {
 					this.render_recent_imports(r.message);
 				} else {
-					$('#recent-imports-list').html('<p class="text-muted">No recent imports found.</p>');
+					$('#recent-imports-list').html(
+						'<p class="text-muted">No recent imports found.</p>'
+					);
 				}
 			}
 		});
 	}
 
 	render_recent_imports(imports) {
-		let html = '<div class="table-responsive"><table class="table table-striped">';
-		html += '<thead><tr><th>Import Name</th><th>Date</th><th>Status</th><th>Results</th><th>Actions</th></tr></thead><tbody>';
+		let html
+      = '<div class="table-responsive"><table class="table table-striped">';
+		html
+      += '<thead><tr><th>Import Name</th><th>Date</th><th>Status</th><th>Results</th><th>Actions</th></tr></thead><tbody>';
 
-		imports.forEach(imp => {
+		imports.forEach((imp) => {
 			const status_class = this.get_status_class(imp.import_status);
-			const results = imp.import_status === 'Completed'
-				? `Created: ${imp.members_created || 0}, Updated: ${imp.members_updated || 0}, Skipped: ${imp.members_skipped || 0}`
-				: '-';
+			const results
+        = imp.import_status === 'Completed'
+        	? `Created: ${imp.members_created || 0}, Updated: ${imp.members_updated || 0}, Skipped: ${imp.members_skipped || 0}`
+        	: '-';
 
 			html += `
                 <tr>
@@ -202,7 +217,8 @@ class MijnroodCSVImportPage {
 		// Download Template button
 		$(this.wrapper).on('click', '#download-template-btn', () => {
 			frappe.call({
-				method: 'verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import.get_import_template',
+				method:
+          'verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import.get_import_template',
 				callback: (r) => {
 					if (r.message) {
 						this.download_file(r.message.content, r.message.filename);

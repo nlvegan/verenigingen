@@ -9,7 +9,7 @@ describe('Membership Form', () => {
 
 	beforeEach(() => {
 		// Mock Frappe framework
-		global.__ = jest.fn(str => str);
+		global.__ = jest.fn((str) => str);
 
 		frappe = {
 			model: {
@@ -33,7 +33,7 @@ describe('Membership Form', () => {
 				year_end: jest.fn(() => '2024-12-31')
 			},
 			utils: {
-				flt: jest.fn(val => parseFloat(val) || 0)
+				flt: jest.fn((val) => parseFloat(val) || 0)
 			}
 		};
 
@@ -78,7 +78,10 @@ describe('Membership Form', () => {
 			frm.doc.enable_razorpay = 1; // Enable custom amount
 			membershipEvents.enable_razorpay(frm);
 
-			expect(frm.toggle_display).toHaveBeenCalledWith('razorpay_details_section', 1);
+			expect(frm.toggle_display).toHaveBeenCalledWith(
+				'razorpay_details_section',
+				1
+			);
 			expect(frm.toggle_reqd).toHaveBeenCalledWith('payment_url', 1);
 		});
 
@@ -220,7 +223,10 @@ describe('Membership Form', () => {
 			frm.doc.auto_renew = 1;
 			membershipEvents.auto_renew(frm);
 
-			expect(frm.toggle_display).toHaveBeenCalledWith('auto_renewal_settings', 1);
+			expect(frm.toggle_display).toHaveBeenCalledWith(
+				'auto_renewal_settings',
+				1
+			);
 			expect(frm.toggle_reqd).toHaveBeenCalledWith('renewal_period', 1);
 		});
 
@@ -278,7 +284,9 @@ const membershipFormEvents = {
 	},
 
 	set_renewal_date(frm) {
-		if (!frm.doc.from_date) { return; }
+		if (!frm.doc.from_date) {
+			return;
+		}
 
 		let toDate;
 		switch (frm.doc.membership_type) {

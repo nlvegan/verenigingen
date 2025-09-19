@@ -11,6 +11,7 @@ This document provides a comprehensive technical architecture for transforming t
 ## Current System Analysis
 
 ### Performance Bottleneck
+
 ```python
 # CURRENT O(N) IMPLEMENTATION - member.py:1263-1344
 matching_addresses = frappe.get_all("Address", ...)  # FETCHES ALL ADDRESSES
@@ -20,6 +21,7 @@ for addr in matching_addresses:  # O(N) loop through ALL addresses
 ```
 
 **Problems:**
+
 - **O(N) complexity**: Performance degrades linearly with address count
 - **Full table scan**: Loads entire address table into memory
 - **No caching**: Repeated identical lookups
@@ -500,6 +502,7 @@ class AddressMatchingCacheManager:
 ### Phase 1: Database Optimization (2 weeks)
 
 **Week 1: Schema and Indexes**
+
 ```python
 # Step 1: Add computed fields to Member DocType
 # File changes: member.json, member.py
@@ -539,6 +542,7 @@ def before_save(self):
 ```
 
 **Week 2: Basic Optimization**
+
 ```python
 # Step 5: Implement optimized matcher
 # File: verenigingen/utils/address_matching/optimized_matcher.py
@@ -563,6 +567,7 @@ def execute():
 ```
 
 **Rollback Procedure:**
+
 ```python
 # Emergency rollback script
 def rollback_phase_1():
@@ -576,6 +581,7 @@ def rollback_phase_1():
 ### Phase 2: Caching Integration (3 weeks)
 
 **Week 1: Cache Infrastructure**
+
 ```python
 # Implement AddressMatchingCacheManager
 # Integrate with SecurityAwareCacheManager
@@ -583,6 +589,7 @@ def rollback_phase_1():
 ```
 
 **Week 2: Cache-Enabled Optimization**
+
 ```python
 # Modify OptimizedAddressMatcher to use caching
 @staticmethod
@@ -616,6 +623,7 @@ def get_other_members_at_address_optimized(member_doc) -> List[Dict]:
 ```
 
 **Week 3: Performance Monitoring**
+
 ```python
 # Add performance monitoring and metrics
 class AddressMatchingMetrics:
@@ -637,12 +645,14 @@ class AddressMatchingMetrics:
 ### Phase 3: Advanced Features (2 weeks)
 
 **Week 1: Production Polish**
+
 - Error handling and logging
 - Performance monitoring dashboard
 - Cache statistics and optimization
 - Load testing and validation
 
 **Week 2: Advanced Features**
+
 - Fuzzy matching for typos
 - Geospatial nearby address detection
 - Machine learning relationship prediction
@@ -666,11 +676,11 @@ def get_other_members_at_address(self) -> List[Dict]:
 
 ```javascript
 // member.js - No changes required to existing JavaScript
-frappe.ui.form.on('Member', {
-    primary_address: function(frm) {
-        // Existing JavaScript continues to work unchanged
-        update_other_members_at_address(frm);
-    }
+frappe.ui.form.on("Member", {
+  primary_address: function (frm) {
+    // Existing JavaScript continues to work unchanged
+    update_other_members_at_address(frm);
+  },
 });
 ```
 
@@ -678,12 +688,12 @@ frappe.ui.form.on('Member', {
 
 ### Expected Performance Improvements
 
-| Dataset Size | Current O(N) | Optimized O(log N) | Improvement |
-|--------------|-------------|-------------------|-------------|
-| 100 addresses | 50ms | 5ms | 90% |
-| 1,000 addresses | 500ms | 25ms | 95% |
-| 10,000 addresses | 5,000ms | 50ms | 99% |
-| 100,000 addresses | 50,000ms | 75ms | 99.85% |
+| Dataset Size      | Current O(N) | Optimized O(log N) | Improvement |
+| ----------------- | ------------ | ------------------ | ----------- |
+| 100 addresses     | 50ms         | 5ms                | 90%         |
+| 1,000 addresses   | 500ms        | 25ms               | 95%         |
+| 10,000 addresses  | 5,000ms      | 50ms               | 99%         |
+| 100,000 addresses | 50,000ms     | 75ms               | 99.85%      |
 
 ### Success Metrics
 
@@ -697,13 +707,13 @@ frappe.ui.form.on('Member', {
 
 ### 8.1 Failure Modes
 
-| Risk | Probability | Impact | Mitigation |
-|------|------------|--------|------------|
-| Hash collisions | Low | Medium | Collision detection + resolution algorithm |
-| Cache inconsistency | Medium | Low | Cache invalidation hooks + TTL |
-| Index corruption | Low | High | Multiple index types + automatic rebuild |
-| Migration failure | Medium | High | Rollback scripts + data validation |
-| Performance regression | Low | High | A/B testing + automatic rollback triggers |
+| Risk                   | Probability | Impact | Mitigation                                 |
+| ---------------------- | ----------- | ------ | ------------------------------------------ |
+| Hash collisions        | Low         | Medium | Collision detection + resolution algorithm |
+| Cache inconsistency    | Medium      | Low    | Cache invalidation hooks + TTL             |
+| Index corruption       | Low         | High   | Multiple index types + automatic rebuild   |
+| Migration failure      | Medium      | High   | Rollback scripts + data validation         |
+| Performance regression | Low         | High   | A/B testing + automatic rollback triggers  |
 
 ### 8.2 Zero-Downtime Deployment
 
@@ -772,6 +782,7 @@ def validate_optimization_integrity():
 ## Production Deployment Checklist
 
 ### Pre-Deployment
+
 - [ ] Run full test suite with 100% pass rate
 - [ ] Validate data integrity with sample comparisons
 - [ ] Set up monitoring and alerting
@@ -779,6 +790,7 @@ def validate_optimization_integrity():
 - [ ] Load test with production-like data volume
 
 ### Deployment
+
 - [ ] Deploy during low-traffic window
 - [ ] Monitor performance metrics in real-time
 - [ ] Validate cache hit rates
@@ -786,6 +798,7 @@ def validate_optimization_integrity():
 - [ ] Confirm API contract preservation
 
 ### Post-Deployment
+
 - [ ] Monitor for 48 hours
 - [ ] Compare performance metrics
 - [ ] Validate user experience

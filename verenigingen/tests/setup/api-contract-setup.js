@@ -119,7 +119,7 @@ function validateCapturedCalls() {
 	const calls = getCapturedAPICalls();
 	const violations = [];
 
-	calls.forEach(call => {
+	calls.forEach((call) => {
 		try {
 			if (tester.getMethodSchema(call.method)) {
 				const result = tester.validateFrappeCall(call);

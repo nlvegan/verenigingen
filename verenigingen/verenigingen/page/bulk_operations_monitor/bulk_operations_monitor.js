@@ -7,8 +7,8 @@
  * queue status, and system health for large-scale member imports.
  */
 
-frappe.pages['bulk-operations-monitor'].on_page_load = function(wrapper) {
-	var page = frappe.ui.make_app_page({
+frappe.pages['bulk-operations-monitor'].on_page_load = function (wrapper) {
+	const page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: 'Bulk Operations Monitor',
 		single_column: true
@@ -16,7 +16,7 @@ frappe.pages['bulk-operations-monitor'].on_page_load = function(wrapper) {
 
 	// Initialize dashboard
 	frappe.bulk_operations_monitor = new BulkOperationsMonitor(page);
-}
+};
 
 class BulkOperationsMonitor {
 	constructor(page) {
@@ -109,38 +109,53 @@ class BulkOperationsMonitor {
 	}
 
 	setup_refresh_controls() {
-		this.page.add_button('Refresh', () => {
-			this.load_dashboard_data();
-		}, 'fa fa-refresh');
+		this.page.add_button(
+			'Refresh',
+			() => {
+				this.load_dashboard_data();
+			},
+			'fa fa-refresh'
+		);
 
-		this.page.add_button('Clear Stuck Jobs', () => {
-			this.clear_stuck_jobs();
-		}, 'fa fa-broom');
+		this.page.add_button(
+			'Clear Stuck Jobs',
+			() => {
+				this.clear_stuck_jobs();
+			},
+			'fa fa-broom'
+		);
 
-		this.page.add_button('Performance Report', () => {
-			this.generate_performance_report();
-		}, 'fa fa-chart-bar');
+		this.page.add_button(
+			'Performance Report',
+			() => {
+				this.generate_performance_report();
+			},
+			'fa fa-chart-bar'
+		);
 	}
 
 	async load_dashboard_data() {
 		try {
 			// Load performance metrics
 			const performance_data = await frappe.call({
-				method: 'verenigingen.utils.bulk_performance_monitor.get_performance_dashboard_data'
+				method:
+          'verenigingen.utils.bulk_performance_monitor.get_performance_dashboard_data'
 			});
 
 			this.render_performance_metrics(performance_data.message);
 
 			// Load retry queue status
 			const retry_data = await frappe.call({
-				method: 'verenigingen.utils.bulk_retry_processor.get_retry_queue_status'
+				method:
+          'verenigingen.utils.bulk_retry_processor.get_retry_queue_status'
 			});
 
 			this.render_retry_queues(retry_data.message);
-
 		} catch (error) {
 			console.error('Failed to load dashboard data:', error);
-			frappe.msgprint('Failed to load dashboard data. Please check console for details.');
+			frappe.msgprint(
+				'Failed to load dashboard data. Please check console for details.'
+			);
 		}
 	}
 
@@ -231,12 +246,16 @@ class BulkOperationsMonitor {
 			return;
 		}
 
-		const alert_html = alerts.map(alert => `
+		const alert_html = alerts
+			.map(
+				(alert) => `
 			<div class="alert alert-${this.get_alert_class(alert.severity)} alert-sm">
 				<strong>${alert.type.replace('_', ' ').toUpperCase()}:</strong>
 				${alert.message}
 			</div>
-		`).join('');
+		`
+			)
+			.join('');
 
 		$('#active-alerts').html(alert_html);
 	}
@@ -252,7 +271,9 @@ class BulkOperationsMonitor {
 			return;
 		}
 
-		const operations_html = operations.map(op => `
+		const operations_html = operations
+			.map(
+				(op) => `
 			<div class="operation-item border-bottom pb-2 mb-2">
 				<div class="d-flex justify-content-between">
 					<strong>${op.name}</strong>
@@ -263,7 +284,9 @@ class BulkOperationsMonitor {
 					${op.failed > 0 ? ` • ${op.failed} failed` : ''}
 				</small>
 			</div>
-		`).join('');
+		`
+			)
+			.join('');
 
 		$('#recent-operations').html(operations_html);
 	}
@@ -293,7 +316,9 @@ class BulkOperationsMonitor {
 						</tr>
 					</thead>
 					<tbody>
-						${retry_queues.map(queue => `
+						${retry_queues
+		.map(
+			(queue) => `
 							<tr>
 								<td>${queue.tracker_name}</td>
 								<td>${queue.operation_type}</td>
@@ -310,7 +335,9 @@ class BulkOperationsMonitor {
 									</button>
 								</td>
 							</tr>
-						`).join('')}
+						`
+		)
+		.join('')}
 					</tbody>
 				</table>
 			</div>
@@ -321,46 +348,54 @@ class BulkOperationsMonitor {
 
 	get_alert_class(severity) {
 		const classes = {
-			'error': 'danger',
-			'critical': 'danger',
-			'warning': 'warning',
-			'info': 'info'
+			error: 'danger',
+			critical: 'danger',
+			warning: 'warning',
+			info: 'info'
 		};
 		return classes[severity] || 'secondary';
 	}
 
 	get_status_class(status) {
 		const classes = {
-			'Completed': 'success',
-			'Processing': 'info',
-			'Failed': 'danger',
-			'Pending': 'warning'
+			Completed: 'success',
+			Processing: 'info',
+			Failed: 'danger',
+			Pending: 'warning'
 		};
 		return classes[status] || 'secondary';
 	}
 
 	async clear_stuck_jobs() {
-		frappe.confirm('Are you sure you want to clear stuck jobs? This will remove jobs that have been running too long.', () => {
-			frappe.call({
-				method: 'verenigingen.utils.bulk_queue_config.clear_stuck_jobs',
-				callback: (r) => {
-					if (r.message && r.message.success) {
-						frappe.msgprint(`Cleared ${r.message.cleared_jobs.length} stuck jobs`);
-						this.load_dashboard_data();
+		frappe.confirm(
+			'Are you sure you want to clear stuck jobs? This will remove jobs that have been running too long.',
+			() => {
+				frappe.call({
+					method: 'verenigingen.utils.bulk_queue_config.clear_stuck_jobs',
+					callback: (r) => {
+						if (r.message && r.message.success) {
+							frappe.msgprint(
+								`Cleared ${r.message.cleared_jobs.length} stuck jobs`
+							);
+							this.load_dashboard_data();
+						}
 					}
-				}
-			});
-		});
+				});
+			}
+		);
 	}
 
 	async retry_tracker(tracker_name) {
 		frappe.confirm(`Retry failed requests for ${tracker_name}?`, () => {
 			frappe.call({
-				method: 'verenigingen.utils.bulk_retry_processor.manual_retry_failed_requests',
+				method:
+          'verenigingen.utils.bulk_retry_processor.manual_retry_failed_requests',
 				args: { tracker_name },
 				callback: (r) => {
 					if (r.message) {
-						frappe.msgprint(`Retry completed: ${r.message.succeeded} succeeded, ${r.message.failed} failed`);
+						frappe.msgprint(
+							`Retry completed: ${r.message.succeeded} succeeded, ${r.message.failed} failed`
+						);
 						this.load_dashboard_data();
 					}
 				}

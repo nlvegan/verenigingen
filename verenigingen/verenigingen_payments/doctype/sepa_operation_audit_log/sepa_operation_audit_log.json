@@ -1,193 +1,193 @@
 {
- "actions": [],
- "app": "verenigingen",
- "allow_rename": 0,
- "autoname": "format:SEPA-AUDIT-{timestamp}",
- "creation": "2025-08-30 18:20:00.000000",
- "doctype": "DocType",
- "editable_grid": 0,
- "engine": "InnoDB",
- "field_order": [
-  "operation_section",
-  "operation_type",
-  "operation_status",
-  "action_taken",
-  "timestamp",
-  "column_break_o1",
-  "user",
-  "ip_address",
-  "user_agent",
-  "queries_executed",
-  "member_section",
-  "member",
-  "sepa_mandate",
-  "mandate_reference",
-  "link_name",
-  "compliance_section",
-  "compliance_notes",
-  "error_message"
- ],
- "fields": [
-  {
-   "fieldname": "operation_section",
-   "fieldtype": "Section Break",
-   "label": "Operation Details"
-  },
-  {
-   "fieldname": "operation_type",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "Operation Type",
-   "options": "sepa_mandate_link_update\nsepa_mandate_creation\nsepa_mandate_cancellation\nsepa_bulk_operation\nsepa_notification_send",
-   "reqd": 1
-  },
-  {
-   "fieldname": "operation_status",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "Status",
-   "options": "success\nfailed\npartial\nblocked",
-   "reqd": 1
-  },
-  {
-   "fieldname": "action_taken",
-   "fieldtype": "Data",
-   "label": "Action Taken",
-   "read_only": 1
-  },
-  {
-   "fieldname": "timestamp",
-   "fieldtype": "Datetime",
-   "in_list_view": 1,
-   "label": "Timestamp",
-   "reqd": 1
-  },
-  {
-   "fieldname": "column_break_o1",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "user",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "User",
-   "options": "User",
-   "reqd": 1
-  },
-  {
-   "fieldname": "ip_address",
-   "fieldtype": "Data",
-   "label": "IP Address",
-   "read_only": 1
-  },
-  {
-   "fieldname": "user_agent",
-   "fieldtype": "Small Text",
-   "label": "User Agent",
-   "read_only": 1
-  },
-  {
-   "fieldname": "queries_executed",
-   "fieldtype": "Int",
-   "label": "Queries Executed",
-   "read_only": 1
-  },
-  {
-   "fieldname": "member_section",
-   "fieldtype": "Section Break",
-   "label": "Member & Mandate Details"
-  },
-  {
-   "fieldname": "member",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Member",
-   "options": "Member",
-   "reqd": 1
-  },
-  {
-   "fieldname": "sepa_mandate",
-   "fieldtype": "Link",
-   "label": "SEPA Mandate",
-   "options": "SEPA Mandate"
-  },
-  {
-   "fieldname": "mandate_reference",
-   "fieldtype": "Data",
-   "label": "Mandate Reference",
-   "read_only": 1
-  },
-  {
-   "fieldname": "link_name",
-   "fieldtype": "Data",
-   "label": "Link Record Name",
-   "read_only": 1
-  },
-  {
-   "fieldname": "compliance_section",
-   "fieldtype": "Section Break",
-   "label": "Compliance & Audit"
-  },
-  {
-   "fieldname": "compliance_notes",
-   "fieldtype": "Text",
-   "label": "Compliance Notes",
-   "read_only": 1
-  },
-  {
-   "fieldname": "error_message",
-   "fieldtype": "Text",
-   "label": "Error Message",
-   "read_only": 1
-  }
- ],
- "links": [],
- "modified": "2025-08-30 18:20:00.000000",
- "modified_by": "Administrator",
- "module": "Verenigingen Payments",
- "name": "SEPA Operation Audit Log",
- "naming_rule": "Expression",
- "owner": "Administrator",
- "permissions": [
-  {
-   "create": 0,
-   "delete": 0,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "System Manager",
-   "share": 1,
-   "write": 0
-  },
-  {
-   "create": 0,
-   "delete": 0,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "Verenigingen Manager",
-   "share": 0,
-   "write": 0
-  },
-  {
-   "create": 0,
-   "delete": 0,
-   "email": 0,
-   "export": 0,
-   "print": 0,
-   "read": 1,
-   "report": 0,
-   "role": "Verenigingen Auditor",
-   "share": 0,
-   "write": 0
-  }
- ],
- "sort_field": "modified",
- "sort_order": "DESC",
- "states": [],
- "track_changes": 1
+  "actions": [],
+  "app": "verenigingen",
+  "allow_rename": 0,
+  "autoname": "format:SEPA-AUDIT-{timestamp}",
+  "creation": "2025-08-30 18:20:00.000000",
+  "doctype": "DocType",
+  "editable_grid": 0,
+  "engine": "InnoDB",
+  "field_order": [
+    "operation_section",
+    "operation_type",
+    "operation_status",
+    "action_taken",
+    "timestamp",
+    "column_break_o1",
+    "user",
+    "ip_address",
+    "user_agent",
+    "queries_executed",
+    "member_section",
+    "member",
+    "sepa_mandate",
+    "mandate_reference",
+    "link_name",
+    "compliance_section",
+    "compliance_notes",
+    "error_message"
+  ],
+  "fields": [
+    {
+      "fieldname": "operation_section",
+      "fieldtype": "Section Break",
+      "label": "Operation Details"
+    },
+    {
+      "fieldname": "operation_type",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "label": "Operation Type",
+      "options": "sepa_mandate_link_update\nsepa_mandate_creation\nsepa_mandate_cancellation\nsepa_bulk_operation\nsepa_notification_send",
+      "reqd": 1
+    },
+    {
+      "fieldname": "operation_status",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "label": "Status",
+      "options": "success\nfailed\npartial\nblocked",
+      "reqd": 1
+    },
+    {
+      "fieldname": "action_taken",
+      "fieldtype": "Data",
+      "label": "Action Taken",
+      "read_only": 1
+    },
+    {
+      "fieldname": "timestamp",
+      "fieldtype": "Datetime",
+      "in_list_view": 1,
+      "label": "Timestamp",
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_o1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "user",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "User",
+      "options": "User",
+      "reqd": 1
+    },
+    {
+      "fieldname": "ip_address",
+      "fieldtype": "Data",
+      "label": "IP Address",
+      "read_only": 1
+    },
+    {
+      "fieldname": "user_agent",
+      "fieldtype": "Small Text",
+      "label": "User Agent",
+      "read_only": 1
+    },
+    {
+      "fieldname": "queries_executed",
+      "fieldtype": "Int",
+      "label": "Queries Executed",
+      "read_only": 1
+    },
+    {
+      "fieldname": "member_section",
+      "fieldtype": "Section Break",
+      "label": "Member & Mandate Details"
+    },
+    {
+      "fieldname": "member",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Member",
+      "options": "Member",
+      "reqd": 1
+    },
+    {
+      "fieldname": "sepa_mandate",
+      "fieldtype": "Link",
+      "label": "SEPA Mandate",
+      "options": "SEPA Mandate"
+    },
+    {
+      "fieldname": "mandate_reference",
+      "fieldtype": "Data",
+      "label": "Mandate Reference",
+      "read_only": 1
+    },
+    {
+      "fieldname": "link_name",
+      "fieldtype": "Data",
+      "label": "Link Record Name",
+      "read_only": 1
+    },
+    {
+      "fieldname": "compliance_section",
+      "fieldtype": "Section Break",
+      "label": "Compliance & Audit"
+    },
+    {
+      "fieldname": "compliance_notes",
+      "fieldtype": "Text",
+      "label": "Compliance Notes",
+      "read_only": 1
+    },
+    {
+      "fieldname": "error_message",
+      "fieldtype": "Text",
+      "label": "Error Message",
+      "read_only": 1
+    }
+  ],
+  "links": [],
+  "modified": "2025-08-30 18:20:00.000000",
+  "modified_by": "Administrator",
+  "module": "Verenigingen Payments",
+  "name": "SEPA Operation Audit Log",
+  "naming_rule": "Expression",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 0,
+      "delete": 0,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 0
+    },
+    {
+      "create": 0,
+      "delete": 0,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Verenigingen Manager",
+      "share": 0,
+      "write": 0
+    },
+    {
+      "create": 0,
+      "delete": 0,
+      "email": 0,
+      "export": 0,
+      "print": 0,
+      "read": 1,
+      "report": 0,
+      "role": "Verenigingen Auditor",
+      "share": 0,
+      "write": 0
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
 }

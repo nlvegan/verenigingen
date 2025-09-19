@@ -23,12 +23,14 @@ This guide explains how to integrate your existing Zabbix monitoring system with
 Zabbix pulls metrics from Frappe using HTTP Agent items:
 
 **Advantages:**
+
 - No changes needed in Frappe Cloud
 - Uses existing Frappe APIs
 - Works with Frappe Cloud's security model
 - Real-time metric collection
 
 **Configuration:**
+
 1. Import the Zabbix template
 2. Configure host with Frappe URL
 3. Set up API authentication
@@ -39,17 +41,20 @@ Zabbix pulls metrics from Frappe using HTTP Agent items:
 Frappe pushes metrics to Zabbix using Zabbix Sender protocol:
 
 **Advantages:**
+
 - More control over what metrics to send
 - Can send business-specific metrics
 - Reduces load on Frappe API
 
 **Requirements:**
+
 - Zabbix sender access from Frappe
 - Scheduled job in Frappe
 
 ### 3. Bidirectional Integration
 
 Combines both approaches for comprehensive monitoring:
+
 - Zabbix pulls system metrics
 - Frappe pushes business metrics
 - Alerts flow both ways
@@ -375,6 +380,7 @@ def auto_remediate_issue(trigger):
 ## Conclusion
 
 This integration provides:
+
 - ✅ Real-time monitoring of Frappe applications
 - ✅ Business metric tracking in Zabbix
 - ✅ Automated alerting and issue creation

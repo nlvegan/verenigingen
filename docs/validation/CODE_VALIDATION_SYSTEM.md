@@ -7,9 +7,11 @@ The Verenigingen app includes a comprehensive code validation system that catche
 ## Validation Components
 
 ### 1. Database Field Validator (`enhanced_field_validator.py`)
+
 **Purpose**: Validates that database field references exist in DocType schemas
 
 **What it catches**:
+
 - ✅ `frappe.db.get_value("Doctype", filters, ["field1", "field2"])` with invalid fields
 - ✅ `frappe.db.get_all("Doctype", fields=["field1", "field2"])` with invalid fields
 - ✅ `doc.field_name` attribute access with invalid fields
@@ -18,9 +20,11 @@ The Verenigingen app includes a comprehensive code validation system that catche
 **Performance**: ~0.6s (764 Python files, 76 doctypes)
 
 ### 2. Template Variable Validator (`template_variable_validator.py`)
+
 **Purpose**: Validates that Jinja template variables are provided by Python context
 
 **What it catches**:
+
 - ✅ `{{ variable }}` in templates without corresponding Python context
 - ✅ Template context mismatches between HTML and Python files
 - ✅ Risky patterns like `field or 0` that might break string formatting
@@ -29,9 +33,11 @@ The Verenigingen app includes a comprehensive code validation system that catche
 **Performance**: ~1.1s (62 templates, 93 context providers)
 
 ### 3. Comprehensive Validator (`comprehensive_validator.py`)
+
 **Purpose**: Unified validation suite with performance monitoring
 
 **Features**:
+
 - 🚀 Runs both validators with timing information
 - 🎛️ CLI arguments for different modes (`--quiet`, `--field-only`, `--skip-template`)
 - ⚡ Error handling and timeout protection
@@ -40,6 +46,7 @@ The Verenigingen app includes a comprehensive code validation system that catche
 ## Integration Points
 
 ### Pre-Commit Hooks
+
 Located in `.pre-commit-config.yaml`:
 
 ```yaml
@@ -57,6 +64,7 @@ Located in `.pre-commit-config.yaml`:
 ```
 
 ### CI/CD Pipeline
+
 Located in `.github/workflows/code-validation.yml`:
 
 - **Pull Request**: Fast field validation with PR comments
@@ -64,6 +72,7 @@ Located in `.github/workflows/code-validation.yml`:
 - **Manual trigger**: Complete validation with integration tests
 
 ### Test Suite Integration
+
 Located in `scripts/testing/runners/validation_test_runner.py`:
 
 ```bash
@@ -80,6 +89,7 @@ python scripts/testing/runners/validation_test_runner.py --validation-only
 ## Usage Examples
 
 ### Development Workflow
+
 ```bash
 # Before committing (automatic via pre-commit)
 python scripts/validation/comprehensive_validator.py
@@ -92,6 +102,7 @@ python scripts/validation/template_variable_validator.py
 ```
 
 ### CI/CD Integration
+
 ```bash
 # CI mode (minimal output)
 python scripts/validation/comprehensive_validator.py --quiet
@@ -106,6 +117,7 @@ python scripts/testing/runners/validation_test_runner.py --fast
 ## Configuration
 
 ### Exception Handling
+
 Located in `scripts/validation/validation_config.py`:
 
 ```python
@@ -125,6 +137,7 @@ ALLOWED_RISKY_PATTERNS = {
 ```
 
 ### Performance Tuning
+
 - **Field Validation**: 764 files in ~0.6s (1200+ files/second)
 - **Template Validation**: 62 templates in ~1.1s (50+ templates/second)
 - **Total Suite**: Complete validation in ~1.7s
@@ -132,9 +145,11 @@ ALLOWED_RISKY_PATTERNS = {
 ## Error Types and Fixes
 
 ### Database Field Errors
+
 **Error**: `Field 'auto_renew' not found in doctype 'Membership'`
 
 **Fix**:
+
 ```python
 # ❌ Before
 fields = ["name", "status", "auto_renew"]
@@ -144,9 +159,11 @@ fields = ["name", "status"]  # auto_renew field doesn't exist
 ```
 
 ### Template Variable Errors
+
 **Error**: `'standard_fee' is undefined`
 
 **Fix**:
+
 ```python
 # ❌ Before
 standard_fee = template.suggested_amount or 0
@@ -159,9 +176,11 @@ standard_fee = float(standard_fee) if standard_fee else 15.0
 ## Success Stories
 
 ### Recent Field Reference Fixes (January 2025)
+
 The validation system successfully identified and helped fix critical field reference issues:
 
 **System Alert DocType Issues:**
+
 ```bash
 # Issues caught by enhanced_field_validator.py
 🔴 verenigingen/www/monitoring_dashboard.py:
@@ -172,6 +191,7 @@ The validation system successfully identified and helped fix critical field refe
 ```
 
 **Fix Applied:**
+
 ```python
 # ❌ Before - invalid field reference
 filters["compliance_status"] = status
@@ -181,9 +201,11 @@ filters["severity"] = status
 ```
 
 ### Payment History Event Handler Optimization
+
 Enhanced validation detected inefficient payment history rebuilds:
 
 **Issue Identified:**
+
 ```python
 # ❌ Before - full rebuild on every event
 def on_payment_entry_submit(doc, method):
@@ -191,6 +213,7 @@ def on_payment_entry_submit(doc, method):
 ```
 
 **Optimization Applied:**
+
 ```python
 # ✅ After - atomic updates for better performance
 def on_payment_entry_submit(doc, method):
@@ -198,22 +221,26 @@ def on_payment_entry_submit(doc, method):
 ```
 
 ### Pre-commit Hook Reliability Improvements
+
 Fixed critical pre-commit hook failures:
 
 **Problem:** `ModuleNotFoundError: No module named 'barista'`
 **Solution:** Updated pre-commit configuration to use direct Python execution instead of bench commands
 
 **Before:**
+
 ```yaml
 entry: bench --site dev.veganisme.net execute "module.function"
 ```
 
 **After:**
+
 ```yaml
 entry: python scripts/testing/integration/simple_test.py
 ```
 
 ### Runtime Error Prevention
+
 - **19 high-risk template variable issues** caught at development time
 - **50 risky fallback patterns** identified for review
 - **Zero field reference issues** in production code after recent fixes
@@ -222,27 +249,30 @@ entry: python scripts/testing/integration/simple_test.py
 
 ## Performance Metrics
 
-| Validator | Files Scanned | Time | Rate |
-|-----------|---------------|------|------|
-| Field Validator | 764 Python files | 0.6s | 1200+ files/s |
-| Template Validator | 62 templates | 1.1s | 50+ templates/s |
-| **Total Suite** | **826 files** | **1.7s** | **485+ files/s** |
+| Validator          | Files Scanned    | Time     | Rate             |
+| ------------------ | ---------------- | -------- | ---------------- |
+| Field Validator    | 764 Python files | 0.6s     | 1200+ files/s    |
+| Template Validator | 62 templates     | 1.1s     | 50+ templates/s  |
+| **Total Suite**    | **826 files**    | **1.7s** | **485+ files/s** |
 
 ## Best Practices
 
 ### For Developers
+
 1. **Run validation before committing** (automatic via pre-commit)
 2. **Check DocType JSON files** before referencing fields
 3. **Provide proper fallbacks** for template variables
 4. **Use validator feedback** to improve code quality
 
 ### For CI/CD
+
 1. **Use `--quiet` mode** for cleaner CI logs
 2. **Use `--field-only`** for fast PR checks
 3. **Allow template validation failures** (warnings) in CI
 4. **Require field validation success** for merges
 
 ### For Testing
+
 1. **Include validation in test suites** via `validation_test_runner.py`
 2. **Run fast validation first** to catch issues early
 3. **Use comprehensive validation** for release branches
@@ -251,16 +281,19 @@ entry: python scripts/testing/integration/simple_test.py
 ## Maintenance
 
 ### Adding Exceptions
+
 1. Edit `scripts/validation/validation_config.py`
 2. Add file path and field/variable names to appropriate exception lists
 3. Document the reason for the exception
 
 ### Performance Optimization
+
 - Field validation is I/O bound (reading JSON files)
 - Template validation is CPU bound (regex processing)
 - Both validators support parallel execution for future optimization
 
 ### Monitoring
+
 - Check validation performance in CI/CD logs
 - Monitor false positive rates
 - Update exception lists as needed
@@ -269,9 +302,11 @@ entry: python scripts/testing/integration/simple_test.py
 ## Recent Additions
 
 ### Loop Context Field Validator (2025-08-08)
+
 **Purpose**: Catches invalid field references on objects from `frappe.get_all` loops
 
 **What it catches**:
+
 - ✅ `chapter.chapter_name` when `chapter_name` not in fields list
 - ✅ Field access on loop variables that don't exist in DocType
 - ✅ Missing fields that should be in the `frappe.get_all` fields parameter

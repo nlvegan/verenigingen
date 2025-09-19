@@ -1,6 +1,7 @@
 # Phase 3 Revision: Leveraging Existing Zabbix Infrastructure
 
 ## Context
+
 The association already has comprehensive Zabbix monitoring in place with business metrics, system health, and infrastructure monitoring. This revision builds on the existing Zabbix foundation rather than introducing new monitoring tools.
 
 ## Revised Phase 3: Analytics and Optimization (Weeks 13-16)
@@ -8,12 +9,14 @@ The association already has comprehensive Zabbix monitoring in place with busine
 ### Week 13-14: Enhance Zabbix Integration
 
 #### Day 61-65: Extend Zabbix Monitoring for Logging Infrastructure
+
 **Owner:** Senior DevOps Engineer + Senior Developer
 **Effort:** 20 hours
 
 **Tasks:**
 
 1. **Add Logging-Specific Metrics to Zabbix**
+
    ```python
    # Extend verenigingen/monitoring/zabbix_integration.py
 
@@ -50,6 +53,7 @@ The association already has comprehensive Zabbix monitoring in place with busine
    ```
 
 2. **Create Zabbix Template for Logging Infrastructure**
+
    ```yaml
    # zabbix_template_frappe_logging_v7.2.yaml
    templates:
@@ -92,6 +96,7 @@ The association already has comprehensive Zabbix monitoring in place with busine
    - Link to audit trail reports
 
 4. **Configure Alerts for Logging Issues**
+
    ```python
    # Add to zabbix webhook receiver
    def handle_logging_alerts(alert_data):
@@ -108,18 +113,21 @@ The association already has comprehensive Zabbix monitoring in place with busine
    ```
 
 **Deliverables:**
+
 - [ ] Logging metrics added to Zabbix
 - [ ] New Zabbix template deployed
 - [ ] Dashboard enhancements completed
 - [ ] Alert rules configured
 
 #### Day 66-70: Operational Reports via Zabbix
+
 **Owner:** Senior DevOps Engineer
 **Effort:** 20 hours
 
 **Tasks:**
 
 1. **Create Zabbix Report Templates**
+
    ```python
    # verenigingen/monitoring/zabbix_reports.py
 
@@ -147,6 +155,7 @@ The association already has comprehensive Zabbix monitoring in place with busine
    ```
 
 2. **Automate Report Distribution**
+
    ```bash
    #!/bin/bash
    # scripts/monitoring/generate_zabbix_reports.sh
@@ -162,6 +171,7 @@ The association already has comprehensive Zabbix monitoring in place with busine
    ```
 
 3. **Create Self-Service Zabbix Queries**
+
    ```sql
    -- Common Zabbix database queries for operations
 
@@ -183,6 +193,7 @@ The association already has comprehensive Zabbix monitoring in place with busine
    ```
 
 **Deliverables:**
+
 - [ ] Report generation scripts
 - [ ] Automated distribution setup
 - [ ] Query documentation
@@ -191,43 +202,51 @@ The association already has comprehensive Zabbix monitoring in place with busine
 ### Week 15-16: Integration and Documentation
 
 #### Day 71-75: Zabbix Runbook and Training
+
 **Owner:** Senior DevOps Engineer + Technical Lead
 **Effort:** 15 hours
 
 **Tasks:**
 
 1. **Create Zabbix Operations Guide**
+
    ```markdown
    # Zabbix Monitoring Operations Guide
 
    ## Accessing Zabbix
+
    - URL: https://zabbix.verenigingen.nl
    - Dashboard: Monitoring → Dashboards → Frappe Operational
 
    ## Key Metrics to Monitor
 
    ### Logging Infrastructure
+
    - **Standardization Progress**: Should be increasing daily
    - **Audit Entry Volume**: Should never be zero during business hours
    - **Version Tracking Overhead**: Should stay below 500ms
 
    ### Business Compliance
+
    - **SEPA Compliance Score**: Target >95%
    - **Termination Governance Score**: Target 100%
 
    ## Common Alerts and Actions
 
    ### "No SEPA audit entries"
+
    1. Check if SEPA processing is running
    2. Verify audit log creation in code
    3. Check for errors in SEPA processing
 
    ### "High version tracking overhead"
+
    1. Check database performance
    2. Review recent DocType changes
    3. Consider excluding large text fields
 
    ## Useful Zabbix Features
+
    - **Problems**: Monitoring → Problems (active issues)
    - **Latest Data**: Monitoring → Latest data (real-time values)
    - **Graphs**: Create custom graphs for any metric
@@ -247,12 +266,14 @@ The association already has comprehensive Zabbix monitoring in place with busine
    - Contact information
 
 **Deliverables:**
+
 - [ ] Operations guide completed
 - [ ] Metric documentation
 - [ ] Troubleshooting flowcharts
 - [ ] Team training completed
 
 #### Day 76-80: Future Roadmap
+
 **Owner:** Technical Lead + Senior DevOps
 **Effort:** 15 hours
 
@@ -305,6 +326,7 @@ The association already has comprehensive Zabbix monitoring in place with busine
 ## Integration with Logging Enhancement
 
 The Zabbix monitoring perfectly complements the logging enhancement by:
+
 - Tracking implementation progress
 - Monitoring performance impact
 - Ensuring compliance coverage
@@ -314,6 +336,7 @@ The Zabbix monitoring perfectly complements the logging enhancement by:
 ## Summary
 
 By leveraging the existing Zabbix infrastructure:
+
 - We avoid tool proliferation
 - DevOps team can maintain everything
 - Business gets unified monitoring

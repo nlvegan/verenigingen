@@ -16,7 +16,10 @@
 /* No need to redeclare globals - covered by eslint-env jest */
 /* eslint-disable no-unused-vars */
 
-const { setupTestMocks, cleanupTestMocks } = require('../../setup/frappe-mocks');
+const {
+	setupTestMocks,
+	cleanupTestMocks
+} = require('../../setup/frappe-mocks');
 
 // Initialize test environment
 setupTestMocks();
@@ -40,9 +43,13 @@ class MockMollieWebhookGenerator {
 	}
 
 	/**
-     * Generate payment webhook payload
-     */
-	generatePaymentWebhook(paymentId = 'tr_test_12345', status = 'paid', amount = '25.00') {
+   * Generate payment webhook payload
+   */
+	generatePaymentWebhook(
+		paymentId = 'tr_test_12345',
+		status = 'paid',
+		amount = '25.00'
+	) {
 		return {
 			...this.basePayload,
 			resource: 'payment',
@@ -71,9 +78,12 @@ class MockMollieWebhookGenerator {
 	}
 
 	/**
-     * Generate subscription webhook payload
-     */
-	generateSubscriptionWebhook(subscriptionId = 'sub_test_67890', status = 'active') {
+   * Generate subscription webhook payload
+   */
+	generateSubscriptionWebhook(
+		subscriptionId = 'sub_test_67890',
+		status = 'active'
+	) {
 		return {
 			...this.basePayload,
 			resource: 'subscription',
@@ -98,9 +108,12 @@ class MockMollieWebhookGenerator {
 	}
 
 	/**
-     * Generate chargeback webhook payload
-     */
-	generateChargebackWebhook(paymentId = 'tr_test_12345', chargebackId = 'chb_test_54321') {
+   * Generate chargeback webhook payload
+   */
+	generateChargebackWebhook(
+		paymentId = 'tr_test_12345',
+		chargebackId = 'chb_test_54321'
+	) {
 		return {
 			...this.basePayload,
 			resource: 'chargeback',
@@ -123,8 +136,8 @@ class MockMollieWebhookGenerator {
 	}
 
 	/**
-     * Generate mandate webhook payload
-     */
+   * Generate mandate webhook payload
+   */
 	generateMandateWebhook(mandateId = 'mdt_test_abcde', status = 'valid') {
 		return {
 			...this.basePayload,
@@ -157,8 +170,8 @@ class MockWebhookProcessor {
 	}
 
 	/**
-     * Process payment webhook
-     */
+   * Process payment webhook
+   */
 	async processPaymentWebhook(payload) {
 		try {
 			// Basic validation first
@@ -231,8 +244,8 @@ class MockWebhookProcessor {
 	}
 
 	/**
-     * Process subscription webhook
-     */
+   * Process subscription webhook
+   */
 	async processSubscriptionWebhook(payload) {
 		try {
 			this.processedWebhooks.push({ type: 'subscription', payload });
@@ -262,8 +275,8 @@ class MockWebhookProcessor {
 	}
 
 	/**
-     * Process chargeback webhook
-     */
+   * Process chargeback webhook
+   */
 	async processChargebackWebhook(payload) {
 		try {
 			this.processedWebhooks.push({ type: 'chargeback', payload });
@@ -307,22 +320,26 @@ class MockWebhookProcessor {
 	}
 
 	/**
-     * Get processing statistics
-     */
+   * Get processing statistics
+   */
 	getStats() {
 		return {
 			total_processed: this.processedWebhooks.length,
 			payment_entries_created: this.paymentEntries.length,
 			member_updates: this.memberUpdates.length,
 			errors: this.errors.length,
-			success_rate: this.errors.length === 0 ? 100
-				: ((this.processedWebhooks.length - this.errors.length) / this.processedWebhooks.length) * 100
+			success_rate:
+        this.errors.length === 0
+        	? 100
+        	: ((this.processedWebhooks.length - this.errors.length)
+              / this.processedWebhooks.length)
+            * 100
 		};
 	}
 
 	/**
-     * Reset processor state
-     */
+   * Reset processor state
+   */
 	reset() {
 		this.processedWebhooks = [];
 		this.errors = [];
@@ -353,7 +370,11 @@ describe('Mollie Webhook Handler Tests', () => {
 
 	describe('Payment Webhook Processing', () => {
 		it('should process successful payment webhook', async () => {
-			const payload = webhookGenerator.generatePaymentWebhook('tr_test_001', 'paid', '25.00');
+			const payload = webhookGenerator.generatePaymentWebhook(
+				'tr_test_001',
+				'paid',
+				'25.00'
+			);
 
 			const result = await webhookProcessor.processPaymentWebhook(payload);
 
@@ -362,13 +383,17 @@ describe('Mollie Webhook Handler Tests', () => {
 			expect(webhookProcessor.paymentEntries).toHaveLength(1);
 
 			const paymentEntry = webhookProcessor.paymentEntries[0];
-			expect(paymentEntry.paid_amount).toBe(25.00);
+			expect(paymentEntry.paid_amount).toBe(25.0);
 			expect(paymentEntry.reference_no).toBe('tr_test_001');
 			expect(paymentEntry.mode_of_payment).toBe('Mollie Direct Debit');
 		});
 
 		it('should process failed payment webhook', async () => {
-			const payload = webhookGenerator.generatePaymentWebhook('tr_test_002', 'failed', '25.00');
+			const payload = webhookGenerator.generatePaymentWebhook(
+				'tr_test_002',
+				'failed',
+				'25.00'
+			);
 
 			const result = await webhookProcessor.processPaymentWebhook(payload);
 
@@ -382,7 +407,11 @@ describe('Mollie Webhook Handler Tests', () => {
 		});
 
 		it('should handle payment with invoice allocation', async () => {
-			const payload = webhookGenerator.generatePaymentWebhook('tr_test_003', 'paid', '30.00');
+			const payload = webhookGenerator.generatePaymentWebhook(
+				'tr_test_003',
+				'paid',
+				'30.00'
+			);
 			payload.metadata.invoice_number = 'SINV-2024-001';
 
 			const result = await webhookProcessor.processPaymentWebhook(payload);
@@ -397,11 +426,17 @@ describe('Mollie Webhook Handler Tests', () => {
 		});
 
 		it('should validate Dutch SEPA details in payment webhook', async () => {
-			const payload = webhookGenerator.generatePaymentWebhook('tr_test_004', 'paid', '25.00');
+			const payload = webhookGenerator.generatePaymentWebhook(
+				'tr_test_004',
+				'paid',
+				'25.00'
+			);
 
 			// Verify Dutch SEPA details are present
 			expect(payload.details.creditorIdentifier).toMatch(/^NL\d{2}ZZZ\d{12}$/);
-			expect(payload.details.transferReference).toMatch(/^RF\d{2}\s\d{4}\s\d{4}\s\d{4}$/);
+			expect(payload.details.transferReference).toMatch(
+				/^RF\d{2}\s\d{4}\s\d{4}\s\d{4}$/
+			);
 			expect(payload.mandateId).toMatch(/^mdt_test_/);
 
 			const result = await webhookProcessor.processPaymentWebhook(payload);
@@ -411,7 +446,10 @@ describe('Mollie Webhook Handler Tests', () => {
 
 	describe('Subscription Webhook Processing', () => {
 		it('should process active subscription webhook', async () => {
-			const payload = webhookGenerator.generateSubscriptionWebhook('sub_test_001', 'active');
+			const payload = webhookGenerator.generateSubscriptionWebhook(
+				'sub_test_001',
+				'active'
+			);
 
 			const result = await webhookProcessor.processSubscriptionWebhook(payload);
 
@@ -425,7 +463,10 @@ describe('Mollie Webhook Handler Tests', () => {
 		});
 
 		it('should process canceled subscription webhook', async () => {
-			const payload = webhookGenerator.generateSubscriptionWebhook('sub_test_002', 'canceled');
+			const payload = webhookGenerator.generateSubscriptionWebhook(
+				'sub_test_002',
+				'canceled'
+			);
 
 			const result = await webhookProcessor.processSubscriptionWebhook(payload);
 
@@ -437,7 +478,10 @@ describe('Mollie Webhook Handler Tests', () => {
 		});
 
 		it('should handle subscription with Dutch business logic', async () => {
-			const payload = webhookGenerator.generateSubscriptionWebhook('sub_test_003', 'active');
+			const payload = webhookGenerator.generateSubscriptionWebhook(
+				'sub_test_003',
+				'active'
+			);
 
 			// Verify monthly interval (standard for Dutch associations)
 			expect(payload.interval).toBe('1 month');
@@ -451,7 +495,10 @@ describe('Mollie Webhook Handler Tests', () => {
 
 	describe('Chargeback Webhook Processing', () => {
 		it('should process chargeback webhook', async () => {
-			const payload = webhookGenerator.generateChargebackWebhook('tr_test_001', 'chb_test_001');
+			const payload = webhookGenerator.generateChargebackWebhook(
+				'tr_test_001',
+				'chb_test_001'
+			);
 
 			const result = await webhookProcessor.processChargebackWebhook(payload);
 
@@ -468,29 +515,43 @@ describe('Mollie Webhook Handler Tests', () => {
 			const creditAccount = chargebackEntry.accounts[1];
 
 			expect(debitAccount.account).toBe('Chargebacks - VNL');
-			expect(debitAccount.debit_in_account_currency).toBe(25.00);
+			expect(debitAccount.debit_in_account_currency).toBe(25.0);
 			expect(creditAccount.account).toBe('Mollie Clearing Account - VNL');
-			expect(creditAccount.credit_in_account_currency).toBe(25.00);
+			expect(creditAccount.credit_in_account_currency).toBe(25.0);
 		});
 
 		it('should include chargeback reason and payment reference', async () => {
-			const payload = webhookGenerator.generateChargebackWebhook('tr_test_002', 'chb_test_002');
+			const payload = webhookGenerator.generateChargebackWebhook(
+				'tr_test_002',
+				'chb_test_002'
+			);
 
 			const result = await webhookProcessor.processChargebackWebhook(payload);
 
 			const chargebackEntry = webhookProcessor.memberUpdates[0];
-			expect(chargebackEntry.user_remark).toContain('Chargeback for payment tr_test_002');
-			expect(chargebackEntry.user_remark).toContain('Fraudulent Multiple Transactions');
+			expect(chargebackEntry.user_remark).toContain(
+				'Chargeback for payment tr_test_002'
+			);
+			expect(chargebackEntry.user_remark).toContain(
+				'Fraudulent Multiple Transactions'
+			);
 		});
 	});
 
 	describe('Mandate Webhook Processing', () => {
 		it('should validate Dutch SEPA mandate details', async () => {
-			const payload = webhookGenerator.generateMandateWebhook('mdt_test_001', 'valid');
+			const payload = webhookGenerator.generateMandateWebhook(
+				'mdt_test_001',
+				'valid'
+			);
 
 			// Verify Dutch SEPA mandate format
-			expect(payload.details.consumerAccount).toMatch(/^NL\d{2}[A-Z]{4}\d{10}$/);
-			expect(payload.details.consumerBic).toMatch(/^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/);
+			expect(payload.details.consumerAccount).toMatch(
+				/^NL\d{2}[A-Z]{4}\d{10}$/
+			);
+			expect(payload.details.consumerBic).toMatch(
+				/^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/
+			);
 			expect(payload.details.creditorIdentifier).toMatch(/^NL\d{2}ZZZ\d{12}$/);
 			expect(payload.mandateReference).toMatch(/^[A-Z]+-[A-Z]+-[A-Z0-9]+$/);
 
@@ -522,39 +583,52 @@ describe('Mollie Webhook Handler Tests', () => {
 		});
 
 		it('should handle webhook processing timeout', async () => {
-			const payload = webhookGenerator.generatePaymentWebhook('tr_timeout_test', 'paid', '25.00');
+			const payload = webhookGenerator.generatePaymentWebhook(
+				'tr_timeout_test',
+				'paid',
+				'25.00'
+			);
 
 			// Mock a timeout scenario
 			const originalProcess = webhookProcessor.processPaymentWebhook;
-			webhookProcessor.processPaymentWebhook = jest.fn().mockImplementation(() => {
-				return new Promise((_, reject) => {
-					setTimeout(() => reject(new Error('Timeout')), 50);
+			webhookProcessor.processPaymentWebhook = jest
+				.fn()
+				.mockImplementation(() => {
+					return new Promise((_, reject) => {
+						setTimeout(() => reject(new Error('Timeout')), 50);
+					});
 				});
-			});
 
-			await expect(webhookProcessor.processPaymentWebhook(payload))
-				.rejects.toThrow('Timeout');
+			await expect(
+				webhookProcessor.processPaymentWebhook(payload)
+			).rejects.toThrow('Timeout');
 
 			// Restore original method
 			webhookProcessor.processPaymentWebhook = originalProcess;
 		});
 
 		it('should provide detailed error information for debugging', async () => {
-			const payload = webhookGenerator.generatePaymentWebhook('tr_error_test', 'paid', '25.00');
+			const payload = webhookGenerator.generatePaymentWebhook(
+				'tr_error_test',
+				'paid',
+				'25.00'
+			);
 
 			// Create a separate processor for this test to avoid interference
 			const testProcessor = new MockWebhookProcessor();
 
 			// Force an error by overriding the method for this test only
 			const originalProcess = testProcessor.processPaymentWebhook;
-			testProcessor.processPaymentWebhook = jest.fn().mockImplementation((webhookPayload) => {
-				testProcessor.errors.push({
-					type: 'processing_error',
-					payload: webhookPayload,
-					error: 'Database connection failed'
+			testProcessor.processPaymentWebhook = jest
+				.fn()
+				.mockImplementation((webhookPayload) => {
+					testProcessor.errors.push({
+						type: 'processing_error',
+						payload: webhookPayload,
+						error: 'Database connection failed'
+					});
+					throw new Error('Database connection failed');
 				});
-				throw new Error('Database connection failed');
-			});
 
 			try {
 				await testProcessor.processPaymentWebhook(payload);
@@ -578,7 +652,11 @@ describe('Mollie Webhook Handler Tests', () => {
 
 			const promises = [];
 			for (let i = 0; i < webhookCount; i++) {
-				const payload = webhookGenerator.generatePaymentWebhook(`tr_test_${i}`, 'paid', '25.00');
+				const payload = webhookGenerator.generatePaymentWebhook(
+					`tr_test_${i}`,
+					'paid',
+					'25.00'
+				);
 				promises.push(testProcessor.processPaymentWebhook(payload));
 			}
 
@@ -601,7 +679,11 @@ describe('Mollie Webhook Handler Tests', () => {
 			// Process multiple payments for same members concurrently
 			memberIds.forEach((memberId, index) => {
 				for (let i = 0; i < 3; i++) {
-					const payload = webhookGenerator.generatePaymentWebhook(`tr_${memberId}_${i}`, 'paid', '25.00');
+					const payload = webhookGenerator.generatePaymentWebhook(
+						`tr_${memberId}_${i}`,
+						'paid',
+						'25.00'
+					);
 					payload.metadata.member_id = memberId;
 					promises.push(testProcessor.processPaymentWebhook(payload));
 				}
@@ -614,12 +696,15 @@ describe('Mollie Webhook Handler Tests', () => {
 			expect(stats.success_rate).toBe(100);
 
 			// Verify all payments were processed
-			const paymentsByMember = testProcessor.paymentEntries.reduce((acc, payment) => {
-				acc[payment.party] = (acc[payment.party] || 0) + 1;
-				return acc;
-			}, {});
+			const paymentsByMember = testProcessor.paymentEntries.reduce(
+				(acc, payment) => {
+					acc[payment.party] = (acc[payment.party] || 0) + 1;
+					return acc;
+				},
+				{}
+			);
 
-			memberIds.forEach(memberId => {
+			memberIds.forEach((memberId) => {
 				expect(paymentsByMember[memberId]).toBe(3);
 			});
 		});
@@ -628,7 +713,11 @@ describe('Mollie Webhook Handler Tests', () => {
 	describe('Dutch Business Rules Validation', () => {
 		it('should validate Dutch VAT rates in payment processing', async () => {
 			const testProcessor = new MockWebhookProcessor();
-			const payload = webhookGenerator.generatePaymentWebhook('tr_vat_test', 'paid', '27.00');
+			const payload = webhookGenerator.generatePaymentWebhook(
+				'tr_vat_test',
+				'paid',
+				'27.00'
+			);
 
 			// Add VAT information (21% standard Dutch rate)
 			// Use exact calculation: 22.33 * 0.21 = 4.6893, rounded to 4.69
@@ -651,7 +740,11 @@ describe('Mollie Webhook Handler Tests', () => {
 
 		it('should handle Dutch postal code validation in member data', async () => {
 			const testProcessor = new MockWebhookProcessor();
-			const payload = webhookGenerator.generatePaymentWebhook('tr_postal_test', 'paid', '25.00');
+			const payload = webhookGenerator.generatePaymentWebhook(
+				'tr_postal_test',
+				'paid',
+				'25.00'
+			);
 
 			// Add member address data
 			payload.metadata.member_postal_code = '1234 AB';
@@ -666,7 +759,11 @@ describe('Mollie Webhook Handler Tests', () => {
 
 		it('should process payments in EUR currency only', async () => {
 			const testProcessor = new MockWebhookProcessor();
-			const validPayload = webhookGenerator.generatePaymentWebhook('tr_eur_test', 'paid', '25.00');
+			const validPayload = webhookGenerator.generatePaymentWebhook(
+				'tr_eur_test',
+				'paid',
+				'25.00'
+			);
 			expect(validPayload.amount.currency).toBe('EUR');
 
 			const result = await testProcessor.processPaymentWebhook(validPayload);
@@ -674,7 +771,7 @@ describe('Mollie Webhook Handler Tests', () => {
 
 			// Verify payment entry uses EUR
 			const paymentEntry = testProcessor.paymentEntries[0];
-			expect(paymentEntry.paid_amount).toBe(25.00);
+			expect(paymentEntry.paid_amount).toBe(25.0);
 		});
 	});
 
@@ -695,7 +792,11 @@ describe('Mollie Webhook Handler Tests', () => {
 
 		it('should support webhook replay for failed processing', async () => {
 			const testProcessor = new MockWebhookProcessor();
-			const payload = webhookGenerator.generatePaymentWebhook('tr_replay_test', 'paid', '25.00');
+			const payload = webhookGenerator.generatePaymentWebhook(
+				'tr_replay_test',
+				'paid',
+				'25.00'
+			);
 
 			// First attempt succeeds
 			const result1 = await testProcessor.processPaymentWebhook(payload);

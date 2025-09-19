@@ -3,6 +3,7 @@
 This guide helps volunteers navigate and effectively use the Verenigingen volunteer portal system.
 
 ## Table of Contents
+
 - [Getting Started](#getting-started)
 - [Volunteer Dashboard](#volunteer-dashboard)
 - [Managing Your Profile](#managing-your-profile)
@@ -30,6 +31,7 @@ This guide helps volunteers navigate and effectively use the Verenigingen volunt
 ### Volunteer Portal Overview
 
 The volunteer portal provides access to:
+
 - **Dashboard**: Overview of assignments and activities
 - **Profile**: Skills, availability, and contact information
 - **Teams**: Current team assignments and projects
@@ -44,18 +46,21 @@ The volunteer portal provides access to:
 Your volunteer dashboard displays:
 
 #### Current Status
+
 - **Active Assignments**: Teams and projects you're currently involved in
 - **Upcoming Activities**: Scheduled volunteer events and commitments
 - **Pending Tasks**: Action items requiring your attention
 - **Recent Updates**: News and announcements relevant to volunteers
 
 #### Quick Statistics
+
 - **Hours Contributed**: Total volunteer time logged
 - **Projects Completed**: Finished assignments and achievements
 - **Team Memberships**: Current team affiliations
 - **Recognition**: Awards and acknowledgments received
 
 #### Action Items
+
 - **Pending Expense Claims**: Expenses awaiting submission or approval
 - **Team Updates**: Messages from team leaders
 - **Training Opportunities**: Available skill development programs
@@ -64,6 +69,7 @@ Your volunteer dashboard displays:
 ### Navigation Features
 
 #### Quick Actions
+
 - Submit expense claim
 - Update availability status
 - Log volunteer hours
@@ -71,6 +77,7 @@ Your volunteer dashboard displays:
 - Access training materials
 
 #### Personalization
+
 - Customize dashboard widgets
 - Set notification preferences
 - Configure activity summaries
@@ -83,6 +90,7 @@ Your volunteer dashboard displays:
 Maintain current and accurate volunteer information:
 
 #### Personal Information
+
 1. **Contact Details**:
    - Name and preferred name
    - Email addresses (primary and alternate)
@@ -142,6 +150,7 @@ Maintain current and accurate volunteer information:
 View and manage your team memberships:
 
 #### Team Overview
+
 1. **Team Information**:
    - Team name and purpose
    - Team leader contact information
@@ -171,6 +180,7 @@ View and manage your team memberships:
 ### Team Activities
 
 #### Project Management
+
 1. **Current Projects**:
    - Project objectives and timelines
    - Your specific assignments
@@ -200,6 +210,7 @@ View and manage your team memberships:
 ### Team Member Directory (`/team_members`)
 
 Access information about your team colleagues:
+
 - Contact information (as permitted by privacy settings)
 - Skills and expertise
 - Availability for collaboration
@@ -377,12 +388,14 @@ The volunteer portal includes a comprehensive expense management system:
 #### Portal Access Issues
 
 **Issue**: Cannot access volunteer portal
+
 1. Verify login credentials
 2. Check if volunteer status is active
 3. Contact team leader or administrator
 4. Request password reset if needed
 
 **Issue**: Missing team assignments
+
 1. Verify volunteer status with team leader
 2. Check for recent team changes
 3. Contact volunteer coordinator
@@ -391,12 +404,14 @@ The volunteer portal includes a comprehensive expense management system:
 #### Expense Claim Problems
 
 **Issue**: Expense claim rejected
+
 1. Review rejection reason carefully
 2. Check expense policy compliance
 3. Obtain additional documentation if needed
 4. Resubmit with corrections
 
 **Issue**: Payment delays
+
 1. Verify bank account information
 2. Check approval status of claims
 3. Contact finance department
@@ -405,12 +420,14 @@ The volunteer portal includes a comprehensive expense management system:
 #### Profile and Data Issues
 
 **Issue**: Profile information not saving
+
 1. Check all required fields are completed
 2. Verify data format requirements
 3. Clear browser cache and retry
 4. Contact technical support
 
 **Issue**: Hours not tracking correctly
+
 1. Verify time entry format
 2. Check project assignment accuracy
 3. Review activity category selection

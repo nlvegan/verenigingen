@@ -138,8 +138,8 @@ describe('Chapter Dashboard Components', () => {
 			const filtered = dashboard.filterMembers(members, 'john');
 
 			expect(filtered.length).toBe(2); // John Doe and Bob Johnson
-			expect(filtered.map(m => m.name)).toContain('MEM001');
-			expect(filtered.map(m => m.name)).toContain('MEM003');
+			expect(filtered.map((m) => m.name)).toContain('MEM001');
+			expect(filtered.map((m) => m.name)).toContain('MEM003');
 		});
 
 		test('should filter by status', () => {
@@ -153,7 +153,7 @@ describe('Chapter Dashboard Components', () => {
 			const filtered = dashboard.filterByStatus(members, 'Active');
 
 			expect(filtered.length).toBe(2);
-			expect(filtered.every(m => m.status === 'Active')).toBeTruthy();
+			expect(filtered.every((m) => m.status === 'Active')).toBeTruthy();
 		});
 	});
 });
@@ -192,7 +192,7 @@ describe('Termination Dashboard', () => {
 					impact: {
 						active_memberships: 2,
 						volunteer_roles: 1,
-						pending_payments: 150.00,
+						pending_payments: 150.0,
 						team_assignments: 3
 					}
 				}
@@ -202,7 +202,7 @@ describe('Termination Dashboard', () => {
 			const impact = await dashboard.calculateImpact(['MEM001']);
 
 			expect(impact.active_memberships).toBe(2);
-			expect(impact.pending_payments).toBe(150.00);
+			expect(impact.pending_payments).toBe(150.0);
 		});
 
 		test('should display warnings for high impact', () => {
@@ -210,7 +210,7 @@ describe('Termination Dashboard', () => {
 			const impact = {
 				active_memberships: 5,
 				volunteer_roles: 3,
-				pending_payments: 500.00
+				pending_payments: 500.0
 			};
 
 			dashboard.displayImpactWarnings(impact);
@@ -315,7 +315,9 @@ describe('Performance Monitoring', () => {
 
 		monitor.startTimer('dashboard-render');
 		// Simulate rendering
-		for (let i = 0; i < 1000000; i++) { /* busy work */ }
+		for (let i = 0; i < 1000000; i++) {
+			/* busy work */
+		}
 		const duration = monitor.endTimer('dashboard-render');
 
 		expect(duration).toBeGreaterThan(0);
@@ -363,7 +365,10 @@ class ChapterDashboard {
 	}
 
 	renderStats(stats) {
-		const percentage = (stats.active_members / stats.total_members * 100).toFixed(0);
+		const percentage = (
+			(stats.active_members / stats.total_members)
+      * 100
+		).toFixed(0);
 		document.querySelector('.stats-section').innerHTML = `
             <div class="stat-total">${stats.total_members}</div>
             <div class="stat-active">${stats.active_members} (${percentage}%)</div>
@@ -372,7 +377,7 @@ class ChapterDashboard {
 
 	renderMemberGrid(members) {
 		const grid = document.querySelector('.members-grid');
-		members.forEach(member => {
+		members.forEach((member) => {
 			const memberEl = document.createElement('div');
 			memberEl.dataset.memberId = member.name;
 			memberEl.textContent = member.full_name;
@@ -384,20 +389,23 @@ class ChapterDashboard {
 	selectMember(memberId) {
 		if (!this.selectedMembers.includes(memberId)) {
 			this.selectedMembers.push(memberId);
-			document.querySelector(`[data-member-id="${memberId}"]`).classList.add('selected');
+			document
+				.querySelector(`[data-member-id="${memberId}"]`)
+				.classList.add('selected');
 		}
 	}
 
 	filterMembers(members, searchTerm) {
 		const term = searchTerm.toLowerCase();
-		return members.filter(m =>
-			m.full_name.toLowerCase().includes(term)
-            || m.email.toLowerCase().includes(term)
+		return members.filter(
+			(m) =>
+				m.full_name.toLowerCase().includes(term)
+        || m.email.toLowerCase().includes(term)
 		);
 	}
 
 	filterByStatus(members, status) {
-		return members.filter(m => m.status === status);
+		return members.filter((m) => m.status === status);
 	}
 }
 

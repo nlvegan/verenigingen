@@ -20,6 +20,7 @@ curl -f http://localhost/desk
 ## 💳 Payment Failures (Most Common)
 
 ### SEPA Direct Debit Failed
+
 ```bash
 # Check failures
 bench --site dev.veganisme.net mariadb -e "
@@ -35,6 +36,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.sepa_retry_manager.cre
 ```
 
 ### Mandate Creation Failed
+
 ```bash
 # Manual mandate creation
 bench --site dev.veganisme.net console
@@ -46,6 +48,7 @@ bench --site dev.veganisme.net console
 ## 🔐 Portal Access Issues
 
 ### Login Failed
+
 ```bash
 # Reset password
 bench --site dev.veganisme.net set-password user@email.com
@@ -60,6 +63,7 @@ bench --site dev.veganisme.net console
 ```
 
 ### Permission Denied
+
 ```bash
 # Fix member permissions
 bench --site dev.veganisme.net execute verenigingen.api.fix_customer_permissions.fix_member_permissions --args "['user@email.com']"
@@ -71,6 +75,7 @@ bench --site dev.veganisme.net execute verenigigingen.utils.clear_permission_cac
 ## 📊 Data Import Errors
 
 ### Member Import Failed
+
 ```bash
 # Diagnose issues
 bench --site dev.veganisme.net execute verenigingen.utils.data_quality_utils.validate_member_import --args "['/path/to/file.csv']"
@@ -82,6 +87,7 @@ bench --site dev.veganisme.net console
 ```
 
 ### eBoekhouden Sync Failed
+
 ```bash
 # Check status
 bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.eboekhouden_api.check_import_status
@@ -93,6 +99,7 @@ bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.migration
 ## 💾 Database Issues
 
 ### Connection Lost
+
 ```bash
 # Test connection
 bench --site dev.veganisme.net mariadb -e "SELECT 1;"
@@ -103,6 +110,7 @@ bench restart
 ```
 
 ### Slow Performance
+
 ```bash
 # Check processes
 bench --site dev.veganisme.net mariadb -e "SHOW PROCESSLIST;"
@@ -134,6 +142,7 @@ bench --site dev.veganisme.net execute frappe.utils.background_jobs.clear_failed
 ## 📧 Email Issues
 
 ### Test Email Delivery
+
 ```bash
 bench --site dev.veganisme.net console
 >>> import frappe
@@ -141,6 +150,7 @@ bench --site dev.veganisme.net console
 ```
 
 ### Check Email Queue
+
 ```bash
 bench --site dev.veganisme.net mariadb -e "
 SELECT * FROM \`tabEmail Queue\`

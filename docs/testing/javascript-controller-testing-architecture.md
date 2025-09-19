@@ -51,6 +51,7 @@ graph TD
 ```
 
 **Security Layers:**
+
 - **Input Validation**: Path sanitization and restriction to project directory
 - **Resource Limits**: 1MB file size limit, 5-second execution timeout
 - **VM Sandboxing**: Isolated execution context with minimal global exposure
@@ -73,12 +74,12 @@ Unlike traditional mocking approaches, our system executes actual controller cod
 ```javascript
 // Traditional Approach (Mocked)
 const mockController = {
-    refresh: jest.fn()
+  refresh: jest.fn(),
 };
 
 // Our Approach (Real Controller Execution)
 const handlers = loadFrappeController(controllerPath);
-const result = testFormEvent('Member', 'refresh', mockForm, handlers);
+const result = testFormEvent("Member", "refresh", mockForm, handlers);
 ```
 
 ---
@@ -88,49 +89,51 @@ const result = testFormEvent('Member', 'refresh', mockForm, handlers);
 ### VM Sandboxing Implementation
 
 ```javascript
-const vm = require('vm');
+const vm = require("vm");
 
 // Create isolated execution context
 const context = vm.createContext({
-    // Minimal global exposure
-    frappe: global.frappe,          // Frappe framework APIs
-    $: global.$,                    // jQuery (mocked)
-    setTimeout: setTimeout,         // Timers for UI operations
-    console: console,               // Debugging output
+  // Minimal global exposure
+  frappe: global.frappe, // Frappe framework APIs
+  $: global.$, // jQuery (mocked)
+  setTimeout: setTimeout, // Timers for UI operations
+  console: console, // Debugging output
 
-    // Controlled global sharing
-    global: {
-        _frappe_form_handlers: global._frappe_form_handlers
-    }
+  // Controlled global sharing
+  global: {
+    _frappe_form_handlers: global._frappe_form_handlers,
+  },
 });
 
 // Execute with protection
 vm.runInContext(controllerContent, context, {
-    filename: absolutePath,
-    timeout: 5000,                  // 5-second execution limit
-    displayErrors: true
+  filename: absolutePath,
+  timeout: 5000, // 5-second execution limit
+  displayErrors: true,
 });
 ```
 
 ### Security Controls
 
-| Control | Implementation | Purpose |
-|---------|---------------|---------|
-| **Path Restriction** | `path.startsWith(expectedBasePath)` | Prevent directory traversal |
-| **File Size Limit** | `stats.size > maxFileSize` | Prevent memory exhaustion |
-| **Execution Timeout** | `timeout: 5000` | Prevent infinite loops |
-| **Content Validation** | `includes('frappe.ui.form.on')` | Ensure valid controller files |
-| **Minimal Context** | Limited global exposure | Reduce attack surface |
+| Control                | Implementation                      | Purpose                       |
+| ---------------------- | ----------------------------------- | ----------------------------- |
+| **Path Restriction**   | `path.startsWith(expectedBasePath)` | Prevent directory traversal   |
+| **File Size Limit**    | `stats.size > maxFileSize`          | Prevent memory exhaustion     |
+| **Execution Timeout**  | `timeout: 5000`                     | Prevent infinite loops        |
+| **Content Validation** | `includes('frappe.ui.form.on')`     | Ensure valid controller files |
+| **Minimal Context**    | Limited global exposure             | Reduce attack surface         |
 
 ### Threat Model
 
 **Mitigated Risks:**
+
 - ✅ **Code Injection**: VM sandboxing prevents arbitrary code execution
 - ✅ **Directory Traversal**: Path validation restricts file access
 - ✅ **Resource Exhaustion**: File size and execution time limits
 - ✅ **Data Leakage**: Isolated execution context
 
 **Residual Risks (Low Priority):**
+
 - ⚠️ **VM Escape**: Theoretical but Node.js VM module is generally secure
 - ⚠️ **Side Channel**: Test execution timing could leak information
 
@@ -144,26 +147,27 @@ vm.runInContext(controllerContent, context, {
 
 ```javascript
 class BaseControllerTest {
-    constructor(config) {
-        this.doctype = config.doctype;
-        this.controllerPath = config.controllerPath;
-        this.expectedHandlers = config.expectedHandlers;
-        this.mockForm = null;
-        this.handlers = null;
-    }
+  constructor(config) {
+    this.doctype = config.doctype;
+    this.controllerPath = config.controllerPath;
+    this.expectedHandlers = config.expectedHandlers;
+    this.mockForm = null;
+    this.handlers = null;
+  }
 
-    loadController() {
-        this.handlers = loadFrappeController(this.controllerPath);
-        this.validateHandlers();
-    }
+  loadController() {
+    this.handlers = loadFrappeController(this.controllerPath);
+    this.validateHandlers();
+  }
 
-    testEvent(eventName) {
-        return testFormEvent(this.doctype, eventName, this.mockForm, this.handlers);
-    }
+  testEvent(eventName) {
+    return testFormEvent(this.doctype, eventName, this.mockForm, this.handlers);
+  }
 }
 ```
 
 **Key Features:**
+
 - Standardized test lifecycle (setup, execute, cleanup)
 - Consistent error handling and reporting
 - Flexible form mocking with domain-specific extensions
@@ -176,26 +180,27 @@ class BaseControllerTest {
 ```javascript
 // Financial Domain Builder
 class FinancialControllerTestBuilder {
-    createSEPATests() {
-        return {
-            'should validate Dutch IBAN correctly': () => {
-                const testCases = [
-                    { iban: 'NL91ABNA0417164300', valid: true },
-                    { iban: 'NL02RABO0123456789', valid: true },
-                    { iban: 'INVALID_IBAN', valid: false }
-                ];
+  createSEPATests() {
+    return {
+      "should validate Dutch IBAN correctly": () => {
+        const testCases = [
+          { iban: "NL91ABNA0417164300", valid: true },
+          { iban: "NL02RABO0123456789", valid: true },
+          { iban: "INVALID_IBAN", valid: false },
+        ];
 
-                testCases.forEach(testCase => {
-                    const result = validateDutchIBAN(testCase.iban);
-                    expect(result.valid).toBe(testCase.valid);
-                });
-            }
-        };
-    }
+        testCases.forEach((testCase) => {
+          const result = validateDutchIBAN(testCase.iban);
+          expect(result.valid).toBe(testCase.valid);
+        });
+      },
+    };
+  }
 }
 ```
 
 **Available Builders:**
+
 - **FinancialControllerTestBuilder**: SEPA validation, IBAN/BIC testing, payment workflows
 - **AssociationControllerTestBuilder**: Dutch validation, membership patterns, chapter management
 - **WorkflowControllerTestBuilder**: Status transitions, approval processes, notifications
@@ -207,23 +212,24 @@ class FinancialControllerTestBuilder {
 ```javascript
 // BSN (Burgerservicenummer) Validation
 function validateBSN(bsn) {
-    const weights = [9, 8, 7, 6, 5, 4, 3, 2, -1];
-    const digits = bsn.replace(/\D/g, '').split('').map(Number);
+  const weights = [9, 8, 7, 6, 5, 4, 3, 2, -1];
+  const digits = bsn.replace(/\D/g, "").split("").map(Number);
 
-    if (digits.length !== 9) return { valid: false, error: 'Invalid length' };
+  if (digits.length !== 9) return { valid: false, error: "Invalid length" };
 
-    const sum = digits.reduce((total, digit, index) => {
-        return total + (digit * weights[index]);
-    }, 0);
+  const sum = digits.reduce((total, digit, index) => {
+    return total + digit * weights[index];
+  }, 0);
 
-    const remainder = sum % 11;
-    const isValid = remainder === 0 && digits[8] !== 0;
+  const remainder = sum % 11;
+  const isValid = remainder === 0 && digits[8] !== 0;
 
-    return { valid: isValid, checksum: remainder };
+  return { valid: isValid, checksum: remainder };
 }
 ```
 
 **Supported Validations:**
+
 - **BSN**: 11-proof algorithm with proper checksum calculation
 - **RSIN**: Organization tax numbers with validation
 - **IBAN**: Mod-97 validation for Dutch bank accounts
@@ -240,20 +246,24 @@ Every controller test follows this pattern:
 
 ```javascript
 const controllerConfig = {
-    doctype: 'Member',
-    controllerPath: '/path/to/member.js',
-    expectedHandlers: ['refresh', 'validate', 'member_since'],
-    defaultDoc: {
-        name: 'MEMBER-TEST-001',
-        status: 'Active',
-        // ... test data
-    }
+  doctype: "Member",
+  controllerPath: "/path/to/member.js",
+  expectedHandlers: ["refresh", "validate", "member_since"],
+  defaultDoc: {
+    name: "MEMBER-TEST-001",
+    status: "Active",
+    // ... test data
+  },
 };
 
-describe('Member Controller', createControllerTestSuite(controllerConfig, customTests));
+describe(
+  "Member Controller",
+  createControllerTestSuite(controllerConfig, customTests),
+);
 ```
 
 **Standard Tests Generated:**
+
 - ✅ `should load controller and handlers`
 - ✅ `should execute refresh handler without errors`
 - ✅ `should not make excessive server calls during refresh`
@@ -264,18 +274,18 @@ describe('Member Controller', createControllerTestSuite(controllerConfig, custom
 
 ```javascript
 const customMemberTests = {
-    'Dutch Name Processing': (getControllerTest) => {
-        it('should handle Dutch name components correctly', () => {
-            const form = getControllerTest().mockForm;
-            form.doc.first_name = 'Jan';
-            form.doc.tussenvoegsel = 'van der';
-            form.doc.last_name = 'Berg';
+  "Dutch Name Processing": (getControllerTest) => {
+    it("should handle Dutch name components correctly", () => {
+      const form = getControllerTest().mockForm;
+      form.doc.first_name = "Jan";
+      form.doc.tussenvoegsel = "van der";
+      form.doc.last_name = "Berg";
 
-            getControllerTest().testEvent('refresh');
+      getControllerTest().testEvent("refresh");
 
-            expect(form.doc.full_name).toBe('Jan van der Berg');
-        });
-    }
+      expect(form.doc.full_name).toBe("Jan van der Berg");
+    });
+  },
 };
 ```
 
@@ -315,27 +325,32 @@ createMockForm: function(baseTest, overrides = {}) {
 
 ```javascript
 // test_my_controller_refactored.test.js
-const { createControllerTestSuite } = require('../../setup/controller-test-base');
+const {
+  createControllerTestSuite,
+} = require("../../setup/controller-test-base");
 
 const myControllerConfig = {
-    doctype: 'MyDocType',
-    controllerPath: '/path/to/my_doctype.js',
-    expectedHandlers: ['refresh', 'validate'],
-    defaultDoc: {
-        name: 'TEST-001',
-        // ... default test data
-    }
+  doctype: "MyDocType",
+  controllerPath: "/path/to/my_doctype.js",
+  expectedHandlers: ["refresh", "validate"],
+  defaultDoc: {
+    name: "TEST-001",
+    // ... default test data
+  },
 };
 
 const customTests = {
-    'My Feature Tests': (getControllerTest) => {
-        it('should handle my specific logic', () => {
-            // Test implementation
-        });
-    }
+  "My Feature Tests": (getControllerTest) => {
+    it("should handle my specific logic", () => {
+      // Test implementation
+    });
+  },
 };
 
-describe('My Controller', createControllerTestSuite(myControllerConfig, customTests));
+describe(
+  "My Controller",
+  createControllerTestSuite(myControllerConfig, customTests),
+);
 ```
 
 2. **Add controller-specific mocking** if needed:
@@ -364,10 +379,13 @@ npm test -- --testPathPattern="test_my_controller_refactored.test.js"
 ### Using Domain Test Builders
 
 ```javascript
-it('should validate Dutch postal codes', () => {
-    const associationBuilder = createDomainTestBuilder(getControllerTest(), 'association');
-    const dutchTests = associationBuilder.createDutchValidationTests();
-    dutchTests['should validate Dutch postal codes']();
+it("should validate Dutch postal codes", () => {
+  const associationBuilder = createDomainTestBuilder(
+    getControllerTest(),
+    "association",
+  );
+  const dutchTests = associationBuilder.createDutchValidationTests();
+  dutchTests["should validate Dutch postal codes"]();
 });
 ```
 
@@ -384,33 +402,35 @@ node verenigingen/tests/utils/debug_controller_loading.js
 
 ### Execution Performance
 
-| Metric | Target | Typical |
-|--------|--------|---------|
-| **Controller Loading** | <50ms | ~30ms |
-| **Test Execution** | <100ms | ~60ms |
-| **Memory Usage** | <50MB | ~30MB |
-| **VM Context Creation** | <10ms | ~5ms |
+| Metric                  | Target | Typical |
+| ----------------------- | ------ | ------- |
+| **Controller Loading**  | <50ms  | ~30ms   |
+| **Test Execution**      | <100ms | ~60ms   |
+| **Memory Usage**        | <50MB  | ~30MB   |
+| **VM Context Creation** | <10ms  | ~5ms    |
 
 ### Optimization Strategies
 
 1. **Controller Caching** (Future Enhancement):
+
 ```javascript
 const controllerCache = new Map();
 
 function loadFrappeController(controllerPath) {
-    if (controllerCache.has(controllerPath)) {
-        return controllerCache.get(controllerPath);
-    }
-    // ... load and cache
+  if (controllerCache.has(controllerPath)) {
+    return controllerCache.get(controllerPath);
+  }
+  // ... load and cache
 }
 ```
 
 2. **Mock Object Pooling**:
+
 ```javascript
 const mockFormPool = new Pool({
-    create: () => createBaseMockForm(),
-    destroy: (form) => cleanupMockForm(form),
-    max: 10
+  create: () => createBaseMockForm(),
+  destroy: (form) => cleanupMockForm(form),
+  max: 10,
 });
 ```
 
@@ -419,7 +439,7 @@ const mockFormPool = new Pool({
 ```javascript
 // Built into BaseControllerTest
 const startTime = Date.now();
-this.testEvent('refresh');
+this.testEvent("refresh");
 const executionTime = Date.now() - startTime;
 
 expect(executionTime).toBeLessThan(100); // Performance assertion
@@ -436,6 +456,7 @@ expect(executionTime).toBeLessThan(100); // Performance assertion
 **Symptoms**: `No handlers found for DocType: XXX`
 
 **Solutions**:
+
 ```bash
 # 1. Verify file path
 ls -la /path/to/controller.js
@@ -452,6 +473,7 @@ node verenigingen/tests/utils/debug_controller_loading.js
 **Symptoms**: `Script execution timed out after 5000ms`
 
 **Solutions**:
+
 ```javascript
 // Check for infinite loops in controller
 // Look for missing mock implementations:
@@ -464,12 +486,13 @@ setInterval: jest.fn()
 **Symptoms**: `Cannot read property 'grid' of undefined`
 
 **Solutions**:
+
 ```javascript
 // Add missing field mocks in createMockForm
 form.fields_dict.missing_field = {
-    grid: {
-        get_field: jest.fn(() => ({ get_query: null }))
-    }
+  grid: {
+    get_field: jest.fn(() => ({ get_query: null })),
+  },
 };
 ```
 
@@ -478,11 +501,12 @@ form.fields_dict.missing_field = {
 **Symptoms**: `Cannot read property '1' of undefined`
 
 **Solutions**:
+
 ```javascript
 // Ensure permission arrays are properly mocked
 form.perm = [
-    { read: 1, write: 1, create: 1, delete: 1 }, // Level 0
-    { read: 1, write: 1, create: 1, delete: 1 }  // Level 1
+  { read: 1, write: 1, create: 1, delete: 1 }, // Level 0
+  { read: 1, write: 1, create: 1, delete: 1 }, // Level 1
 ];
 ```
 
@@ -491,10 +515,11 @@ form.perm = [
 Enable verbose debugging:
 
 ```javascript
-process.env.DEBUG_CONTROLLER_LOADING = 'true';
+process.env.DEBUG_CONTROLLER_LOADING = "true";
 ```
 
 This will output:
+
 - Controller file loading details
 - VM context creation information
 - Handler extraction process
@@ -562,6 +587,7 @@ This will output:
 The JavaScript Controller Testing Architecture represents a significant advancement in testing client-side business logic for Frappe applications. By combining real controller execution with enterprise-grade security measures, this system provides confidence that tests accurately reflect production behavior.
 
 **Key Benefits:**
+
 - ✅ **Security**: VM sandboxing eliminates code injection risks
 - ✅ **Accuracy**: Tests actual controller logic, not mocks
 - ✅ **Maintainability**: Centralized infrastructure reduces code duplication
@@ -572,7 +598,7 @@ This architecture sets a new standard for JavaScript testing in enterprise appli
 
 ---
 
-*For questions or contributions, contact the Verenigingen Development Team.*
+_For questions or contributions, contact the Verenigingen Development Team._
 
 **Last Updated**: January 2025
 **Version**: 1.0.0

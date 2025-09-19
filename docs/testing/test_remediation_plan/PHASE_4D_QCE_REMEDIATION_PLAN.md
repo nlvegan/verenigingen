@@ -19,6 +19,7 @@ The Quality Control Enforcer has identified that Phase 4D implementation contain
 **Impact**: Tests pass but don't validate real functionality
 
 **Required Fix**:
+
 ```python
 # REMOVE simulation fallback entirely
 # EITHER: Implement real Mollie test sandbox integration
@@ -32,6 +33,7 @@ The Quality Control Enforcer has identified that Phase 4D implementation contain
 **Impact**: Real API failures won't be detected
 
 **Required Fix**:
+
 ```python
 # Replace catch-all with specific exception handling
 # Let real failures propagate to test results
@@ -45,6 +47,7 @@ The Quality Control Enforcer has identified that Phase 4D implementation contain
 **Impact**: False performance monitoring
 
 **Required Fix**:
+
 - Measure actual query counts in test environment
 - Document baseline reasoning
 - Or remove performance claims entirely
@@ -95,17 +98,20 @@ def test_payment_business_logic_with_infrastructure_mock(self):
 ## Mock Classification Clarification
 
 ### ✅ Legitimate Infrastructure Mocks (KEEP)
+
 - External HTTP calls (requests.post, requests.get)
 - SMTP services (frappe.sendmail)
 - Redis connection for failure testing
 - External API authentication tokens
 
 ### ❌ Inappropriate Business Logic Mocks (ELIMINATE)
+
 - PaymentGatewayFactory.get_gateway() - This is business logic
 - AccountCreationManager.process_complete_pipeline() - This is business logic
 - frappe.enqueue() when testing job creation logic - This is business logic
 
 ### ⚠️ NOT Acceptable: Simulations
+
 - Catching exceptions and simulating success
 - Hardcoding test results when integration fails
 - Creating fake successful responses when real calls fail
@@ -113,22 +119,27 @@ def test_payment_business_logic_with_infrastructure_mock(self):
 ## Remediation Steps
 
 ### Step 1: Remove All Simulations (Priority 1)
+
 - [ ] Remove all simulation fallback code
 - [ ] Remove try-except blocks that mask failures
 - [ ] Let tests fail if integration doesn't work
 
 ### Step 2: Implement Proper Testing Strategy (Priority 2)
+
 Choose one:
+
 - [ ] Implement real test sandbox integration
 - [ ] Skip tests that require unavailable infrastructure
 - [ ] Use legitimate infrastructure mocks ONLY
 
 ### Step 3: Validate Performance Baselines (Priority 3)
+
 - [ ] Measure real query counts
 - [ ] Document baseline reasoning
 - [ ] Remove arbitrary assertions
 
 ### Step 4: Document Infrastructure Requirements (Priority 4)
+
 - [ ] List required test infrastructure
 - [ ] Document setup instructions
 - [ ] Provide skip reasons for unavailable infrastructure

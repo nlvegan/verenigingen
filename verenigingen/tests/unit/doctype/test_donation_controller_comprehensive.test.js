@@ -13,7 +13,9 @@
 /* global describe, it, expect, jest, beforeEach, afterEach, beforeAll */
 
 // Import centralized test infrastructure
-const { createControllerTestSuite } = require('../../setup/controller-test-base');
+const {
+	createControllerTestSuite
+} = require('../../setup/controller-test-base');
 const { createDomainTestBuilder } = require('../../setup/domain-test-builders');
 
 // Initialize test environment
@@ -22,7 +24,8 @@ require('../../setup/frappe-mocks').setupTestMocks();
 // Controller configuration
 const donationConfig = {
 	doctype: 'Donation',
-	controllerPath: '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/donation/donation.js',
+	controllerPath:
+    '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/donation/donation.js',
 	expectedHandlers: ['refresh', 'make_payment_entry'],
 	defaultDoc: {
 		doctype: 'Donation',
@@ -30,7 +33,7 @@ const donationConfig = {
 		docstatus: 1, // Submitted
 		paid: 0, // Unpaid - eligible for payment entry creation
 		donor_name: 'Test Donor',
-		amount: 100.00,
+		amount: 100.0,
 		currency: 'EUR',
 		donation_date: '2024-07-15',
 		donation_type: 'one-time',
@@ -131,7 +134,7 @@ const customDonationTests = {
 				doctype: 'Payment Entry',
 				name: 'PE-2024-07-0001',
 				party_type: 'Customer',
-				paid_amount: 125.00
+				paid_amount: 125.0
 			};
 
 			global.frappe.call.mockImplementation(({ callback }) => {
@@ -160,19 +163,38 @@ const customDonationTests = {
 			expect(global.frappe.model.sync).toHaveBeenCalledWith(mockPaymentEntry);
 
 			// Verify navigation to payment entry
-			expect(global.frappe.set_route).toHaveBeenCalledWith('Form', 'Payment Entry', 'PE-2024-07-0001');
+			expect(global.frappe.set_route).toHaveBeenCalledWith(
+				'Form',
+				'Payment Entry',
+				'PE-2024-07-0001'
+			);
 		});
 
 		it('should handle different donation statuses correctly', () => {
 			const controllerTest = getControllerTest();
 			const testCases = [
 				{ name: 'Draft donation', docstatus: 0, paid: 0, expectButton: false },
-				{ name: 'Submitted unpaid donation', docstatus: 1, paid: 0, expectButton: true },
-				{ name: 'Submitted paid donation', docstatus: 1, paid: 1, expectButton: false },
-				{ name: 'Cancelled donation', docstatus: 2, paid: 0, expectButton: false }
+				{
+					name: 'Submitted unpaid donation',
+					docstatus: 1,
+					paid: 0,
+					expectButton: true
+				},
+				{
+					name: 'Submitted paid donation',
+					docstatus: 1,
+					paid: 1,
+					expectButton: false
+				},
+				{
+					name: 'Cancelled donation',
+					docstatus: 2,
+					paid: 0,
+					expectButton: false
+				}
 			];
 
-			testCases.forEach(testCase => {
+			testCases.forEach((testCase) => {
 				// Reset form and mock for each test case
 				controllerTest.mockForm.doc.docstatus = testCase.docstatus;
 				controllerTest.mockForm.doc.paid = testCase.paid;
@@ -184,7 +206,9 @@ const customDonationTests = {
 				if (testCase.expectButton) {
 					expect(controllerTest.mockForm.add_custom_button).toHaveBeenCalled();
 				} else {
-					expect(controllerTest.mockForm.add_custom_button).not.toHaveBeenCalled();
+					expect(
+						controllerTest.mockForm.add_custom_button
+					).not.toHaveBeenCalled();
 				}
 			});
 		});
@@ -196,11 +220,17 @@ const customDonationTests = {
 			const edgeCases = [
 				{ description: 'Missing paid field', data: { docstatus: 1 } },
 				{ description: 'Missing docstatus field', data: { paid: 0 } },
-				{ description: 'Zero amount donation', data: { docstatus: 1, paid: 0, amount: 0 } },
-				{ description: 'Negative amount donation', data: { docstatus: 1, paid: 0, amount: -50 } }
+				{
+					description: 'Zero amount donation',
+					data: { docstatus: 1, paid: 0, amount: 0 }
+				},
+				{
+					description: 'Negative amount donation',
+					data: { docstatus: 1, paid: 0, amount: -50 }
+				}
 			];
 
-			edgeCases.forEach(edgeCase => {
+			edgeCases.forEach((edgeCase) => {
 				// Apply edge case data
 				Object.assign(controllerTest.mockForm.doc, edgeCase.data);
 
@@ -220,7 +250,7 @@ const customDonationTests = {
 				docstatus: 1,
 				paid: 0,
 				donor_name: 'Complex Test Donor',
-				amount: 750.50,
+				amount: 750.5,
 				currency: 'EUR',
 				donation_date: '2024-07-15',
 				project: 'Environmental Campaign',
@@ -254,8 +284,8 @@ const customDonationTests = {
 				doctype: 'Payment Entry',
 				name: 'PE-INTEGRATION-001',
 				party_type: 'Customer',
-				paid_amount: 300.00,
-				received_amount: 300.00,
+				paid_amount: 300.0,
+				received_amount: 300.0,
 				reference_no: 'DON-INTEGRATION-001',
 				reference_date: '2024-07-15'
 			};
@@ -296,11 +326,15 @@ const customDonationTests = {
 			// Mock successful API response
 			global.frappe.call.mockImplementation(({ callback }) => {
 				if (callback) {
-					callback({ message: { name: 'PE-TEST-001', doctype: 'Payment Entry' } });
+					callback({
+						message: { name: 'PE-TEST-001', doctype: 'Payment Entry' }
+					});
 				}
 			});
 
-			global.frappe.model.sync.mockReturnValue([{ name: 'PE-TEST-001', doctype: 'Payment Entry' }]);
+			global.frappe.model.sync.mockReturnValue([
+				{ name: 'PE-TEST-001', doctype: 'Payment Entry' }
+			]);
 
 			// Should execute without errors
 			expect(() => {
@@ -382,7 +416,10 @@ const customDonationTests = {
 };
 
 // Create and export the test suite
-describe('Donation Controller (Comprehensive Tests)', createControllerTestSuite(donationConfig, customDonationTests));
+describe(
+	'Donation Controller (Comprehensive Tests)',
+	createControllerTestSuite(donationConfig, customDonationTests)
+);
 
 // Export test utilities for reuse
 module.exports = {

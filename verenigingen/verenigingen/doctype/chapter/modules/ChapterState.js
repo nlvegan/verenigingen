@@ -81,20 +81,20 @@ export class ChapterState {
 	}
 
 	/**
-	 * Get state value by path
-	 * @param {string} path - Dot-separated path to state value (e.g., 'ui.loadingStates.memberValidation')
-	 * @returns {any} The state value at the specified path
-	 */
+   * Get state value by path
+   * @param {string} path - Dot-separated path to state value (e.g., 'ui.loadingStates.memberValidation')
+   * @returns {any} The state value at the specified path
+   */
 	get(path) {
 		return this._getNestedValue(this.state, path);
 	}
 
 	/**
-	 * Update state and notify subscribers
-	 * @param {string} path - Dot-separated path to state value
-	 * @param {any} value - New value to set
-	 * @param {boolean} trackHistory - Whether to track this change in history (default: true)
-	 */
+   * Update state and notify subscribers
+   * @param {string} path - Dot-separated path to state value
+   * @param {any} value - New value to set
+   * @param {boolean} trackHistory - Whether to track this change in history (default: true)
+   */
 	update(path, value, trackHistory = true) {
 		const oldValue = this.get(path);
 
@@ -134,7 +134,7 @@ export class ChapterState {
 
 	// Notify all subscribers of state change
 	notify(path, newValue, oldValue) {
-		this.subscribers.forEach(callback => {
+		this.subscribers.forEach((callback) => {
 			try {
 				callback(path, newValue, oldValue);
 			} catch (error) {
@@ -180,7 +180,9 @@ export class ChapterState {
 
 	// Undo last state change
 	undo() {
-		if (this.history.length === 0) { return false; }
+		if (this.history.length === 0) {
+			return false;
+		}
 
 		const lastChange = this.history.pop();
 		this._setNestedValue(this.state, lastChange.path, lastChange.oldValue);

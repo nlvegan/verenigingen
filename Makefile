@@ -36,7 +36,7 @@ test-quick:
 
 test-all:
 	@echo "Running all tests..."
-	@cd $(BENCH_DIR) && python $(PWD)/scripts/testing/runners/enhanced_test_runner.py --suite all --all-reports
+	@cd $(BENCH_DIR) && python $(PWD)/verenigingen/scripts/testing/runners/enhanced_test_runner.py --suite all --all-reports
 
 coverage:
 	@echo "Running tests with coverage..."

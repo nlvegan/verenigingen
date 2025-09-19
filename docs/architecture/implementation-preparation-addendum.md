@@ -1,4 +1,5 @@
 # Implementation Preparation Addendum
+
 ## Comprehensive Architectural Refactoring Plan v2.0
 
 **Document Version**: 2.1
@@ -15,16 +16,21 @@ This addendum provides the missing implementation specificity identified by the 
 ---
 
 ## PHASE 0: IMPLEMENTATION PREPARATION
+
 **Timeline**: Week 0 (before Phase 1) | **Effort**: 20 hours | **Priority**: CRITICAL
 
 ### Objective
+
 Create all missing infrastructure, scripts, and validation procedures required for safe implementation.
 
 ### Phase 0.1: Create Missing Scripts and Infrastructure
+
 **Duration**: 2 days
 
 **Actions**:
+
 1. **Create Referenced Scripts That Don't Exist**:
+
    ```bash
    # Create missing script directories and files
    mkdir -p scripts/security scripts/performance scripts/analysis
@@ -46,6 +52,7 @@ Create all missing infrastructure, scripts, and validation procedures required f
    ```
 
 2. **Create Phase Validation Scripts**:
+
    ```python
    # scripts/validation/pre_phase1_validator.py
    import frappe
@@ -86,10 +93,13 @@ Create all missing infrastructure, scripts, and validation procedures required f
    ```
 
 ### Phase 0.2: Define Specific Implementation Targets
+
 **Duration**: 1 day
 
 **Actions**:
+
 1. **Create High-Risk API Migration Checklist**:
+
    ```python
    # scripts/security/high_risk_api_checklist.py
 
@@ -130,6 +140,7 @@ Create all missing infrastructure, scripts, and validation procedures required f
    ```
 
 2. **Create Performance Baseline Script**:
+
    ```python
    # scripts/performance/establish_baselines.py
    import time
@@ -182,10 +193,13 @@ Create all missing infrastructure, scripts, and validation procedures required f
    ```
 
 ### Phase 0.3: Create Validation and Rollback Infrastructure
+
 **Duration**: 2 days
 
 **Actions**:
+
 1. **Create Comprehensive Validation Framework**:
+
    ```python
    # scripts/validation/validation_framework.py
 
@@ -226,6 +240,7 @@ Create all missing infrastructure, scripts, and validation procedures required f
    ```
 
 2. **Create Rollback Procedures**:
+
    ```python
    # scripts/rollback/rollback_procedures.py
 
@@ -293,6 +308,7 @@ Create all missing infrastructure, scripts, and validation procedures required f
 **Target APIs with Exact Locations**:
 
 1. **sepa_mandate_management.py**:
+
    ```python
    # FILE: verenigingen/api/sepa_mandate_management.py
    # LINE: 29 (before function definition)
@@ -319,6 +335,7 @@ Create all missing infrastructure, scripts, and validation procedures required f
    ```
 
 2. **payment_processing.py**:
+
    ```python
    # FILE: verenigingen/api/payment_processing.py
    # LINE: 45
@@ -347,6 +364,7 @@ Create all missing infrastructure, scripts, and validation procedures required f
 ### Phase 1.2: Specific Validation Procedures
 
 **API Security Validation Script**:
+
 ```python
 # scripts/validation/api_security_validator.py
 
@@ -409,6 +427,7 @@ def test_unauthorized_access(api_file: str, function_name: str) -> bool:
 ### Phase 1.3: Specific Rollback Procedures
 
 **Security Rollback Script**:
+
 ```python
 # scripts/rollback/phase1_security_rollback.py
 
@@ -480,6 +499,7 @@ def remove_critical_api_decorators(files: List[str]):
 ### Performance Optimization with Specific Targets
 
 **Target Event Handlers (Exact Locations)**:
+
 ```python
 # FILE: verenigingen/hooks.py
 # LINES: 68-75
@@ -506,6 +526,7 @@ def remove_critical_api_decorators(files: List[str]):
 ```
 
 **Specific Database Indexes to Add**:
+
 ```sql
 -- Execute in sequence with validation after each
 
@@ -544,6 +565,7 @@ EXPLAIN SELECT * FROM `tabSEPA Mandate` WHERE member = 'MEM-001' AND status = 'A
 ### Measurable Validation Criteria
 
 **Phase 1 Success Criteria**:
+
 ```python
 PHASE1_SUCCESS_CRITERIA = {
     'security_coverage': {
@@ -568,6 +590,7 @@ PHASE1_SUCCESS_CRITERIA = {
 ```
 
 **Phase 2 Success Criteria**:
+
 ```python
 PHASE2_SUCCESS_CRITERIA = {
     'payment_operation_speed': {
@@ -642,6 +665,7 @@ def monitor_and_rollback_if_needed(phase: str):
 This implementation addendum transforms the conceptual refactoring plan into executable specifications with:
 
 ### **Added Implementation Specificity**:
+
 - ✅ **Exact file paths and line numbers** for all modifications
 - ✅ **Specific function names and code changes** required
 - ✅ **Complete validation scripts** with measurable criteria
@@ -649,6 +673,7 @@ This implementation addendum transforms the conceptual refactoring plan into exe
 - ✅ **Missing infrastructure scripts** created as specifications
 
 ### **Implementation Readiness**: **95%**
+
 - **Plan structure**: Excellent
 - **Risk assessment**: Good
 - **Implementation specificity**: Complete
@@ -657,6 +682,7 @@ This implementation addendum transforms the conceptual refactoring plan into exe
 - **Rollback safety**: Automated
 
 ### **Ready for Coding Agent Implementation**:
+
 The plan now provides sufficient detail for systematic, safe implementation without requiring interpretation or guesswork. Each phase has specific targets, validation criteria, and rollback procedures that a coding agent can execute methodically.
 
 **Recommendation**: Begin implementation with Phase 0 to create all referenced infrastructure, then proceed with Phase 1 using the specific implementation targets provided.

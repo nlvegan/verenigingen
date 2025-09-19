@@ -1,10 +1,10 @@
 /**
  * @fileoverview MSW Setup Utility
- * 
+ *
  * Provides MSW server setup and teardown functions that can be called
  * explicitly by tests that need HTTP mocking. This approach avoids
  * loading MSW for all tests.
- * 
+ *
  * @author Verenigingen Development Team
  * @version 2025-08-26
  */
@@ -16,7 +16,7 @@ const { server } = require('./msw-server');
  * Call this in beforeAll() of test suites that need MSW
  */
 function setupMSW() {
-    server.listen({ onUnhandledRequest: 'warn' });
+	server.listen({ onUnhandledRequest: 'warn' });
 }
 
 /**
@@ -24,20 +24,20 @@ function setupMSW() {
  * Call this in afterEach() of test suites using MSW
  */
 function resetMSW() {
-    server.resetHandlers();
+	server.resetHandlers();
 }
 
 /**
  * Cleanup MSW after tests
- * Call this in afterAll() of test suites using MSW  
+ * Call this in afterAll() of test suites using MSW
  */
 function teardownMSW() {
-    server.close();
+	server.close();
 }
 
 module.exports = {
-    server,
-    setupMSW,
-    resetMSW,
-    teardownMSW
+	server,
+	setupMSW,
+	resetMSW,
+	teardownMSW
 };

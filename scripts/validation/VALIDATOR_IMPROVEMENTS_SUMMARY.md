@@ -10,7 +10,8 @@ The comprehensive method call validator has been significantly refined to addres
 
 **Problem**: The validator was flagging `self.method()` calls as invalid even when the method existed in the same class.
 
-**Solution**: 
+**Solution**:
+
 - Added comprehensive class hierarchy tracking (`class_hierarchy` dictionary)
 - Implemented AST-based class context detection for method calls
 - Enhanced `_find_current_class_context()` to accurately determine which class a method call belongs to
@@ -23,6 +24,7 @@ The comprehensive method call validator has been significantly refined to addres
 **Problem**: Static method calls like `ChapterMembershipHistoryManager.update_membership_status()` were flagged as invalid even when properly imported.
 
 **Solution**:
+
 - Added comprehensive import tracking (`file_imports` dictionary)
 - Enhanced `_extract_imports_from_file()` to track both direct and aliased imports
 - Implemented `_is_static_method_call()` to validate static method calls on imported classes
@@ -35,6 +37,7 @@ The comprehensive method call validator has been significantly refined to addres
 **Problem**: The validator lacked understanding of Python import patterns and module relationships.
 
 **Solution**:
+
 - Added `_validate_with_context_awareness()` for sophisticated validation logic
 - Enhanced chained method call validation (`_validate_chained_call()`)
 - Improved imported class method detection (`_is_imported_class_method()`)
@@ -47,6 +50,7 @@ The comprehensive method call validator has been significantly refined to addres
 **Problem**: The cache only stored method signatures, losing context information on reloads.
 
 **Solution**:
+
 - Extended cache to include `class_hierarchy`, `static_method_calls`, and `file_imports`
 - Updated cache version to 2.0 for the enhanced data structures
 - Improved cache loading/saving to preserve all tracking information
@@ -57,11 +61,11 @@ The comprehensive method call validator has been significantly refined to addres
 
 ### Test Results Summary
 
-| Test Category | Status | Details |
-|---------------|--------|---------|
+| Test Category                 | Status  | Details                                      |
+| ----------------------------- | ------- | -------------------------------------------- |
 | **Member Class Improvements** | ✅ PASS | No false positives for `self.method()` calls |
-| **Application Helpers** | ✅ PASS | Static method calls properly validated |
-| **Overall Metrics** | ✅ PASS | 4/4 improvement targets met |
+| **Application Helpers**       | ✅ PASS | Static method calls properly validated       |
+| **Overall Metrics**           | ✅ PASS | 4/4 improvement targets met                  |
 
 ### Key Metrics
 
@@ -74,6 +78,7 @@ The comprehensive method call validator has been significantly refined to addres
 ### False Positive Reduction
 
 **Before improvements**: Multiple false positives for:
+
 - `self.update_membership_status()` calls
 - `ChapterMembershipHistoryManager.update_membership_status()` calls
 - Other legitimate method calls on imported classes
@@ -83,16 +88,18 @@ The comprehensive method call validator has been significantly refined to addres
 ## Specific Cases Fixed
 
 ### 1. Member Class Methods
+
 ```python
 class Member:
     def update_membership_status(self):
         pass
-    
+
     def some_other_method(self):
         self.update_membership_status()  # ✅ Now validated correctly
 ```
 
 ### 2. Static Method Imports
+
 ```python
 from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
 
@@ -101,6 +108,7 @@ ChapterMembershipHistoryManager.update_membership_status()
 ```
 
 ### 3. Frappe Document Methods
+
 ```python
 class Member(Document):
     def custom_method(self):
@@ -111,21 +119,25 @@ class Member(Document):
 ## Usage
 
 ### Quick Validation (Recommended)
+
 ```bash
 python scripts/validation/method_call_validator.py
 ```
 
 ### Comprehensive Analysis (with Frappe core)
+
 ```bash
 python scripts/validation/method_call_validator.py --comprehensive
 ```
 
 ### Debug Mode (for troubleshooting)
+
 ```bash
 python scripts/validation/method_call_validator.py --debug
 ```
 
 ### Rebuild Cache
+
 ```bash
 python scripts/validation/method_call_validator.py --rebuild-cache
 ```
@@ -162,11 +174,13 @@ The validator now follows this improved validation flow:
 ## Impact
 
 ### Before Improvements
+
 - High false positive rate for legitimate method calls
 - Manual review needed to distinguish real issues from false alarms
 - Reduced confidence in validator results
 
 ### After Improvements
+
 - ✅ Significantly reduced false positives
 - ✅ Maintained detection of real undefined method calls
 - ✅ More reliable automated validation
@@ -184,6 +198,7 @@ Potential areas for further improvement:
 ## Conclusion
 
 The enhanced method call validator now provides:
+
 - **Accurate validation** with minimal false positives
 - **Better context awareness** for Python import patterns
 - **Comprehensive tracking** of class hierarchies and static methods

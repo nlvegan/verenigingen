@@ -14,7 +14,9 @@ The eBoekhouden Cost Center Integration represents a significant enhancement to 
 ### Core Components
 
 #### 1. EBoekhouden Cost Center Mapping DocType
+
 **File**: `verenigingen/e_boekhouden/doctype/eboekhouden_cost_center_mapping/`
+
 - **Type**: Child Table (istable: 1)
 - **Purpose**: Store cost center mapping configuration per account group
 - **Fields**:
@@ -28,12 +30,15 @@ The eBoekhouden Cost Center Integration represents a significant enhancement to 
   - `suggestion_reason` (Small Text): Explanation for the suggestion
 
 #### 2. Enhanced E-Boekhouden Settings DocType
+
 **Files**:
+
 - `verenigingen/e_boekhouden/doctype/e_boekhouden_settings/e_boekhouden_settings.json`
 - `verenigingen/e_boekhouden/doctype/e_boekhouden_settings/e_boekhouden_settings.py`
 - `verenigingen/e_boekhouden/doctype/e_boekhouden_settings/e_boekhouden_settings.js`
 
 **New Fields**:
+
 - `cost_center_section`: Section break for cost center configuration
 - `parse_groups_button`: Button to trigger intelligent analysis
 - `cost_center_mappings`: Child table linking to EBoekhouden Cost Center Mapping
@@ -45,13 +50,15 @@ The eBoekhouden Cost Center Integration represents a significant enhancement to 
 The system implements sophisticated business logic based on Dutch accounting standards (RGS - Reference Code System):
 
 #### Expense Groups (Codes 5*, 6*)
+
 ```python
 if code.startswith(('5', '6')):  # Personnel costs, other expenses
     if any(keyword in name_lower for keyword in ['personeel', 'salaris', 'kosten', 'uitgaven']):
         return True, "Expense group - good for cost tracking"
 ```
 
-#### Revenue Groups (Code 3*)
+#### Revenue Groups (Code 3\*)
+
 ```python
 if code.startswith('3'):  # Revenue accounts
     if any(keyword in name_lower for keyword in ['opbrengst', 'omzet', 'verkoop']):
@@ -59,6 +66,7 @@ if code.startswith('3'):  # Revenue accounts
 ```
 
 #### Operational Keywords
+
 ```python
 operational_keywords = [
     'afdeling', 'departement', 'team', 'project', 'activiteit',
@@ -67,6 +75,7 @@ operational_keywords = [
 ```
 
 #### Balance Sheet Exclusions
+
 ```python
 if code.startswith(('1', '2')):  # Assets, Liabilities
     balance_keywords = ['activa', 'passiva', 'schuld', 'vordering', 'bank', 'kas']
@@ -93,7 +102,9 @@ def clean_cost_center_name(name):
 ## User Experience Flow
 
 ### Step 1: Input (Preserved Workflow)
+
 Users continue using the familiar text-based input exactly as before:
+
 ```
 001 Vaste activa
 055 Opbrengsten verkoop
@@ -103,31 +114,40 @@ Users continue using the familiar text-based input exactly as before:
 ```
 
 ### Step 2: Parse and Analyze
+
 Click "Parse Groups & Configure Cost Centers" button, which:
+
 1. **Parses** text input into structured data
 2. **Analyzes** each group using Dutch accounting intelligence
 3. **Suggests** cost center creation with reasoning
 4. **Populates** child table with configurable options
 
 ### Step 3: Review and Configure
+
 Users can:
+
 - **Toggle** cost center creation on/off per group
 - **Edit** proposed cost center names
 - **Set** hierarchical relationships
 - **Review** suggestion reasoning
 
 ### Step 4: Save Configuration
+
 Configuration is saved and ready for cost center creation
 
 ### Step 5: Preview Cost Centers (Phase 2)
+
 Click "Preview Cost Center Creation" to see:
+
 - **What would be created**: Cost centers that don't exist yet
 - **What would be skipped**: Cost centers that already exist
 - **Validation results**: Any naming conflicts or errors
 - **Hierarchical structure**: Parent-child relationships
 
 ### Step 6: Create Cost Centers (Phase 2)
+
 Click "Create Cost Centers" to:
+
 - **Create actual ERPNext Cost Centers** based on configuration
 - **Handle duplicates intelligently** - skip existing cost centers
 - **Provide detailed results** - success, skipped, and failure reports
@@ -138,20 +158,24 @@ Click "Create Cost Centers" to:
 ### API Endpoints
 
 #### Phase 1: Configuration and Analysis
+
 ```python
 @frappe.whitelist()
 def parse_groups_and_suggest_cost_centers(group_mappings_text, company):
     """Parse account group mappings text and suggest cost center configuration"""
 ```
+
 **Input**: Text string with account groups, Company name
 **Output**: Structured suggestions with reasoning
 
 #### Phase 2: Cost Center Creation Engine
+
 ```python
 @frappe.whitelist()
 def preview_cost_center_creation():
     """Preview what cost centers would be created without actually creating them"""
 ```
+
 **Input**: Uses saved settings configuration
 **Output**: Preview results with creation/skip analysis
 
@@ -160,12 +184,14 @@ def preview_cost_center_creation():
 def create_cost_centers_from_mappings():
     """Create ERPNext cost centers based on configured mappings"""
 ```
+
 **Input**: Uses saved settings configuration
 **Output**: Detailed creation results with success/failure reporting
 
 ### JavaScript Integration
 
 #### Phase 1: Configuration and Analysis
+
 ```javascript
 parse_groups_button(frm) {
     frappe.call({
@@ -184,44 +210,53 @@ parse_groups_button(frm) {
 ```
 
 #### Phase 2: Cost Center Creation Engine
+
 ```javascript
 // Preview functionality with detailed dialog
-frm.add_custom_button(__('Preview Cost Center Creation'), () => {
+frm
+  .add_custom_button(__("Preview Cost Center Creation"), () => {
     frappe.call({
-        method: 'preview_cost_center_creation',
-        callback(r) {
-            if (r.message.success) {
-                frm.show_cost_center_preview(r.message);
-            }
+      method: "preview_cost_center_creation",
+      callback(r) {
+        if (r.message.success) {
+          frm.show_cost_center_preview(r.message);
         }
+      },
     });
-}).addClass('btn-info');
+  })
+  .addClass("btn-info");
 
 // Actual creation with confirmation dialog
-frm.add_custom_button(__('Create Cost Centers'), () => {
+frm
+  .add_custom_button(__("Create Cost Centers"), () => {
     frappe.confirm(
-        __('This will create actual Cost Centers in ERPNext based on your configuration. Continue?'),
-        () => {
-            frappe.call({
-                method: 'create_cost_centers_from_mappings',
-                callback(r) {
-                    frm.show_cost_center_results(r.message);
-                }
-            });
-        }
+      __(
+        "This will create actual Cost Centers in ERPNext based on your configuration. Continue?",
+      ),
+      () => {
+        frappe.call({
+          method: "create_cost_centers_from_mappings",
+          callback(r) {
+            frm.show_cost_center_results(r.message);
+          },
+        });
+      },
     );
-}).addClass('btn-success');
+  })
+  .addClass("btn-success");
 ```
 
 ### Error Handling
 
 #### Phase 1: Configuration Errors
+
 - **Input Validation**: Checks for empty or malformed input
 - **Parsing Errors**: Graceful handling of format issues
 - **API Failures**: Comprehensive error reporting
 - **User Feedback**: Clear success/failure messages with details
 
 #### Phase 2: Cost Center Creation Errors
+
 - **Duplicate Detection**: Automatically skips existing cost centers
 - **Company Validation**: Ensures target company exists
 - **Parent Cost Center Validation**: Verifies parent cost center references
@@ -233,6 +268,7 @@ frm.add_custom_button(__('Create Cost Centers'), () => {
 ## Testing Strategy
 
 ### Test Data
+
 ```python
 test_mappings = """001 Vaste activa
 055 Opbrengsten verkoop
@@ -245,6 +281,7 @@ test_mappings = """001 Vaste activa
 ### Expected Results
 
 #### Phase 1 - Analysis and Configuration:
+
 - **001 Vaste activa**: Should NOT suggest cost center (balance sheet item)
 - **055 Opbrengsten verkoop**: Should suggest cost center (revenue tracking)
 - **056 Personeelskosten**: Should suggest cost center (expense tracking)
@@ -253,6 +290,7 @@ test_mappings = """001 Vaste activa
 - **600 Kantoorkost**: Should suggest cost center (office expenses)
 
 #### Phase 2 - Cost Center Creation:
+
 - **Preview Functionality**: Should show exactly which cost centers would be created/skipped
 - **Duplicate Handling**: Should skip cost centers that already exist
 - **Creation Success**: Should create new cost centers with proper names and company assignment
@@ -262,6 +300,7 @@ test_mappings = """001 Vaste activa
 ### Comprehensive Test Suite
 
 #### Phase 1 Validation Points:
+
 1. **Parser Accuracy**: Correctly splits codes and names
 2. **Business Logic**: Appropriate suggestions based on Dutch accounting
 3. **Name Cleaning**: Proper formatting of cost center names
@@ -269,6 +308,7 @@ test_mappings = """001 Vaste activa
 5. **Error Handling**: Graceful failure modes
 
 #### Phase 2 Validation Points:
+
 1. **Preview Accuracy**: Preview results match actual creation behavior
 2. **Duplicate Prevention**: Existing cost centers are properly detected and skipped
 3. **Document Creation**: Cost Center documents are created with all required fields
@@ -281,7 +321,9 @@ test_mappings = """001 Vaste activa
 10. **Cleanup Support**: Test cost centers can be removed after testing
 
 ### Automated Test Script
+
 A comprehensive test script (`test_phase2_cost_center_creation_20250807.py`) validates:
+
 - Complete workflow from parsing to creation
 - Business logic validation with multiple test cases
 - Error handling and edge cases
@@ -291,6 +333,7 @@ A comprehensive test script (`test_phase2_cost_center_creation_20250807.py`) val
 ## Phase 2 Implementation: Cost Center Creation Engine ✅
 
 ### Implemented Features
+
 1. ✅ **Automatic Creation**: Convert mappings to actual ERPNext cost centers
 2. ✅ **Hierarchy Support**: Create parent-child relationships
 3. ✅ **Duplicate Prevention**: Check existing cost centers and skip intelligently
@@ -305,6 +348,7 @@ A comprehensive test script (`test_phase2_cost_center_creation_20250807.py`) val
 ### Core Implementation Functions
 
 #### Cost Center Creation Engine
+
 ```python
 @frappe.whitelist()
 def create_cost_centers_from_mappings():
@@ -324,6 +368,7 @@ def preview_cost_center_creation():
 #### Key Architecture Features
 
 **Duplicate Prevention**:
+
 ```python
 existing_cost_center = frappe.db.get_value(
     "Cost Center",
@@ -334,12 +379,14 @@ existing_cost_center = frappe.db.get_value(
 ```
 
 **Hierarchical Processing**:
+
 ```python
 # Sort by hierarchy - create parent groups first
 mappings_to_create.sort(key=lambda x: (0 if x.is_group else 1, x.group_code))
 ```
 
 **Comprehensive Error Handling**:
+
 ```python
 created_cost_centers = []
 skipped_cost_centers = []
@@ -350,18 +397,21 @@ failed_cost_centers = []
 ## Benefits and Impact
 
 ### For Users
+
 - **Familiar Workflow**: No change to current text-based input
 - **Intelligent Automation**: Smart suggestions reduce manual configuration
 - **Clear Reasoning**: Understand why each suggestion was made
 - **Full Control**: Toggle and customize as needed
 
 ### For System
+
 - **Enhanced Tracking**: Better cost center utilization in ERPNext
 - **Standardized Approach**: Consistent cost center naming and structure
 - **Scalable Architecture**: Foundation for advanced financial reporting
 - **Integration Ready**: Prepared for budget and reporting enhancements
 
 ### For Development
+
 - **Modular Design**: Clear separation of parsing, analysis, and UI
 - **Extensible Logic**: Easy to add new business rules
 - **Comprehensive Testing**: Built-in validation and error handling
@@ -392,6 +442,7 @@ The implementation now provides end-to-end functionality:
 ### Technical Excellence
 
 The implementation demonstrates:
+
 - **Zero Technical Debt**: Clean, maintainable code following all Frappe best practices
 - **Comprehensive Error Handling**: Graceful handling of all edge cases and failure modes
 - **Production-Ready Architecture**: Scalable design ready for enterprise deployment
@@ -401,6 +452,7 @@ The implementation demonstrates:
 ### Business Impact
 
 Users can now:
+
 - **Continue familiar workflows** with no learning curve
 - **Leverage intelligent automation** for cost center planning
 - **Create ERPNext cost centers** directly from eBoekhouden account groups

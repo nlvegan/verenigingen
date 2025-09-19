@@ -24,11 +24,13 @@ Before using this feature, ensure you have:
 ### Step 2: Enter Account Group Mappings
 
 In the **Account Group Mappings** field, enter your eBoekhouden account groups in the format:
+
 ```
 code name
 ```
 
 **Example:**
+
 ```
 001 Vaste activa
 055 Opbrengsten verkoop
@@ -39,6 +41,7 @@ code name
 ```
 
 **Important:**
+
 - One account group per line
 - Code and name separated by a space
 - Use the exact format from your eBoekhouden system
@@ -87,12 +90,14 @@ Click **"Save"** to store your cost center configuration. This saves your settin
 The system uses Dutch accounting standards to make intelligent suggestions:
 
 ### Cost Centers ARE Suggested For:
+
 - **Expense Groups (5xx, 6xx)**: Personnel costs, general expenses
 - **Revenue Groups (3xx)**: Sales, income tracking
 - **Operational Groups**: Containing keywords like "afdeling", "team", "project"
 - **Cost-related Groups**: Containing "kosten", "uitgaven", "lasten"
 
 ### Cost Centers are NOT Suggested For:
+
 - **Assets (1xx)**: Fixed assets, current assets
 - **Liabilities (2xx)**: Debts, obligations
 - **Balance Sheet Items**: Bank accounts, receivables, payables
@@ -100,56 +105,70 @@ The system uses Dutch accounting standards to make intelligent suggestions:
 ## Tips and Best Practices
 
 ### 1. Start Small
+
 Test with a few account groups first to understand the process
 
 ### 2. Use Preview
+
 Always preview before creating to avoid surprises
 
 ### 3. Hierarchical Structure
+
 Consider creating group cost centers for better organization:
+
 - "Expenses" as a group
 - Individual expense types as children
 
 ### 4. Naming Conventions
+
 The system automatically cleans names, but you can customize:
+
 - Original: "056 Personeelskosten rekeningen"
 - Cleaned: "Personeelskosten"
 
 ### 5. Company Integration
+
 Cost centers are automatically linked to your selected company
 
 ## Troubleshooting
 
 ### "No cost center mappings configured"
+
 - Ensure you've clicked "Parse Groups & Configure Cost Centers" first
 - Save the document after parsing
 
 ### "Default company not configured"
+
 - Select a company in the Default Company field
 - Save the settings
 
 ### Cost Center Already Exists
+
 - The system automatically skips existing cost centers
 - Check the "Skipped" section in results
 - No action needed - this is normal behavior
 
 ### Permission Errors
+
 - Ensure you have System Manager or Verenigingen Administrator role
 - Check that you have permission to create Cost Centers
 
 ## Advanced Features
 
 ### Batch Processing
+
 - Process hundreds of account groups at once
 - Individual failures don't stop the batch
 - Comprehensive reporting of all results
 
 ### Parent-Child Relationships
+
 - Create hierarchical cost center structures
 - Parent cost centers should be marked as "Is Group"
 - System creates parents before children automatically
 
 ### Multi-Language Support
+
 - Dutch account names are handled intelligently
 - Keywords in Dutch trigger appropriate suggestions
 - English ERPNext interface with Dutch data support
@@ -157,16 +176,19 @@ Cost centers are automatically linked to your selected company
 ## Security and Safety
 
 ### Preview Before Creation
+
 - Always preview changes before committing
 - No cost centers are created during preview
 - Safe to experiment with different configurations
 
 ### Duplicate Prevention
+
 - System automatically detects existing cost centers
 - Prevents accidental duplicates
 - Shows exactly what exists in skip report
 
 ### Audit Trail
+
 - All created cost centers include description with source
 - Shows which eBoekhouden group it came from
 - Includes the suggestion reasoning
@@ -174,18 +196,23 @@ Cost centers are automatically linked to your selected company
 ## Frequently Asked Questions
 
 ### Q: Can I undo cost center creation?
+
 A: Cost centers must be manually deleted if needed. Always use preview first.
 
 ### Q: What happens to existing cost centers?
+
 A: They are automatically detected and skipped. No duplicates are created.
 
 ### Q: Can I run this multiple times?
+
 A: Yes, the system safely handles multiple runs by skipping existing cost centers.
 
 ### Q: How are cost center IDs generated?
+
 A: Format: "Cost Center Name - Company Name"
 
 ### Q: Can I use this with multiple companies?
+
 A: Yes, select the appropriate company before creating cost centers.
 
 ## Next Steps
@@ -200,6 +227,7 @@ After creating cost centers:
 ## Support
 
 For issues or questions:
+
 - Check the error messages in the results dialog
 - Review the skipped items for existing cost centers
 - Ensure all prerequisites are met

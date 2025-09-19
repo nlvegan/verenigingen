@@ -7,12 +7,14 @@
 **Location**: `sepa_operations_bulk_true.py:_true_bulk_update_mandates()`
 
 **Vulnerability**: Direct string interpolation in SQL queries
+
 ```python
 # BEFORE (VULNERABLE):
 sql = f"UPDATE tabSEPA Mandate SET {field} = CASE name {case_statement} END WHERE name IN ({mandate_list})"
 ```
 
 **Fix Applied**: Parameterized queries + field name validation
+
 ```python
 # AFTER (SECURE):
 allowed_fields = ['account_holder', 'iban', 'mandate_reference', 'status']
@@ -29,12 +31,14 @@ frappe.db.sql(sql, params)  # All values parameterized
 **Location**: `sepa_operations_bulk_true.py:_true_bulk_cancel_mandates()`
 
 **Vulnerability**: Direct user session interpolation and unparameterized mandate names
+
 ```python
 # BEFORE (VULNERABLE):
 sql = f"UPDATE `tabSEPA Mandate` SET status = 'Cancelled' WHERE name IN ({mandate_list})"
 ```
 
 **Fix Applied**: Full parameterization
+
 ```python
 # AFTER (SECURE):
 placeholders = ", ".join(["%s"] * len(clean_mandate_names))
@@ -46,16 +50,19 @@ frappe.db.sql(sql, params)  # All values parameterized
 ## Security Enhancements Applied
 
 ### 1. Field Name Whitelisting
+
 - Only allows predefined SEPA mandate fields for updates
 - Prevents SQL injection through malicious field names
 - Fields: `account_holder`, `iban`, `mandate_reference`, `status`
 
 ### 2. Full Parameter Binding
+
 - All SQL values use `%s` placeholders
 - User session data parameterized (no direct interpolation)
 - Mandate names and field values parameterized
 
 ### 3. Input Sanitization
+
 - Quote removal from mandate names where needed
 - Field validation before SQL construction
 - Error logging for invalid field attempts
@@ -70,15 +77,19 @@ Security fixes actually improved performance slightly due to cleaner parameteriz
 ## Compliance Validation
 
 ### ✅ No Permission Bypasses
+
 All operations use proper Frappe permission validation
 
 ### ✅ SEPA Regulatory Compliance
+
 Maintains required fields: IBAN, BIC, mandate reference, holder name
 
 ### ✅ Audit Trail Preservation
+
 All operations logged through AuditContextManagerClean
 
 ### ✅ Transaction Integrity
+
 Atomic commits with proper rollback on failure
 
 ## Testing Status
@@ -90,14 +101,14 @@ Atomic commits with proper rollback on failure
 
 ## Production Readiness Assessment
 
-| Security Requirement | Status | Evidence |
-|---------------------|--------|----------|
-| No SQL Injection | ✅ PASS | Parameterized queries implemented |
-| Input Validation | ✅ PASS | Field whitelisting active |
-| Permission Compliance | ✅ PASS | No permission bypasses used |
-| Audit Compliance | ✅ PASS | Full audit context integration |
-| Error Handling | ✅ PASS | Comprehensive try-catch with rollback |
-| Performance Validated | ✅ PASS | 99.1% improvement confirmed |
+| Security Requirement  | Status  | Evidence                              |
+| --------------------- | ------- | ------------------------------------- |
+| No SQL Injection      | ✅ PASS | Parameterized queries implemented     |
+| Input Validation      | ✅ PASS | Field whitelisting active             |
+| Permission Compliance | ✅ PASS | No permission bypasses used           |
+| Audit Compliance      | ✅ PASS | Full audit context integration        |
+| Error Handling        | ✅ PASS | Comprehensive try-catch with rollback |
+| Performance Validated | ✅ PASS | 99.1% improvement confirmed           |
 
 ## Quality Gate Status: READY FOR RE-EVALUATION
 

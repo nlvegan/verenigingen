@@ -29,7 +29,7 @@ describe('Simple API Contract Testing', () => {
 		it('should validate correct member payment API call', () => {
 			const validArgs = {
 				member_id: 'Assoc-Member-2025-07-0001',
-				payment_amount: 25.00,
+				payment_amount: 25.0,
 				payment_method: 'SEPA Direct Debit'
 			};
 
@@ -119,7 +119,7 @@ describe('Simple API Contract Testing', () => {
 			const validDonation = {
 				donor_name: 'John Doe',
 				email: 'john.doe@example.org',
-				amount: 50.00,
+				amount: 50.0,
 				donation_type: 'one-time',
 				anbi_consent: true
 			};
@@ -133,7 +133,7 @@ describe('Simple API Contract Testing', () => {
 			const invalidEmailDonation = {
 				donor_name: 'Invalid Email',
 				email: 'not-an-email',
-				amount: 25.00
+				amount: 25.0
 			};
 
 			expect(() => {
@@ -147,7 +147,7 @@ describe('Simple API Contract Testing', () => {
 			const negativeDonation = {
 				donor_name: 'Negative Amount',
 				email: 'test@example.org',
-				amount: -5.00
+				amount: -5.0
 			};
 
 			expect(() => {
@@ -196,9 +196,15 @@ describe('Simple API Contract Testing', () => {
 		it('should list all available API methods', () => {
 			const methods = tester.getAvailableMethods();
 
-			expect(methods).toContain('verenigingen.verenigingen.doctype.member.member.process_payment');
-			expect(methods).toContain('verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter_with_cleanup');
-			expect(methods).toContain('verenigingen.templates.pages.donate.submit_donation');
+			expect(methods).toContain(
+				'verenigingen.verenigingen.doctype.member.member.process_payment'
+			);
+			expect(methods).toContain(
+				'verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter_with_cleanup'
+			);
+			expect(methods).toContain(
+				'verenigingen.templates.pages.donate.submit_donation'
+			);
 			expect(methods.length).toBeGreaterThan(3);
 		});
 
@@ -216,10 +222,11 @@ describe('Simple API Contract Testing', () => {
 	describe('Direct Validation Testing', () => {
 		it('should validate API calls directly', () => {
 			const result = tester.validateFrappeCall({
-				method: 'verenigingen.verenigingen.doctype.member.member.process_payment',
+				method:
+          'verenigingen.verenigingen.doctype.member.member.process_payment',
 				args: {
 					member_id: 'Assoc-Member-2025-07-0001',
-					payment_amount: 25.00,
+					payment_amount: 25.0,
 					payment_method: 'SEPA Direct Debit'
 				}
 			});
@@ -230,7 +237,8 @@ describe('Simple API Contract Testing', () => {
 
 		it('should detect parameter name mismatches', () => {
 			const result = tester.validateFrappeCall({
-				method: 'verenigingen.verenigingen.doctype.member.member.process_payment',
+				method:
+          'verenigingen.verenigingen.doctype.member.member.process_payment',
 				args: { member: 'Assoc-Member-2025-07-0001' } // Wrong parameter name (should be member_id)
 			});
 
@@ -249,7 +257,9 @@ describe('Simple API Contract Testing', () => {
 			});
 
 			expect(result.valid).toBe(false);
-			expect(result.errors.some(err => err.message.includes('number'))).toBe(true);
+			expect(result.errors.some((err) => err.message.includes('number'))).toBe(
+				true
+			);
 		});
 	});
 });

@@ -56,21 +56,24 @@
  */
 frappe.listview_settings['Donation'] = {
 	/**
-	 * Additional fields to display in list view beyond the standard fields
-	 *
-	 * @type {Array<string>}
-	 */
+   * Additional fields to display in list view beyond the standard fields
+   *
+   * @type {Array<string>}
+   */
 	add_fields: ['donor', 'amount', 'paid', 'payment_method', 'date'],
 
 	/**
-	 * Generate status indicator for donation records based on payment status
-	 *
-	 * @param {Object} doc - Document object containing donation data
-	 * @param {string} doc.paid - Payment status (1 for paid, 0 for pending)
-	 * @returns {Array} Indicator configuration [label, color, filter]
-	 */
+   * Generate status indicator for donation records based on payment status
+   *
+   * @param {Object} doc - Document object containing donation data
+   * @param {string} doc.paid - Payment status (1 for paid, 0 for pending)
+   * @returns {Array} Indicator configuration [label, color, filter]
+   */
 	get_indicator(doc) {
-		return [__(doc.paid ? 'Paid' : 'Pending'),
-			doc.paid ? 'green' : 'orange', `paid,=,${doc.paid}`];
+		return [
+			__(doc.paid ? 'Paid' : 'Pending'),
+			doc.paid ? 'green' : 'orange',
+			`paid,=,${doc.paid}`
+		];
 	}
 };

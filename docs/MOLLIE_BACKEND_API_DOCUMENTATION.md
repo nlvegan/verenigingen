@@ -3,6 +3,7 @@
 This comprehensive guide covers the Verenigingen API endpoints, authentication, and integration patterns.
 
 ## Table of Contents
+
 - [Overview](#overview)
 - [Authentication](#authentication)
 - [Core API Endpoints](#core-api-endpoints)
@@ -21,11 +22,13 @@ This comprehensive guide covers the Verenigingen API endpoints, authentication, 
 The Verenigingen app provides a comprehensive REST API built on the Frappe framework. All endpoints follow Frappe's API conventions and require proper authentication.
 
 ### Base URL Structure
+
 ```
 https://your-site.com/api/method/verenigingen.api.[module].[function]
 ```
 
 ### API Capabilities
+
 - **Member Management**: Complete lifecycle from application to termination with automated workflows
 - **Payment Processing**: SEPA direct debit, mandate management, and ERPNext financial integration
 - **eBoekhouden Integration**: Production-ready REST API integration for financial data synchronization
@@ -40,7 +43,9 @@ https://your-site.com/api/method/verenigingen.api.[module].[function]
 - **Banking Integration**: MT940 import, IBAN validation, and bank reconciliation
 
 ### Response Format
+
 All API responses follow this standard format:
+
 ```json
 {
   "message": {
@@ -58,7 +63,9 @@ All API responses follow this standard format:
 ```
 
 ### Error Response Format
+
 Error responses include detailed information for debugging:
+
 ```json
 {
   "exc_type": "ValidationError",
@@ -85,15 +92,16 @@ Error responses include detailed information for debugging:
 ### Session-Based Authentication
 
 For browser-based applications:
+
 ```javascript
 // Login to create session
-fetch('/api/method/login', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+fetch("/api/method/login", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
-    usr: 'user@example.com',
-    pwd: 'password'
-  })
+    usr: "user@example.com",
+    pwd: "password",
+  }),
 });
 ```
 
@@ -102,16 +110,19 @@ fetch('/api/method/login', {
 ### Member Management API
 
 #### Get Member Information
+
 ```http
 GET /api/method/verenigingen.api.member_management.get_member_info
 ```
 
 **Parameters**:
+
 - `member_id` (string): Member ID or email address
 - `include_payments` (boolean): Include payment history
 - `include_volunteer` (boolean): Include volunteer information
 
 **Example Request**:
+
 ```bash
 curl -X GET "https://your-site.com/api/method/verenigingen.api.member_management.get_member_info" \
   -H "Authorization: token your_api_key:your_api_secret" \
@@ -119,6 +130,7 @@ curl -X GET "https://your-site.com/api/method/verenigingen.api.member_management
 ```
 
 **Example Response**:
+
 ```json
 {
   "message": {
@@ -134,7 +146,7 @@ curl -X GET "https://your-site.com/api/method/verenigingen.api.member_management
       "payments": [
         {
           "date": "2024-01-01",
-          "amount": 25.00,
+          "amount": 25.0,
           "status": "Paid",
           "method": "SEPA"
         }
@@ -145,11 +157,13 @@ curl -X GET "https://your-site.com/api/method/verenigingen.api.member_management
 ```
 
 #### Create New Member
+
 ```http
 POST /api/method/verenigingen.api.member_management.create_member
 ```
 
 **Request Body**:
+
 ```json
 {
   "first_name": "Jane",
@@ -163,27 +177,31 @@ POST /api/method/verenigingen.api.member_management.create_member
     "country": "Netherlands"
   },
   "membership_type": "Individual",
-  "fee_amount": 25.00
+  "fee_amount": 25.0
 }
 ```
 
 #### Update Member Information
+
 ```http
 PUT /api/method/verenigingen.api.member_management.update_member
 ```
 
 **Parameters**:
+
 - `member_id` (string, required): Member to update
 - `data` (object): Fields to update
 
 ### Membership Application API
 
 #### Submit New Application
+
 ```http
 POST /api/method/verenigingen.api.membership_application.submit_application
 ```
 
 **Request Body**:
+
 ```json
 {
   "applicant": {
@@ -205,11 +223,13 @@ POST /api/method/verenigingen.api.membership_application.submit_application
 ```
 
 #### Get Application Status
+
 ```http
 GET /api/method/verenigingen.api.membership_application.get_application_status
 ```
 
 **Parameters**:
+
 - `application_id` (string): Application reference number
 - `email` (string): Applicant email address
 
@@ -218,11 +238,13 @@ GET /api/method/verenigingen.api.membership_application.get_application_status
 ### SEPA Mandate Management
 
 #### Create SEPA Mandate
+
 ```http
 POST /api/method/verenigingen.api.sepa_mandate_fix.create_sepa_mandate
 ```
 
 **Request Body**:
+
 ```json
 {
   "member_id": "MEMBER001",
@@ -233,14 +255,17 @@ POST /api/method/verenigingen.api.sepa_mandate_fix.create_sepa_mandate
 ```
 
 #### Validate IBAN
+
 ```http
 GET /api/method/verenigingen.utils.iban_validator.validate_iban
 ```
 
 **Parameters**:
+
 - `iban` (string): IBAN to validate
 
 **Example Response**:
+
 ```json
 {
   "message": {
@@ -256,15 +281,17 @@ GET /api/method/verenigingen.utils.iban_validator.validate_iban
 ### Payment Processing
 
 #### Process Payment
+
 ```http
 POST /api/method/verenigingen.api.payment_processing.process_payment
 ```
 
 **Request Body**:
+
 ```json
 {
   "member_id": "MEMBER001",
-  "amount": 25.00,
+  "amount": 25.0,
   "payment_method": "sepa",
   "description": "Annual membership fee",
   "due_date": "2024-12-31"
@@ -272,11 +299,13 @@ POST /api/method/verenigingen.api.payment_processing.process_payment
 ```
 
 #### Get Payment History
+
 ```http
 GET /api/method/verenigingen.api.payment_processing.get_payment_history
 ```
 
 **Parameters**:
+
 - `member_id` (string): Member ID
 - `from_date` (date): Start date filter
 - `to_date` (date): End date filter
@@ -285,11 +314,13 @@ GET /api/method/verenigingen.api.payment_processing.get_payment_history
 ### Direct Debit Batch Management
 
 #### Create SEPA Batch
+
 ```http
 POST /api/method/verenigingen.api.dd_batch_scheduler.create_dd_batch
 ```
 
 **Request Body**:
+
 ```json
 {
   "execution_date": "2024-12-31",
@@ -308,11 +339,13 @@ The eBoekhouden integration provides comprehensive accounting system synchroniza
 ### Migration Management
 
 #### Start Complete Migration
+
 ```http
 POST /api/method/verenigingen.utils.eboekhouden_rest_full_migration.start_full_rest_import
 ```
 
 **Request Body**:
+
 ```json
 {
   "migration_name": "eBoekhouden Migration 2025-01-07"
@@ -320,6 +353,7 @@ POST /api/method/verenigingen.utils.eboekhouden_rest_full_migration.start_full_r
 ```
 
 **Example Response**:
+
 ```json
 {
   "message": {
@@ -333,11 +367,13 @@ POST /api/method/verenigingen.utils.eboekhouden_rest_full_migration.start_full_r
 ```
 
 #### Test Opening Balance Import
+
 ```http
 GET /api/method/verenigingen.utils.eboekhouden_rest_full_migration.test_opening_balance_import
 ```
 
 **Example Response**:
+
 ```json
 {
   "message": {
@@ -351,14 +387,17 @@ GET /api/method/verenigingen.utils.eboekhouden_rest_full_migration.test_opening_
 ```
 
 #### Get Migration Progress
+
 ```http
 GET /api/method/verenigingen.utils.eboekhouden_rest_full_migration.get_migration_status
 ```
 
 **Parameters**:
+
 - `migration_id` (string): Migration identifier
 
 **Example Response**:
+
 ```json
 {
   "message": {
@@ -383,11 +422,13 @@ GET /api/method/verenigingen.utils.eboekhouden_rest_full_migration.get_migration
 ### Data Analysis and Validation
 
 #### Analyze Missing Mappings
+
 ```http
 GET /api/method/verenigingen.utils.eboekhouden_rest_full_migration.analyze_missing_ledger_mappings
 ```
 
 **Example Response**:
+
 ```json
 {
   "message": {
@@ -408,11 +449,13 @@ GET /api/method/verenigingen.utils.eboekhouden_rest_full_migration.analyze_missi
 ```
 
 #### Export Unprocessed Data
+
 ```http
 POST /api/method/verenigingen.utils.eboekhouden_rest_full_migration.export_unprocessed_mutations
 ```
 
 **Request Body**:
+
 ```json
 {
   "export_path": "/tmp/unprocessed_mutations.json",
@@ -423,11 +466,13 @@ POST /api/method/verenigingen.utils.eboekhouden_rest_full_migration.export_unpro
 ### API Connectivity Testing
 
 #### Test REST API Connection
+
 ```http
 GET /api/method/verenigingen.utils.eboekhouden_rest_iterator.test_rest_iterator
 ```
 
 **Example Response**:
+
 ```json
 {
   "message": {
@@ -444,11 +489,13 @@ GET /api/method/verenigingen.utils.eboekhouden_rest_iterator.test_rest_iterator
 ```
 
 #### Estimate Data Range
+
 ```http
 GET /api/method/verenigingen.utils.eboekhouden_rest_iterator.estimate_mutation_range
 ```
 
 **Example Response**:
+
 ```json
 {
   "message": {
@@ -464,11 +511,13 @@ GET /api/method/verenigingen.utils.eboekhouden_rest_iterator.estimate_mutation_r
 ### Cache Management
 
 #### Get Cache Statistics
+
 ```http
 GET /api/method/verenigingen.utils.eboekhouden_rest_full_migration.get_cache_statistics
 ```
 
 **Example Response**:
+
 ```json
 {
   "message": {
@@ -482,6 +531,7 @@ GET /api/method/verenigingen.utils.eboekhouden_rest_full_migration.get_cache_sta
 ```
 
 #### Clear Cache
+
 ```http
 DELETE /api/method/verenigingen.utils.eboekhouden_rest_full_migration.clear_cache
 ```
@@ -489,11 +539,13 @@ DELETE /api/method/verenigingen.utils.eboekhouden_rest_full_migration.clear_cach
 ### Account Management
 
 #### Create Account Mapping
+
 ```http
 POST /api/method/verenigingen.api.eboekhouden_account_manager.create_account_mapping
 ```
 
 **Request Body**:
+
 ```json
 {
   "eboekhouden_code": "42308",
@@ -504,11 +556,13 @@ POST /api/method/verenigingen.api.eboekhouden_account_manager.create_account_map
 ```
 
 #### Validate Account Structure
+
 ```http
 GET /api/method/verenigingen.api.eboekhouden_account_manager.validate_account_structure
 ```
 
 **Example Response**:
+
 ```json
 {
   "message": {
@@ -530,11 +584,13 @@ GET /api/method/verenigingen.api.eboekhouden_account_manager.validate_account_st
 ### Document Processing
 
 #### Process Single Transaction
+
 ```http
 POST /api/method/verenigingen.utils.eboekhouden_rest_full_migration.process_single_mutation
 ```
 
 **Request Body**:
+
 ```json
 {
   "mutation_id": 4550,
@@ -544,6 +600,7 @@ POST /api/method/verenigingen.utils.eboekhouden_rest_full_migration.process_sing
 ```
 
 **Example Response**:
+
 ```json
 {
   "message": {
@@ -551,7 +608,7 @@ POST /api/method/verenigingen.utils.eboekhouden_rest_full_migration.process_sing
     "mutation_id": 4550,
     "document_created": "EBH-Payment-4550",
     "document_type": "Journal Entry",
-    "amount": 150.00,
+    "amount": 150.0,
     "party": "Customer ABC",
     "balanced": true
   }
@@ -561,11 +618,13 @@ POST /api/method/verenigingen.utils.eboekhouden_rest_full_migration.process_sing
 ### System Health
 
 #### Health Check
+
 ```http
 GET /api/method/verenigingen.api.eboekhouden_account_manager.system_health_check
 ```
 
 **Example Response**:
+
 ```json
 {
   "message": {
@@ -603,6 +662,7 @@ The eBoekhouden integration includes comprehensive error handling:
 ```
 
 **Common Error Codes**:
+
 - `AUTH_001`: Invalid API credentials
 - `MAPPING_002`: Missing account mapping
 - `VALIDATION_003`: Document validation failed
@@ -614,27 +674,31 @@ The eBoekhouden integration includes comprehensive error handling:
 ### Volunteer Information
 
 #### Get Volunteer Profile
+
 ```http
 GET /api/method/verenigingen.api.volunteer_api.get_volunteer_profile
 ```
 
 **Parameters**:
+
 - `volunteer_id` (string): Volunteer ID or member email
 - `include_assignments` (boolean): Include team assignments
 - `include_expenses` (boolean): Include expense history
 
 #### Update Volunteer Availability
+
 ```http
 PUT /api/method/verenigingen.api.volunteer_api.update_availability
 ```
 
 **Request Body**:
+
 ```json
 {
   "volunteer_id": "VOL001",
   "availability": {
-    "monday": {"start": "09:00", "end": "17:00"},
-    "tuesday": {"start": "09:00", "end": "17:00"},
+    "monday": { "start": "09:00", "end": "17:00" },
+    "tuesday": { "start": "09:00", "end": "17:00" },
     "weekend": false
   },
   "preferred_activities": ["fundraising", "events"],
@@ -645,20 +709,24 @@ PUT /api/method/verenigingen.api.volunteer_api.update_availability
 ### Team Management
 
 #### Get Team Information
+
 ```http
 GET /api/method/verenigingen.api.volunteer_api.get_team_info
 ```
 
 **Parameters**:
+
 - `team_id` (string): Team identifier
 - `include_members` (boolean): Include team member details
 
 #### Assign Volunteer to Team
+
 ```http
 POST /api/method/verenigingen.api.volunteer_api.assign_to_team
 ```
 
 **Request Body**:
+
 ```json
 {
   "volunteer_id": "VOL001",
@@ -672,17 +740,19 @@ POST /api/method/verenigingen.api.volunteer_api.assign_to_team
 ### Expense Management
 
 #### Submit Volunteer Expense
+
 ```http
 POST /api/method/verenigingen.api.volunteer_api.submit_expense
 ```
 
 **Request Body**:
+
 ```json
 {
   "volunteer_id": "VOL001",
   "team_id": "TEAM001",
   "expense_type": "Travel",
-  "amount": 15.50,
+  "amount": 15.5,
   "description": "Train ticket to volunteer event",
   "expense_date": "2024-01-15",
   "receipt_attachment": "base64_encoded_image"
@@ -694,11 +764,13 @@ POST /api/method/verenigingen.api.volunteer_api.submit_expense
 ### Email Management
 
 #### Send Email Template
+
 ```http
 POST /api/method/verenigingen.api.email_template_manager.send_template_email
 ```
 
 **Request Body**:
+
 ```json
 {
   "template_name": "membership_welcome",
@@ -712,11 +784,13 @@ POST /api/method/verenigingen.api.email_template_manager.send_template_email
 ```
 
 #### Create Email Template
+
 ```http
 POST /api/method/verenigingen.api.email_template_manager.create_template
 ```
 
 **Request Body**:
+
 ```json
 {
   "template_name": "custom_notification",
@@ -729,11 +803,13 @@ POST /api/method/verenigingen.api.email_template_manager.create_template
 ### Notification Management
 
 #### Send System Notification
+
 ```http
 POST /api/method/verenigingen.api.communication.send_notification
 ```
 
 **Request Body**:
+
 ```json
 {
   "recipients": ["user1@example.com", "user2@example.com"],
@@ -749,24 +825,29 @@ POST /api/method/verenigingen.api.communication.send_notification
 ### Chapter Information
 
 #### Get Chapter Details
+
 ```http
 GET /api/method/verenigingen.api.chapter_dashboard_api.get_chapter_info
 ```
 
 **Parameters**:
+
 - `chapter_id` (string): Chapter identifier
 - `include_members` (boolean): Include member count and details
 - `include_activities` (boolean): Include recent activities
 
 #### Get Chapters by Postal Code
+
 ```http
 GET /api/method/verenigingen.api.get_user_chapters.get_chapters_by_postal_code
 ```
 
 **Parameters**:
+
 - `postal_code` (string): Dutch postal code (e.g., "1012LG")
 
 **Example Response**:
+
 ```json
 {
   "message": {
@@ -787,11 +868,13 @@ GET /api/method/verenigingen.api.get_user_chapters.get_chapters_by_postal_code
 ### Brand Management
 
 #### Update Brand Settings
+
 ```http
 POST /api/method/verenigingen.api.brand_management.update_brand_settings
 ```
 
 **Request Body**:
+
 ```json
 {
   "primary_color": "#cf3131",
@@ -804,6 +887,7 @@ POST /api/method/verenigingen.api.brand_management.update_brand_settings
 ```
 
 #### Generate Brand CSS
+
 ```http
 GET /api/method/verenigingen.templates.pages.brand_css.get_brand_css
 ```
@@ -811,23 +895,26 @@ GET /api/method/verenigingen.templates.pages.brand_css.get_brand_css
 ### Analytics and Reporting
 
 #### Get Membership Analytics
+
 ```http
 GET /api/method/verenigingen.api.member_management.get_membership_analytics
 ```
 
 **Parameters**:
+
 - `date_range` (string): "last_month", "last_quarter", "last_year"
 - `group_by` (string): "membership_type", "chapter", "age_group"
 - `include_trends` (boolean): Include trend analysis
 
 **Example Response**:
+
 ```json
 {
   "message": {
     "total_members": 1250,
     "new_members_this_month": 45,
     "retention_rate": 89.5,
-    "revenue_this_month": 31250.00,
+    "revenue_this_month": 31250.0,
     "by_membership_type": {
       "Individual": 800,
       "Student": 300,
@@ -849,20 +936,20 @@ GET /api/method/verenigingen.api.member_management.get_membership_analytics
 class VerenigingenAPI {
   constructor(baseUrl, apiKey, apiSecret) {
     this.baseUrl = baseUrl;
-    this.auth = Buffer.from(`${apiKey}:${apiSecret}`).toString('base64');
+    this.auth = Buffer.from(`${apiKey}:${apiSecret}`).toString("base64");
   }
 
   async getMemberInfo(memberId) {
     const response = await fetch(
       `${this.baseUrl}/api/method/verenigingen.api.member_management.get_member_info`,
       {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Authorization': `token ${this.auth}`,
-          'Content-Type': 'application/json'
+          Authorization: `token ${this.auth}`,
+          "Content-Type": "application/json",
         },
-        body: JSON.stringify({ member_id: memberId })
-      }
+        body: JSON.stringify({ member_id: memberId }),
+      },
     );
 
     return response.json();
@@ -872,13 +959,13 @@ class VerenigingenAPI {
     const response = await fetch(
       `${this.baseUrl}/api/method/verenigingen.api.member_management.create_member`,
       {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Authorization': `token ${this.auth}`,
-          'Content-Type': 'application/json'
+          Authorization: `token ${this.auth}`,
+          "Content-Type": "application/json",
         },
-        body: JSON.stringify(memberData)
-      }
+        body: JSON.stringify(memberData),
+      },
     );
 
     return response.json();
@@ -886,8 +973,12 @@ class VerenigingenAPI {
 }
 
 // Usage
-const api = new VerenigingenAPI('https://your-site.com', 'api_key', 'api_secret');
-const member = await api.getMemberInfo('MEMBER001');
+const api = new VerenigingenAPI(
+  "https://your-site.com",
+  "api_key",
+  "api_secret",
+);
+const member = await api.getMemberInfo("MEMBER001");
 ```
 
 ### Python Example
@@ -1012,11 +1103,13 @@ $member = $api->getMemberInfo('MEMBER001');
 ## Rate Limiting
 
 ### Default Limits
+
 - **Authenticated requests**: 1000 requests per hour per user
 - **Anonymous requests**: 100 requests per hour per IP
 - **Bulk operations**: 10 requests per minute per user
 
 ### Rate Limit Headers
+
 ```http
 X-RateLimit-Limit: 1000
 X-RateLimit-Remaining: 999
@@ -1024,7 +1117,9 @@ X-RateLimit-Reset: 1640995200
 ```
 
 ### Handling Rate Limits
+
 When rate limits are exceeded, the API returns HTTP 429 with:
+
 ```json
 {
   "message": {

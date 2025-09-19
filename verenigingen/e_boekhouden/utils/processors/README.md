@@ -5,6 +5,7 @@ This directory contains modular transaction processors that provide a clean inte
 ## Overview
 
 The processors wrap the existing functionality from `eboekhouden_rest_full_migration.py` to provide:
+
 - Clear separation of concerns
 - Easier testing and maintenance
 - Consistent error handling

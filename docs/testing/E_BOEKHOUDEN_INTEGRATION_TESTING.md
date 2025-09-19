@@ -86,6 +86,7 @@ class TestMyFeature(EnhancedTestCase):
 ### Prerequisites
 
 1. **Environment Setup**:
+
    ```bash
    # Ensure you're in the Frappe environment
    cd /home/frappe/frappe-bench
@@ -358,6 +359,7 @@ account_name = f"TEST Account {self.factory.get_next_sequence('account')}"
 ### Adding New Test Cases
 
 1. **Follow Enhanced Test Factory Pattern**:
+
    ```python
    class TestNewFeature(EnhancedTestCase):
        def setUp(self):
@@ -427,6 +429,7 @@ bench --site $SITE_NAME execute scripts.testing.run_e_boekhouden_integration_tes
 This comprehensive integration testing framework ensures the E-Boekhouden migration pipeline works correctly with realistic data and proper security. The tests provide confidence that the system will work in production while maintaining data integrity and security standards.
 
 Key principles:
+
 - **Realistic Data**: Tests use actual business scenarios
 - **No Security Bypasses**: Proper permissions and validation
 - **Comprehensive Coverage**: All critical paths tested

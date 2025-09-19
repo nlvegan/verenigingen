@@ -29,7 +29,8 @@
  * @requires frappe.listview_settings
  */
 
-frappe.listview_settings['Bank Transaction'] = frappe.listview_settings['Bank Transaction'] || {};
+frappe.listview_settings['Bank Transaction']
+  = frappe.listview_settings['Bank Transaction'] || {};
 
 /**
  * Bank Transaction List View Enhancement
@@ -41,24 +42,32 @@ frappe.listview_settings['Bank Transaction'] = frappe.listview_settings['Bank Tr
  */
 frappe.listview_settings['Bank Transaction'].onload = function (listview) {
 	/**
-	 * Add MT940 Import Menu Item
-	 *
-	 * Provides access to MT940 statement import functionality directly
-	 * from the bank transaction list view for improved workflow efficiency.
-	 */
-	listview.page.add_menu_item(__('Import MT940 File'), () => {
-		// Open the MT940 import page in new tab for parallel processing
-		window.open('/mt940_import', '_blank');
-	}, true);
+   * Add MT940 Import Menu Item
+   *
+   * Provides access to MT940 statement import functionality directly
+   * from the bank transaction list view for improved workflow efficiency.
+   */
+	listview.page.add_menu_item(
+		__('Import MT940 File'),
+		() => {
+			// Open the MT940 import page in new tab for parallel processing
+			window.open('/mt940_import', '_blank');
+		},
+		true
+	);
 
 	/**
-	 * Add Primary MT940 Import Action
-	 *
-	 * Prominent button for frequent MT940 import operations,
-	 * maintaining user context within the current session.
-	 */
-	listview.page.add_primary_action(__('Import MT940'), () => {
-		// Navigate to MT940 import page in same tab
-		frappe.set_route('/mt940_import');
-	}, 'fa fa-upload');
+   * Add Primary MT940 Import Action
+   *
+   * Prominent button for frequent MT940 import operations,
+   * maintaining user context within the current session.
+   */
+	listview.page.add_primary_action(
+		__('Import MT940'),
+		() => {
+			// Navigate to MT940 import page in same tab
+			frappe.set_route('/mt940_import');
+		},
+		'fa fa-upload'
+	);
 };

@@ -5,24 +5,29 @@ This guide covers the complete bank transaction import and reconciliation proces
 ## Overview
 
 The process has two main phases:
+
 1. **Import**: Getting bank data into the system (your custom functionality)
 2. **Reconciliation**: Matching imported transactions with existing accounting entries (Banking app)
 
 ## Phase 1: Bank Transaction Import
 
 ### Your Custom Import Functionality
+
 ```
 Bank CSV/OFX files → Custom import logic → Bank Transaction records
 ```
 
 **Key Components:**
+
 - Custom import parsers for bank file formats
 - Validation and data cleaning
 - Creation of Bank Transaction records
 - Duplicate detection and prevention
 
 ### Bank Transaction Doctype Fields
+
 Important fields created during import:
+
 - `date`: Transaction date
 - `description`: Bank description/reference
 - `deposit`: Credit amount
@@ -36,22 +41,28 @@ Important fields created during import:
 ### Banking App Reconciliation Process
 
 #### 1. Access Bank Reconciliation Tool
+
 Navigate to: **Banking** → **Bank Reconciliation Tool**
 
 #### 2. Select Bank Account & Period
+
 - Choose bank account to reconcile
 - Set date range for transactions
 - Load unmatched transactions
 
 #### 3. Auto-Matching Process
+
 The system automatically attempts to match based on:
+
 - **Amount matching**: Exact amount matches
 - **Reference matching**: Invoice numbers, payment references
 - **Date proximity**: Transactions within reasonable date ranges
 - **Party matching**: Known customers/suppliers
 
 #### 4. Manual Matching Interface
+
 For unmatched transactions:
+
 - **Search function**: Find related invoices/payments
 - **Filter options**: By party, amount range, date
 - **Match suggestions**: System-recommended matches
@@ -60,9 +71,11 @@ For unmatched transactions:
 ### Reconciliation Workflows
 
 #### A. Member Payment Reconciliation
+
 **Scenario**: Bank transaction shows member payment
 
 1. **Auto-match attempt**:
+
    ```
    Bank Transaction (€15.00, Ref: "Member 12345")
    → Sales Invoice (€15.00, Customer: "John Doe")
@@ -76,9 +89,11 @@ For unmatched transactions:
 3. **Result**: Payment Entry created linking bank transaction to invoice
 
 #### B. SEPA Direct Debit Reconciliation
+
 **Scenario**: SEPA Direct Debit batch processed
 
 1. **Batch Processing**:
+
    ```
    SEPA Direct Debit Batch → Multiple Bank Transactions
    ```
@@ -89,9 +104,11 @@ For unmatched transactions:
    - Update member payment status
 
 #### C. Volunteer Expense Reconciliation
+
 **Scenario**: Expense reimbursement paid
 
 1. **Expense Payment**:
+
    ```
    Bank Transaction (€50.00, Ref: "Expense Claim EXP-001")
    → Expense Claim (€50.00, Volunteer: "Jane Smith")
@@ -105,7 +122,9 @@ For unmatched transactions:
 ### Advanced Reconciliation Features
 
 #### 1. Reconciliation Rules
+
 Create automatic matching rules:
+
 ```python
 # Example rule for member payments
 {
@@ -122,7 +141,9 @@ Create automatic matching rules:
 ```
 
 #### 2. Bank Statement Reconciliation
+
 Monthly reconciliation process:
+
 1. **Import bank statement**
 2. **Match all transactions**
 3. **Generate reconciliation report**
@@ -130,7 +151,9 @@ Monthly reconciliation process:
 5. **Create adjustment entries**
 
 #### 3. Multi-Currency Handling
+
 For international transactions:
+
 - **Exchange rate application**
 - **Currency conversion records**
 - **Gain/loss accounting**
@@ -138,6 +161,7 @@ For international transactions:
 ## Integration Points
 
 ### Your Import → Banking App
+
 ```python
 # Example integration flow
 def process_bank_file(file_path):
@@ -162,7 +186,9 @@ def process_bank_file(file_path):
 ```
 
 ### Custom Reconciliation Hooks
+
 Add custom logic for your specific use cases:
+
 ```python
 # In hooks.py
 doc_events = {
@@ -184,6 +210,7 @@ def auto_match_member_payments(doc, method):
 With the recent workspace updates, you now have quick access to:
 
 **Main Links:**
+
 - Bank Transaction (list and forms)
 - Bank Reconciliation Tool
 - Bank Statement Import
@@ -192,6 +219,7 @@ With the recent workspace updates, you now have quick access to:
 - SEPA Direct Debit Batch
 
 **Quick Shortcuts:**
+
 - Bank Reconciliation (one-click access)
 - Bank Transactions (quick list view)
 - Payment Entries (payment management)
@@ -200,12 +228,15 @@ With the recent workspace updates, you now have quick access to:
 ## Best Practices
 
 ### 1. Regular Reconciliation Schedule
+
 - **Daily**: For high-volume accounts
 - **Weekly**: For member payment processing
 - **Monthly**: Complete statement reconciliation
 
 ### 2. Transaction Coding
+
 Use consistent description patterns:
+
 ```
 Member Payment - ID: 12345 - Invoice: INV-2024-001
 Expense Claim - EXP-001 - Volunteer: Jane Smith
@@ -213,14 +244,18 @@ SEPA Direct Debit - Batch: DD-2024-03 - Multiple invoices
 ```
 
 ### 3. Exception Handling
+
 Document processes for:
+
 - **Returned payments**: Failed direct debits
 - **Duplicate transactions**: Bank errors
 - **Unidentified payments**: Unknown sources
 - **Currency differences**: Exchange rate variations
 
 ### 4. Audit Trail
+
 Maintain records of:
+
 - **Reconciliation reports**: Monthly summaries
 - **Manual adjustments**: Why and by whom
 - **Unmatched transactions**: Follow-up required
@@ -229,26 +264,34 @@ Maintain records of:
 ## Troubleshooting Common Issues
 
 ### Issue: Transactions Not Auto-Matching
+
 **Solution**:
+
 - Check amount precision (rounding differences)
 - Verify date ranges (payment delays)
 - Review description patterns
 - Update reconciliation rules
 
 ### Issue: Duplicate Bank Transactions
+
 **Solution**:
+
 - Implement duplicate detection in import
 - Check bank account mapping
 - Review import date ranges
 
 ### Issue: Missing Party Information
+
 **Solution**:
+
 - Enhance description parsing
 - Create party matching rules
 - Manual party assignment workflow
 
 ### Issue: Reconciliation Performance
+
 **Solution**:
+
 - Index frequently searched fields
 - Batch process large imports
 - Archive old reconciled transactions
@@ -256,6 +299,7 @@ Maintain records of:
 ## Future Enhancements
 
 Consider implementing:
+
 1. **AI-powered matching**: Machine learning for better auto-matching
 2. **API integrations**: Direct bank feeds
 3. **Mobile reconciliation**: On-the-go matching

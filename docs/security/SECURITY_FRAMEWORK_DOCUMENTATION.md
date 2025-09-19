@@ -49,6 +49,7 @@ validate_security_wrapper_installation() -> bool
 ```
 
 **Security Features**:
+
 - ✅ Validates user parameters to prevent None/empty string attacks
 - ✅ Logs suspicious calls for security audit
 - ✅ Returns empty list for invalid users instead of all roles
@@ -61,6 +62,7 @@ validate_security_wrapper_installation() -> bool
 **Purpose**: Identify all locations where `frappe.get_roles()` is used without proper validation.
 
 **Capabilities**:
+
 - 🔍 Comprehensive grep-based code analysis
 - 📊 Risk level assessment (CRITICAL, HIGH, MEDIUM, LOW)
 - 📝 Automated migration script generation
@@ -68,6 +70,7 @@ validate_security_wrapper_installation() -> bool
 - 🔄 Integration with CI/CD pipelines
 
 **Usage**:
+
 ```bash
 # Run audit
 bench --site dev.veganisme.net execute verenigingen.utils.security_audit_script.run_comprehensive_audit
@@ -79,6 +82,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.security_audit_script.
 #### 3. Authentication Hooks (`auth_hooks.py`)
 
 **Updated with Security Fixes**:
+
 - ✅ Fixed duplicate "Volunteer" role in volunteer_roles list
 - ✅ Replaced all `frappe.get_roles()` calls with `safe_get_roles()`
 - ✅ Enhanced user parameter validation
@@ -89,12 +93,14 @@ bench --site dev.veganisme.net execute verenigingen.utils.security_audit_script.
 ### Step 1: Update Import Statements
 
 **Before**:
+
 ```python
 import frappe
 user_roles = frappe.get_roles(user)
 ```
 
 **After**:
+
 ```python
 import frappe
 from verenigingen.utils.security_wrappers import safe_get_roles
@@ -103,15 +109,16 @@ user_roles = safe_get_roles(user)
 
 ### Step 2: Replace Function Calls
 
-| **Vulnerable Pattern** | **Secure Replacement** | **Risk Level** |
-|------------------------|-------------------------|----------------|
-| `frappe.get_roles(None)` | `safe_get_roles(None)` | **CRITICAL** |
-| `frappe.get_roles()` | `safe_get_roles()` | **HIGH** |
-| `frappe.get_roles(user)` | `safe_get_roles(user)` | **MEDIUM** |
+| **Vulnerable Pattern**   | **Secure Replacement** | **Risk Level** |
+| ------------------------ | ---------------------- | -------------- |
+| `frappe.get_roles(None)` | `safe_get_roles(None)` | **CRITICAL**   |
+| `frappe.get_roles()`     | `safe_get_roles()`     | **HIGH**       |
+| `frappe.get_roles(user)` | `safe_get_roles(user)` | **MEDIUM**     |
 
 ### Step 3: Add User Validation
 
 **Before** (Vulnerable):
+
 ```python
 def check_user_permissions(user):
     roles = frappe.get_roles(user)  # Vulnerable to None user
@@ -119,6 +126,7 @@ def check_user_permissions(user):
 ```
 
 **After** (Secure):
+
 ```python
 def check_user_permissions(user):
     roles = safe_get_roles(user)  # Safe with validation
@@ -128,12 +136,14 @@ def check_user_permissions(user):
 ### Step 4: Update Role Checking Patterns
 
 **Before**:
+
 ```python
 if "System Manager" in frappe.get_roles(user):
     # Admin access
 ```
 
 **After**:
+
 ```python
 if safe_has_role(user, "System Manager"):
     # Admin access
@@ -235,6 +245,7 @@ grep "suspicious\|invalid\|security" /home/frappe/frappe-bench/logs/frappe.log
 ### Deployment Steps
 
 1. **Deploy Security Framework**:
+
    ```bash
    # Deploy to production site
    bench --site production.site migrate
@@ -242,11 +253,13 @@ grep "suspicious\|invalid\|security" /home/frappe/frappe-bench/logs/frappe.log
    ```
 
 2. **Validate Security Installation**:
+
    ```bash
    bench --site production.site execute verenigingen.utils.security_wrappers.validate_security_wrapper_installation
    ```
 
 3. **Run Security Audit**:
+
    ```bash
    bench --site production.site execute verenigingen.utils.security_audit_script.run_comprehensive_audit
    ```
@@ -271,6 +284,7 @@ The security framework has minimal performance impact:
 If issues arise, you can temporarily revert by:
 
 1. **Disable Security Wrapper Import**:
+
    ```python
    # In affected files, temporarily use direct import
    # from verenigingen.utils.security_wrappers import safe_get_roles
@@ -278,6 +292,7 @@ If issues arise, you can temporarily revert by:
    ```
 
 2. **Monitor for Errors**:
+
    ```bash
    # Watch for "User None is disabled" errors
    tail -f logs/frappe.log | grep "User None is disabled"
@@ -294,12 +309,14 @@ If issues arise, you can temporarily revert by:
 ### 1. Always Validate User Parameters
 
 **❌ Don't**:
+
 ```python
 def get_user_permissions(user):
     return frappe.get_roles(user)  # Vulnerable
 ```
 
 **✅ Do**:
+
 ```python
 def get_user_permissions(user):
     if not user or not isinstance(user, str):
@@ -310,12 +327,14 @@ def get_user_permissions(user):
 ### 2. Use Security Wrapper Functions
 
 **❌ Don't**:
+
 ```python
 if "Admin" in frappe.get_roles(user):
     # Vulnerable to None user
 ```
 
 **✅ Do**:
+
 ```python
 if safe_has_role(user, "Admin"):
     # Safe with validation
@@ -324,12 +343,14 @@ if safe_has_role(user, "Admin"):
 ### 3. Handle Edge Cases
 
 **❌ Don't**:
+
 ```python
 def check_admin_access():
     return "System Manager" in frappe.get_roles()  # Session user could be None
 ```
 
 **✅ Do**:
+
 ```python
 def check_admin_access():
     return safe_has_role(None, "System Manager")  # Safe current user check
@@ -338,6 +359,7 @@ def check_admin_access():
 ### 4. Log Security Events
 
 **✅ Do**:
+
 ```python
 import logging
 security_logger = logging.getLogger("verenigingen.security")
@@ -382,6 +404,7 @@ print(run_comprehensive_audit())
 **Cause**: Invalid user parameter or session issue
 
 **Solution**:
+
 ```python
 # Debug user validation
 from verenigingen.utils.security_wrappers import _is_valid_user_parameter
@@ -398,6 +421,7 @@ print(frappe.session.user)  # Should be valid user email
 **Cause**: Excessive security logging or validation
 
 **Solution**:
+
 ```python
 # Check performance
 import time

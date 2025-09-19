@@ -3,6 +3,7 @@
 Fast-track guide for developers to set up, understand, and contribute to the Verenigingen codebase.
 
 ## 📋 Table of Contents
+
 - [🎯 Prerequisites](#-prerequisites)
 - [⚡ Quick Setup](#-quick-setup)
 - [🏗️ Development Environment](#️-development-environment)
@@ -16,6 +17,7 @@ Fast-track guide for developers to set up, understand, and contribute to the Ver
 ## 🎯 Prerequisites
 
 ### ✅ Required Knowledge
+
 - **Python 3.10+**: Object-oriented programming and web frameworks
 - **JavaScript ES6+**: Modern frontend development
 - **Database**: SQL, MariaDB/MySQL experience
@@ -23,6 +25,7 @@ Fast-track guide for developers to set up, understand, and contribute to the Ver
 - **Version Control**: Git workflows and branching strategies
 
 ### 🛠️ Required Tools
+
 ```bash
 # Essential development tools
 python3.10+         # Python runtime
@@ -39,6 +42,7 @@ supervisor           # Process management
 ```
 
 ### 📚 Recommended Background
+
 - **Frappe Framework**: [Official Documentation](https://frappeframework.com/docs)
 - **ERPNext**: Basic understanding of ERP concepts
 - **Dutch Business**: Understanding of Dutch non-profit and business practices
@@ -88,11 +92,13 @@ bench start
 ```
 
 ### 🌐 Access Your Development Environment
+
 - **Site**: http://dev.verenigingen.local:8000
 - **Admin Login**: Administrator / (password set during setup)
 - **Developer Tools**: http://dev.verenigingen.local:8000/app/website
 
 ### ⚡ Daily Development Commands
+
 ```bash
 # Start development with hot reload
 bench start
@@ -115,6 +121,7 @@ bench restart
 ### 🔧 IDE Configuration
 
 #### VS Code Setup
+
 ```json
 // .vscode/settings.json
 {
@@ -133,6 +140,7 @@ bench restart
 ```
 
 #### Recommended Extensions
+
 ```bash
 # VS Code extensions for Verenigingen development
 code --install-extension ms-python.python
@@ -142,6 +150,7 @@ code --install-extension ms-vscode.vscode-json
 ```
 
 ### 🛠️ Pre-commit Hooks
+
 ```bash
 # Install pre-commit hooks (already configured)
 pre-commit install
@@ -151,6 +160,7 @@ pre-commit run --all-files
 ```
 
 ### 🐛 Debugging Setup
+
 ```python
 # Add to any Python file for debugging
 import frappe
@@ -166,6 +176,7 @@ tail -f ~/frappe-bench/logs/worker.error.log
 ## 📁 Codebase Overview
 
 ### 🏗️ Architecture Overview
+
 ```
 verenigingen/
 ├── 📁 verenigingen/              # Main app package
@@ -184,6 +195,7 @@ verenigingen/
 ### 🔑 Key Components
 
 #### 📊 Doctypes (Business Objects)
+
 ```python
 # Core doctypes and their purposes
 Member                 # Member records and lifecycle
@@ -194,6 +206,7 @@ Direct_Debit_Batch    # SEPA payment processing
 ```
 
 #### 🔌 API Modules
+
 ```python
 # Key API modules
 membership_application.py    # Member application processing
@@ -203,6 +216,7 @@ volunteer_api.py           # Volunteer coordination
 ```
 
 #### 🧰 Utilities
+
 ```python
 # Important utility modules
 utils/validation/          # Input validation and sanitization
@@ -212,6 +226,7 @@ utils/performance/        # Performance optimization
 ```
 
 ### 📋 Configuration Files
+
 ```yaml
 # Important configuration files
 hooks.py                  # App configuration and event hooks
@@ -223,6 +238,7 @@ tailwind.config.js       # CSS framework configuration
 ## 🔧 Development Workflow
 
 ### 🌿 Git Workflow
+
 ```bash
 # 1. Create feature branch
 git checkout -b feature/new-feature-name
@@ -242,6 +258,7 @@ git branch -d feature/new-feature-name
 ```
 
 ### 🔄 Development Cycle
+
 ```bash
 # Daily development workflow
 # 1. Start development environment
@@ -261,6 +278,7 @@ git add . && git commit -m "Description of changes"
 ### 📦 Creating New Features
 
 #### 🆕 Adding New Doctype
+
 ```bash
 # Create new doctype
 bench --site dev.verenigingen.local make-doctype "New Doctype Name"
@@ -275,6 +293,7 @@ bench --site dev.verenigingen.local migrate
 ```
 
 #### 🔌 Adding New API Endpoint
+
 ```python
 # Create new file: verenigingen/api/my_new_api.py
 import frappe
@@ -289,6 +308,7 @@ def my_new_endpoint(param1, param2):
 ```
 
 #### 🎨 Adding New Portal Page
+
 ```python
 # Create page files:
 # verenigingen/templates/pages/my_page.html
@@ -303,6 +323,7 @@ def get_context(context):
 ## 🧪 Testing
 
 ### ⚡ Quick Testing
+
 ```bash
 # Run all quick tests
 bench --site dev.verenigingen.local execute verenigingen.tests.utils.quick_validation.run_quick_tests
@@ -315,6 +336,7 @@ python scripts/testing/runners/regression_test_runner.py
 ```
 
 ### 🧪 Test Categories
+
 ```bash
 # Business logic tests
 bench --site dev.verenigingen.local run-tests --app verenigingen --module verenigingen.tests.backend.business_logic
@@ -330,6 +352,7 @@ python verenigingen/tests/backend/performance/test_api_optimization_comprehensiv
 ```
 
 ### ✏️ Writing Tests
+
 ```python
 # Example test file: test_my_feature.py
 import frappe
@@ -360,6 +383,7 @@ class TestMyFeature(unittest.TestCase):
 ## 📚 Key Concepts
 
 ### 🏗️ Frappe Framework Patterns
+
 ```python
 # Document lifecycle
 class Member(Document):
@@ -394,6 +418,7 @@ frappe.delete_doc("Member", member_name)
 ```
 
 ### 🔌 API Patterns
+
 ```python
 # Standard API endpoint
 @frappe.whitelist()
@@ -420,30 +445,32 @@ def my_api_endpoint(param1, param2=None):
 ```
 
 ### 🎨 Frontend Patterns
+
 ```javascript
 // Frappe frontend patterns
 // Call API from JavaScript
 frappe.call({
-    method: 'verenigingen.api.my_api.my_endpoint',
-    args: {
-        param1: 'value1',
-        param2: 'value2'
-    },
-    callback: function(response) {
-        if (response.message.success) {
-            // Handle success
-            console.log(response.message.data);
-        } else {
-            // Handle error
-            frappe.msgprint(response.message.error);
-        }
+  method: "verenigingen.api.my_api.my_endpoint",
+  args: {
+    param1: "value1",
+    param2: "value2",
+  },
+  callback: function (response) {
+    if (response.message.success) {
+      // Handle success
+      console.log(response.message.data);
+    } else {
+      // Handle error
+      frappe.msgprint(response.message.error);
     }
+  },
 });
 ```
 
 ## 🚀 Contributing
 
 ### 📋 Contribution Guidelines
+
 1. **Read [CLAUDE.md](../CLAUDE.md)** for detailed development guidelines
 2. **Follow code style**: Black formatting, type hints, docstrings
 3. **Write tests**: All new features require tests
@@ -451,45 +478,58 @@ frappe.call({
 5. **Security first**: Review [SECURITY.md](../SECURITY.md) requirements
 
 ### 🐛 Bug Reports
+
 ```markdown
 # Bug report template
+
 ## Environment
+
 - Verenigingen version:
 - ERPNext version:
 - Browser/OS:
 
 ## Steps to Reproduce
+
 1.
 2.
 3.
 
 ## Expected vs Actual Behavior
+
 **Expected**:
 **Actual**:
 
 ## Additional Context
+
 (screenshots, logs, etc.)
 ```
 
 ### ✨ Feature Requests
+
 ```markdown
 # Feature request template
+
 ## Problem Statement
+
 Describe the problem this feature would solve
 
 ## Proposed Solution
+
 Describe your proposed solution
 
 ## Alternatives Considered
+
 Other approaches you've considered
 
 ## Additional Context
+
 Use cases, mockups, examples
 ```
 
 ## 📞 Getting Help
 
 ### 🆘 Support Channels
+
 1. **Documentation**: Start with [docs/](../docs/) for comprehensive guides
 2. **Code Examples**: Check existing similar implementations
 3. **GitHub Issues**: Search existing issues before creating new ones
@@ -497,6 +537,7 @@ Use cases, mockups, examples
 5. **Professional Support**: Available for complex integrations
 
 ### 🔍 Debugging Resources
+
 ```bash
 # View system logs
 tail -f ~/frappe-bench/logs/worker.error.log
@@ -512,6 +553,7 @@ bench --site dev.verenigingen.local execute verenigingen.utils.performance_utils
 ```
 
 ### 📚 Learning Resources
+
 - **[Frappe Framework Docs](https://frappeframework.com/docs)**
 - **[ERPNext Documentation](https://docs.erpnext.com)**
 - **[Verenigingen API Docs](API_DOCUMENTATION.md)**
@@ -523,6 +565,7 @@ bench --site dev.verenigingen.local execute verenigingen.utils.performance_utils
 ## 🎯 Quick Reference
 
 ### ⚡ Daily Commands
+
 ```bash
 bench start                 # Start development server
 bench build                 # Build assets
@@ -532,6 +575,7 @@ bench clear-cache           # Clear application cache
 ```
 
 ### 🧪 Testing Commands
+
 ```bash
 # Quick tests
 bench --site dev.verenigingen.local execute verenigingen.tests.utils.quick_validation.run_quick_tests
@@ -544,6 +588,7 @@ python scripts/testing/runners/regression_test_runner.py
 ```
 
 ### 🐛 Debugging Commands
+
 ```bash
 # Error logs
 tail -f ~/frappe-bench/logs/worker.error.log

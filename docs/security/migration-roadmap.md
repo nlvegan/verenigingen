@@ -17,21 +17,23 @@ Based on automated classification analysis:
 ## Security Classification Results
 
 | Security Level | Endpoint Count | Percentage | Priority |
-|---------------|----------------|------------|----------|
-| **CRITICAL** | 45 | 11.1% | Week 1-2 |
-| **HIGH** | 127 | 31.3% | Week 3-4 |
-| **MEDIUM** | 156 | 38.4% | Week 5-6 |
-| **LOW** | 58 | 14.3% | Week 7-8 |
-| **PUBLIC** | 20 | 4.9% | Week 8 |
+| -------------- | -------------- | ---------- | -------- |
+| **CRITICAL**   | 45             | 11.1%      | Week 1-2 |
+| **HIGH**       | 127            | 31.3%      | Week 3-4 |
+| **MEDIUM**     | 156            | 38.4%      | Week 5-6 |
+| **LOW**        | 58             | 14.3%      | Week 7-8 |
+| **PUBLIC**     | 20             | 4.9%       | Week 8   |
 
 ## Phase 1: Critical Security Implementation (Week 1-2)
 
 ### Objective
+
 Secure all critical financial and administrative endpoints that pose the highest security risk.
 
 ### Target Endpoints (45 endpoints)
 
 #### Financial Operations (Priority 1A)
+
 ```
 verenigingen/api/sepa_batch_ui.py
 verenigingen/api/sepa_batch_ui_secure.py
@@ -47,6 +49,7 @@ verenigingen/api/dd_batch_optimizer.py
 ```
 
 #### Administrative Operations (Priority 1B)
+
 ```
 verenigingen/api/anbi_operations.py
 verenigingen/api/workspace_debug.py
@@ -65,6 +68,7 @@ verenigingen/api/donor_customer_management.py
 #### Week 1: Financial Endpoints
 
 1. **Day 1-2: SEPA Batch Operations**
+
    ```python
    # Example implementation for sepa_batch_ui.py
    @frappe.whitelist()
@@ -87,6 +91,7 @@ verenigingen/api/donor_customer_management.py
    ```
 
 2. **Day 3-4: Payment Processing**
+
    ```python
    @frappe.whitelist()
    @validate_with_schema("payment_data")
@@ -104,6 +109,7 @@ verenigingen/api/donor_customer_management.py
 #### Week 2: Administrative Endpoints
 
 1. **Day 1-2: System Administration**
+
    ```python
    @frappe.whitelist()
    @api_security_framework(
@@ -119,6 +125,7 @@ verenigingen/api/donor_customer_management.py
    ```
 
 2. **Day 3-4: Data Management**
+
    ```python
    @frappe.whitelist()
    @critical_api(OperationType.ADMIN)
@@ -133,6 +140,7 @@ verenigingen/api/donor_customer_management.py
    - Performance impact assessment
 
 ### Success Criteria
+
 - [ ] All 45 critical endpoints secured with appropriate controls
 - [ ] audit logging implemented
 - [ ] Rate limiting active and tested
@@ -143,11 +151,13 @@ verenigingen/api/donor_customer_management.py
 ## Phase 2: High Security Implementation (Week 3-4)
 
 ### Objective
+
 Secure member data operations and core business functionality.
 
 ### Target Endpoints (127 endpoints)
 
 #### Member Data Operations (Priority 2A)
+
 ```
 verenigingen/api/member_management.py
 verenigingen/api/membership_application.py
@@ -161,6 +171,7 @@ verenigingen/api/cleanup_chapter_members.py
 ```
 
 #### Volunteer Operations (Priority 2B)
+
 ```
 verenigingen/api/volunteer_skills.py
 verenigingen/api/chapter_dashboard_api.py
@@ -203,11 +214,13 @@ def manage_volunteer_assignment(**assignment_data):
 ```
 
 ### Week 3: Member Data Endpoints
+
 - **Day 1-2**: Core member management functions
 - **Day 3-4**: Membership application processing
 - **Day 5**: Member data validation and testing
 
 ### Week 4: Volunteer & Chapter Operations
+
 - **Day 1-2**: Volunteer management endpoints
 - **Day 3-4**: Chapter administration functions
 - **Day 5**: Integration testing and performance validation
@@ -215,11 +228,13 @@ def manage_volunteer_assignment(**assignment_data):
 ## Phase 3: Standard Security Implementation (Week 5-6)
 
 ### Objective
+
 Secure reporting, analytics, and read-only operations.
 
 ### Target Endpoints (156 endpoints)
 
 #### Reporting Operations
+
 ```
 verenigingen/api/payment_dashboard.py
 verenigingen/api/chapter_dashboard_api.py
@@ -230,6 +245,7 @@ verenigingen/api/onboarding_info.py
 ```
 
 #### Data Export & Analytics
+
 ```
 verenigingen/api/analyze_failing_mutations.py
 verenigingen/api/deep_mutation_analysis.py
@@ -277,11 +293,13 @@ def export_member_analytics(**export_params):
 ## Phase 4: Utility & Public Implementation (Week 7-8)
 
 ### Objective
+
 Complete migration by securing utility functions and public endpoints.
 
 ### Target Endpoints (78 endpoints)
 
 #### Utility Functions (58 endpoints)
+
 ```
 verenigingen/api/check_roles.py
 verenigingen/api/quick_stock_check.py
@@ -293,6 +311,7 @@ verenigingen/api/check_past_imports.py
 ```
 
 #### Public Information (20 endpoints)
+
 ```
 verenigingen/api/onboarding_info.py (public portions)
 verenigingen/api/create_onboarding_steps.py (public access)
@@ -325,6 +344,7 @@ def get_public_chapter_information():
 ### Code Standards
 
 1. **Security Decorator Usage**
+
    ```python
    # Always use appropriate security level
    @api_security_framework(
@@ -335,6 +355,7 @@ def get_public_chapter_information():
    ```
 
 2. **Input Validation**
+
    ```python
    # Use schema validation for complex inputs
    @validate_with_schema("member_data")

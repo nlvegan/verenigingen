@@ -341,9 +341,11 @@ def get_customer_payment_summary(customer_name: str, months_back: int = 12) -> D
             "total_paid": flt(payment_data.get("total_paid")),
             "outstanding_balance": flt(invoice_data.get("outstanding_balance")),
             "overdue_amount": flt(invoice_data.get("overdue_amount")),
-            "payment_ratio": flt(payment_data.get("total_paid")) / flt(invoice_data.get("total_invoiced"))
-            if flt(invoice_data.get("total_invoiced")) > 0
-            else 0,
+            "payment_ratio": (
+                flt(payment_data.get("total_paid")) / flt(invoice_data.get("total_invoiced"))
+                if flt(invoice_data.get("total_invoiced")) > 0
+                else 0
+            ),
         }
 
     except Exception as e:

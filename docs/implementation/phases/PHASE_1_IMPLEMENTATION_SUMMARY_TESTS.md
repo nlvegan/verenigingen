@@ -11,6 +11,7 @@ Phase 1 successfully enhances the existing sophisticated testing framework witho
 ### 1. Test Coverage Dashboard/Reporter
 
 **📊 TestCoverageReporter Class**
+
 - **Location**: `verenigingen/tests/utils/coverage_reporter.py`
 - **Features**:
   - Integrates with coverage.py for line/branch coverage analysis
@@ -21,6 +22,7 @@ Phase 1 successfully enhances the existing sophisticated testing framework witho
   - JSON report generation for programmatic access
 
 **Key Capabilities**:
+
 - Coverage tracking by module and function
 - Performance regression detection
 - Visual dashboard with metrics and trends
@@ -29,6 +31,7 @@ Phase 1 successfully enhances the existing sophisticated testing framework witho
 ### 2. Enhanced Test Runner with Reporting
 
 **🚀 Enhanced TestRunner Class**
+
 - **Location**: `verenigingen/tests/utils/test_runner.py` (enhanced existing class)
 - **New Features**:
   - Coverage reporting integration (`enable_coverage=True`)
@@ -38,12 +41,14 @@ Phase 1 successfully enhances the existing sophisticated testing framework witho
   - New specialized test functions for different analysis types
 
 **Enhanced Output Example**:
+
 ```
 ✅ PASSED: Member created successfully [0.15s, 8 queries]
 ❌ FAILED: Validation error [0.08s, 3 queries]
 ```
 
 **New Test Functions**:
+
 - `run_tests_with_coverage_dashboard()` - Complete test run with all reports
 - `run_performance_test_analysis()` - Performance-focused analysis
 - `run_edge_case_validation()` - Comprehensive edge case testing
@@ -51,6 +56,7 @@ Phase 1 successfully enhances the existing sophisticated testing framework witho
 ### 3. Command Line Interface
 
 **💻 Enhanced Test Runner CLI**
+
 - **Location**: `scripts/testing/runners/enhanced_test_runner.py`
 - **Features**:
   - Comprehensive command-line interface for all testing scenarios
@@ -60,6 +66,7 @@ Phase 1 successfully enhances the existing sophisticated testing framework witho
   - Report listing and management
 
 **Usage Examples**:
+
 ```bash
 # Full test run with coverage dashboard
 python enhanced_test_runner.py --suite comprehensive --coverage --html-report
@@ -77,6 +84,7 @@ python enhanced_test_runner.py --list-reports
 ### 4. Test Documentation Templates
 
 **📚 Comprehensive Documentation**
+
 - **Test Creation Guide**: `verenigingen/tests/docs/test_creation_guide.md`
   - How to use VereningingenTestCase base class
   - Factory methods and automatic cleanup
@@ -132,13 +140,13 @@ python enhanced_test_runner.py --list-reports
 
 ### Report Types Generated
 
-| Report | Format | Description |
-|--------|---------|-------------|
-| Coverage Dashboard | HTML | Interactive visual dashboard |
-| Coverage Report | JSON | Raw coverage data and metrics |
-| Performance Analysis | JSON | Detailed performance metrics and trends |
-| Edge Case Summary | JSON | Edge case coverage by category |
-| Test Results | JSON | Comprehensive test execution results |
+| Report               | Format | Description                             |
+| -------------------- | ------ | --------------------------------------- |
+| Coverage Dashboard   | HTML   | Interactive visual dashboard            |
+| Coverage Report      | JSON   | Raw coverage data and metrics           |
+| Performance Analysis | JSON   | Detailed performance metrics and trends |
+| Edge Case Summary    | JSON   | Edge case coverage by category          |
+| Test Results         | JSON   | Comprehensive test execution results    |
 
 ### Report Storage
 
@@ -148,13 +156,13 @@ All reports saved to: `/home/frappe/frappe-bench/sites/dev.veganisme.net/test-re
 
 ### Test Suite Categories
 
-| Suite | Purpose | Usage Scenario |
-|-------|---------|----------------|
-| `quick` | Pre-commit validation | Fast feedback during development |
-| `comprehensive` | Full CI/CD testing | Complete validation before release |
-| `performance` | Performance analysis | Performance regression detection |
-| `edge_cases` | Edge case validation | Comprehensive boundary testing |
-| `all` | Complete analysis | Weekly quality reviews |
+| Suite           | Purpose               | Usage Scenario                     |
+| --------------- | --------------------- | ---------------------------------- |
+| `quick`         | Pre-commit validation | Fast feedback during development   |
+| `comprehensive` | Full CI/CD testing    | Complete validation before release |
+| `performance`   | Performance analysis  | Performance regression detection   |
+| `edge_cases`    | Edge case validation  | Comprehensive boundary testing     |
+| `all`           | Complete analysis     | Weekly quality reviews             |
 
 ### Command Line Options
 
@@ -197,11 +205,13 @@ All reports saved to: `/home/frappe/frappe-bench/sites/dev.veganisme.net/test-re
 ### Development Workflow
 
 1. **During Development**:
+
    ```bash
    python enhanced_test_runner.py --suite quick
    ```
 
 2. **Pre-Commit**:
+
    ```bash
    python enhanced_test_runner.py --suite comprehensive --performance-report
    ```
@@ -295,12 +305,14 @@ The Phase 1 implementation provides a solid foundation for future enhancements:
 ## 🏁 Getting Started
 
 1. **Quick Start**:
+
    ```bash
    cd /home/frappe/frappe-bench/apps/verenigingen
    python scripts/testing/runners/enhanced_test_runner.py --suite quick
    ```
 
 2. **Full Analysis**:
+
    ```bash
    python scripts/testing/runners/enhanced_test_runner.py --suite all --all-reports --html-report
    ```

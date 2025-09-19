@@ -7,6 +7,7 @@ Replace ERPNext's complex subscription system with a purpose-built membership du
 ## Problem Statement
 
 ### Current Issues:
+
 1. **ERPNext Subscription Limitations**: "Current Invoice Start Date" validation errors prevent automatic processing
 2. **Conceptual Mismatch**: Commercial subscription model doesn't fit association membership model
 3. **Complex Workarounds**: Custom handlers and database manipulations required
@@ -14,6 +15,7 @@ Replace ERPNext's complex subscription system with a purpose-built membership du
 5. **Poor Visibility**: No clear overview of payment status and upcoming dues
 
 ### Root Cause:
+
 ERPNext's Subscription system is designed for SaaS/commercial subscriptions with fixed contract periods, not perpetual memberships with annual dues.
 
 ## Proposed Solution Architecture
@@ -21,7 +23,9 @@ ERPNext's Subscription system is designed for SaaS/commercial subscriptions with
 ### Core Components
 
 #### 1. **Membership Dues Schedule**
+
 A lightweight billing calendar for each member that tracks:
+
 - Member and Membership reference
 - Billing frequency (Annual/Quarterly/Monthly/Custom)
 - Amount and currency
@@ -32,7 +36,9 @@ A lightweight billing calendar for each member that tracks:
 - Warning notification settings
 
 #### 2. **Payment Status Tracking**
+
 Leverages existing infrastructure with enhancements:
+
 - **Member Payment History** (existing): Already tracks all invoices and payments
 - **Payment Status Dashboard**: New consolidated view of payment health
 - **Automated Status Updates**: Based on payment events
@@ -40,6 +46,7 @@ Leverages existing infrastructure with enhancements:
 #### 3. **Warning & Notification System**
 
 ##### **Notification Timeline**:
+
 ```
 T-30 days: "Upcoming dues" reminder
 T-14 days: "Dues invoice generated" + invoice attached
@@ -52,12 +59,14 @@ T+90 days: Automatic suspension - status changes to "Suspended"
 ```
 
 ##### **Multi-Channel Notifications**:
+
 - **Email**: Primary channel with customizable templates
 - **SMS**: For critical notices (optional)
 - **Member Portal**: Dashboard warnings
 - **Admin Dashboard**: Consolidated view for staff
 
 ##### **Smart Notification Rules**:
+
 - Skip if payment plan exists
 - Skip if member contacted recently
 - Escalation path for board members
@@ -66,6 +75,7 @@ T+90 days: Automatic suspension - status changes to "Suspended"
 #### 4. **Grace Period & Recovery System**
 
 ##### **Flexible Grace Periods**:
+
 ```python
 {
     "standard_grace_days": 30,        # Default for all members
@@ -76,6 +86,7 @@ T+90 days: Automatic suspension - status changes to "Suspended"
 ```
 
 ##### **Recovery Workflows**:
+
 1. **Automatic Recovery**: Payment received → Clear all warnings → Restore status
 2. **Payment Plans**: Create installment schedule → Pause warnings
 3. **Hardship Cases**: Board approval → Extended grace → Custom schedule
@@ -86,6 +97,7 @@ T+90 days: Automatic suspension - status changes to "Suspended"
 ### Phase 1: Foundation (Week 1-2)
 
 #### 1.1 Core Data Model
+
 ```python
 # Membership Dues Schedule
 - member (Link to Member)
@@ -107,6 +119,7 @@ T+90 days: Automatic suspension - status changes to "Suspended"
 ```
 
 #### 1.2 Status Calculation Engine
+
 ```python
 def calculate_member_payment_status(member):
     """
@@ -135,6 +148,7 @@ def calculate_member_payment_status(member):
 ### Phase 2: Invoice Generation (Week 2-3)
 
 #### 2.1 Invoice Generator
+
 ```python
 def generate_membership_invoice(schedule):
     """
@@ -159,6 +173,7 @@ def generate_membership_invoice(schedule):
 ```
 
 #### 2.2 Scheduled Job
+
 ```python
 # Daily at 8 AM
 def process_membership_dues():
@@ -182,6 +197,7 @@ def process_membership_dues():
 ### Phase 3: Notification System (Week 3-4)
 
 #### 3.1 Notification Templates
+
 ```
 # Email Templates (Customizable per organization)
 - upcoming_dues_reminder
@@ -195,6 +211,7 @@ def process_membership_dues():
 ```
 
 #### 3.2 Notification Engine
+
 ```python
 class DuesNotificationEngine:
     def __init__(self):
@@ -230,7 +247,9 @@ class DuesNotificationEngine:
 #### 4.1 Existing Reports (Enhanced)
 
 ##### **Overdue Member Payments Report** (Existing - Enhanced)
+
 Current Features:
+
 - Groups overdue invoices by member
 - Shows days overdue with color coding (Critical >60, Urgent >30)
 - Filters by chapter, membership type, date range
@@ -238,6 +257,7 @@ Current Features:
 - Summary statistics and charts
 
 Enhancements for Dues System:
+
 - Add "Last Reminder Sent" column
 - Add "Payment Plan Status" indicator
 - Add "Grace Period Remaining" calculation
@@ -245,9 +265,11 @@ Enhancements for Dues System:
 - Export to CSV for mail merge
 
 ##### **Orphaned Subscriptions Report** (Existing - Replaced)
+
 Current Purpose: Find subscriptions without active memberships
 
 Replacement: **Orphaned Dues Schedules Report**
+
 - Find dues schedules without active memberships
 - Find dues schedules with mismatched amounts
 - Find members without dues schedules
@@ -256,6 +278,7 @@ Replacement: **Orphaned Dues Schedules Report**
 #### 4.2 New Reports
 
 ##### **Payment Health Dashboard**
+
 ```
 # Real-time Metrics
 - Members by Payment Status (pie chart)
@@ -272,12 +295,14 @@ Replacement: **Orphaned Dues Schedules Report**
 ```
 
 ##### **Dues Schedule Management Report**
+
 - All active schedules with next invoice dates
 - Schedules needing attention (paused, errors)
 - Upcoming invoice forecast
 - Billing frequency distribution
 
 #### 4.3 Member Payment Portal
+
 ```
 # Member View
 - Current Status (visual indicator)
@@ -289,6 +314,7 @@ Replacement: **Orphaned Dues Schedules Report**
 ```
 
 #### 4.4 Administrative Functions
+
 ```python
 # Bulk Operations
 - bulk_send_reminders(member_list, template)
@@ -308,26 +334,31 @@ Replacement: **Orphaned Dues Schedules Report**
 #### 5.1 Special Scenarios
 
 ##### **Deceased Members**
+
 - Automatic suspension of dues
 - Grace period for estate settlement
 - Special communication templates
 
 ##### **Life Members**
+
 - No dues schedule created
 - Special status in system
 - Excluded from all payment processing
 
 ##### **Honorary Members**
+
 - Optional dues (can pay if they want)
 - No suspension for non-payment
 - Special recognition in communications
 
 ##### **Family Memberships**
+
 - Single schedule for household
 - Linked member records
 - Consolidated communications
 
 ##### **Pro-rated Periods**
+
 ```python
 def calculate_prorated_amount(membership_type, start_date):
     """For mid-year joins"""
@@ -339,6 +370,7 @@ def calculate_prorated_amount(membership_type, start_date):
 ```
 
 #### 5.2 Payment Plans
+
 ```python
 class PaymentPlanManager:
     def create_plan(member, total_amount, installments, start_date):
@@ -366,6 +398,7 @@ class PaymentPlanManager:
 ### Phase 6: Migration & Rollout (Week 6-7)
 
 #### 6.1 Data Migration
+
 ```python
 def migrate_from_subscriptions():
     """
@@ -384,6 +417,7 @@ def migrate_from_subscriptions():
 ```
 
 #### 6.2 Rollout Plan
+
 1. **Pilot Group** (10 members, 2 weeks)
 2. **Expanded Test** (100 members, 2 weeks)
 3. **Soft Launch** (all new members)
@@ -393,17 +427,20 @@ def migrate_from_subscriptions():
 ## Success Metrics
 
 ### Operational Metrics
+
 - **Invoice Generation Success Rate**: Target >99.9%
 - **Payment Collection Rate**: Improve by 10%
 - **Days Sales Outstanding (DSO)**: Reduce by 15%
 - **Manual Intervention Required**: <1% of invoices
 
 ### Member Experience Metrics
+
 - **Portal Adoption**: 60% members use self-service
 - **Payment Plan Requests**: Processed within 24 hours
 - **Complaint Rate**: <0.5% regarding billing
 
 ### Technical Metrics
+
 - **System Uptime**: 99.9%
 - **Invoice Generation Time**: <2 seconds per invoice
 - **Notification Delivery Rate**: >98%
@@ -413,6 +450,7 @@ def migrate_from_subscriptions():
 ### Existing Reports Adaptation
 
 #### **Overdue Member Payments Report**
+
 - **Keep As-Is**: Core functionality remains valuable
 - **Enhance With**:
   - Direct links to dues schedules
@@ -422,6 +460,7 @@ def migrate_from_subscriptions():
   - One-click actions (send reminder, create plan)
 
 #### **Orphaned Subscriptions Report** → **Data Integrity Report**
+
 - **Transform Into**: Comprehensive data health check
 - **Checks For**:
   - Members without dues schedules
@@ -431,6 +470,7 @@ def migrate_from_subscriptions():
   - Schedules in wrong status
 
 ### Report Access Flow
+
 ```
 Staff Dashboard → Payment Management
 ├── Overdue Member Payments (existing, enhanced)
@@ -447,31 +487,37 @@ Member Portal → My Account
 ## Risk Mitigation
 
 ### Technical Risks
+
 - **Risk**: Migration data loss
 - **Mitigation**: Comprehensive backup, parallel run, rollback plan
 
 ### Business Risks
+
 - **Risk**: Member confusion during transition
 - **Mitigation**: Clear communication, FAQ, support channels
 
 ### Compliance Risks
+
 - **Risk**: SEPA mandate issues
 - **Mitigation**: Maintain existing SEPA integration, legal review
 
 ## Resource Requirements
 
 ### Development Team
+
 - 1 Senior Developer (lead)
 - 1 Developer
 - 1 QA Engineer
 - 0.5 Business Analyst
 
 ### Timeline
+
 - **Total Duration**: 7 weeks
 - **Buffer**: 2 weeks
 - **Post-Launch Support**: 4 weeks
 
 ### Infrastructure
+
 - No additional infrastructure required
 - Uses existing ERPNext/Frappe setup
 
@@ -494,15 +540,15 @@ Member Portal → My Account
 
 ## Appendix: Comparison with Current System
 
-| Aspect | Current (Subscription) | New (Dues Schedule) |
-|--------|------------------------|-------------------|
-| Concept | Commercial contract | Membership obligation |
-| Duration | Fixed periods | Perpetual |
-| Invoicing | Complex validation | Simple date check |
-| Flexibility | Limited | High |
-| Payment Plans | Difficult | Native support |
-| Grace Periods | Not supported | Built-in |
-| Notifications | Basic | Comprehensive |
-| Member Portal | Limited info | Full self-service |
-| Reporting | Generic | Association-specific |
-| Maintenance | High (workarounds) | Low (purpose-built) |
+| Aspect        | Current (Subscription) | New (Dues Schedule)   |
+| ------------- | ---------------------- | --------------------- |
+| Concept       | Commercial contract    | Membership obligation |
+| Duration      | Fixed periods          | Perpetual             |
+| Invoicing     | Complex validation     | Simple date check     |
+| Flexibility   | Limited                | High                  |
+| Payment Plans | Difficult              | Native support        |
+| Grace Periods | Not supported          | Built-in              |
+| Notifications | Basic                  | Comprehensive         |
+| Member Portal | Limited info           | Full self-service     |
+| Reporting     | Generic                | Association-specific  |
+| Maintenance   | High (workarounds)     | Low (purpose-built)   |

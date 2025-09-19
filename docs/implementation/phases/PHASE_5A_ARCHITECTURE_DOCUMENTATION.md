@@ -122,6 +122,7 @@ graph TB
 #### Key Features
 
 **Secure Cache Key Generation:**
+
 ```python
 def generate_secure_cache_key(
     self,
@@ -148,6 +149,7 @@ def generate_secure_cache_key(
 ```
 
 **Security-Level TTL Configuration:**
+
 ```python
 CACHE_TTL_BY_SECURITY = {
     OperationType.ADMIN: 300,        # 5 minutes - admin data changes frequently
@@ -160,6 +162,7 @@ CACHE_TTL_BY_SECURITY = {
 ```
 
 **Permission-Based Cache Validation:**
+
 ```python
 def _validate_cached_permissions(self, cached_data: Dict) -> bool:
     """Validate user still has permissions for cached data"""
@@ -226,6 +229,7 @@ graph TB
 #### Priority-Based Queue Architecture
 
 **Job Priority Levels:**
+
 ```python
 class JobPriority(Enum):
     CRITICAL = "critical"  # System-critical operations (SEPA, security)
@@ -236,6 +240,7 @@ class JobPriority(Enum):
 ```
 
 **Concurrency Limits by Priority:**
+
 ```python
 CONCURRENCY_LIMITS = {
     JobPriority.CRITICAL: 2,  # Allow 2 critical jobs simultaneously
@@ -247,6 +252,7 @@ CONCURRENCY_LIMITS = {
 ```
 
 **Dynamic Resource Management:**
+
 ```python
 def optimize_job_scheduling(self) -> Dict:
     """Optimize job scheduling based on current system performance"""
@@ -314,6 +320,7 @@ graph TB
 #### Key Monitoring Components
 
 **Performance Baseline Tracking:**
+
 ```python
 {
   "measurements": {
@@ -337,6 +344,7 @@ graph TB
 ```
 
 **Real-Time Performance Scoring:**
+
 ```python
 def calculate_performance_score(self) -> Dict:
     """Calculate overall system performance score"""
@@ -393,6 +401,7 @@ graph TB
 #### Intelligent Invalidation Logic
 
 **DocType-Based Invalidation Mapping:**
+
 ```python
 def _get_affected_operations(self, doctype: str) -> List[OperationType]:
     """Get operation types affected by doctype changes"""
@@ -408,6 +417,7 @@ def _get_affected_operations(self, doctype: str) -> List[OperationType]:
 ```
 
 **User Permission Change Invalidation:**
+
 ```python
 def invalidate_user_cache(self, user: str = None, operation_types: List[OperationType] = None):
     """Invalidate cache for specific user and/or operation types"""
@@ -474,28 +484,34 @@ graph TB
 **Phase 5A Index Creations (4/5 successful):**
 
 1. **Member-Payment Composite Index:**
+
    ```sql
    CREATE INDEX idx_member_payment_composite
    ON `tabPayment Entry` (party, posting_date, docstatus);
    ```
+
    - **Performance Impact:** 18% improvement in payment history queries
    - **Query Patterns Optimized:** Member payment lookups, payment history generation
    - **Storage Impact:** 2.3MB additional storage, 0.8ms average improvement
 
 2. **SEPA Mandate Status Index:**
+
    ```sql
    CREATE INDEX idx_sepa_mandate_status
    ON `tabSEPA Mandate` (status, start_date, member);
    ```
+
    - **Performance Impact:** 22% improvement in mandate processing
    - **Query Patterns Optimized:** Active mandate lookups, batch processing validation
    - **Storage Impact:** 1.7MB additional storage, 1.1ms average improvement
 
 3. **Chapter-Member Relationship Index:**
+
    ```sql
    CREATE INDEX idx_chapter_member_relationship
    ON `tabChapter Member` (member, chapter, status);
    ```
+
    - **Performance Impact:** 12% improvement in membership validation
    - **Query Patterns Optimized:** Chapter membership verification, member chapter lookups
    - **Storage Impact:** 0.9MB additional storage, 0.5ms average improvement
@@ -505,6 +521,7 @@ graph TB
    CREATE INDEX idx_performance_tracking
    ON `tabSystem Log` (creation, category, message(100));
    ```
+
    - **Performance Impact:** 25% improvement in monitoring queries
    - **Query Patterns Optimized:** Performance log analysis, system monitoring
    - **Storage Impact:** 1.2MB additional storage, 1.2ms average improvement
@@ -512,6 +529,7 @@ graph TB
 #### Index Performance Analysis
 
 **Query Execution Improvements:**
+
 ```json
 {
   "index_performance_summary": {
@@ -585,6 +603,7 @@ class OperationType(Enum):
 #### Security Validation Integration
 
 **API Security Compliance:**
+
 ```python
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.FINANCIAL)
@@ -594,6 +613,7 @@ def sepa_batch_performance_optimization():
 ```
 
 **Cache Security Context:**
+
 ```python
 def _contains_sensitive_data(self, response: Any) -> bool:
     """Check if response contains sensitive data"""
@@ -652,6 +672,7 @@ graph TB
 #### Baseline Performance Establishment
 
 **Performance Baseline Data Structure:**
+
 ```json
 {
   "timestamp": "2025-07-28T13:11:05.281240",
@@ -663,9 +684,9 @@ graph TB
   },
   "measurements": {
     "database_queries": {
-      "active_members_count": {"time_ms": 0.34, "row_count": 1},
-      "unpaid_invoices": {"time_ms": 0.32, "row_count": 1},
-      "member_with_mandates": {"time_ms": 0.29, "row_count": 2}
+      "active_members_count": { "time_ms": 0.34, "row_count": 1 },
+      "unpaid_invoices": { "time_ms": 0.32, "row_count": 1 },
+      "member_with_mandates": { "time_ms": 0.29, "row_count": 2 }
     },
     "api_response_times": {
       "average_response_time_ms": 67.8,
@@ -727,6 +748,7 @@ graph TB
 #### Validation Accuracy Improvements
 
 **False Positive Reduction Strategy:**
+
 ```python
 class ProductionFieldValidator:
     def _build_valid_patterns(self):
@@ -761,6 +783,7 @@ class ProductionFieldValidator:
 ```
 
 **Validation Results:**
+
 - **Baseline Issues:** 5,257 false positives
 - **Phase 5A Result:** <700 remaining issues
 - **Accuracy Improvement:** 86.9% reduction in false positives
@@ -813,6 +836,7 @@ graph TB
 #### Infrastructure Readiness Validation
 
 **Component Readiness Assessment:**
+
 ```python
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
@@ -835,6 +859,7 @@ def validate_performance_infrastructure():
 ```
 
 **Production Readiness Criteria:**
+
 - ✅ **Infrastructure Readiness:** 100% (7/7 components operational)
 - ✅ **Security Compliance:** 100% API security decorator coverage maintained
 - ✅ **Performance Baseline:** Comprehensive baseline established
@@ -888,6 +913,7 @@ graph TB
 #### Architectural Evolution Path
 
 **Phase 5A → Phase 5B Evolution:**
+
 1. **Cache Enhancement:** Single-level → Multi-level caching architecture
 2. **Database Optimization:** Basic indexes → Advanced query optimization
 3. **Monitoring:** Real-time metrics → Predictive performance analysis
@@ -897,6 +923,7 @@ graph TB
 ### Scalability Considerations
 
 **Architecture Scalability Features:**
+
 - **Horizontal Scaling:** Cache and job coordination components support horizontal scaling
 - **Performance Monitoring:** Monitoring architecture supports distributed deployment
 - **Database Optimization:** Index strategy designed for large-scale data growth
@@ -949,6 +976,7 @@ graph TB
 #### Maintenance Procedures
 
 **Regular Maintenance Tasks:**
+
 - **Index Performance Review:** Weekly analysis of index effectiveness
 - **Cache Performance Optimization:** Daily cache hit rate analysis
 - **Job Queue Health Monitoring:** Continuous queue performance monitoring
@@ -956,6 +984,7 @@ graph TB
 - **Performance Baseline Updates:** Monthly baseline refresh
 
 **Automated Maintenance:**
+
 - **Cache Invalidation:** Event-driven automatic cache invalidation
 - **Job Queue Optimization:** Dynamic concurrency adjustment
 - **Performance Alert Generation:** Automated performance degradation alerts
@@ -968,6 +997,7 @@ graph TB
 ### System Requirements
 
 **Minimum Infrastructure Requirements:**
+
 - **Database:** MariaDB 10.6+ with performance_schema enabled
 - **Memory:** 8GB RAM with 2.5MB dedicated cache allocation
 - **CPU:** Multi-core processor with performance monitoring capabilities
@@ -975,6 +1005,7 @@ graph TB
 - **Network:** Low-latency network for cache operations
 
 **Performance Characteristics:**
+
 - **Cache Response Time:** 5.2ms to 12.4ms average
 - **Database Query Improvement:** 15% average improvement
 - **Memory Efficiency:** 5.2% reduction in memory usage
@@ -984,6 +1015,7 @@ graph TB
 ### Configuration Parameters
 
 **Cache Configuration:**
+
 ```python
 CACHE_TTL_BY_SECURITY = {
     OperationType.ADMIN: 300,        # 5 minutes
@@ -996,6 +1028,7 @@ CACHE_TTL_BY_SECURITY = {
 ```
 
 **Job Coordination Configuration:**
+
 ```python
 CONCURRENCY_LIMITS = {
     JobPriority.CRITICAL: 2,  # System-critical operations

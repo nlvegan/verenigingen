@@ -26,7 +26,12 @@ frappe.listview_settings['Chapter Join Request'] = {
 		});
 
 		// Add quick approval actions
-		if (frappe.user.has_role(['Verenigingen Manager', 'Verenigingen Chapter Board Member'])) {
+		if (
+			frappe.user.has_role([
+				'Verenigingen Manager',
+				'Verenigingen Chapter Board Member'
+			])
+		) {
 			listview.page.add_actions_menu_item(__('Bulk Approve'), () => {
 				const selected = listview.get_checked_items();
 				if (selected.length === 0) {
@@ -38,9 +43,10 @@ frappe.listview_settings['Chapter Join Request'] = {
 					__('Approve {0} selected request(s)?', [selected.length]),
 					() => {
 						frappe.call({
-							method: 'verenigingen.verenigingen.doctype.chapter_join_request.chapter_join_request.bulk_approve_requests',
+							method:
+                'verenigingen.verenigingen.doctype.chapter_join_request.chapter_join_request.bulk_approve_requests',
 							args: {
-								request_names: selected.map(item => item.name)
+								request_names: selected.map((item) => item.name)
 							},
 							callback(r) {
 								if (r.message) {

@@ -7,6 +7,7 @@ Three new critical monitoring metrics have been added to the Zabbix integration 
 ## New Metrics
 
 ### 1. Past Next Invoice Dates
+
 - **Metric Key**: `frappe.dues_schedules.past_invoice_dates`
 - **Description**: Counts active dues schedules with `next_invoice_date` in the past
 - **Purpose**: Detects overdue billing schedules that need attention
@@ -20,10 +21,12 @@ Three new critical monitoring metrics have been added to the Zabbix integration 
   ```
 
 **Triggers**:
+
 - **WARNING**: Any value > 0 (indicates billing issues)
 - **HIGH**: Value > 10 (critical billing backlog)
 
 ### 2. Members Without Membership
+
 - **Metric Key**: `frappe.members.without_membership`
 - **Description**: Counts active members without active membership records
 - **Purpose**: Identifies data integrity issues in the membership system
@@ -41,10 +44,12 @@ Three new critical monitoring metrics have been added to the Zabbix integration 
   ```
 
 **Triggers**:
+
 - **WARNING**: Any value > 0 (data integrity issue)
 - **HIGH**: Value > 10 (significant data problems)
 
 ### 3. Members Without Dues Schedule
+
 - **Metric Key**: `frappe.members.without_dues_schedule`
 - **Description**: Counts active members without active billing dues schedules
 - **Purpose**: Identifies members who won't be billed (revenue loss risk)
@@ -61,6 +66,7 @@ Three new critical monitoring metrics have been added to the Zabbix integration 
   ```
 
 **Triggers**:
+
 - **INFO**: Any value > 0 (informational)
 - **WARNING**: Value > 20 (potential revenue impact)
 - **HIGH**: Value > 50 (significant revenue impact)
@@ -68,13 +74,16 @@ Three new critical monitoring metrics have been added to the Zabbix integration 
 ## Implementation Details
 
 ### Zabbix Integration
+
 - **Endpoint**: `/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix`
 - **Update Frequency**: 5-10 minutes
 - **Historical Data**: 30 days history, 90 days trends
 - **Error Handling**: Returns 0 on query failures
 
 ### Template Items
+
 All metrics include:
+
 - HTTP Agent monitoring
 - JSON Path preprocessing
 - Error handling with fallback values
@@ -83,16 +92,17 @@ All metrics include:
 
 ### Configurable Thresholds
 
-| Threshold Macro | Default | Description |
-|----------------|---------|-------------|
-| `{$PAST_INVOICE_DATES_HIGH}` | 10 | Critical past invoice dates |
-| `{$MEMBERS_WITHOUT_MEMBERSHIP_HIGH}` | 10 | Critical membership gaps |
-| `{$MEMBERS_WITHOUT_DUES_SCHEDULE_WARN}` | 20 | Warning billing gaps |
-| `{$MEMBERS_WITHOUT_DUES_SCHEDULE_HIGH}` | 50 | Critical billing gaps |
+| Threshold Macro                         | Default | Description                 |
+| --------------------------------------- | ------- | --------------------------- |
+| `{$PAST_INVOICE_DATES_HIGH}`            | 10      | Critical past invoice dates |
+| `{$MEMBERS_WITHOUT_MEMBERSHIP_HIGH}`    | 10      | Critical membership gaps    |
+| `{$MEMBERS_WITHOUT_DUES_SCHEDULE_WARN}` | 20      | Warning billing gaps        |
+| `{$MEMBERS_WITHOUT_DUES_SCHEDULE_HIGH}` | 50      | Critical billing gaps       |
 
 ## Current Status (July 22, 2025)
 
 Based on test data:
+
 - **Past Invoice Dates**: 2 schedules (requires attention)
 - **Members Without Membership**: 69 members (data cleanup needed)
 - **Members Without Dues Schedule**: 69 members (billing setup needed)
@@ -100,6 +110,7 @@ Based on test data:
 ## Recommended Actions
 
 ### For Past Invoice Dates > 0
+
 1. Run dues schedule date validation:
    ```python
    from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import validate_and_fix_schedule_dates
@@ -107,11 +118,13 @@ Based on test data:
    ```
 
 ### For Members Without Membership > 0
+
 1. Review inactive members and update status
 2. Create missing membership records
 3. Run data integrity checks
 
 ### For Members Without Dues Schedule > 0
+
 1. Use auto-creation tool:
    ```python
    from verenigingen.utils.dues_schedule_auto_creator import auto_create_missing_dues_schedules
@@ -140,6 +153,7 @@ Based on test data:
 ## Integration with Existing Monitoring
 
 These metrics complement existing financial and business metrics:
+
 - Works with existing error rate and performance monitoring
 - Integrates with health check system
 - Uses same authentication and endpoint structure

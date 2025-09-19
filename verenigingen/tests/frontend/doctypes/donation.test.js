@@ -28,13 +28,13 @@ describe('Donation DocType - Comprehensive Test Suite', () => {
 	describe('Form Lifecycle Management', () => {
 		test('should initialize donation form with donor data', () => {
 			mockDoc.donor = testFactory.createDonorName();
-			mockDoc.amount = 250.00;
+			mockDoc.amount = 250.0;
 
 			const donation = require('../../../../verenigingen/doctype/donation/donation.js');
 			donation.refresh(mockFrm);
 
 			expect(mockDoc.donor).toBeDefined();
-			expect(mockDoc.amount).toBe(250.00);
+			expect(mockDoc.amount).toBe(250.0);
 		});
 
 		test('should add receipt generation button for paid donations', () => {
@@ -116,9 +116,9 @@ function setupGlobalMocks() {
 		ui: { form: { on: jest.fn() } },
 		call: jest.fn(),
 		show_alert: jest.fn(),
-		__: jest.fn(str => str)
+		__: jest.fn((str) => str)
 	};
-	global.__ = jest.fn(str => str);
+	global.__ = jest.fn((str) => str);
 }
 
 function teardownGlobalMocks() {

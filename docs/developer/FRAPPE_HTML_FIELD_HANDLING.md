@@ -7,13 +7,16 @@ This guide documents the solution for displaying data in Frappe HTML fields, par
 ## The Challenge: HTML Fields Don't Persist
 
 ### Key Understanding
+
 HTML fields in Frappe are **display-only** fields that:
+
 - Do not persist to the database
 - Cannot be accessed as regular attributes on document objects
 - Are meant for dynamic content display in forms
 - Must be populated through JavaScript or special server-side methods
 
 ### The Problem
+
 ```python
 # ❌ This doesn't work
 member = frappe.get_doc("Member", "MEM-001")
@@ -49,20 +52,20 @@ The JavaScript side checks for onload data and injects it into the HTML field:
 
 ```javascript
 // In member.js
-frappe.ui.form.on('Member', {
-    refresh: function(frm) {
-        // Check if we have onload data
-        if (frm.doc.__onload && frm.doc.__onload.other_members_at_address) {
-            const html_content = frm.doc.__onload.other_members_at_address;
+frappe.ui.form.on("Member", {
+  refresh: function (frm) {
+    // Check if we have onload data
+    if (frm.doc.__onload && frm.doc.__onload.other_members_at_address) {
+      const html_content = frm.doc.__onload.other_members_at_address;
 
-            // Get the HTML field wrapper
-            const field = frm.fields_dict.other_members_at_address;
-            if (field && field.$wrapper) {
-                // Direct DOM manipulation to avoid dirty state
-                field.$wrapper.find('.form-control').html(html_content);
-            }
-        }
+      // Get the HTML field wrapper
+      const field = frm.fields_dict.other_members_at_address;
+      if (field && field.$wrapper) {
+        // Direct DOM manipulation to avoid dirty state
+        field.$wrapper.find(".form-control").html(html_content);
+      }
     }
+  },
 });
 ```
 
@@ -74,10 +77,10 @@ In the Member.json file, the HTML field is defined simply:
 
 ```json
 {
-    "fieldname": "other_members_at_address",
-    "fieldtype": "HTML",
-    "label": "Other Members at This Address"
-    // Note: No read_only, no default value needed
+  "fieldname": "other_members_at_address",
+  "fieldtype": "HTML",
+  "label": "Other Members at This Address"
+  // Note: No read_only, no default value needed
 }
 ```
 
@@ -157,10 +160,10 @@ Using `frm.set_value()` with HTML fields triggers the form's dirty state, making
 
 ```javascript
 // ❌ Causes "You have unsaved changes" warnings
-frm.set_value('other_members_at_address', html_content);
+frm.set_value("other_members_at_address", html_content);
 
 // ✅ Direct DOM manipulation doesn't trigger dirty state
-field.$wrapper.find('.form-control').html(html_content);
+field.$wrapper.find(".form-control").html(html_content);
 ```
 
 ### 2. HTML Fields Are Not Document Attributes
@@ -181,17 +184,17 @@ Sometimes the DOM isn't ready immediately. A retry mechanism ensures content dis
 
 ```javascript
 function injectHtmlWithRetry(field, html_content, attempts = 0) {
-    if (attempts > 5) return;
+  if (attempts > 5) return;
 
-    const formControl = field.$wrapper.find('.form-control');
-    if (formControl.length) {
-        formControl.html(html_content);
-    } else {
-        // Retry after short delay
-        setTimeout(() => {
-            injectHtmlWithRetry(field, html_content, attempts + 1);
-        }, 100);
-    }
+  const formControl = field.$wrapper.find(".form-control");
+  if (formControl.length) {
+    formControl.html(html_content);
+  } else {
+    // Retry after short delay
+    setTimeout(() => {
+      injectHtmlWithRetry(field, html_content, attempts + 1);
+    }, 100);
+  }
 }
 ```
 
@@ -211,6 +214,7 @@ function injectHtmlWithRetry(field, html_content, attempts = 0) {
 
 **Problem**: Heavy computation in onload() slows form loading
 **Solution**:
+
 - Cache computed results
 - Use optimized queries
 - Consider lazy loading via API for complex content
@@ -222,9 +226,9 @@ function injectHtmlWithRetry(field, html_content, attempts = 0) {
 
 ```html
 <div class="frappe-card">
-    <div class="card-body">
-        <!-- Content using Frappe's styling -->
-    </div>
+  <div class="card-body">
+    <!-- Content using Frappe's styling -->
+  </div>
 </div>
 ```
 
@@ -243,6 +247,7 @@ function injectHtmlWithRetry(field, html_content, attempts = 0) {
 Here's the complete implementation for the "Other Members at Same Address" feature:
 
 ### Backend (member.py)
+
 ```python
 def onload(self):
     """Load HTML content for display fields"""
@@ -288,38 +293,40 @@ def get_address_members_html(self):
 ```
 
 ### Frontend (member.js)
+
 ```javascript
-frappe.ui.form.on('Member', {
-    refresh: function(frm) {
-        // Display other members at same address
-        if (frm.doc.__onload && frm.doc.__onload.other_members_at_address) {
-            displayAddressMembers(frm, frm.doc.__onload.other_members_at_address);
-        }
+frappe.ui.form.on("Member", {
+  refresh: function (frm) {
+    // Display other members at same address
+    if (frm.doc.__onload && frm.doc.__onload.other_members_at_address) {
+      displayAddressMembers(frm, frm.doc.__onload.other_members_at_address);
     }
+  },
 });
 
 function displayAddressMembers(frm, html_content) {
-    const field = frm.fields_dict.other_members_at_address;
-    if (!field || !field.$wrapper) return;
+  const field = frm.fields_dict.other_members_at_address;
+  if (!field || !field.$wrapper) return;
 
-    // Use retry mechanism for DOM readiness
-    let attempts = 0;
-    const inject = () => {
-        const formControl = field.$wrapper.find('.form-control');
-        if (formControl.length) {
-            formControl.html(html_content);
-        } else if (attempts < 5) {
-            attempts++;
-            setTimeout(inject, 100);
-        }
-    };
-    inject();
+  // Use retry mechanism for DOM readiness
+  let attempts = 0;
+  const inject = () => {
+    const formControl = field.$wrapper.find(".form-control");
+    if (formControl.length) {
+      formControl.html(html_content);
+    } else if (attempts < 5) {
+      attempts++;
+      setTimeout(inject, 100);
+    }
+  };
+  inject();
 }
 ```
 
 ## Debugging HTML Fields
 
 ### Check if Content is Generated
+
 ```python
 # In console
 member = frappe.get_doc("Member", "MEM-001")
@@ -328,18 +335,20 @@ print(member.get("__onload", {}).get("other_members_at_address"))
 ```
 
 ### Verify Frontend Reception
+
 ```javascript
 // In browser console
-cur_frm.doc.__onload
-cur_frm.doc.__onload.other_members_at_address
+cur_frm.doc.__onload;
+cur_frm.doc.__onload.other_members_at_address;
 ```
 
 ### Check DOM Structure
+
 ```javascript
 // In browser console
-cur_frm.fields_dict.other_members_at_address
-cur_frm.fields_dict.other_members_at_address.$wrapper
-cur_frm.fields_dict.other_members_at_address.$wrapper.find('.form-control')
+cur_frm.fields_dict.other_members_at_address;
+cur_frm.fields_dict.other_members_at_address.$wrapper;
+cur_frm.fields_dict.other_members_at_address.$wrapper.find(".form-control");
 ```
 
 ## Related Documentation

@@ -12,6 +12,7 @@ Replaced a sprawling collection of 32 workspace debugging files with a comprehen
 ## Problem Analysis
 
 ### Initial State Assessment
+
 - **32 workspace debugging files** across multiple directories
 - Fragmented tools that mostly provided diagnosis without fixes
 - No integration with migration process (root cause of workspace corruption)
@@ -20,6 +21,7 @@ Replaced a sprawling collection of 32 workspace debugging files with a comprehen
 - Users experienced "empty workspaces" weeks after migrations
 
 ### Impact Scope
+
 - **29 out of 31 workspaces** were corrupted across entire system
 - Affected all major applications: ERPNext, HRMS, Banking, Verenigingen
 - Primary cause: Content field/Card Break desynchronization from DocType deletions
@@ -44,6 +46,7 @@ class WorkspaceHealthManager:
 ```
 
 **Diagnostic Priorities**:
+
 1. **Content/Database Sync** (Most Common) - Content field vs Card Break mismatch
 2. **Link Validation** (Migration-Caused) - Broken DocType/Report references
 3. **Structural Issues** (Edge Cases) - Duplicate links, malformed structures
@@ -52,16 +55,19 @@ class WorkspaceHealthManager:
 ### 2. Migration Process Integration
 
 **New File**: `verenigingen/patches/v2_1/workspace_health_migration.py` (203 lines)
+
 - Runs during major version upgrades
 - Comprehensive workspace health migration
 - **Results**: Fixed 29/31 workspaces on initial execution
 
 **New File**: `verenigingen/utils/post_migration_hooks.py` (198 lines)
+
 - Automatic execution after every migration via `after_migrate` hook
 - Lightweight, focused on migration-related issues
 - **Results**: Found and fixed issues in 31/31 workspaces
 
 **Modified File**: `verenigingen/hooks.py`
+
 ```python
 # Added post-migration workspace health maintenance
 after_migrate = [
@@ -73,15 +79,18 @@ after_migrate = [
 ### 3. Command-Line Interface
 
 **New File**: `verenigingen/commands/workspace_health.py` (121 lines)
+
 - Individual workspace diagnosis and repair
 - Human-readable output with progress tracking
 
 **New File**: `verenigingen/commands/workspace_maintenance.py` (145 lines)
+
 - Bulk maintenance operations
 - Orphaned link cleanup
 - Dry-run capabilities
 
 **Modified File**: `verenigingen/hooks.py`
+
 ```python
 commands = [
     "verenigingen.commands.workspace.workspace",
@@ -93,6 +102,7 @@ commands = [
 ### 4. Documentation
 
 **New File**: `docs/architecture/WORKSPACE_HEALTH_MIGRATION_SOLUTION.md`
+
 - Complete architectural documentation
 - Usage examples and troubleshooting guide
 - Performance impact analysis
@@ -102,6 +112,7 @@ commands = [
 ### High-Confidence Archival (Immediate)
 
 **Complete Functional Replacement**:
+
 ```
 verenigingen/api/workspace_debug.py                     → workspace_health.py
 verenigingen/api/workspace_validator.py                 → workspace_health.py
@@ -115,6 +126,7 @@ verenigingen/utils/workspace_content_fixer.py          → workspace_health.py (
 ```
 
 **Specialized Debugging Scripts** (No longer needed with unified tool):
+
 ```
 scripts/workspace_debugging_toolkit.py                  → workspace_health.py + commands
 scripts/debug/check_workspace.py                       → workspace maintenance commands
@@ -124,6 +136,7 @@ scripts/validation/workspace_integrity_validator.py    → workspace_health.py
 ```
 
 **Legacy/Experimental Files**:
+
 ```
 verenigingen/api/restore_workspace.py                   → Superseded by backup/restore in health tool
 verenigingen/api/fix_workspace_links.py                → Superseded by link validation in health tool
@@ -133,6 +146,7 @@ verenigingen/api/rebuild_workspace.py                  → Dangerous operation, 
 ### Medium-Confidence Archival (After 30-day observation)
 
 **Files with Overlapping Functionality**:
+
 ```
 verenigingen/utils/workspace_reports_organizer.py       → May have specific reporting logic
 verenigingen/utils/fix_eboekhouden_workspace.py        → E-Boekhouden specific, but health tool handles all
@@ -141,6 +155,7 @@ scripts/api_maintenance/fix_workspace.py               → Manual fixes now auto
 ```
 
 **Migration-Specific Files** (Keep until migration path validated):
+
 ```
 scripts/setup_eboekhouden_workspace.py                 → May be needed for fresh installations
 scripts/workspace_reorganization.py                    → May have specific reorganization logic
@@ -149,12 +164,14 @@ scripts/workspace_reorganization.py                    → May have specific reo
 ### Keep (Specialized Functionality)
 
 **Integration-Specific Files**:
+
 ```
 verenigingen/utils/execute_workspace_reorg.py          → Specific reorganization operations
 scripts/setup/update_workspace_for_onboarding.py       → Onboarding-specific workspace setup
 ```
 
 **Patches/Migrations** (Historical record):
+
 ```
 verenigingen/patches/v1_0/fix_workspace_shortcuts_dict_issue.py
 verenigingen/patches/v2_0/add_workflow_demo_to_workspace.py
@@ -170,6 +187,7 @@ verenigingen/patches/v2_0/add_workflow_demo_to_workspace.py
    - Monitor for any workspace corruption reports
 
 2. **Command Usage Validation**:
+
    ```bash
    # Test unified tool covers all use cases
    bench workspace-health [various workspaces]
@@ -191,6 +209,7 @@ verenigingen/patches/v2_0/add_workflow_demo_to_workspace.py
 ## Technical Debt Elimination
 
 ### Before Consolidation
+
 - **32 files** with overlapping functionality
 - **Inconsistent interfaces** (some CLI, some API, some manual)
 - **No safety measures** (no backups, no verification)
@@ -198,6 +217,7 @@ verenigingen/patches/v2_0/add_workflow_demo_to_workspace.py
 - **Manual intervention required** for most repairs
 
 ### After Consolidation
+
 - **4 core files** with clear separation of concerns
 - **Consistent interface** (API + CLI with unified experience)
 - **Built-in safety** (automatic backups, verification, rollback)
@@ -207,11 +227,13 @@ verenigingen/patches/v2_0/add_workflow_demo_to_workspace.py
 ## Performance Impact
 
 ### Migration Process
+
 - **Additional time**: ~30 seconds per migration for workspace health checks
 - **Storage overhead**: Minimal (backup files in /tmp, cleaned automatically)
 - **Memory usage**: No significant increase
 
 ### Operational Benefits
+
 - **Eliminated manual workspace debugging sessions**
 - **Reduced support burden** for "empty workspace" issues
 - **Improved system reliability** across all applications
@@ -220,6 +242,7 @@ verenigingen/patches/v2_0/add_workflow_demo_to_workspace.py
 ## Quality Assurance Testing
 
 ### Validation Results
+
 ```
 Migration Patch Test:     ✅ Fixed 29/31 workspaces
 Post-Migration Hook Test: ✅ Fixed 31/31 workspaces
@@ -229,6 +252,7 @@ Performance Test:         ✅ <60s overhead per migration
 ```
 
 ### Integration Testing
+
 - Tested across ERPNext, HRMS, Banking, Verenigingen applications
 - Validated with different workspace structures and complexity levels
 - Confirmed backward compatibility with existing workspace fixtures
@@ -236,11 +260,13 @@ Performance Test:         ✅ <60s overhead per migration
 ## Maintenance Guidelines
 
 ### Monitoring Recommendations
+
 1. **Track workspace health metrics** via post-migration hook outputs
 2. **Monitor migration timing** to ensure performance remains acceptable
 3. **Review archived file usage** to confirm no dependencies remain
 
 ### Future Enhancements
+
 1. **Dashboard integration** for workspace health monitoring
 2. **Proactive alerting** for workspace drift detection
 3. **Advanced analytics** on workspace usage patterns
@@ -252,6 +278,7 @@ This consolidation eliminates a significant source of technical debt while provi
 **Key Achievement**: Reduced workspace maintenance from 32 reactive debugging tools to 1 proactive automated system that runs transparently during migrations.
 
 **Files Summary**:
+
 - **Created**: 5 new files (991 total lines)
 - **Modified**: 1 file (hooks.py)
 - **Can Archive**: 15+ files (2000+ lines of technical debt)

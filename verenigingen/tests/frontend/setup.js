@@ -37,7 +37,7 @@
  */
 
 // Global test setup
-global.__ = jest.fn(str => str);
+global.__ = jest.fn((str) => str);
 global.cur_frm = {};
 
 // Mock jQuery globally

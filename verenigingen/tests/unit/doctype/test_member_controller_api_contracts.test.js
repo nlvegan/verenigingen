@@ -14,7 +14,9 @@
  * @version 1.0.0
  */
 
-const { createControllerTestSuite } = require('../../setup/controller-test-base');
+const {
+	createControllerTestSuite
+} = require('../../setup/controller-test-base');
 const {
 	APIContractTestServer,
 	APIContractTester,
@@ -29,8 +31,16 @@ expect.extend(createAPIContractMatcher());
 // Configuration for Member controller testing
 const memberControllerConfig = {
 	doctype: 'Member',
-	controllerPath: '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/member/member.js',
-	expectedHandlers: ['refresh', 'validate', 'member_since', 'first_name', 'tussenvoegsel', 'last_name'],
+	controllerPath:
+    '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/member/member.js',
+	expectedHandlers: [
+		'refresh',
+		'validate',
+		'member_since',
+		'first_name',
+		'tussenvoegsel',
+		'last_name'
+	],
 	defaultDoc: {
 		name: 'ASSOC-MEMBER-2025-001',
 		status: 'Active',
@@ -74,7 +84,10 @@ describe('Member Controller API Contract Integration', () => {
 					expect(options.args || {}).toMatchAPIContract(options.method);
 				}
 			} catch (contractError) {
-				console.warn(`API Contract Violation in ${options.method}:`, contractError.message);
+				console.warn(
+					`API Contract Violation in ${options.method}:`,
+					contractError.message
+				);
 			}
 
 			// Call original behavior for controller functionality
@@ -102,9 +115,10 @@ describe('Member Controller API Contract Integration', () => {
 				// Simulate a button click that triggers payment processing
 				if (controllerTest.mockForm.add_custom_button.mock.calls.length > 0) {
 					// Find payment-related buttons
-					const buttonCalls = controllerTest.mockForm.add_custom_button.mock.calls;
-					const paymentButton = buttonCalls.find(call =>
-						call[0] && call[0].toLowerCase().includes('payment')
+					const buttonCalls
+            = controllerTest.mockForm.add_custom_button.mock.calls;
+					const paymentButton = buttonCalls.find(
+						(call) => call[0] && call[0].toLowerCase().includes('payment')
 					);
 
 					if (paymentButton && paymentButton[1]) {
@@ -112,11 +126,11 @@ describe('Member Controller API Contract Integration', () => {
 						paymentButton[1]();
 
 						// Check if any API calls were made and validate them
-						const paymentApiCalls = capturedApiCalls.filter(call =>
+						const paymentApiCalls = capturedApiCalls.filter((call) =>
 							call.method.includes('process_payment')
 						);
 
-						paymentApiCalls.forEach(apiCall => {
+						paymentApiCalls.forEach((apiCall) => {
 							expect(apiCall.args).toMatchAPIContract(apiCall.method);
 						});
 					}
@@ -130,11 +144,11 @@ describe('Member Controller API Contract Integration', () => {
 				controllerTest.testEvent('refresh');
 
 				// Check for dues schedule API calls
-				const duesApiCalls = capturedApiCalls.filter(call =>
+				const duesApiCalls = capturedApiCalls.filter((call) =>
 					call.method.includes('get_current_dues_schedule_details')
 				);
 
-				duesApiCalls.forEach(apiCall => {
+				duesApiCalls.forEach((apiCall) => {
 					expect(apiCall.args).toMatchAPIContract(apiCall.method);
 
 					// Validate member parameter format
@@ -153,15 +167,17 @@ describe('Member Controller API Contract Integration', () => {
 					controllerTest.testEvent('iban');
 
 					// Check for IBAN validation API calls
-					const ibanApiCalls = capturedApiCalls.filter(call =>
+					const ibanApiCalls = capturedApiCalls.filter((call) =>
 						call.method.includes('derive_bic_from_iban')
 					);
 
-					ibanApiCalls.forEach(apiCall => {
+					ibanApiCalls.forEach((apiCall) => {
 						expect(apiCall.args).toMatchAPIContract(apiCall.method);
 
 						// Validate IBAN format
-						expect(apiCall.args.iban).toMatch(/^[A-Z]{2}[0-9]{2}[A-Z0-9]{4}[0-9]{10}$/);
+						expect(apiCall.args.iban).toMatch(
+							/^[A-Z]{2}[0-9]{2}[A-Z0-9]{4}[0-9]{10}$/
+						);
 					});
 				}
 			});
@@ -174,9 +190,10 @@ describe('Member Controller API Contract Integration', () => {
 				controllerTest.mockForm.doc.status = 'Active';
 
 				// Look for mandate-related buttons
-				const buttonCalls = controllerTest.mockForm.add_custom_button.mock.calls;
-				const mandateButton = buttonCalls.find(call =>
-					call[0] && call[0].toLowerCase().includes('mandate')
+				const buttonCalls
+          = controllerTest.mockForm.add_custom_button.mock.calls;
+				const mandateButton = buttonCalls.find(
+					(call) => call[0] && call[0].toLowerCase().includes('mandate')
 				);
 
 				if (mandateButton && mandateButton[1]) {
@@ -184,11 +201,11 @@ describe('Member Controller API Contract Integration', () => {
 					mandateButton[1]();
 
 					// Validate mandate validation API calls
-					const mandateApiCalls = capturedApiCalls.filter(call =>
+					const mandateApiCalls = capturedApiCalls.filter((call) =>
 						call.method.includes('validate_mandate_creation')
 					);
 
-					mandateApiCalls.forEach(apiCall => {
+					mandateApiCalls.forEach((apiCall) => {
 						expect(apiCall.args).toMatchAPIContract(apiCall.method);
 
 						// Ensure required fields are present
@@ -218,7 +235,7 @@ describe('Member Controller API Contract Integration', () => {
 						mockResponse = {
 							has_schedule: true,
 							schedule_name: 'SCHED-001',
-							dues_rate: 25.00,
+							dues_rate: 25.0,
 							frequency: 'Monthly'
 						};
 					} else if (method.includes('derive_bic_from_iban')) {
@@ -278,7 +295,9 @@ describe('Member Controller API Contract Integration', () => {
 
 				// Verify generated data matches our controller expectations
 				expect(memberTestData.member).toMatch(/^[A-Z]+-[A-Z]+-[0-9]+-[0-9]+$/);
-				expect(ibanTestData.iban).toMatch(/^[A-Z]{2}[0-9]{2}[A-Z0-9]{4}[0-9]{10}$/);
+				expect(ibanTestData.iban).toMatch(
+					/^[A-Z]{2}[0-9]{2}[A-Z0-9]{4}[0-9]{10}$/
+				);
 
 				// Update controller with valid test data
 				controllerTest.mockForm.doc.name = memberTestData.member;
@@ -294,23 +313,32 @@ describe('Member Controller API Contract Integration', () => {
 		'API Method Coverage': (getControllerTest) => {
 			it('should provide coverage for all member-related API methods', () => {
 				const availableMethods = apiTester.getAvailableMethods();
-				const memberMethods = availableMethods.filter(method =>
+				const memberMethods = availableMethods.filter((method) =>
 					method.includes('member.member')
 				);
 
 				console.log('Available Member API Methods:', memberMethods);
 
 				// Ensure we have schemas for key member operations
-				expect(memberMethods).toContain('verenigingen.verenigingen.doctype.member.member.process_payment');
-				expect(memberMethods).toContain('verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details');
-				expect(memberMethods).toContain('verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban');
-				expect(memberMethods).toContain('verenigingen.verenigingen.doctype.member.member.validate_mandate_creation');
+				expect(memberMethods).toContain(
+					'verenigingen.verenigingen.doctype.member.member.process_payment'
+				);
+				expect(memberMethods).toContain(
+					'verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details'
+				);
+				expect(memberMethods).toContain(
+					'verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban'
+				);
+				expect(memberMethods).toContain(
+					'verenigingen.verenigingen.doctype.member.member.validate_mandate_creation'
+				);
 			});
 		}
 	};
 
 	// Create the controller test suite with API contract integration
-	describe('Member Controller with API Contracts',
+	describe(
+		'Member Controller with API Contracts',
 		createControllerTestSuite(memberControllerConfig, memberApiContractTests)
 	);
 });

@@ -7,6 +7,7 @@ The kascommissie (audit committee) fixtures provide a complete solution for esta
 ## Created Fixtures
 
 ### 1. Team Role: `kascommissie_auditor`
+
 **File:** `verenigingen/fixtures/team_role.json`
 
 - **Role Name:** Kascommissie Auditor
@@ -16,6 +17,7 @@ The kascommissie (audit committee) fixtures provide a complete solution for esta
 - **Active:** Yes
 
 ### 2. Team: `kascommissie`
+
 **File:** `verenigingen/fixtures/team.json`
 
 - **Team Name:** Kascommissie
@@ -25,6 +27,7 @@ The kascommissie (audit committee) fixtures provide a complete solution for esta
 - **Responsibilities:** Financial oversight, audit functions, compliance monitoring
 
 ### 3. System Role: `Verenigingen Kascommissie`
+
 **File:** `verenigingen/fixtures/role.json`
 
 - **Role Name:** Verenigingen Kascommissie
@@ -32,9 +35,11 @@ The kascommissie (audit committee) fixtures provide a complete solution for esta
 - **Home Page:** /app/verenigingen
 
 ### 4. Role Profile: `Verenigingen Kascommissie`
+
 **File:** `verenigingen/fixtures/role_profile_kascommissie.json`
 
 Combined roles for comprehensive audit access:
+
 - **Verenigingen Member** - Basic app access
 - **Employee** - Employee module access
 - **Auditor** - Built-in ERPNext audit permissions
@@ -46,6 +51,7 @@ Combined roles for comprehensive audit access:
 The kascommissie role profile provides read-only access to:
 
 ### Financial Data
+
 - Bank transactions and reconciliation
 - Payment entries and requests
 - Sales and purchase invoices
@@ -53,24 +59,28 @@ The kascommissie role profile provides read-only access to:
 - Account balances and statements
 
 ### SEPA & Payment Processing
+
 - SEPA mandates and batch processing
 - Direct debit transactions
 - Payment retry logs
 - Member payment histories
 
 ### E-Boekhouden Integration
+
 - Migration logs and status
 - Account mappings
 - Import/export records
 - Synchronization audit trails
 
 ### Membership Financial Data
+
 - Membership dues schedules
 - Payment collections
 - Overdue payment reports
 - Financial compliance reports
 
 ### Volunteer Expenses
+
 - Expense claims and approvals
 - Reimbursement tracking
 - Budget utilization reports
@@ -78,11 +88,13 @@ The kascommissie role profile provides read-only access to:
 ## Installation
 
 1. **Install Fixtures:**
+
    ```bash
    bench --site [sitename] install-app verenigingen
    ```
 
 2. **Load Specific Fixtures:**
+
    ```bash
    bench --site [sitename] migrate
    ```
@@ -159,6 +171,7 @@ The kascommissie team has defined responsibilities:
 ### Support
 
 For technical issues or questions about the kascommissie setup, refer to:
+
 - System administrator
 - Frappe/ERPNext documentation for role and permission management
 - Verenigingen app documentation
@@ -166,6 +179,7 @@ For technical issues or questions about the kascommissie setup, refer to:
 ## Future Enhancements
 
 Potential improvements for the kascommissie functionality:
+
 - Custom audit reports and dashboards
 - Automated compliance checking
 - Integration with external audit tools

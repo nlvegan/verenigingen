@@ -12,6 +12,7 @@
 **Business Impact**: Critical - ensures consistent enforcement of membership age requirements
 
 **Key Features**:
+
 - Context-aware validation (membership, volunteer, voting, student, youth, senior)
 - Configurable age limits with fallbacks to system configuration
 - Parental consent support for edge cases
@@ -19,6 +20,7 @@
 - Decimal precision age calculations
 
 **Usage Examples**:
+
 ```python
 from verenigingen.utils.validation_utilities import AgeValidator
 
@@ -35,9 +37,11 @@ result = validate_volunteer_age("1985-05-15")  # Convenience function
 ```
 
 **Migration Completed**:
+
 - `enhanced_test_factory.py` - Business rule validation
 
 **Remaining Migration Opportunities** (15+ files):
+
 - `verenigingen/api/enhanced_membership_application.py` - Membership type validation
 - `verenigingen/verenigingen/doctype/member/member.py` - Core member validation
 - `verenigingen/api/dashboard_charts.py` - Age calculation for charts
@@ -49,6 +53,7 @@ result = validate_volunteer_age("1985-05-15")  # Convenience function
 **Performance Impact**: Standardizes database queries for better optimization
 
 **Key Features**:
+
 - DocType-specific status configuration (Member, Volunteer, Team, etc.)
 - Automatic docstatus handling for workflow DocTypes
 - Fallback patterns for unknown DocTypes
@@ -56,6 +61,7 @@ result = validate_volunteer_age("1985-05-15")  # Convenience function
 - Convenience methods for common operations
 
 **Usage Examples**:
+
 ```python
 from verenigingen.utils.validation_utilities import get_active_records_filters, get_all_active_records
 
@@ -72,9 +78,11 @@ count = count_active_records("Member", {"membership_type": "Regular"})
 ```
 
 **Migration Completed**:
+
 - `simplified_email_manager.py` - Email recipient filtering
 
 **DocType Configurations Added**:
+
 - Core: Member, Volunteer, Team, Chapter
 - Billing: Membership, SEPA Mandate, Membership Dues Schedule
 - Financial: Sales Invoice, Payment Entry, Journal Entry
@@ -85,12 +93,14 @@ count = count_active_records("Member", {"membership_type": "Regular"})
 **User Experience Impact**: Provides consistent error messages across the application
 
 **Key Features**:
+
 - Standardized error messages with localization
 - Active document existence validation
 - Customizable error messages
 - Optional exception throwing
 
 **Usage Examples**:
+
 ```python
 from verenigingen.utils.validation_utilities import validate_document_exists, DocumentExistenceValidator
 
@@ -110,12 +120,14 @@ DocumentExistenceValidator.validate_active_document_exists("Member", "MEM-001")
 **Data Integrity Impact**: Prevents invalid date ranges across all date-dependent features
 
 **Key Features**:
+
 - Past/future start date validation
 - Equal dates handling
 - Duration constraints (min/max days)
 - Comprehensive validation with detailed error messages
 
 **Usage Examples**:
+
 ```python
 from verenigingen.utils.validation_utilities import validate_date_range
 
@@ -136,12 +148,14 @@ result = validate_date_range(
 ### Phase 1: High-Impact, Low-Risk (Immediate)
 
 **Age Validation Migration** - Priority 1
+
 - **Files**: 20+ files with age validation patterns
 - **Impact**: Critical business rule consistency
 - **Risk**: Low - improved validation logic
 - **Effort**: 2-3 hours
 
 **Active Status Query Migration** - Priority 2
+
 - **Files**: 30+ files with status filtering
 - **Impact**: Query optimization and consistency
 - **Risk**: Low - same functionality, better performance
@@ -150,12 +164,14 @@ result = validate_date_range(
 ### Phase 2: Medium-Impact Improvements (1-2 weeks)
 
 **Member Utils Adoption** - Priority 3
+
 - **Files**: 50+ files using direct member queries
 - **Impact**: Reduce code duplication
 - **Risk**: Medium - need to verify all edge cases
 - **Effort**: 4-6 hours
 
 **Document Existence Migration** - Priority 4
+
 - **Files**: 25+ files with existence checking
 - **Impact**: Better error handling consistency
 - **Risk**: Low - improved user experience
@@ -164,6 +180,7 @@ result = validate_date_range(
 ### Phase 3: Comprehensive Coverage (2-3 weeks)
 
 **Date Range Validation Migration**
+
 - **Files**: 15+ files with date validations
 - **Impact**: Prevent data inconsistencies
 - **Risk**: Low - additional validation coverage
@@ -174,16 +191,19 @@ result = validate_date_range(
 ### Import Patterns
 
 **For age validation**:
+
 ```python
 from verenigingen.utils.validation_utilities import AgeValidator, validate_member_age
 ```
 
 **For query building**:
+
 ```python
 from verenigingen.utils.validation_utilities import get_active_records_filters, get_all_active_records
 ```
 
 **For existence validation**:
+
 ```python
 from verenigingen.utils.validation_utilities import validate_document_exists
 ```
@@ -191,12 +211,14 @@ from verenigingen.utils.validation_utilities import validate_document_exists
 ### Migration Safety
 
 **Before migration**:
+
 1. Identify the specific pattern being replaced
 2. Verify the utility covers all edge cases
 3. Test with representative data
 4. Check error handling compatibility
 
 **After migration**:
+
 1. Run relevant tests to ensure functionality
 2. Monitor for any behavioral changes
 3. Validate error messages are appropriate
@@ -205,23 +227,27 @@ from verenigingen.utils.validation_utilities import validate_document_exists
 ## Expected Benefits
 
 ### Code Quality Improvements
+
 - **15-20% reduction** in repeated validation patterns
 - **Centralized business logic** for easier maintenance
 - **Consistent error handling** across all modules
 - **Improved type safety** with comprehensive type hints
 
 ### Performance Optimizations
+
 - **Standardized query patterns** enable better database optimization
 - **Reduced query complexity** through pre-configured filters
 - **Caching opportunities** in centralized utilities
 
 ### Developer Experience
+
 - **Single source of truth** for validation logic
 - **Comprehensive documentation** with usage examples
 - **Consistent API patterns** across all utilities
 - **Better IDE support** with type hints
 
 ### Business Value
+
 - **Consistent age requirement enforcement** across all features
 - **Standardized error messages** for better user experience
 - **Reduced bugs** from validation inconsistencies
@@ -230,17 +256,20 @@ from verenigingen.utils.validation_utilities import validate_document_exists
 ## Testing Strategy
 
 ### Unit Tests Needed
+
 - Age validation with various contexts and edge cases
 - Query builder with different DocType configurations
 - Document existence validation with error scenarios
 - Date range validation with constraint combinations
 
 ### Integration Tests
+
 - Verify utilities work correctly with existing DocTypes
 - Test performance impact on common query patterns
 - Validate error handling in real application workflows
 
 ### Migration Testing
+
 - Before/after comparison of migrated functions
 - Regression testing for modified code paths
 - Performance benchmarking for query optimizations
@@ -248,11 +277,13 @@ from verenigingen.utils.validation_utilities import validate_document_exists
 ## Maintenance Considerations
 
 ### Configuration Management
+
 - DocType status configurations may need updates as business rules evolve
 - Age validation contexts might require new membership types
 - Error messages may need localization for international use
 
 ### Monitoring
+
 - Track usage patterns to identify additional consolidation opportunities
 - Monitor performance impact of centralized utilities
 - Log validation failures for business rule refinement
@@ -260,12 +291,14 @@ from verenigingen.utils.validation_utilities import validate_document_exists
 ## Future Enhancements
 
 ### Potential Extensions
+
 1. **Validation Caching** - Cache validation results for better performance
 2. **Audit Logging** - Track validation failures for compliance
 3. **Configuration UI** - Admin interface for managing validation rules
 4. **Bulk Validation** - Utilities for validating multiple records efficiently
 
 ### Additional Patterns to Consider
+
 - Email validation and formatting
 - Dutch postal code validation
 - IBAN validation standardization

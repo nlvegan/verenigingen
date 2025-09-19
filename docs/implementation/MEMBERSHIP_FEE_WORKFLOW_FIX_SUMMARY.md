@@ -3,6 +3,7 @@
 ## Issue Addressed
 
 Fixed the inconsistent membership fee adjustment workflow where:
+
 1. **Auto-approved changes** created schedules immediately in `submit_fee_adjustment_request`
 2. **Manually approved changes** created schedules only when amendments were applied
 3. **Missing automation** for processing approved but unapplied amendments
@@ -11,6 +12,7 @@ Fixed the inconsistent membership fee adjustment workflow where:
 ## Changes Implemented
 
 ### 1. Fixed `submit_fee_adjustment_request()` Function
+
 **File**: `/home/frappe/frappe-bench/apps/verenigingen/verenigingen/templates/pages/membership_fee_adjustment.py`
 
 **Change**: Removed lines 431-447 that immediately created dues schedules for auto-approved cases.
@@ -51,6 +53,7 @@ if not needs_approval:
 ```
 
 ### 2. Enhanced `apply_amendment()` Method
+
 **File**: `/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/contribution_amendment_request/contribution_amendment_request.py`
 
 **Change**: Added `_force_apply` flag support to handle auto-approved amendments that need immediate application.
@@ -74,6 +77,7 @@ if getdate(self.effective_date) > getdate(today()):
 ```
 
 ### 3. Added Scheduled Task Processor
+
 **File**: Same as above
 
 **Addition**: New `process_pending_amendments_daily()` function for automated processing.
@@ -143,6 +147,7 @@ def process_pending_amendments_daily():
 ```
 
 ### 4. Updated `before_insert()` Method
+
 **File**: Same as above
 
 **Change**: Modified docstring from "Set auto-approval for certain cases with enhanced rules" to "Set approval status for certain cases with enhanced rules" to reflect that it no longer does immediate application.
@@ -152,21 +157,25 @@ The method now only sets the approval status (`Approved` or `Pending Approval`) 
 ## Key Benefits of the Fix
 
 ### 1. **Consistent Workflow**
+
 - All fee changes now go through the same `apply_amendment()` method
 - Dues schedules are created consistently regardless of approval method
 - No more duplicate code paths
 
 ### 2. **Proper Automation**
+
 - Scheduled task `process_pending_amendments_daily()` can be set up to run daily
 - Approved amendments with past effective dates are automatically applied
 - Reduces manual administrative work
 
 ### 3. **Better Error Handling**
+
 - Auto-approved amendments that fail to apply are reverted to "Pending Approval"
 - Failed applications are queued for manual processing
 - Proper error logging with truncated messages to prevent log overflow
 
 ### 4. **Maintained Business Logic**
+
 - Creating dues schedules for fee changes is still the correct approach
 - All existing validation and approval rules remain intact
 - No breaking changes to the user interface
@@ -174,6 +183,7 @@ The method now only sets the approval status (`Approved` or `Pending Approval`) 
 ## Testing Results
 
 **Scheduled Task Test**: Successfully executed `process_pending_amendments_daily()`
+
 - **Result**: `{"success": true, "processed": 2, "errors": 17, "message": "Processed 2 amendments with 17 errors"}`
 - **Interpretation**: Function works correctly, processed 2 valid amendments, 17 had issues (likely test data with invalid references)
 
@@ -193,6 +203,7 @@ The method now only sets the approval status (`Approved` or `Pending Approval`) 
 To complete the implementation:
 
 1. **Set up Scheduled Job**: Add the daily task to the system scheduler
+
    ```python
    # In hooks.py or scheduler_events
    scheduler_events = {
@@ -209,6 +220,7 @@ To complete the implementation:
 ## Summary
 
 The membership fee adjustment workflow now works consistently:
+
 - **Auto-approved changes**: Amendment created → Status set to "Approved" → `apply_amendment()` called → Dues schedule created
 - **Manually approved changes**: Amendment created → Status set to "Pending Approval" → Manual approval → `apply_amendment()` called → Dues schedule created
 - **Scheduled processing**: Daily task finds approved amendments past their effective date → Applies them automatically

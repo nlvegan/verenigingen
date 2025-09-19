@@ -57,7 +57,8 @@ export class ChapterUI {
 		// Add custom styles if not already present
 		if (!$('#chapter-custom-styles').length) {
 			$('<style id="chapter-custom-styles">')
-				.html(`
+				.html(
+					`
                     .board-member-selected { background-color: #e8f4fd !important; }
                     .board-member-checkbox { margin-right: 10px; }
                     .bulk-actions-bar {
@@ -113,7 +114,8 @@ export class ChapterUI {
                     .no-idx-column .row-index {
                         display: none !important;
                     }
-                `)
+                `
+				)
 				.appendTo('head');
 		}
 	}
@@ -128,11 +130,13 @@ export class ChapterUI {
 	}
 
 	showBoardMemberships(memberships) {
-		if (!memberships || !memberships.length) { return; }
+		if (!memberships || !memberships.length) {
+			return;
+		}
 
 		let html = `<div class="board-memberships"><h4>${__('Board Positions')}</h4><ul>`;
 
-		memberships.forEach(board => {
+		memberships.forEach((board) => {
 			html += `<li><strong>${board.chapter_role}</strong> at
                      <a href="/app/chapter/${board.parent}">${board.parent}</a></li>`;
 		});
@@ -145,13 +149,17 @@ export class ChapterUI {
 	}
 
 	updateMembersSummary() {
-		if (!this.frm.doc.name) { return; }
+		if (!this.frm.doc.name) {
+			return;
+		}
 
 		// Count members from Chapter Member child table instead
-		const enabledMembers = this.frm.doc.members?.filter(m => m.enabled) || [];
+		const enabledMembers = this.frm.doc.members?.filter((m) => m.enabled) || [];
 		const memberCount = enabledMembers.length;
 
-		const $header = this.frm.fields_dict.chapter_members?.$wrapper.find('.form-section-heading');
+		const $header = this.frm.fields_dict.chapter_members?.$wrapper.find(
+			'.form-section-heading'
+		);
 		if ($header.length) {
 			const summary = ` <span class="text-muted">(${memberCount} members)</span>`;
 
@@ -164,21 +172,27 @@ export class ChapterUI {
 	}
 
 	updatePostalCodePreview() {
-		if (!this.frm.doc.postal_codes) { return; }
+		if (!this.frm.doc.postal_codes) {
+			return;
+		}
 
 		const $wrapper = this.frm.get_field('postal_codes')?.$wrapper;
-		if (!$wrapper) { return; }
+		if (!$wrapper) {
+			return;
+		}
 
 		let $preview = $wrapper.find('.postal-code-preview');
 		if (!$preview.length) {
-			$preview = $('<div class="postal-code-preview alert alert-info mt-3"></div>');
+			$preview = $(
+				'<div class="postal-code-preview alert alert-info mt-3"></div>'
+			);
 			$wrapper.append($preview);
 		}
 
-		const patterns = this.frm.doc.postal_codes.split(',').map(p => p.trim());
+		const patterns = this.frm.doc.postal_codes.split(',').map((p) => p.trim());
 		let html = `<strong>${__('Chapter covers the following areas:')}</strong><ul class="mt-2">`;
 
-		patterns.forEach(pattern => {
+		patterns.forEach((pattern) => {
 			if (pattern.includes('-')) {
 				const [start, end] = pattern.split('-');
 				html += `<li>${__('Range: {0} to {1}', [start, end])}</li>`;
@@ -195,19 +209,25 @@ export class ChapterUI {
 	}
 
 	showPostalCodeWarning(invalidPatterns) {
-		if (!invalidPatterns || !invalidPatterns.length) { return; }
+		if (!invalidPatterns || !invalidPatterns.length) {
+			return;
+		}
 
 		frappe.msgprint({
 			title: __('Invalid Postal Code Patterns'),
 			indicator: 'orange',
-			message: __('The following postal code patterns are invalid and will be ignored: {0}',
-				[invalidPatterns.join(', ')])
+			message: __(
+				'The following postal code patterns are invalid and will be ignored: {0}',
+				[invalidPatterns.join(', ')]
+			)
 		});
 	}
 
 	toggleBulkActions(visible) {
 		const $grid = this.frm.fields_dict.board_members?.grid.wrapper;
-		if (!$grid) { return; }
+		if (!$grid) {
+			return;
+		}
 
 		const $bulkBar = $grid.find('.bulk-actions-bar');
 		if (visible) {
@@ -230,10 +250,13 @@ export class ChapterUI {
 	}
 
 	showAlert(message, indicator = 'green', duration = 5) {
-		frappe.show_alert({
-			message,
-			indicator
-		}, duration);
+		frappe.show_alert(
+			{
+				message,
+				indicator
+			},
+			duration
+		);
 	}
 
 	showError(message, title = __('Error')) {
@@ -266,11 +289,13 @@ export class ChapterUI {
 	promptInput(title, fieldname, fieldtype = 'Data', onSubmit) {
 		const dialog = this.showDialog({
 			title,
-			fields: [{
-				fieldname,
-				fieldtype,
-				reqd: 1
-			}],
+			fields: [
+				{
+					fieldname,
+					fieldtype,
+					reqd: 1
+				}
+			],
 			primary_action_label: __('Submit'),
 			primary_action: (values) => {
 				dialog.hide();
@@ -333,9 +358,10 @@ export class ChapterUI {
 		if (!this.progressDialog) {
 			this.progressDialog = this.showDialog({
 				title,
-				fields: [{
-					fieldtype: 'HTML',
-					options: `
+				fields: [
+					{
+						fieldtype: 'HTML',
+						options: `
                         <div class="progress">
                             <div class="progress-bar" role="progressbar"
                                  style="width: ${percentage}%"
@@ -347,13 +373,16 @@ export class ChapterUI {
                         </div>
                         <p class="text-center mt-2">${current} / ${total}</p>
                     `
-				}]
+					}
+				]
 			});
 		} else {
 			// Update existing progress
 			const $progressBar = this.progressDialog.$wrapper.find('.progress-bar');
 			$progressBar.css('width', `${percentage}%`).text(`${percentage}%`);
-			this.progressDialog.$wrapper.find('.text-center').text(`${current} / ${total}`);
+			this.progressDialog.$wrapper
+				.find('.text-center')
+				.text(`${current} / ${total}`);
 		}
 
 		if (current >= total) {
@@ -374,7 +403,7 @@ export class ChapterUI {
 		this.eventHandlers.clear();
 
 		// Close all dialogs
-		this.activeDialogs.forEach(dialog => {
+		this.activeDialogs.forEach((dialog) => {
 			dialog.hide();
 		});
 		this.activeDialogs.clear();

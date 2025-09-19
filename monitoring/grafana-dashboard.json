@@ -11,7 +11,7 @@
     "panels": [
       {
         "id": 1,
-        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+        "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
         "type": "stat",
         "title": "Current EUR Balance",
         "targets": [
@@ -26,9 +26,9 @@
             "thresholds": {
               "mode": "absolute",
               "steps": [
-                {"color": "red", "value": null},
-                {"color": "yellow", "value": 100},
-                {"color": "green", "value": 1000}
+                { "color": "red", "value": null },
+                { "color": "yellow", "value": 100 },
+                { "color": "green", "value": 1000 }
               ]
             }
           }
@@ -36,7 +36,7 @@
       },
       {
         "id": 2,
-        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+        "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
         "type": "stat",
         "title": "Pending Settlements",
         "targets": [
@@ -51,9 +51,9 @@
             "thresholds": {
               "mode": "absolute",
               "steps": [
-                {"color": "green", "value": null},
-                {"color": "yellow", "value": 5},
-                {"color": "red", "value": 10}
+                { "color": "green", "value": null },
+                { "color": "yellow", "value": 5 },
+                { "color": "red", "value": 10 }
               ]
             }
           }
@@ -61,7 +61,7 @@
       },
       {
         "id": 3,
-        "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+        "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
         "type": "stat",
         "title": "Active Disputes",
         "targets": [
@@ -76,9 +76,9 @@
             "thresholds": {
               "mode": "absolute",
               "steps": [
-                {"color": "green", "value": null},
-                {"color": "yellow", "value": 3},
-                {"color": "red", "value": 5}
+                { "color": "green", "value": null },
+                { "color": "yellow", "value": 3 },
+                { "color": "red", "value": 5 }
               ]
             }
           }
@@ -86,7 +86,7 @@
       },
       {
         "id": 4,
-        "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+        "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
         "type": "gauge",
         "title": "API Rate Limit Usage",
         "targets": [
@@ -103,9 +103,9 @@
             "thresholds": {
               "mode": "absolute",
               "steps": [
-                {"color": "green", "value": null},
-                {"color": "yellow", "value": 70},
-                {"color": "red", "value": 90}
+                { "color": "green", "value": null },
+                { "color": "yellow", "value": 70 },
+                { "color": "red", "value": 90 }
               ]
             }
           }
@@ -113,7 +113,7 @@
       },
       {
         "id": 5,
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
         "type": "graph",
         "title": "Payment Processing",
         "targets": [
@@ -137,7 +137,7 @@
       },
       {
         "id": 6,
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
         "type": "graph",
         "title": "API Response Times",
         "targets": [
@@ -166,7 +166,7 @@
       },
       {
         "id": 7,
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
         "type": "graph",
         "title": "Reconciliation Status",
         "targets": [
@@ -189,7 +189,7 @@
       },
       {
         "id": 8,
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
         "type": "graph",
         "title": "Balance Trends",
         "targets": [
@@ -218,7 +218,7 @@
       },
       {
         "id": 9,
-        "gridPos": {"h": 4, "w": 8, "x": 0, "y": 20},
+        "gridPos": { "h": 4, "w": 8, "x": 0, "y": 20 },
         "type": "table",
         "title": "Recent Alerts",
         "targets": [
@@ -232,7 +232,7 @@
       },
       {
         "id": 10,
-        "gridPos": {"h": 4, "w": 8, "x": 8, "y": 20},
+        "gridPos": { "h": 4, "w": 8, "x": 8, "y": 20 },
         "type": "stat",
         "title": "Circuit Breaker Status",
         "targets": [
@@ -244,16 +244,16 @@
         "fieldConfig": {
           "defaults": {
             "mappings": [
-              {"type": "value", "value": "0", "text": "CLOSED"},
-              {"type": "value", "value": "1", "text": "HALF_OPEN"},
-              {"type": "value", "value": "2", "text": "OPEN"}
+              { "type": "value", "value": "0", "text": "CLOSED" },
+              { "type": "value", "value": "1", "text": "HALF_OPEN" },
+              { "type": "value", "value": "2", "text": "OPEN" }
             ],
             "thresholds": {
               "mode": "absolute",
               "steps": [
-                {"color": "green", "value": 0},
-                {"color": "yellow", "value": 1},
-                {"color": "red", "value": 2}
+                { "color": "green", "value": 0 },
+                { "color": "yellow", "value": 1 },
+                { "color": "red", "value": 2 }
               ]
             }
           }
@@ -261,7 +261,7 @@
       },
       {
         "id": 11,
-        "gridPos": {"h": 4, "w": 8, "x": 16, "y": 20},
+        "gridPos": { "h": 4, "w": 8, "x": 16, "y": 20 },
         "type": "stat",
         "title": "Webhook Queue Size",
         "targets": [
@@ -276,9 +276,9 @@
             "thresholds": {
               "mode": "absolute",
               "steps": [
-                {"color": "green", "value": null},
-                {"color": "yellow", "value": 50},
-                {"color": "red", "value": 100}
+                { "color": "green", "value": null },
+                { "color": "yellow", "value": 50 },
+                { "color": "red", "value": 100 }
               ]
             }
           }

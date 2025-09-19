@@ -3,6 +3,7 @@
 ## Executive Summary
 
 Based on comprehensive analysis of **280+ eBoekhouden-related files** (190 Python + 90 other), this plan provides a methodical approach to:
+
 - Remove 50+ unnecessary files (26% reduction from 190 to ~140 Python files)
 - Fix critical missing API functions that break UI functionality
 - Consolidate functionality into logical modules
@@ -11,6 +12,7 @@ Based on comprehensive analysis of **280+ eBoekhouden-related files** (190 Pytho
 - Improve maintainability and testing
 
 ## Current Status (July 2025)
+
 - **Total Files**: 280+ (190 Python, 90+ JS/HTML/JSON/MD)
 - **Active Code**: ~75 critical files forming core functionality
 - **✅ Missing Functions**: All 7 missing API functions have been restored/created
@@ -22,10 +24,12 @@ Based on comprehensive analysis of **280+ eBoekhouden-related files** (190 Pytho
 ## Phase 0: Critical Fixes ✅ **COMPLETED**
 
 ### 0.1 Fix Missing API Functions ✅ **COMPLETED**
+
 **Impact**: High - UI buttons were broken
 **Timeline**: Completed
 
 **✅ Restored/Created Functions**:
+
 ```python
 # ✅ Restored in e_boekhouden_migration.py
 @frappe.whitelist()
@@ -47,12 +51,15 @@ def test_rest_mutation_fetch():
 ```
 
 ### 0.2 Fix JavaScript Typo ✅ **COMPLETED**
+
 **File**: `e_boekhouden_migration.js` line 1639
 **Fix**: Changed `verenigingen.api.test_eboekhouden_connection` to `verenigingen.api.test_eboekhouden_connection`
 
 ### 0.3 Fix F-String Issues ✅ **COMPLETED**
+
 **Impact**: High - String formatting failures throughout app
 **Fixed**: 35+ f-string prefix issues across multiple files including:
+
 - SOAP API XML envelopes (5 instances)
 - Email notification templates (6 instances)
 - Application review notifications (2 instances)
@@ -60,8 +67,10 @@ def test_rest_mutation_fetch():
 - And 20+ more files across the entire app
 
 ### 0.4 Enhanced Opening Balance Import ✅ **COMPLETED (2025)**
+
 **Impact**: High - Critical for migration accuracy and stock account handling
 **Features Implemented**:
+
 - **Stock Account Detection**: Automatically detects and skips stock accounts during opening balance import
 - **Automatic Balancing**: Adds balancing entries when opening balances don't balance (fixes "Total debit: X, Total credit: Y" errors)
 - **Grace Period Support**: Membership grace period functionality for expired memberships
@@ -69,9 +78,11 @@ def test_rest_mutation_fetch():
 - **Temporary Account Creation**: Creates temporary accounts for balancing differences
 
 ### 0.5 Migration Counter Fix ✅ **COMPLETED (2025)**
+
 **Impact**: Medium - User experience improvement for migration tracking
 **Fix**: The `total_records` counter in eBoekhouden migration form now updates correctly during imports
 **Technical Details**:
+
 - Fixed `start_full_rest_import` function to calculate and update `total_records`
 - Added intermediate progress updates during import process
 - Fixed opening balance import to also update the counter
@@ -80,9 +91,11 @@ def test_rest_mutation_fetch():
 ## Phase 1: Immediate Safe Cleanup (Low Risk)
 
 ### 1.1 Remove Orphaned Debug Files (35+ files)
+
 **Impact**: None - these are not used in production
 
 **Files to Remove** (confirmed inactive from active code analysis):
+
 ```
 # Opening Balance Fixes (One-off patches)
 /utils/debug/fix_opening_balance_approach.py       # ❌ INACTIVE - One-off fix
@@ -129,9 +142,11 @@ def test_rest_mutation_fetch():
 ```
 
 ### 1.2 Remove Root Directory Test Scripts (5 files)
+
 **Impact**: None - not in active execution path
 
 **Files to Remove**:
+
 ```
 test_payment_manually.py
 test_payment_console.py
@@ -141,9 +156,11 @@ console_test_quality.py
 ```
 
 ### 1.3 Remove One-off Utility Scripts (15+ files)
+
 **Impact**: None - specific mutation fixes no longer needed
 
 **Files to Remove**:
+
 ```
 /utils/fetch_mutation_4595.py
 /utils/fetch_mutation_6316.py
@@ -157,9 +174,11 @@ console_test_quality.py
 **Action**: Create backup, then delete files
 
 ### 1.4 Keep Valuable Debug Tools (10 files)
+
 **Impact**: Positive - maintain troubleshooting capability
 
 **Files to Keep** (valuable for ongoing debugging):
+
 ```
 # Payment analysis
 /utils/debug/analyze_payment_mutations.py    # Payment structure debugging
@@ -183,9 +202,11 @@ console_test_quality.py
 ```
 
 ### 1.5 Archived/Unused Files (1 file)
+
 **Impact**: None - already archived
 
 **Files to Remove**:
+
 ```
 /archived_unused/api_backups/20250710_222750/chapter_dashboard_api.py
 ```
@@ -195,9 +216,11 @@ console_test_quality.py
 ## Phase 2: API Transition (High Risk)
 
 ### 2.1 Transition from SOAP to REST API ✅ **COMPLETED (July 2025)**
+
 **Impact**: High - System now exclusively uses REST API
 
 **Completion Status**:
+
 - ✅ **REST API is now the only API** for all eBoekhouden operations
 - ✅ **Enhanced opening balance import** uses REST API with stock account handling
 - ✅ **Automatic balancing** prevents common migration failures
@@ -205,6 +228,7 @@ console_test_quality.py
 - ✅ **SOAP API completely removed** - no legacy dependencies remain
 
 **REST API Features**:
+
 - Full migration workflow with opening balance integration
 - Stock account detection and handling
 - Automatic balancing entry creation
@@ -213,6 +237,7 @@ console_test_quality.py
 - Unlimited transaction history (vs SOAP's 500 limit)
 
 **Files Removed** (July 2025):
+
 ```
 /verenigingen/api/save_soap_credentials.py         # ✅ REMOVED
 /verenigingen/api/populate_soap_credentials.py     # ✅ REMOVED
@@ -221,15 +246,18 @@ console_test_quality.py
 ```
 
 **Completed Work**:
+
 1. ✅ Full migration uses REST API exclusively
 2. ✅ Opening balance import enhanced
 3. ✅ All SOAP dependencies removed from JavaScript
 4. ✅ SOAP API files deleted after confirming no dependencies
 
 ### 2.2 Remove Legacy Migration Files (5 files)
+
 **Impact**: Medium - may break old migration workflows
 
 **Files to Remove**:
+
 ```
 /verenigingen/utils/eboekhouden/eboekhouden_enhanced_migration.py
 /verenigingen/utils/eboekhouden/eboekhouden_grouped_migration.py
@@ -240,10 +268,12 @@ console_test_quality.py
 ## Phase 3: Core Consolidation (Medium Risk)
 
 ### 3.1 Core Implementation Files (45 files)
+
 **Location**: `/utils/eboekhouden/`
 **Status**: Keep all - these form the core business logic
 
 **Key Files to Maintain**:
+
 ```
 # Core API and Migration (CRITICAL - 60+ functions each)
 eboekhouden_api.py                    # Main API class
@@ -270,10 +300,12 @@ migration_api.py                    # Migration utilities (4 functions)
 ```
 
 ### 3.2 Consolidate Test Files
+
 **Current**: 15 test files across various directories
 **Target**: 8 comprehensive test files
 
 **Test Organization**:
+
 ```
 # Keep comprehensive test suites
 test_eboekhouden_integration.py      # Integration tests
@@ -285,10 +317,12 @@ test_payment_entry_handler.py        # Payment handler tests
 ```
 
 ### 3.2 Simplify API Surface
+
 **Current**: 77 whitelisted functions across multiple files
 **Target**: 20 focused API endpoints
 
 **API Consolidation**:
+
 ```
 # Keep Core APIs
 - test_api_connection()
@@ -307,6 +341,7 @@ test_payment_entry_handler.py        # Payment handler tests
 ## Phase 4: File Reorganization
 
 ### 4.1 Proposed New Structure
+
 ```
 verenigingen/integrations/eboekhouden/
 ├── api/
@@ -334,6 +369,7 @@ verenigingen/integrations/eboekhouden/
 ```
 
 ### 4.2 Benefits of New Structure
+
 1. **Clear separation of concerns**
 2. **Logical grouping of functionality**
 3. **Easier navigation and maintenance**
@@ -343,24 +379,28 @@ verenigingen/integrations/eboekhouden/
 ## Implementation Timeline
 
 ### Week 1: Phase 1 (Safe Cleanup)
+
 - [ ] Create backup of all files
 - [ ] Remove test/debug files
 - [ ] Remove documentation duplicates
 - [ ] Test basic functionality
 
 ### Week 2: Phase 2 (Deprecated Code)
+
 - [ ] Audit SOAP dependencies
 - [ ] Remove SOAP API files
 - [ ] Remove legacy migration files
 - [ ] Test migration functionality
 
 ### Week 3-4: Phase 3 (Consolidation)
+
 - [ ] Consolidate utility files
 - [ ] Simplify API surface
 - [ ] Update imports throughout codebase
 - [ ] Comprehensive testing
 
 ### Week 5-6: Phase 4 (Reorganization)
+
 - [ ] Create new directory structure
 - [ ] Move files to new locations
 - [ ] Update all imports
@@ -369,16 +409,19 @@ verenigingen/integrations/eboekhouden/
 ## Risk Mitigation
 
 ### 1. Backup Strategy
+
 - Full git branch backup before each phase
 - Individual file backups for critical files
 - Database backup before testing
 
 ### 2. Testing Strategy
+
 - Automated test suite run after each phase
 - Manual testing of core migration functionality
 - User acceptance testing for UI changes
 
 ### 3. Rollback Plan
+
 - Git revert capability for each phase
 - Documented rollback procedures
 - Quick restoration of critical files
@@ -386,6 +429,7 @@ verenigingen/integrations/eboekhouden/
 ## Critical Components to Preserve
 
 ### DocTypes (12 files) - ALL CRITICAL
+
 ```
 e_boekhouden_migration/          # Main migration DocType
 e_boekhouden_settings/          # Configuration DocType
@@ -399,17 +443,22 @@ party_enrichment_queue/         # Party enrichment queue
 ```
 
 ### API Layer (15 files) - ALL CRITICAL
+
 **Location**: `/api/`
+
 - 25+ whitelisted functions for UI integration
 - Critical for migration workflow
 
 ### Web Interface (10 files) - ALL USEFUL
+
 **Location**: `/templates/`, `/www/`, `/public/`
+
 - Required for web interface functionality
 
 ## Success Metrics
 
 ### File Count Reduction
+
 - **Before**: 280+ total files (190 Python files)
 - **After Phase 0**: Same count but functional UI and fixed f-strings
 - **After Phase 1**: ~220 files (60 files removed)
@@ -417,12 +466,14 @@ party_enrichment_queue/         # Party enrichment queue
 - **Final Target**: ~200 files (30% reduction)
 
 ### Functionality Metrics
+
 - **Before**: 7 broken UI functions, mixed SOAP/REST, 35+ f-string issues, broken opening balance import
 - **After Phase 0**: All UI functions working, all f-strings fixed, enhanced opening balance import
 - **After 2025 Enhancements**: REST API primary, stock account handling, automatic balancing, fixed counters
 - **After Full Implementation**: 100% REST API, no SOAP
 
 ### Code Quality Metrics
+
 - **API Endpoints**: From 77 to ~20 focused endpoints
 - **Debug Files**: From 38 to 10 essential tools
 - **Test Coverage**: Consolidated into comprehensive suites
@@ -431,6 +482,7 @@ party_enrichment_queue/         # Party enrichment queue
 ## Implementation Status Tracking
 
 ### Phase 0: Critical Fixes ✅ **COMPLETED**
+
 - [x] Fix update_account_type_mapping() function
 - [x] Create test_eboekhouden_connection() API endpoint
 - [x] Create test_rest_mutation_fetch() function
@@ -442,6 +494,7 @@ party_enrichment_queue/         # Party enrichment queue
 - [x] **2025 Enhancements**: Fix total_records counter in migration form
 
 ### Phase 1: Safe Cleanup ⏳
+
 - [ ] Remove 35+ orphaned debug files
 - [ ] Remove 5 root directory test scripts
 - [ ] Remove 15+ one-off utility scripts
@@ -449,6 +502,7 @@ party_enrichment_queue/         # Party enrichment queue
 - [ ] Create backup before deletion
 
 ### Phase 2: API Transition ✅ **COMPLETED**
+
 - [x] **2025**: Full migration workflow uses REST API as primary
 - [x] **2025**: Enhanced opening balance import via REST API
 - [x] **2025**: Stock account handling and automatic balancing
@@ -457,6 +511,7 @@ party_enrichment_queue/         # Party enrichment queue
 - [x] **2025**: Removed SOAP API files (4 files deleted)
 
 ### Phase 3: Consolidation ✅ **COMPLETED (July 2025)**
+
 - [x] Consolidate test files (8+ development test files archived)
 - [x] Reduce API surface (55+ debug endpoints removed)
 - [x] Maintain all core functionality
@@ -466,6 +521,7 @@ party_enrichment_queue/         # Party enrichment queue
 The comprehensive eBoekhouden reorganization has been **successfully completed**, transforming a 280+ file development system into a streamlined, production-ready codebase. **All phases have been completed** with major achievements beyond the original scope:
 
 ### 2025 Achievements ✅ **ALL COMPLETED**
+
 - **All critical UI functions restored** and working
 - **Enhanced opening balance import** with stock account handling and automatic balancing
 - **100% REST API system** - SOAP completely removed
@@ -476,6 +532,7 @@ The comprehensive eBoekhouden reorganization has been **successfully completed**
 - **65+ files archived** in organized structure
 
 ### Final State (July 2025) ✅
+
 - **File reduction**: 280+ → 215 files (**23% reduction**)
 - **API streamlining**: 77+ → 30 endpoints (**61% reduction**)
 - **Enhanced functionality**: Stock accounts, auto-balancing, grace periods
@@ -484,12 +541,14 @@ The comprehensive eBoekhouden reorganization has been **successfully completed**
 - **Zero downtime**: All improvements with no functionality loss
 
 ### Organizational Structure ✅
+
 - **Production code**: Optimized and focused on core functionality
 - **Development artifacts**: Organized in comprehensive archive
 - **API surface**: Streamlined to essential endpoints only
 - **Documentation**: Complete tracking of all changes and decisions
 
 ### Success Metrics Achieved ✅
+
 - **23% file count reduction** while adding new features
 - **61% API endpoint reduction** focusing on production needs
 - **100% REST API transition** with enhanced capabilities

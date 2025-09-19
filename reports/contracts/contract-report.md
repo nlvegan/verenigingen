@@ -1,6 +1,7 @@
 # API Contract Validation Report
 
 ## 📊 Summary
+
 - **Generated**: 2025-08-20T10:41:46.989Z
 - **Total Contracts**: 16
 - **Success Rate**: 100.00%
@@ -8,42 +9,46 @@
 
 ## 🎯 Contract Status
 
-| Method | Status | Performance |
-|--------|--------|-------------|
-| verenigingen.verenigingen_payments.utils.sepa_mandate.create_sepa_mandate | ✅ Valid | 61.807759284973145ms |
-| verenigingen.verenigingen_payments.utils.iban_validator.validate_iban | ✅ Valid | 2.087594985961914ms |
-| verenigingen.verenigingen_payments.utils.direct_debit_batch.create_dd_batch | ✅ Valid | 10.912993431091309ms |
-| verenigingen.verenigingen_payments.templates.pages.mollie_checkout.make_payment | ✅ Valid | 11.07188892364502ms |
-| verenigingen.verenigingen_payments.integration.mollie_connector.test_mollie_connection | ✅ Valid | 3.149637222290039ms |
-| verenigingen.verenigingen.doctype.member.member.process_payment | ✅ Valid | 9.214202880859375ms |
-| verenigingen.verenigingen.doctype.member.member.create_member | ✅ Valid | 9.990370750427246ms |
-| verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details | ✅ Valid | 1.7118949890136719ms |
-| verenigingen.verenigingen.doctype.member.member.update_member_status | ✅ Valid | 3.104081153869629ms |
-| verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban | ✅ Valid | 1.6593875885009766ms |
-| verenigingen.verenigingen.doctype.member.member.validate_mandate_creation | ✅ Valid | 1.8478269577026367ms |
-| verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter_with_cleanup | ✅ Valid | 4.014369964599609ms |
-| verenigingen.templates.pages.donate.submit_donation | ✅ Valid | 4.902507781982422ms |
-| verenigingen.verenigingen.doctype.member.member.get_payment_history | ✅ Valid | 2.7661209106445312ms |
+| Method                                                                                                   | Status   | Performance          |
+| -------------------------------------------------------------------------------------------------------- | -------- | -------------------- |
+| verenigingen.verenigingen_payments.utils.sepa_mandate.create_sepa_mandate                                | ✅ Valid | 61.807759284973145ms |
+| verenigingen.verenigingen_payments.utils.iban_validator.validate_iban                                    | ✅ Valid | 2.087594985961914ms  |
+| verenigingen.verenigingen_payments.utils.direct_debit_batch.create_dd_batch                              | ✅ Valid | 10.912993431091309ms |
+| verenigingen.verenigingen_payments.templates.pages.mollie_checkout.make_payment                          | ✅ Valid | 11.07188892364502ms  |
+| verenigingen.verenigingen_payments.integration.mollie_connector.test_mollie_connection                   | ✅ Valid | 3.149637222290039ms  |
+| verenigingen.verenigingen.doctype.member.member.process_payment                                          | ✅ Valid | 9.214202880859375ms  |
+| verenigingen.verenigingen.doctype.member.member.create_member                                            | ✅ Valid | 9.990370750427246ms  |
+| verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details                        | ✅ Valid | 1.7118949890136719ms |
+| verenigingen.verenigingen.doctype.member.member.update_member_status                                     | ✅ Valid | 3.104081153869629ms  |
+| verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban                                     | ✅ Valid | 1.6593875885009766ms |
+| verenigingen.verenigingen.doctype.member.member.validate_mandate_creation                                | ✅ Valid | 1.8478269577026367ms |
+| verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter_with_cleanup                  | ✅ Valid | 4.014369964599609ms  |
+| verenigingen.templates.pages.donate.submit_donation                                                      | ✅ Valid | 4.902507781982422ms  |
+| verenigingen.verenigingen.doctype.member.member.get_payment_history                                      | ✅ Valid | 2.7661209106445312ms |
 | verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.create_dues_schedule | ✅ Valid | 4.3585615158081055ms |
-| verenigingen.verenigingen_payments.utils.sepa_reconciliation.import_bank_statement | ✅ Valid | 3.401247024536133ms |
+| verenigingen.verenigingen_payments.utils.sepa_reconciliation.import_bank_statement                       | ✅ Valid | 3.401247024536133ms  |
 
 ## 🔍 Critical APIs Analysis
+
 - **Total Critical APIs**: 15
 - **Valid Critical APIs**: 15
 - **Critical Success Rate**: 100.0%
 
 ## 📈 Performance Insights
+
 - **Cache Hit Rate**: 0.00%
 - **Average Validation Time**: 8.500ms
 - **Cached Validators**: 16
 
 ## 💡 Recommendations
+
 - **ENHANCEMENT**: Expand coverage to critical financial APIs
   - Action: Add contracts for SEPA and Mollie operations
 - **MAINTENANCE**: Regular contract validation
   - Action: Run contract validation in CI/CD pipeline
 
 ## 📋 Coverage Gaps
+
 - SEPA mandate creation and validation
 - Direct debit batch processing
 - Mollie payment integration
@@ -51,4 +56,5 @@
 - Chapter assignment workflows
 
 ---
-*Generated by Verenigingen Contract Reporter v1.0.0*
+
+_Generated by Verenigingen Contract Reporter v1.0.0_

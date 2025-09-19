@@ -86,7 +86,9 @@ def test_member_financial_history(member_name="Assoc-Member-2025-07-0870"):
             "error_type": type(e).__name__,
             "member_name": member_name,
             "is_chapter_validation_error": is_chapter_error,
-            "note": "Chapter validation errors should be handled by bypass_validations"
-            if is_chapter_error
-            else None,
+            "note": (
+                "Chapter validation errors should be handled by bypass_validations"
+                if is_chapter_error
+                else None
+            ),
         }

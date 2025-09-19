@@ -62,25 +62,25 @@
  * @namespace DonationTypeController
  * @description Basic form controller for Donation Type DocType with extensible framework
  */
-frappe.ui.form.on('Donation Type', {
-	/**
-	 * @method refresh
-	 * @description Initializes the donation type form interface
-	 *
-	 * Sets up the basic form structure for donation type management.
-	 * Currently provides minimal functionality with framework prepared
-	 * for future enhancements in donation classification and management.
-	 *
-	 * @param {Object} frm - Frappe form object
-	 * @since 1.0.0
-	 *
-	 * @todo Add donation type-specific validation rules
-	 * @todo Implement tax treatment configuration interface
-	 * @todo Add integration with donation allocation workflows
-	 * @todo Create reporting and analytics buttons
-	 */
-	refresh() {
-		// Basic form setup - prepared for future enhancements
-		// TODO: Add donation type management features
-	}
+frappe.ui.form.on("Donation Type", {
+  /**
+   * @method refresh
+   * @description Initializes the donation type form interface
+   *
+   * Sets up the basic form structure for donation type management.
+   * Currently provides minimal functionality with framework prepared
+   * for future enhancements in donation classification and management.
+   *
+   * @param {Object} frm - Frappe form object
+   * @since 1.0.0
+   *
+   * @todo Add donation type-specific validation rules
+   * @todo Implement tax treatment configuration interface
+   * @todo Add integration with donation allocation workflows
+   * @todo Create reporting and analytics buttons
+   */
+  refresh() {
+    // Basic form setup - prepared for future enhancements
+    // TODO: Add donation type management features
+  },
 });

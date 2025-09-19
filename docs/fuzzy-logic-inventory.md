@@ -5,6 +5,7 @@
 Analysis of the codebase revealed **554 fuzzy logic patterns** following the same problematic approach as the template lookup issue we recently fixed. These patterns use implicit matching and fallback logic instead of explicit configuration, creating unpredictable behavior.
 
 **Distribution:**
+
 - **95 HIGH-RISK issues** - Similar to template lookup problem
 - **459 MEDIUM-RISK issues** - Fallback logic and auto-creation patterns
 - **2 test files** - Acceptable test data lookup patterns
@@ -14,18 +15,21 @@ Analysis of the codebase revealed **554 fuzzy logic patterns** following the sam
 ## CRITICAL PRIORITY 🚨 (Immediate Action Required)
 
 ### 1. Implicit Member Lookup Pattern (22 issues)
+
 **Risk Level:** CRITICAL - Exact same pattern as template issue
 
 **Pattern:** `frappe.db.get_value("Member", {"status": "Active"}, ...)`
 **Problem:** Could match any active member instead of intended member
 
 **Files:**
+
 - `contribution_amendment_request.py:828`
 - `contribution_amendment_request.py:930`
 
 **Impact:** Could process amendments for wrong members, causing data corruption
 
 **Recommended Fix:**
+
 - Add explicit member assignment field to Amendment Request
 - Remove implicit member lookup entirely
 - Add validation that member is explicitly specified
@@ -35,12 +39,14 @@ Analysis of the codebase revealed **554 fuzzy logic patterns** following the sam
 ## HIGH PRIORITY 🔥 (Next Sprint)
 
 ### 2. Membership Amount-Based Inference (73 issues)
+
 **Risk Level:** HIGH - Direct business logic impact
 
 **Pattern:** `membership_type.amount or fallback_value`
 **Problem:** Business logic that infers behavior from amount fields instead of explicit configuration
 
 **High-Concentration Files:**
+
 1. **`membership_dues_schedule.py` (12 cases)**
    - Lines: 41, 388, 444, 494, 772, 1096, 1237
    - Impact: Dues calculation errors, wrong subscription amounts
@@ -58,6 +64,7 @@ Analysis of the codebase revealed **554 fuzzy logic patterns** following the sam
    - Impact: Application processing errors
 
 **Recommended Fix:**
+
 - Add explicit configuration fields to Membership Type
 - Remove amount-based behavioral inference
 - Create explicit fee structure configuration
@@ -67,12 +74,14 @@ Analysis of the codebase revealed **554 fuzzy logic patterns** following the sam
 ## MEDIUM PRIORITY ⚠️ (Following Sprint)
 
 ### 3. Account Type Implicit Lookups (6 issues)
+
 **Risk Level:** MEDIUM - Financial integration impact
 
 **Pattern:** `frappe.db.get_value("Account", {"account_type": type}, "name")`
 **Problem:** Could match wrong accounts in financial integration
 
 **Files:**
+
 - `eboekhouden_enhanced_migration.py:479, 486`
 - `eboekhouden_rest_full_migration.py:82, 88`
 - `templates/pages/volunteer/expenses.py:2578`
@@ -80,16 +89,19 @@ Analysis of the codebase revealed **554 fuzzy logic patterns** following the sam
 **Impact:** Wrong account assignments in financial imports
 
 **Recommended Fix:**
+
 - Add explicit account configuration to Company/Settings
 - Remove account type-based implicit matching
 
 ### 4. Template Name Generation Pattern (8 issues)
+
 **Risk Level:** MEDIUM - Configuration management
 
 **Pattern:** `f"Template-{membership_type}"`
 **Problem:** Name-based template generation instead of explicit assignment
 
 **Files:**
+
 - `membership_type.py:206`
 - `contribution_amendment_request.py:1288`
 - `membership_dues_schedule.py:1073`
@@ -97,6 +109,7 @@ Analysis of the codebase revealed **554 fuzzy logic patterns** following the sam
 **Impact:** Template naming conflicts, wrong template selection
 
 **Recommended Fix:**
+
 - Already partially addressed with explicit template assignment
 - Remove remaining name-based generation patterns
 
@@ -105,6 +118,7 @@ Analysis of the codebase revealed **554 fuzzy logic patterns** following the sam
 ## LOW PRIORITY 📋 (Future Cleanup)
 
 ### 5. Auto-Creation Logic (20 issues)
+
 **Risk Level:** LOW - Generally safe but unpredictable
 
 **Pattern:** Auto-creation without explicit configuration
@@ -113,6 +127,7 @@ Analysis of the codebase revealed **554 fuzzy logic patterns** following the sam
 **Impact:** Unexpected record creation
 
 ### 6. Broad Exception Handling (20 issues)
+
 **Risk Level:** LOW - Code quality issue
 
 **Pattern:** `except Exception:` without specific handling
@@ -121,6 +136,7 @@ Analysis of the codebase revealed **554 fuzzy logic patterns** following the sam
 **Impact:** Silent failures, debugging difficulties
 
 ### 7. Fallback Logic Patterns (20 issues)
+
 **Risk Level:** LOW - Generally harmless
 
 **Pattern:** Hardcoded fallback values
@@ -133,22 +149,26 @@ Analysis of the codebase revealed **554 fuzzy logic patterns** following the sam
 ## Implementation Priority
 
 ### Phase 1 (Critical - This Week)
+
 1. **Fix Implicit Member Lookup** - contribution_amendment_request.py
    - Add explicit member field requirement
    - Remove implicit lookup logic
    - Add validation tests
 
 ### Phase 2 (High Priority - Next 2 Weeks)
+
 1. **Fix Membership Amount Inference** - membership_dues_schedule.py, membership.py
    - Add explicit fee structure configuration
    - Remove amount-based behavioral logic
    - Update test suite
 
 ### Phase 3 (Medium Priority - Following Month)
+
 1. **Fix Account Type Lookups** - eBoekhouden integration files
 2. **Complete Template Name Generation Cleanup**
 
 ### Phase 4 (Low Priority - Future Releases)
+
 1. **Exception Handling Improvements**
 2. **Auto-creation Logic Review**
 3. **Fallback Pattern Cleanup**

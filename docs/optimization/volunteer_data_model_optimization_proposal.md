@@ -11,6 +11,7 @@ Analysis of the Volunteer DocType reveals **significant performance optimization
 ### 1. Missing Primary Indexes - Volunteer Table
 
 **Core Volunteer Fields:**
+
 - `status` field - No index for New/Onboarding/Active/Inactive/Retired filtering
 - `member` field - Core Member relationship lacks optimization for lookups
 - `email` field - Unique field but likely lacks search optimization
@@ -19,6 +20,7 @@ Analysis of the Volunteer DocType reveals **significant performance optimization
 - `start_date` field - Chronological volunteer queries lack indexing
 
 **Profile and Classification Fields:**
+
 - `commitment_level` field - Occasional/Regular/Weekly/Intensive filtering
 - `experience_level` field - Beginner/Intermediate/Expert classification
 - `preferred_work_style` field - In-person/Remote/Hybrid filtering
@@ -37,6 +39,7 @@ The Volunteer schema contains **2 fetch_from fields** creating query multiplicat
 ### 3. Child Table Performance Issues
 
 **Volunteer Assignment Table:**
+
 - `assignment_type` field - Board Position/Committee/Team filtering, no index
 - `reference_doctype` field - DocType relationship filtering, no index
 - `reference_name` field - Dynamic Link lookups, no index
@@ -44,11 +47,13 @@ The Volunteer schema contains **2 fetch_from fields** creating query multiplicat
 - `status` field - Active/Completed/Paused filtering, no index
 
 **Volunteer Skill Table:**
+
 - `skill_category` field - Technical/Leadership/Communication filtering, no index
 - `volunteer_skill` field - Skill name searching and matching, no index
 - `proficiency_level` field - Skill level filtering, no index
 
 **Additional Child Tables (similar issues):**
+
 - Volunteer Interest Area (2 missing indexes)
 - Volunteer Development Goal (2 missing indexes)
 - Volunteer Activity (3 missing indexes)
@@ -56,6 +61,7 @@ The Volunteer schema contains **2 fetch_from fields** creating query multiplicat
 ### 4. Volunteer Matching and Search Performance
 
 **Current Limitations:**
+
 - Skills-based volunteer matching requires full table scans
 - Assignment history queries lack proper date indexing
 - Board member assignment tracking inefficient
@@ -116,6 +122,7 @@ ALTER TABLE `tabVolunteer Development Goal` ADD INDEX `idx_goal_category` (`goal
 **Solution:** Optimized JOIN queries for volunteer data
 
 **Before (N+1 pattern):**
+
 ```python
 # Current: 1 + N queries for volunteer list
 volunteers = frappe.get_all('Volunteer', fields=['*'])  # 1 query
@@ -123,6 +130,7 @@ volunteers = frappe.get_all('Volunteer', fields=['*'])  # 1 query
 ```
 
 **After (Optimized JOINs):**
+
 ```python
 # Optimized: Single query with JOINs
 volunteers = frappe.db.sql("""
@@ -141,6 +149,7 @@ volunteers = frappe.db.sql("""
 ## Expected Performance Improvements
 
 ### Query Performance Gains:
+
 - **Volunteer list filtering:** 75-85% faster with status/member indexes
 - **Skills matching:** 90-95% faster with skill category and proficiency indexes
 - **Assignment tracking:** 85-90% faster with date range and status indexes
@@ -148,6 +157,7 @@ volunteers = frappe.db.sql("""
 - **Integration lookups:** 85-95% faster with employee_id/user indexes
 
 ### Volunteer Management Impact:
+
 - **Volunteer list views:** From 2-3 queries per row to 1 optimized query
 - **Skills-based matching:** From table scans to indexed lookups
 - **Assignment workflows:** From sequential scans to index seeks
@@ -156,12 +166,14 @@ volunteers = frappe.db.sql("""
 ## Strategic Business Value
 
 ### Enhanced Volunteer Operations:
+
 - **Faster volunteer onboarding** - Quick skill and experience matching
 - **Improved assignment efficiency** - Rapid filtering by availability and skills
 - **Better board management** - Optimized board member assignment tracking
 - **Enhanced reporting** - Sub-second volunteer analytics and insights
 
 ### Scalability Benefits:
+
 - Support for 1000+ active volunteers without performance degradation
 - Efficient skill-matching algorithms for complex volunteer needs
 - Fast assignment history tracking for compliance and reporting
@@ -170,12 +182,14 @@ volunteers = frappe.db.sql("""
 ## Risk Assessment and Implementation
 
 ### Implementation Risks: **LOW**
+
 - All optimizations are non-breaking index additions
 - Existing volunteer workflows remain fully functional
 - Gradual performance improvement as indexes are utilized
 - No data migration or schema changes required
 
 ### Resource Requirements:
+
 - **Disk Space:** ~3-5% increase for index storage
 - **Memory Usage:** ~5-8% increase for index caching
 - **Implementation Time:** 1-2 hours for complete optimization
@@ -183,16 +197,19 @@ volunteers = frappe.db.sql("""
 ## Implementation Strategy
 
 ### Phase 1: Core Indexes (Priority 1) - 0.5 days
+
 - Volunteer table status, member, and email indexes
 - Employee and user integration indexes
 - Immediate impact on volunteer list and filtering operations
 
 ### Phase 2: Child Table Optimization (Priority 2) - 0.5 days
+
 - Assignment and skill table indexes
 - Interest and development goal indexes
 - Significant impact on volunteer matching and assignment tracking
 
 ### Phase 3: Query Optimization (Priority 3) - 1 day
+
 - Replace fetch_from patterns with optimized JOINs
 - Implement composite indexes for complex queries
 - Performance validation and monitoring setup
@@ -202,6 +219,7 @@ volunteers = frappe.db.sql("""
 ## Success Metrics
 
 **Before/After Benchmarks:**
+
 1. Volunteer list view load time (target: <300ms for 50 volunteers)
 2. Skills-based matching speed (target: <100ms)
 3. Assignment history queries (target: <50ms)
@@ -209,6 +227,7 @@ volunteers = frappe.db.sql("""
 5. Integration lookups (Employee/User) (target: <25ms)
 
 **Database Performance:**
+
 - Query execution time reduction: 75-95%
 - Index utilization rate: >85%
 - Slow query log reduction: >80%

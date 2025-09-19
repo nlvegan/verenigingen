@@ -67,8 +67,8 @@ class ErrorHandler {
 	}
 
 	/**
-     * Initialize global error handling
-     */
+   * Initialize global error handling
+   */
 	_initializeErrorHandling() {
 		// Global JavaScript error handler
 		window.addEventListener('error', (event) => {
@@ -95,17 +95,25 @@ class ErrorHandler {
 
 		// Network error detection
 		window.addEventListener('offline', () => {
-			this.showNotification('warning', 'Connection Lost', 'You appear to be offline. Your progress will be saved locally.');
+			this.showNotification(
+				'warning',
+				'Connection Lost',
+				'You appear to be offline. Your progress will be saved locally.'
+			);
 		});
 
 		window.addEventListener('online', () => {
-			this.showNotification('success', 'Connection Restored', 'You are back online. Attempting to sync data...');
+			this.showNotification(
+				'success',
+				'Connection Restored',
+				'You are back online. Attempting to sync data...'
+			);
 		});
 	}
 
 	/**
-     * Create error UI elements
-     */
+   * Create error UI elements
+   */
 	_createErrorUI() {
 		// Error container for notifications
 		if ($('#error-notification-container').length === 0) {
@@ -150,8 +158,8 @@ class ErrorHandler {
 	}
 
 	/**
-     * Main error handling method
-     */
+   * Main error handling method
+   */
 	handleError(error, context = {}) {
 		// Normalize error object
 		const normalizedError = this._normalizeError(error);
@@ -199,8 +207,8 @@ class ErrorHandler {
 	}
 
 	/**
-     * Handle validation errors
-     */
+   * Handle validation errors
+   */
 	handleValidationError(field, error, context = {}) {
 		const validationError = {
 			type: 'validation',
@@ -217,8 +225,8 @@ class ErrorHandler {
 	}
 
 	/**
-     * Handle API errors
-     */
+   * Handle API errors
+   */
 	handleAPIError(error, endpoint, options = {}) {
 		const apiError = {
 			type: 'api',
@@ -240,8 +248,8 @@ class ErrorHandler {
 	}
 
 	/**
-     * Handle network errors
-     */
+   * Handle network errors
+   */
 	handleNetworkError(error, context = {}) {
 		const networkError = {
 			type: 'network',
@@ -251,17 +259,25 @@ class ErrorHandler {
 		};
 
 		if (!navigator.onLine) {
-			this.showNotification('warning', 'Offline', 'Please check your internet connection');
+			this.showNotification(
+				'warning',
+				'Offline',
+				'Please check your internet connection'
+			);
 		} else {
-			this.showNotification('error', 'Network Error', 'Failed to connect to server');
+			this.showNotification(
+				'error',
+				'Network Error',
+				'Failed to connect to server'
+			);
 		}
 
 		return this.handleError(networkError, { category: 'network', ...context });
 	}
 
 	/**
-     * Show user notifications
-     */
+   * Show user notifications
+   */
 	showNotification(type, title, message, options = {}) {
 		const notification = {
 			id: this._generateId(),
@@ -285,8 +301,8 @@ class ErrorHandler {
 	}
 
 	/**
-     * Show modal error dialog
-     */
+   * Show modal error dialog
+   */
 	showErrorModal(error, options = {}) {
 		const $modal = $('#error-modal');
 		const $content = $('#error-modal-content');
@@ -312,30 +328,36 @@ class ErrorHandler {
 
 		// Setup retry button
 		if (options.onRetry) {
-			$retryBtn.show().off('click').on('click', () => {
-				$modal.modal('hide');
-				options.onRetry();
-			});
+			$retryBtn
+				.show()
+				.off('click')
+				.on('click', () => {
+					$modal.modal('hide');
+					options.onRetry();
+				});
 		} else {
 			$retryBtn.hide();
 		}
 
 		// Setup report button
-		$('#error-report-btn').off('click').on('click', () => {
-			this._reportError(error);
-		});
+		$('#error-report-btn')
+			.off('click')
+			.on('click', () => {
+				this._reportError(error);
+			});
 
 		$modal.modal('show');
 	}
 
 	/**
-     * Error severity handling
-     */
+   * Error severity handling
+   */
 	_handleCriticalError(error) {
 		// Critical errors require immediate user attention
 		this.showErrorModal({
 			title: 'Critical Error',
-			message: 'A critical error has occurred. Please refresh the page and try again.',
+			message:
+        'A critical error has occurred. Please refresh the page and try again.',
 			details: this.options.showStackTrace ? error.stack : null
 		});
 
@@ -369,8 +391,8 @@ class ErrorHandler {
 	}
 
 	/**
-     * Utility methods
-     */
+   * Utility methods
+   */
 	_normalizeError(error) {
 		const normalized = {
 			id: this._generateId(),
@@ -461,7 +483,7 @@ class ErrorHandler {
 		let actionsHTML = '';
 		if (notification.actions && notification.actions.length > 0) {
 			actionsHTML = '<div class="notification-actions mt-2">';
-			notification.actions.forEach(action => {
+			notification.actions.forEach((action) => {
 				actionsHTML += `<button class="btn btn-sm btn-outline-primary me-2" onclick="(${action.action})()">${action.text}</button>`;
 			});
 			actionsHTML += '</div>';
@@ -494,7 +516,9 @@ class ErrorHandler {
 
 	_showFieldError(field, error) {
 		const $field = $(`[name="${field}"], #${field}`);
-		if ($field.length === 0) { return; }
+		if ($field.length === 0) {
+			return;
+		}
 
 		$field.addClass('is-invalid');
 
@@ -508,8 +532,11 @@ class ErrorHandler {
 	}
 
 	_showRetryableError(error, onRetry) {
-		this.showNotification('warning', 'Temporary Error',
-			`${error.message}. Click retry to try again.`, {
+		this.showNotification(
+			'warning',
+			'Temporary Error',
+			`${error.message}. Click retry to try again.`,
+			{
 				autoHide: false,
 				actions: [
 					{
@@ -517,7 +544,8 @@ class ErrorHandler {
 						action: onRetry
 					}
 				]
-			});
+			}
+		);
 	}
 
 	_showAPIError(error) {
@@ -534,7 +562,9 @@ class ErrorHandler {
 	}
 
 	_disableForm() {
-		$('.membership-application-form input, .membership-application-form button, .membership-application-form select').prop('disabled', true);
+		$(
+			'.membership-application-form input, .membership-application-form button, .membership-application-form select'
+		).prop('disabled', true);
 	}
 
 	_sendErrorLog(error) {
@@ -564,12 +594,16 @@ class ErrorHandler {
 
 		// You could open a modal form or external reporting tool
 
-		this.showNotification('info', 'Thank You', 'Error report has been generated. Please contact support if the issue persists.');
+		this.showNotification(
+			'info',
+			'Thank You',
+			'Error report has been generated. Please contact support if the issue persists.'
+		);
 	}
 
 	/**
-     * Public API
-     */
+   * Public API
+   */
 	getErrorStats() {
 		return {
 			totalErrors: this.errorLog.length,

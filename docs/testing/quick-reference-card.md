@@ -22,39 +22,44 @@ npm test -- --testNamePattern="Payment Entry"
 ## Basic Test Structure
 
 ```javascript
-const { createControllerTestSuite } = require('../../setup/controller-test-base');
-require('../../setup/frappe-mocks').setupTestMocks();
+const {
+  createControllerTestSuite,
+} = require("../../setup/controller-test-base");
+require("../../setup/frappe-mocks").setupTestMocks();
 
 const controllerConfig = {
-    doctype: 'Your DocType',
-    controllerPath: '/path/to/controller.js',
-    expectedHandlers: ['refresh', 'field_event'],
-    defaultDoc: {
-        doctype: 'Your DocType',
-        name: 'TEST-001',
-        status: 'Draft'
-    },
-    createMockForm(baseTest, overrides = {}) {
-        const form = baseTest.createMockForm(overrides);
-        form.fields_dict = {
-            ...form.fields_dict,
-            your_field: { df: { fieldtype: 'Data' } }
-        };
-        return form;
-    }
+  doctype: "Your DocType",
+  controllerPath: "/path/to/controller.js",
+  expectedHandlers: ["refresh", "field_event"],
+  defaultDoc: {
+    doctype: "Your DocType",
+    name: "TEST-001",
+    status: "Draft",
+  },
+  createMockForm(baseTest, overrides = {}) {
+    const form = baseTest.createMockForm(overrides);
+    form.fields_dict = {
+      ...form.fields_dict,
+      your_field: { df: { fieldtype: "Data" } },
+    };
+    return form;
+  },
 };
 
 const customTests = {
-    'Test Category': (getControllerTest) => {
-        it('should do something', () => {
-            const controllerTest = getControllerTest();
-            controllerTest.testEvent('refresh');
-            expect(controllerTest.mockForm.add_custom_button).toHaveBeenCalled();
-        });
-    }
+  "Test Category": (getControllerTest) => {
+    it("should do something", () => {
+      const controllerTest = getControllerTest();
+      controllerTest.testEvent("refresh");
+      expect(controllerTest.mockForm.add_custom_button).toHaveBeenCalled();
+    });
+  },
 };
 
-describe('Your DocType Controller', createControllerTestSuite(controllerConfig, customTests));
+describe(
+  "Your DocType Controller",
+  createControllerTestSuite(controllerConfig, customTests),
+);
 ```
 
 ## Common Mock Setups
@@ -68,134 +73,148 @@ global.__ = jest.fn((text) => text);
 
 // API response mock
 global.frappe.call.mockImplementation(({ method, callback }) => {
-    if (method === 'your.api.method') {
-        if (callback) callback({ message: 'success' });
-    }
+  if (method === "your.api.method") {
+    if (callback) callback({ message: "success" });
+  }
 });
 
 // API error mock
-global.frappe.call.mockRejectedValue(new Error('API Error'));
+global.frappe.call.mockRejectedValue(new Error("API Error"));
 ```
 
 ## Field Types Reference
 
 ```javascript
 form.fields_dict = {
-    // Basic types
-    name: { df: { fieldtype: 'Data' } },
-    status: { df: { fieldtype: 'Select' } },
-    description: { df: { fieldtype: 'Text' } },
-    amount: { df: { fieldtype: 'Currency' } },
+  // Basic types
+  name: { df: { fieldtype: "Data" } },
+  status: { df: { fieldtype: "Select" } },
+  description: { df: { fieldtype: "Text" } },
+  amount: { df: { fieldtype: "Currency" } },
 
-    // Date/time
-    date_field: { df: { fieldtype: 'Date' } },
-    datetime_field: { df: { fieldtype: 'Datetime' } },
+  // Date/time
+  date_field: { df: { fieldtype: "Date" } },
+  datetime_field: { df: { fieldtype: "Datetime" } },
 
-    // Links
-    customer: { df: { fieldtype: 'Link', options: 'Customer' } },
-    member: { df: { fieldtype: 'Link', options: 'Member' } },
+  // Links
+  customer: { df: { fieldtype: "Link", options: "Customer" } },
+  member: { df: { fieldtype: "Link", options: "Member" } },
 
-    // Checkboxes
-    is_active: { df: { fieldtype: 'Check' } }
+  // Checkboxes
+  is_active: { df: { fieldtype: "Check" } },
 };
 ```
 
 ## Domain Test Builders
 
 ```javascript
-const { createDomainTestBuilder } = require('../../setup/domain-test-builders');
+const { createDomainTestBuilder } = require("../../setup/domain-test-builders");
 
 // Financial domain
-const financialBuilder = createDomainTestBuilder(controllerTest, 'financial');
+const financialBuilder = createDomainTestBuilder(controllerTest, "financial");
 Object.assign(tests, financialBuilder.createSEPATests());
 
 // Association domain
-const associationBuilder = createDomainTestBuilder(controllerTest, 'association');
+const associationBuilder = createDomainTestBuilder(
+  controllerTest,
+  "association",
+);
 Object.assign(tests, associationBuilder.createDutchValidationTests());
 
 // Workflow domain
-const workflowBuilder = createDomainTestBuilder(controllerTest, 'workflow');
+const workflowBuilder = createDomainTestBuilder(controllerTest, "workflow");
 Object.assign(tests, workflowBuilder.createWorkflowTests());
 ```
 
 ## API Contract Testing
 
 ```javascript
-const { SimpleAPIContractTester } = require('../setup/api-contract-simple');
+const { SimpleAPIContractTester } = require("../setup/api-contract-simple");
 expect.extend(createSimpleAPIContractMatcher());
 
 // Test API call structure
-expect(apiArgs).toMatchAPIContract('verenigingen.doctype.member.member.process_payment');
+expect(apiArgs).toMatchAPIContract(
+  "verenigingen.doctype.member.member.process_payment",
+);
 
 // Generate test data
 const tester = new SimpleAPIContractTester();
-const testData = tester.generateValidTestData('api.method.name');
+const testData = tester.generateValidTestData("api.method.name");
 ```
 
 ## Common Test Patterns
 
 ### Button Visibility Test
-```javascript
-it('should show button for specific conditions', () => {
-    controllerTest.mockForm.doc.status = 'Submitted';
-    controllerTest.testEvent('refresh');
 
-    expect(controllerTest.mockForm.add_custom_button).toHaveBeenCalledWith(
-        'Button Text',
-        expect.any(Function),
-        'Group Name'
-    );
+```javascript
+it("should show button for specific conditions", () => {
+  controllerTest.mockForm.doc.status = "Submitted";
+  controllerTest.testEvent("refresh");
+
+  expect(controllerTest.mockForm.add_custom_button).toHaveBeenCalledWith(
+    "Button Text",
+    expect.any(Function),
+    "Group Name",
+  );
 });
 ```
 
 ### Field Validation Test
-```javascript
-it('should validate field correctly', () => {
-    controllerTest.mockForm.doc.field_name = 'invalid_value';
-    controllerTest.testEvent('field_name');
 
-    expect(global.frappe.msgprint).toHaveBeenCalledWith('Error message');
-    expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith('field_name', '');
+```javascript
+it("should validate field correctly", () => {
+  controllerTest.mockForm.doc.field_name = "invalid_value";
+  controllerTest.testEvent("field_name");
+
+  expect(global.frappe.msgprint).toHaveBeenCalledWith("Error message");
+  expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith(
+    "field_name",
+    "",
+  );
 });
 ```
 
 ### Permission Test
-```javascript
-it('should check permissions appropriately', () => {
-    global.frappe.user.has_role.mockImplementation(roles =>
-        roles.includes('Required Role'));
 
-    controllerTest.testEvent('refresh');
-    expect(controllerTest.mockForm.add_custom_button).toHaveBeenCalled();
+```javascript
+it("should check permissions appropriately", () => {
+  global.frappe.user.has_role.mockImplementation((roles) =>
+    roles.includes("Required Role"),
+  );
+
+  controllerTest.testEvent("refresh");
+  expect(controllerTest.mockForm.add_custom_button).toHaveBeenCalled();
 });
 ```
 
 ### API Integration Test
+
 ```javascript
-it('should handle API integration', () => {
-    const mockResponse = { name: 'DOC-001', status: 'Success' };
-    global.frappe.call.mockResolvedValue({ message: mockResponse });
+it("should handle API integration", () => {
+  const mockResponse = { name: "DOC-001", status: "Success" };
+  global.frappe.call.mockResolvedValue({ message: mockResponse });
 
-    controllerTest.testEvent('api_event');
+  controllerTest.testEvent("api_event");
 
-    expect(global.frappe.call).toHaveBeenCalledWith({
-        method: 'api.method.name',
-        args: { doc: controllerTest.mockForm.doc },
-        callback: expect.any(Function)
-    });
+  expect(global.frappe.call).toHaveBeenCalledWith({
+    method: "api.method.name",
+    args: { doc: controllerTest.mockForm.doc },
+    callback: expect.any(Function),
+  });
 });
 ```
 
 ### Error Handling Test
+
 ```javascript
-it('should handle errors gracefully', () => {
-    global.frappe.call.mockRejectedValue(new Error('Network Error'));
+it("should handle errors gracefully", () => {
+  global.frappe.call.mockRejectedValue(new Error("Network Error"));
 
-    expect(() => {
-        controllerTest.testEvent('api_event');
-    }).not.toThrow();
+  expect(() => {
+    controllerTest.testEvent("api_event");
+  }).not.toThrow();
 
-    expect(global.frappe.call).toHaveBeenCalled();
+  expect(global.frappe.call).toHaveBeenCalled();
 });
 ```
 
@@ -203,34 +222,34 @@ it('should handle errors gracefully', () => {
 
 ```javascript
 // IBAN validation
-const { validateDutchIBAN } = require('../../setup/dutch-validators');
-const result = validateDutchIBAN('NL91ABNA0417164300');
+const { validateDutchIBAN } = require("../../setup/dutch-validators");
+const result = validateDutchIBAN("NL91ABNA0417164300");
 expect(result.valid).toBe(true);
 
 // Postal code validation
-const { validateDutchPostalCode } = require('../../setup/dutch-validators');
-const postal = validateDutchPostalCode('1012 AB');
+const { validateDutchPostalCode } = require("../../setup/dutch-validators");
+const postal = validateDutchPostalCode("1012 AB");
 expect(postal.valid).toBe(true);
 
 // Name with tussenvoegsel
 const memberData = {
-    first_name: 'Jan',
-    tussenvoegsel: 'van der',
-    last_name: 'Berg'
+  first_name: "Jan",
+  tussenvoegsel: "van der",
+  last_name: "Berg",
 };
 ```
 
 ## Performance Testing
 
 ```javascript
-it('should complete within time limit', () => {
-    const startTime = performance.now();
+it("should complete within time limit", () => {
+  const startTime = performance.now();
 
-    // Execute test operations
-    controllerTest.testEvent('refresh');
+  // Execute test operations
+  controllerTest.testEvent("refresh");
 
-    const duration = performance.now() - startTime;
-    expect(duration).toBeLessThan(100); // 100ms limit
+  const duration = performance.now() - startTime;
+  expect(duration).toBeLessThan(100); // 100ms limit
 });
 ```
 
@@ -238,14 +257,17 @@ it('should complete within time limit', () => {
 
 ```javascript
 // Log mock calls
-console.log('API calls:', global.frappe.call.mock.calls);
-console.log('Button calls:', controllerTest.mockForm.add_custom_button.mock.calls);
+console.log("API calls:", global.frappe.call.mock.calls);
+console.log(
+  "Button calls:",
+  controllerTest.mockForm.add_custom_button.mock.calls,
+);
 
 // Inspect document state
-console.log('Document:', controllerTest.mockForm.doc);
+console.log("Document:", controllerTest.mockForm.doc);
 
 // Check field dictionary
-console.log('Fields:', Object.keys(controllerTest.mockForm.fields_dict));
+console.log("Fields:", Object.keys(controllerTest.mockForm.fields_dict));
 ```
 
 ## Common Assertions
@@ -255,25 +277,33 @@ console.log('Fields:', Object.keys(controllerTest.mockForm.fields_dict));
 expect(controllerTest.mockForm.add_custom_button).toHaveBeenCalled();
 expect(controllerTest.mockForm.add_custom_button).not.toHaveBeenCalled();
 expect(controllerTest.mockForm.add_custom_button).toHaveBeenCalledWith(
-    'Button Text', expect.any(Function), 'Group'
+  "Button Text",
+  expect.any(Function),
+  "Group",
 );
 
 // API assertions
 expect(global.frappe.call).toHaveBeenCalled();
 expect(global.frappe.call).toHaveBeenCalledTimes(1);
 expect(global.frappe.call).toHaveBeenCalledWith(
-    expect.objectContaining({ method: 'api.method' })
+  expect.objectContaining({ method: "api.method" }),
 );
 
 // Field value assertions
-expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith('field', 'value');
-expect(controllerTest.mockForm.toggle_display).toHaveBeenCalledWith('field', true);
+expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith(
+  "field",
+  "value",
+);
+expect(controllerTest.mockForm.toggle_display).toHaveBeenCalledWith(
+  "field",
+  true,
+);
 
 // Message assertions
-expect(global.frappe.msgprint).toHaveBeenCalledWith('Message text');
+expect(global.frappe.msgprint).toHaveBeenCalledWith("Message text");
 
 // Navigation assertions
-expect(global.frappe.set_route).toHaveBeenCalledWith('Form', 'DocType', 'name');
+expect(global.frappe.set_route).toHaveBeenCalledWith("Form", "DocType", "name");
 ```
 
 ## File Locations

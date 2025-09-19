@@ -15,6 +15,7 @@ This document outlines the comprehensive testing strategy for the Verenigingen a
 ## Related Testing Documentation
 
 ### JavaScript Testing Implementation
+
 For JavaScript-specific testing setup and patterns:
 
 - **🔧 [JavaScript Testing Infrastructure](testing/javascript-testing-guide.md)** - Jest/Cypress setup, CI/CD pipelines, coverage reporting (70% thresholds)
@@ -22,6 +23,7 @@ For JavaScript-specific testing setup and patterns:
 - **📑 [JavaScript Testing Index](testing/javascript-testing-index.md)** - Quick navigation for JavaScript testing needs
 
 ### Python Testing
+
 - **Python testing documentation** is located in `/docs/testing/` directory
 - **Enhanced Test Factory** guide available in `verenigingen/tests/fixtures/`
 
@@ -30,18 +32,21 @@ For JavaScript-specific testing setup and patterns:
 ### Test Categories
 
 #### 1. Quick Tests (< 30 seconds)
+
 - Basic validation tests
 - Critical path testing
 - Smoke tests
 - Run on every commit via pre-commit hooks
 
 #### 2. Comprehensive Tests (< 5 minutes)
+
 - Full feature testing
 - Integration tests
 - Security tests
 - Run on every push/PR via CI/CD
 
 #### 3. Scheduled Tests (< 30 minutes)
+
 - Performance tests
 - Edge case scenarios
 - Load testing
@@ -64,18 +69,21 @@ verenigingen/tests/
 ### 1. Local Development (Pre-commit Hooks)
 
 **Installation:**
+
 ```bash
 cd /home/frappe/frappe-bench/apps/verenigingen
 ./scripts/install_pre_commit.sh
 ```
 
 **What runs on commit:**
+
 - Code formatting (Black, isort)
 - Linting (Flake8)
 - File validation
 - Quick validation tests
 
 **Skip hooks when needed:**
+
 ```bash
 git commit --no-verify
 ```
@@ -83,16 +91,19 @@ git commit --no-verify
 ### 2. Continuous Integration (GitHub Actions)
 
 **Triggers:**
+
 - Every push to main/develop branches
 - Every pull request
 - Daily scheduled runs
 
 **Test Matrix:**
+
 - Python versions: 3.10, 3.11
 - Frappe versions: v14, v15
 - Databases: MariaDB 10.6
 
 **Workflow stages:**
+
 1. Environment setup
 2. App installation
 3. Test execution
@@ -102,6 +113,7 @@ git commit --no-verify
 ### 3. Local Testing Commands
 
 **Using Make:**
+
 ```bash
 make test          # Run comprehensive tests
 make test-quick    # Run quick tests only
@@ -112,6 +124,7 @@ make format        # Format code
 ```
 
 **Using Bench directly:**
+
 ```bash
 # Run specific test module
 bench --site dev.veganisme.net run-tests --app verenigingen --module test_member
@@ -184,18 +197,21 @@ self.assertTrue(all([
 ### Minimum Coverage Requirements
 
 **Python Testing:**
+
 - Overall: 80%
 - Critical paths: 95%
 - New code: 90%
 - API endpoints: 100%
 
 **JavaScript Testing:**
+
 - All categories: 70% (defined in jest.config.js)
 - See [JavaScript Testing Infrastructure](testing/javascript-testing-guide.md) for implementation details
 
 ### Coverage Reports
 
 Coverage reports are generated in:
+
 - Local: `htmlcov/index.html`
 - CI/CD: Uploaded to Codecov
 - JSON: `sites/[site]/test-results/coverage.json`
@@ -205,6 +221,7 @@ Coverage reports are generated in:
 ### Benchmarks
 
 Key operations should complete within:
+
 - Member creation: < 200ms
 - Expense submission: < 500ms
 - Report generation: < 2s
@@ -213,6 +230,7 @@ Key operations should complete within:
 ### Load Testing
 
 Scheduled tests verify system handles:
+
 - 100 concurrent users
 - 10,000 members
 - 1,000 expenses/day
@@ -253,6 +271,7 @@ def test_unauthorized_access(self):
 ### Dashboard
 
 Test results available at:
+
 - Local: `/test-results/test_report.html`
 - CI/CD: GitHub Actions artifacts
 - Metrics: Codecov dashboard
@@ -260,6 +279,7 @@ Test results available at:
 ## Best Practices
 
 ### Do's
+
 - Write tests for new features
 - Run tests before committing
 - Keep tests fast and focused
@@ -268,6 +288,7 @@ Test results available at:
 - Mock external dependencies
 
 ### Don'ts
+
 - Don't test framework features
 - Don't use production data
 - Don't skip cleanup
@@ -279,21 +300,25 @@ Test results available at:
 ### Common Issues
 
 **Tests fail locally but pass in CI:**
+
 - Check Python version
 - Verify database state
 - Clear cache: `bench clear-cache`
 
 **Import errors:**
+
 - Run from bench directory
 - Check PYTHONPATH
 - Verify app installation
 
 **Permission errors:**
+
 - Run as Administrator in tests
 - Check test user permissions
 - Verify role assignments
 
 **Slow tests:**
+
 - Use test factories
 - Minimize database operations
 - Mock expensive operations
@@ -310,11 +335,13 @@ Test results available at:
 ## Implementation Resources
 
 ### JavaScript Testing Implementation
+
 - **[JavaScript Testing Infrastructure](testing/javascript-testing-guide.md)** - Setup, CI/CD, coverage reporting
 - **[DocType JavaScript Testing](javascript-testing-guide.md)** - Practical patterns and examples
 - **[JavaScript Testing Index](testing/javascript-testing-index.md)** - Navigation and quick reference
 
 ### External Resources
+
 - [Frappe Testing Guide](https://frappeframework.com/docs/user/en/testing)
 - [GitHub Actions Documentation](https://docs.github.com/en/actions)
 - [Pre-commit Documentation](https://pre-commit.com/)

@@ -65,14 +65,14 @@
  *
  * @namespace frappe.listview_settings.DonationType
  */
-frappe.listview_settings['Donation Type'] = {
-	/**
-	 * Additional fields to display in list view beyond the standard fields
-	 *
-	 * Includes the donation type name for clear identification and
-	 * categorization of different donation types in the system.
-	 *
-	 * @type {Array<string>}
-	 */
-	add_fields: ['donation_type']
+frappe.listview_settings["Donation Type"] = {
+  /**
+   * Additional fields to display in list view beyond the standard fields
+   *
+   * Includes the donation type name for clear identification and
+   * categorization of different donation types in the system.
+   *
+   * @type {Array<string>}
+   */
+  add_fields: ["donation_type"],
 };

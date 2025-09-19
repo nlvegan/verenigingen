@@ -3,6 +3,7 @@
 ## Step 1: Analyze E-Boekhouden Tax Data Structure
 
 ### API Fields to Extract:
+
 - `vatAmount` - BTW amount
 - `vatPercentage` - BTW percentage (0%, 9%, 21%)
 - `vatCode` - BTW code for categorization
@@ -11,6 +12,7 @@
 ### Implementation Tasks:
 
 1. **Extend REST API Data Extraction**
+
    ```python
    # In eboekhouden_rest_iterator.py
    def extract_vat_data(mutation):
@@ -30,6 +32,7 @@
      - 21% - BTW Hoog tarief
 
 3. **Modify Invoice Creation Logic**
+
    ```python
    def add_tax_lines_to_invoice(invoice, vat_data):
        if vat_data.get('vat_amount'):

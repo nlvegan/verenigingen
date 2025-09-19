@@ -79,8 +79,12 @@ describe('E-Boekhouden Migration DocType - Comprehensive Test Suite', () => {
 		test('should hide legacy checkbox fields on refresh', () => {
 			// Arrange
 			const legacyFields = [
-				'migrate_accounts', 'migrate_cost_centers', 'migrate_customers',
-				'migrate_suppliers', 'migrate_transactions', 'migrate_stock_transactions',
+				'migrate_accounts',
+				'migrate_cost_centers',
+				'migrate_customers',
+				'migrate_suppliers',
+				'migrate_transactions',
+				'migrate_stock_transactions',
 				'dry_run'
 			];
 
@@ -89,10 +93,18 @@ describe('E-Boekhouden Migration DocType - Comprehensive Test Suite', () => {
 			eBoekhouden.refresh(mockFrm);
 
 			// Assert
-			legacyFields.forEach(field => {
-				expect(mockFrm.set_df_property).toHaveBeenCalledWith(field, 'hidden', 1);
+			legacyFields.forEach((field) => {
+				expect(mockFrm.set_df_property).toHaveBeenCalledWith(
+					field,
+					'hidden',
+					1
+				);
 			});
-			expect(mockFrm.set_df_property).toHaveBeenCalledWith('migration_scope_section', 'hidden', 1);
+			expect(mockFrm.set_df_property).toHaveBeenCalledWith(
+				'migration_scope_section',
+				'hidden',
+				1
+			);
 		});
 
 		test('should display migration guide with proper instructions', () => {
@@ -158,7 +170,7 @@ describe('E-Boekhouden Migration DocType - Comprehensive Test Suite', () => {
 
 			// Simulate button click
 			const setupButton = mockFrm.add_custom_button.mock.calls.find(
-				call => call[0] === '1. Setup Chart of Accounts'
+				(call) => call[0] === '1. Setup Chart of Accounts'
 			);
 			if (setupButton) {
 				await setupButton[1](); // Execute the callback
@@ -216,7 +228,7 @@ describe('E-Boekhouden Migration DocType - Comprehensive Test Suite', () => {
 
 			// Simulate transaction import button click
 			const importButton = mockFrm.add_custom_button.mock.calls.find(
-				call => call[0] === '2. Import Transactions'
+				(call) => call[0] === '2. Import Transactions'
 			);
 			if (importButton) {
 				await importButton[1](); // Execute the callback
@@ -244,7 +256,7 @@ describe('E-Boekhouden Migration DocType - Comprehensive Test Suite', () => {
 
 			// Simulate incremental import
 			const importButton = mockFrm.add_custom_button.mock.calls.find(
-				call => call[0] === '2. Import Transactions'
+				(call) => call[0] === '2. Import Transactions'
 			);
 			if (importButton) {
 				await importButton[1]();
@@ -291,7 +303,7 @@ describe('E-Boekhouden Migration DocType - Comprehensive Test Suite', () => {
 
 			// Simulate test connection
 			const testButton = mockFrm.add_custom_button.mock.calls.find(
-				call => call[0] === 'Test Connection'
+				(call) => call[0] === 'Test Connection'
 			);
 			if (testButton) {
 				await testButton[1]();
@@ -320,7 +332,7 @@ describe('E-Boekhouden Migration DocType - Comprehensive Test Suite', () => {
 
 			// Simulate REST API test
 			const testButton = mockFrm.add_custom_button.mock.calls.find(
-				call => call[0] === 'Test Connection'
+				(call) => call[0] === 'Test Connection'
 			);
 			if (testButton) {
 				await testButton[1]();
@@ -399,8 +411,8 @@ describe('E-Boekhouden Migration DocType - Comprehensive Test Suite', () => {
 				message: {
 					success: true,
 					opening_invoices_created: 15,
-					total_receivables: 15000.00,
-					total_payables: 8500.00
+					total_receivables: 15000.0,
+					total_payables: 8500.0
 				}
 			});
 
@@ -409,7 +421,7 @@ describe('E-Boekhouden Migration DocType - Comprehensive Test Suite', () => {
 
 			// Simulate opening balance import
 			const openingButton = mockFrm.add_custom_button.mock.calls.find(
-				call => call[0] === 'Import Opening Balances'
+				(call) => call[0] === 'Import Opening Balances'
 			);
 			if (openingButton) {
 				await openingButton[1]();
@@ -455,7 +467,7 @@ describe('E-Boekhouden Migration DocType - Comprehensive Test Suite', () => {
 
 			// Simulate single mutation import
 			const debugButton = mockFrm.add_custom_button.mock.calls.find(
-				call => call[0] === 'Import Single Mutation'
+				(call) => call[0] === 'Import Single Mutation'
 			);
 			if (debugButton) {
 				await debugButton[1]();
@@ -496,7 +508,7 @@ describe('E-Boekhouden Migration DocType - Comprehensive Test Suite', () => {
 			// Should not throw when handling auth errors
 			expect(async () => {
 				const testButton = mockFrm.add_custom_button.mock.calls.find(
-					call => call[0] === 'Test Connection'
+					(call) => call[0] === 'Test Connection'
 				);
 				if (testButton) {
 					await testButton[1]();
@@ -631,10 +643,10 @@ function setupGlobalMocks() {
 		call: jest.fn(),
 		msgprint: jest.fn(),
 		show_alert: jest.fn(),
-		__: jest.fn(str => str) // Simple translation mock
+		__: jest.fn((str) => str) // Simple translation mock
 	};
 
-	global.__ = jest.fn(str => str);
+	global.__ = jest.fn((str) => str);
 }
 
 /**

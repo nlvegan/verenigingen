@@ -8,6 +8,7 @@
 ## Current State Analysis
 
 ### ✅ Already Implemented
+
 - Zabbix integration foundation (`verenigingen/monitoring/`)
 - Performance dashboard utility (`performance_dashboard.py`)
 - Security audit logging (`security/audit_logging.py`)
@@ -15,6 +16,7 @@
 - SEPA monitoring components (`sepa_monitoring_dashboard.py`)
 
 ### 🎯 Implementation Gap Analysis
+
 - Core Frappe monitoring not enabled
 - Business process audit logging incomplete
 - Real-time alerting system missing
@@ -27,11 +29,13 @@
 ### Week 1: Core Monitoring Activation
 
 #### Day 1-3: Enable Frappe Monitoring
+
 **Owner:** DevOps + Senior Developer
 **Effort:** 8 hours
 **Status:** ⏳ Pending
 
 **Tasks:**
+
 ```bash
 # 1. Enable Frappe monitoring
 bench --site dev.veganisme.net set-config monitor 1
@@ -49,18 +53,22 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
 ```
 
 **Deliverables:**
+
 - [ ] Frappe monitoring enabled and functional
 - [ ] Zabbix health check responding with valid metrics
 - [ ] Performance dashboard accessible
 - [ ] Baseline error log count established
 
 #### Day 4-7: Configure External Error Tracking
+
 **Owner:** Senior Developer
 **Effort:** 12 hours
 **Status:** ⏳ Pending
 
 **Tasks:**
+
 1. **Set up Sentry Integration**
+
    ```json
    // Add to site_config.json:
    {
@@ -74,6 +82,7 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
    ```
 
 2. **Configure Email Notifications**
+
    ```python
    # Add scheduler function for critical errors
    def check_critical_errors():
@@ -95,6 +104,7 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
    ```
 
 **Deliverables:**
+
 - [ ] Sentry integration configured and tested
 - [ ] Email notifications for critical errors active
 - [ ] Error tracking verification completed
@@ -103,37 +113,58 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
 ### Week 2: Business Process Instrumentation
 
 #### Day 8-10: Create SEPA Audit Logger
+
 **Owner:** Senior Developer
 **Effort:** 16 hours
 **Status:** ⏳ Pending
 
 **Tasks:**
+
 1. **Create SEPA Audit Log DocType**
+
    ```bash
    # Create new DocType via Frappe desk or command
    bench --site dev.veganisme.net new-doctype "SEPA Audit Log"
    ```
 
    DocType Structure:
+
    ```json
    {
      "fields": [
-       {"fieldname": "process_type", "fieldtype": "Select", "reqd": 1,
-        "options": "Mandate Creation\nBatch Generation\nBank Submission\nPayment Processing"},
-       {"fieldname": "reference_doctype", "fieldtype": "Link", "options": "DocType"},
-       {"fieldname": "reference_name", "fieldtype": "Dynamic Link", "options": "reference_doctype"},
-       {"fieldname": "action", "fieldtype": "Data", "reqd": 1},
-       {"fieldname": "compliance_status", "fieldtype": "Select", "reqd": 1,
-        "options": "Compliant\nException\nFailed\nPending Review"},
-       {"fieldname": "details", "fieldtype": "JSON"},
-       {"fieldname": "trace_id", "fieldtype": "Data"},
-       {"fieldname": "user", "fieldtype": "Link", "options": "User"},
-       {"fieldname": "timestamp", "fieldtype": "Datetime"}
+       {
+         "fieldname": "process_type",
+         "fieldtype": "Select",
+         "reqd": 1,
+         "options": "Mandate Creation\nBatch Generation\nBank Submission\nPayment Processing"
+       },
+       {
+         "fieldname": "reference_doctype",
+         "fieldtype": "Link",
+         "options": "DocType"
+       },
+       {
+         "fieldname": "reference_name",
+         "fieldtype": "Dynamic Link",
+         "options": "reference_doctype"
+       },
+       { "fieldname": "action", "fieldtype": "Data", "reqd": 1 },
+       {
+         "fieldname": "compliance_status",
+         "fieldtype": "Select",
+         "reqd": 1,
+         "options": "Compliant\nException\nFailed\nPending Review"
+       },
+       { "fieldname": "details", "fieldtype": "JSON" },
+       { "fieldname": "trace_id", "fieldtype": "Data" },
+       { "fieldname": "user", "fieldtype": "Link", "options": "User" },
+       { "fieldname": "timestamp", "fieldtype": "Datetime" }
      ]
    }
    ```
 
 2. **Implement Audit Logger Class**
+
    ```python
    # File: verenigingen/doctype/sepa_audit_log/sepa_audit_log.py
    class SEPAAuditLog(Document):
@@ -165,6 +196,7 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
    ```
 
 3. **Integrate with Existing SEPA Processes**
+
    ```python
    # Modify existing SEPA mandate creation functions
    def create_sepa_mandate_with_audit(member, iban, bic):
@@ -210,18 +242,22 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
    ```
 
 **Deliverables:**
+
 - [ ] SEPA Audit Log DocType created and tested
 - [ ] Audit logging integrated into mandate creation
 - [ ] Error handling and failure logging implemented
 - [ ] Initial audit trail data populated
 
 #### Day 11-14: Expand Business Process Monitoring
+
 **Owner:** Senior Developer
 **Effort:** 12 hours
 **Status:** ⏳ Pending
 
 **Tasks:**
+
 1. **Member Lifecycle Audit**
+
    ```python
    # Add to Member DocType hooks
    def after_insert(self):
@@ -244,6 +280,7 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
    ```
 
 2. **Financial Process Monitoring**
+
    ```python
    # Enhanced payment processing with audit
    def process_payment_with_audit(payment_request):
@@ -275,6 +312,7 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
    ```
 
 **Deliverables:**
+
 - [ ] Member lifecycle events logged
 - [ ] Payment processing audit trail active
 - [ ] Volunteer expense approval monitoring
@@ -287,12 +325,15 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
 ### Week 3: Dashboard Development
 
 #### Day 15-17: Create Monitoring Dashboard
+
 **Owner:** Senior Developer + Frontend Developer
 **Effort:** 20 hours
 **Status:** ⏳ Pending
 
 **Tasks:**
+
 1. **Create Dashboard Page**
+
    ```python
    # File: verenigingen/www/monitoring_dashboard.py
    import frappe
@@ -367,127 +408,134 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
    ```
 
 2. **Create Dashboard Template**
+
    ```html
    <!-- File: verenigingen/www/monitoring_dashboard.html -->
-   {% extends "templates/web.html" %}
-
-   {% block title %}System Monitoring Dashboard{% endblock %}
-
-   {% block content %}
+   {% extends "templates/web.html" %} {% block title %}System Monitoring
+   Dashboard{% endblock %} {% block content %}
    <div class="container mt-4">
-       <h1>System Monitoring Dashboard</h1>
+     <h1>System Monitoring Dashboard</h1>
 
-       <!-- System Metrics Cards -->
-       <div class="row mb-4">
-           <div class="col-md-3">
-               <div class="card text-center">
-                   <div class="card-body">
-                       <h5 class="card-title">Active Members</h5>
-                       <h2 class="text-primary">{{ system_metrics.members.active }}</h2>
-                   </div>
-               </div>
+     <!-- System Metrics Cards -->
+     <div class="row mb-4">
+       <div class="col-md-3">
+         <div class="card text-center">
+           <div class="card-body">
+             <h5 class="card-title">Active Members</h5>
+             <h2 class="text-primary">{{ system_metrics.members.active }}</h2>
            </div>
-           <div class="col-md-3">
-               <div class="card text-center">
-                   <div class="card-body">
-                       <h5 class="card-title">Active Volunteers</h5>
-                       <h2 class="text-success">{{ system_metrics.volunteers.active }}</h2>
-                   </div>
-               </div>
-           </div>
-           <div class="col-md-3">
-               <div class="card text-center">
-                   <div class="card-body">
-                       <h5 class="card-title">SEPA Mandates</h5>
-                       <h2 class="text-info">{{ system_metrics.sepa.active_mandates }}</h2>
-                   </div>
-               </div>
-           </div>
-           <div class="col-md-3">
-               <div class="card text-center">
-                   <div class="card-body">
-                       <h5 class="card-title">Errors (24h)</h5>
-                       <h2 class="{% if system_metrics.errors.last_24h > 10 %}text-danger{% else %}text-warning{% endif %}">
-                           {{ system_metrics.errors.last_24h }}
-                       </h2>
-                   </div>
-               </div>
-           </div>
+         </div>
        </div>
+       <div class="col-md-3">
+         <div class="card text-center">
+           <div class="card-body">
+             <h5 class="card-title">Active Volunteers</h5>
+             <h2 class="text-success">
+               {{ system_metrics.volunteers.active }}
+             </h2>
+           </div>
+         </div>
+       </div>
+       <div class="col-md-3">
+         <div class="card text-center">
+           <div class="card-body">
+             <h5 class="card-title">SEPA Mandates</h5>
+             <h2 class="text-info">
+               {{ system_metrics.sepa.active_mandates }}
+             </h2>
+           </div>
+         </div>
+       </div>
+       <div class="col-md-3">
+         <div class="card text-center">
+           <div class="card-body">
+             <h5 class="card-title">Errors (24h)</h5>
+             <h2
+               class="{% if system_metrics.errors.last_24h > 10 %}text-danger{% else %}text-warning{% endif %}"
+             >
+               {{ system_metrics.errors.last_24h }}
+             </h2>
+           </div>
+         </div>
+       </div>
+     </div>
 
-       <!-- Recent Errors Table -->
-       <div class="row mb-4">
-           <div class="col-12">
-               <div class="card">
-                   <div class="card-header">
-                       <h5>Recent Errors (Last 24 Hours)</h5>
-                   </div>
-                   <div class="card-body">
-                       <table class="table table-striped">
-                           <thead>
-                               <tr>
-                                   <th>Error</th>
-                                   <th>Count</th>
-                                   <th>Latest Occurrence</th>
-                               </tr>
-                           </thead>
-                           <tbody>
-                               {% for error in recent_errors %}
-                               <tr>
-                                   <td>{{ error.error[:100] }}...</td>
-                                   <td><span class="badge badge-danger">{{ error.count }}</span></td>
-                                   <td>{{ frappe.format(error.latest, 'Datetime') }}</td>
-                               </tr>
-                               {% endfor %}
-                           </tbody>
-                       </table>
-                   </div>
-               </div>
+     <!-- Recent Errors Table -->
+     <div class="row mb-4">
+       <div class="col-12">
+         <div class="card">
+           <div class="card-header">
+             <h5>Recent Errors (Last 24 Hours)</h5>
            </div>
+           <div class="card-body">
+             <table class="table table-striped">
+               <thead>
+                 <tr>
+                   <th>Error</th>
+                   <th>Count</th>
+                   <th>Latest Occurrence</th>
+                 </tr>
+               </thead>
+               <tbody>
+                 {% for error in recent_errors %}
+                 <tr>
+                   <td>{{ error.error[:100] }}...</td>
+                   <td>
+                     <span class="badge badge-danger">{{ error.count }}</span>
+                   </td>
+                   <td>{{ frappe.format(error.latest, 'Datetime') }}</td>
+                 </tr>
+                 {% endfor %}
+               </tbody>
+             </table>
+           </div>
+         </div>
        </div>
+     </div>
 
-       <!-- Audit Summary -->
-       <div class="row">
-           <div class="col-12">
-               <div class="card">
-                   <div class="card-header">
-                       <h5>Audit Activity (Last 7 Days)</h5>
-                   </div>
-                   <div class="card-body">
-                       <table class="table">
-                           <thead>
-                               <tr>
-                                   <th>Process Type</th>
-                                   <th>Action</th>
-                                   <th>Count</th>
-                               </tr>
-                           </thead>
-                           <tbody>
-                               {% for audit in audit_summary %}
-                               <tr>
-                                   <td>{{ audit.process_type }}</td>
-                                   <td>{{ audit.action }}</td>
-                                   <td>{{ audit.count }}</td>
-                               </tr>
-                               {% endfor %}
-                           </tbody>
-                       </table>
-                   </div>
-               </div>
+     <!-- Audit Summary -->
+     <div class="row">
+       <div class="col-12">
+         <div class="card">
+           <div class="card-header">
+             <h5>Audit Activity (Last 7 Days)</h5>
            </div>
+           <div class="card-body">
+             <table class="table">
+               <thead>
+                 <tr>
+                   <th>Process Type</th>
+                   <th>Action</th>
+                   <th>Count</th>
+                 </tr>
+               </thead>
+               <tbody>
+                 {% for audit in audit_summary %}
+                 <tr>
+                   <td>{{ audit.process_type }}</td>
+                   <td>{{ audit.action }}</td>
+                   <td>{{ audit.count }}</td>
+                 </tr>
+                 {% endfor %}
+               </tbody>
+             </table>
+           </div>
+         </div>
        </div>
+     </div>
    </div>
 
    <script>
-   // Auto-refresh dashboard every 5 minutes
-   setInterval(function() {
+     // Auto-refresh dashboard every 5 minutes
+     setInterval(function () {
        location.reload();
-   }, 300000);
+     }, 300000);
    </script>
    {% endblock %}
    ```
 
 **Deliverables:**
+
 - [ ] Monitoring dashboard accessible at `/monitoring_dashboard`
 - [ ] Real-time system metrics display
 - [ ] Recent errors summary table
@@ -495,12 +543,15 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
 - [ ] Auto-refresh functionality
 
 #### Day 18-21: Automated Alerting System
+
 **Owner:** Senior Developer + DevOps
 **Effort:** 16 hours
 **Status:** ⏳ Pending
 
 **Tasks:**
+
 1. **Create Alert Manager**
+
    ```python
    # File: verenigingen/utils/alert_manager.py
    import frappe
@@ -587,6 +638,7 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
    ```
 
 2. **Add Scheduler Functions**
+
    ```python
    # Add to hooks.py
    scheduler_events = {
@@ -624,30 +676,45 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
    ```
 
 3. **Create System Alert DocType**
+
    ```bash
    # Create System Alert DocType
    bench --site dev.veganisme.net new-doctype "System Alert"
    ```
 
    DocType Structure:
+
    ```json
    {
      "fields": [
-       {"fieldname": "alert_type", "fieldtype": "Data", "reqd": 1},
-       {"fieldname": "severity", "fieldtype": "Select", "reqd": 1,
-        "options": "LOW\nMEDIUM\nHIGH\nCRITICAL"},
-       {"fieldname": "message", "fieldtype": "Text", "reqd": 1},
-       {"fieldname": "details", "fieldtype": "JSON"},
-       {"fieldname": "timestamp", "fieldtype": "Datetime", "reqd": 1},
-       {"fieldname": "status", "fieldtype": "Select", "reqd": 1,
-        "options": "Active\nAcknowledged\nResolved"},
-       {"fieldname": "acknowledged_by", "fieldtype": "Link", "options": "User"},
-       {"fieldname": "resolved_by", "fieldtype": "Link", "options": "User"}
+       { "fieldname": "alert_type", "fieldtype": "Data", "reqd": 1 },
+       {
+         "fieldname": "severity",
+         "fieldtype": "Select",
+         "reqd": 1,
+         "options": "LOW\nMEDIUM\nHIGH\nCRITICAL"
+       },
+       { "fieldname": "message", "fieldtype": "Text", "reqd": 1 },
+       { "fieldname": "details", "fieldtype": "JSON" },
+       { "fieldname": "timestamp", "fieldtype": "Datetime", "reqd": 1 },
+       {
+         "fieldname": "status",
+         "fieldtype": "Select",
+         "reqd": 1,
+         "options": "Active\nAcknowledged\nResolved"
+       },
+       {
+         "fieldname": "acknowledged_by",
+         "fieldtype": "Link",
+         "options": "User"
+       },
+       { "fieldname": "resolved_by", "fieldtype": "Link", "options": "User" }
      ]
    }
    ```
 
 **Deliverables:**
+
 - [ ] Automated alerting system operational
 - [ ] Error rate monitoring with thresholds
 - [ ] SEPA compliance alerting
@@ -657,12 +724,15 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
 ### Week 4: Performance Optimization Monitoring
 
 #### Day 22-24: Performance Metrics Collection
+
 **Owner:** Senior Developer
 **Effort:** 12 hours
 **Status:** ⏳ Pending
 
 **Tasks:**
+
 1. **Enhanced Performance Dashboard Integration**
+
    ```python
    # Extend existing performance_dashboard.py
    def get_performance_trends():
@@ -694,6 +764,7 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
    ```
 
 2. **Resource Usage Monitoring**
+
    ```python
    # File: verenigingen/utils/resource_monitor.py
    import psutil
@@ -733,34 +804,41 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
    ```
 
 **Deliverables:**
+
 - [ ] Performance trend analysis active
 - [ ] Resource usage monitoring implemented
 - [ ] Slow query detection and alerting
 - [ ] Background job queue monitoring
 
 #### Day 25-28: Documentation and Training
+
 **Owner:** Technical Lead + Team
 **Effort:** 8 hours
 **Status:** ⏳ Pending
 
 **Tasks:**
+
 1. **Create Operations Manual**
+
    ```markdown
    # File: docs/monitoring/OPERATIONS_MANUAL.md
 
    ## Daily Monitoring Tasks
+
    - [ ] Check monitoring dashboard (/monitoring_dashboard)
    - [ ] Review overnight alerts and errors
    - [ ] Verify SEPA compliance status
    - [ ] Check system resource usage
 
    ## Weekly Tasks
+
    - [ ] Review performance trends
    - [ ] Analyze error patterns
    - [ ] Update alert thresholds if needed
    - [ ] Generate weekly summary report
 
    ## Monthly Tasks
+
    - [ ] Performance optimization review
    - [ ] Alert system effectiveness analysis
    - [ ] Documentation updates
@@ -768,24 +846,28 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
    ```
 
 2. **Create Troubleshooting Guide**
+
    ```markdown
    # File: docs/monitoring/TROUBLESHOOTING_GUIDE.md
 
    ## Common Alert Scenarios
 
    ### High Error Rate Alert
+
    1. Check recent deployments
    2. Review error log details
    3. Check system resources
    4. Verify external service status
 
    ### SEPA Compliance Issues
+
    1. Review failed audit logs
    2. Check mandate validations
    3. Verify bank file generation
    4. Contact compliance team if needed
 
    ### Performance Degradation
+
    1. Identify slow queries
    2. Check database indexes
    3. Review recent code changes
@@ -793,6 +875,7 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
    ```
 
 **Deliverables:**
+
 - [ ] Operations manual completed
 - [ ] Troubleshooting guide created
 - [ ] Team training conducted
@@ -805,12 +888,15 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
 ### Week 5: Analytics Enhancement
 
 #### Day 29-31: Implement Trend Analysis
+
 **Owner:** Data Analyst + Senior Developer
 **Effort:** 16 hours
 **Status:** ⏳ Pending
 
 **Tasks:**
+
 1. **Create Analytics Engine**
+
    ```python
    # File: verenigingen/utils/analytics_engine.py
    class AnalyticsEngine:
@@ -843,17 +929,20 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
    ```
 
 **Deliverables:**
+
 - [ ] Error pattern analysis implemented
 - [ ] Performance trend forecasting
 - [ ] Automated insights generation
 - [ ] Predictive alert capabilities
 
 #### Day 32-35: Compliance Reporting Enhancement
+
 **Owner:** Compliance Specialist + Developer
 **Effort:** 12 hours
 **Status:** ⏳ Pending
 
 **Tasks:**
+
 1. **Enhanced Compliance Dashboard**
    ```python
    # Add compliance-specific views to monitoring dashboard
@@ -869,6 +958,7 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
    ```
 
 **Deliverables:**
+
 - [ ] Compliance metrics dashboard
 - [ ] Regulatory violation tracking
 - [ ] Data retention monitoring
@@ -877,11 +967,13 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
 ### Week 6: Optimization and Handover
 
 #### Day 36-38: Performance Optimization
+
 **Owner:** Senior Developer + DevOps
 **Effort:** 12 hours
 **Status:** ⏳ Pending
 
 **Tasks:**
+
 1. **Implement Performance Optimizations**
    - Database query optimization based on monitoring data
    - Caching improvements for frequently accessed data
@@ -889,23 +981,27 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
    - Resource usage optimization
 
 **Deliverables:**
+
 - [ ] Performance optimizations implemented
 - [ ] Before/after performance benchmarks
 - [ ] Resource usage improvements
 - [ ] Query performance enhancements
 
 #### Day 39-42: Knowledge Transfer and Handover
+
 **Owner:** Technical Lead + Team
 **Effort:** 8 hours
 **Status:** ⏳ Pending
 
 **Tasks:**
+
 1. **Final Documentation**
 2. **Team Knowledge Transfer**
 3. **Maintenance Procedures**
 4. **Emergency Response Procedures**
 
 **Deliverables:**
+
 - [ ] Complete technical documentation
 - [ ] Team training completed
 - [ ] Maintenance procedures established
@@ -918,12 +1014,15 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
 ### Week 7: Production Deployment
 
 #### Day 43-45: Production Deployment
+
 **Owner:** DevOps + Technical Lead
 **Effort:** 16 hours
 **Status:** ⏳ Pending
 
 **Tasks:**
+
 1. **Production Environment Setup**
+
    ```bash
    # Deploy monitoring components to production
    bench --site production.site migrate
@@ -941,23 +1040,27 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
    - Confirm audit logging functionality
 
 **Deliverables:**
+
 - [ ] Production monitoring system deployed
 - [ ] All components tested and functional
 - [ ] Alert system verified
 - [ ] Performance baseline established
 
 #### Day 46-49: Monitoring Validation
+
 **Owner:** QA Team + Operations
 **Effort:** 12 hours
 **Status:** ⏳ Pending
 
 **Tasks:**
+
 1. **End-to-End Testing**
 2. **Alert System Validation**
 3. **Performance Monitoring Verification**
 4. **Compliance Audit Trail Testing**
 
 **Deliverables:**
+
 - [ ] End-to-end testing completed
 - [ ] Alert system validation passed
 - [ ] Performance monitoring verified
@@ -966,34 +1069,40 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
 ### Week 8: Stabilization and Optimization
 
 #### Day 50-52: System Stabilization
+
 **Owner:** Operations Team
 **Effort:** 8 hours
 **Status:** ⏳ Pending
 
 **Tasks:**
+
 1. **Monitor system stability**
 2. **Fine-tune alert thresholds**
 3. **Optimize performance based on real data**
 4. **Address any issues found**
 
 **Deliverables:**
+
 - [ ] System running stably
 - [ ] Alert thresholds optimized
 - [ ] Performance optimized
 - [ ] All issues resolved
 
 #### Day 53-56: Project Closure
+
 **Owner:** Project Manager + Technical Lead
 **Effort:** 4 hours
 **Status:** ⏳ Pending
 
 **Tasks:**
+
 1. **Final project review**
 2. **Success metrics validation**
 3. **Lessons learned documentation**
 4. **Ongoing maintenance plan**
 
 **Deliverables:**
+
 - [ ] Project review completed
 - [ ] Success metrics achieved
 - [ ] Lessons learned documented
@@ -1004,18 +1113,21 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
 ## Success Metrics and KPIs
 
 ### Technical Metrics
+
 - [ ] **Error Detection Time**: < 5 minutes from occurrence to alert
 - [ ] **System Uptime**: > 99.9% availability
 - [ ] **Performance Monitoring**: < 200ms API response time
 - [ ] **Alert Accuracy**: < 5% false positive rate
 
 ### Business Metrics
+
 - [ ] **Compliance Coverage**: 100% of SEPA processes audited
 - [ ] **Incident Response**: < 15 minutes mean time to acknowledge
 - [ ] **Data Quality**: > 95% audit trail completeness
 - [ ] **User Satisfaction**: > 90% operations team satisfaction
 
 ### Operational Metrics
+
 - [ ] **Dashboard Usage**: Daily access by operations team
 - [ ] **Alert Response**: < 30 minutes mean time to resolution
 - [ ] **Documentation Coverage**: 100% of procedures documented
@@ -1026,12 +1138,14 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
 ## Risk Management
 
 ### High-Risk Items
+
 1. **Performance Impact**: Monitor system performance during implementation
 2. **Alert Fatigue**: Carefully tune alert thresholds to avoid false positives
 3. **Data Privacy**: Ensure audit logs comply with privacy regulations
 4. **Resource Usage**: Monitor resource consumption of monitoring components
 
 ### Mitigation Strategies
+
 1. **Gradual Rollout**: Implement monitoring in phases
 2. **Rollback Procedures**: Maintain ability to disable monitoring if needed
 3. **Testing**: Comprehensive testing in staging environment
@@ -1042,6 +1156,7 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
 ## Quick Implementation Commands
 
 ### Week 1 - Quick Start
+
 ```bash
 # Enable basic monitoring (5 minutes)
 bench --site dev.veganisme.net set-config monitor 1
@@ -1056,6 +1171,7 @@ bench --site dev.veganisme.net execute "print('Total errors:', frappe.db.count('
 ```
 
 ### Week 2 - SEPA Audit Setup
+
 ```bash
 # Create SEPA Audit Log DocType (30 minutes)
 bench --site dev.veganisme.net new-doctype "SEPA Audit Log"
@@ -1068,6 +1184,7 @@ bench --site dev.veganisme.net console
 ```
 
 ### Week 3 - Dashboard Creation
+
 ```bash
 # Create monitoring dashboard (2 hours)
 # Copy dashboard files from plan above
@@ -1076,6 +1193,7 @@ bench --site dev.veganisme.net migrate
 ```
 
 ### Week 4 - Alerts Setup
+
 ```bash
 # Enable scheduled alerts (30 minutes)
 bench --site dev.veganisme.net enable-scheduler
@@ -1087,16 +1205,19 @@ bench --site dev.veganisme.net enable-scheduler
 ## Maintenance and Support
 
 ### Daily Tasks (5 minutes)
+
 - Check monitoring dashboard
 - Review overnight alerts
 - Verify system health
 
 ### Weekly Tasks (30 minutes)
+
 - Review performance trends
 - Analyze error patterns
 - Update documentation
 
 ### Monthly Tasks (2 hours)
+
 - Performance optimization review
 - Alert threshold adjustments
 - Team training updates
@@ -1106,11 +1227,13 @@ bench --site dev.veganisme.net enable-scheduler
 ## Contact and Escalation
 
 ### Primary Contacts
+
 - **Technical Lead**: [Name] - [Email]
 - **DevOps Engineer**: [Name] - [Email]
 - **Operations Manager**: [Name] - [Email]
 
 ### Escalation Procedures
+
 1. **Level 1**: Operations team handles routine monitoring
 2. **Level 2**: Technical team handles complex issues
 3. **Level 3**: External vendor support for critical issues

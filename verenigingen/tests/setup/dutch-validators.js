@@ -25,14 +25,14 @@ function validateBSN(bsn) {
 	const digits = cleaned.split('').map(Number);
 
 	// Check for obvious invalid patterns (all same digits)
-	if (digits.every(digit => digit === digits[0])) {
+	if (digits.every((digit) => digit === digits[0])) {
 		return { valid: false, error: 'BSN cannot consist of identical digits' };
 	}
 
 	// BSN 11-proof validation algorithm
 	const weights = [9, 8, 7, 6, 5, 4, 3, 2, -1];
 	const sum = digits.reduce((total, digit, index) => {
-		return total + (digit * weights[index]);
+		return total + digit * weights[index];
 	}, 0);
 
 	// The sum must be divisible by 11 and last digit cannot be 0
@@ -71,7 +71,7 @@ function validateRSIN(rsin) {
 	// RSIN uses same 11-proof algorithm as BSN
 	const weights = [9, 8, 7, 6, 5, 4, 3, 2, -1];
 	const sum = digits.reduce((total, digit, index) => {
-		return total + (digit * weights[index]);
+		return total + digit * weights[index];
 	}, 0);
 
 	// The sum must be divisible by 11
@@ -167,7 +167,10 @@ function validateDutchPostalCode(postalCode) {
 	const match = cleaned.match(pattern);
 
 	if (!match) {
-		return { valid: false, error: 'Invalid Dutch postal code format (should be 1234 AB)' };
+		return {
+			valid: false,
+			error: 'Invalid Dutch postal code format (should be 1234 AB)'
+		};
 	}
 
 	const [, digits, letters] = match;
@@ -180,7 +183,10 @@ function validateDutchPostalCode(postalCode) {
 	// Certain combinations are not used
 	const excludedCombinations = ['SA', 'SD', 'SS'];
 	if (excludedCombinations.includes(letters)) {
-		return { valid: false, error: `Letter combination ${letters} is not used in Dutch postal codes` };
+		return {
+			valid: false,
+			error: `Letter combination ${letters} is not used in Dutch postal codes`
+		};
 	}
 
 	return {
@@ -286,7 +292,9 @@ function validateDutchEmail(email) {
 
 	// Check for common Dutch domains
 	const dutchDomains = ['.nl', '.eu'];
-	const hasDutchDomain = dutchDomains.some(domain => lowerEmail.endsWith(domain));
+	const hasDutchDomain = dutchDomains.some((domain) =>
+		lowerEmail.endsWith(domain)
+	);
 
 	return {
 		valid: true,
@@ -344,9 +352,9 @@ function generateDutchOrganizationEmail(fullName, domain = 'example.org') {
  */
 const dutchTestDataGenerators = {
 	/**
-     * Generates valid BSN numbers for testing
-     * @returns {Array<string>} Array of valid BSN numbers
-     */
+   * Generates valid BSN numbers for testing
+   * @returns {Array<string>} Array of valid BSN numbers
+   */
 	validBSNs: [
 		'123456782', // Standard test BSN
 		'111222333', // Pattern-based test BSN
@@ -354,9 +362,9 @@ const dutchTestDataGenerators = {
 	],
 
 	/**
-     * Generates invalid BSN numbers for testing
-     * @returns {Array<Object>} Array of invalid BSN test cases
-     */
+   * Generates invalid BSN numbers for testing
+   * @returns {Array<Object>} Array of invalid BSN test cases
+   */
 	invalidBSNs: [
 		{ value: '123456789', error: 'Invalid BSN checksum' },
 		{ value: '12345678', error: 'BSN must be exactly 9 digits' },
@@ -374,9 +382,9 @@ const dutchTestDataGenerators = {
 	],
 
 	/**
-     * Generates valid Dutch IBANs for testing
-     * @returns {Array<string>} Array of valid Dutch IBANs
-     */
+   * Generates valid Dutch IBANs for testing
+   * @returns {Array<string>} Array of valid Dutch IBANs
+   */
 	validIBANs: [
 		'NL91 ABNA 0417 1643 00',
 		'NL02 RABO 0123 4567 89',
@@ -384,18 +392,24 @@ const dutchTestDataGenerators = {
 	],
 
 	/**
-     * Generates invalid Dutch IBANs for testing
-     * @returns {Array<Object>} Array of invalid IBAN test cases
-     */
+   * Generates invalid Dutch IBANs for testing
+   * @returns {Array<Object>} Array of invalid IBAN test cases
+   */
 	invalidIBANs: [
 		{ value: 'NL91 ABNA 0417 1643 01', error: 'Invalid IBAN checksum' },
 		{ value: 'DE91 ABNA 0417 1643 00', error: 'Dutch IBAN must start with NL' },
-		{ value: 'NL91 ABNA 041', error: 'Dutch IBAN must be exactly 18 characters' },
+		{
+			value: 'NL91 ABNA 041',
+			error: 'Dutch IBAN must be exactly 18 characters'
+		},
 		{ value: 'NL91 1234 0417 1643 00', error: 'Invalid bank code format' },
 		// Edge cases
 		{ value: 'BE91 ABNA 0417 1643 00', error: 'Dutch IBAN must start with NL' }, // Belgian IBAN
 		{ value: 'FR91 ABNA 0417 1643 00', error: 'Dutch IBAN must start with NL' }, // French IBAN
-		{ value: 'NL91ABNA041716430012345', error: 'Dutch IBAN must be exactly 18 characters' }, // Too long
+		{
+			value: 'NL91ABNA041716430012345',
+			error: 'Dutch IBAN must be exactly 18 characters'
+		}, // Too long
 		{ value: 'NL91 abna 0417 1643 00', error: 'Invalid bank code format' }, // Lowercase bank code
 		{ value: 'NL91 ABNA 041A 1643 00', error: 'Invalid account number format' }, // Letter in account number
 		{ value: 'NL91 ABNA 0417 164Z 00', error: 'Invalid account number format' }, // Letter in account number
@@ -405,43 +419,74 @@ const dutchTestDataGenerators = {
 	],
 
 	/**
-     * Generates valid Dutch postal codes for testing
-     * @returns {Array<string>} Array of valid postal codes
-     */
-	validPostalCodes: [
-		'1012 AB',
-		'2011 CD',
-		'3511 EF',
-		'9999 ZZ'
-	],
+   * Generates valid Dutch postal codes for testing
+   * @returns {Array<string>} Array of valid postal codes
+   */
+	validPostalCodes: ['1012 AB', '2011 CD', '3511 EF', '9999 ZZ'],
 
 	/**
-     * Generates invalid Dutch postal codes for testing
-     * @returns {Array<Object>} Array of invalid postal code test cases
-     */
+   * Generates invalid Dutch postal codes for testing
+   * @returns {Array<Object>} Array of invalid postal code test cases
+   */
 	invalidPostalCodes: [
 		{ value: '0123 AB', error: 'Postal code cannot start with 0' },
-		{ value: '1234 SA', error: 'Letter combination SA is not used in Dutch postal codes' },
-		{ value: '12345', error: 'Invalid Dutch postal code format (should be 1234 AB)' },
-		{ value: 'ABCD EF', error: 'Invalid Dutch postal code format (should be 1234 AB)' },
+		{
+			value: '1234 SA',
+			error: 'Letter combination SA is not used in Dutch postal codes'
+		},
+		{
+			value: '12345',
+			error: 'Invalid Dutch postal code format (should be 1234 AB)'
+		},
+		{
+			value: 'ABCD EF',
+			error: 'Invalid Dutch postal code format (should be 1234 AB)'
+		},
 		// Edge cases
-		{ value: '1234 SD', error: 'Letter combination SD is not used in Dutch postal codes' },
-		{ value: '1234 SS', error: 'Letter combination SS is not used in Dutch postal codes' },
-		{ value: '1234AB', error: 'Invalid Dutch postal code format (should be 1234 AB)' }, // No space
-		{ value: '12340 AB', error: 'Invalid Dutch postal code format (should be 1234 AB)' }, // 5 digits
-		{ value: '123 AB', error: 'Invalid Dutch postal code format (should be 1234 AB)' }, // 3 digits
-		{ value: '1234 A', error: 'Invalid Dutch postal code format (should be 1234 AB)' }, // 1 letter
-		{ value: '1234 ABC', error: 'Invalid Dutch postal code format (should be 1234 AB)' }, // 3 letters
+		{
+			value: '1234 SD',
+			error: 'Letter combination SD is not used in Dutch postal codes'
+		},
+		{
+			value: '1234 SS',
+			error: 'Letter combination SS is not used in Dutch postal codes'
+		},
+		{
+			value: '1234AB',
+			error: 'Invalid Dutch postal code format (should be 1234 AB)'
+		}, // No space
+		{
+			value: '12340 AB',
+			error: 'Invalid Dutch postal code format (should be 1234 AB)'
+		}, // 5 digits
+		{
+			value: '123 AB',
+			error: 'Invalid Dutch postal code format (should be 1234 AB)'
+		}, // 3 digits
+		{
+			value: '1234 A',
+			error: 'Invalid Dutch postal code format (should be 1234 AB)'
+		}, // 1 letter
+		{
+			value: '1234 ABC',
+			error: 'Invalid Dutch postal code format (should be 1234 AB)'
+		}, // 3 letters
 		{ value: '', error: 'Postal code is required' }, // Empty
 		{ value: null, error: 'Postal code is required' }, // Null
-		{ value: '1234  AB', error: 'Invalid Dutch postal code format (should be 1234 AB)' }, // Double space
-		{ value: '1234-AB', error: 'Invalid Dutch postal code format (should be 1234 AB)' } // Hyphen instead of space
+		{
+			value: '1234  AB',
+			error: 'Invalid Dutch postal code format (should be 1234 AB)'
+		}, // Double space
+		{
+			value: '1234-AB',
+			error: 'Invalid Dutch postal code format (should be 1234 AB)'
+		} // Hyphen instead of space
 	],
 
 	/**
-     * Generates test data for Dutch name email generation
-     * @returns {Array<Object>} Array of name processing test cases
-     */
+   * Generates test data for Dutch name email generation
+   * @returns {Array<Object>} Array of name processing test cases
+   */
 	dutchNameTestCases: [
 		{
 			input: 'Jan van der Berg',

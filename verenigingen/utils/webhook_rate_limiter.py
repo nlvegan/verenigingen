@@ -239,9 +239,9 @@ class WebhookRateLimiter:
                 "total_tracked_ips": len(self.ip_requests),
                 "penalized_ips": len(self.ip_penalties),
                 "tracked_webhook_ids": len(self.webhook_requests),
-                "utilization_percent": (recent_global / self.global_limit) * 100
-                if self.global_limit > 0
-                else 0,
+                "utilization_percent": (
+                    (recent_global / self.global_limit) * 100 if self.global_limit > 0 else 0
+                ),
             }
 
     def reset_ip_penalty(self, ip_address: str):

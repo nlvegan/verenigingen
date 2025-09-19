@@ -107,7 +107,7 @@ function calculateExpenseTotals(expenses) {
 		total: 0
 	};
 
-	expenses.forEach(expense => {
+	expenses.forEach((expense) => {
 		totals.total += expense.amount;
 		if (expense.status === 'Approved') {
 			totals.approved += expense.amount;

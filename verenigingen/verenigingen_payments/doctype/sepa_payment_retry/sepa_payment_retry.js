@@ -58,7 +58,10 @@ frappe.ui.form.on('SEPA Payment Retry', {
 		};
 
 		if (frm.doc.status) {
-			frm.page.set_indicator(__(frm.doc.status), status_colors[frm.doc.status] || 'gray');
+			frm.page.set_indicator(
+				__(frm.doc.status),
+				status_colors[frm.doc.status] || 'gray'
+			);
 		}
 
 		// Add retry timeline visualization
@@ -68,25 +71,43 @@ frappe.ui.form.on('SEPA Payment Retry', {
 
 		// Add action buttons based on status
 		if (frm.doc.status === 'Scheduled' && frm.doc.next_retry_date) {
-			frm.add_custom_button(__('Retry Now'), () => {
-				retry_payment_now(frm);
-			}, __('Actions'));
+			frm.add_custom_button(
+				__('Retry Now'),
+				() => {
+					retry_payment_now(frm);
+				},
+				__('Actions')
+			);
 
-			frm.add_custom_button(__('Cancel Retry'), () => {
-				cancel_retry(frm);
-			}, __('Actions'));
+			frm.add_custom_button(
+				__('Cancel Retry'),
+				() => {
+					cancel_retry(frm);
+				},
+				__('Actions')
+			);
 		}
 
 		if (frm.doc.status === 'Failed' || frm.doc.status === 'Error') {
-			frm.add_custom_button(__('Schedule New Retry'), () => {
-				schedule_new_retry(frm);
-			}, __('Actions')).addClass('btn-primary');
+			frm
+				.add_custom_button(
+					__('Schedule New Retry'),
+					() => {
+						schedule_new_retry(frm);
+					},
+					__('Actions')
+				)
+				.addClass('btn-primary');
 		}
 
 		if (frm.doc.status === 'Escalated') {
-			frm.add_custom_button(__('Mark as Resolved'), () => {
-				mark_as_resolved(frm);
-			}, __('Actions'));
+			frm.add_custom_button(
+				__('Mark as Resolved'),
+				() => {
+					mark_as_resolved(frm);
+				},
+				__('Actions')
+			);
 		}
 
 		// Add helpful information
@@ -113,7 +134,8 @@ function add_retry_timeline(frm) {
     `;
 
 	frm.doc.retry_log.forEach((attempt, idx) => {
-		const icon = attempt.reason_code === 'SUCCESS' ? 'check-circle' : 'times-circle';
+		const icon
+      = attempt.reason_code === 'SUCCESS' ? 'check-circle' : 'times-circle';
 		const color = attempt.reason_code === 'SUCCESS' ? 'success' : 'danger';
 
 		timeline_html += `
@@ -128,10 +150,12 @@ function add_retry_timeline(frm) {
                         ${__('Reason')}: ${attempt.reason_code || 'Unknown'}<br>
                         ${attempt.reason_message || ''}
                     </div>
-                    ${attempt.scheduled_retry
+                    ${
+	attempt.scheduled_retry
 		? `<div class="timeline-next">
                             ${__('Next retry scheduled for')}: ${frappe.datetime.str_to_user(attempt.scheduled_retry)}
-                        </div>` : ''
+                        </div>`
+		: ''
 }
                 </div>
             </div>
@@ -145,11 +169,14 @@ function add_retry_timeline(frm) {
 
 	// Add timeline to form
 	if (!frm.fields_dict.retry_timeline_html) {
-		frm.add_field({
-			fieldname: 'retry_timeline_html',
-			fieldtype: 'HTML',
-			options: timeline_html
-		}, 'retry_log');
+		frm.add_field(
+			{
+				fieldname: 'retry_timeline_html',
+				fieldtype: 'HTML',
+				options: timeline_html
+			},
+			'retry_log'
+		);
 	} else {
 		$(frm.fields_dict.retry_timeline_html.wrapper).html(timeline_html);
 	}
@@ -181,9 +208,13 @@ function add_retry_info_section(frm) {
                 <div class="info-card">
                     <div class="info-label">${__('Next Retry')}</div>
                     <div class="info-value">
-                        ${frm.doc.next_retry_date
-		? frappe.datetime.str_to_user(frm.doc.next_retry_date)
-		: __('Not scheduled')}
+                        ${
+	frm.doc.next_retry_date
+		? frappe.datetime.str_to_user(
+			frm.doc.next_retry_date
+		)
+		: __('Not scheduled')
+}
                     </div>
                 </div>
             </div>
@@ -219,11 +250,14 @@ function add_retry_info_section(frm) {
 
 	// Add to form
 	if (!frm.fields_dict.retry_info_html) {
-		frm.add_field({
-			fieldname: 'retry_info_html',
-			fieldtype: 'HTML',
-			options: info_html
-		}, 'section_break_1');
+		frm.add_field(
+			{
+				fieldname: 'retry_info_html',
+				fieldtype: 'HTML',
+				options: info_html
+			},
+			'section_break_1'
+		);
 	} else {
 		$(frm.fields_dict.retry_info_html.wrapper).html(info_html);
 	}
@@ -332,8 +366,10 @@ function mark_as_resolved(frm) {
 		primary_action_label: __('Mark Resolved'),
 		primary_action(values) {
 			frm.set_value('status', 'Resolved');
-			frm.add_comment('Comment',
-				`${__('Resolved')}: ${values.resolution_method}\n${values.resolution_notes}`);
+			frm.add_comment(
+				'Comment',
+				`${__('Resolved')}: ${values.resolution_method}\n${values.resolution_notes}`
+			);
 			frm.save();
 			dialog.hide();
 		}
@@ -344,7 +380,9 @@ function mark_as_resolved(frm) {
 
 function add_retry_custom_styles() {
 	if (!$('#retry-custom-styles').length) {
-		$('<style id="retry-custom-styles">').html(`
+		$('<style id="retry-custom-styles">')
+			.html(
+				`
             .retry-timeline {
                 margin-top: 20px;
                 padding: 20px;
@@ -450,7 +488,9 @@ function add_retry_custom_styles() {
                 padding: 15px;
                 border-radius: 6px;
             }
-        `).appendTo('head');
+        `
+			)
+			.appendTo('head');
 	}
 }
 

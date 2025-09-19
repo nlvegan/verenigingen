@@ -24,8 +24,8 @@ describe('Contribution Amendment Request DocType - Comprehensive Test Suite', ()
 	describe('Amendment Workflow', () => {
 		test('should handle fee amendment requests', () => {
 			mockDoc.member = testFactory.createMemberName();
-			mockDoc.current_amount = 25.00;
-			mockDoc.requested_amount = 20.00;
+			mockDoc.current_amount = 25.0;
+			mockDoc.requested_amount = 20.0;
 			mockDoc.status = 'Pending';
 
 			const amendment = require('../../../../verenigingen/doctype/contribution_amendment_request/contribution_amendment_request.js');
@@ -47,13 +47,13 @@ describe('Contribution Amendment Request DocType - Comprehensive Test Suite', ()
 
 	describe('Validation Rules', () => {
 		test('should validate amendment amount limits', () => {
-			mockDoc.requested_amount = 5.00; // Below minimum
-			mockDoc.minimum_amount = 10.00;
+			mockDoc.requested_amount = 5.0; // Below minimum
+			mockDoc.minimum_amount = 10.0;
 
 			const amendment = require('../../../../verenigingen/doctype/contribution_amendment_request/contribution_amendment_request.js');
 			amendment.requested_amount(mockFrm);
 
-			expect(mockDoc.requested_amount).toBe(5.00);
+			expect(mockDoc.requested_amount).toBe(5.0);
 		});
 	});
 });
@@ -72,9 +72,9 @@ function setupGlobalMocks() {
 	global.frappe = {
 		ui: { form: { on: jest.fn() } },
 		call: jest.fn(),
-		__: jest.fn(str => str)
+		__: jest.fn((str) => str)
 	};
-	global.__ = jest.fn(str => str);
+	global.__ = jest.fn((str) => str);
 }
 
 function teardownGlobalMocks() {

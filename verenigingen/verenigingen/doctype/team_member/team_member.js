@@ -54,7 +54,7 @@ frappe.ui.form.on('Team Member', {
 		const row = locals[cdt][cdn];
 		if (row.volunteer) {
 			// Fetch volunteer details
-			frappe.db.get_doc('Volunteer', row.volunteer).then(doc => {
+			frappe.db.get_doc('Volunteer', row.volunteer).then((doc) => {
 				frappe.model.set_value(cdt, cdn, 'volunteer_name', doc.volunteer_name);
 			});
 		}
@@ -119,7 +119,12 @@ frappe.ui.form.on('Team Member', {
 function validate_dates(frm, cdt, cdn) {
 	const row = locals[cdt][cdn];
 
-	if (row.to_date && row.from_date && frappe.datetime.str_to_obj(row.from_date) > frappe.datetime.str_to_obj(row.to_date)) {
+	if (
+		row.to_date
+    && row.from_date
+    && frappe.datetime.str_to_obj(row.from_date)
+      > frappe.datetime.str_to_obj(row.to_date)
+	) {
 		frappe.msgprint(__('Start date cannot be after end date'));
 		frappe.model.set_value(cdt, cdn, 'to_date', row.from_date);
 	}

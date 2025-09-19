@@ -7,7 +7,7 @@
   --color-primary-200: #fecaca;
   --color-primary-300: #fca5a5;
   --color-primary-400: #f87171;
-  --color-primary-500: #cf3131;  /* RSP Red */
+  --color-primary-500: #cf3131; /* RSP Red */
   --color-primary-600: #b82828;
   --color-primary-700: #a01f1f;
   --color-primary-800: #891717;
@@ -18,18 +18,18 @@
   --color-secondary-200: #bae5ba;
   --color-secondary-300: #86d186;
   --color-secondary-400: #4fb74f;
-  --color-secondary-500: #01796F;  /* Pine Green */
-  --color-secondary-600: #016B63;
-  --color-secondary-700: #015A54;
-  --color-secondary-800: #014A44;
-  --color-secondary-900: #013A35;
+  --color-secondary-500: #01796f; /* Pine Green */
+  --color-secondary-600: #016b63;
+  --color-secondary-700: #015a54;
+  --color-secondary-800: #014a44;
+  --color-secondary-900: #013a35;
 
   --color-accent-50: #f8f4ff;
   --color-accent-100: #f0e7ff;
   --color-accent-200: #e4d3ff;
   --color-accent-300: #d1b3ff;
   --color-accent-400: #b885ff;
-  --color-accent-500: #663399;  /* Royal Purple */
+  --color-accent-500: #663399; /* Royal Purple */
   --color-accent-600: #5c2e8a;
   --color-accent-700: #4f277a;
   --color-accent-800: #42206b;
@@ -40,18 +40,18 @@
   --color-success-200: #bae5ba;
   --color-success-300: #86d186;
   --color-success-400: #4fb74f;
-  --color-success-500: #01796F;  /* Pine Green */
-  --color-success-600: #016B63;
-  --color-success-700: #015A54;
-  --color-success-800: #014A44;
-  --color-success-900: #013A35;
+  --color-success-500: #01796f; /* Pine Green */
+  --color-success-600: #016b63;
+  --color-success-700: #015a54;
+  --color-success-800: #014a44;
+  --color-success-900: #013a35;
 
   --color-danger-50: #fef2f2;
   --color-danger-100: #fee2e2;
   --color-danger-200: #fecaca;
   --color-danger-300: #fca5a5;
   --color-danger-400: #f87171;
-  --color-danger-500: #cf3131;  /* RSP Red */
+  --color-danger-500: #cf3131; /* RSP Red */
   --color-danger-600: #b82828;
   --color-danger-700: #a01f1f;
   --color-danger-800: #891717;
@@ -74,7 +74,9 @@
   /* Form Components */
   .form-card {
     @apply bg-white rounded-xl border border-gray-200 overflow-hidden;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    box-shadow:
+      0 4px 6px -1px rgba(0, 0, 0, 0.1),
+      0 2px 4px -1px rgba(0, 0, 0, 0.06);
   }
 
   .form-header {
@@ -102,7 +104,7 @@
   .input-label.required::after {
     @apply text-danger-500;
     margin-left: 0.25rem;
-    content: '*';
+    content: "*";
   }
 
   .form-input {

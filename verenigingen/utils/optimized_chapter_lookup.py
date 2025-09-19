@@ -210,9 +210,6 @@ class OptimizedChapterLookup:
         if not self.is_chapter_management_enabled():
             return {member_name: None for member_name, _ in member_postal_codes}
 
-        # Build mapping once, then use for all lookups
-        mapping = self.get_chapter_postal_mapping()
-
         results = {}
 
         for member_name, postal_code in member_postal_codes:
@@ -258,7 +255,7 @@ def find_chapter_by_postal_code_optimized(postal_code: str) -> Dict:
 
 
 def batch_suggest_chapters_for_members(
-    members_with_postal_codes: List[Tuple[str, str]]
+    members_with_postal_codes: List[Tuple[str, str]],
 ) -> Dict[str, Optional[str]]:
     """
     Batch suggest chapters for multiple members efficiently

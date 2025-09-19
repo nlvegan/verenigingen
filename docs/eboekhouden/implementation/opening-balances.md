@@ -7,9 +7,11 @@ The eBoekhouden integration includes comprehensive opening balance import functi
 ## Key Features (2025 Enhancements)
 
 ### ✅ Automatic Stock Account Detection
+
 The system automatically detects and properly handles stock accounts during opening balance imports.
 
 **Stock Account Exclusion**:
+
 ```python
 def is_stock_account(account):
     """Detect stock accounts that cannot be updated via Journal Entry"""
@@ -21,15 +23,18 @@ def is_stock_account(account):
 ```
 
 **Why Stock Accounts are Excluded**:
+
 - ERPNext restricts stock accounts to Stock transactions only
 - Journal Entries cannot directly update stock account balances
 - Stock reconciliation is the proper method for stock opening balances
 - System provides detailed logging of excluded accounts
 
 ### ✅ Automatic Balancing
+
 Prevents migration failures from unbalanced opening balance entries.
 
 **Balancing Logic**:
+
 ```python
 def create_balancing_entry(balance_difference, company, cost_center):
     """Create automatic balancing entry for opening balances"""
@@ -47,15 +52,18 @@ def create_balancing_entry(balance_difference, company, cost_center):
 ```
 
 **Benefits**:
+
 - Eliminates "Opening balance entries do not balance" errors
 - Creates transparent audit trail of balancing adjustments
 - Uses proper "Temporary" account type for differences
 - Maintains accounting integrity while enabling successful imports
 
 ### ✅ Enhanced Error Handling
+
 Comprehensive error handling for account access and validation issues.
 
 **Error Recovery**:
+
 ```python
 def validate_account_for_opening_balance(account):
     """Validate account before including in opening balance"""
@@ -81,6 +89,7 @@ def validate_account_for_opening_balance(account):
 ## Import Process
 
 ### Step 1: Data Collection
+
 The system collects opening balance data from eBoekhouden:
 
 1. **Fetch opening mutations** from eBoekhouden API
@@ -89,6 +98,7 @@ The system collects opening balance data from eBoekhouden:
 4. **Filter accounts** based on type and eligibility
 
 ### Step 2: Account Validation
+
 Each account goes through comprehensive validation:
 
 ```python
@@ -102,6 +112,7 @@ validation_results = {
 ```
 
 ### Step 3: Balance Calculation
+
 The system calculates and validates balance totals:
 
 1. **Sum all debit balances**
@@ -110,6 +121,7 @@ The system calculates and validates balance totals:
 4. **Create balancing entry** if needed
 
 ### Step 4: Journal Entry Creation
+
 Creates a comprehensive opening balance journal entry:
 
 ```python
@@ -129,6 +141,7 @@ opening_balance_entry = {
 ## Configuration Options
 
 ### Basic Configuration
+
 Set up opening balance import in E-Boekhouden Settings:
 
 ```
@@ -140,6 +153,7 @@ Opening Balance Settings:
 ```
 
 ### Advanced Options
+
 For specialized requirements:
 
 ```python
@@ -160,36 +174,36 @@ account_filters = {
 ## Detailed Reporting
 
 ### Opening Balance Report
+
 The system provides comprehensive reporting of the opening balance import:
 
 ```json
 {
-    "success": true,
-    "journal_entry": "JE-2025-00001",
-    "opening_date": "2024-01-01",
-    "accounts_processed": 45,
-    "total_debit": 125000.00,
-    "total_credit": 125000.00,
-    "balanced": true,
-    "balancing_entry_created": false,
-    "skipped_accounts": {
-        "stock": [
-            {"account": "Stock Account - Company", "balance": 5000.00}
-        ],
-        "pnl": [
-            {"account": "Sales - Company", "type": "Income"},
-            {"account": "Cost of Goods Sold - Company", "type": "Expense"}
-        ],
-        "errors": []
-    },
-    "performance_stats": {
-        "processing_time": "2.3 seconds",
-        "accounts_per_second": 19.6
-    }
+  "success": true,
+  "journal_entry": "JE-2025-00001",
+  "opening_date": "2024-01-01",
+  "accounts_processed": 45,
+  "total_debit": 125000.0,
+  "total_credit": 125000.0,
+  "balanced": true,
+  "balancing_entry_created": false,
+  "skipped_accounts": {
+    "stock": [{ "account": "Stock Account - Company", "balance": 5000.0 }],
+    "pnl": [
+      { "account": "Sales - Company", "type": "Income" },
+      { "account": "Cost of Goods Sold - Company", "type": "Expense" }
+    ],
+    "errors": []
+  },
+  "performance_stats": {
+    "processing_time": "2.3 seconds",
+    "accounts_per_second": 19.6
+  }
 }
 ```
 
 ### Audit Trail
+
 Complete audit trail of opening balance processing:
 
 1. **Source data**: eBoekhouden opening balance mutations
@@ -203,25 +217,33 @@ Complete audit trail of opening balance processing:
 ### Common Issues and Solutions
 
 #### Issue: "Stock accounts found in opening balances"
+
 **Solution**: ✅ **Automatically handled**
+
 - Stock accounts are automatically detected and skipped
 - Detailed logging shows which accounts were excluded
 - No manual intervention required
 
 #### Issue: "Opening balance entries do not balance"
+
 **Solution**: ✅ **Automatically handled**
+
 - System automatically creates balancing entries
 - Uses "Temporary" account type for differences
 - Maintains complete audit trail of balancing logic
 
 #### Issue: "Account not found in ERPNext"
+
 **Solution**:
+
 1. Import chart of accounts first before opening balances
 2. Check account mapping configuration
 3. Verify company is correctly set in settings
 
 #### Issue: "P&L accounts included in opening balances"
+
 **Solution**: ✅ **Automatically handled**
+
 - P&L accounts (Income/Expense) are automatically excluded
 - Only Balance Sheet accounts (Asset/Liability/Equity) are included
 - Detailed reporting shows which accounts were excluded
@@ -229,6 +251,7 @@ Complete audit trail of opening balance processing:
 ### Validation Tools
 
 #### Pre-Import Validation
+
 ```python
 # Validate opening balance data before import
 def validate_opening_balance_data():
@@ -245,6 +268,7 @@ def validate_opening_balance_data():
 ```
 
 #### Post-Import Validation
+
 ```python
 # Validate imported opening balances
 def validate_imported_opening_balances():
@@ -265,18 +289,21 @@ def validate_imported_opening_balances():
 ## Best Practices
 
 ### Before Opening Balance Import
+
 1. **Complete ERPNext setup**: Ensure company and chart of accounts are configured
 2. **Backup database**: Always backup before importing opening balances
 3. **Test connectivity**: Verify eBoekhouden API connection is working
 4. **Review opening date**: Confirm the opening balance date is correct
 
 ### During Import
+
 1. **Monitor progress**: Watch for any error messages or warnings
 2. **Review skipped accounts**: Check which accounts were excluded and why
 3. **Validate balancing**: Confirm any balancing entries are reasonable
 4. **Check performance**: Monitor system resources during large imports
 
 ### After Import
+
 1. **Generate trial balance**: Verify trial balance for opening date
 2. **Compare totals**: Compare with eBoekhouden opening balance reports
 3. **Review journal entry**: Examine the created opening balance journal entry
@@ -285,6 +312,7 @@ def validate_imported_opening_balances():
 ## API Reference
 
 ### Opening Balance Import Function
+
 ```python
 @frappe.whitelist()
 def import_opening_balances_only(company=None, opening_date=None):
@@ -298,20 +326,22 @@ def import_opening_balances_only(company=None, opening_date=None):
 ```
 
 ### Usage Examples
+
 ```javascript
 // JavaScript - Import opening balances via UI
 frappe.call({
-    method: 'verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.test_opening_balance_import',
-    args: {
-        company: 'Your Company Name',
-        opening_date: '2024-01-01'
-    },
-    callback: function(r) {
-        if (r.message.success) {
-            frappe.msgprint('Opening balances imported successfully!');
-            console.log('Journal Entry:', r.message.journal_entry);
-        }
+  method:
+    "verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.test_opening_balance_import",
+  args: {
+    company: "Your Company Name",
+    opening_date: "2024-01-01",
+  },
+  callback: function (r) {
+    if (r.message.success) {
+      frappe.msgprint("Opening balances imported successfully!");
+      console.log("Journal Entry:", r.message.journal_entry);
     }
+  },
 });
 ```
 

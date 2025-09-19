@@ -14,12 +14,8 @@
     {
       "file": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/utils/security/api_security_framework.py",
       "status": "WARNING",
-      "issues": [
-        "Missing security framework imports"
-      ],
-      "suggestions": [
-        "Add security framework imports"
-      ]
+      "issues": ["Missing security framework imports"],
+      "suggestions": ["Add security framework imports"]
     }
   ],
   "security_compliance_score": {

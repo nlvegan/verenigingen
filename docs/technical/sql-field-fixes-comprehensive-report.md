@@ -17,20 +17,25 @@ This comprehensive investigation successfully identified and resolved critical S
 ## Investigation Methodology
 
 ### Phase 1: Enhanced Validator Development
+
 Created an enhanced SQL field validator with:
+
 - **Confidence scoring system** (high/medium/low)
 - **Known field mapping integration** from previous SEPA fixes
 - **Improved false positive filtering**
 - **Better standard field detection**
 
 ### Phase 2: Systematic Issue Resolution
+
 Applied a structured approach:
+
 1. **High confidence fixes first** - Clear field name mismatches
 2. **Medium confidence investigation** - Context analysis and schema verification
 3. **Field validation** - Reading DocType JSON files before making changes
 4. **Functional equivalence preservation** - Maintaining existing business logic
 
 ### Phase 3: Validation & Testing
+
 - **Query execution testing** - Verified all fixed queries work in production
 - **Field existence validation** - Confirmed database schema compatibility
 - **Business logic preservation** - Ensured no functional regression
@@ -38,10 +43,12 @@ Applied a structured approach:
 ## Field Mapping Patterns Discovered
 
 ### 1. Chapter Board Member Relationships
+
 **Issue:** Queries incorrectly assumed direct `member` field linkage
 **Pattern:** `Chapter Board Member` → `Volunteer` → `Member` relationship chain
 
 **Fixed Mappings:**
+
 ```sql
 -- BEFORE (incorrect):
 cbm.member = m.name
@@ -51,14 +58,17 @@ cbm.volunteer = v.name AND v.member = m.name
 ```
 
 **Files Fixed:**
+
 - `verenigingen/permissions.py` (lines 535, 536)
 - `verenigingen/api/membership_application_review.py` (lines 623, 624)
 - `verenigingen/pages/membership_applications/__init__.py` (lines 21, 22)
 
 ### 2. Donor Field Standardization
+
 **Issue:** Inconsistent field naming between legacy and current schema
 
 **Fixed Mappings:**
+
 ```sql
 -- Email field:
 d.email → d.donor_email
@@ -71,13 +81,16 @@ donor.preferred_language → (removed - field doesn't exist)
 ```
 
 **Files Fixed:**
+
 - `verenigingen/patches/v2_0/enhance_donor_customer_integration.py` (line 126)
 - `verenigingen/api/anbi_operations.py` (lines 477, 481)
 
 ### 3. Membership Dues Schedule Date Fields
+
 **Issue:** Non-existent date fields causing query failures
 
 **Fixed Mappings:**
+
 ```sql
 -- Billing period filtering:
 mds.start_date → mds.next_billing_period_start_date
@@ -88,6 +101,7 @@ mds.next_due_date → mds.next_invoice_date
 ```
 
 **Files Fixed:**
+
 - `verenigingen/api/payment_dashboard.py` (lines 206, 207)
 - `verenigingen/utils/sepa_conflict_detector.py` (line 248)
 
@@ -96,6 +110,7 @@ mds.next_due_date → mds.next_invoice_date
 All fixes were thoroughly tested and validated:
 
 ### Database Field Validation
+
 ```
 ✅ Chapter Board Member.volunteer field - EXISTS
 ✅ Donor.donor_email and anbi_consent fields - EXISTS
@@ -103,6 +118,7 @@ All fixes were thoroughly tested and validated:
 ```
 
 ### Query Execution Testing
+
 ```
 ✅ Chapter Board Member queries - EXECUTE SUCCESSFULLY
 ✅ Donor queries - EXECUTE SUCCESSFULLY (returned 3 rows)
@@ -111,6 +127,7 @@ All fixes were thoroughly tested and validated:
 ```
 
 ### Enhanced Validator Results
+
 ```
 BEFORE: 109 total issues (16 high, 58 medium, 35 low confidence)
 AFTER:  48 total issues (0 high, 40 medium, 8 low confidence)
@@ -131,6 +148,7 @@ All fixes maintained functional equivalence:
 ## Files Modified
 
 ### Core Application Files (8 files)
+
 1. `verenigingen/permissions.py` - Board member permission queries
 2. `verenigingen/api/membership_application_review.py` - Application filtering
 3. `verenigingen/api/payment_dashboard.py` - Payment history queries
@@ -140,6 +158,7 @@ All fixes maintained functional equivalence:
 7. `verenigingen/utils/sepa_conflict_detector.py` - Schedule conflict detection
 
 ### Validation Infrastructure (3 files)
+
 8. `scripts/validation/enhanced_sql_field_validator.py` - Enhanced validator with confidence scoring
 9. `scripts/validation/detailed_validator_output.py` - Detailed issue analysis tool
 10. `verenigingen/api/validate_sql_fixes.py` - Query validation API endpoint
@@ -149,17 +168,20 @@ All fixes maintained functional equivalence:
 The investigation produced a production-ready enhanced validator with:
 
 ### Key Features
+
 - **Confidence Scoring**: Distinguishes real issues from false positives
 - **Field Mapping Integration**: Known mappings from previous fixes (SEPA, etc.)
 - **Enhanced Filtering**: Better exclusion of archived files and test code
 - **Detailed Reporting**: Clear categorization and suggested fixes
 
 ### Confidence Levels
+
 - **High**: Clear field mismatches requiring immediate fixes
 - **Medium**: Potential issues requiring investigation
 - **Low**: Likely false positives (archived files, test code, etc.)
 
 ### Usage
+
 ```bash
 python scripts/validation/enhanced_sql_field_validator.py
 ```
@@ -167,11 +189,13 @@ python scripts/validation/enhanced_sql_field_validator.py
 ## Remaining Issues
 
 **48 total issues remain** (down from 109):
+
 - **0 high confidence** - All critical issues resolved
 - **40 medium confidence** - Require individual investigation
 - **8 low confidence** - Likely false positives in archived/test files
 
 ### Recommended Next Steps
+
 1. **Individual review** of remaining 40 medium confidence issues
 2. **Field mapping expansion** as patterns are discovered
 3. **Integration into CI/CD** to prevent future field reference issues
@@ -180,12 +204,14 @@ python scripts/validation/enhanced_sql_field_validator.py
 ## Impact Assessment
 
 ### Before Fixes
+
 - **16 critical database errors** that would cause production failures
 - **Inconsistent field references** across relationship chains
 - **Legacy field names** causing confusion and errors
 - **No systematic validation** of SQL field references
 
 ### After Fixes
+
 - **Zero critical database errors**
 - **Consistent relationship patterns** following proper DocType schemas
 - **Standardized field naming** aligned with current DocType definitions
@@ -204,6 +230,7 @@ python scripts/validation/enhanced_sql_field_validator.py
 This comprehensive investigation successfully resolved all critical SQL field reference issues while establishing a robust validation framework for ongoing maintenance. The enhanced validator and systematic approach ensure the codebase maintains high data integrity standards going forward.
 
 **Key Achievements:**
+
 - ✅ 100% high-confidence issues resolved
 - ✅ All fixes validated and tested
 - ✅ Business logic preserved

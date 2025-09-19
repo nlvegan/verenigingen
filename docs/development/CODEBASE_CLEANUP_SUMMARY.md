@@ -5,6 +5,7 @@
 The following files were removed as they were one-off debug or test files that served their purpose during development:
 
 ### Removed Files:
+
 - `configure_receivable_account.py` - One-off configuration script
 - `verenigingen/api/temp_webhook_capture.py` - Temporary webhook handler
 - `verenigingen/api/test_mollie_subscription.py` - Test API endpoint
@@ -39,6 +40,7 @@ The following utilities were renamed to have descriptive names and generalized f
 All core business logic, service classes, and production code were preserved:
 
 ### Service Classes (Core Architecture):
+
 - `verenigingen/services/donation_validation_service.py`
 - `verenigingen/services/donation_financial_service.py`
 - `verenigingen/services/donation_donor_service.py`
@@ -47,16 +49,19 @@ All core business logic, service classes, and production code were preserved:
 - `verenigingen/services/donation_management_service.py`
 
 ### Production Webhook Handlers:
+
 - `verenigingen/api/simple_donation_webhook.py`
 - `verenigingen/api/refund_processor.py`
 - `verenigingen/utils/webhook_error_handler.py`
 
 ### Business Operations:
+
 - `verenigingen/api/payment_sync_system.py`
 - `verenigingen/api/payment_audit.py`
 - `verenigingen/utils/webhook_rate_limiter.py`
 
 ### New DocTypes:
+
 - `verenigingen/verenigingen/doctype/payment_history/*`
 - `verenigingen/verenigingen_payments/doctype/webhook_processing_log/*`
 
@@ -81,6 +86,7 @@ All core business logic, service classes, and production code were preserved:
 ## Result
 
 The codebase is now clean and organized with:
+
 - **Production code clearly separated** from debug/test code
 - **Administrative utilities properly categorized** and documented
 - **Service-oriented architecture preserved** and functional

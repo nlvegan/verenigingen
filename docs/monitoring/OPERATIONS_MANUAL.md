@@ -12,6 +12,7 @@ This manual provides operational procedures for the Verenigingen monitoring syst
 ## System Architecture
 
 ### Monitoring Components
+
 - **Monitoring Dashboard**: `/monitoring_dashboard` - Real-time system health overview
 - **System Alert DocType**: Centralized alert management and tracking
 - **Alert Manager**: Automated alert generation and notification system
@@ -19,6 +20,7 @@ This manual provides operational procedures for the Verenigingen monitoring syst
 - **SEPA Audit Log**: Compliance and audit trail monitoring
 
 ### Access Requirements
+
 - **System Manager** or **Verenigingen Administrator** role required
 - Dashboard accessible at: `/monitoring_dashboard`
 - Auto-refresh enabled (5-minute intervals)
@@ -26,6 +28,7 @@ This manual provides operational procedures for the Verenigingen monitoring syst
 ## Daily Monitoring Tasks (15 minutes)
 
 ### Morning Health Check (10 minutes)
+
 1. **Access Monitoring Dashboard**
    - Navigate to `/monitoring_dashboard`
    - Verify dashboard loads without errors
@@ -49,6 +52,7 @@ This manual provides operational procedures for the Verenigingen monitoring syst
    - Note any new error types or spikes
 
 ### End-of-Day Review (5 minutes)
+
 1. **Performance Summary**
    - Check daily transaction counts
    - Verify payment success rates
@@ -67,6 +71,7 @@ This manual provides operational procedures for the Verenigingen monitoring syst
 ## Weekly Monitoring Tasks (45 minutes)
 
 ### Monday: System Health Review (15 minutes)
+
 1. **Performance Trends**
    - Analyze error patterns from past week
    - Review system resource usage trends
@@ -78,6 +83,7 @@ This manual provides operational procedures for the Verenigingen monitoring syst
    - Update escalation procedures
 
 ### Wednesday: Business Process Review (15 minutes)
+
 1. **SEPA Health Assessment**
    - Review mandate creation success rates
    - Check batch processing efficiency
@@ -89,6 +95,7 @@ This manual provides operational procedures for the Verenigingen monitoring syst
    - Monitor membership lifecycle metrics
 
 ### Friday: Data Quality Review (15 minutes)
+
 1. **Data Integrity**
    - Check for members without SEPA mandates
    - Review payment reconciliation status
@@ -102,6 +109,7 @@ This manual provides operational procedures for the Verenigingen monitoring syst
 ## Monthly Monitoring Tasks (2 hours)
 
 ### Performance Optimization Review
+
 1. **Resource Analysis**
    - Review monthly resource usage trends
    - Identify optimization opportunities
@@ -113,6 +121,7 @@ This manual provides operational procedures for the Verenigingen monitoring syst
    - Update notification lists
 
 ### Business Process Evaluation
+
 1. **Compliance Review**
    - Generate compliance reports
    - Review audit findings
@@ -126,12 +135,14 @@ This manual provides operational procedures for the Verenigingen monitoring syst
 ## Alert Response Procedures
 
 ### Alert Severity Levels
+
 - **CRITICAL**: Immediate response required (< 15 minutes)
 - **HIGH**: Response within 1 hour
 - **MEDIUM**: Response within 4 hours
 - **LOW**: Response within 24 hours
 
 ### CRITICAL Alert Response
+
 1. **Immediate Actions (< 5 minutes)**
    - Acknowledge alert in dashboard
    - Assess system impact
@@ -148,6 +159,7 @@ This manual provides operational procedures for the Verenigingen monitoring syst
    - Update alert status
 
 ### HIGH Alert Response
+
 1. **Initial Assessment (< 30 minutes)**
    - Review alert details
    - Check related metrics
@@ -159,6 +171,7 @@ This manual provides operational procedures for the Verenigingen monitoring syst
    - Document resolution
 
 ### Alert Escalation Matrix
+
 - **CRITICAL System Down**: Immediately call technical lead
 - **HIGH Error Rate**: Email technical team within 15 minutes
 - **MEDIUM Performance**: Log ticket and assign within 4 hours
@@ -167,6 +180,7 @@ This manual provides operational procedures for the Verenigingen monitoring syst
 ## Monitoring Tools and Commands
 
 ### Dashboard Functions
+
 ```bash
 # Refresh dashboard data
 curl -X POST /api/method/verenigingen.www.monitoring_dashboard.refresh_dashboard_data
@@ -179,6 +193,7 @@ curl -X POST /api/method/verenigingen.utils.resource_monitor.get_system_health
 ```
 
 ### Manual Alert Management
+
 ```bash
 # Run hourly checks manually
 bench --site dev.veganisme.net execute verenigingen.utils.alert_manager.run_hourly_checks
@@ -191,6 +206,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.alert_manager.test_ale
 ```
 
 ### System Health Commands
+
 ```bash
 # Check error logs
 bench --site dev.veganisme.net mariadb -e "SELECT COUNT(*) FROM \`tabError Log\` WHERE creation >= NOW() - INTERVAL 1 HOUR;"
@@ -205,18 +221,21 @@ bench --site dev.veganisme.net mariadb -e "SELECT alert_type, severity, COUNT(*)
 ## Key Performance Indicators (KPIs)
 
 ### System Health KPIs
+
 - **Error Rate**: < 10 errors per hour
 - **Response Time**: Dashboard loads in < 3 seconds
 - **Uptime**: > 99.9% availability
 - **Alert Response**: < 15 minutes for CRITICAL
 
 ### Business Process KPIs
+
 - **SEPA Compliance**: > 99% compliant status
 - **Application Processing**: < 3 days average
 - **Payment Success**: > 95% success rate
 - **Member Satisfaction**: Measured through support tickets
 
 ### Monitoring System KPIs
+
 - **Alert Accuracy**: < 5% false positives
 - **Dashboard Usage**: Daily access by all team members
 - **Documentation Coverage**: 100% procedures documented
@@ -225,18 +244,21 @@ bench --site dev.veganisme.net mariadb -e "SELECT alert_type, severity, COUNT(*)
 ## Maintenance Procedures
 
 ### Daily Maintenance
+
 - Monitor dashboard for 15 minutes total
 - Acknowledge and triage alerts
 - Review error patterns
 - Update team on critical issues
 
 ### Weekly Maintenance
+
 - Review performance trends
 - Update alert thresholds
 - Analyze business metrics
 - Plan optimization activities
 
 ### Monthly Maintenance
+
 - Generate monthly reports
 - Review and update procedures
 - Conduct team training
@@ -245,6 +267,7 @@ bench --site dev.veganisme.net mariadb -e "SELECT alert_type, severity, COUNT(*)
 ## Emergency Procedures
 
 ### System Down Scenario
+
 1. **Immediate Response (< 2 minutes)**
    - Verify dashboard inaccessible
    - Check external monitoring (if available)
@@ -261,6 +284,7 @@ bench --site dev.veganisme.net mariadb -e "SELECT alert_type, severity, COUNT(*)
    - Coordinate response efforts
 
 ### Data Breach Alert
+
 1. **Secure System**
    - Isolate affected components
    - Preserve evidence
@@ -274,16 +298,19 @@ bench --site dev.veganisme.net mariadb -e "SELECT alert_type, severity, COUNT(*)
 ## Contact Information
 
 ### Primary Contacts
+
 - **Technical Lead**: [Name] - [Email] - [Phone]
 - **Operations Manager**: [Name] - [Email] - [Phone]
 - **Security Team**: [Email] - [Phone]
 
 ### Escalation Procedures
+
 1. **Level 1**: Operations team handles routine monitoring
 2. **Level 2**: Technical team handles complex issues
 3. **Level 3**: External vendor support for critical issues
 
 ### After-Hours Support
+
 - **Critical Issues**: On-call technical lead
 - **Emergency Contact**: [Phone number]
 - **Backup Contact**: [Phone number]
@@ -291,18 +318,21 @@ bench --site dev.veganisme.net mariadb -e "SELECT alert_type, severity, COUNT(*)
 ## Documentation and Training
 
 ### Required Training
+
 - All operations team members must complete monitoring training
 - Quarterly refresher sessions
 - New team member onboarding includes monitoring procedures
 - Annual emergency response drills
 
 ### Documentation Updates
+
 - Review procedures monthly
 - Update contact information quarterly
 - Revise KPIs annually
 - Incorporate lessons learned from incidents
 
 ### Knowledge Management
+
 - Maintain procedures in version control
 - Share best practices across team
 - Document all significant incidents
@@ -311,18 +341,21 @@ bench --site dev.veganisme.net mariadb -e "SELECT alert_type, severity, COUNT(*)
 ## Continuous Improvement
 
 ### Monitoring Effectiveness Review
+
 - Monthly review of alert accuracy
 - Quarterly assessment of response times
 - Annual evaluation of monitoring tools
 - Regular feedback collection from team
 
 ### Process Optimization
+
 - Automate routine tasks where possible
 - Streamline alert response procedures
 - Improve dashboard usability
 - Enhance reporting capabilities
 
 ### Technology Upgrades
+
 - Regular assessment of monitoring tools
 - Evaluation of new monitoring technologies
 - Integration with existing systems
@@ -331,6 +364,7 @@ bench --site dev.veganisme.net mariadb -e "SELECT alert_type, severity, COUNT(*)
 ---
 
 **Document Control:**
+
 - **Owner**: Operations Team
 - **Review Frequency**: Monthly
 - **Approval**: Technical Lead

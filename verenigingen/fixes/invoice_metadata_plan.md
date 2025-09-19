@@ -1,6 +1,7 @@
 # Invoice Metadata Implementation Plan
 
 ## Current Issues
+
 - Missing due dates and payment terms
 - No reference numbers preserved
 - Missing invoice descriptions
@@ -11,6 +12,7 @@
 ### Step 1: Extract Additional Fields from E-Boekhouden
 
 1. **REST API Fields to Extract**
+
    ```python
    def extract_invoice_metadata(mutation):
        """Extract all invoice-related metadata from e-boekhouden"""
@@ -46,6 +48,7 @@
    ```
 
 2. **Calculate Payment Terms**
+
    ```python
    def extract_payment_days(mutation):
        """Calculate payment days from dates"""
@@ -63,6 +66,7 @@
 ### Step 2: Map to ERPNext Fields
 
 1. **Sales Invoice Mapping**
+
    ```python
    def apply_invoice_metadata(invoice, metadata):
        """Apply extracted metadata to ERPNext invoice"""
@@ -103,6 +107,7 @@
    ```
 
 2. **Purchase Invoice Mapping**
+
    ```python
    def apply_purchase_invoice_metadata(pinv, metadata):
        """Similar to sales invoice but for purchase invoices"""
@@ -119,6 +124,7 @@
 ### Step 3: Payment Terms Management
 
 1. **Dynamic Payment Terms Creation**
+
    ```python
    def get_or_create_payment_term(days):
        """Get or create payment terms template"""
@@ -156,6 +162,7 @@
 ### Step 4: Contact Management
 
 1. **Auto-create Contacts**
+
    ```python
    def get_or_create_contact(name, email, party):
        """Create contact if it doesn't exist"""
@@ -182,6 +189,7 @@
 ### Step 5: Status Tracking
 
 1. **Payment Status Sync**
+
    ```python
    def sync_payment_status(invoice_name, is_paid):
        """Update invoice status based on e-boekhouden"""

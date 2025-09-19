@@ -7,24 +7,28 @@ The Schema-Aware Field Validator is a next-generation validation system designed
 ## Key Improvements
 
 ### 🎯 **Massive False Positive Reduction**
+
 - **From 99.9% → <10% false positive rate**
 - Intelligent context understanding
 - Support for all valid Frappe patterns
 - Database schema awareness including custom fields
 
 ### 🧠 **Smart Context Analysis**
+
 - **Variable scoping detection**: Understands object types and assignments
 - **SQL result recognition**: Distinguishes between DocType fields and SQL query results
 - **Child table handling**: Correctly handles parent/child table relationships
 - **Property method detection**: Recognizes @property decorated methods
 
 ### 🔧 **Comprehensive Frappe Support**
+
 - **Wildcard patterns**: `SELECT *`, `fields=['*']`
 - **SQL aliases**: `SELECT name as member_name`
 - **Child table iteration**: `for item in parent.child_table:`
 - **API result handling**: `frappe.get_all()`, `frappe.db.sql()`
 
 ### ⚙️ **Flexible Configuration**
+
 - **Multiple validation levels**: Strict, Balanced, Permissive, Custom
 - **Confidence scoring**: Issues rated by confidence (0-100%)
 - **Configurable thresholds**: Adjust sensitivity for different environments
@@ -36,7 +40,7 @@ The Schema-Aware Field Validator is a next-generation validation system designed
 Schema-Aware Validator
 ├── DatabaseSchemaReader    # Reads actual DB schema + custom fields
 ├── ContextAnalyzer        # Understands code context and variable scoping
-├── FrappePatternHandler   # Supports all valid Frappe ORM patterns  
+├── FrappePatternHandler   # Supports all valid Frappe ORM patterns
 ├── ValidationEngine       # Core validation logic with confidence scoring
 └── ConfigurationManager   # Flexible configuration system
 ```
@@ -86,21 +90,25 @@ python scripts/validation/precommit_integration.py --staged --level balanced
 ## Configuration Levels
 
 ### 🔒 **Strict Mode** (`--min-confidence 0.95`)
+
 - **Use case**: Final validation before production deployment
 - **Characteristics**: Minimal false positives, may miss some edge cases
 - **Best for**: Production code review, critical validation
 
 ### ⚖️ **Balanced Mode** (`--min-confidence 0.8`) - **Default**
+
 - **Use case**: Daily development and pre-commit hooks
 - **Characteristics**: Good balance of accuracy vs. false positives
 - **Best for**: Regular development workflow, automated checks
 
 ### 🔓 **Permissive Mode** (`--min-confidence 0.6`)
+
 - **Use case**: Large legacy codebases, initial adoption
 - **Characteristics**: Fewer false positives, may miss some real issues
 - **Best for**: Legacy code analysis, gradual adoption
 
 ### 🎛️ **Custom Mode**
+
 - **Use case**: Specific project requirements
 - **Characteristics**: Fully customizable thresholds and patterns
 - **Best for**: Advanced users with specific validation needs
@@ -112,7 +120,7 @@ python scripts/validation/precommit_integration.py --staged --level balanced
 Issues are rated by confidence level:
 
 - **90-100%**: Very likely genuine errors - should be fixed
-- **70-89%**: Probable issues - review recommended  
+- **70-89%**: Probable issues - review recommended
 - **50-69%**: Possible issues - manual review needed
 - **Below 50%**: Low confidence - likely false positives
 
@@ -124,7 +132,7 @@ Found 15 potential field reference issues
 
 📊 Confidence Distribution:
    High confidence (≥90%): 3 issues
-   Medium confidence (70-89%): 7 issues  
+   Medium confidence (70-89%): 7 issues
    Low confidence (<70%): 5 issues
 
 🚨 High Confidence Issues (likely genuine errors):
@@ -150,7 +158,7 @@ for membership in member.memberships:
 
 # 3. SQL result access with aliases
 results = frappe.db.sql("""
-    SELECT name as member_name, COUNT(*) as total 
+    SELECT name as member_name, COUNT(*) as total
     FROM tabMember GROUP BY name
 """, as_dict=True)
 for row in results:
@@ -198,8 +206,9 @@ typo = member.first_nam  # ❌ Typo: should be 'first_name'
 ### Custom Field Support
 
 The validator automatically detects custom fields defined in:
+
 - DocType JSON files
-- Custom Field fixtures  
+- Custom Field fixtures
 - Database-stored custom fields (future enhancement)
 
 ### Performance Optimization
@@ -219,6 +228,7 @@ The validator automatically detects custom fields defined in:
 ## Migration from Legacy Validators
 
 ### Step 1: Assessment
+
 ```bash
 # Run both validators to compare results
 python scripts/validation/legacy_field_validator.py > legacy_results.txt
@@ -229,6 +239,7 @@ diff legacy_results.txt new_results.txt
 ```
 
 ### Step 2: Gradual Adoption
+
 ```bash
 # Start with permissive mode
 python scripts/validation/schema_aware_validator.py --min-confidence 0.6
@@ -239,6 +250,7 @@ python scripts/validation/schema_aware_validator.py --min-confidence 0.8
 ```
 
 ### Step 3: Pre-commit Integration
+
 ```bash
 # Replace legacy pre-commit hook
 python scripts/validation/precommit_integration.py --setup-hook
@@ -252,21 +264,25 @@ python scripts/validation/precommit_integration.py --update-config
 ### Common Issues
 
 #### **High False Positive Rate**
+
 - Lower confidence threshold: `--min-confidence 0.6`
 - Use permissive configuration preset
 - Check for missing DocType JSON files
 
 #### **Missing Valid Fields**
+
 - Verify DocType JSON files are complete
 - Check for custom field definitions
 - Ensure proper field naming conventions
 
 #### **Slow Performance**
+
 - Use `--staged` for pre-commit hooks
 - Enable caching in configuration
 - Limit validation scope with file patterns
 
 #### **Integration Issues**
+
 - Check Python path configuration
 - Verify Frappe app structure
 - Update pre-commit configuration format
@@ -295,27 +311,29 @@ python scripts/validation/validation_config.py --show-config balanced
 
 ### Comparison with Legacy Validators
 
-| Metric | Legacy Validator | Schema-Aware Validator |
-|--------|-----------------|----------------------|
-| False Positive Rate | 99.9% | <10% |
-| Processing Speed | ~30 files/sec | ~50 files/sec |
-| Memory Usage | High | Optimized |
-| Frappe Pattern Support | Limited | Comprehensive |
-| Custom Field Support | None | Full |
-| Configuration Options | Fixed | Flexible |
+| Metric                 | Legacy Validator | Schema-Aware Validator |
+| ---------------------- | ---------------- | ---------------------- |
+| False Positive Rate    | 99.9%            | <10%                   |
+| Processing Speed       | ~30 files/sec    | ~50 files/sec          |
+| Memory Usage           | High             | Optimized              |
+| Frappe Pattern Support | Limited          | Comprehensive          |
+| Custom Field Support   | None             | Full                   |
+| Configuration Options  | Fixed            | Flexible               |
 
 ### Typical Performance
+
 - **Small projects** (<100 files): ~5-10 seconds
-- **Medium projects** (100-500 files): ~15-30 seconds  
+- **Medium projects** (100-500 files): ~15-30 seconds
 - **Large projects** (500+ files): ~30-60 seconds
 - **Pre-commit mode** (staged files only): ~2-5 seconds
 
 ## Future Enhancements
 
 ### Planned Features
+
 - **Database introspection**: Direct database schema reading
 - **Machine learning**: Pattern learning from validated code
-- **IDE plugins**: Real-time validation in editors  
+- **IDE plugins**: Real-time validation in editors
 - **API integration**: RESTful validation service
 - **Multi-language support**: JavaScript, HTML template validation
 
@@ -333,8 +351,9 @@ The schema-aware validator is designed to be extensible:
 The Schema-Aware Field Validator represents a significant advancement in code quality tools for Frappe applications. By reducing false positives from 99.9% to under 10%, it becomes a practical, everyday tool that developers can trust and rely on.
 
 ### Key Benefits
+
 - ✅ **Dramatically reduced false positives**
-- ✅ **Comprehensive Frappe pattern support**  
+- ✅ **Comprehensive Frappe pattern support**
 - ✅ **Intelligent context understanding**
 - ✅ **Flexible configuration system**
 - ✅ **Seamless integration with existing workflows**

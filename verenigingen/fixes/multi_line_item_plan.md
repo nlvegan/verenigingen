@@ -1,6 +1,7 @@
 # Multi-line Item Support Implementation Plan
 
 ## Current Issue
+
 E-boekhouden invoices are reduced to single line items, losing all detail.
 
 ## Implementation Steps
@@ -8,12 +9,14 @@ E-boekhouden invoices are reduced to single line items, losing all detail.
 ### Step 1: Analyze E-Boekhouden Line Item Structure
 
 Check REST API for:
+
 - `lines` array in mutation object
 - Individual line item fields: description, amount, account, VAT
 
 ### Step 2: Create Item Mapping System
 
 1. **Item Mapping DocType**
+
    ```python
    # Fields:
    - eboekhouden_account_code
@@ -24,6 +27,7 @@ Check REST API for:
    ```
 
 2. **Item Matching Logic**
+
    ```python
    def get_or_create_item_for_line(line_data):
        # First try exact mapping
@@ -46,6 +50,7 @@ Check REST API for:
 ### Step 3: Modify Invoice Creation
 
 1. **Parse Line Items from E-Boekhouden**
+
    ```python
    def extract_invoice_lines(mutation):
        lines = []
@@ -72,6 +77,7 @@ Check REST API for:
    ```
 
 2. **Create Multiple Invoice Items**
+
    ```python
    def add_items_to_invoice(invoice, lines, is_purchase=False):
        for line in lines:

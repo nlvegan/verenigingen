@@ -7,6 +7,7 @@ for customer support and administrative purposes.
 
 Usage: Call functions via bench console or admin interface
 """
+
 import frappe
 
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api

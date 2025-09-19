@@ -232,7 +232,10 @@ describe('API Service', () => {
 		},
 
 		async submitMembershipApplication(data) {
-			return this.callAPI('verenigingen.api.membership_application.submit_application', { data });
+			return this.callAPI(
+				'verenigingen.api.membership_application.submit_application',
+				{ data }
+			);
 		},
 
 		async updateMemberStatus(memberName, status) {
@@ -254,7 +257,9 @@ describe('API Service', () => {
 			const mockResponse = { message: { success: true, id: 'TEST-001' } };
 			mockFrappe.call.mockResolvedValue(mockResponse);
 
-			const result = await apiService.callAPI('test.method', { param: 'value' });
+			const result = await apiService.callAPI('test.method', {
+				param: 'value'
+			});
 
 			expect(mockFrappe.call).toHaveBeenCalledWith({
 				method: 'test.method',
@@ -269,7 +274,9 @@ describe('API Service', () => {
 			const error = new Error('API Error');
 			mockFrappe.call.mockRejectedValue(error);
 
-			await expect(apiService.callAPI('test.method')).rejects.toThrow('API Error');
+			await expect(apiService.callAPI('test.method')).rejects.toThrow(
+				'API Error'
+			);
 
 			expect(mockFrappe.msgprint).toHaveBeenCalledWith({
 				title: 'Error',
@@ -300,9 +307,12 @@ describe('API Service', () => {
 				email: 'john.doe@example.com'
 			};
 
-			mockFrappe.call.mockResolvedValue({ message: { success: true, member_id: 'MEM-001' } });
+			mockFrappe.call.mockResolvedValue({
+				message: { success: true, member_id: 'MEM-001' }
+			});
 
-			const result = await apiService.submitMembershipApplication(applicationData);
+			const result
+        = await apiService.submitMembershipApplication(applicationData);
 
 			expect(mockFrappe.call).toHaveBeenCalledWith({
 				method: 'verenigingen.api.membership_application.submit_application',
@@ -335,7 +345,7 @@ describe('API Service', () => {
 	describe('createVolunteerExpense', () => {
 		it('should create volunteer expense', async () => {
 			const expenseData = {
-				amount: 50.00,
+				amount: 50.0,
 				description: 'Travel expense',
 				date: '2024-01-15'
 			};

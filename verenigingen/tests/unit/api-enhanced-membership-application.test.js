@@ -58,7 +58,8 @@ describe('Enhanced Membership Application API', () => {
 			};
 
 			const response = await frappe.call({
-				method: 'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
+				method:
+          'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
 				args: applicationData
 			});
 
@@ -84,7 +85,8 @@ describe('Enhanced Membership Application API', () => {
 			};
 
 			const response = await frappe.call({
-				method: 'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
+				method:
+          'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
 				args: incompleteData
 			});
 
@@ -116,7 +118,8 @@ describe('Enhanced Membership Application API', () => {
 			};
 
 			const response = await frappe.call({
-				method: 'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
+				method:
+          'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
 				args: duplicateData
 			});
 
@@ -129,7 +132,8 @@ describe('Enhanced Membership Application API', () => {
 
 			try {
 				await frappe.call({
-					method: 'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
+					method:
+            'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
 					args: {}
 				});
 			} catch (error) {
@@ -174,7 +178,8 @@ describe('Enhanced Membership Application API', () => {
 			frappe.call.mockResolvedValue(mockTypesResponse);
 
 			const response = await frappe.call({
-				method: 'verenigingen.verenigingen.api.enhanced_membership_application.get_membership_types_for_application'
+				method:
+          'verenigingen.verenigingen.api.enhanced_membership_application.get_membership_types_for_application'
 			});
 
 			expect(response.message).toHaveLength(2);
@@ -182,7 +187,7 @@ describe('Enhanced Membership Application API', () => {
 			expect(response.message[1].membership_type_name).toBe('Student');
 
 			// Check structure
-			response.message.forEach(type => {
+			response.message.forEach((type) => {
 				expect(type).toHaveProperty('name');
 				expect(type).toHaveProperty('membership_type_name');
 				expect(type).toHaveProperty('amount');
@@ -194,7 +199,8 @@ describe('Enhanced Membership Application API', () => {
 			frappe.call.mockResolvedValue({ message: [] });
 
 			const response = await frappe.call({
-				method: 'verenigingen.verenigingen.api.enhanced_membership_application.get_membership_types_for_application'
+				method:
+          'verenigingen.verenigingen.api.enhanced_membership_application.get_membership_types_for_application'
 			});
 
 			expect(response.message).toHaveLength(0);
@@ -219,7 +225,8 @@ describe('Enhanced Membership Application API', () => {
 			frappe.call.mockResolvedValue(mockConfigResponse);
 
 			const response = await frappe.call({
-				method: 'verenigingen.verenigingen.api.enhanced_membership_application.get_contribution_calculator_config',
+				method:
+          'verenigingen.verenigingen.api.enhanced_membership_application.get_contribution_calculator_config',
 				args: { membership_type: 'Regular' }
 			});
 
@@ -234,7 +241,7 @@ describe('Enhanced Membership Application API', () => {
 			// Test valid Dutch postal codes
 			const validCodes = ['1234 AB', '5678CD', '9012 EF', '1000 AA'];
 
-			validCodes.forEach(code => {
+			validCodes.forEach((code) => {
 				// Simple regex test for Dutch postal codes
 				const dutchPostalPattern = /^[1-9][0-9]{3}\s?[A-Z]{2}$/;
 				expect(dutchPostalPattern.test(code.replace(/\s/g, ''))).toBe(true);
@@ -243,7 +250,7 @@ describe('Enhanced Membership Application API', () => {
 			// Test invalid postal codes
 			const invalidCodes = ['12345', 'ABCD 12', '0123 AB', '1234'];
 
-			invalidCodes.forEach(code => {
+			invalidCodes.forEach((code) => {
 				const dutchPostalPattern = /^[1-9][0-9]{3}\s?[A-Z]{2}$/;
 				expect(dutchPostalPattern.test(code.replace(/\s/g, ''))).toBe(false);
 			});
@@ -263,11 +270,11 @@ describe('Enhanced Membership Application API', () => {
 				'user space@domain.com'
 			];
 
-			validEmails.forEach(email => {
+			validEmails.forEach((email) => {
 				expect(frappe.utils.validate_email_address(email)).toBe(true);
 			});
 
-			invalidEmails.forEach(email => {
+			invalidEmails.forEach((email) => {
 				expect(frappe.utils.validate_email_address(email)).toBe(false);
 			});
 		});
@@ -275,9 +282,15 @@ describe('Enhanced Membership Application API', () => {
 		test('should validate IBAN format', () => {
 			// Simple IBAN validation for Dutch IBANs
 			const validateDutchIBAN = (iban) => {
-				if (!iban) { return false; }
+				if (!iban) {
+					return false;
+				}
 				const cleaned = iban.replace(/\s/g, '').toUpperCase();
-				return cleaned.startsWith('NL') && cleaned.length === 18 && /^NL[0-9]{2}[A-Z]{4}[0-9]{10}$/.test(cleaned);
+				return (
+					cleaned.startsWith('NL')
+          && cleaned.length === 18
+          && /^NL[0-9]{2}[A-Z]{4}[0-9]{10}$/.test(cleaned)
+				);
 			};
 
 			const validIBANs = [
@@ -294,11 +307,11 @@ describe('Enhanced Membership Application API', () => {
 				// real IBAN validation would need check digit calculation
 			];
 
-			validIBANs.forEach(iban => {
+			validIBANs.forEach((iban) => {
 				expect(validateDutchIBAN(iban)).toBe(true);
 			});
 
-			invalidIBANs.forEach(iban => {
+			invalidIBANs.forEach((iban) => {
 				expect(validateDutchIBAN(iban)).toBe(false);
 			});
 		});
@@ -324,7 +337,8 @@ describe('Enhanced Membership Application API', () => {
 
 			for (const name of dutchNames) {
 				const response = await frappe.call({
-					method: 'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
+					method:
+            'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
 					args: {
 						first_name: name.first,
 						last_name: name.last,
@@ -376,12 +390,15 @@ describe('Enhanced Membership Application API', () => {
 			};
 
 			const response = await frappe.call({
-				method: 'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
+				method:
+          'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
 				args: sepaApplication
 			});
 
 			expect(response.message.success).toBe(true);
-			expect(response.message.next_steps).toContain('SEPA mandate will be created');
+			expect(response.message.next_steps).toContain(
+				'SEPA mandate will be created'
+			);
 		});
 
 		test('should handle Bank Transfer applications', async () => {
@@ -413,12 +430,17 @@ describe('Enhanced Membership Application API', () => {
 			};
 
 			const response = await frappe.call({
-				method: 'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
+				method:
+          'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
 				args: bankTransferApplication
 			});
 
 			expect(response.message.success).toBe(true);
-			expect(response.message.next_steps.some(step => step.includes('payment instructions'))).toBe(true);
+			expect(
+				response.message.next_steps.some((step) =>
+					step.includes('payment instructions')
+				)
+			).toBe(true);
 		});
 	});
 
@@ -475,7 +497,8 @@ describe('Enhanced Membership Application API', () => {
 
 			try {
 				await frappe.call({
-					method: 'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
+					method:
+            'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
 					args: {
 						first_name: 'Error',
 						last_name: 'Test',
@@ -495,7 +518,8 @@ describe('Enhanced Membership Application API', () => {
 
 			try {
 				await frappe.call({
-					method: 'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
+					method:
+            'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
 					args: {},
 					timeout: 5000
 				});
@@ -513,7 +537,8 @@ describe('Enhanced Membership Application API', () => {
 			});
 
 			await frappe.call({
-				method: 'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
+				method:
+          'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
 				args: {
 					first_name: 'Jan',
 					last_name: 'van der Berg',
@@ -522,17 +547,19 @@ describe('Enhanced Membership Application API', () => {
 					postal_code: '1012 AB',
 					birth_date: '1990-01-01',
 					membership_type: 'Regular',
-					contribution_amount: 25.00,
+					contribution_amount: 25.0,
 					payment_method: 'Bank Transfer'
 				}
 			});
 
-			expect(frappe.call).toHaveBeenCalledWith(expect.objectContaining({
-				args: expect.objectContaining({
-					postal_code: '1012 AB',
-					country: 'Netherlands'
+			expect(frappe.call).toHaveBeenCalledWith(
+				expect.objectContaining({
+					args: expect.objectContaining({
+						postal_code: '1012 AB',
+						country: 'Netherlands'
+					})
 				})
-			}));
+			);
 		});
 
 		test('should reject invalid Dutch postal codes', async () => {
@@ -542,7 +569,8 @@ describe('Enhanced Membership Application API', () => {
 
 			try {
 				await frappe.call({
-					method: 'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
+					method:
+            'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
 					args: {
 						first_name: 'Jan',
 						last_name: 'Berg',
@@ -551,7 +579,7 @@ describe('Enhanced Membership Application API', () => {
 						postal_code: '12345', // Invalid format
 						birth_date: '1990-01-01',
 						membership_type: 'Regular',
-						contribution_amount: 25.00,
+						contribution_amount: 25.0,
 						payment_method: 'Bank Transfer'
 					}
 				});
@@ -567,19 +595,22 @@ describe('Enhanced Membership Application API', () => {
 
 			try {
 				await frappe.call({
-					method: 'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
+					method:
+            'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
 					args: {
 						first_name: 'John',
 						last_name: 'Doe',
 						email: 'john@example.org',
 						birth_date: '1980-01-01', // Too old for student (44 years)
 						membership_type: 'Student',
-						contribution_amount: 15.00,
+						contribution_amount: 15.0,
 						payment_method: 'Bank Transfer'
 					}
 				});
 			} catch (error) {
-				expect(error.message).toContain('Student memberships are available for ages 18-30');
+				expect(error.message).toContain(
+					'Student memberships are available for ages 18-30'
+				);
 			}
 		});
 
@@ -590,20 +621,23 @@ describe('Enhanced Membership Application API', () => {
 
 			try {
 				await frappe.call({
-					method: 'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
+					method:
+            'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
 					args: {
 						first_name: 'Maria',
 						last_name: 'de Jong',
 						email: 'maria@example.org',
 						birth_date: '1995-01-01',
 						membership_type: 'Regular',
-						contribution_amount: 30.00,
+						contribution_amount: 30.0,
 						payment_method: 'SEPA Direct Debit'
 						// Missing IBAN and account_holder_name
 					}
 				});
 			} catch (error) {
-				expect(error.message).toContain('IBAN is required for SEPA Direct Debit');
+				expect(error.message).toContain(
+					'IBAN is required for SEPA Direct Debit'
+				);
 			}
 		});
 
@@ -613,25 +647,28 @@ describe('Enhanced Membership Application API', () => {
 			});
 
 			await frappe.call({
-				method: 'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
+				method:
+          'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
 				args: {
 					first_name: 'Pieter',
 					last_name: 'van den Berg',
 					email: 'pieter@example.org',
 					birth_date: '1985-01-01',
 					membership_type: 'Regular',
-					contribution_amount: 35.00,
+					contribution_amount: 35.0,
 					payment_method: 'SEPA Direct Debit',
 					iban: 'NL91ABNA0417164300', // Valid Dutch IBAN
 					account_holder_name: 'Pieter van den Berg'
 				}
 			});
 
-			expect(frappe.call).toHaveBeenCalledWith(expect.objectContaining({
-				args: expect.objectContaining({
-					iban: 'NL91ABNA0417164300'
+			expect(frappe.call).toHaveBeenCalledWith(
+				expect.objectContaining({
+					args: expect.objectContaining({
+						iban: 'NL91ABNA0417164300'
+					})
 				})
-			}));
+			);
 		});
 
 		test('should reject suspicious email addresses', async () => {
@@ -641,14 +678,15 @@ describe('Enhanced Membership Application API', () => {
 
 			try {
 				await frappe.call({
-					method: 'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
+					method:
+            'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
 					args: {
 						first_name: 'Test',
 						last_name: 'User',
 						email: 'test@mailinator.com', // Suspicious temporary email
 						birth_date: '1990-01-01',
 						membership_type: 'Regular',
-						contribution_amount: 25.00,
+						contribution_amount: 25.0,
 						payment_method: 'Bank Transfer'
 					}
 				});
@@ -659,19 +697,21 @@ describe('Enhanced Membership Application API', () => {
 
 		test('should reject unrealistic contribution amounts', async () => {
 			frappe.call.mockRejectedValue({
-				message: 'Contribution amount appears unrealistic. Please contact us directly for large contributions'
+				message:
+          'Contribution amount appears unrealistic. Please contact us directly for large contributions'
 			});
 
 			try {
 				await frappe.call({
-					method: 'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
+					method:
+            'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
 					args: {
 						first_name: 'Rich',
 						last_name: 'Person',
 						email: 'rich@example.org',
 						birth_date: '1980-01-01',
 						membership_type: 'Regular',
-						contribution_amount: 15000.00, // Unrealistically high
+						contribution_amount: 15000.0, // Unrealistically high
 						payment_method: 'Bank Transfer'
 					}
 				});
@@ -686,7 +726,8 @@ describe('Enhanced Membership Application API', () => {
 			});
 
 			await frappe.call({
-				method: 'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
+				method:
+          'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
 				args: {
 					first_name: 'Anne',
 					last_name: 'Dijk',
@@ -694,16 +735,18 @@ describe('Enhanced Membership Application API', () => {
 					email: 'anne@example.org',
 					birth_date: '1992-01-01',
 					membership_type: 'Regular',
-					contribution_amount: 28.00,
+					contribution_amount: 28.0,
 					payment_method: 'Bank Transfer'
 				}
 			});
 
-			expect(frappe.call).toHaveBeenCalledWith(expect.objectContaining({
-				args: expect.objectContaining({
-					tussenvoegsel: 'van'
+			expect(frappe.call).toHaveBeenCalledWith(
+				expect.objectContaining({
+					args: expect.objectContaining({
+						tussenvoegsel: 'van'
+					})
 				})
-			}));
+			);
 		});
 
 		test('should validate Dutch phone number formats', async () => {
@@ -712,7 +755,8 @@ describe('Enhanced Membership Application API', () => {
 			});
 
 			await frappe.call({
-				method: 'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
+				method:
+          'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
 				args: {
 					first_name: 'Willem',
 					last_name: 'de Koning',
@@ -720,16 +764,18 @@ describe('Enhanced Membership Application API', () => {
 					phone: '+31612345678', // Valid Dutch mobile format
 					birth_date: '1988-01-01',
 					membership_type: 'Regular',
-					contribution_amount: 32.00,
+					contribution_amount: 32.0,
 					payment_method: 'Bank Transfer'
 				}
 			});
 
-			expect(frappe.call).toHaveBeenCalledWith(expect.objectContaining({
-				args: expect.objectContaining({
-					phone: '+31612345678'
+			expect(frappe.call).toHaveBeenCalledWith(
+				expect.objectContaining({
+					args: expect.objectContaining({
+						phone: '+31612345678'
+					})
 				})
-			}));
+			);
 		});
 
 		test('should prevent XSS attacks in input fields', async () => {
@@ -739,14 +785,15 @@ describe('Enhanced Membership Application API', () => {
 
 			try {
 				await frappe.call({
-					method: 'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
+					method:
+            'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
 					args: {
 						first_name: '<script>alert("xss")</script>', // XSS attempt
 						last_name: 'User',
 						email: 'user@example.org',
 						birth_date: '1990-01-01',
 						membership_type: 'Regular',
-						contribution_amount: 25.00,
+						contribution_amount: 25.0,
 						payment_method: 'Bank Transfer'
 					}
 				});
@@ -763,14 +810,15 @@ describe('Enhanced Membership Application API', () => {
 			});
 
 			await frappe.call({
-				method: 'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
+				method:
+          'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
 				args: {
 					first_name: 'Jan & Maria', // Should be sanitized to 'Jan &amp; Maria'
 					last_name: 'Berg',
 					email: 'jan.maria@example.org',
 					birth_date: '1990-01-01',
 					membership_type: 'Regular',
-					contribution_amount: 25.00,
+					contribution_amount: 25.0,
 					payment_method: 'Bank Transfer'
 				}
 			});
@@ -785,14 +833,15 @@ describe('Enhanced Membership Application API', () => {
 
 			try {
 				await frappe.call({
-					method: 'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
+					method:
+            'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
 					args: {
 						first_name: 'x'.repeat(150), // Exceeds 100 character limit
 						last_name: 'User',
 						email: 'user@example.org',
 						birth_date: '1990-01-01',
 						membership_type: 'Regular',
-						contribution_amount: 25.00,
+						contribution_amount: 25.0,
 						payment_method: 'Bank Transfer'
 					}
 				});
@@ -808,14 +857,15 @@ describe('Enhanced Membership Application API', () => {
 
 			try {
 				await frappe.call({
-					method: 'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
+					method:
+            'verenigingen.verenigingen.api.enhanced_membership_application.submit_enhanced_application',
 					args: {
 						first_name: 'test', // Suspicious fake name
 						last_name: 'user',
 						email: 'user@example.org',
 						birth_date: '1990-01-01',
 						membership_type: 'Regular',
-						contribution_amount: 25.00,
+						contribution_amount: 25.0,
 						payment_method: 'Bank Transfer'
 					}
 				});

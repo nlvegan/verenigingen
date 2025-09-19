@@ -3,6 +3,7 @@
 Complete guide for data protection, backup strategies, and disaster recovery procedures for Verenigingen installations.
 
 ## 📋 Table of Contents
+
 - [🎯 Overview](#-overview)
 - [🔄 Backup Strategies](#-backup-strategies)
 - [⚙️ Automated Backup Setup](#️-automated-backup-setup)
@@ -18,12 +19,14 @@ Complete guide for data protection, backup strategies, and disaster recovery pro
 Data protection is critical for association management systems. This guide covers comprehensive backup and recovery strategies for Verenigingen installations, ensuring business continuity and regulatory compliance.
 
 ### 💡 Backup Principles
+
 - **3-2-1 Rule**: 3 copies of data, 2 different media types, 1 offsite location
 - **Regular Testing**: Backup integrity and recovery procedures validated monthly
 - **Documentation**: All procedures documented and staff trained
 - **Compliance**: GDPR and Dutch data protection requirements met
 
 ### ⏱️ Recovery Time Objectives (RTO)
+
 - **Critical Services**: < 4 hours
 - **Member Portal**: < 2 hours
 - **Financial Data**: < 1 hour
@@ -34,35 +37,39 @@ Data protection is critical for association management systems. This guide cover
 ### 📊 Data Classification
 
 #### 🔴 Critical Data (Daily Backup)
+
 - **Member database** and personal information
 - **Financial transactions** and payment history
 - **SEPA mandates** and banking information
 - **System configurations** and customizations
 
 #### 🟡 Important Data (Weekly Backup)
+
 - **Volunteer records** and assignment history
 - **Communication logs** and email templates
 - **Analytics data** and reports
 - **Chapter organization** data
 
 #### 🟢 Supporting Data (Monthly Backup)
+
 - **System logs** and audit trails
 - **Temporary files** and cache data
 - **Development and testing** environments
 
 ### 📅 Backup Frequency Schedule
 
-| Data Type | Frequency | Retention Period | Storage Location |
-|-----------|-----------|------------------|------------------|
-| Database | Daily | 90 days | Local + Cloud |
-| Files | Daily | 30 days | Local + Cloud |
-| System Config | Weekly | 365 days | Local + Cloud |
-| Full System | Weekly | 12 weeks | Cloud only |
-| Archive | Monthly | 7 years | Cold storage |
+| Data Type     | Frequency | Retention Period | Storage Location |
+| ------------- | --------- | ---------------- | ---------------- |
+| Database      | Daily     | 90 days          | Local + Cloud    |
+| Files         | Daily     | 30 days          | Local + Cloud    |
+| System Config | Weekly    | 365 days         | Local + Cloud    |
+| Full System   | Weekly    | 12 weeks         | Cloud only       |
+| Archive       | Monthly   | 7 years          | Cold storage     |
 
 ## ⚙️ Automated Backup Setup
 
 ### 🤖 Frappe Built-in Backup
+
 ```bash
 # Enable automatic backups
 bench --site your-site enable-scheduler
@@ -78,6 +85,7 @@ bench --site your-site enable-scheduler
 ```
 
 ### 📜 Backup Script Setup
+
 Create `/home/frappe/backup_scripts/daily_backup.sh`:
 
 ```bash
@@ -168,6 +176,7 @@ log_message "Daily backup process completed successfully"
 ```
 
 ### ⏰ Cron Configuration
+
 ```bash
 # Add to crontab (crontab -e)
 # Daily backup at 2 AM
@@ -183,6 +192,7 @@ log_message "Daily backup process completed successfully"
 ## 🗄️ Manual Backup Procedures
 
 ### 📊 Complete System Backup
+
 ```bash
 # 1. Enable maintenance mode
 bench --site your-site set-maintenance-mode on
@@ -227,6 +237,7 @@ echo "Manual backup completed: ~/manual-backups/$BACKUP_DATE"
 ```
 
 ### 🎯 Selective Data Backup
+
 ```bash
 # Member data only
 bench --site your-site export-fixtures Member "Member"
@@ -244,6 +255,7 @@ bench --site your-site export-fixtures "Verenigingen Settings" "Email Template"
 ## 🔧 Recovery Procedures
 
 ### 🚀 Complete System Recovery
+
 ```bash
 # 1. Prepare clean environment
 bench new-site recovery-site.local
@@ -272,6 +284,7 @@ bench --site recovery-site.local execute "verenigingen.tests.utils.quick_validat
 ```
 
 ### 🎯 Selective Data Recovery
+
 ```bash
 # Recover specific doctype data
 bench --site your-site import-doc path/to/member-export.json
@@ -284,6 +297,7 @@ tar -xf files-backup.tar specific/file/path
 ```
 
 ### 🔄 Point-in-Time Recovery
+
 ```bash
 # Using binary logs (if enabled)
 # 1. Restore from last full backup
@@ -299,6 +313,7 @@ bench --site your-site execute "frappe.db.check_database_integrity()"
 ## ☁️ Cloud Backup Solutions
 
 ### 📡 AWS S3 Configuration
+
 ```bash
 # Install AWS CLI
 sudo apt-get install awscli
@@ -318,6 +333,7 @@ aws s3api put-bucket-lifecycle-configuration --bucket verenigingen-backups-eu --
 ```
 
 ### 🔄 Automated Cloud Sync
+
 ```bash
 # Add to daily backup script
 # Sync with versioning
@@ -330,6 +346,7 @@ aws s3 cp s3://verenigingen-backups-eu/ s3://verenigingen-archive-eu/ --recursiv
 ### 🏢 Alternative Cloud Providers
 
 #### Google Cloud Storage
+
 ```bash
 # Install gsutil
 curl https://sdk.cloud.google.com | bash
@@ -339,6 +356,7 @@ gsutil cp -r /backups/* gs://verenigingen-backups/
 ```
 
 #### Microsoft Azure
+
 ```bash
 # Install Azure CLI
 curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
@@ -350,6 +368,7 @@ az storage blob upload-batch --account-name verenigingenbackups --destination ba
 ## 🧪 Testing and Validation
 
 ### ✅ Backup Integrity Testing
+
 ```bash
 #!/bin/bash
 # backup_test.sh - Monthly backup testing script
@@ -404,6 +423,7 @@ echo "🧪 Backup integrity tests completed"
 ```
 
 ### 🔄 Recovery Testing Schedule
+
 ```bash
 # Monthly recovery test
 # 1st Saturday of each month
@@ -419,24 +439,28 @@ echo "🧪 Backup integrity tests completed"
 ### 🔥 Emergency Recovery Plan
 
 #### Immediate Actions (0-1 hour)
+
 1. **Assess Impact**: Determine scope of data loss or system failure
 2. **Activate Team**: Contact technical and management teams
 3. **Enable Maintenance Mode**: Prevent further data corruption
 4. **Secure Backups**: Verify backup availability and integrity
 
 #### Short-term Recovery (1-4 hours)
+
 1. **Prepare Environment**: Set up recovery environment
 2. **Restore Critical Data**: Member and financial information first
 3. **Restore Core Functions**: Member portal and payment processing
 4. **Basic Testing**: Verify critical operations function
 
 #### Full Recovery (4-24 hours)
+
 1. **Complete Restoration**: All data and functionality
 2. **Integration Testing**: Verify all systems working
 3. **User Acceptance**: Test with key users
 4. **Go-Live**: Return to normal operations
 
 ### 📞 Emergency Contacts
+
 ```yaml
 # Store in secure location accessible during emergencies
 Technical Lead: +31-XXX-XXXXXX
@@ -447,17 +471,19 @@ Management: +31-XXX-XXXXXX
 ```
 
 ### 🎯 Recovery Priority Matrix
-| System Component | Priority | Max Downtime | Recovery Method |
-|------------------|----------|--------------|-----------------|
-| Member Database | Critical | 1 hour | Hot standby |
-| Payment Processing | Critical | 2 hours | Latest backup |
-| Member Portal | High | 4 hours | Latest backup |
-| Volunteer Portal | Medium | 8 hours | Daily backup |
-| Analytics | Low | 24 hours | Weekly backup |
+
+| System Component   | Priority | Max Downtime | Recovery Method |
+| ------------------ | -------- | ------------ | --------------- |
+| Member Database    | Critical | 1 hour       | Hot standby     |
+| Payment Processing | Critical | 2 hours      | Latest backup   |
+| Member Portal      | High     | 4 hours      | Latest backup   |
+| Volunteer Portal   | Medium   | 8 hours      | Daily backup    |
+| Analytics          | Low      | 24 hours     | Weekly backup   |
 
 ## 📋 Compliance and Retention
 
 ### 🇪🇺 GDPR Requirements
+
 - **Data Minimization**: Only backup necessary personal data
 - **Purpose Limitation**: Use backups only for recovery purposes
 - **Storage Limitation**: Comply with retention schedules
@@ -465,6 +491,7 @@ Management: +31-XXX-XXXXXX
 - **Accountability**: Document all backup and recovery activities
 
 ### 📅 Retention Schedule
+
 ```yaml
 Personal Data:
   - Active Members: 7 years after membership ends
@@ -482,6 +509,7 @@ Technical Data:
 ```
 
 ### 🔐 Encryption Requirements
+
 ```bash
 # Encrypt backup files
 gpg --cipher-algo AES256 --compress-algo 1 --s2k-digest-algo SHA512 \
@@ -496,24 +524,28 @@ gpg --decrypt backup.sql.gz.gpg | gunzip > backup.sql
 ## 🎯 Best Practices Summary
 
 ### ✅ Daily Actions
+
 - [ ] Monitor backup completion notifications
 - [ ] Verify backup file creation and sizes
 - [ ] Check disk space on backup storage
 - [ ] Review backup logs for errors
 
 ### 📅 Weekly Actions
+
 - [ ] Test backup integrity on sample files
 - [ ] Verify cloud backup synchronization
 - [ ] Clean up old backup files
 - [ ] Review backup performance metrics
 
 ### 🗓️ Monthly Actions
+
 - [ ] Full backup integrity testing
 - [ ] Recovery procedure testing
 - [ ] Update backup retention policies
 - [ ] Review and update disaster recovery contacts
 
 ### 📊 Quarterly Actions
+
 - [ ] Complete disaster recovery drill
 - [ ] Review and update backup strategies
 - [ ] Audit compliance with retention policies

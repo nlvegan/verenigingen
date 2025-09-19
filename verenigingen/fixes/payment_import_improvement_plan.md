@@ -25,6 +25,7 @@ else:
 ```
 
 **Problems:**
+
 1. All payments are assigned to "Kas" (Cash) account
 2. Ignores the actual bank account from E-Boekhouden data
 3. Doesn't use the mutation's `ledgerId` to determine the correct bank account
@@ -33,12 +34,14 @@ else:
 ### 2. Evidence of Better Implementation
 
 Despite the basic code, the database shows:
+
 - 2,569 payments correctly using "10440 - Triodos" bank account
 - 96% of purchase invoices are reconciled
 - 1,731 purchase invoice payment references exist
 - 802 sales invoice payment references exist
 
 This suggests either:
+
 1. Post-import corrections were made
 2. A different import process was used
 3. The payments were created through other means
@@ -46,6 +49,7 @@ This suggests either:
 ### 3. REST API Structure (Types 3 & 4)
 
 Based on the audit findings, payment mutations have this structure:
+
 - **Main `ledgerId`**: Bank/Cash account (e.g., 13201869 for Triodos)
 - **Row `ledgerId`**: Receivable/Payable account
 - **`relationId`**: Customer/Supplier reference
@@ -276,6 +280,7 @@ def _attempt_payment_reconciliation(payment_entry, debug_info):
 ## Conclusion
 
 The current payment import logic is fundamentally flawed, hardcoding all payments to the Kas account. The proposed enhanced implementation will:
+
 - Use proper bank account mapping from ledger data
 - Support automatic payment-invoice reconciliation
 - Provide flexibility for different payment scenarios

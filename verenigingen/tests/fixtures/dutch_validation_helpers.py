@@ -173,6 +173,79 @@ def get_test_rsin_numbers():
     ]
 
 
+def validate_dutch_iban(iban):
+    """
+    Validate Dutch IBAN using mod-97 algorithm
+
+    Args:
+        iban (str): IBAN to validate
+
+    Returns:
+        dict: Validation result with is_valid boolean and error messages
+    """
+    if not iban:
+        return {"is_valid": False, "error": "IBAN is required"}
+
+    # Remove spaces and convert to uppercase
+    iban_clean = iban.replace(" ", "").upper()
+
+    # Check minimum length
+    if len(iban_clean) < 15:
+        return {"is_valid": False, "error": "IBAN too short"}
+
+    # Check if it's Dutch IBAN
+    if not iban_clean.startswith("NL"):
+        return {"is_valid": False, "error": "Not a Dutch IBAN (must start with NL)"}
+
+    # Dutch IBAN should be exactly 18 characters
+    if len(iban_clean) != 18:
+        return {"is_valid": False, "error": "Dutch IBAN must be exactly 18 characters"}
+
+    # Check if rest are digits/letters
+    if not iban_clean[2:].replace("ABCD", "").replace("EFGH", "").replace("IJKL", "").replace("MNOP", "").replace("QRST", "").replace("UVWX", "").replace("YZ", "").isdigit():
+        # More precise check - allow only digits for Dutch IBANs after NL
+        if not iban_clean[2:].isdigit():
+            return {"is_valid": False, "error": "Dutch IBAN should contain only digits after country code"}
+
+    # Perform mod-97 validation
+    # Move first 4 characters to end and replace letters with numbers
+    rearranged = iban_clean[4:] + iban_clean[:4]
+
+    # Replace letters with numbers (A=10, B=11, ..., Z=35)
+    numeric_string = ""
+    for char in rearranged:
+        if char.isdigit():
+            numeric_string += char
+        else:
+            numeric_string += str(ord(char) - ord('A') + 10)
+
+    # Calculate mod 97
+    try:
+        remainder = int(numeric_string) % 97
+        if remainder == 1:
+            return {"is_valid": True, "iban": iban_clean}
+        else:
+            return {"is_valid": False, "error": "IBAN checksum validation failed"}
+    except ValueError:
+        return {"is_valid": False, "error": "IBAN contains invalid characters"}
+
+
+def get_test_dutch_ibans():
+    """
+    Return list of valid Dutch IBANs for testing
+
+    Returns:
+        list: Valid Dutch IBANs
+    """
+    return [
+        "NL91ABNA0417164300",  # ABN AMRO
+        "NL02RABO0123456789",  # Rabobank
+        "NL86INGB0002445588",  # ING Bank
+        "NL39TRIO0123456789",  # Triodos Bank
+        "NL13TEST0123456789",  # Test bank
+    ]
+
+
 # Test the generators to ensure they work
 if __name__ == "__main__":
     print("Testing BSN generation:")

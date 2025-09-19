@@ -3,10 +3,12 @@
 ## Issues Found and Fixed
 
 ### 1. Value Map Type Constants (Zabbix 7.2)
+
 In Zabbix 7.2, value map types use these constants:
+
 - `EQUAL` = exact match (note: not "EQUALS")
 - `GREATER_EQUAL` = greater or equal
-- `LESS_EQUAL` = less or equal  
+- `LESS_EQUAL` = less or equal
 - `IN_RANGE` = in range
 - `REGEXP` = regular expression
 - `DEFAULT` = default value
@@ -14,17 +16,20 @@ In Zabbix 7.2, value map types use these constants:
 **Fixed**: Changed `type: EQUALS` to `type: EQUAL` and kept `type: DEFAULT`
 
 ### 2. Invalid UUIDs
+
 Original templates contained invalid UUIDs with non-hexadecimal characters (g-z).
 UUIDs must only contain: 0-9, a-f, A-F
 
 **Fixed**: Generated proper RFC 4122 compliant UUIDs for all template elements
 
 ### 3. Version Mismatch
+
 "Compatible" template showed version 6.4 but claimed Zabbix 7.x compatibility
 
 **Fixed**: Updated version to '7.0' for proper Zabbix 7.2 compatibility
 
 ### 4. Template Structure Issues
+
 - Self-referential template definitions
 - Dashboard configurations with invalid item references
 - Calculated item syntax errors
@@ -32,6 +37,7 @@ UUIDs must only contain: 0-9, a-f, A-F
 **Fixed**: Removed problematic dashboard configs, simplified template structure
 
 ### 5. Preprocessing Improvements
+
 - Added proper error handling for JSON parsing
 - Added IN_RANGE validation for health scores
 - Improved DISCARD_UNCHANGED_HEARTBEAT usage
@@ -60,6 +66,7 @@ UUIDs must only contain: 0-9, a-f, A-F
 ## Prerequisites
 
 The template requires the monitoring API endpoint to be available:
+
 - Endpoint: `/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix`
 - Authentication: API token (key:secret)
 - Response format: JSON with metrics object
@@ -85,17 +92,20 @@ The template requires the monitoring API endpoint to be available:
 ## Troubleshooting
 
 ### Import Fails
+
 - Verify UUIDs are valid hexadecimal
 - Check Zabbix version compatibility
 - Ensure no duplicate template names
 
 ### No Data Received
+
 - Verify API endpoint is accessible
 - Check API credentials in macros
 - Test endpoint manually: `curl -H "Authorization: token key:secret" https://yoursite/api/method/...`
 - Check Zabbix agent logs for HTTP errors
 
 ### Triggers Not Working
+
 - Verify trigger expressions syntax
 - Check macro values are properly set
 - Test individual items for data collection

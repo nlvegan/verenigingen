@@ -5,6 +5,7 @@ This comprehensive test suite validates the secure AccountCreationManager system
 ## Test Coverage
 
 ### 1. Security Tests (`test_account_creation_security_deep.py`)
+
 - **Zero Permission Bypass Validation**: Ensures no `ignore_permissions=True` usage except for system status tracking
 - **SQL Injection Prevention**: Comprehensive SQL injection attack testing
 - **XSS Prevention**: Cross-site scripting attack prevention validation
@@ -13,6 +14,7 @@ This comprehensive test suite validates the secure AccountCreationManager system
 - **Session Security**: Session hijacking and data exposure prevention
 
 ### 2. Functionality Tests (`test_account_creation_manager_comprehensive.py`)
+
 - **Complete Pipeline Execution**: End-to-end account creation workflow
 - **User Account Creation**: Proper user creation with permission validation
 - **Role Assignment**: Secure role and role profile assignment
@@ -21,6 +23,7 @@ This comprehensive test suite validates the secure AccountCreationManager system
 - **Integration Testing**: Member and Volunteer DocType integration
 
 ### 3. Background Processing Tests (`test_account_creation_background_processing.py`)
+
 - **Redis Queue Integration**: Job queueing and execution validation
 - **Retry Mechanisms**: Exponential backoff and retry limit enforcement
 - **Concurrent Processing**: Race condition and resource locking tests
@@ -29,6 +32,7 @@ This comprehensive test suite validates the secure AccountCreationManager system
 - **Fault Tolerance**: Queue failure recovery and resilience
 
 ### 4. Dutch Business Logic Tests (`test_account_creation_dutch_business_logic.py`)
+
 - **Age Validation**: 16+ requirement for volunteers
 - **Role Hierarchy**: Verenigingen-specific role assignments
 - **Employee Creation**: Dutch expense functionality integration
@@ -39,6 +43,7 @@ This comprehensive test suite validates the secure AccountCreationManager system
 ## Enhanced Test Factory Integration
 
 The test suite integrates with the `EnhancedTestFactory` to provide:
+
 - **Realistic Test Data**: Dutch-specific names, addresses, and business scenarios
 - **Business Rule Validation**: Prevents creation of invalid test scenarios
 - **Permission Testing**: Multi-role user scenarios for security testing
@@ -48,6 +53,7 @@ The test suite integrates with the `EnhancedTestFactory` to provide:
 ## Running the Tests
 
 ### Complete Test Suite
+
 ```bash
 # Run all account creation tests
 python -m unittest verenigingen.tests.test_account_creation_suite
@@ -58,6 +64,7 @@ python -m verenigingen.tests.test_account_creation_suite
 ```
 
 ### Individual Test Categories
+
 ```bash
 # Security tests only
 python -m verenigingen.tests.test_account_creation_suite security
@@ -73,6 +80,7 @@ python -m verenigingen.tests.test_account_creation_suite business
 ```
 
 ### Individual Test Files
+
 ```bash
 # Run comprehensive functionality tests
 python -m unittest verenigingen.tests.test_account_creation_manager_comprehensive
@@ -88,6 +96,7 @@ python -m unittest verenigingen.tests.test_account_creation_dutch_business_logic
 ```
 
 ### Specific Test Classes
+
 ```bash
 # Run only security tests from comprehensive suite
 python -m unittest verenigingen.tests.test_account_creation_manager_comprehensive.TestAccountCreationManagerSecurity
@@ -99,6 +108,7 @@ python -m unittest verenigingen.tests.test_account_creation_security_deep.TestAc
 ## Frappe Test Integration
 
 ### Using Frappe's Test Runner
+
 ```bash
 # Run with Frappe's test framework
 bench --site dev.veganisme.net run-tests --module verenigingen.tests.test_account_creation_manager_comprehensive
@@ -111,7 +121,9 @@ bench --site dev.veganisme.net run-tests --module verenigingen.tests.test_accoun
 ```
 
 ### Test Data Cleanup
+
 The tests use `EnhancedTestCase` which extends `FrappeTestCase`, providing:
+
 - Automatic database rollback after each test
 - Test data isolation between test runs
 - Proper cleanup of created records
@@ -120,14 +132,18 @@ The tests use `EnhancedTestCase` which extends `FrappeTestCase`, providing:
 ## Test Environment Setup
 
 ### Required Permissions
+
 The test user needs the following permissions:
+
 - User creation and management
 - Account Creation Request read/write
 - Member and Volunteer record access
 - Role and Role Profile management
 
 ### Required DocTypes
+
 Ensure these DocTypes exist:
+
 - Account Creation Request
 - Account Creation Request Role (child table)
 - Member
@@ -137,7 +153,9 @@ Ensure these DocTypes exist:
 - Role Profile
 
 ### Background Job Testing
+
 For background processing tests, ensure Redis is available:
+
 ```bash
 # Check Redis status
 redis-cli ping
@@ -152,18 +170,21 @@ docker run -d -p 6379:6379 redis:alpine
 ## Test Data Patterns
 
 ### Security Testing Data
+
 - Malicious SQL injection payloads
 - XSS attack vectors
 - Invalid role assignment attempts
 - Session hijacking scenarios
 
 ### Functionality Testing Data
+
 - Valid member and volunteer records
 - Complete account creation workflows
 - Error scenarios and edge cases
 - Integration test scenarios
 
 ### Dutch Business Logic Data
+
 - Age validation test cases (15-17 year olds)
 - Dutch names with tussenvoegsel
 - Leap year birthday calculations
@@ -194,6 +215,7 @@ docker run -d -p 6379:6379 redis:alpine
    - Ensure proper date handling in test environment
 
 ### Debug Mode
+
 ```bash
 # Run tests in verbose mode
 python -m unittest verenigingen.tests.test_account_creation_suite -v
@@ -203,6 +225,7 @@ python -m pdb -m unittest verenigingen.tests.test_account_creation_manager_compr
 ```
 
 ### Log Analysis
+
 ```bash
 # Check Frappe error logs
 bench --site dev.veganisme.net console
@@ -215,14 +238,17 @@ tail -f /home/frappe/frappe-bench/logs/dev.veganisme.net.error.log
 ## Performance Benchmarks
 
 ### Expected Performance
+
 - Security tests: ~30-60 seconds
-- Functionality tests: ~45-90 seconds  
+- Functionality tests: ~45-90 seconds
 - Background processing tests: ~60-120 seconds
 - Dutch business logic tests: ~30-60 seconds
 - Complete suite: ~3-6 minutes
 
 ### Performance Tuning
+
 For faster test execution:
+
 ```bash
 # Use parallel test execution (if supported)
 python -m pytest verenigingen/tests/test_account_creation_*.py -n auto
@@ -234,6 +260,7 @@ python -m unittest verenigingen.tests.test_account_creation_manager_comprehensiv
 ## Continuous Integration
 
 ### GitHub Actions Example
+
 ```yaml
 name: Account Creation Tests
 on: [push, pull_request]
@@ -252,6 +279,7 @@ jobs:
 ```
 
 ### Test Coverage Goals
+
 - **Security Tests**: 100% coverage of permission bypass prevention
 - **Functionality Tests**: 95%+ coverage of core account creation pipeline
 - **Background Processing**: 90%+ coverage of Redis queue integration
@@ -260,6 +288,7 @@ jobs:
 ## Contributing
 
 ### Adding New Tests
+
 1. Follow existing test patterns in the appropriate test file
 2. Use `EnhancedTestCase` for automatic cleanup
 3. Include both positive and negative test cases
@@ -267,11 +296,13 @@ jobs:
 5. Update this README with new test descriptions
 
 ### Test Naming Conventions
+
 - Test methods: `test_descriptive_name_of_what_is_tested`
 - Test classes: `TestSpecificFeatureOrComponent`
 - Test files: `test_account_creation_specific_area.py`
 
 ### Code Quality Standards
+
 - All tests must use proper permission validation (no `ignore_permissions=True`)
 - Security tests must validate against real attack vectors
 - Business logic tests must reflect actual Dutch association requirements

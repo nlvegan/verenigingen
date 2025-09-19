@@ -45,24 +45,28 @@ SEPAMandateTestSuite.run_validation_tests()
 ### Test Categories
 
 #### 1. Validation Tests (`SEPAMandateValidationTests`)
+
 - Field validation and business rule enforcement
 - Enhanced Test Factory integration
 - Realistic data generation
 - Error handling scenarios
 
 #### 2. Compliance Tests (`SEPAMandateComplianceTests`)
+
 - PSD2 (Payment Services Directive 2) compliance
 - GDPR data protection requirements
 - Dutch Central Bank (DNB) regulations
 - SEPA mandate lifecycle compliance
 
 #### 3. Integration Tests (`SEPAMandateIntegrationTests`)
+
 - Member management system integration
 - Payment processing workflows
 - Mollie payment gateway compatibility
 - Performance optimization validation
 
 #### 4. Comprehensive Tests (`ComprehensiveSEPAMandateTests`)
+
 - Complete end-to-end scenarios
 - Security and permission validation
 - Dutch banking specific requirements

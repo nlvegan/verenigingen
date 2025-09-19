@@ -51,29 +51,48 @@ frappe.ui.form.on('Volunteer Expense', {
 		if (frm.doc.status === 'Submitted' && !frm.doc.__islocal) {
 			// Add approve/reject buttons for authorized users
 			frappe.call({
-				method: 'verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense.can_approve_expense',
+				method:
+          'verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense.can_approve_expense',
 				args: {
 					expense: frm.doc
 				},
 				callback(r) {
 					if (r.message) {
-						frm.add_custom_button(__('Approve'), () => {
-							approve_expense(frm);
-						}, __('Actions'));
+						frm.add_custom_button(
+							__('Approve'),
+							() => {
+								approve_expense(frm);
+							},
+							__('Actions')
+						);
 
-						frm.add_custom_button(__('Reject'), () => {
-							reject_expense(frm);
-						}, __('Actions'));
+						frm.add_custom_button(
+							__('Reject'),
+							() => {
+								reject_expense(frm);
+							},
+							__('Actions')
+						);
 					}
 				}
 			});
 		}
 
 		// Add reimbursed button for approved expenses
-		if (frm.doc.status === 'Approved' && frappe.user.has_role(['Verenigingen Administrator', 'Verenigingen Chapter Board Member'])) {
-			frm.add_custom_button(__('Mark as Reimbursed'), () => {
-				mark_reimbursed(frm);
-			}, __('Actions'));
+		if (
+			frm.doc.status === 'Approved'
+      && frappe.user.has_role([
+      	'Verenigingen Administrator',
+      	'Verenigingen Chapter Board Member'
+      ])
+		) {
+			frm.add_custom_button(
+				__('Mark as Reimbursed'),
+				() => {
+					mark_reimbursed(frm);
+				},
+				__('Actions')
+			);
 		}
 
 		// Set volunteer based on current user if creating new
@@ -151,7 +170,8 @@ frappe.ui.form.on('Volunteer Expense', {
  */
 function approve_expense(frm) {
 	frappe.call({
-		method: 'verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense.approve_expense',
+		method:
+      'verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense.approve_expense',
 		args: {
 			expense_name: frm.doc.name
 		},
@@ -199,25 +219,31 @@ function approve_expense(frm) {
  * @see {@link approve_expense} For expense approval workflow
  */
 function reject_expense(frm) {
-	frappe.prompt({
-		label: 'Rejection Reason',
-		fieldname: 'reason',
-		fieldtype: 'Text',
-		reqd: 1
-	}, (data) => {
-		frappe.call({
-			method: 'verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense.reject_expense',
-			args: {
-				expense_name: frm.doc.name,
-				reason: data.reason
-			},
-			callback(r) {
-				if (!r.exc) {
-					frm.reload_doc();
+	frappe.prompt(
+		{
+			label: 'Rejection Reason',
+			fieldname: 'reason',
+			fieldtype: 'Text',
+			reqd: 1
+		},
+		(data) => {
+			frappe.call({
+				method:
+          'verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense.reject_expense',
+				args: {
+					expense_name: frm.doc.name,
+					reason: data.reason
+				},
+				callback(r) {
+					if (!r.exc) {
+						frm.reload_doc();
+					}
 				}
-			}
-		});
-	}, __('Reject Expense'), __('Reject'));
+			});
+		},
+		__('Reject Expense'),
+		__('Reject')
+	);
 }
 
 /**
@@ -255,18 +281,23 @@ function reject_expense(frm) {
  * @see {@link approve_expense} For expense approval prerequisite
  */
 function mark_reimbursed(frm) {
-	frappe.prompt({
-		label: 'Reimbursement Details',
-		fieldname: 'details',
-		fieldtype: 'Text',
-		reqd: 0
-	}, (data) => {
-		frm.set_value('status', 'Reimbursed');
-		if (data.details) {
-			frm.set_value('reimbursement_details', data.details);
-		}
-		frm.save();
-	}, __('Mark as Reimbursed'), __('Update'));
+	frappe.prompt(
+		{
+			label: 'Reimbursement Details',
+			fieldname: 'details',
+			fieldtype: 'Text',
+			reqd: 0
+		},
+		(data) => {
+			frm.set_value('status', 'Reimbursed');
+			if (data.details) {
+				frm.set_value('reimbursement_details', data.details);
+			}
+			frm.save();
+		},
+		__('Mark as Reimbursed'),
+		__('Update')
+	);
 }
 
 /**

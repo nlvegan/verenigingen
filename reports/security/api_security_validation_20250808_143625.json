@@ -239,9 +239,7 @@
         }
       },
       "overall_pass": false,
-      "failed_checks": [
-        "input_validation: No explicit input validation found"
-      ],
+      "failed_checks": ["input_validation: No explicit input validation found"],
       "warnings": [
         "input_validation: Basic validation may be handled by Frappe framework"
       ]

@@ -67,7 +67,8 @@ frappe.query_reports['Members Without Active Memberships'] = {
 			label: __('Include Dues Schedule Information'),
 			fieldtype: 'Check',
 			default: 0,
-			description: 'Add columns showing dues schedule status, next invoice date, and coverage gaps'
+			description:
+        'Add columns showing dues schedule status, next invoice date, and coverage gaps'
 		}
 		// Chapter filter disabled - field is computed/HTML
 		// {

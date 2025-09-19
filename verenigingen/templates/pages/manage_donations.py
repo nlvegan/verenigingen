@@ -223,9 +223,9 @@ def get_mollie_subscription_info(subscription_id):
 
             return {
                 "subscription_status": subscription.status,
-                "next_payment_date": subscription.next_payment_date
-                if hasattr(subscription, "next_payment_date")
-                else None,
+                "next_payment_date": (
+                    subscription.next_payment_date if hasattr(subscription, "next_payment_date") else None
+                ),
                 "cancelled_date": subscription.canceled_at if hasattr(subscription, "canceled_at") else None,
                 "amount": float(subscription.amount["value"]) if subscription.amount else 0.0,
             }

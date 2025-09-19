@@ -87,8 +87,14 @@ frappe.ui.form.on('Expulsion Report Entry', {
 				callback(r) {
 					if (r.message) {
 						frm.set_value('member_name', r.message.full_name);
-						if (r.message.current_chapter_display && !frm.doc.chapter_involved) {
-							frm.set_value('chapter_involved', r.message.current_chapter_display);
+						if (
+							r.message.current_chapter_display
+              && !frm.doc.chapter_involved
+						) {
+							frm.set_value(
+								'chapter_involved',
+								r.message.current_chapter_display
+							);
 						}
 					}
 				}
@@ -113,86 +119,115 @@ function add_action_buttons(frm) {
 
 	if (frm.doc.status === 'Active' && !frm.doc.under_appeal) {
 		// Check for existing appeal
-		frm.add_custom_button(__('File Appeal'), () => {
-			// Check if termination request exists
-			frappe.call({
-				method: 'frappe.client.get_list',
-				args: {
-					doctype: 'Membership Termination Request',
-					filters: {
-						member: frm.doc.member_id,
-						status: 'Executed',
-						termination_type: frm.doc.expulsion_type
-					},
-					fields: ['name'],
-					limit: 1
-				},
-				callback(r) {
-					if (r.message && r.message.length > 0) {
-						// Use the existing appeal creation dialog
-						if (window.show_appeal_creation_dialog) {
-							window.show_appeal_creation_dialog(r.message[0].name);
-						} else {
-							frappe.msgprint(__('Appeal creation dialog not available'));
-						}
-					} else {
-						frappe.msgprint(__('No executed termination request found for this expulsion'));
-					}
-				}
-			});
-		}, __('Actions'));
-	}
-
-	if (frm.doc.status === 'Active') {
-		frm.add_custom_button(__('Reverse Expulsion'), () => {
-			frappe.prompt([
-				{
-					fieldname: 'reversal_reason',
-					label: __('Reversal Reason'),
-					fieldtype: 'Small Text',
-					reqd: 1
-				}
-			], (values) => {
+		frm.add_custom_button(
+			__('File Appeal'),
+			() => {
+				// Check if termination request exists
 				frappe.call({
-					method: 'reverse_expulsion',
-					doc: frm.doc,
+					method: 'frappe.client.get_list',
 					args: {
-						reversal_reason: values.reversal_reason
+						doctype: 'Membership Termination Request',
+						filters: {
+							member: frm.doc.member_id,
+							status: 'Executed',
+							termination_type: frm.doc.expulsion_type
+						},
+						fields: ['name'],
+						limit: 1
 					},
 					callback(r) {
-						if (r.message) {
-							frm.refresh();
-							frappe.show_alert({
-								message: __('Expulsion reversed successfully'),
-								indicator: 'green'
-							}, 5);
+						if (r.message && r.message.length > 0) {
+							// Use the existing appeal creation dialog
+							if (window.show_appeal_creation_dialog) {
+								window.show_appeal_creation_dialog(r.message[0].name);
+							} else {
+								frappe.msgprint(__('Appeal creation dialog not available'));
+							}
+						} else {
+							frappe.msgprint(
+								__('No executed termination request found for this expulsion')
+							);
 						}
 					}
 				});
-			}, __('Confirm Reversal'));
-		}, __('Actions'));
+			},
+			__('Actions')
+		);
+	}
+
+	if (frm.doc.status === 'Active') {
+		frm.add_custom_button(
+			__('Reverse Expulsion'),
+			() => {
+				frappe.prompt(
+					[
+						{
+							fieldname: 'reversal_reason',
+							label: __('Reversal Reason'),
+							fieldtype: 'Small Text',
+							reqd: 1
+						}
+					],
+					(values) => {
+						frappe.call({
+							method: 'reverse_expulsion',
+							doc: frm.doc,
+							args: {
+								reversal_reason: values.reversal_reason
+							},
+							callback(r) {
+								if (r.message) {
+									frm.refresh();
+									frappe.show_alert(
+										{
+											message: __('Expulsion reversed successfully'),
+											indicator: 'green'
+										},
+										5
+									);
+								}
+							}
+						});
+					},
+					__('Confirm Reversal')
+				);
+			},
+			__('Actions')
+		);
 	}
 
 	// Add view buttons
 	if (frm.doc.member_id) {
-		frm.add_custom_button(__('View Member'), () => {
-			frappe.set_route('Form', 'Member', frm.doc.member_id);
-		}, __('View'));
+		frm.add_custom_button(
+			__('View Member'),
+			() => {
+				frappe.set_route('Form', 'Member', frm.doc.member_id);
+			},
+			__('View')
+		);
 	}
 
 	if (frm.doc.chapter_involved) {
-		frm.add_custom_button(__('View Chapter'), () => {
-			frappe.set_route('Form', 'Chapter', frm.doc.chapter_involved);
-		}, __('View'));
+		frm.add_custom_button(
+			__('View Chapter'),
+			() => {
+				frappe.set_route('Form', 'Chapter', frm.doc.chapter_involved);
+			},
+			__('View')
+		);
 	}
 
 	// Add governance review button
 	if (!frm.doc.compliance_checked) {
-		frm.add_custom_button(__('Mark Compliance Verified'), () => {
-			frm.set_value('compliance_checked', 1);
-			frm.set_value('board_review_date', frappe.datetime.get_today());
-			frm.save();
-		}, __('Governance'));
+		frm.add_custom_button(
+			__('Mark Compliance Verified'),
+			() => {
+				frm.set_value('compliance_checked', 1);
+				frm.set_value('board_review_date', frappe.datetime.get_today());
+				frm.save();
+			},
+			__('Governance')
+		);
 	}
 }
 
@@ -228,11 +263,16 @@ function set_query_filters(frm) {
 			filters: {
 				doctype: 'Member',
 				filters: [
-					['Member', 'name', 'in',
-						frappe.db.get_list('Membership Termination Request', {
-							filters: { status: 'Executed' },
-							fields: ['member']
-						}).then(r => r.map(d => d.member))
+					[
+						'Member',
+						'name',
+						'in',
+						frappe.db
+							.get_list('Membership Termination Request', {
+								filters: { status: 'Executed' },
+								fields: ['member']
+							})
+							.then((r) => r.map((d) => d.member))
 					]
 				]
 			}

@@ -72,6 +72,7 @@ monitor_logs = frappe.get_all("Error Log",
 ### Monitor Log Location
 
 Monitor logs are stored at:
+
 - `sites/dev.veganisme.net/logs/monitor.json.log`
 
 ## 3. Utilize Performance Dashboard
@@ -189,9 +190,9 @@ If using Frappe Press:
 ```yaml
 # prometheus.yml
 scrape_configs:
-  - job_name: 'frappe_press'
+  - job_name: "frappe_press"
     static_configs:
-      - targets: ['your-press-instance:9100']
+      - targets: ["your-press-instance:9100"]
 ```
 
 ### Option B: Custom Metrics Exporter
@@ -243,21 +244,27 @@ Import this dashboard JSON:
     "panels": [
       {
         "title": "Active Members",
-        "targets": [{
-          "expr": "verenigingen_member_count"
-        }]
+        "targets": [
+          {
+            "expr": "verenigingen_member_count"
+          }
+        ]
       },
       {
         "title": "Request Duration",
-        "targets": [{
-          "expr": "rate(verenigingen_request_duration_seconds_sum[5m])"
-        }]
+        "targets": [
+          {
+            "expr": "rate(verenigingen_request_duration_seconds_sum[5m])"
+          }
+        ]
       },
       {
         "title": "Error Rate",
-        "targets": [{
-          "expr": "rate(verenigingen_errors_total[5m])"
-        }]
+        "targets": [
+          {
+            "expr": "rate(verenigingen_errors_total[5m])"
+          }
+        ]
       }
     ]
   }
@@ -335,6 +342,7 @@ Import this dashboard JSON:
 ## Summary
 
 With this setup, you'll have:
+
 - **Error tracking** via Sentry
 - **Performance monitoring** via Performance Dashboard
 - **System health checks** via built-in reports

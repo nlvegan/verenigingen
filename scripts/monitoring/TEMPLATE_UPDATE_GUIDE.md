@@ -3,6 +3,7 @@
 ## New Metrics Available After Consolidation
 
 ### Performance Metrics
+
 ```yaml
 - key: frappe.performance.response_time_p50
   name: "Response Time - 50th Percentile"
@@ -11,7 +12,7 @@
   description: "Median response time"
 
 - key: frappe.performance.response_time_p95
-  name: "Response Time - 95th Percentile"  
+  name: "Response Time - 95th Percentile"
   value_type: FLOAT
   units: "ms"
   description: "95% of requests are faster than this"
@@ -24,6 +25,7 @@
 ```
 
 ### Error Breakdown Metrics
+
 ```yaml
 - key: frappe.errors.permission
   name: "Permission Errors (1h)"
@@ -57,11 +59,13 @@
 ```
 
 ### Enhanced Health Check
+
 The health check endpoint now returns:
+
 ```json
 {
   "status": "healthy|degraded|unhealthy",
-  "score": 85.5,  // 0-100 health score
+  "score": 85.5, // 0-100 health score
   "checks": {
     "database": {
       "status": "healthy",
@@ -93,6 +97,7 @@ The health check endpoint now returns:
 ## Recommended Triggers
 
 ### Performance Triggers
+
 ```yaml
 - name: "High Response Time (p95)"
   expression: "{verenigingen:frappe.performance.response_time_p95.avg(5m)}>1000"
@@ -106,6 +111,7 @@ The health check endpoint now returns:
 ```
 
 ### Error Pattern Triggers
+
 ```yaml
 - name: "High Permission Error Rate"
   expression: "{verenigingen:frappe.errors.permission.last()}>50"
@@ -119,6 +125,7 @@ The health check endpoint now returns:
 ```
 
 ### Health Score Trigger
+
 ```yaml
 - name: "System Health Degraded"
   expression: "{verenigingen:frappe.health.score.last()}<80"
@@ -141,7 +148,7 @@ triggers:
     tags:
       - tag: "auto_remediate"
         value: "clear_cache"
-  
+
   - name: "Stuck Background Jobs"
     tags:
       - tag: "auto_remediate"
@@ -160,12 +167,14 @@ triggers:
 ## Dashboard Suggestions
 
 ### Performance Dashboard
+
 - Graph: Response time percentiles over time
 - Pie chart: Error breakdown by type
 - Single stat: Current health score
 - Table: Health check component status
 
 ### Business Metrics Dashboard
+
 - Keep existing business metrics
 - Add health score as prominent indicator
 - Show error trends by type

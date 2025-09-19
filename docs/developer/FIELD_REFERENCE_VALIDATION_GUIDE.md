@@ -7,9 +7,11 @@ This guide documents the enhanced field reference validation system implemented 
 ## Recent Critical Fixes
 
 ### System Alert DocType Field References
+
 **Issue**: Invalid field references in System Alert doctype causing runtime errors.
 
 **Files Fixed**:
+
 - `verenigingen/www/monitoring_dashboard.py`
 - `verenigingen/doctype/system_alert/system_alert.py`
 
@@ -42,6 +44,7 @@ def get_system_alerts_by_status(status):
 ```
 
 ### Payment History Event Handler Optimization
+
 **Issue**: Inefficient full payment history rebuilds on every payment event.
 
 **Problem**: Event handlers were doing complete rebuilds instead of atomic updates.
@@ -65,6 +68,7 @@ def on_payment_entry_submit(doc, method):
 ## Validation Tools
 
 ### 1. Enhanced Field Validator
+
 **Purpose**: Validates database field references in Python code.
 
 ```bash
@@ -79,12 +83,14 @@ python scripts/validation/enhanced_field_validator.py --pre-commit
 ```
 
 **What it catches**:
+
 - Invalid field names in `frappe.db.get_value()` calls
 - Invalid field names in `frappe.db.get_all()` calls
 - Invalid field names in `frappe.get_doc()` field access
 - SQL queries with non-existent fields
 
 ### 2. Unified Field Validator
+
 **Purpose**: Comprehensive AST + SQL analysis for field references.
 
 ```bash
@@ -99,6 +105,7 @@ python scripts/validation/unified_field_validator.py --sql-only
 ```
 
 ### 3. Hooks and Event Validator
+
 **Purpose**: Special validation for event handlers and hooks.py.
 
 ```bash
@@ -112,6 +119,7 @@ python scripts/validation/hooks_event_validator.py --method on_payment_entry_sub
 ## Development Workflow
 
 ### Before Writing Code
+
 1. **Read DocType JSON**: Always check the DocType JSON file first to understand available fields.
 
 ```bash
@@ -129,6 +137,7 @@ python scripts/validation/enhanced_field_validator.py --file my_changed_file.py
 ```
 
 ### Pre-commit Integration
+
 The validation system is automatically integrated into pre-commit hooks:
 
 ```yaml
@@ -156,11 +165,13 @@ The validation system is automatically integrated into pre-commit hooks:
 ```
 
 **Automatic execution**:
+
 - Field validation runs on all Python files when you commit
 - Hooks/event validation runs when `hooks.py` or event files are modified
 - Method validation runs on all Python files for deprecated method detection
 
 ### CI/CD Integration
+
 Validation is integrated into the continuous integration pipeline:
 
 ```bash
@@ -171,9 +182,11 @@ python scripts/validation/comprehensive_validator.py --quiet --field-only
 ## Special DocType Field Access Patterns
 
 ### Chapter DocType Field Access
+
 The Chapter DocType has unique field access patterns that developers need to understand:
 
 #### Document Name vs Display Name
+
 ```python
 # Chapter DocType uses autoname: "prompt" and naming_rule: "Set by user"
 # This means the document name (ID) IS the chapter name - there's no separate "chapter_name" field
@@ -187,7 +200,9 @@ chapter_name = chapter_doc.chapter_name  # AttributeError!
 ```
 
 #### Available Fields
+
 Based on the Chapter DocType JSON, the actual fields are:
+
 - `name` (document ID, acts as chapter name)
 - `chapter_head` (Link to Member)
 - `region` (Link to Region, required)
@@ -202,6 +217,7 @@ Based on the Chapter DocType JSON, the actual fields are:
 - `members` (Table: Chapter Member)
 
 #### Correct Query Patterns
+
 ```python
 # ✅ CORRECT - Query by document name
 chapters = frappe.get_all("Chapter",
@@ -220,6 +236,7 @@ chapter_data = frappe.db.get_value("Chapter", chapter_name,
 ```
 
 #### Navigation and Relationships
+
 ```python
 # ✅ CORRECT - Find chapters by region
 chapters_in_region = frappe.get_all("Chapter",
@@ -233,6 +250,7 @@ members = frappe.get_all("Chapter Member",
 ```
 
 ### Member DocType Common Patterns
+
 ```python
 # Member DocType has both system fields and user-defined fields
 member = frappe.get_doc("Member", member_name)
@@ -252,12 +270,14 @@ member.is_active     # Use member.status == "Active" instead
 ## Common Validation Errors and Fixes
 
 ### Error: Field Not Found in DocType
+
 ```bash
 🔴 Error: Field 'compliance_status' not found in doctype 'System Alert'
    File: verenigingen/www/monitoring_dashboard.py, Line: 45
 ```
 
 **Fix Process**:
+
 1. Check the DocType JSON file:
    ```bash
    cat verenigingen/doctype/system_alert/system_alert.json | grep -A5 -B5 "fieldname"
@@ -267,24 +287,28 @@ member.is_active     # Use member.status == "Active" instead
 4. Re-run validation to confirm fix
 
 ### Error: Invalid SQL Field Reference
+
 ```bash
 🔴 Error: SQL query references invalid field 'old_field_name' in table 'tabSystem Alert'
    File: verenigingen/api/monitoring.py, Line: 123
 ```
 
 **Fix Process**:
+
 1. Identify the SQL query with the invalid field
 2. Check the corresponding DocType for correct field names
 3. Update the SQL query
 4. Test the query in console to ensure it works
 
 ### Error: Event Handler Method Issues
+
 ```bash
 🔴 Error: Event handler method 'load_payment_history' not optimized for performance
    File: verenigingen/hooks.py, Line: 67
 ```
 
 **Fix Process**:
+
 1. Replace heavy operations with atomic updates
 2. Use specific update methods instead of full rebuilds
 3. Test performance impact
@@ -293,6 +317,7 @@ member.is_active     # Use member.status == "Active" instead
 ## Best Practices
 
 ### 1. Always Read DocType JSON First
+
 ```python
 # ❌ Don't guess field names
 member_data = frappe.get_doc("Member", member_name)
@@ -306,6 +331,7 @@ if member_data.status == "Active":  # Correct field from JSON
 ```
 
 ### 2. Use Field Lists Explicitly
+
 ```python
 # ❌ Avoid implicit field selection
 members = frappe.get_all("Member")  # Gets only 'name' field
@@ -316,6 +342,7 @@ members = frappe.get_all("Member",
 ```
 
 ### 3. Handle Field Validation Errors Properly
+
 ```python
 # ❌ Don't ignore validation errors
 try:
@@ -332,6 +359,7 @@ except frappe.ValidationError as e:
 ```
 
 ### 4. Optimize Event Handlers
+
 ```python
 # ❌ Heavy operations in event handlers
 def on_submit(doc, method):
@@ -345,6 +373,7 @@ def on_submit(doc, method):
 ## Validation Configuration
 
 ### Exception Handling
+
 Sometimes you need to exclude certain files or patterns from validation:
 
 ```python
@@ -358,6 +387,7 @@ FIELD_VALIDATION_EXCEPTIONS = {
 ```
 
 ### Performance Tuning
+
 Validation performance can be monitored and tuned:
 
 ```bash
@@ -371,6 +401,7 @@ time python scripts/validation/unified_field_validator.py --pre-commit
 ## Integration with Other Tools
 
 ### IDE Integration
+
 You can integrate field validation with your IDE:
 
 ```bash
@@ -384,6 +415,7 @@ You can integrate field validation with your IDE:
 ```
 
 ### Git Hooks
+
 Beyond pre-commit, you can use validation in other git hooks:
 
 ```bash
@@ -395,6 +427,7 @@ python scripts/validation/comprehensive_validator.py --field-only --quiet
 ## Troubleshooting
 
 ### Validation Too Slow
+
 If field validation is taking too long:
 
 1. **Use field-only mode**: `--field-only` for faster validation
@@ -402,6 +435,7 @@ If field validation is taking too long:
 3. **Run on specific files**: Use `--file` parameter for targeted validation
 
 ### False Positives
+
 If validation reports incorrect errors:
 
 1. **Check exception configuration**: Add exceptions in `validation_config.py`
@@ -409,6 +443,7 @@ If validation reports incorrect errors:
 3. **Test manually**: Verify the field actually exists/doesn't exist
 
 ### Integration Issues
+
 If pre-commit hooks are failing:
 
 1. **Check Python environment**: Ensure all dependencies are installed
@@ -418,6 +453,7 @@ If pre-commit hooks are failing:
 ## Future Improvements
 
 ### Planned Enhancements
+
 - **Real-time IDE integration**: Live validation as you type
 - **Smart suggestions**: Suggest correct field names for typos
 - **Performance profiling**: Detailed performance analysis of validation
@@ -425,6 +461,7 @@ If pre-commit hooks are failing:
 - **Caching**: Cache DocType schemas for faster validation
 
 ### Contributing
+
 To contribute to the validation system:
 
 1. **Add new validators**: Create new validation scripts in `scripts/validation/`
@@ -437,6 +474,7 @@ To contribute to the validation system:
 **Last Updated**: January 26, 2025
 **Version**: Enhanced Field Validation v2.0
 **Related Documentation**:
+
 - [Code Validation System](../validation/CODE_VALIDATION_SYSTEM.md)
 - [Testing Framework 2025](../TESTING_FRAMEWORK_2025.md)
 - [Troubleshooting Guide](../troubleshooting/workspace-debugging.md)

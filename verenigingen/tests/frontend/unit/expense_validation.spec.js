@@ -45,7 +45,7 @@ describe('Expense Validation', () => {
 		});
 
 		it('should allow valid positive amounts', () => {
-			const expense = { amount: 25.50 };
+			const expense = { amount: 25.5 };
 
 			expect(() => {
 				validateExpenseAmount(expense);
@@ -105,18 +105,18 @@ describe('Expense Validation', () => {
 	describe('calculateExpenseTotals', () => {
 		it('should calculate totals correctly', () => {
 			const expenses = [
-				{ amount: 25.50, status: 'Approved' },
-				{ amount: 30.00, status: 'Approved' },
-				{ amount: 15.00, status: 'Pending' },
-				{ amount: 20.00, status: 'Rejected' }
+				{ amount: 25.5, status: 'Approved' },
+				{ amount: 30.0, status: 'Approved' },
+				{ amount: 15.0, status: 'Pending' },
+				{ amount: 20.0, status: 'Rejected' }
 			];
 
 			const totals = calculateExpenseTotals(expenses);
 
-			expect(totals.approved).toBe(55.50);
-			expect(totals.pending).toBe(15.00);
-			expect(totals.rejected).toBe(20.00);
-			expect(totals.total).toBe(90.50);
+			expect(totals.approved).toBe(55.5);
+			expect(totals.pending).toBe(15.0);
+			expect(totals.rejected).toBe(20.0);
+			expect(totals.total).toBe(90.5);
 		});
 
 		it('should handle empty expense list', () => {

@@ -32,9 +32,7 @@ const {
 	loadFrappeController,
 	testFormEvent
 } = require('../../setup/controller-loader');
-const {
-	validateDutchIBAN
-} = require('../../setup/dutch-validators');
+const { validateDutchIBAN } = require('../../setup/dutch-validators');
 
 // Initialize test environment
 setupTestMocks();
@@ -67,7 +65,8 @@ describe('Real Direct Debit Batch Controller', () => {
 
 	beforeAll(() => {
 		// Load the real Direct Debit Batch controller
-		const controllerPath = '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen_payments/doctype/direct_debit_batch/direct_debit_batch.js';
+		const controllerPath
+      = '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen_payments/doctype/direct_debit_batch/direct_debit_batch.js';
 		const allHandlers = loadFrappeController(controllerPath);
 		batchHandlers = allHandlers['Direct Debit Batch'];
 
@@ -88,7 +87,7 @@ describe('Real Direct Debit Batch Controller', () => {
 				created_by: 'system@example.org',
 				company: 'Test Organization',
 				sepa_creditor_id: 'NL02ZZZ091234567890',
-				total_amount: 1250.00,
+				total_amount: 1250.0,
 				total_transactions: 5,
 				__islocal: 0
 			}
@@ -126,7 +125,7 @@ describe('Real Direct Debit Batch Controller', () => {
 		// Mock file generation and banking utilities
 		global.frappe.utils = {
 			...global.frappe.utils,
-			get_url: jest.fn(path => `https://test.example.com${path}`),
+			get_url: jest.fn((path) => `https://test.example.com${path}`),
 			download_file: jest.fn()
 		};
 	});
@@ -138,26 +137,38 @@ describe('Real Direct Debit Batch Controller', () => {
 	describe('Form Refresh Handler', () => {
 		it('should execute refresh handler without errors', () => {
 			expect(() => {
-				testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+				testFormEvent('Direct Debit Batch', 'refresh', frm, {
+					'Direct Debit Batch': batchHandlers
+				});
 			}).not.toThrow();
 		});
 
 		it('should set up batch status indicators', () => {
 			frm.doc.status = 'Generated';
 
-			testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+			testFormEvent('Direct Debit Batch', 'refresh', frm, {
+				'Direct Debit Batch': batchHandlers
+			});
 
 			// Should set page indicator for status
 			expect(frm.page.set_indicator).toHaveBeenCalled();
 		});
 
 		it('should handle different batch statuses', () => {
-			const statuses = ['Draft', 'Generated', 'Submitted', 'Processed', 'Failed'];
+			const statuses = [
+				'Draft',
+				'Generated',
+				'Submitted',
+				'Processed',
+				'Failed'
+			];
 
-			statuses.forEach(status => {
+			statuses.forEach((status) => {
 				frm.doc.status = status;
 				expect(() => {
-					testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+					testFormEvent('Direct Debit Batch', 'refresh', frm, {
+						'Direct Debit Batch': batchHandlers
+					});
 				}).not.toThrow();
 			});
 		});
@@ -170,13 +181,13 @@ describe('Real Direct Debit Batch Controller', () => {
 				{
 					mandate: 'SEPA-2024-001',
 					member: 'MEM-2024-001',
-					amount: 25.00,
+					amount: 25.0,
 					description: 'Monthly membership fee'
 				},
 				{
 					mandate: 'SEPA-2024-002',
 					member: 'MEM-2024-002',
-					amount: 50.00,
+					amount: 50.0,
 					description: 'Annual membership fee'
 				}
 			]);
@@ -187,7 +198,9 @@ describe('Real Direct Debit Batch Controller', () => {
 			frm.doc.__islocal = 0;
 
 			expect(() => {
-				testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+				testFormEvent('Direct Debit Batch', 'refresh', frm, {
+					'Direct Debit Batch': batchHandlers
+				});
 			}).not.toThrow();
 
 			// The controller may or may not add buttons depending on actual implementation
@@ -199,7 +212,9 @@ describe('Real Direct Debit Batch Controller', () => {
 			frm.doc.__islocal = 0;
 
 			expect(() => {
-				testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+				testFormEvent('Direct Debit Batch', 'refresh', frm, {
+					'Direct Debit Batch': batchHandlers
+				});
 			}).not.toThrow();
 
 			expect(frm.doc.status).toBe('Generated');
@@ -210,7 +225,9 @@ describe('Real Direct Debit Batch Controller', () => {
 			frm.doc.__islocal = 0;
 
 			expect(() => {
-				testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+				testFormEvent('Direct Debit Batch', 'refresh', frm, {
+					'Direct Debit Batch': batchHandlers
+				});
 			}).not.toThrow();
 
 			// Generated batches should maintain their status
@@ -223,7 +240,9 @@ describe('Real Direct Debit Batch Controller', () => {
 			frm.doc.collection_date = '2024-01-20'; // Future date
 
 			expect(() => {
-				testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+				testFormEvent('Direct Debit Batch', 'refresh', frm, {
+					'Direct Debit Batch': batchHandlers
+				});
 			}).not.toThrow();
 		});
 
@@ -234,61 +253,69 @@ describe('Real Direct Debit Batch Controller', () => {
 				'INVALID_ID' // Invalid format
 			];
 
-			creditorIds.forEach(creditorId => {
+			creditorIds.forEach((creditorId) => {
 				frm.doc.sepa_creditor_id = creditorId;
 
 				expect(() => {
-					testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+					testFormEvent('Direct Debit Batch', 'refresh', frm, {
+						'Direct Debit Batch': batchHandlers
+					});
 				}).not.toThrow();
 			});
 		});
 
 		it('should calculate batch totals correctly', () => {
-			frm.doc.total_amount = 1250.00;
+			frm.doc.total_amount = 1250.0;
 			frm.doc.total_transactions = 5;
 
-			testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+			testFormEvent('Direct Debit Batch', 'refresh', frm, {
+				'Direct Debit Batch': batchHandlers
+			});
 
 			// Batch should maintain correct totals
-			expect(frm.doc.total_amount).toBe(1250.00);
+			expect(frm.doc.total_amount).toBe(1250.0);
 		});
 	});
 
 	describe('Mandate Integration', () => {
 		beforeEach(() => {
 			// Mock mandate validation API calls
-			global.frappe.call.mockImplementation(({ method, args, callback, error }) => {
-				if (method === 'validate_mandates') {
-					if (callback) {
-						callback({
-							message: {
-								valid_mandates: 4,
-								invalid_mandates: 1,
-								validation_errors: ['Mandate SEPA-2024-003 is expired']
-							}
-						});
-					}
-				} else if (method === 'get_batch_items') {
-					if (callback) {
-						callback({
-							message: [
-								{
-									mandate: 'SEPA-2024-001',
-									member: 'MEM-2024-001',
-									amount: 25.00
+			global.frappe.call.mockImplementation(
+				({ method, args, callback, error }) => {
+					if (method === 'validate_mandates') {
+						if (callback) {
+							callback({
+								message: {
+									valid_mandates: 4,
+									invalid_mandates: 1,
+									validation_errors: ['Mandate SEPA-2024-003 is expired']
 								}
-							]
-						});
+							});
+						}
+					} else if (method === 'get_batch_items') {
+						if (callback) {
+							callback({
+								message: [
+									{
+										mandate: 'SEPA-2024-001',
+										member: 'MEM-2024-001',
+										amount: 25.0
+									}
+								]
+							});
+						}
 					}
 				}
-			});
+			);
 		});
 
 		it('should validate all mandates in the batch', () => {
 			frm.doc.status = 'Draft';
 			frm.doc.__islocal = 0;
 
-			testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+			testFormEvent('Direct Debit Batch', 'refresh', frm, {
+				'Direct Debit Batch': batchHandlers
+			});
 
 			// Controller should trigger mandate validation for drafts
 			expect(frm.doc.status).toBe('Draft');
@@ -303,7 +330,9 @@ describe('Real Direct Debit Batch Controller', () => {
 			});
 
 			expect(() => {
-				testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+				testFormEvent('Direct Debit Batch', 'refresh', frm, {
+					'Direct Debit Batch': batchHandlers
+				});
 			}).not.toThrow();
 		});
 	});
@@ -326,7 +355,9 @@ describe('Real Direct Debit Batch Controller', () => {
 				}
 			});
 
-			testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+			testFormEvent('Direct Debit Batch', 'refresh', frm, {
+				'Direct Debit Batch': batchHandlers
+			});
 
 			// Should setup file generation capabilities
 			expect(frm.doc.status).toBe('Generated');
@@ -337,7 +368,9 @@ describe('Real Direct Debit Batch Controller', () => {
 			frm.doc.sepa_file_url = '/files/sepa_batch_001.xml';
 
 			expect(() => {
-				testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+				testFormEvent('Direct Debit Batch', 'refresh', frm, {
+					'Direct Debit Batch': batchHandlers
+				});
 			}).not.toThrow();
 
 			// File URL should be preserved
@@ -351,7 +384,9 @@ describe('Real Direct Debit Batch Controller', () => {
 			frm.doc.error_message = 'Bank connection timeout';
 
 			expect(() => {
-				testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+				testFormEvent('Direct Debit Batch', 'refresh', frm, {
+					'Direct Debit Batch': batchHandlers
+				});
 			}).not.toThrow();
 		});
 
@@ -360,18 +395,24 @@ describe('Real Direct Debit Batch Controller', () => {
 			frm.doc.total_amount = 0;
 
 			expect(() => {
-				testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+				testFormEvent('Direct Debit Batch', 'refresh', frm, {
+					'Direct Debit Batch': batchHandlers
+				});
 			}).not.toThrow();
 		});
 
 		it('should handle network errors during processing', () => {
 			// Mock network error
 			global.frappe.call.mockImplementation(({ error }) => {
-				if (error) { error('Network timeout'); }
+				if (error) {
+					error('Network timeout');
+				}
 			});
 
 			expect(() => {
-				testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+				testFormEvent('Direct Debit Batch', 'refresh', frm, {
+					'Direct Debit Batch': batchHandlers
+				});
 			}).not.toThrow();
 		});
 	});
@@ -381,7 +422,9 @@ describe('Real Direct Debit Batch Controller', () => {
 			frm.doc.company_iban = 'NL91ABNA0417164300';
 			frm.doc.sepa_creditor_id = 'NL02ZZZ091234567890';
 
-			testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+			testFormEvent('Direct Debit Batch', 'refresh', frm, {
+				'Direct Debit Batch': batchHandlers
+			});
 
 			// Should handle Dutch banking requirements
 			expect(frm.doc.company_iban).toBe('NL91ABNA0417164300');
@@ -396,7 +439,9 @@ describe('Real Direct Debit Batch Controller', () => {
 			frm.doc.collection_date = futureDate.toISOString().split('T')[0];
 
 			expect(() => {
-				testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+				testFormEvent('Direct Debit Batch', 'refresh', frm, {
+					'Direct Debit Batch': batchHandlers
+				});
 			}).not.toThrow();
 		});
 	});
@@ -404,11 +449,13 @@ describe('Real Direct Debit Batch Controller', () => {
 	describe('Performance and Scalability', () => {
 		it('should handle large batch processing efficiently', () => {
 			frm.doc.total_transactions = 1000;
-			frm.doc.total_amount = 25000.00;
+			frm.doc.total_amount = 25000.0;
 
 			const start = Date.now();
 
-			testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+			testFormEvent('Direct Debit Batch', 'refresh', frm, {
+				'Direct Debit Batch': batchHandlers
+			});
 
 			const duration = Date.now() - start;
 
@@ -419,7 +466,9 @@ describe('Real Direct Debit Batch Controller', () => {
 		it('should not make excessive server calls during refresh', () => {
 			const initialCallCount = global.frappe.call.mock.calls.length;
 
-			testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+			testFormEvent('Direct Debit Batch', 'refresh', frm, {
+				'Direct Debit Batch': batchHandlers
+			});
 
 			const finalCallCount = global.frappe.call.mock.calls.length;
 			const callsAdded = finalCallCount - initialCallCount;
@@ -431,18 +480,15 @@ describe('Real Direct Debit Batch Controller', () => {
 
 	describe('Status Workflow Management', () => {
 		it('should transition through proper workflow states', () => {
-			const statusFlow = [
-				'Draft',
-				'Generated',
-				'Submitted',
-				'Processed'
-			];
+			const statusFlow = ['Draft', 'Generated', 'Submitted', 'Processed'];
 
-			statusFlow.forEach(status => {
+			statusFlow.forEach((status) => {
 				frm.doc.status = status;
 
 				expect(() => {
-					testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+					testFormEvent('Direct Debit Batch', 'refresh', frm, {
+						'Direct Debit Batch': batchHandlers
+					});
 				}).not.toThrow();
 			});
 		});
@@ -451,7 +497,9 @@ describe('Real Direct Debit Batch Controller', () => {
 			frm.doc.status = 'Processed';
 
 			// Processed batches should be read-only
-			testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+			testFormEvent('Direct Debit Batch', 'refresh', frm, {
+				'Direct Debit Batch': batchHandlers
+			});
 
 			expect(frm.doc.status).toBe('Processed');
 		});
@@ -463,7 +511,9 @@ describe('Real Direct Debit Batch Controller', () => {
 			frm.doc.batch_id = 'BATCH-2024-001';
 
 			expect(() => {
-				testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+				testFormEvent('Direct Debit Batch', 'refresh', frm, {
+					'Direct Debit Batch': batchHandlers
+				});
 			}).not.toThrow();
 
 			// Data should remain consistent
@@ -475,7 +525,9 @@ describe('Real Direct Debit Batch Controller', () => {
 			frm.doc.__islocal = 0;
 
 			expect(() => {
-				testFormEvent('Direct Debit Batch', 'refresh', frm, { 'Direct Debit Batch': batchHandlers });
+				testFormEvent('Direct Debit Batch', 'refresh', frm, {
+					'Direct Debit Batch': batchHandlers
+				});
 			}).not.toThrow();
 
 			// Status should remain draft
@@ -487,6 +539,8 @@ describe('Real Direct Debit Batch Controller', () => {
 // Export test utilities for reuse
 module.exports = {
 	testDirectDebitBatchHandler: (event, mockForm) => {
-		return testFormEvent('Direct Debit Batch', event, mockForm, { 'Direct Debit Batch': batchHandlers });
+		return testFormEvent('Direct Debit Batch', event, mockForm, {
+			'Direct Debit Batch': batchHandlers
+		});
 	}
 };

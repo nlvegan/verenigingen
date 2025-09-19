@@ -1,4 +1,5 @@
 # Next Phase Implementation Plan
+
 ## Medium-Risk APIs and Enhanced Monitoring
 
 ## Overview
@@ -21,16 +22,19 @@ This plan outlines the implementation strategy for the next phase of API securit
 ### Current Security Status
 
 **Completed (Phase 1)**:
+
 - ✅ 100% critical financial APIs secured
 - ✅ 100% high-priority member data APIs secured
 - ✅ security framework implemented
 - ✅ quality features operational
 
 **Immediate Tasks (15-30 minutes)**:
+
 - 🔧 Fix import conflicts in 2 files
 - 🔧 Standardize decorator patterns across secured APIs
 
 **Next Phase Target (4-8 hours)**:
+
 - 🎯 Secure remaining 3 medium-risk APIs
 - 🎯 Implement enhanced monitoring dashboard
 - 🎯 Add automated security validation
@@ -47,6 +51,7 @@ This plan outlines the implementation strategy for the next phase of API securit
 **Security Level Required**: High (administrative function)
 
 **Implementation Plan**:
+
 ```python
 # Current function (example)
 @frappe.whitelist()
@@ -73,6 +78,7 @@ def validate_workspace_configuration():
 ```
 
 **Security Profile Applied**:
+
 - Rate limit: 50 requests/hour
 - CSRF protection: Required
 - Role requirements: System Manager, Verenigingen Administrator
@@ -88,6 +94,7 @@ def validate_workspace_configuration():
 **Security Level Required**: High (financial data access)
 
 **Implementation Plan**:
+
 ```python
 # Secured implementation
 @frappe.whitelist()
@@ -108,6 +115,7 @@ def check_account_types(**validation_params):
 ```
 
 **Security Profile Applied**:
+
 - Rate limit: 50 requests/hour
 - CSRF protection: Required
 - Role requirements: System Manager, Accounts Manager
@@ -123,6 +131,7 @@ def check_account_types(**validation_params):
 **Security Level Required**: Standard (database utility)
 
 **Implementation Plan**:
+
 ```python
 # Secured implementation
 @frappe.whitelist()
@@ -143,6 +152,7 @@ def check_sepa_indexes():
 ```
 
 **Security Profile Applied**:
+
 - Rate limit: 200 requests/hour
 - CSRF protection: Not required (read-only utility)
 - Role requirements: System Manager, Database Administrator
@@ -192,6 +202,7 @@ def get_security_dashboard_data():
 ```
 
 **Dashboard Components**:
+
 - Security Score Gauge (target: 90/100)
 - API Coverage Progress Bar (target: 75%)
 - Active Incidents Alert Panel
@@ -270,6 +281,7 @@ SECURITY_ALERT_THRESHOLDS = {
 #### 4. Implementation Details
 
 **Dashboard Files Structure**:
+
 ```
 docs/security/monitoring/
 ├── security_dashboard.py          # Backend dashboard logic
@@ -290,35 +302,35 @@ docs/security/monitoring/
 ```html
 <!-- Security Dashboard UI Components -->
 <div class="security-dashboard">
-    <!-- Security Score Widget -->
-    <div class="security-score-widget">
-        <h3>Security Score</h3>
-        <div class="score-gauge" data-score="89">89/100</div>
-        <div class="score-trend">↗️ +7 from last week</div>
-    </div>
+  <!-- Security Score Widget -->
+  <div class="security-score-widget">
+    <h3>Security Score</h3>
+    <div class="score-gauge" data-score="89">89/100</div>
+    <div class="score-trend">↗️ +7 from last week</div>
+  </div>
 
-    <!-- API Coverage Widget -->
-    <div class="api-coverage-widget">
-        <h3>API Security Coverage</h3>
-        <div class="progress-bar">
-            <div class="progress" style="width: 59.5%">59.5%</div>
-        </div>
-        <div class="coverage-details">44 of 74 APIs secured</div>
+  <!-- API Coverage Widget -->
+  <div class="api-coverage-widget">
+    <h3>API Security Coverage</h3>
+    <div class="progress-bar">
+      <div class="progress" style="width: 59.5%">59.5%</div>
     </div>
+    <div class="coverage-details">44 of 74 APIs secured</div>
+  </div>
 
-    <!-- Active Incidents Widget -->
-    <div class="incidents-widget">
-        <h3>Security Incidents</h3>
-        <div class="incident-count">0 Active</div>
-        <div class="incident-trend">2 resolved in last 24h</div>
-    </div>
+  <!-- Active Incidents Widget -->
+  <div class="incidents-widget">
+    <h3>Security Incidents</h3>
+    <div class="incident-count">0 Active</div>
+    <div class="incident-trend">2 resolved in last 24h</div>
+  </div>
 
-    <!-- Performance Impact Widget -->
-    <div class="performance-widget">
-        <h3>Security Overhead</h3>
-        <div class="performance-metric">7.3ms average</div>
-        <div class="performance-trend">↘️ -1.2ms from target</div>
-    </div>
+  <!-- Performance Impact Widget -->
+  <div class="performance-widget">
+    <h3>Security Overhead</h3>
+    <div class="performance-metric">7.3ms average</div>
+    <div class="performance-trend">↘️ -1.2ms from target</div>
+  </div>
 </div>
 ```
 
@@ -327,38 +339,42 @@ docs/security/monitoring/
 ```javascript
 // Dashboard chart configuration
 const securityCharts = {
-    coverageChart: {
-        type: 'progress',
-        data: {
-            current: 59.5,
-            target: 75,
-            total: 100
-        }
+  coverageChart: {
+    type: "progress",
+    data: {
+      current: 59.5,
+      target: 75,
+      total: 100,
     },
+  },
 
-    performanceChart: {
-        type: 'line',
-        data: {
-            labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
-            datasets: [{
-                label: 'Security Overhead (ms)',
-                data: [12.1, 9.8, 8.2, 7.3],
-                borderColor: '#cf3131'
-            }]
-        }
+  performanceChart: {
+    type: "line",
+    data: {
+      labels: ["Week 1", "Week 2", "Week 3", "Week 4"],
+      datasets: [
+        {
+          label: "Security Overhead (ms)",
+          data: [12.1, 9.8, 8.2, 7.3],
+          borderColor: "#cf3131",
+        },
+      ],
     },
+  },
 
-    incidentChart: {
-        type: 'bar',
-        data: {
-            labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-            datasets: [{
-                label: 'Security Incidents',
-                data: [2, 1, 0, 1, 0, 0, 0],
-                backgroundColor: '#01796f'
-            }]
-        }
-    }
+  incidentChart: {
+    type: "bar",
+    data: {
+      labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+      datasets: [
+        {
+          label: "Security Incidents",
+          data: [2, 1, 0, 1, 0, 0, 0],
+          backgroundColor: "#01796f",
+        },
+      ],
+    },
+  },
 };
 ```
 
@@ -367,6 +383,7 @@ const securityCharts = {
 ### Phase 3A: Immediate Tasks (30 minutes)
 
 **Week 1 - Day 1 (30 minutes)**:
+
 - [ ] Fix import conflicts in `get_user_chapters.py` (15 min)
 - [ ] Validate import fixes work correctly (5 min)
 - [ ] Standardize existing secured API patterns (10 min)
@@ -374,6 +391,7 @@ const securityCharts = {
 ### Phase 3B: Medium-Risk API Security (2 hours)
 
 **Week 1 - Day 2 (2 hours)**:
+
 - [ ] Secure `workspace_validator_enhanced.py` (45 min)
 - [ ] Secure `check_account_types.py` (30 min)
 - [ ] Secure `check_sepa_indexes.py` (20 min)
@@ -383,6 +401,7 @@ const securityCharts = {
 ### Phase 3C: Enhanced Monitoring Dashboard (4 hours)
 
 **Week 1 - Day 3-4 (4 hours)**:
+
 - [ ] Implement security metrics calculation (90 min)
 - [ ] Create dashboard backend API (60 min)
 - [ ] Build dashboard UI components (60 min)
@@ -391,6 +410,7 @@ const securityCharts = {
 ### Phase 3D: Testing and Documentation (2 hours)
 
 **Week 1 - Day 5 (2 hours)**:
+
 - [ ] Test complete security framework (30 min)
 - [ ] Validate dashboard functionality (30 min)
 - [ ] Update documentation (45 min)
@@ -401,16 +421,19 @@ const securityCharts = {
 ### Target Achievements
 
 **Security Score Improvement**:
+
 - Current: 82/100
 - Target: 90/100
 - Improvement: +8 points
 
 **API Coverage Enhancement**:
+
 - Current: 55.4% (41/74 files)
 - Target: 75% (55/74 files)
 - Improvement: +19.6%
 
 **Risk Reduction**:
+
 - Current: 85% risk reduction from baseline
 - Target: 92% risk reduction
 - Improvement: +7%
@@ -426,18 +449,21 @@ const securityCharts = {
 ### Validation Criteria
 
 **Security Framework**:
+
 - [ ] All medium-risk APIs secured appropriately
 - [ ] Import conflicts completely resolved
 - [ ] Decorator patterns standardized across codebase
 - [ ] Security framework passes all tests
 
 **Monitoring Dashboard**:
+
 - [ ] Real-time security metrics displayed accurately
 - [ ] Automated alerting functional
 - [ ] Performance impact tracking operational
 - [ ] Incident management workflow complete
 
 **Documentation**:
+
 - [ ] Implementation standards documented
 - [ ] Monitoring guide complete
 - [ ] Troubleshooting procedures updated
@@ -448,11 +474,13 @@ const securityCharts = {
 ### Phase 4: coverage (Future)
 
 **Remaining Low-Risk APIs (20 files)**:
+
 - Debug utilities and development tools
 - Test generators and validation scripts
 - Maintenance utilities and one-off fixes
 
 **Advanced Security Features**:
+
 - IP-based access restrictions
 - Business hours enforcement
 - Advanced anomaly detection
@@ -461,6 +489,7 @@ const securityCharts = {
 ### Long-term Maintenance
 
 **Continuous Improvement**:
+
 - Monthly security reviews
 - Quarterly framework updates
 - Annual security audits
@@ -479,9 +508,10 @@ Phase 3 implementation will achieve:
 The plan provides a clear path to comprehensive API security while maintaining the excellent performance and usability achieved in previous phases.
 
 **Implementation Priority**:
+
 1. **Immediate**: Import conflicts and standardization (30 minutes)
 2. **Short-term**: Medium-risk API security (2 hours)
 3. **Medium-term**: Enhanced monitoring dashboard (4 hours)
 4. **Ongoing**: Continuous security monitoring and improvement
 
-Following this plan will complete the transformation of the Verenigingen application into a comprehensively secured, quality system with  security practices.
+Following this plan will complete the transformation of the Verenigingen application into a comprehensively secured, quality system with security practices.

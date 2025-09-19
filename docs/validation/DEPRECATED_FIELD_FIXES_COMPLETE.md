@@ -5,9 +5,11 @@
 ### Issues Identified and Resolved
 
 #### 1. Invalid `member.chapter` field references (9 occurrences → FIXED)
+
 **Problem**: Tests were trying to access/set `member.chapter`, but this field doesn't exist in the Member doctype.
 
 **Files Fixed:**
+
 - ✅ `verenigingen/tests/test_member_status_transitions_enhanced.py` (2 occurrences)
 - ✅ `verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py` (6 occurrences)
 - ✅ `verenigingen/tests/backend/components/test_member_status_transitions.py` (1 occurrence)
@@ -16,14 +18,17 @@
 - ✅ `verenigingen/tests/backend/performance/test_performance_edge_cases.py` (1 SQL query)
 
 **Solution Applied:**
+
 - Replaced direct `member.chapter` assignments with `assign_member_to_chapter()` function calls
 - Replaced `member.chapter` assertions with Chapter Member relationship queries
 - Updated SQL queries to use proper Chapter Member joins
 
 #### 2. Invalid `annual_fee` field references (37 occurrences → FIXED)
+
 **Problem**: Tests were trying to access/set `annual_fee` on Membership documents, but this field doesn't exist.
 
 **Files Fixed:**
+
 - ✅ `verenigingen/tests/backend/comprehensive/test_financial_integration_edge_cases.py` (18 occurrences)
 - ✅ `verenigingen/tests/backend/components/test_payment_failure_scenarios.py` (8 occurrences)
 - ✅ `verenigingen/tests/backend/comprehensive/test_termination_workflow_edge_cases.py` (6 occurrences)
@@ -32,6 +37,7 @@
 - ✅ `verenigingen/tests/backend/performance/test_performance_edge_cases.py` (1 SQL query)
 
 **Solution Applied:**
+
 - Removed `"annual_fee": value` from Membership document creation dictionaries
 - Replaced `membership.annual_fee` access with `membership_type.minimum_amount`
 - Updated assertions to check fee through Membership Type relationships
@@ -42,6 +48,7 @@
 ### Correct Field Structure Used
 
 #### Member DocType (VALIDATED ✅)
+
 - ✅ `current_chapter_display` (HTML field showing current chapters)
 - ✅ `chapter_assigned_by` (User who assigned chapter)
 - ✅ `previous_chapter` (Link to previous chapter)
@@ -49,18 +56,21 @@
 - ❌ ~~`chapter`~~ (DOES NOT EXIST - FIXED)
 
 #### Membership DocType (VALIDATED ✅)
+
 - ✅ `member` (Link to Member)
 - ✅ `membership_type` (Link to Membership Type)
 - ✅ `status`, `start_date`, `renewal_date`
 - ❌ ~~`annual_fee`~~ (DOES NOT EXIST - fee comes from membership_type.minimum_amount - FIXED)
 
 #### Membership Type DocType (VALIDATED ✅)
+
 - ✅ `minimum_amount` (Currency field for fee)
 - ✅ `billing_period`, `dues_schedule_template`
 
 ### Fix Patterns Applied
 
 #### For `member.chapter` references:
+
 ```python
 # OLD (BROKEN):
 member.chapter = chapter_name
@@ -79,6 +89,7 @@ self.assertTrue(len(chapter_memberships) > 0, "Member should be assigned to chap
 ```
 
 #### For `annual_fee` references:
+
 ```python
 # OLD (BROKEN):
 {"doctype": "Membership", "annual_fee": 100.00}
@@ -99,6 +110,7 @@ self.assertEqual(membership_type_doc.minimum_amount, expected_fee)
 ## Verification Results
 
 **Final Scan Results:**
+
 - ✅ member.chapter references: 0 remaining problematic instances
 - ✅ annual_fee references: 0 remaining problematic instances
 - ✅ Only valid reference remaining: `board_member.chapter` (correct - Chapter Board Member doctype has chapter field)
@@ -115,6 +127,7 @@ All fixes preserve the original test logic while using correct field references:
 ## Status: COMPLETE ✅
 
 **Total References Fixed: 46**
+
 - member.chapter: 9 references
 - annual_fee: 37 references
 

@@ -1,6 +1,7 @@
 """
 Debug donation system functionality
 """
+
 import frappe
 from frappe.utils import flt
 

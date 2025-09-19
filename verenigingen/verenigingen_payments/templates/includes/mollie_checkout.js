@@ -14,8 +14,12 @@
 
 $(document).ready(() => {
 	// Get page configuration and payment data
-	const pageConfig = JSON.parse(document.getElementById('page-config').textContent);
-	const paymentData = JSON.parse(document.getElementById('payment-data').textContent);
+	const pageConfig = JSON.parse(
+		document.getElementById('page-config').textContent
+	);
+	const paymentData = JSON.parse(
+		document.getElementById('payment-data').textContent
+	);
 
 	// Payment state management
 	let currentPayment = null;
@@ -37,9 +41,9 @@ $(document).ready(() => {
 	form.addEventListener('submit', handleFormSubmit);
 
 	/**
-     * Initialize the payment process
-     * Starts by calling the server to create or check payment status
-     */
+   * Initialize the payment process
+   * Starts by calling the server to create or check payment status
+   */
 	function initializePayment() {
 		updateStatus('loading', __('Initializing payment...'));
 		updateButton('loading', __('Loading...'));
@@ -71,14 +75,18 @@ $(document).ready(() => {
 			error(xhr, status, error) {
 				hideLoading();
 				console.error('Payment initialization error:', error);
-				handleError(__('Connection error. Please check your internet connection and try again.'));
+				handleError(
+					__(
+						'Connection error. Please check your internet connection and try again.'
+					)
+				);
 			}
 		});
 	}
 
 	/**
-     * Handle form submission (payment button click)
-     */
+   * Handle form submission (payment button click)
+   */
 	function handleFormSubmit(e) {
 		e.preventDefault();
 
@@ -87,7 +95,9 @@ $(document).ready(() => {
 		}
 
 		if (!currentPayment) {
-			handleError(__('No payment information available. Please refresh the page.'));
+			handleError(
+				__('No payment information available. Please refresh the page.')
+			);
 			return;
 		}
 
@@ -108,8 +118,8 @@ $(document).ready(() => {
 	}
 
 	/**
-     * Handle payment response from server
-     */
+   * Handle payment response from server
+   */
 	function handlePaymentResponse(payment) {
 		const status = payment.status;
 		const message = payment.message || '';
@@ -139,7 +149,11 @@ $(document).ready(() => {
 			case 'Cancelled':
 				updateStatus('cancelled', __('Payment cancelled'));
 				updateButton('retry', __('Try Again'));
-				showError(__('Payment was cancelled. Click "Try Again" to create a new payment.'));
+				showError(
+					__(
+						'Payment was cancelled. Click "Try Again" to create a new payment.'
+					)
+				);
 				break;
 
 			case 'Error':
@@ -152,8 +166,8 @@ $(document).ready(() => {
 	}
 
 	/**
-     * Start polling payment status for pending payments
-     */
+   * Start polling payment status for pending payments
+   */
 	function startStatusPolling() {
 		if (statusCheckInterval) {
 			clearInterval(statusCheckInterval);
@@ -173,15 +187,16 @@ $(document).ready(() => {
 	}
 
 	/**
-     * Check current payment status
-     */
+   * Check current payment status
+   */
 	function checkPaymentStatus() {
 		if (!currentPayment || !currentPayment.paymentID) {
 			return;
 		}
 
 		frappe.call({
-			method: 'verenigingen.templates.pages.mollie_checkout.get_payment_status_only',
+			method:
+        'verenigingen.templates.pages.mollie_checkout.get_payment_status_only',
 			args: {
 				reference_doctype: pageConfig.reference_doctype,
 				reference_docname: pageConfig.reference_docname
@@ -212,8 +227,8 @@ $(document).ready(() => {
 	}
 
 	/**
-     * Redirect to Mollie payment page
-     */
+   * Redirect to Mollie payment page
+   */
 	function redirectToMollie() {
 		if (!currentPayment.paymentUrl) {
 			handleError(__('Payment URL not available'));
@@ -231,8 +246,8 @@ $(document).ready(() => {
 	}
 
 	/**
-     * Redirect to success page
-     */
+   * Redirect to success page
+   */
 	function redirectToSuccess() {
 		isProcessing = true;
 		updateButton('redirecting', __('Redirecting...'));
@@ -246,8 +261,8 @@ $(document).ready(() => {
 	}
 
 	/**
-     * Retry payment (create new payment)
-     */
+   * Retry payment (create new payment)
+   */
 	function retryPayment() {
 		isProcessing = true;
 		updateStatus('loading', __('Creating new payment...'));
@@ -266,8 +281,8 @@ $(document).ready(() => {
 	}
 
 	/**
-     * Update status display
-     */
+   * Update status display
+   */
 	function updateStatus(type, message) {
 		if (statusInput) {
 			statusInput.value = message;
@@ -282,12 +297,13 @@ $(document).ready(() => {
 	}
 
 	/**
-     * Update button appearance and text
-     */
+   * Update button appearance and text
+   */
 	function updateButton(type, text) {
 		if (submitButton) {
 			submitButton.textContent = text;
-			submitButton.disabled = (type === 'loading' || type === 'processing' || type === 'redirecting');
+			submitButton.disabled
+        = type === 'loading' || type === 'processing' || type === 'redirecting';
 
 			// Update button styling based on type
 			submitButton.className = submitButton.className.replace(/btn-\w+/g, '');
@@ -313,8 +329,8 @@ $(document).ready(() => {
 	}
 
 	/**
-     * Show loading indicator
-     */
+   * Show loading indicator
+   */
 	function showLoading() {
 		if (loadingIndicator) {
 			loadingIndicator.style.display = 'block';
@@ -322,8 +338,8 @@ $(document).ready(() => {
 	}
 
 	/**
-     * Hide loading indicator
-     */
+   * Hide loading indicator
+   */
 	function hideLoading() {
 		if (loadingIndicator) {
 			loadingIndicator.style.display = 'none';
@@ -331,8 +347,8 @@ $(document).ready(() => {
 	}
 
 	/**
-     * Show error message
-     */
+   * Show error message
+   */
 	function showError(message) {
 		if (errorMessage) {
 			document.getElementById('error-text').textContent = message;
@@ -344,8 +360,8 @@ $(document).ready(() => {
 	}
 
 	/**
-     * Show success message
-     */
+   * Show success message
+   */
 	function showSuccess(message) {
 		if (successMessage) {
 			document.getElementById('success-text').textContent = message;
@@ -357,8 +373,8 @@ $(document).ready(() => {
 	}
 
 	/**
-     * Hide all messages
-     */
+   * Hide all messages
+   */
 	function hideMessages() {
 		if (errorMessage) {
 			errorMessage.style.display = 'none';
@@ -369,8 +385,8 @@ $(document).ready(() => {
 	}
 
 	/**
-     * Handle errors
-     */
+   * Handle errors
+   */
 	function handleError(message) {
 		console.error('Payment error:', message);
 		updateStatus('error', __('Error'));

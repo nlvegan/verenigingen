@@ -116,18 +116,26 @@ function show_volunteer_info(frm) {
 							const volunteerDoc = volunteerResponse.message;
 							let skillsHtml = '';
 
-							if (volunteerDoc.volunteer_skills && volunteerDoc.volunteer_skills.length > 0) {
+							if (
+								volunteerDoc.volunteer_skills
+                && volunteerDoc.volunteer_skills.length > 0
+							) {
 								skillsHtml = '<strong>Skills:</strong><br>';
-								volunteerDoc.volunteer_skills.forEach(skill => {
-									const proficiencyColor = get_proficiency_color(skill.proficiency_level);
+								volunteerDoc.volunteer_skills.forEach((skill) => {
+									const proficiencyColor = get_proficiency_color(
+										skill.proficiency_level
+									);
 									skillsHtml += `<span class="badge" style="background-color: ${proficiencyColor}; margin: 2px;">${skill.skill} (${skill.proficiency_level})</span><br>`;
 								});
 							}
 
 							let interestsHtml = '';
-							if (volunteerDoc.interest_areas && volunteerDoc.interest_areas.length > 0) {
+							if (
+								volunteerDoc.interest_areas
+                && volunteerDoc.interest_areas.length > 0
+							) {
 								interestsHtml = '<strong>Interest Areas:</strong><br>';
-								volunteerDoc.interest_areas.forEach(interest => {
+								volunteerDoc.interest_areas.forEach((interest) => {
 									interestsHtml += `<span class="badge badge-secondary" style="margin: 2px;">${interest.interest_area}</span><br>`;
 								});
 							}
@@ -190,16 +198,20 @@ function create_volunteer_from_member(frm) {
 		__('Would you like to create a volunteer profile for this member?'),
 		() => {
 			frappe.call({
-				method: 'verenigingen.verenigingen.doctype.volunteer.volunteer.create_from_member',
+				method:
+          'verenigingen.verenigingen.doctype.volunteer.volunteer.create_from_member',
 				args: {
 					member: frm.doc.name
 				},
 				callback(r) {
 					if (r.message) {
-						frappe.show_alert({
-							message: __('Volunteer profile created successfully'),
-							indicator: 'green'
-						}, 5);
+						frappe.show_alert(
+							{
+								message: __('Volunteer profile created successfully'),
+								indicator: 'green'
+							},
+							5
+						);
 
 						// Refresh the form to show volunteer info
 						setTimeout(() => {

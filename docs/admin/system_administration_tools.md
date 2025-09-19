@@ -9,11 +9,13 @@ The Verenigingen app includes comprehensive system administration tools for moni
 ### 1. Web Interface (Recommended)
 
 **Admin Tools Page**: Navigate to `/admin_tools` in your browser
+
 - Requires: System Manager or Verenigingen Administrator role
 - Features: Visual dashboard with one-click tool execution
 - Real-time results display
 
 **System Health Dashboard**: Available in Frappe desk under "Verenigingen"
+
 - Path: Frappe Desk → Verenigingen → System Health Dashboard
 - Features: Live monitoring, performance graphs, optimization suggestions, business metrics
 - Auto-refreshes data on load with loading indicators
@@ -46,6 +48,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.api_doc_generator.gene
 ## Available Tools
 
 ### 1. System Health Check
+
 - **Purpose**: Monitor overall system status and business operations
 - **Checks**: Database connectivity, cache status, API response times, subscription processing, invoice generation, scheduler health
 - **Output**: Health status (healthy/degraded/critical) with detailed metrics
@@ -53,11 +56,13 @@ bench --site dev.veganisme.net execute verenigingen.utils.api_doc_generator.gene
 - **Alerting**: Critical alerts for subscription processing delays (25+ hours) and stuck scheduler jobs
 
 ### 2. Performance Dashboard
+
 - **Purpose**: 24-hour performance analysis
 - **Metrics**: API response times, success rates, slow endpoints
 - **Insights**: Identifies performance bottlenecks
 
 ### 3. Database Analysis
+
 - **Purpose**: Analyze database performance and structure
 - **Features**:
   - Slow query detection
@@ -66,11 +71,13 @@ bench --site dev.veganisme.net execute verenigingen.utils.api_doc_generator.gene
   - Missing index recommendations
 
 ### 4. Index Recommendations
+
 - **Purpose**: Optimize database queries
 - **Output**: SQL statements to create missing indexes
 - **Application**: Can be applied directly or saved for review
 
 ### 5. API Documentation Generator
+
 - **Purpose**: Generate comprehensive API documentation
 - **Formats**:
   - OpenAPI 3.0 specification
@@ -79,6 +86,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.api_doc_generator.gene
 - **Coverage**: All whitelisted API endpoints
 
 ### 6. Optimization Suggestions
+
 - **Purpose**: Get actionable optimization recommendations
 - **Categories**:
   - Slow endpoints requiring optimization
@@ -87,14 +95,17 @@ bench --site dev.veganisme.net execute verenigingen.utils.api_doc_generator.gene
   - Cache optimization opportunities
 
 ### 7. API Endpoint Summary
+
 - **Purpose**: Quick overview of all available APIs
 - **Details**: Endpoint paths, HTTP methods, parameters
 
 ### 8. Fraud Detection Stats
+
 - **Purpose**: Monitor fraud detection system
 - **Metrics**: Detection rates, flagged activities, patterns
 
 ### 9. Business & System Metrics (Enhanced)
+
 - **Purpose**: Real-time business and operational monitoring
 - **Metrics**:
   - **Subscription Health**: Active subscriptions count (submitted only), processing status
@@ -108,6 +119,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.api_doc_generator.gene
 - **Integration**: Connects with Zabbix monitoring for external alerting
 
 ### 10. Database Statistics (Enhanced)
+
 - **Purpose**: Database health and growth monitoring
 - **Features**:
   - Table size analysis with proper number formatting
@@ -117,6 +129,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.api_doc_generator.gene
 - **Display**: Clean formatting with proper thousand separators
 
 ### 11. Cleanup Imported Data
+
 - **Purpose**: Clean up all e-Boekhouden imported data for fresh migration
 - **Warning**: ⚠️ **DESTRUCTIVE OPERATION** - Permanently deletes all imported data
 - **Use Case**: Preparing for fresh data migration from e-Boekhouden
@@ -126,6 +139,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.api_doc_generator.gene
 ## Tool Outputs and Actions
 
 ### System Health Output Example (Enhanced)
+
 ```json
 {
   "status": "healthy",
@@ -170,6 +184,7 @@ bench --site dev.veganisme.net execute verenigingen.utils.api_doc_generator.gene
 ```
 
 ### Database Index Recommendations
+
 ```sql
 -- Example output
 CREATE INDEX idx_tabGL_Entry_due_date ON `tabGL Entry` (due_date);
@@ -178,6 +193,7 @@ CREATE INDEX idx_tabCustomer_email_id ON `tabCustomer` (email_id);
 ```
 
 ### Business Metrics Output (New)
+
 ```json
 {
   "timestamp": "2025-07-15T08:30:00.123456",
@@ -200,11 +216,13 @@ CREATE INDEX idx_tabCustomer_email_id ON `tabCustomer` (email_id);
 ```
 
 ### API Documentation Output
+
 - `/sites/dev.veganisme.net/private/files/api_docs/openapi_spec.json`
 - `/sites/dev.veganisme.net/private/files/api_docs/postman_collection.json`
 - `/sites/dev.veganisme.net/private/files/api_docs/api_documentation.md`
 
 ### Cleanup Imported Data Output
+
 ```json
 {
   "success": true,
@@ -225,30 +243,35 @@ CREATE INDEX idx_tabCustomer_email_id ON `tabCustomer` (email_id);
 ## Recent Enhancements (July 2025)
 
 ### 1. Subscription Billing Monitoring
+
 - **Enhanced Health Checks**: Added comprehensive subscription processing monitoring
 - **Business Metrics Integration**: Real-time tracking of active subscriptions and invoice generation
 - **Scheduler Health**: Detection of stuck jobs that block subscription processing
 - **Alert Thresholds**: Configurable warning (4+ hours) and critical (25+ hours) alerts
 
 ### 2. Zabbix Integration
+
 - **External Monitoring**: Integration with Zabbix for enterprise monitoring
 - **Metrics Export**: `/get_metrics_for_zabbix` endpoint for external monitoring systems
 - **Authentication**: Optional API key authentication for secure access
 - **Error Handling**: Graceful handling of missing request context (e.g., bench execute calls)
 
 ### 3. Dashboard Improvements
+
 - **Loading States**: Proper loading indicators that resolve correctly
 - **Number Formatting**: Fixed database statistics showing currency instead of numbers
 - **Business Metrics Section**: New dedicated section for subscription and invoice tracking
 - **Error Resolution**: Fixed JavaScript formatting issues and API endpoint errors
 
 ### 4. SEPA Notification Fixes
+
 - **Template Rendering**: Fixed string formatting issues in email template paths
 - **Error Logging**: Improved error message formatting for better debugging
 - **URL Generation**: Fixed dynamic URL generation in notification emails
 - **Subject Formatting**: Corrected f-string usage for proper subject line generation
 
 ### 5. Data Quality Improvements
+
 - **Submitted Documents Only**: Correctly filter for `docstatus = 1` to show only submitted records
 - **Accurate Counts**: Active subscription counts now reflect actual business state
 - **Consistent Formatting**: Standardized number formatting across all dashboard components
@@ -256,11 +279,13 @@ CREATE INDEX idx_tabCustomer_email_id ON `tabCustomer` (email_id);
 ## Best Practices
 
 ### 1. Regular Monitoring
+
 - Check system health daily
 - Review performance dashboard weekly
 - Analyze slow queries monthly
 
 ### 2. Optimization Workflow
+
 1. Run system health check
 2. Identify issues via performance dashboard
 3. Get optimization suggestions
@@ -268,11 +293,13 @@ CREATE INDEX idx_tabCustomer_email_id ON `tabCustomer` (email_id);
 5. Monitor improvements
 
 ### 3. Documentation Updates
+
 - Generate API docs after adding new endpoints
 - Review and update regularly
 - Share with development team
 
 ### 4. Security Considerations
+
 - Tools require elevated permissions
 - Review all SQL before execution
 - Monitor access logs
@@ -283,34 +310,41 @@ CREATE INDEX idx_tabCustomer_email_id ON `tabCustomer` (email_id);
 ### Common Issues
 
 **"Permission Denied" Error**
+
 - Ensure user has System Manager or Verenigingen Administrator role
 - Check site permissions
 
 **"Module Not Found" Error**
+
 - Restart bench after updates: `bench restart`
 - Clear cache: `bench clear-cache`
 
 **"Object is not bound" Error (Zabbix Integration)**
+
 - This occurs when calling API endpoints via bench execute without HTTP request context
 - Fixed in July 2025 update with proper error handling
 - Normal operation when called via web interface
 
 **Dashboard Loading Issues**
+
 - Check browser console for JavaScript errors
 - Verify all API endpoints are accessible
 - Restart services if metrics endpoints fail: `bench restart`
 
 **Incorrect Active Subscription Count**
+
 - Ensure queries include `docstatus = 1` filter for submitted documents only
 - Draft subscriptions (docstatus = 0) should not count as active
 - Fixed in July 2025 update
 
 **SEPA Notification Email Errors**
+
 - Check string formatting in notification templates
 - Verify email template files exist in `verenigingen/templates/emails/`
 - Fixed template path and subject formatting issues in July 2025
 
 **Slow Tool Execution**
+
 - Database analysis may take time on large databases
 - Consider running during off-peak hours
 - Use time limits for long operations
@@ -327,6 +361,7 @@ CREATE INDEX idx_tabCustomer_email_id ON `tabCustomer` (email_id);
 ### Scheduling Automated Checks
 
 Create a scheduled job in Frappe:
+
 ```python
 # In hooks.py
 scheduler_events = {
@@ -342,6 +377,7 @@ scheduler_events = {
 ### Custom Monitoring
 
 Extend the monitoring system:
+
 ```python
 from verenigingen.utils.performance_dashboard import PerformanceDashboard
 
@@ -355,6 +391,7 @@ custom_metrics = dashboard.get_custom_metrics(
 ### Integration with External Monitoring
 
 Export metrics to external systems:
+
 ```python
 # Export to monitoring service
 metrics = get_system_health()
@@ -364,6 +401,7 @@ send_to_monitoring_service(metrics)
 ## Maintenance Schedule
 
 ### Daily Tasks
+
 - System health check (including subscription processing status)
 - Review error logs
 - Check API success rates
@@ -371,6 +409,7 @@ send_to_monitoring_service(metrics)
 - Verify scheduler job status (stuck job detection)
 
 ### Weekly Tasks
+
 - Performance dashboard review
 - Database optimization check
 - API documentation update
@@ -378,6 +417,7 @@ send_to_monitoring_service(metrics)
 - Check Zabbix integration health
 
 ### Monthly Tasks
+
 - Full database analysis
 - Apply index recommendations
 - Security audit
@@ -388,6 +428,7 @@ send_to_monitoring_service(metrics)
 ## Emergency Procedures
 
 ### System Degradation
+
 1. Run immediate health check
 2. Identify failing components (database, cache, subscription processing, scheduler)
 3. Check recent changes
@@ -395,6 +436,7 @@ send_to_monitoring_service(metrics)
 5. Apply quick fixes or rollback
 
 ### Subscription Processing Crisis
+
 1. Check subscription processing health via dashboard
 2. Identify stuck scheduler jobs: `stuck_jobs > 0`
 3. Review last subscription run time (critical if 25+ hours)
@@ -403,6 +445,7 @@ send_to_monitoring_service(metrics)
 6. Check Zabbix alerts for external notification
 
 ### Performance Crisis
+
 1. Run performance dashboard
 2. Identify slow endpoints
 3. Apply emergency indexes
@@ -410,6 +453,7 @@ send_to_monitoring_service(metrics)
 5. Scale resources if needed
 
 ### SEPA Notification Failures
+
 1. Check email template existence and formatting
 2. Verify string formatting in notification code
 3. Test with known mandate ID
@@ -417,6 +461,7 @@ send_to_monitoring_service(metrics)
 5. Restart services to reload updated templates
 
 ### Database Issues
+
 1. Run database analyzer
 2. Check table locks
 3. Optimize slow queries

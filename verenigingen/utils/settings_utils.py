@@ -246,9 +246,11 @@ def get_e_boekhouden_api_credentials() -> Optional[Dict[str, str]]:
 
         return {
             "username": settings.get("username"),
-            "security_code": settings_doc.get_password("security_code")
-            if hasattr(settings_doc.__class__, "get_password")
-            else None,
+            "security_code": (
+                settings_doc.get_password("security_code")
+                if hasattr(settings_doc.__class__, "get_password")
+                else None
+            ),
         }
     except Exception as e:
         frappe.logger().error(f"Error retrieving E-Boekhouden API credentials: {str(e)}")

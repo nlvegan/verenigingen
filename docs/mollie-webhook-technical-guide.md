@@ -78,36 +78,40 @@ def mollie_subscription_webhook():
 ### Payload Processing
 
 #### Mollie JSON Event Format (Production)
+
 **Important**: Mollie sends webhooks as JSON event structures, not simple form data.
 
 ```json
 {
-    "resource": "event",
-    "id": "event_abc123",
-    "type": "payment.paid",
-    "entityId": "tr_HWjAncEdZDCbf8ckhJ7EJ",
-    "createdAt": "2025-09-12T12:39:00.0Z",
-    "_embedded": {
-        "entity": {
-            "resource": "payment",
-            "id": "tr_HWjAncEdZDCbf8ckhJ7EJ"
-        }
+  "resource": "event",
+  "id": "event_abc123",
+  "type": "payment.paid",
+  "entityId": "tr_HWjAncEdZDCbf8ckhJ7EJ",
+  "createdAt": "2025-09-12T12:39:00.0Z",
+  "_embedded": {
+    "entity": {
+      "resource": "payment",
+      "id": "tr_HWjAncEdZDCbf8ckhJ7EJ"
     }
+  }
 }
 ```
 
 **Key Points**:
+
 - Payment ID is in `entityId`, not `id`
 - Event type (`payment.paid`, `payment.failed`, etc.) is in `type`
 - Status must be fetched from Mollie API, not included in webhook
 - Ping events have type `hook.ping` and should return success without processing
 
 #### Legacy Form-Encoded Format (Manual Testing)
+
 ```
 id=tr_xxxxx&status=paid
 ```
 
 #### Processing Logic
+
 ```python
 # Modern webhook handler must support both formats
 if webhook_data.get("resource") == "event":
@@ -125,21 +129,23 @@ else:
 ### Response Formats
 
 #### Success Response
+
 ```json
 {
-    "status": "processed",
-    "member": "MEMBER-001",
-    "subscription_id": "sub_xxxxx",
-    "actions": ["payment_entry_created", "subscription_activated"]
+  "status": "processed",
+  "member": "MEMBER-001",
+  "subscription_id": "sub_xxxxx",
+  "actions": ["payment_entry_created", "subscription_activated"]
 }
 ```
 
 #### Error Response
+
 ```json
 {
-    "status": "error",
-    "message": "Webhook authentication failed",
-    "details": "Invalid signature"
+  "status": "error",
+  "message": "Webhook authentication failed",
+  "details": "Invalid signature"
 }
 ```
 
@@ -216,6 +222,7 @@ frequency_map = {
 **Function**: `retry_failed_subscription_activations()`
 **Schedule**: Daily via scheduled job
 **Logic**:
+
 - Find recent Mollie payments (last 30 days)
 - Identify members without active subscriptions
 - Retry subscription activation for completed first payments
@@ -279,6 +286,7 @@ WHERE mollie_subscription_id IS NOT NULL;
 **Approach**: Genuine API integration (no mocks)
 **Safety**: Built-in protection against live API key usage
 **Coverage**:
+
 - Real Mollie payment creation
 - Webhook processing simulation
 - Subscription activation testing
@@ -332,12 +340,14 @@ def setUp(self):
 ### Webhook Not Received
 
 **Check List**:
+
 1. Mollie Dashboard webhook URL configuration
 2. Site URL accessibility from internet
 3. Webhook endpoint security settings
 4. Firewall and SSL certificate configuration
 
 **Debugging**:
+
 ```bash
 # Test webhook endpoint
 curl -X POST https://yoursite.com/api/method/...mollie_subscription_webhook \
@@ -348,12 +358,14 @@ curl -X POST https://yoursite.com/api/method/...mollie_subscription_webhook \
 ### Payment Processing Failures
 
 **Common Issues**:
+
 - Bank account configuration missing
 - Sales Invoice not found or already paid
 - Member-Customer relationship not linked
 - Account permission errors
 
 **Debugging**:
+
 ```python
 # Check recent Payment Entries
 frappe.get_all("Payment Entry",
@@ -366,12 +378,14 @@ frappe.get_all("Payment Entry",
 
 **Symptoms**: First payments complete but subscriptions not activated
 **Root Causes**:
+
 - Payment sequence_type != "first"
 - Membership Dues Schedule not found
 - Mollie mandate not established
 - API rate limiting
 
 **Resolution**:
+
 ```python
 # Manual subscription retry
 from verenigingen.verenigingen_payments.utils.payment_gateways import retry_failed_subscription_activations
@@ -410,6 +424,7 @@ print(result)
 **Critical Discovery**: Mollie sends webhooks as JSON event structures in production, not simple form data as used in testing.
 
 **Production Format**:
+
 ```json
 {
   "resource": "event",
@@ -420,6 +435,7 @@ print(result)
 ```
 
 **Key Implementation Updates**:
+
 - ✅ **Unified Parser**: Created `mollie_webhook_parser.py` for consistent parsing across all handlers
 - ✅ **JSON Event Support**: All webhook handlers now extract payment ID from `entityId` field
 - ✅ **Ping Event Handling**: Proper response to Mollie's `hook.ping` connectivity tests
@@ -427,6 +443,7 @@ print(result)
 - ✅ **Quality Assurance**: QCE review completed with consistency improvements implemented
 
 **Updated Webhook Handlers**:
+
 - `mollie_payment_webhook.py` - Main donation webhook handler
 - `payment_gateways.py::mollie_subscription_webhook()` - Subscription webhook handler
 - `simple_donation_webhook.py` - Alternative donation webhook handler

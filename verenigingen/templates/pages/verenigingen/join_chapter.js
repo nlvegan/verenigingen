@@ -36,7 +36,5 @@ frappe.ui.form.on('Chapter Member', {
 		console.log(`here${frappe.session.user}`);
 		// body...
 	},
-	refresh(_frm) {
-
-	}
+	refresh(_frm) {}
 });

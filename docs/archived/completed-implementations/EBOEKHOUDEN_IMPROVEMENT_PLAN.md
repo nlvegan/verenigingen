@@ -11,6 +11,7 @@ This document outlines the improvement plan for the eBoekhouden integration syst
 ## Current State Assessment
 
 ### ✅ Already Implemented
+
 - REST API integration with full transaction history
 - Opening balance import (€324K+ successfully imported)
 - Intelligent party resolution with provisional customer/supplier creation
@@ -19,6 +20,7 @@ This document outlines the improvement plan for the eBoekhouden integration syst
 - Comprehensive error logging
 
 ### ⚠️ Key Gaps Identified
+
 - Customer/supplier merge functionality exists but not exposed as user-friendly interface
 - Limited resilience for API failures and long-running imports
 - Basic progress reporting without real-time updates
@@ -29,13 +31,16 @@ This document outlines the improvement plan for the eBoekhouden integration syst
 ## Implementation Roadmap
 
 ### Phase 1: Foundation (Weeks 1-2)
+
 **Goal**: Establish critical data quality and management capabilities
 
 #### 1.1 Customer/Supplier Merge User Interface
+
 **Priority**: Critical
 **Effort**: 2-3 days
 
 **Current State**:
+
 - ✅ Merge logic exists in `migration_duplicate_detection.py`
 - ✅ `DuplicateMerger` class with `merge_duplicates()` method
 - ✅ Reference updating via `_update_references()`
@@ -43,6 +48,7 @@ This document outlines the improvement plan for the eBoekhouden integration syst
 - ❌ No user-friendly interface for accessing this functionality
 
 **Implementation**:
+
 ```python
 # Create UI page for party merge management
 # Path: verenigingen/www/party_merge_tool.html
@@ -155,6 +161,7 @@ def detect_provisional_parties(party_type="Customer"):
 ```
 
 **Deliverables**:
+
 - User-friendly web interface for party merging
 - Provisional party detection
 - Batch merge capabilities
@@ -162,10 +169,12 @@ def detect_provisional_parties(party_type="Customer"):
 - Merge history and audit log
 
 #### 1.2 Data Quality Regression Testing Framework
+
 **Priority**: High
 **Effort**: 2-3 days
 
 **Implementation**:
+
 ```python
 # Quality metrics tracking
 class EBoekhoudenQualityMetrics:
@@ -198,6 +207,7 @@ class EBoekhoudenQualityMetrics:
 ```
 
 **Deliverables**:
+
 - Quality metrics DocType
 - Automated quality testing functions
 - Comparison reporting system
@@ -205,13 +215,16 @@ class EBoekhoudenQualityMetrics:
 - Quality dashboard page
 
 ### Phase 2: Resilience & Performance (Weeks 3-4)
+
 **Goal**: Make the system robust and scalable
 
 #### 2.1 Enhanced Error Recovery
+
 **Priority**: High
 **Effort**: 3-4 days
 
 **Implementation**:
+
 ```python
 # Resumable migration with state persistence
 class ResumableMigration:
@@ -243,6 +256,7 @@ def fetch_with_resilience(url, headers):
 ```
 
 **Deliverables**:
+
 - Migration state persistence
 - Resume functionality
 - Retry decorators for all API calls
@@ -250,10 +264,12 @@ def fetch_with_resilience(url, headers):
 - Failed item queue for manual review
 
 #### 2.2 Adaptive Performance Management
+
 **Priority**: Medium
 **Effort**: 2-3 days
 
 **Implementation**:
+
 ```python
 # Dynamic batch sizing based on system resources
 class AdaptiveBatchProcessor:
@@ -291,6 +307,7 @@ class StreamingProcessor:
 ```
 
 **Deliverables**:
+
 - Adaptive batch sizing algorithm
 - Memory monitoring integration
 - Streaming processor for large datasets
@@ -298,13 +315,16 @@ class StreamingProcessor:
 - Auto-optimization based on history
 
 ### Phase 3: User Experience (Weeks 5-6)
+
 **Goal**: Provide visibility and control over migrations
 
 #### 3.1 Real-time Progress Dashboard
+
 **Priority**: Medium
 **Effort**: 4-5 days
 
 **Implementation**:
+
 ```python
 # WebSocket-based progress updates
 class MigrationProgressBroadcaster:
@@ -378,6 +398,7 @@ class MigrationProgressBroadcaster:
 ```
 
 **Deliverables**:
+
 - WebSocket integration for real-time updates
 - Migration dashboard page
 - Pause/resume functionality
@@ -385,13 +406,16 @@ class MigrationProgressBroadcaster:
 - Email notifications for completion/failure
 
 ### Phase 4: Configuration & Flexibility (Weeks 7-8)
+
 **Goal**: Make the system adaptable to different organizational needs
 
 #### 4.1 Rule-Based Mapping Engine
+
 **Priority**: Medium
 **Effort**: 3-4 days
 
 **Implementation**:
+
 ```python
 # Flexible mapping rules system
 class MappingRuleEngine:
@@ -454,6 +478,7 @@ frappe.ui.form.on('eBoekhouden Mapping Rule', {
 ```
 
 **Deliverables**:
+
 - Mapping Rule DocType
 - Rule engine implementation
 - Rule testing interface
@@ -461,13 +486,16 @@ frappe.ui.form.on('eBoekhouden Mapping Rule', {
 - Rule templates for common scenarios
 
 ### Phase 5: Advanced Features (Weeks 9-10)
+
 **Goal**: Add sophisticated capabilities for large-scale operations
 
 #### 5.1 API Rate Limiting & Monitoring
+
 **Priority**: Low
 **Effort**: 2-3 days
 
 **Implementation**:
+
 ```python
 # Intelligent rate limiting with monitoring
 class SmartAPIClient:
@@ -525,6 +553,7 @@ class APIMetricsDashboard:
 ```
 
 **Deliverables**:
+
 - Smart rate limiting implementation
 - API metrics collection
 - Performance monitoring dashboard
@@ -534,26 +563,31 @@ class APIMetricsDashboard:
 ## Success Metrics
 
 ### Phase 1 Success Criteria
+
 - ✅ 90% reduction in generic customer/supplier entries after merge
 - ✅ Data quality scores improve by 25% or more
 - ✅ Zero data loss during merge operations
 
 ### Phase 2 Success Criteria
+
 - ✅ 100% of migrations can be resumed after failure
 - ✅ 50% reduction in migration failures due to timeouts
 - ✅ Automatic batch size optimization reduces memory errors by 80%
 
 ### Phase 3 Success Criteria
+
 - ✅ Real-time progress updates with <1 second latency
 - ✅ 90% of users successfully use pause/resume feature
 - ✅ 75% reduction in support tickets about migration status
 
 ### Phase 4 Success Criteria
+
 - ✅ 80% of mapping customizations done through UI (no code)
 - ✅ 60% reduction in post-migration data cleanup time
 - ✅ Successfully deploy organization-specific rules
 
 ### Phase 5 Success Criteria
+
 - ✅ Zero API rate limit errors during normal operations
 - ✅ 99.9% API availability tracking
 - ✅ Automatic performance optimization reduces API costs by 20%
@@ -561,16 +595,19 @@ class APIMetricsDashboard:
 ## Risk Mitigation
 
 ### Technical Risks
+
 1. **WebSocket compatibility**: Provide polling fallback for older browsers
 2. **Memory constraints**: Implement hard limits and graceful degradation
 3. **API changes**: Version detection and compatibility layer
 
 ### Data Risks
+
 1. **Merge conflicts**: Comprehensive validation before merge
 2. **Performance impact**: Run heavy operations during off-hours
 3. **Data integrity**: Transaction-based operations with rollback
 
 ### User Risks
+
 1. **Complexity**: Progressive disclosure UI with sensible defaults
 2. **Training**: Built-in help and video tutorials
 3. **Change management**: Gradual rollout with pilot users
@@ -578,16 +615,19 @@ class APIMetricsDashboard:
 ## Resource Requirements
 
 ### Development Team
+
 - 1 Senior Backend Developer (10 weeks)
 - 1 Frontend Developer (4 weeks for UI components)
 - 1 QA Engineer (2 weeks for testing)
 
 ### Infrastructure
+
 - WebSocket server for real-time updates
 - Additional Redis memory for progress tracking
 - Monitoring infrastructure (optional Sentry/DataDog)
 
 ### Timeline Summary
+
 - **Phase 1**: Weeks 1-2 (Foundation)
 - **Phase 2**: Weeks 3-4 (Resilience)
 - **Phase 3**: Weeks 5-6 (User Experience)

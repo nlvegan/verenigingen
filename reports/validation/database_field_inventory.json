@@ -71,9 +71,7 @@
     "web_form": {
       "count": 1,
       "files": 1,
-      "doctypes": [
-        "Has Role"
-      ]
+      "doctypes": ["Has Role"]
     },
     "doctype_controller": {
       "count": 21,
@@ -103,11 +101,7 @@
     "user_facing_page": {
       "count": 6,
       "files": 3,
-      "doctypes": [
-        "Team Member",
-        "DocType",
-        "Company"
-      ]
+      "doctypes": ["Team Member", "DocType", "Company"]
     }
   },
   "by_doctype": {
@@ -123,10 +117,7 @@
     },
     "Payment Entry": {
       "count": 4,
-      "missing_fields": [
-        "paid_amount as amount",
-        "posting_date as date"
-      ],
+      "missing_fields": ["paid_amount as amount", "posting_date as date"],
       "files_affected": 2
     },
     "Membership": {
@@ -151,46 +142,32 @@
     },
     "Donor": {
       "count": 6,
-      "missing_fields": [
-        "*"
-      ],
+      "missing_fields": ["*"],
       "files_affected": 2
     },
     "Customer": {
       "count": 2,
-      "missing_fields": [
-        "custom_eboekhouden_relation_id"
-      ],
+      "missing_fields": ["custom_eboekhouden_relation_id"],
       "files_affected": 2
     },
     "Supplier": {
       "count": 2,
-      "missing_fields": [
-        "custom_eboekhouden_relation_id"
-      ],
+      "missing_fields": ["custom_eboekhouden_relation_id"],
       "files_affected": 2
     },
     "Cost Center": {
       "count": 1,
-      "missing_fields": [
-        "custom_eboekhouden_kostenplaats_id"
-      ],
+      "missing_fields": ["custom_eboekhouden_kostenplaats_id"],
       "files_affected": 1
     },
     "Has Role": {
       "count": 4,
-      "missing_fields": [
-        "parent as user"
-      ],
+      "missing_fields": ["parent as user"],
       "files_affected": 4
     },
     "Membership Type": {
       "count": 7,
-      "missing_fields": [
-        "amount",
-        "subscription_plan",
-        "subscription_period"
-      ],
+      "missing_fields": ["amount", "subscription_plan", "subscription_period"],
       "files_affected": 6
     },
     "Member": {
@@ -209,18 +186,12 @@
     },
     "SEPA Mandate": {
       "count": 2,
-      "missing_fields": [
-        "customer",
-        "donor"
-      ],
+      "missing_fields": ["customer", "donor"],
       "files_affected": 2
     },
     "Termination Audit Entry": {
       "count": 2,
-      "missing_fields": [
-        "member",
-        "termination_request"
-      ],
+      "missing_fields": ["member", "termination_request"],
       "files_affected": 2
     },
     "Member Payment History": {
@@ -235,12 +206,7 @@
     },
     "Volunteer Assignment": {
       "count": 9,
-      "missing_fields": [
-        "volunteer",
-        "chapter",
-        "hours_per_week",
-        "team"
-      ],
+      "missing_fields": ["volunteer", "chapter", "hours_per_week", "team"],
       "files_affected": 2
     },
     "Chapter Board Member": {
@@ -255,39 +221,27 @@
     },
     "Member Fee Change History": {
       "count": 1,
-      "missing_fields": [
-        "membership"
-      ],
+      "missing_fields": ["membership"],
       "files_affected": 1
     },
     "Member IBAN History": {
       "count": 4,
-      "missing_fields": [
-        "*"
-      ],
+      "missing_fields": ["*"],
       "files_affected": 2
     },
     "Chapter Member": {
       "count": 17,
-      "missing_fields": [
-        "chapter",
-        "parent as chapter"
-      ],
+      "missing_fields": ["chapter", "parent as chapter"],
       "files_affected": 6
     },
     "Chapter": {
       "count": 2,
-      "missing_fields": [
-        "postal_code_ranges",
-        "is_active"
-      ],
+      "missing_fields": ["postal_code_ranges", "is_active"],
       "files_affected": 1
     },
     "Membership Dues Schedule": {
       "count": 2,
-      "missing_fields": [
-        "effective_date"
-      ],
+      "missing_fields": ["effective_date"],
       "files_affected": 2
     },
     "Communication History": {
@@ -301,9 +255,7 @@
     },
     "Team": {
       "count": 2,
-      "missing_fields": [
-        "team_members.volunteer"
-      ],
+      "missing_fields": ["team_members.volunteer"],
       "files_affected": 1
     },
     "Volunteer Activity": {
@@ -317,24 +269,17 @@
     },
     "DocPerm": {
       "count": 1,
-      "missing_fields": [
-        "*"
-      ],
+      "missing_fields": ["*"],
       "files_affected": 1
     },
     "Account": {
       "count": 3,
-      "missing_fields": [
-        "eboekhouden_group",
-        "custom_eboekhouden_code"
-      ],
+      "missing_fields": ["eboekhouden_group", "custom_eboekhouden_code"],
       "files_affected": 3
     },
     "E-Boekhouden Payment Mapping": {
       "count": 1,
-      "missing_fields": [
-        "*"
-      ],
+      "missing_fields": ["*"],
       "files_affected": 1
     },
     "E-Boekhouden Account Mapping": {
@@ -355,75 +300,52 @@
     },
     "E-Boekhouden Migration": {
       "count": 1,
-      "missing_fields": [
-        "migration_log"
-      ],
+      "missing_fields": ["migration_log"],
       "files_affected": 1
     },
     "DocType": {
       "count": 4,
-      "missing_fields": [
-        "app",
-        "published"
-      ],
+      "missing_fields": ["app", "published"],
       "files_affected": 2
     },
     "Team Member": {
       "count": 2,
-      "missing_fields": [
-        "status as member_status",
-        "parent as team_name"
-      ],
+      "missing_fields": ["status as member_status", "parent as team_name"],
       "files_affected": 1
     },
     "Company": {
       "count": 1,
-      "missing_fields": [
-        "default_expense_claim_payable_account"
-      ],
+      "missing_fields": ["default_expense_claim_payable_account"],
       "files_affected": 1
     },
     "Donation": {
       "count": 1,
-      "missing_fields": [
-        "SUM(amount)"
-      ],
+      "missing_fields": ["SUM(amount)"],
       "files_affected": 1
     },
     "Activity Log": {
       "count": 2,
-      "missing_fields": [
-        "COUNT(*)",
-        "AVG(response_time)"
-      ],
+      "missing_fields": ["COUNT(*)", "AVG(response_time)"],
       "files_affected": 1
     },
     "Role Profile": {
       "count": 1,
-      "missing_fields": [
-        "*"
-      ],
+      "missing_fields": ["*"],
       "files_affected": 1
     },
     "Module Profile": {
       "count": 1,
-      "missing_fields": [
-        "*"
-      ],
+      "missing_fields": ["*"],
       "files_affected": 1
     },
     "Expense Claim Type": {
       "count": 1,
-      "missing_fields": [
-        "default_account"
-      ],
+      "missing_fields": ["default_account"],
       "files_affected": 1
     },
     "System Alert": {
       "count": 1,
-      "missing_fields": [
-        "title"
-      ],
+      "missing_fields": ["title"],
       "files_affected": 1
     }
   },

@@ -91,35 +91,35 @@
  */
 class APIService {
 	/**
-	 * @constructor
-	 * @description Initializes the API service with configurable options
-	 *
-	 * Sets up the API service with performance optimization features including
-	 * intelligent caching, request deduplication, and retry mechanisms.
-	 * Provides enterprise-level configuration options for different deployment scenarios.
-	 *
-	 * @param {Object} [options={}] - Configuration options for the API service
-	 * @param {number} [options.timeout=30000] - Request timeout in milliseconds
-	 * @param {number} [options.retryCount=3] - Maximum number of retry attempts
-	 * @param {number} [options.retryDelay=1000] - Base delay between retries in milliseconds
-	 *
-	 * @property {Object} options - Merged configuration options
-	 * @property {Map} cache - Intelligent caching layer for API responses
-	 * @property {Map} requestQueue - Request deduplication queue
-	 *
-	 * @since 1.0.0
-	 *
-	 * @example
-	 * // Standard configuration
-	 * const apiService = new APIService();
-	 *
-	 * // High-reliability configuration
-	 * const apiService = new APIService({
-	 *   timeout: 60000,
-	 *   retryCount: 5,
-	 *   retryDelay: 2000
-	 * });
-	 */
+   * @constructor
+   * @description Initializes the API service with configurable options
+   *
+   * Sets up the API service with performance optimization features including
+   * intelligent caching, request deduplication, and retry mechanisms.
+   * Provides enterprise-level configuration options for different deployment scenarios.
+   *
+   * @param {Object} [options={}] - Configuration options for the API service
+   * @param {number} [options.timeout=30000] - Request timeout in milliseconds
+   * @param {number} [options.retryCount=3] - Maximum number of retry attempts
+   * @param {number} [options.retryDelay=1000] - Base delay between retries in milliseconds
+   *
+   * @property {Object} options - Merged configuration options
+   * @property {Map} cache - Intelligent caching layer for API responses
+   * @property {Map} requestQueue - Request deduplication queue
+   *
+   * @since 1.0.0
+   *
+   * @example
+   * // Standard configuration
+   * const apiService = new APIService();
+   *
+   * // High-reliability configuration
+   * const apiService = new APIService({
+   *   timeout: 60000,
+   *   retryCount: 5,
+   *   retryDelay: 2000
+   * });
+   */
 	constructor(options = {}) {
 		this.options = {
 			timeout: 30000,
@@ -133,43 +133,43 @@ class APIService {
 	}
 
 	/**
-	 * @method call
-	 * @description Main API call method with comprehensive error handling and optimization
-	 *
-	 * Provides the primary interface for all API communications with built-in caching,
-	 * request deduplication, and intelligent retry logic. Automatically handles common
-	 * failure scenarios and optimizes performance through smart caching strategies.
-	 *
-	 * Features:
-	 * - Intelligent caching with configurable expiration
-	 * - Request deduplication to prevent redundant calls
-	 * - Automatic retry with exponential backoff
-	 * - Comprehensive error handling and classification
-	 * - Performance monitoring and statistics
-	 *
-	 * @param {string} method - Backend method to call (full path)
-	 * @param {Object} [args={}] - Arguments to pass to the backend method
-	 * @param {Object} [options={}] - Request-specific options
-	 * @param {boolean} [options.cache=false] - Enable caching for this request
-	 * @param {number} [options.cacheTimeout=300000] - Cache expiration time in milliseconds
-	 * @param {number} [options.timeout] - Override default timeout for this request
-	 *
-	 * @returns {Promise<*>} Resolved API response data or cached result
-	 * @throws {Error} Network errors, validation errors, or server-side errors
-	 *
-	 * @since 1.0.0
-	 *
-	 * @example
-	 * // Simple API call
-	 * const result = await apiService.call('method.path', { param: 'value' });
-	 *
-	 * // Cached API call with custom timeout
-	 * const data = await apiService.call('method.path', {}, {
-	 *   cache: true,
-	 *   cacheTimeout: 600000,
-	 *   timeout: 45000
-	 * });
-	 */
+   * @method call
+   * @description Main API call method with comprehensive error handling and optimization
+   *
+   * Provides the primary interface for all API communications with built-in caching,
+   * request deduplication, and intelligent retry logic. Automatically handles common
+   * failure scenarios and optimizes performance through smart caching strategies.
+   *
+   * Features:
+   * - Intelligent caching with configurable expiration
+   * - Request deduplication to prevent redundant calls
+   * - Automatic retry with exponential backoff
+   * - Comprehensive error handling and classification
+   * - Performance monitoring and statistics
+   *
+   * @param {string} method - Backend method to call (full path)
+   * @param {Object} [args={}] - Arguments to pass to the backend method
+   * @param {Object} [options={}] - Request-specific options
+   * @param {boolean} [options.cache=false] - Enable caching for this request
+   * @param {number} [options.cacheTimeout=300000] - Cache expiration time in milliseconds
+   * @param {number} [options.timeout] - Override default timeout for this request
+   *
+   * @returns {Promise<*>} Resolved API response data or cached result
+   * @throws {Error} Network errors, validation errors, or server-side errors
+   *
+   * @since 1.0.0
+   *
+   * @example
+   * // Simple API call
+   * const result = await apiService.call('method.path', { param: 'value' });
+   *
+   * // Cached API call with custom timeout
+   * const data = await apiService.call('method.path', {}, {
+   *   cache: true,
+   *   cacheTimeout: 600000,
+   *   timeout: 45000
+   * });
+   */
 	async call(method, args = {}, options = {}) {
 		const cacheKey = this._getCacheKey(method, args);
 
@@ -207,8 +207,8 @@ class APIService {
 	}
 
 	/**
-     * Make HTTP request with retry logic
-     */
+   * Make HTTP request with retry logic
+   */
 	async _makeRequest(method, args, options) {
 		let lastError;
 
@@ -232,7 +232,10 @@ class APIService {
 				const delay = this.options.retryDelay * Math.pow(2, attempt);
 				await this._delay(delay);
 
-				console.warn(`API retry ${attempt + 1}/${this.options.retryCount} for ${method}:`, error.message);
+				console.warn(
+					`API retry ${attempt + 1}/${this.options.retryCount} for ${method}:`,
+					error.message
+				);
 			}
 		}
 
@@ -240,8 +243,8 @@ class APIService {
 	}
 
 	/**
-     * Single HTTP request
-     */
+   * Single HTTP request
+   */
 	_singleRequest(method, args, options) {
 		return new Promise((resolve, reject) => {
 			const timeoutId = setTimeout(() => {
@@ -294,8 +297,8 @@ class APIService {
 	}
 
 	/**
-     * Get form initialization data
-     */
+   * Get form initialization data
+   */
 	async getFormData() {
 		return this.call(
 			'verenigingen.api.membership_application.get_application_form_data',
@@ -305,8 +308,8 @@ class APIService {
 	}
 
 	/**
-     * Validate email address
-     */
+   * Validate email address
+   */
 	async validateEmail(email) {
 		if (!email || email.length < 3) {
 			return { valid: false, message: 'Email is too short' };
@@ -320,8 +323,8 @@ class APIService {
 	}
 
 	/**
-     * Validate postal code
-     */
+   * Validate postal code
+   */
 	async validatePostalCode(postalCode, country = 'Netherlands') {
 		if (!postalCode) {
 			return { valid: false, message: 'Postal code is required' };
@@ -335,8 +338,8 @@ class APIService {
 	}
 
 	/**
-     * Validate phone number
-     */
+   * Validate phone number
+   */
 	async validatePhoneNumber(phone, country = 'Netherlands') {
 		if (!phone) {
 			return { valid: true, message: 'Phone number is optional' };
@@ -349,8 +352,8 @@ class APIService {
 	}
 
 	/**
-     * Validate birth date
-     */
+   * Validate birth date
+   */
 	async validateBirthDate(birthDate) {
 		if (!birthDate) {
 			return { valid: false, message: 'Birth date is required' };
@@ -363,11 +366,14 @@ class APIService {
 	}
 
 	/**
-     * Validate custom membership amount
-     */
+   * Validate custom membership amount
+   */
 	async validateCustomAmount(membershipType, amount) {
 		if (!membershipType || !amount) {
-			return { valid: false, message: 'Membership type and amount are required' };
+			return {
+				valid: false,
+				message: 'Membership type and amount are required'
+			};
 		}
 
 		return this.call(
@@ -377,8 +383,8 @@ class APIService {
 	}
 
 	/**
-     * Get detailed membership type information
-     */
+   * Get detailed membership type information
+   */
 	async getMembershipTypeDetails(membershipType) {
 		return this.call(
 			'verenigingen.api.membership_application.get_membership_type_details',
@@ -388,8 +394,8 @@ class APIService {
 	}
 
 	/**
-     * Get suggested membership amounts
-     */
+   * Get suggested membership amounts
+   */
 	async getSuggestedAmounts(membershipTypeName) {
 		return this.call(
 			'verenigingen.api.membership_application.suggest_membership_amounts',
@@ -399,8 +405,8 @@ class APIService {
 	}
 
 	/**
-     * Get available payment methods
-     */
+   * Get available payment methods
+   */
 	async getPaymentMethods() {
 		return this.call(
 			'verenigingen.api.membership_application.get_payment_methods',
@@ -410,8 +416,8 @@ class APIService {
 	}
 
 	/**
-     * Save application draft
-     */
+   * Save application draft
+   */
 	async saveDraft(data) {
 		return this.call(
 			'verenigingen.api.membership_application.save_draft_application',
@@ -420,8 +426,8 @@ class APIService {
 	}
 
 	/**
-     * Load application draft
-     */
+   * Load application draft
+   */
 	async loadDraft(draftId) {
 		return this.call(
 			'verenigingen.api.membership_application.load_draft_application',
@@ -430,8 +436,8 @@ class APIService {
 	}
 
 	/**
-     * Submit membership application
-     */
+   * Submit membership application
+   */
 	async submitApplication(data) {
 		// Clear any cached data to ensure fresh submission
 		this.clearCache();
@@ -444,8 +450,8 @@ class APIService {
 	}
 
 	/**
-     * Check application status
-     */
+   * Check application status
+   */
 	async checkApplicationStatus(applicationId) {
 		return this.call(
 			'verenigingen.api.membership_application.check_application_status',
@@ -454,8 +460,8 @@ class APIService {
 	}
 
 	/**
-     * Check application eligibility
-     */
+   * Check application eligibility
+   */
 	async checkEligibility(data) {
 		return this.call(
 			'verenigingen.api.membership_application.check_application_eligibility',
@@ -464,8 +470,8 @@ class APIService {
 	}
 
 	/**
-     * Test API connectivity
-     */
+   * Test API connectivity
+   */
 	async testConnection() {
 		return this.call(
 			'verenigingen.api.membership_application.test_connection',
@@ -474,19 +480,19 @@ class APIService {
 	}
 
 	/**
-     * Utility methods
-     */
+   * Utility methods
+   */
 	_getCacheKey(method, args) {
 		return `${method}:${JSON.stringify(args)}`;
 	}
 
 	_delay(ms) {
-		return new Promise(resolve => setTimeout(resolve, ms));
+		return new Promise((resolve) => setTimeout(resolve, ms));
 	}
 
 	/**
-     * Clear cache
-     */
+   * Clear cache
+   */
 	clearCache(pattern = null) {
 		if (pattern) {
 			for (const key of this.cache.keys()) {
@@ -500,8 +506,8 @@ class APIService {
 	}
 
 	/**
-     * Get cache statistics
-     */
+   * Get cache statistics
+   */
 	getCacheStats() {
 		return {
 			size: this.cache.size,
@@ -511,11 +517,11 @@ class APIService {
 	}
 
 	/**
-     * Batch API calls for efficiency
-     */
+   * Batch API calls for efficiency
+   */
 	async batchCall(requests) {
 		const promises = requests.map(({ method, args, options }) =>
-			this.call(method, args, options).catch(error => ({ error }))
+			this.call(method, args, options).catch((error) => ({ error }))
 		);
 
 		return Promise.all(promises);

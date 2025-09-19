@@ -7,19 +7,24 @@ The Verenigingen app now includes a comprehensive hybrid report testing framewor
 ## Framework Components
 
 ### 1. **Hybrid Report Test Case** (`HybridReportTestCase`)
+
 Enhanced test case that extends Frappe's standard testing with:
+
 - Regression pattern detection
 - Structure validation
 - Export functionality testing
 - Optional filter testing
 
 ### 2. **Verenigingen Report Test Case** (`VereningingenReportTestCase`)
+
 Pre-configured test case for all Verenigingen reports with:
+
 - Predefined regression patterns for known issues
 - Standard filter test cases
 - Comprehensive report coverage
 
 ### 3. **Standalone Utilities**
+
 - `execute_script_report_hybrid()` - Standalone testing function
 - `test_all_reports_hybrid()` - Whitelisted function for bench execution
 - `test_single_report_hybrid()` - Test individual reports
@@ -27,7 +32,9 @@ Pre-configured test case for all Verenigingen reports with:
 ## Key Features
 
 ### ✅ **ERPNext Compatibility**
+
 Follows ERPNext's established patterns:
+
 ```python
 REPORT_FILTER_TEST_CASES = [
     ("ANBI Donation Summary", {"donor_type": "Individual"}),
@@ -36,7 +43,9 @@ REPORT_FILTER_TEST_CASES = [
 ```
 
 ### 🛡️ **Regression Detection**
+
 Specific patterns for known issues:
+
 ```python
 REGRESSION_PATTERNS = {
     "ANBI Donation Summary": [
@@ -49,13 +58,17 @@ REGRESSION_PATTERNS = {
 ```
 
 ### 📊 **Structure Analysis**
+
 Automatic validation of report return structures:
+
 - List vs Dict format detection
 - Column and data validation
 - Chart and summary validation
 
 ### 🔄 **Optional Filter Testing**
+
 Tests each optional filter individually following ERPNext patterns:
+
 ```python
 optional_filters = {"company": "_Test Company", "chapter": "Test Chapter"}
 ```
@@ -63,6 +76,7 @@ optional_filters = {"company": "_Test Company", "chapter": "Test Chapter"}
 ## Usage Examples
 
 ### Command Line Testing
+
 ```bash
 # Test all reports with hybrid framework
 bench --site dev.veganisme.net execute verenigingen.tests.utils.hybrid_report_tester.test_all_reports_hybrid
@@ -78,6 +92,7 @@ bench --site dev.veganisme.net execute verenigingen.tests.utils.test_runner_wrap
 ```
 
 ### Python Testing
+
 ```python
 # In test files
 from verenigingen.tests.utils.hybrid_report_tester import VereningingenReportTestCase
@@ -98,6 +113,7 @@ class TestMyReports(VereningingenReportTestCase):
 ## Test Results Structure
 
 The framework returns detailed test results:
+
 ```python
 {
     "success": true,
@@ -125,6 +141,7 @@ The framework returns detailed test results:
 ## Integration with Test Runner
 
 The hybrid framework is fully integrated with the existing test runner:
+
 - Available in comprehensive test suite
 - Includes both traditional and hybrid testing approaches
 - Provides detailed comparison results
@@ -140,6 +157,7 @@ The hybrid framework is fully integrated with the existing test runner:
 To add a new report to the test suite:
 
 1. **Add to test cases**:
+
 ```python
 REPORT_FILTER_TEST_CASES.append(
     ("New Report Name", {"filter_key": "filter_value"})
@@ -147,6 +165,7 @@ REPORT_FILTER_TEST_CASES.append(
 ```
 
 2. **Add regression patterns** (if needed):
+
 ```python
 REGRESSION_PATTERNS["New Report Name"] = [
     {"pattern": "error_pattern", "description": "Known issue description"}
@@ -154,6 +173,7 @@ REGRESSION_PATTERNS["New Report Name"] = [
 ```
 
 3. **Run tests**:
+
 ```bash
 bench --site dev.veganisme.net execute verenigingen.tests.utils.hybrid_report_tester.test_all_reports_hybrid
 ```

@@ -116,22 +116,46 @@ describe('IBAN Validation in Membership Application', () => {
 				const countryCode = cleanIBAN.substring(0, 2);
 
 				const ibanLengths = {
-					AD: 24, AT: 20, BE: 16, CH: 21, CZ: 24,
-					DE: 22, DK: 18, ES: 24, FI: 18, FR: 27,
-					GB: 22, IE: 22, IT: 27, LU: 20, NL: 18,
-					NO: 15, PL: 28, PT: 25, SE: 24
+					AD: 24,
+					AT: 20,
+					BE: 16,
+					CH: 21,
+					CZ: 24,
+					DE: 22,
+					DK: 18,
+					ES: 24,
+					FI: 18,
+					FR: 27,
+					GB: 22,
+					IE: 22,
+					IT: 27,
+					LU: 20,
+					NL: 18,
+					NO: 15,
+					PL: 28,
+					PT: 25,
+					SE: 24
 				};
 
 				if (!(countryCode in ibanLengths)) {
-					return { valid: false, error: `Unsupported country code: ${countryCode}` };
+					return {
+						valid: false,
+						error: `Unsupported country code: ${countryCode}`
+					};
 				}
 
 				const expectedLength = ibanLengths[countryCode];
 				if (cleanIBAN.length !== expectedLength) {
 					const countryNames = {
-						NL: 'Dutch', BE: 'Belgian', DE: 'German',
-						FR: 'French', GB: 'British', IT: 'Italian',
-						ES: 'Spanish', AT: 'Austrian', CH: 'Swiss'
+						NL: 'Dutch',
+						BE: 'Belgian',
+						DE: 'German',
+						FR: 'French',
+						GB: 'British',
+						IT: 'Italian',
+						ES: 'Spanish',
+						AT: 'Austrian',
+						CH: 'Swiss'
 					};
 					const countryName = countryNames[countryCode] || countryCode;
 					return {
@@ -142,13 +166,19 @@ describe('IBAN Validation in Membership Application', () => {
 
 				// Perform mod-97 checksum validation
 				const rearranged = cleanIBAN.substring(4) + cleanIBAN.substring(0, 4);
-				const numeric = rearranged.replace(/[A-Z]/g, char => char.charCodeAt(0) - 55);
+				const numeric = rearranged.replace(
+					/[A-Z]/g,
+					(char) => char.charCodeAt(0) - 55
+				);
 				const remainder = numeric.match(/.{1,9}/g).reduce((acc, chunk) => {
 					return (parseInt(acc + chunk) % 97).toString();
 				}, '');
 
 				if (remainder !== '1') {
-					return { valid: false, error: 'Invalid IBAN checksum - please check for typos' };
+					return {
+						valid: false,
+						error: 'Invalid IBAN checksum - please check for typos'
+					};
 				}
 
 				const formatted = cleanIBAN.match(/.{1,4}/g).join(' ');
@@ -157,7 +187,9 @@ describe('IBAN Validation in Membership Application', () => {
 			},
 
 			deriveBICFromIBAN(iban) {
-				if (!iban) { return null; }
+				if (!iban) {
+					return null;
+				}
 
 				const cleanIBAN = iban.replace(/\s/g, '').toUpperCase();
 
@@ -183,7 +215,9 @@ describe('IBAN Validation in Membership Application', () => {
 			},
 
 			getBankNameFromIBAN(iban) {
-				if (!iban) { return null; }
+				if (!iban) {
+					return null;
+				}
 
 				const cleanIBAN = iban.replace(/\s/g, '').toUpperCase();
 
@@ -211,7 +245,9 @@ describe('IBAN Validation in Membership Application', () => {
 				const ibanField = $('#iban');
 				const iban = ibanField.val();
 
-				if (!iban) { return; }
+				if (!iban) {
+					return;
+				}
 
 				const validation = this.performIBANValidation(iban);
 
@@ -220,7 +256,9 @@ describe('IBAN Validation in Membership Application', () => {
 
 				if (!validation.valid) {
 					ibanField.removeClass('is-valid').addClass('is-invalid');
-					ibanField.after(`<div class="invalid-feedback">${validation.error}</div>`);
+					ibanField.after(
+						`<div class="invalid-feedback">${validation.error}</div>`
+					);
 					$('#bic').val('');
 				} else {
 					ibanField.removeClass('is-invalid').addClass('is-valid');
@@ -228,7 +266,9 @@ describe('IBAN Validation in Membership Application', () => {
 
 					const bankName = this.getBankNameFromIBAN(iban);
 					if (bankName) {
-						ibanField.after(`<div class="valid-feedback">Valid ${bankName} IBAN</div>`);
+						ibanField.after(
+							`<div class="valid-feedback">Valid ${bankName} IBAN</div>`
+						);
 					} else {
 						ibanField.after('<div class="valid-feedback">Valid IBAN</div>');
 					}
@@ -254,13 +294,17 @@ describe('IBAN Validation in Membership Application', () => {
 		it('should reject IBANs with invalid checksum', () => {
 			const result = membershipApp.performIBANValidation('NL91ABNA0417164301');
 			expect(result.valid).toBe(false);
-			expect(result.error).toBe('Invalid IBAN checksum - please check for typos');
+			expect(result.error).toBe(
+				'Invalid IBAN checksum - please check for typos'
+			);
 		});
 
 		it('should validate country-specific lengths', () => {
 			const result = membershipApp.performIBANValidation('NL91ABNA041716430');
 			expect(result.valid).toBe(false);
-			expect(result.error).toBe('Dutch IBAN must be 18 characters (you have 17)');
+			expect(result.error).toBe(
+				'Dutch IBAN must be 18 characters (you have 17)'
+			);
 		});
 
 		it('should handle lowercase input', () => {
@@ -270,7 +314,9 @@ describe('IBAN Validation in Membership Application', () => {
 		});
 
 		it('should handle IBANs with spaces', () => {
-			const result = membershipApp.performIBANValidation('NL91 ABNA 0417 1643 00');
+			const result = membershipApp.performIBANValidation(
+				'NL91 ABNA 0417 1643 00'
+			);
 			expect(result.valid).toBe(true);
 			expect(result.formatted).toBe('NL91 ABNA 0417 1643 00');
 		});
@@ -288,7 +334,9 @@ describe('IBAN Validation in Membership Application', () => {
 		});
 
 		it('should validate German IBANs', () => {
-			const result = membershipApp.performIBANValidation('DE89370400440532013000');
+			const result = membershipApp.performIBANValidation(
+				'DE89370400440532013000'
+			);
 			expect(result.valid).toBe(true);
 			expect(result.formatted).toBe('DE89 3704 0044 0532 0130 00');
 		});
@@ -344,7 +392,8 @@ describe('IBAN Validation in Membership Application', () => {
 	});
 
 	describe('validateIBAN UI behavior', () => {
-		let ibanField; let bicField;
+		let ibanField;
+		let bicField;
 
 		beforeEach(() => {
 			// Store references to mock elements

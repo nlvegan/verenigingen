@@ -7,19 +7,25 @@ This index helps you find the right JavaScript testing documentation for your sp
 ## Documentation Structure
 
 ### 📋 [Testing Strategy Overview](../testing-strategy.md)
+
 **When to use:** Understanding our overall testing philosophy and approach
+
 - **Focus:** Strategic overview, coverage goals, performance benchmarks
 - **Best for:** Project managers, team leads, new developers understanding the big picture
 - **Content:** Testing philosophy, coverage requirements, performance goals, security testing approach
 
 ### 🔧 [JavaScript Testing Infrastructure](javascript-testing-guide.md)
+
 **When to use:** Setting up testing infrastructure, CI/CD integration, and development workflows
+
 - **Focus:** Tools, configuration, CI/CD pipelines, development environment setup
 - **Best for:** DevOps engineers, developers setting up testing environments
 - **Content:** Jest/Cypress setup, GitHub Actions workflows, coverage reporting, debugging tools
 
 ### 📝 [DocType JavaScript Testing](../javascript-testing-guide.md)
+
 **When to use:** Writing tests for specific DocType form controllers and business logic
+
 - **Focus:** Practical testing patterns for Frappe DocType JavaScript files
 - **Best for:** Frontend developers writing tests for form controllers and business logic
 - **Content:** DocType-specific test examples, mocking patterns, form testing strategies
@@ -29,42 +35,56 @@ This index helps you find the right JavaScript testing documentation for your sp
 ### "I want to..."
 
 #### Set Up JavaScript Testing
+
 → **Start with:** [JavaScript Testing Infrastructure](javascript-testing-guide.md)
+
 - Install dependencies and configure Jest/Cypress
 - Set up CI/CD workflows
 - Configure coverage reporting
 
 #### Test DocType Form Controllers
+
 → **Start with:** [DocType JavaScript Testing](../javascript-testing-guide.md)
+
 - Learn DocType-specific testing patterns
 - See examples for Member, Chapter, Volunteer forms
 - Understand mocking strategies for Frappe framework
 
 #### Understand Testing Philosophy
+
 → **Start with:** [Testing Strategy Overview](../testing-strategy.md)
+
 - Learn our testing approach and coverage goals
 - Understand performance benchmarks
 - See security testing requirements
 
 #### Debug Test Issues
+
 → **Check:** [JavaScript Testing Infrastructure](javascript-testing-guide.md) → Debugging section
+
 - Jest debugging techniques
 - Cypress debugging tools
 - VS Code integration
 
 #### Write Integration Tests
+
 → **Check:** [DocType JavaScript Testing](../javascript-testing-guide.md) → Integration Tests section
+
 - Cross-DocType workflow testing
 - Multi-component interaction patterns
 
 #### Set Up CI/CD
+
 → **Check:** [JavaScript Testing Infrastructure](javascript-testing-guide.md) → CI/CD Integration section
+
 - GitHub Actions configuration
 - Automated test execution
 - Coverage reporting integration
 
 #### Understand Coverage Requirements
+
 → **Check:** [Testing Strategy Overview](../testing-strategy.md) → Coverage Goals section
+
 - Current coverage thresholds: 70% (branches, functions, lines, statements)
 - Coverage reporting locations
 - Performance benchmarks
@@ -83,6 +103,7 @@ docs/
 ## Testing Command Quick Reference
 
 ### Development Commands
+
 ```bash
 # Unit tests with Jest
 npm test                    # Run all tests
@@ -95,6 +116,7 @@ yarn cypress:run          # Headless execution
 ```
 
 ### CI/CD Commands
+
 ```bash
 # From project root
 node tests/run-js-tests.js           # Custom test runner

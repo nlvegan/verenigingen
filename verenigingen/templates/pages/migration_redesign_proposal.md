@@ -1,6 +1,7 @@
 # E-Boekhouden Migration Redesign Proposal
 
 ## Current Problems
+
 1. Too many checkboxes that are actually mandatory
 2. Confusing "Dry Run" as a checkbox instead of action
 3. No mutation ID tracking for preventing duplicates
@@ -11,6 +12,7 @@
 ### Migration Types (Radio Buttons, not checkboxes)
 
 #### 1. **Full Initial Migration** (Recommended for first time)
+
 - Automatically imports:
   - ✓ Chart of Accounts
   - ✓ All Customers/Suppliers
@@ -20,17 +22,20 @@
 - Creates mutation ID tracking
 
 #### 2. **Transaction Update** (For regular updates)
+
 - Only imports new transactions
 - Requires date range selection
 - Skips transactions already imported (by mutation ID)
 - Updates related customers/suppliers if needed
 
 #### 3. **Preview Mode** (Test run)
+
 - Shows what would be imported
 - No actual changes made
 - Helps verify settings
 
 ### UI Mockup
+
 ```
 ┌─────────────────────────────────────────────────┐
 │ E-Boekhouden Migration                          │
@@ -50,18 +55,21 @@
 ```
 
 ### Benefits
+
 1. **Clearer**: Users know exactly what each option does
 2. **Safer**: Mutation IDs prevent duplicate imports
 3. **Simpler**: No confusing optional checkboxes
 4. **Smarter**: System handles dependencies automatically
 
 ### Implementation Steps
+
 1. Add mutation ID fields to Journal Entry, Invoice doctypes
 2. Update migration logic to track mutation IDs
 3. Simplify the UI to radio buttons
 4. Auto-detect if this is first migration or update
 
 ### Post-Migration Tools (Keep as is)
+
 - Map Account Types ✓
 - Fix missing party information
 - View migration history

@@ -1,6 +1,7 @@
 # Party Deduplication and Matching Implementation Plan
 
 ## Current Issues
+
 - Creates duplicate parties with slight variations
 - Falls back to generic parties too easily
 - No intelligent matching
@@ -10,6 +11,7 @@
 ### Step 1: Create Party Mapping Infrastructure
 
 1. **E-Boekhouden Relation Mapping DocType**
+
    ```
    Fields:
    - relation_code (from e-boekhouden)
@@ -21,6 +23,7 @@
    ```
 
 2. **Matching Score Algorithm**
+
    ```python
    def calculate_match_score(ebh_name, erp_name):
        score = 0
@@ -48,6 +51,7 @@
 ### Step 2: Implement Smart Party Resolution
 
 1. **Party Resolution Flow**
+
    ```python
    def get_or_create_party(relation_data, party_type):
        # 1. Check existing mapping
@@ -84,6 +88,7 @@
 ### Step 3: Enhance Party Creation
 
 1. **Extract More Data from E-Boekhouden**
+
    ```python
    def create_party_from_relation(relation_data, party_type):
        party = frappe.new_doc(party_type)
@@ -115,6 +120,7 @@
 ### Step 4: Cleanup Existing Data
 
 1. **Deduplication Script**
+
    ```python
    def cleanup_duplicate_parties():
        # Find potential duplicates

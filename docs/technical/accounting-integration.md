@@ -35,6 +35,7 @@ Donation Campaign (Enhanced)
 ### Field Specifications
 
 #### accounting_dimension_value
+
 ```json
 {
   "fieldname": "accounting_dimension_value",
@@ -48,12 +49,14 @@ Donation Campaign (Enhanced)
 ```
 
 **Technical Constraints**:
+
 - Maximum 50 characters (accounting system compatibility)
 - Alphanumeric + underscore/hyphen only
 - Case-insensitive uniqueness validation
 - Auto-generation from campaign_name if empty
 
 #### project
+
 ```json
 {
   "fieldname": "project",
@@ -65,6 +68,7 @@ Donation Campaign (Enhanced)
 ```
 
 **Technical Constraints**:
+
 - Optional field for advanced campaign management
 - Links to standard ERPNext Project DocType
 - Enables task and expense tracking integration
@@ -113,13 +117,13 @@ def set_accounting_dimension_value(self):
 
 #### Generation Examples
 
-| Campaign Name | Generated Dimension | Notes |
-|---------------|-------------------|--------|
-| "Annual Appeal 2025" | "ANNUAL_APPEAL_2025" | Standard case |
-| "Spring Fundraiser & Gala!" | "SPRING_FUNDRAISER_GALA" | Special chars removed |
-| "2025 Capital Campaign" | "CAMP_2025_CAPITAL_CAMPAIGN" | Numeric prefix handled |
-| "AB" | "CAMP_A1B2C3D4" | Too short, hash generated |
-| Duplicate name | "ORIGINAL_NAME_1" | Counter added for uniqueness |
+| Campaign Name               | Generated Dimension          | Notes                        |
+| --------------------------- | ---------------------------- | ---------------------------- |
+| "Annual Appeal 2025"        | "ANNUAL_APPEAL_2025"         | Standard case                |
+| "Spring Fundraiser & Gala!" | "SPRING_FUNDRAISER_GALA"     | Special chars removed        |
+| "2025 Capital Campaign"     | "CAMP_2025_CAPITAL_CAMPAIGN" | Numeric prefix handled       |
+| "AB"                        | "CAMP_A1B2C3D4"              | Too short, hash generated    |
+| Duplicate name              | "ORIGINAL_NAME_1"            | Counter added for uniqueness |
 
 ### Progress Tracking Optimization
 
@@ -145,6 +149,7 @@ def update_campaign_progress(campaign_name):
 ```
 
 **Performance Benefits**:
+
 - Single SQL query replaces multiple document loads
 - Optimized for campaigns with thousands of donations
 - Background job processing prevents UI blocking
@@ -449,6 +454,7 @@ INSERT INTO `tabCustom Field` VALUES (
 ### Validation Rules
 
 1. **Dimension Uniqueness**:
+
    ```python
    # Enforced at database level with unique constraint
    # Additional validation in Python for user feedback
@@ -460,6 +466,7 @@ INSERT INTO `tabCustom Field` VALUES (
    ```
 
 2. **Project Integration Prerequisites**:
+
    ```python
    def validate_project_creation(self):
        if not self.start_date:
@@ -487,6 +494,7 @@ INSERT INTO `tabCustom Field` VALUES (
    - Continue campaign operation without project if ERPNext Projects unavailable
 
 2. **Logging and Monitoring**:
+
    ```python
    try:
        project = self.create_project()
@@ -499,6 +507,7 @@ INSERT INTO `tabCustom Field` VALUES (
    ```
 
 3. **Data Consistency Checks**:
+
    ```python
    @frappe.whitelist()
    def validate_data_consistency(self):
@@ -536,6 +545,7 @@ INSERT INTO `tabCustom Field` VALUES (
 ### Query Optimization Strategies
 
 1. **Progress Update Optimization**:
+
    ```python
    # Single aggregation query instead of loading all donations
    def get_campaign_metrics(campaign_name):
@@ -555,6 +565,7 @@ INSERT INTO `tabCustom Field` VALUES (
    ```
 
 2. **Background Processing**:
+
    ```python
    # Enqueue heavy operations to prevent UI blocking
    def on_update_after_submit(self):
@@ -578,6 +589,7 @@ INSERT INTO `tabCustom Field` VALUES (
 ### Memory Management
 
 1. **Large Dataset Handling**:
+
    ```python
    def process_large_campaign_data(campaign_name, batch_size=1000):
        """Process large campaigns in batches"""
@@ -603,6 +615,7 @@ INSERT INTO `tabCustom Field` VALUES (
    ```
 
 2. **Resource Cleanup**:
+
    ```python
    def cleanup_campaign_cache(campaign_name):
        """Clear cached data when campaign is updated"""
@@ -621,6 +634,7 @@ INSERT INTO `tabCustom Field` VALUES (
 ### Access Control
 
 1. **Permission Validation**:
+
    ```python
    @frappe.whitelist()
    def create_project(self, project_name=None):
@@ -633,6 +647,7 @@ INSERT INTO `tabCustom Field` VALUES (
    ```
 
 2. **Data Sanitization**:
+
    ```python
    def sanitize_dimension_value(self, dimension_value):
        """Sanitize dimension value to prevent injection"""
@@ -663,6 +678,7 @@ INSERT INTO `tabCustom Field` VALUES (
 ### Data Privacy
 
 1. **Anonymous Donation Handling**:
+
    ```python
    def get_anonymized_donor_list(self):
        """Return donor list respecting anonymity settings"""
@@ -799,6 +815,7 @@ class TestCampaignIntegration(unittest.TestCase):
 ### Upgrading Existing Systems
 
 1. **Pre-Migration Checks**:
+
    ```python
    def pre_migration_validation():
        """Validate system state before migration"""
@@ -814,6 +831,7 @@ class TestCampaignIntegration(unittest.TestCase):
    ```
 
 2. **Migration Script**:
+
    ```python
    def migrate_campaigns_to_accounting_integration():
        """Migrate existing campaigns to new accounting integration"""
@@ -832,6 +850,7 @@ class TestCampaignIntegration(unittest.TestCase):
    ```
 
 3. **Post-Migration Validation**:
+
    ```python
    def post_migration_validation():
        """Validate migration completion"""
@@ -888,31 +907,38 @@ def rollback_accounting_integration():
 ### Public Methods
 
 #### DonationCampaign.set_accounting_dimension_value()
+
 Auto-generates unique accounting dimension value from campaign name.
 
 **Returns**: `None` (sets `self.accounting_dimension_value`)
 
 **Side Effects**:
+
 - Updates `accounting_dimension_value` field
 - Ensures uniqueness across all campaigns
 - Follows accounting system naming conventions
 
 #### DonationCampaign.create_project(project_name=None)
+
 Creates linked ERPNext Project for campaign management.
 
 **Parameters**:
+
 - `project_name` (str, optional): Custom project name, defaults to "Campaign: {campaign_name}"
 
 **Returns**: `Project` document
 
 **Raises**:
+
 - `frappe.ValidationError`: If campaign already has project or validation fails
 - `frappe.PermissionError`: If user lacks project creation permission
 
 #### DonationCampaign.get_project_summary()
+
 Returns comprehensive project analytics and status.
 
 **Returns**: `dict` with keys:
+
 - `project`: Project document
 - `tasks`: List of project tasks with status
 - `expenses`: List of expense claims
@@ -920,13 +946,16 @@ Returns comprehensive project analytics and status.
 - `task_completion`: Completion percentage
 
 #### DonationCampaign.get_accounting_entries(from_date=None, to_date=None)
+
 Returns consolidated financial view of campaign.
 
 **Parameters**:
+
 - `from_date` (date, optional): Start date filter
 - `to_date` (date, optional): End date filter
 
 **Returns**: `dict` with keys:
+
 - `gl_entries`: General ledger entries
 - `donations`: Campaign donations
 - `total_income`: Sum of donation amounts
@@ -936,12 +965,15 @@ Returns consolidated financial view of campaign.
 ### Utility Functions
 
 #### update_campaign_progress(campaign_name)
+
 Background job function for updating campaign progress metrics.
 
 **Parameters**:
+
 - `campaign_name` (str): Name of campaign to update
 
 **Usage**: Called automatically by donation hooks, or manually via:
+
 ```python
 frappe.enqueue('update_campaign_progress', campaign_name='Campaign Name')
 ```
@@ -993,6 +1025,7 @@ For organizations requiring additional integration fields:
 The Donation Campaign accounting integration provides a robust, scalable foundation for comprehensive fundraising management. The implementation balances feature richness with performance optimization, ensuring the system can handle both simple campaigns and complex multi-project initiatives.
 
 Key technical achievements:
+
 - **Zero-downtime migration** path for existing installations
 - **Performance optimization** for large-scale campaigns
 - **Flexible architecture** supporting simple and complex use cases

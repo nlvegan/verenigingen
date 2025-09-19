@@ -49,25 +49,13 @@ frappe.query_reports['Volunteer Interest Analysis'] = {
 			fieldname: 'availability',
 			label: __('Availability'),
 			fieldtype: 'Select',
-			options: [
-				'',
-				'Occasional',
-				'Monthly',
-				'Weekly',
-				'Project-based'
-			]
+			options: ['', 'Occasional', 'Monthly', 'Weekly', 'Project-based']
 		},
 		{
 			fieldname: 'experience_level',
 			label: __('Experience Level'),
 			fieldtype: 'Select',
-			options: [
-				'',
-				'Beginner',
-				'Intermediate',
-				'Experienced',
-				'Expert'
-			]
+			options: ['', 'Beginner', 'Intermediate', 'Experienced', 'Expert']
 		},
 		{
 			fieldname: 'has_volunteer_record',
@@ -98,10 +86,14 @@ frappe.query_reports['Volunteer Interest Analysis'] = {
 
 function create_volunteer_records(report) {
 	// Get members without volunteer records
-	const members_without_records = report.data.filter(row => !row.volunteer_id);
+	const members_without_records = report.data.filter(
+		(row) => !row.volunteer_id
+	);
 
 	if (members_without_records.length === 0) {
-		frappe.msgprint(__('All interested members already have volunteer records'));
+		frappe.msgprint(
+			__('All interested members already have volunteer records')
+		);
 		return;
 	}
 
@@ -131,15 +123,18 @@ function create_volunteer_records(report) {
 		primary_action_label: __('Create Records'),
 		primary_action(values) {
 			frappe.call({
-				method: 'verenigingen.api.volunteer_management.bulk_create_volunteer_records',
+				method:
+          'verenigingen.api.volunteer_management.bulk_create_volunteer_records',
 				args: {
-					member_names: members_without_records.map(m => m.name),
+					member_names: members_without_records.map((m) => m.name),
 					initial_status: values.initial_status,
 					send_email: values.send_welcome_email
 				},
 				callback(r) {
 					if (r.message) {
-						frappe.msgprint(__('{0} volunteer records created', [r.message.created]));
+						frappe.msgprint(
+							__('{0} volunteer records created', [r.message.created])
+						);
 						report.refresh();
 					}
 				}
@@ -155,7 +150,7 @@ function email_to_coordinators(report) {
 	// Group data by chapter
 	const chapter_data = {};
 
-	report.data.forEach(row => {
+	report.data.forEach((row) => {
 		const chapter = row.current_chapter || 'Unassigned';
 		if (!chapter_data[chapter]) {
 			chapter_data[chapter] = [];
@@ -170,7 +165,10 @@ function email_to_coordinators(report) {
 				fieldname: 'chapters',
 				label: __('Chapters to Include'),
 				fieldtype: 'Table MultiSelect',
-				options: Object.keys(chapter_data).map(ch => ({ label: ch, value: ch })),
+				options: Object.keys(chapter_data).map((ch) => ({
+					label: ch,
+					value: ch
+				})),
 				reqd: 1
 			},
 			{
@@ -197,7 +195,9 @@ function email_to_coordinators(report) {
 				},
 				callback(r) {
 					if (r.message) {
-						frappe.msgprint(__('Reports sent to {0} coordinators', [r.message.sent_count]));
+						frappe.msgprint(
+							__('Reports sent to {0} coordinators', [r.message.sent_count])
+						);
 					}
 				}
 			});

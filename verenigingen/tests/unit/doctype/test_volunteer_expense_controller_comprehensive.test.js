@@ -13,7 +13,9 @@
 /* global describe, it, expect, jest, beforeEach, afterEach, beforeAll */
 
 // Import centralized test infrastructure
-const { createControllerTestSuite } = require('../../setup/controller-test-base');
+const {
+	createControllerTestSuite
+} = require('../../setup/controller-test-base');
 const { createDomainTestBuilder } = require('../../setup/domain-test-builders');
 
 // Initialize test environment
@@ -22,15 +24,22 @@ require('../../setup/frappe-mocks').setupTestMocks();
 // Controller configuration
 const volunteerExpenseConfig = {
 	doctype: 'Volunteer Expense',
-	controllerPath: '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/volunteer_expense/volunteer_expense.js',
-	expectedHandlers: ['refresh', 'volunteer', 'organization_type', 'category', 'expense_date'],
+	controllerPath:
+    '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen/doctype/volunteer_expense/volunteer_expense.js',
+	expectedHandlers: [
+		'refresh',
+		'volunteer',
+		'organization_type',
+		'category',
+		'expense_date'
+	],
 	defaultDoc: {
 		doctype: 'Volunteer Expense',
 		name: 'VE-2024-TEST-001',
 		volunteer: 'MEM-2024-TEST-001',
 		status: 'Submitted',
 		expense_date: '2024-07-15',
-		amount: 50.00,
+		amount: 50.0,
 		currency: 'EUR',
 		category: 'Travel',
 		description: 'Travel expenses for chapter meeting',
@@ -92,7 +101,10 @@ const customVolunteerExpenseTests = {
 
 			// Mock successful authorization check
 			global.frappe.call.mockImplementation(({ method, callback }) => {
-				if (method === 'verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense.can_approve_expense') {
+				if (
+					method
+          === 'verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense.can_approve_expense'
+				) {
 					if (callback) {
 						callback({ message: true }); // User can approve
 					}
@@ -105,7 +117,8 @@ const customVolunteerExpenseTests = {
 
 			// Verify API call to check permissions
 			expect(global.frappe.call).toHaveBeenCalledWith({
-				method: 'verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense.can_approve_expense',
+				method:
+          'verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense.can_approve_expense',
 				args: {
 					expense: controllerTest.mockForm.doc
 				},
@@ -132,7 +145,10 @@ const customVolunteerExpenseTests = {
 
 			// Mock authorization failure
 			global.frappe.call.mockImplementation(({ method, callback }) => {
-				if (method === 'verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense.can_approve_expense') {
+				if (
+					method
+          === 'verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense.can_approve_expense'
+				) {
 					if (callback) {
 						callback({ message: false }); // User cannot approve
 					}
@@ -148,7 +164,8 @@ const customVolunteerExpenseTests = {
 
 			// Verify authorization was checked
 			expect(global.frappe.call).toHaveBeenCalledWith({
-				method: 'verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense.can_approve_expense',
+				method:
+          'verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense.can_approve_expense',
 				args: {
 					expense: controllerTest.mockForm.doc
 				},
@@ -156,11 +173,9 @@ const customVolunteerExpenseTests = {
 			});
 
 			// Verify no approval buttons added
-			expect(controllerTest.mockForm.add_custom_button).not.toHaveBeenCalledWith(
-				'Approve',
-				expect.any(Function),
-				'Actions'
-			);
+			expect(
+				controllerTest.mockForm.add_custom_button
+			).not.toHaveBeenCalledWith('Approve', expect.any(Function), 'Actions');
 		});
 
 		it('should show reimbursement button for approved expenses with proper role', () => {
@@ -199,7 +214,9 @@ const customVolunteerExpenseTests = {
 			controllerTest.testEvent('refresh');
 
 			// Verify no reimbursement button added
-			expect(controllerTest.mockForm.add_custom_button).not.toHaveBeenCalledWith(
+			expect(
+				controllerTest.mockForm.add_custom_button
+			).not.toHaveBeenCalledWith(
 				'Mark as Reimbursed',
 				expect.any(Function),
 				'Actions'
@@ -210,13 +227,29 @@ const customVolunteerExpenseTests = {
 			const controllerTest = getControllerTest();
 			const statusTests = [
 				{ status: 'Draft', expectApproval: false, expectReimbursement: false },
-				{ status: 'Submitted', expectApproval: true, expectReimbursement: false },
-				{ status: 'Approved', expectApproval: false, expectReimbursement: true },
-				{ status: 'Rejected', expectApproval: false, expectReimbursement: false },
-				{ status: 'Reimbursed', expectApproval: false, expectReimbursement: false }
+				{
+					status: 'Submitted',
+					expectApproval: true,
+					expectReimbursement: false
+				},
+				{
+					status: 'Approved',
+					expectApproval: false,
+					expectReimbursement: true
+				},
+				{
+					status: 'Rejected',
+					expectApproval: false,
+					expectReimbursement: false
+				},
+				{
+					status: 'Reimbursed',
+					expectApproval: false,
+					expectReimbursement: false
+				}
 			];
 
-			statusTests.forEach(test => {
+			statusTests.forEach((test) => {
 				// Reset form state
 				controllerTest.mockForm.doc.status = test.status;
 				controllerTest.mockForm.doc.__islocal = 0;
@@ -224,7 +257,10 @@ const customVolunteerExpenseTests = {
 
 				// Mock appropriate permissions
 				global.frappe.call.mockImplementation(({ method, callback }) => {
-					if (method === 'verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense.can_approve_expense') {
+					if (
+						method
+            === 'verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense.can_approve_expense'
+					) {
 						if (callback) {
 							callback({ message: test.expectApproval });
 						}
@@ -240,11 +276,14 @@ const customVolunteerExpenseTests = {
 				if (test.expectApproval) {
 					expect(global.frappe.call).toHaveBeenCalledWith(
 						expect.objectContaining({
-							method: 'verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense.can_approve_expense'
+							method:
+                'verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense.can_approve_expense'
 						})
 					);
 				} else if (test.expectReimbursement) {
-					expect(controllerTest.mockForm.add_custom_button).toHaveBeenCalledWith(
+					expect(
+						controllerTest.mockForm.add_custom_button
+					).toHaveBeenCalledWith(
 						'Mark as Reimbursed',
 						expect.any(Function),
 						'Actions'
@@ -264,7 +303,10 @@ const customVolunteerExpenseTests = {
 			controllerTest.testEvent('organization_type');
 
 			// Verify team field is cleared
-			expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith('team', '');
+			expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith(
+				'team',
+				''
+			);
 		});
 
 		it('should clear chapter when organization type changes to Team', () => {
@@ -276,7 +318,10 @@ const customVolunteerExpenseTests = {
 			controllerTest.testEvent('organization_type');
 
 			// Verify chapter field is cleared
-			expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith('chapter', '');
+			expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith(
+				'chapter',
+				''
+			);
 		});
 
 		it('should auto-set organization when volunteer changes', () => {
@@ -307,7 +352,10 @@ const customVolunteerExpenseTests = {
 			controllerTest.testEvent('category');
 
 			// Verify EUR currency is set as default
-			expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith('currency', 'EUR');
+			expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith(
+				'currency',
+				'EUR'
+			);
 		});
 
 		it('should not override existing currency when category changes', () => {
@@ -322,7 +370,10 @@ const customVolunteerExpenseTests = {
 			controllerTest.testEvent('category');
 
 			// Verify currency is not changed
-			expect(controllerTest.mockForm.set_value).not.toHaveBeenCalledWith('currency', 'EUR');
+			expect(controllerTest.mockForm.set_value).not.toHaveBeenCalledWith(
+				'currency',
+				'EUR'
+			);
 		});
 
 		it('should validate expense date is not in the future', () => {
@@ -331,16 +382,23 @@ const customVolunteerExpenseTests = {
 			// Set future date
 			const futureDate = new Date();
 			futureDate.setDate(futureDate.getDate() + 1);
-			controllerTest.mockForm.doc.expense_date = futureDate.toISOString().split('T')[0];
+			controllerTest.mockForm.doc.expense_date = futureDate
+				.toISOString()
+				.split('T')[0];
 
 			// Trigger expense_date event
 			controllerTest.testEvent('expense_date');
 
 			// Verify error message is shown
-			expect(global.frappe.msgprint).toHaveBeenCalledWith('Expense date cannot be in the future');
+			expect(global.frappe.msgprint).toHaveBeenCalledWith(
+				'Expense date cannot be in the future'
+			);
 
 			// Verify field is cleared
-			expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith('expense_date', '');
+			expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith(
+				'expense_date',
+				''
+			);
 		});
 
 		it('should accept valid past expense dates', () => {
@@ -349,7 +407,9 @@ const customVolunteerExpenseTests = {
 			// Set past date
 			const pastDate = new Date();
 			pastDate.setDate(pastDate.getDate() - 7);
-			controllerTest.mockForm.doc.expense_date = pastDate.toISOString().split('T')[0];
+			controllerTest.mockForm.doc.expense_date = pastDate
+				.toISOString()
+				.split('T')[0];
 
 			// Reset mocks
 			global.frappe.msgprint.mockClear();
@@ -360,7 +420,10 @@ const customVolunteerExpenseTests = {
 
 			// Verify no error message or field clearing
 			expect(global.frappe.msgprint).not.toHaveBeenCalled();
-			expect(controllerTest.mockForm.set_value).not.toHaveBeenCalledWith('expense_date', '');
+			expect(controllerTest.mockForm.set_value).not.toHaveBeenCalledWith(
+				'expense_date',
+				''
+			);
 		});
 
 		it('should accept today as valid expense date', () => {
@@ -368,7 +431,9 @@ const customVolunteerExpenseTests = {
 
 			// Set today's date
 			const today = new Date();
-			controllerTest.mockForm.doc.expense_date = today.toISOString().split('T')[0];
+			controllerTest.mockForm.doc.expense_date = today
+				.toISOString()
+				.split('T')[0];
 
 			// Reset mocks
 			global.frappe.msgprint.mockClear();
@@ -379,7 +444,10 @@ const customVolunteerExpenseTests = {
 
 			// Verify no error message or field clearing
 			expect(global.frappe.msgprint).not.toHaveBeenCalled();
-			expect(controllerTest.mockForm.set_value).not.toHaveBeenCalledWith('expense_date', '');
+			expect(controllerTest.mockForm.set_value).not.toHaveBeenCalledWith(
+				'expense_date',
+				''
+			);
 		});
 	},
 
@@ -463,7 +531,7 @@ const customVolunteerExpenseTests = {
 				organization_type: 'Chapter',
 				chapter: 'Rotterdam',
 				category: 'Travel',
-				amount: 150.00,
+				amount: 150.0,
 				expense_date: '2024-07-10',
 				receipt_uploaded: 1,
 				description: 'Complex travel expense with multiple approvers'
@@ -471,7 +539,10 @@ const customVolunteerExpenseTests = {
 
 			// Mock permission check
 			global.frappe.call.mockImplementation(({ method, callback }) => {
-				if (method === 'verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense.can_approve_expense') {
+				if (
+					method
+          === 'verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense.can_approve_expense'
+				) {
 					if (callback) {
 						callback({ message: true });
 					}
@@ -510,7 +581,10 @@ const customVolunteerExpenseTests = {
 			controllerTest.testEvent('organization_type');
 
 			// Verify team is cleared
-			expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith('team', '');
+			expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith(
+				'team',
+				''
+			);
 
 			// Change back to Team
 			controllerTest.mockForm.doc.organization_type = 'Team';
@@ -518,13 +592,22 @@ const customVolunteerExpenseTests = {
 			controllerTest.testEvent('organization_type');
 
 			// Verify chapter is cleared
-			expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith('chapter', '');
+			expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith(
+				'chapter',
+				''
+			);
 		});
 	}
 };
 
 // Create and export the test suite
-describe('Volunteer Expense Controller (Comprehensive Tests)', createControllerTestSuite(volunteerExpenseConfig, customVolunteerExpenseTests));
+describe(
+	'Volunteer Expense Controller (Comprehensive Tests)',
+	createControllerTestSuite(
+		volunteerExpenseConfig,
+		customVolunteerExpenseTests
+	)
+);
 
 // Export test utilities for reuse
 module.exports = {

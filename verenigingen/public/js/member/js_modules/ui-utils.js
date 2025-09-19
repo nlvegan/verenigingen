@@ -38,7 +38,9 @@
 // UI utility functions for Member doctype - modernized for performance
 
 function setup_payment_history_grid(frm) {
-	if (!frm.fields_dict.payment_history) { return; }
+	if (!frm.fields_dict.payment_history) {
+		return;
+	}
 
 	const gridWrapper = $(frm.fields_dict.payment_history.grid.wrapper);
 	gridWrapper.addClass('payment-history-grid');
@@ -51,9 +53,9 @@ function setup_payment_history_grid(frm) {
 		// Batch hide operations for better performance
 		const elementsToHide = gridWrapper.find(
 			'.grid-heading-row .grid-row-check, '
-			+ '.grid-heading-row .row-index, '
-			+ '.grid-body .data-row .row-index, '
-			+ '.grid-body .data-row .grid-row-check'
+        + '.grid-heading-row .row-index, '
+        + '.grid-body .data-row .row-index, '
+        + '.grid-body .data-row .grid-row-check'
 		);
 		elementsToHide.hide();
 	};
@@ -67,8 +69,11 @@ function setup_payment_history_grid(frm) {
 
 	// Format existing rows with optimization
 	const grid = frm.fields_dict.payment_history.grid;
-	if (grid?.grid_rows?.length && window.PaymentUtils?.format_payment_history_row) {
-		grid.grid_rows.forEach(row => {
+	if (
+		grid?.grid_rows?.length
+    && window.PaymentUtils?.format_payment_history_row
+	) {
+		grid.grid_rows.forEach((row) => {
 			window.PaymentUtils.format_payment_history_row(row);
 		});
 	}
@@ -129,7 +134,8 @@ function add_custom_css() {
 function show_debug_postal_code_info(frm) {
 	if (frm.doc.pincode) {
 		frappe.call({
-			method: 'verenigingen.verenigingen.doctype.chapter.chapter.debug_postal_code_matching',
+			method:
+        'verenigingen.verenigingen.doctype.chapter.chapter.debug_postal_code_matching',
 			args: {
 				pincode: frm.doc.pincode
 			},
@@ -139,7 +145,7 @@ function show_debug_postal_code_info(frm) {
 
 					if (r.message.chapters && r.message.chapters.length > 0) {
 						message += '<strong>Matching Chapters:</strong><br>';
-						r.message.chapters.forEach(chapter => {
+						r.message.chapters.forEach((chapter) => {
 							message += `• ${chapter.name} (Score: ${chapter.score}%, Distance: ${chapter.distance}km)<br>`;
 						});
 					} else {
@@ -148,7 +154,7 @@ function show_debug_postal_code_info(frm) {
 
 					if (r.message.debug_info) {
 						message += '<br><strong>Debug Info:</strong><br>';
-						Object.keys(r.message.debug_info).forEach(key => {
+						Object.keys(r.message.debug_info).forEach((key) => {
 							message += `${key}: ${r.message.debug_info[key]}<br>`;
 						});
 					}
@@ -178,18 +184,24 @@ function show_board_memberships(frm) {
 	}
 
 	frappe.call({
-		method: 'verenigingen.verenigingen.doctype.member.member.get_board_memberships',
+		method:
+      'verenigingen.verenigingen.doctype.member.member.get_board_memberships',
 		args: {
 			member_name: frm.doc.name
 		},
 		callback(r) {
 			// Only show board memberships if we actually have results
 			if (r.message && Array.isArray(r.message) && r.message.length > 0) {
-				let html = '<div class="board-memberships"><h4>Board Positions</h4><ul>';
+				let html
+          = '<div class="board-memberships"><h4>Board Positions</h4><ul>';
 				r.message.forEach((membership) => {
-					html += `<li><strong>${membership.chapter}:</strong> ${membership.role
+					html += `<li><strong>${membership.chapter}:</strong> ${
+						membership.role
 					} (${frappe.datetime.str_to_user(membership.start_date)} - ${
-						membership.end_date ? frappe.datetime.str_to_user(membership.end_date) : 'Current'})</li>`;
+						membership.end_date
+							? frappe.datetime.str_to_user(membership.end_date)
+							: 'Current'
+					})</li>`;
 				});
 				html += '</ul></div>';
 
@@ -213,14 +225,17 @@ function show_board_memberships(frm) {
 
 function create_organization_user(frm) {
 	frappe.call({
-		method: 'verenigingen.verenigingen.doctype.verenigingen_settings.verenigingen_settings.get_organization_email_domain',
+		method:
+      'verenigingen.verenigingen.doctype.verenigingen_settings.verenigingen_settings.get_organization_email_domain',
 		callback(r) {
-			const domain = r.message && r.message.organization_email_domain
-				? r.message.organization_email_domain
-				: 'example.org';
+			const domain
+        = r.message && r.message.organization_email_domain
+        	? r.message.organization_email_domain
+        	: 'example.org';
 
 			const nameForEmail = frm.doc.full_name
-				? frm.doc.full_name.toLowerCase()
+				? frm.doc.full_name
+					.toLowerCase()
 					.replace(/[^a-z0-9\s]/g, '')
 					.replace(/\s+/g, '.')
 				: '';
@@ -260,7 +275,8 @@ function create_organization_user(frm) {
 				primary_action_label: __('Create User'),
 				primary_action(values) {
 					frappe.call({
-						method: 'verenigingen.verenigingen.doctype.member.member.create_organization_user',
+						method:
+              'verenigingen.verenigingen.doctype.member.member.create_organization_user',
 						args: {
 							member: frm.doc.name,
 							email: values.email,
@@ -272,10 +288,13 @@ function create_organization_user(frm) {
 							if (userResponse.message) {
 								d.hide();
 								frm.refresh();
-								frappe.show_alert({
-									message: __('User account created successfully'),
-									indicator: 'green'
-								}, 5);
+								frappe.show_alert(
+									{
+										message: __('User account created successfully'),
+										indicator: 'green'
+									},
+									5
+								);
 							}
 						}
 					});
@@ -300,7 +319,9 @@ function setup_member_id_display(frm) {
 
 function handle_payment_method_change(frm) {
 	const is_direct_debit = frm.doc.payment_method === 'SEPA Direct Debit';
-	const show_bank_details = ['SEPA Direct Debit', 'Bank Transfer'].includes(frm.doc.payment_method);
+	const show_bank_details = ['SEPA Direct Debit', 'Bank Transfer'].includes(
+		frm.doc.payment_method
+	);
 
 	// Show/hide bank details based on payment method
 	frm.toggle_reqd('iban', is_direct_debit);
@@ -324,27 +345,34 @@ function setup_iban_bic_derivation(frm) {
 	// Set up IBAN field to auto-derive BIC
 	// Check if IBAN field exists and is rendered before attaching handlers
 	if (frm.fields_dict.iban && frm.fields_dict.iban.$input) {
-		frm.fields_dict.iban.$input.off('change.bic_derivation').on('change.bic_derivation', function () {
-			const iban = $(this).val();
-			if (iban) {
-				const derivedBic = get_bic_from_iban(iban);
-				if (derivedBic && derivedBic !== frm.doc.bic) {
-					frm.set_value('bic', derivedBic);
-					frappe.show_alert({
-						message: __('BIC automatically derived from IBAN: {0}', [derivedBic]),
-						indicator: 'green'
-					}, 3);
+		frm.fields_dict.iban.$input
+			.off('change.bic_derivation')
+			.on('change.bic_derivation', function () {
+				const iban = $(this).val();
+				if (iban) {
+					const derivedBic = get_bic_from_iban(iban);
+					if (derivedBic && derivedBic !== frm.doc.bic) {
+						frm.set_value('bic', derivedBic);
+						frappe.show_alert(
+							{
+								message: __('BIC automatically derived from IBAN: {0}', [
+									derivedBic
+								]),
+								indicator: 'green'
+							},
+							3
+						);
+					}
 				}
-			}
-		});
+			});
 	}
 }
 
 function get_bic_from_iban(iban) {
 	/**
-     * Derive BIC from IBAN using the same logic as the backend
-     * This matches the get_bic_from_iban() function in direct_debit_batch.py
-     */
+   * Derive BIC from IBAN using the same logic as the backend
+   * This matches the get_bic_from_iban() function in direct_debit_batch.py
+   */
 	if (!iban || iban.length < 8) {
 		return null;
 	}

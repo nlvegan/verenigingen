@@ -35,18 +35,21 @@ These debug functions had legitimate test scenarios and were converted to proper
 These functions were one-off debugging code with no reusable value:
 
 ### Person-Specific Debug Functions
+
 - `test_silvia_scenario_after_fixes()` - Hardcoded for member "Silvia"
 - `debug_silvia_schedule_issue()` - Another Silvia-specific debug
 - `test_apply_amendment_for_foppe()` - Hardcoded for member "Foppe"
 - `test_existing_amendment_for_foppe()` - Another Foppe-specific debug
 
 ### Ad-hoc Investigation Functions
+
 - `investigate_7_day_discrepancy()` - Specific bug investigation
 - `trace_effective_date_calculation()` - Debug tracing for specific issue
 - `investigate_effective_date_logic()` - Another debug investigation
 - `check_member_and_dues_schedule()` - Generic but ad-hoc debugging
 
 ### Transaction-Specific Debug Functions
+
 - `test_transaction_issue_directly()` - Ad-hoc transaction testing
 - `test_member_fee_override_save()` - Specific save issue debugging
 - `test_member_portal_fee_submission()` - Portal-specific debug
@@ -54,16 +57,19 @@ These functions were one-off debugging code with no reusable value:
 - `test_fee_adjustment_transaction_fix()` - Specific fix validation
 
 ### Dashboard/SQL Debug Functions
+
 - `test_anbi_dashboard_sql()` - Dashboard-specific SQL debugging
 - `fix_all_test_data_billing_configurations()` - Test data manipulation
 
 ### Utility Functions with Mixed Value
+
 - `check_all_amendments_for_member()` - Had hardcoded default member name
 - `reload_amendment_doctype()` - Simple reload utility
 
 ## Architecture Anti-Patterns Fixed
 
 ### Before Refactoring
+
 ```python
 class ContributionAmendmentRequest(Document):
     def validate(self):           # Production business logic
@@ -78,6 +84,7 @@ class ContributionAmendmentRequest(Document):
 ```
 
 ### After Refactoring
+
 ```python
 # Production Controller (clean)
 class ContributionAmendmentRequest(Document):

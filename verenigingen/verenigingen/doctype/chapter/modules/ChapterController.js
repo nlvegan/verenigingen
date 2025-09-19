@@ -191,7 +191,7 @@ export class ChapterController {
 			}
 		];
 
-		buttons.forEach(btn => {
+		buttons.forEach((btn) => {
 			if (!btn.condition || btn.condition()) {
 				this.ui.addButton(btn.label, btn.action, btn.group);
 			}
@@ -227,7 +227,7 @@ export class ChapterController {
 			}
 		];
 
-		buttons.forEach(btn => {
+		buttons.forEach((btn) => {
 			this.ui.addButton(btn.label, btn.action, btn.group);
 		});
 	}
@@ -235,7 +235,8 @@ export class ChapterController {
 	async checkUserBoardMemberships() {
 		try {
 			const result = await frappe.call({
-				method: 'verenigingen.verenigingen.doctype.member.member.get_board_memberships',
+				method:
+          'verenigingen.verenigingen.doctype.member.member.get_board_memberships',
 				args: {
 					member_name: this.frm.doc.name
 				}
@@ -256,7 +257,11 @@ export class ChapterController {
 
 	navigateToCurrentMandate() {
 		if (this.frm.doc.current_sepa_mandate) {
-			frappe.set_route('Form', 'SEPA Mandate', this.frm.doc.current_sepa_mandate);
+			frappe.set_route(
+				'Form',
+				'SEPA Mandate',
+				this.frm.doc.current_sepa_mandate
+			);
 		}
 	}
 
@@ -274,7 +279,9 @@ export class ChapterController {
 		}
 
 		// Validate postal codes
-		const postalValidation = ChapterValidation.validatePostalCodes(this.frm.doc.postal_codes);
+		const postalValidation = ChapterValidation.validatePostalCodes(
+			this.frm.doc.postal_codes
+		);
 		if (!postalValidation.isValid) {
 			this.ui.showPostalCodeWarning(postalValidation.invalidPatterns);
 		}
@@ -287,10 +294,13 @@ export class ChapterController {
 		this.frm.refresh();
 
 		// Show success message
-		frappe.show_alert({
-			message: __('Chapter saved successfully'),
-			indicator: 'green'
-		}, 5);
+		frappe.show_alert(
+			{
+				message: __('Chapter saved successfully'),
+				indicator: 'green'
+			},
+			5
+		);
 	}
 
 	handleStateChange(path, value) {
@@ -309,20 +319,26 @@ export class ChapterController {
 		const validations = [];
 
 		// Validate chapter info
-		const chapterValidation = ChapterValidation.validateChapterInfo(this.frm.doc);
+		const chapterValidation = ChapterValidation.validateChapterInfo(
+			this.frm.doc
+		);
 		if (!chapterValidation.isValid) {
 			validations.push(...chapterValidation.errors);
 		}
 
 		// Validate board members
-		const boardValidation = ChapterValidation.validateBoardMembers(this.frm.doc.board_members);
+		const boardValidation = ChapterValidation.validateBoardMembers(
+			this.frm.doc.board_members
+		);
 		if (!boardValidation.isValid) {
 			validations.push(...boardValidation.errors);
 		}
 
 		// Validate postal codes
 		if (this.frm.doc.postal_codes) {
-			const postalValidation = ChapterValidation.validatePostalCodes(this.frm.doc.postal_codes);
+			const postalValidation = ChapterValidation.validatePostalCodes(
+				this.frm.doc.postal_codes
+			);
 			if (!postalValidation.isValid) {
 				validations.push(...postalValidation.errors);
 			}
@@ -352,7 +368,9 @@ export class ChapterController {
 
 	onPostalCodesChange() {
 		// Handle postal codes change
-		const validation = ChapterValidation.validatePostalCodes(this.frm.doc.postal_codes);
+		const validation = ChapterValidation.validatePostalCodes(
+			this.frm.doc.postal_codes
+		);
 
 		if (!validation.isValid) {
 			this.ui.showPostalCodeWarning(validation.invalidPatterns);
@@ -365,11 +383,18 @@ export class ChapterController {
 		// Handle chapter head change
 		if (this.frm.doc.chapter_head) {
 			// Verify the member exists and is active
-			frappe.db.get_value('Member', this.frm.doc.chapter_head, 'status', (r) => {
-				if (r && r.status !== 'Active') {
-					frappe.msgprint(__('Warning: Selected chapter head is not an active member'));
+			frappe.db.get_value(
+				'Member',
+				this.frm.doc.chapter_head,
+				'status',
+				(r) => {
+					if (r && r.status !== 'Active') {
+						frappe.msgprint(
+							__('Warning: Selected chapter head is not an active member')
+						);
+					}
 				}
-			});
+			);
 		}
 	}
 
@@ -387,15 +412,21 @@ export class ChapterController {
 	onPublishedChange() {
 		// Handle published status change
 		if (this.frm.doc.published) {
-			frappe.show_alert({
-				message: __('Chapter is now published and visible to members'),
-				indicator: 'green'
-			}, 5);
+			frappe.show_alert(
+				{
+					message: __('Chapter is now published and visible to members'),
+					indicator: 'green'
+				},
+				5
+			);
 		} else {
-			frappe.show_alert({
-				message: __('Chapter is now unpublished and hidden from members'),
-				indicator: 'orange'
-			}, 5);
+			frappe.show_alert(
+				{
+					message: __('Chapter is now unpublished and hidden from members'),
+					indicator: 'orange'
+				},
+				5
+			);
 		}
 	}
 
@@ -408,7 +439,10 @@ export class ChapterController {
 		for (const member of boardMembers) {
 			if (member.chapter_role) {
 				try {
-					const role = await frappe.db.get_doc('Chapter Role', member.chapter_role);
+					const role = await frappe.db.get_doc(
+						'Chapter Role',
+						member.chapter_role
+					);
 					if (role.is_chair && role.is_active) {
 						chairMembers.push(member);
 					}
@@ -421,7 +455,10 @@ export class ChapterController {
 		if (chairMembers.length > 0) {
 			// Get the member ID from the volunteer
 			try {
-				const volunteer = await frappe.db.get_doc('Volunteer', chairMembers[0].volunteer);
+				const volunteer = await frappe.db.get_doc(
+					'Volunteer',
+					chairMembers[0].volunteer
+				);
 				if (volunteer.member) {
 					this.frm.set_value('chapter_head', volunteer.member);
 				}
@@ -435,14 +472,17 @@ export class ChapterController {
 
 	validatePostalCodes() {
 		// Validate postal codes field
-		const validation = ChapterValidation.validatePostalCodes(this.frm.doc.postal_codes);
+		const validation = ChapterValidation.validatePostalCodes(
+			this.frm.doc.postal_codes
+		);
 
 		if (!validation.isValid) {
 			frappe.msgprint({
 				title: __('Invalid Postal Codes'),
 				indicator: 'red',
-				message: __('The following postal code patterns are invalid: {0}',
-					[validation.invalidPatterns.join(', ')])
+				message: __('The following postal code patterns are invalid: {0}', [
+					validation.invalidPatterns.join(', ')
+				])
 			});
 
 			// Set field to valid patterns only
@@ -466,18 +506,25 @@ export class ChapterController {
 
 			if (suggestions && suggestions.length > 0) {
 				const allCodes = new Set();
-				suggestions.forEach(s => {
+				suggestions.forEach((s) => {
 					if (s.postal_codes) {
-						s.postal_codes.split(',').forEach(code => allCodes.add(code.trim()));
+						s.postal_codes
+							.split(',')
+							.forEach((code) => allCodes.add(code.trim()));
 					}
 				});
 
 				if (allCodes.size > 0) {
-					frappe.show_alert({
-						message: __('Other chapters in {0} use postal codes: {1}',
-							[this.frm.doc.region, Array.from(allCodes).join(', ')]),
-						indicator: 'blue'
-					}, 10);
+					frappe.show_alert(
+						{
+							message: __('Other chapters in {0} use postal codes: {1}', [
+								this.frm.doc.region,
+								Array.from(allCodes).join(', ')
+							]),
+							indicator: 'blue'
+						},
+						10
+					);
 				}
 			}
 		} catch (error) {

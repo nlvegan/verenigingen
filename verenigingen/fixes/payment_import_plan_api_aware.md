@@ -35,6 +35,7 @@ Based on the transaction processing audit and existing code, the REST API paymen
 ### What We Need to Validate
 
 Before implementing, we should:
+
 1. Test actual API responses for payment mutations
 2. Verify the ledgerId really represents the bank account
 3. Confirm what additional fields are available
@@ -446,16 +447,19 @@ class TestPaymentAPIIntegration(FrappeTestCase):
 ## Implementation Approach
 
 ### Phase 1: API Discovery (Day 1-2)
+
 1. Run the discovery tool to understand actual API structure
 2. Document findings and adjust plan if needed
 3. Validate our assumptions about ledger mappings
 
 ### Phase 2: Core Implementation (Day 3-5)
+
 1. Implement PaymentProcessor based on discovered API structure
 2. Build strict validation (no silent failures)
 3. Create comprehensive test suite
 
 ### Phase 3: Migration & Cleanup (Day 6-7)
+
 1. Remove ALL old payment processing code
 2. Update all entry points to use new processor
 3. Run full test suite with real data

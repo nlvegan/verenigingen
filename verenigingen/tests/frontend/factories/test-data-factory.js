@@ -77,12 +77,40 @@ class TestDataFactory {
    */
 	generateDutchFirstName() {
 		const maleNames = [
-			'Jan', 'Pieter', 'Willem', 'Johannes', 'Hendrik', 'Cornelis', 'Gerrit', 'Jacobus',
-			'Daniël', 'Martijn', 'Lars', 'Thijs', 'Sander', 'Joris', 'Ruben', 'Thomas'
+			'Jan',
+			'Pieter',
+			'Willem',
+			'Johannes',
+			'Hendrik',
+			'Cornelis',
+			'Gerrit',
+			'Jacobus',
+			'Daniël',
+			'Martijn',
+			'Lars',
+			'Thijs',
+			'Sander',
+			'Joris',
+			'Ruben',
+			'Thomas'
 		];
 		const femaleNames = [
-			'Maria', 'Anna', 'Johanna', 'Cornelia', 'Hendrika', 'Catharina', 'Geertruida',
-			'Emma', 'Sophie', 'Lotte', 'Fleur', 'Anouk', 'Lisa', 'Kim', 'Sarah', 'Iris'
+			'Maria',
+			'Anna',
+			'Johanna',
+			'Cornelia',
+			'Hendrika',
+			'Catharina',
+			'Geertruida',
+			'Emma',
+			'Sophie',
+			'Lotte',
+			'Fleur',
+			'Anouk',
+			'Lisa',
+			'Kim',
+			'Sarah',
+			'Iris'
 		];
 
 		const allNames = [...maleNames, ...femaleNames];
@@ -95,15 +123,37 @@ class TestDataFactory {
    */
 	generateDutchSurname() {
 		const lastNames = [
-			'de Jong', 'Jansen', 'de Vries', 'van den Berg', 'van Dijk', 'Bakker', 'Janssen',
-			'Visser', 'Smit', 'Meijer', 'de Boer', 'Mulder', 'de Groot', 'Bos', 'Vos',
-			'Peters', 'Hendriks', 'van Leeuwen', 'Dekker', 'Brouwer', 'de Wit', 'Dijkstra'
+			'de Jong',
+			'Jansen',
+			'de Vries',
+			'van den Berg',
+			'van Dijk',
+			'Bakker',
+			'Janssen',
+			'Visser',
+			'Smit',
+			'Meijer',
+			'de Boer',
+			'Mulder',
+			'de Groot',
+			'Bos',
+			'Vos',
+			'Peters',
+			'Hendriks',
+			'van Leeuwen',
+			'Dekker',
+			'Brouwer',
+			'de Wit',
+			'Dijkstra'
 		];
 
 		const surname = this.randomChoice(lastNames);
 		const parts = surname.split(' ');
 
-		if (parts.length > 1 && ['de', 'van', 'der', 'den', 'het', 'ter', 'te'].includes(parts[0])) {
+		if (
+			parts.length > 1
+      && ['de', 'van', 'der', 'den', 'het', 'ter', 'te'].includes(parts[0])
+		) {
 			return {
 				tussenvoegsel: parts.slice(0, -1).join(' '),
 				last_name: parts[parts.length - 1]
@@ -122,8 +172,9 @@ class TestDataFactory {
    */
 	generateDutchPostalCode() {
 		const numbers = this.randomInt(1000, 9999).toString();
-		const letters = String.fromCharCode(65 + this.randomInt(0, 25))
-                   + String.fromCharCode(65 + this.randomInt(0, 25));
+		const letters
+      = String.fromCharCode(65 + this.randomInt(0, 25))
+      + String.fromCharCode(65 + this.randomInt(0, 25));
 		return `${numbers} ${letters}`;
 	}
 
@@ -220,11 +271,19 @@ class TestDataFactory {
 
 			// Membership
 			member_since: this.generateMemberSinceDate(),
-			current_membership_type: this.randomChoice(['Regular Member', 'Student Member', 'Senior Member']),
+			current_membership_type: this.randomChoice([
+				'Regular Member',
+				'Student Member',
+				'Senior Member'
+			]),
 			status: this.randomChoice(['Active', 'Pending', 'Inactive']),
 
 			// Payment
-			payment_method: this.randomChoice(['SEPA Direct Debit', 'Bank Transfer', 'Credit Card']),
+			payment_method: this.randomChoice([
+				'SEPA Direct Debit',
+				'Bank Transfer',
+				'Credit Card'
+			]),
 			iban: this.generateDutchIBAN(),
 			bank_account_name: `${firstName} ${surname.last_name}`,
 
@@ -247,13 +306,29 @@ class TestDataFactory {
    */
 	createAddressData(overrides = {}) {
 		const streets = [
-			'Hoofdstraat', 'Kerkstraat', 'Schoolstraat', 'Dorpsstraat', 'Molenstraat',
-			'Nieuwstraat', 'Koningstraat', 'Stationsweg', 'Marktplein', 'Parallelweg'
+			'Hoofdstraat',
+			'Kerkstraat',
+			'Schoolstraat',
+			'Dorpsstraat',
+			'Molenstraat',
+			'Nieuwstraat',
+			'Koningstraat',
+			'Stationsweg',
+			'Marktplein',
+			'Parallelweg'
 		];
 
 		const cities = [
-			'Amsterdam', 'Rotterdam', 'Den Haag', 'Utrecht', 'Eindhoven',
-			'Tilburg', 'Groningen', 'Almere', 'Breda', 'Nijmegen'
+			'Amsterdam',
+			'Rotterdam',
+			'Den Haag',
+			'Utrecht',
+			'Eindhoven',
+			'Tilburg',
+			'Groningen',
+			'Almere',
+			'Breda',
+			'Nijmegen'
 		];
 
 		const baseData = {
@@ -300,8 +375,16 @@ class TestDataFactory {
    */
 	createChapterData(overrides = {}) {
 		const regions = [
-			'Noord-Holland', 'Zuid-Holland', 'Utrecht', 'Gelderland', 'Overijssel',
-			'Drenthe', 'Groningen', 'Friesland', 'Noord-Brabant', 'Limburg'
+			'Noord-Holland',
+			'Zuid-Holland',
+			'Utrecht',
+			'Gelderland',
+			'Overijssel',
+			'Drenthe',
+			'Groningen',
+			'Friesland',
+			'Noord-Brabant',
+			'Limburg'
 		];
 
 		const region = this.randomChoice(regions);
@@ -329,13 +412,24 @@ class TestDataFactory {
    */
 	createVolunteerData(memberName, overrides = {}) {
 		const skills = [
-			'Event Planning', 'Public Speaking', 'Social Media', 'Fundraising',
-			'Administration', 'Technical Support', 'Translation', 'Photography'
+			'Event Planning',
+			'Public Speaking',
+			'Social Media',
+			'Fundraising',
+			'Administration',
+			'Technical Support',
+			'Translation',
+			'Photography'
 		];
 
 		const interests = [
-			'Animal Rights', 'Environmental Protection', 'Community Outreach',
-			'Education', 'Policy Advocacy', 'Research', 'Youth Programs'
+			'Animal Rights',
+			'Environmental Protection',
+			'Community Outreach',
+			'Education',
+			'Policy Advocacy',
+			'Research',
+			'Youth Programs'
 		];
 
 		const baseData = {
@@ -344,8 +438,18 @@ class TestDataFactory {
 			status: this.randomChoice(['Active', 'Inactive', 'On Break']),
 			skills: this.randomChoice(skills),
 			interests: this.randomChoice(interests),
-			availability: this.randomChoice(['Weekends', 'Evenings', 'Flexible', 'Weekdays']),
-			experience_level: this.randomChoice(['Beginner', 'Intermediate', 'Advanced', 'Expert']),
+			availability: this.randomChoice([
+				'Weekends',
+				'Evenings',
+				'Flexible',
+				'Weekdays'
+			]),
+			experience_level: this.randomChoice([
+				'Beginner',
+				'Intermediate',
+				'Advanced',
+				'Expert'
+			]),
 			max_hours_per_week: this.randomInt(2, 20),
 			doctype: 'Volunteer'
 		};
@@ -366,12 +470,22 @@ class TestDataFactory {
 
 		const baseData = {
 			member: memberName,
-			membership_type: this.randomChoice(['Regular Member', 'Student Member', 'Senior Member', 'Honorary Member']),
+			membership_type: this.randomChoice([
+				'Regular Member',
+				'Student Member',
+				'Senior Member',
+				'Honorary Member'
+			]),
 			start_date: startDate.toISOString().split('T')[0],
 			end_date: endDate.toISOString().split('T')[0],
 			status: this.randomChoice(['Active', 'Pending', 'Expired', 'Cancelled']),
 			annual_fee: this.generateMembershipFee(),
-			payment_schedule: this.randomChoice(['Annual', 'Semi-Annual', 'Quarterly', 'Monthly']),
+			payment_schedule: this.randomChoice([
+				'Annual',
+				'Semi-Annual',
+				'Quarterly',
+				'Monthly'
+			]),
 			doctype: 'Membership'
 		};
 
@@ -388,7 +502,12 @@ class TestDataFactory {
 			batch_name: `DD-Batch-${new Date().toISOString().split('T')[0]}-${this.randomInt(1, 999)}`,
 			collection_date: this.generateFutureDate(7),
 			description: 'Monthly membership fee collection',
-			status: this.randomChoice(['Draft', 'Generated', 'Submitted', 'Processed']),
+			status: this.randomChoice([
+				'Draft',
+				'Generated',
+				'Submitted',
+				'Processed'
+			]),
 			total_amount: this.randomInt(1000, 10000),
 			total_entries: this.randomInt(10, 100),
 			sequence_type: 'RCUR',
@@ -486,12 +605,21 @@ class TestDataFactory {
 		const baseData = {
 			name: `EBM-${new Date().getFullYear()}-${String(this.memberCounter++).padStart(3, '0')}`,
 			company: 'Test Nederlandse Vereniging',
-			migration_type: this.randomChoice(['Full Initial Migration', 'Transaction Update', 'Preview']),
+			migration_type: this.randomChoice([
+				'Full Initial Migration',
+				'Transaction Update',
+				'Preview'
+			]),
 			api_type: this.randomChoice(['SOAP', 'REST']),
 			username: 'test_eb_user',
 			security_code: 'test_security_code',
 			rest_api_token: 'test_rest_token_12345',
-			migration_status: this.randomChoice(['Draft', 'In Progress', 'Completed', 'Failed']),
+			migration_status: this.randomChoice([
+				'Draft',
+				'In Progress',
+				'Completed',
+				'Failed'
+			]),
 			progress_percentage: this.randomInt(0, 100),
 			start_time: this.generateRecentDate(30),
 			end_time: this.generateFutureDate(1)
@@ -504,7 +632,8 @@ class TestDataFactory {
 		const surname = this.generateDutchSurname();
 		const baseData = {
 			name: `DNR-${String(this.memberCounter++).padStart(5, '0')}`,
-			donor_name: `${firstName} ${surname.tussenvoegsel} ${surname.last_name}`.trim(),
+			donor_name:
+        `${firstName} ${surname.tussenvoegsel} ${surname.last_name}`.trim(),
 			donor_type: this.randomChoice(['Individual', 'Organization']),
 			email: this.generateEmail(firstName, surname.last_name),
 			phone: this.generateDutchMobile(),
@@ -523,11 +652,24 @@ class TestDataFactory {
 			name: `MTR-${new Date().getFullYear()}-${String(this.memberCounter++).padStart(3, '0')}`,
 			member: this.createMemberName(),
 			member_name: `${this.generateDutchFirstName()} ${this.generateDutchSurname().last_name}`,
-			termination_type: this.randomChoice(['Voluntary', 'Non-payment', 'Deceased', 'Policy Violation', 'Disciplinary Action', 'Expulsion']),
+			termination_type: this.randomChoice([
+				'Voluntary',
+				'Non-payment',
+				'Deceased',
+				'Policy Violation',
+				'Disciplinary Action',
+				'Expulsion'
+			]),
 			termination_reason: 'Test termination reason',
 			request_date: this.generateRecentDate(30),
 			termination_date: this.generateFutureDate(30),
-			status: this.randomChoice(['Draft', 'Pending', 'Approved', 'Rejected', 'Executed']),
+			status: this.randomChoice([
+				'Draft',
+				'Pending',
+				'Approved',
+				'Rejected',
+				'Executed'
+			]),
 			requested_by: 'test@example.com',
 			requires_secondary_approval: this.randomChoice([true, false]),
 			secondary_approver: 'manager@example.com',
@@ -543,7 +685,11 @@ class TestDataFactory {
 			donor_name: `${this.generateDutchFirstName()} ${this.generateDutchSurname().last_name}`,
 			duration_years: this.randomChoice([1, 3, 5, 10]),
 			total_commitment_amount: this.randomChoice([500, 1000, 2500, 5000]),
-			payment_frequency: this.randomChoice(['Monthly', 'Quarterly', 'Annually']),
+			payment_frequency: this.randomChoice([
+				'Monthly',
+				'Quarterly',
+				'Annually'
+			]),
 			annual_amount: this.randomChoice([100, 200, 500, 1000]),
 			payment_amount: this.randomChoice([25, 50, 100, 250]),
 			start_date: this.generateRecentDate(30),
@@ -560,11 +706,22 @@ class TestDataFactory {
 			name: `VE-${new Date().getFullYear()}-${String(this.memberCounter++).padStart(4, '0')}`,
 			volunteer: this.createVolunteerName(),
 			volunteer_name: `${this.generateDutchFirstName()} ${this.generateDutchSurname().last_name}`,
-			expense_category: this.randomChoice(['Travel', 'Materials', 'Food', 'Accommodation', 'Other']),
-			amount: this.randomChoice([25.50, 45.75, 100.00, 250.25]),
+			expense_category: this.randomChoice([
+				'Travel',
+				'Materials',
+				'Food',
+				'Accommodation',
+				'Other'
+			]),
+			amount: this.randomChoice([25.5, 45.75, 100.0, 250.25]),
 			expense_date: this.generateRecentDate(90),
 			description: 'Test volunteer expense',
-			approval_status: this.randomChoice(['Draft', 'Pending', 'Approved', 'Rejected']),
+			approval_status: this.randomChoice([
+				'Draft',
+				'Pending',
+				'Approved',
+				'Rejected'
+			]),
 			approved_by: 'approver@example.com',
 			receipt_attached: this.randomChoice([true, false])
 		};
@@ -577,9 +734,14 @@ class TestDataFactory {
 			original_payment_reference: `PAY-${new Date().getFullYear()}-${String(this.memberCounter).padStart(3, '0')}`,
 			retry_attempt: this.randomInt(1, 3),
 			retry_date: this.generateRecentDate(7),
-			failure_reason: this.randomChoice(['Insufficient funds', 'Invalid account', 'Mandate cancelled', 'Technical error']),
+			failure_reason: this.randomChoice([
+				'Insufficient funds',
+				'Invalid account',
+				'Mandate cancelled',
+				'Technical error'
+			]),
 			retry_status: this.randomChoice(['Pending', 'Successful', 'Failed']),
-			amount: this.randomChoice([25.00, 50.00, 100.00]),
+			amount: this.randomChoice([25.0, 50.0, 100.0]),
 			member: this.createMemberName(),
 			sepa_mandate: this.createSEPAMandateName()
 		};
@@ -594,9 +756,19 @@ class TestDataFactory {
 			amount: this.randomChoice([25, 50, 100, 250, 500]),
 			donation_date: this.generateRecentDate(365),
 			status: this.randomChoice(['Draft', 'Pending', 'Paid', 'Cancelled']),
-			payment_method: this.randomChoice(['Bank Transfer', 'Credit Card', 'Cash', 'SEPA Direct Debit']),
+			payment_method: this.randomChoice([
+				'Bank Transfer',
+				'Credit Card',
+				'Cash',
+				'SEPA Direct Debit'
+			]),
 			anbi_eligible: this.randomChoice([true, false]),
-			purpose: this.randomChoice(['General', 'Project Support', 'Emergency Fund', 'Specific Campaign']),
+			purpose: this.randomChoice([
+				'General',
+				'Project Support',
+				'Emergency Fund',
+				'Specific Campaign'
+			]),
 			receipt_generated: this.randomChoice([true, false])
 		};
 		return { ...baseData, ...overrides };
@@ -628,7 +800,11 @@ class TestDataFactory {
 			auto_sync: this.randomChoice([true, false]),
 			sync_frequency: this.randomChoice(['Hourly', 'Daily', 'Weekly']),
 			last_sync: this.generateRecentDate(7),
-			connection_status: this.randomChoice(['Connected', 'Disconnected', 'Error'])
+			connection_status: this.randomChoice([
+				'Connected',
+				'Disconnected',
+				'Error'
+			])
 		};
 		return { ...baseData, ...overrides };
 	}
@@ -710,9 +886,9 @@ class TestDataFactory {
 			name: `CAR-${new Date().getFullYear()}-${String(this.memberCounter++).padStart(3, '0')}`,
 			member: this.createMemberName(),
 			member_name: `${this.generateDutchFirstName()} ${this.generateDutchSurname().last_name}`,
-			current_amount: 25.00,
-			requested_amount: 20.00,
-			minimum_amount: 10.00,
+			current_amount: 25.0,
+			requested_amount: 20.0,
+			minimum_amount: 10.0,
 			status: this.randomChoice(['Pending', 'Approved', 'Rejected']),
 			request_date: this.generateRecentDate(30),
 			reason: 'Financial hardship'
@@ -729,7 +905,11 @@ class TestDataFactory {
 			reason: 'Serious policy violation',
 			status: this.randomChoice(['Reported', 'Under Review', 'Completed']),
 			documentation_complete: this.randomChoice([true, false]),
-			workflow_status: this.randomChoice(['Board Approved', 'Pending Review', 'Completed']),
+			workflow_status: this.randomChoice([
+				'Board Approved',
+				'Pending Review',
+				'Completed'
+			]),
 			approval_date: this.generateRecentDate(30)
 		};
 		return { ...baseData, ...overrides };
@@ -738,7 +918,12 @@ class TestDataFactory {
 	createTeamData(overrides = {}) {
 		const baseData = {
 			name: `TEAM-${String(this.memberCounter++).padStart(3, '0')}`,
-			team_name: this.randomChoice(['Marketing Team', 'Event Planning', 'Finance Committee', 'Volunteer Coordination']),
+			team_name: this.randomChoice([
+				'Marketing Team',
+				'Event Planning',
+				'Finance Committee',
+				'Volunteer Coordination'
+			]),
 			team_lead: this.createMemberName(),
 			status: this.randomChoice(['Active', 'Inactive', 'Disbanded']),
 			default_role: this.randomChoice(['Member', 'Coordinator', 'Lead']),
@@ -754,9 +939,18 @@ class TestDataFactory {
 		const baseData = {
 			name: `SAL-${new Date().getFullYear()}-${String(this.memberCounter++).padStart(5, '0')}`,
 			transaction_reference: `SEPA-${new Date().getFullYear()}-${String(this.memberCounter).padStart(3, '0')}`,
-			audit_action: this.randomChoice(['Payment Processed', 'Mandate Created', 'Payment Failed', 'Mandate Cancelled']),
+			audit_action: this.randomChoice([
+				'Payment Processed',
+				'Mandate Created',
+				'Payment Failed',
+				'Mandate Cancelled'
+			]),
 			timestamp: this.generateRecentDate(30),
-			compliance_status: this.randomChoice(['Compliant', 'Non-Compliant', 'Under Review']),
+			compliance_status: this.randomChoice([
+				'Compliant',
+				'Non-Compliant',
+				'Under Review'
+			]),
 			regulation_reference: 'SEPA Regulation 2023',
 			checksum: 'abc123def456',
 			data_integrity: this.randomChoice(['Verified', 'Failed', 'Pending'])
@@ -771,7 +965,12 @@ class TestDataFactory {
 			method: this.randomChoice(['GET', 'POST', 'PUT', 'DELETE']),
 			user: 'admin@example.com',
 			timestamp: this.generateRecentDate(7),
-			security_event: this.randomChoice(['Failed Authentication', 'Successful Login', 'Permission Denied', 'Rate Limit Exceeded']),
+			security_event: this.randomChoice([
+				'Failed Authentication',
+				'Successful Login',
+				'Permission Denied',
+				'Rate Limit Exceeded'
+			]),
 			threat_level: this.randomChoice(['Low', 'Medium', 'High']),
 			ip_address: `192.168.1.${this.randomInt(1, 254)}`,
 			access_pattern: this.randomChoice(['Normal', 'Suspicious', 'Blocked']),

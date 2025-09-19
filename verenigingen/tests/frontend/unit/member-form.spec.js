@@ -72,7 +72,7 @@ describe('Member Form', () => {
 
 	beforeEach(() => {
 		// Mock Frappe framework
-		global.__ = jest.fn(str => str);
+		global.__ = jest.fn((str) => str);
 
 		frappe = {
 			call: jest.fn(),
@@ -87,7 +87,7 @@ describe('Member Form', () => {
 				set_value: jest.fn()
 			},
 			datetime: {
-				str_to_user: jest.fn(date => date),
+				str_to_user: jest.fn((date) => date),
 				get_today: jest.fn(() => '2024-01-01'),
 				add_days: jest.fn((date, days) => '2024-01-10')
 			},
@@ -209,8 +209,13 @@ describe('Member Form', () => {
 			frm.doc.iban = 'NL91ABNA0417164300';
 			memberEvents.iban(frm);
 
-			expect(window.IBANValidator.validate).toHaveBeenCalledWith('NL91ABNA0417164300');
-			expect(frm.set_value).toHaveBeenCalledWith('iban', 'NL91 ABNA 0417 1643 00');
+			expect(window.IBANValidator.validate).toHaveBeenCalledWith(
+				'NL91ABNA0417164300'
+			);
+			expect(frm.set_value).toHaveBeenCalledWith(
+				'iban',
+				'NL91 ABNA 0417 1643 00'
+			);
 			expect(frm.set_value).toHaveBeenCalledWith('bic', 'ABNANL2A');
 			expect(frappe.show_alert).toHaveBeenCalledWith(
 				expect.objectContaining({
@@ -242,7 +247,9 @@ describe('Member Form', () => {
 			frm.doc.payment_method = 'SEPA Direct Debit';
 			memberEvents.iban(frm);
 
-			expect(window.SepaUtils.check_sepa_mandate_status).toHaveBeenCalledWith(frm);
+			expect(window.SepaUtils.check_sepa_mandate_status).toHaveBeenCalledWith(
+				frm
+			);
 		});
 	});
 
@@ -279,7 +286,11 @@ describe('Member Form', () => {
 				return result.message;
 			};
 
-			const validation = await validateMandateCreation('MEM-001', 'NL91ABNA0417164300', 'NEW-MAND');
+			const validation = await validateMandateCreation(
+				'MEM-001',
+				'NL91ABNA0417164300',
+				'NEW-MAND'
+			);
 			expect(validation.existing_mandate).toBe('OLD-MAND-001');
 		});
 	});
@@ -325,7 +336,9 @@ describe('Member Form', () => {
 			memberEvents.pincode(frm);
 			jest.advanceTimersByTime(1000);
 
-			expect(window.ChapterUtils.suggest_chapter_from_address).toHaveBeenCalledWith(frm);
+			expect(
+				window.ChapterUtils.suggest_chapter_from_address
+			).toHaveBeenCalledWith(frm);
 
 			jest.useRealTimers();
 		});
@@ -355,7 +368,8 @@ describe('Member Form', () => {
 				}
 			});
 
-			const updateOtherMembersAtAddress = require('./member').updateOtherMembersAtAddress;
+			const updateOtherMembersAtAddress
+        = require('./member').updateOtherMembersAtAddress;
 			await updateOtherMembersAtAddress(frm);
 
 			expect(frappe.call).toHaveBeenCalledWith(
@@ -380,14 +394,19 @@ describe('Member Form', () => {
 				}
 			});
 
-			const updateOtherMembersAtAddress = require('./member').updateOtherMembersAtAddress;
+			const updateOtherMembersAtAddress
+        = require('./member').updateOtherMembersAtAddress;
 			await updateOtherMembersAtAddress(frm);
 
 			// Simulate click
 			const handler = $.mock.calls[0][0];
 			handler.call(mockEvent.target, mockEvent);
 
-			expect(frappe.set_route).toHaveBeenCalledWith('Form', 'Member', 'MEM-002');
+			expect(frappe.set_route).toHaveBeenCalledWith(
+				'Form',
+				'Member',
+				'MEM-002'
+			);
 		});
 	});
 
@@ -498,7 +517,9 @@ describe('Member Form', () => {
 			memberEvents.refresh(frm);
 
 			// Should not add more buttons
-			expect(frm.add_custom_button.mock.calls.length).toBe(addCustomButtonCalls);
+			expect(frm.add_custom_button.mock.calls.length).toBe(
+				addCustomButtonCalls
+			);
 		});
 
 		it('should set up all required buttons for submitted docs', () => {
@@ -533,7 +554,10 @@ describe('Member Form', () => {
 			const memberEvents = require('./member').memberFormEvents;
 			memberEvents.full_name(frm);
 
-			expect(frm.set_value).toHaveBeenCalledWith('full_name', 'Jan van der Berg');
+			expect(frm.set_value).toHaveBeenCalledWith(
+				'full_name',
+				'Jan van der Berg'
+			);
 		});
 	});
 });

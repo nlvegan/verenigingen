@@ -116,7 +116,7 @@ function showManualAssignDialog(memberName, report) {
 		callback(r) {
 			if (r.message) {
 				const chapters = r.message;
-				const options = chapters.map(ch => ({
+				const options = chapters.map((ch) => ({
 					label: ch.region ? `${ch.name} - ${ch.region}` : ch.name,
 					value: ch.name
 				}));

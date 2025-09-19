@@ -135,7 +135,8 @@ function approveMember(memberId) {
 			showLoading();
 
 			frappe.call({
-				method: 'verenigingen.api.membership_application_review.approve_membership_application',
+				method:
+          'verenigingen.api.membership_application_review.approve_membership_application',
 				args: {
 					member_name: memberId,
 					chapter: selectedChapter
@@ -154,7 +155,9 @@ function approveMember(memberId) {
 					} else {
 						frappe.msgprint({
 							title: __('Error'),
-							message: r.message ? r.message.error : __('Failed to approve member'),
+							message: r.message
+								? r.message.error
+								: __('Failed to approve member'),
 							indicator: 'red'
 						});
 					}
@@ -178,7 +181,10 @@ function reviewMember(memberId) {
 }
 
 function showPendingApplications() {
-	if (dashboardData.pending_actions && dashboardData.pending_actions.membership_applications) {
+	if (
+		dashboardData.pending_actions
+    && dashboardData.pending_actions.membership_applications
+	) {
 		const apps = dashboardData.pending_actions.membership_applications;
 
 		if (apps.length === 0) {
@@ -223,7 +229,9 @@ function showPendingApplications() {
 // Financial Functions
 function viewFinancialReports() {
 	if (!userPermissions.can_view_finances) {
-		frappe.msgprint(__('You do not have permission to view financial reports.'));
+		frappe.msgprint(
+			__('You do not have permission to view financial reports.')
+		);
 		return;
 	}
 
@@ -237,7 +245,11 @@ function _approveExpense(expenseId, amount) {
 	}
 
 	if (amount > userPermissions.expense_limit) {
-		frappe.msgprint(__(`This expense exceeds your approval limit of €${userPermissions.expense_limit}`));
+		frappe.msgprint(
+			__(
+				`This expense exceeds your approval limit of €${userPermissions.expense_limit}`
+			)
+		);
 		return;
 	}
 
@@ -245,7 +257,11 @@ function _approveExpense(expenseId, amount) {
 		__(`Are you sure you want to approve this expense of €${amount}?`),
 		() => {
 			// Implementation for expense approval
-			frappe.msgprint(__('Expense approval functionality will be implemented when expense system is integrated.'));
+			frappe.msgprint(
+				__(
+					'Expense approval functionality will be implemented when expense system is integrated.'
+				)
+			);
 		}
 	);
 }
@@ -267,7 +283,8 @@ function refreshDashboardData(silent = false) {
 	}
 
 	frappe.call({
-		method: 'verenigingen.templates.pages.chapter_dashboard.get_chapter_dashboard_data',
+		method:
+      'verenigingen.templates.pages.chapter_dashboard.get_chapter_dashboard_data',
 		args: {
 			chapter_name: selectedChapter
 		},
@@ -321,7 +338,9 @@ function updateMetricCards() {
 			$('.members-card .metric-content h3').text(metrics.members.active);
 			const trend = $('.members-card .trend');
 			if (metrics.members.new_this_month > 0) {
-				trend.text(`+${metrics.members.new_this_month} this month`).addClass('positive');
+				trend
+					.text(`+${metrics.members.new_this_month} this month`)
+					.addClass('positive');
 			} else {
 				trend.hide();
 			}
@@ -334,7 +353,9 @@ function updateMetricCards() {
 
 		// Update expenses metric
 		if (metrics.expenses) {
-			$('.expenses-card .metric-content h3').text(`€${Math.round(metrics.expenses.pending_amount)}`);
+			$('.expenses-card .metric-content h3').text(
+				`€${Math.round(metrics.expenses.pending_amount)}`
+			);
 		}
 	}
 }

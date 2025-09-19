@@ -3,6 +3,7 @@
 Welcome to Verenigingen! This guide will help you get up and running quickly with your comprehensive association management system.
 
 ## 📋 Table of Contents
+
 - [🎯 What is Verenigingen?](#-what-is-verenigingen)
 - [✅ Quick Start Checklist](#-quick-start-checklist)
 - [⚙️ Installation Overview](#️-installation-overview)
@@ -17,6 +18,7 @@ Welcome to Verenigingen! This guide will help you get up and running quickly wit
 Verenigingen is a comprehensive association management system designed specifically for Dutch non-profit organizations. It provides:
 
 ### 🌟 **Core Benefits**
+
 - **Complete Member Lifecycle**: From application to termination with automated workflows
 - **Financial Integration**: SEPA direct debit, eBoekhouden sync, and ERPNext integration
 - **Dutch Compliance**: ANBI, GDPR, and Belastingdienst reporting capabilities
@@ -24,6 +26,7 @@ Verenigingen is a comprehensive association management system designed specifica
 - **Modern Technology**: Built on Frappe Framework with responsive design
 
 ### 👥 **Perfect For**
+
 - Non-profit organizations with 10-10,000+ members
 - Associations requiring SEPA direct debit payment collection
 - Organizations needing eBoekhouden accounting integration
@@ -31,6 +34,7 @@ Verenigingen is a comprehensive association management system designed specifica
 - ANBI-qualified organizations requiring compliance reporting
 
 ### ⏱️ **Quick Overview**
+
 - **Setup Time**: 4-8 hours for basic configuration
 - **Learning Curve**: 2-4 hours per user type
 - **Go-Live Time**: 1-2 weeks for full deployment
@@ -41,6 +45,7 @@ Verenigingen is a comprehensive association management system designed specifica
 Before you begin, ensure you have:
 
 ### Prerequisites
+
 - [ ] Server with minimum 4GB RAM and 20GB storage
 - [ ] Ubuntu 20.04+ or CentOS 8+ operating system
 - [ ] Domain name and SSL certificate (for production)
@@ -48,6 +53,7 @@ Before you begin, ensure you have:
 - [ ] Basic understanding of your organization's structure
 
 ### Required Information
+
 - [ ] Organization details (name, address, contact information)
 - [ ] Membership types and fee structures
 - [ ] Chapter/regional organization (if applicable)
@@ -55,6 +61,7 @@ Before you begin, ensure you have:
 - [ ] Payment methods and banking information
 
 ### Time Estimate
+
 - **Basic Installation**: 2-4 hours
 - **Initial Configuration**: 4-6 hours
 - **User Training**: 2-4 hours per user type
@@ -122,6 +129,7 @@ bench install-app verenigingen
 ### Step 2: System Settings
 
 1. **Email Configuration**:
+
    ```bash
    # Go to Settings → Email Account
    # Configure SMTP settings
@@ -129,6 +137,7 @@ bench install-app verenigingen
    ```
 
 2. **Install Email Templates**:
+
    ```bash
    # CLI-friendly method (recommended)
    bench execute verenigingen.api.email_template_manager.create_email_templates_cli
@@ -138,6 +147,7 @@ bench install-app verenigingen
    ```
 
 3. **Deploy Role Profiles**:
+
    ```bash
    # CLI-friendly method (recommended)
    bench execute verenigingen.setup.role_profile_setup.setup_role_profiles_cli
@@ -170,16 +180,19 @@ bench install-app verenigingen
 The system includes pre-configured role profiles:
 
 #### For Administrators
+
 - **Verenigingen System Admin**: Full system access
 - **Verenigingen Manager**: Management-level access
 - **Verenigingen Treasurer**: Financial operations focus
 
 #### For Operational Staff
+
 - **Verenigingen Chapter Admin**: Chapter management
 - **Verenigingen Team Leader**: Team coordination
 - **Verenigingen Auditor**: Read-only access for auditing
 
 #### For Members and Volunteers
+
 - **Verenigingen Member**: Member portal access
 - **Verenigingen Volunteer**: Volunteer portal access
 
@@ -208,18 +221,21 @@ The system includes pre-configured role profiles:
 ### Week 1: Basic Setup
 
 #### Day 1-2: System Configuration
+
 - [ ] Complete installation and basic configuration
 - [ ] Create administrator accounts
 - [ ] Configure email system
 - [ ] Set up organization branding
 
 #### Day 3-4: Master Data
+
 - [ ] Create membership types
 - [ ] Set up chapters/regions
 - [ ] Configure payment methods
 - [ ] Import initial member data (if applicable)
 
 #### Day 5-7: Testing
+
 - [ ] Create test member accounts
 - [ ] Test member application process
 - [ ] Test payment processing
@@ -228,18 +244,21 @@ The system includes pre-configured role profiles:
 ### Week 2: User Onboarding
 
 #### Day 1-3: Staff Training
+
 - [ ] Train administrators on system basics
 - [ ] Configure user accounts for staff
 - [ ] Set up reporting and analytics
 - [ ] Test user permissions
 
 #### Day 4-5: Process Testing
+
 - [ ] Test complete member lifecycle
 - [ ] Verify payment processing
 - [ ] Test communication workflows
 - [ ] Check integration with ERPNext
 
 #### Day 6-7: Go-Live Preparation
+
 - [ ] Finalize configurations
 - [ ] Prepare user documentation
 - [ ] Plan rollout schedule
@@ -248,12 +267,14 @@ The system includes pre-configured role profiles:
 ### Month 1: Full Implementation
 
 #### Week 3: Soft Launch
+
 - [ ] Launch with limited user group
 - [ ] Monitor system performance
 - [ ] Gather user feedback
 - [ ] Make necessary adjustments
 
 #### Week 4: Full Launch
+
 - [ ] Open to all members
 - [ ] Monitor usage patterns
 - [ ] Provide user support
@@ -432,18 +453,21 @@ Establish regular maintenance routines:
 ## Success Criteria
 
 ### Week 1 Success Metrics
+
 - [ ] System installed and accessible
 - [ ] Basic configuration completed
 - [ ] Administrator accounts working
 - [ ] Email system functional
 
 ### Month 1 Success Metrics
+
 - [ ] Members can register and access portal
 - [ ] Payments are processing correctly
 - [ ] Staff can perform daily operations
 - [ ] Reporting provides useful insights
 
 ### Month 3 Success Metrics
+
 - [ ] User adoption is high
 - [ ] System performance is stable
 - [ ] Business processes are optimized
@@ -452,6 +476,7 @@ Establish regular maintenance routines:
 ## Quick Reference
 
 ### Essential Commands
+
 ```bash
 # System status
 bench status
@@ -470,12 +495,14 @@ python verenigingen/tests/test_runner.py smoke
 ```
 
 ### Important URLs
+
 - **Member Portal**: `/member_portal`
 - **Volunteer Portal**: `/volunteer/dashboard`
 - **Brand Management**: `/brand_management`
 - **Admin Dashboard**: `/member_dashboard`
 
 ### Key Contacts
+
 - **Technical Support**: support@yourorganization.org
 - **User Support**: help@yourorganization.org
 - **Emergency Issues**: emergency@yourorganization.org

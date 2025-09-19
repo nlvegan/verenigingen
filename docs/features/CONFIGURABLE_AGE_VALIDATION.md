@@ -14,14 +14,14 @@ The Verenigingen platform now supports configurable age validation through the `
 
 Age requirements can now be configured through **Setup > Verenigingen Settings > Age Validation Settings**:
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| **Minimum Membership Age** | 16 | Minimum age required for membership eligibility |
-| **Minimum Volunteer Age** | 16 | Minimum age required for volunteer activities |
-| **Minimum Voting Age** | 18 | Minimum age required for voting in organizational matters |
-| **Minimum Student Age** | 14 | Minimum age for student membership types |
-| **Minimum Youth Age** | 12 | Minimum age for youth membership categories |
-| **Minimum Senior Age** | 65 | Minimum age for senior membership benefits |
+| Setting                    | Default | Description                                               |
+| -------------------------- | ------- | --------------------------------------------------------- |
+| **Minimum Membership Age** | 16      | Minimum age required for membership eligibility           |
+| **Minimum Volunteer Age**  | 16      | Minimum age required for volunteer activities             |
+| **Minimum Voting Age**     | 18      | Minimum age required for voting in organizational matters |
+| **Minimum Student Age**    | 14      | Minimum age for student membership types                  |
+| **Minimum Youth Age**      | 12      | Minimum age for youth membership categories               |
+| **Minimum Senior Age**     | 65      | Minimum age for senior membership benefits                |
 
 ### Context-Aware Validation
 
@@ -102,6 +102,7 @@ Existing installations are automatically configured with default values through 
 ### Fallback Behavior
 
 If settings cannot be loaded or are not configured:
+
 1. System uses hardcoded defaults from validation utility
 2. Error is logged but validation continues
 3. System administrators receive notification to configure settings
@@ -115,6 +116,7 @@ If settings cannot be loaded or are not configured:
 Validates age requirements with context-aware business rules.
 
 **Parameters:**
+
 - `birth_date` (str|date): Birth date to validate
 - `context` (str): Validation context (membership, volunteer, voting, etc.)
 - `custom_min_age` (int, optional): Override minimum age requirement
@@ -129,6 +131,7 @@ Validates age requirements with context-aware business rules.
 Validates age requirements for specific membership types.
 
 **Parameters:**
+
 - `birth_date` (str|date): Birth date to validate
 - `membership_type` (str): Type of membership (Student, Youth, Senior, etc.)
 - `throw_on_error` (bool): Whether to throw exception on validation failure
@@ -138,6 +141,7 @@ Validates age requirements for specific membership types.
 Result object containing validation outcome:
 
 **Properties:**
+
 - `is_valid` (bool): Whether validation passed
 - `age_years` (float): Calculated age in years with decimal precision
 - `message` (str): Error message if validation failed
@@ -213,6 +217,7 @@ The system implements standard age requirements for Dutch associations:
 ### Parental Consent Logic
 
 For members between 16-17 years:
+
 - Regular membership allowed with parental consent warning
 - Youth-specific programs available without restrictions
 - Voting rights restricted until age 18
@@ -220,6 +225,7 @@ For members between 16-17 years:
 ### Maximum Age Validation
 
 The system validates against unrealistic ages:
+
 - Maximum age set to 120 years for data quality
 - Warning issued for ages over 100 years
 - Validation error for ages over maximum threshold

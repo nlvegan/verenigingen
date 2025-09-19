@@ -61,7 +61,8 @@ describe('Real SEPA Mandate Controller', () => {
 
 	beforeAll(() => {
 		// Load the real SEPA Mandate controller
-		const controllerPath = '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen_payments/doctype/sepa_mandate/sepa_mandate.js';
+		const controllerPath
+      = '/home/frappe/frappe-bench/apps/verenigingen/verenigingen/verenigingen_payments/doctype/sepa_mandate/sepa_mandate.js';
 		const allHandlers = loadFrappeController(controllerPath);
 		sepaHandlers = allHandlers['SEPA Mandate'];
 
@@ -118,12 +119,16 @@ describe('Real SEPA Mandate Controller', () => {
 	describe('Form Refresh Handler', () => {
 		it('should execute refresh handler without errors', () => {
 			expect(() => {
-				testFormEvent('SEPA Mandate', 'refresh', frm, { 'SEPA Mandate': sepaHandlers });
+				testFormEvent('SEPA Mandate', 'refresh', frm, {
+					'SEPA Mandate': sepaHandlers
+				});
 			}).not.toThrow();
 		});
 
 		it('should set up proper field labels and help text', () => {
-			testFormEvent('SEPA Mandate', 'refresh', frm, { 'SEPA Mandate': sepaHandlers });
+			testFormEvent('SEPA Mandate', 'refresh', frm, {
+				'SEPA Mandate': sepaHandlers
+			});
 
 			// Verify that form setup was called (the real controller sets up field help)
 			// Since the real controller might set field properties, we just ensure no errors
@@ -133,10 +138,12 @@ describe('Real SEPA Mandate Controller', () => {
 		it('should handle different mandate statuses', () => {
 			const statuses = ['Draft', 'Active', 'Suspended', 'Cancelled'];
 
-			statuses.forEach(status => {
+			statuses.forEach((status) => {
 				frm.doc.status = status;
 				expect(() => {
-					testFormEvent('SEPA Mandate', 'refresh', frm, { 'SEPA Mandate': sepaHandlers });
+					testFormEvent('SEPA Mandate', 'refresh', frm, {
+						'SEPA Mandate': sepaHandlers
+					});
 				}).not.toThrow();
 			});
 		});
@@ -152,7 +159,7 @@ describe('Real SEPA Mandate Controller', () => {
 				{ iban: '', valid: false }
 			];
 
-			testIBANs.forEach(test => {
+			testIBANs.forEach((test) => {
 				const result = validateDutchIBAN(test.iban);
 				expect(result.valid).toBe(test.valid);
 			});
@@ -166,7 +173,7 @@ describe('Real SEPA Mandate Controller', () => {
 				{ bic: '', valid: false }
 			];
 
-			testBICs.forEach(test => {
+			testBICs.forEach((test) => {
 				const result = validateBIC(test.bic);
 				expect(result.valid).toBe(test.valid);
 			});
@@ -176,7 +183,9 @@ describe('Real SEPA Mandate Controller', () => {
 			frm.doc.iban = 'NL91 ABNA 0417 1643 00'; // With spaces
 
 			// The controller should normalize IBAN by removing spaces
-			testFormEvent('SEPA Mandate', 'refresh', frm, { 'SEPA Mandate': sepaHandlers });
+			testFormEvent('SEPA Mandate', 'refresh', frm, {
+				'SEPA Mandate': sepaHandlers
+			});
 
 			// Test passes if no errors thrown during normalization
 			expect(frm.doc.iban).toBeDefined();
@@ -204,7 +213,9 @@ describe('Real SEPA Mandate Controller', () => {
 			if (sepaHandlers.member) {
 				frm.doc.member = 'MEM-2024-001';
 
-				testFormEvent('SEPA Mandate', 'member', frm, { 'SEPA Mandate': sepaHandlers });
+				testFormEvent('SEPA Mandate', 'member', frm, {
+					'SEPA Mandate': sepaHandlers
+				});
 
 				// Should call frappe.client.get for member data
 				expect(global.frappe.call).toHaveBeenCalledWith(
@@ -228,7 +239,9 @@ describe('Real SEPA Mandate Controller', () => {
 
 			// Controller should ensure proper consent tracking
 			expect(() => {
-				testFormEvent('SEPA Mandate', 'refresh', frm, { 'SEPA Mandate': sepaHandlers });
+				testFormEvent('SEPA Mandate', 'refresh', frm, {
+					'SEPA Mandate': sepaHandlers
+				});
 			}).not.toThrow();
 		});
 	});
@@ -242,18 +255,22 @@ describe('Real SEPA Mandate Controller', () => {
 				{ from: 'Active', to: 'Cancelled' }
 			];
 
-			statusTransitions.forEach(transition => {
+			statusTransitions.forEach((transition) => {
 				frm.doc.status = transition.from;
 
 				expect(() => {
-					testFormEvent('SEPA Mandate', 'refresh', frm, { 'SEPA Mandate': sepaHandlers });
+					testFormEvent('SEPA Mandate', 'refresh', frm, {
+						'SEPA Mandate': sepaHandlers
+					});
 				}).not.toThrow();
 
 				// Test status change if handler exists
 				if (sepaHandlers.status) {
 					frm.doc.status = transition.to;
 					expect(() => {
-						testFormEvent('SEPA Mandate', 'status', frm, { 'SEPA Mandate': sepaHandlers });
+						testFormEvent('SEPA Mandate', 'status', frm, {
+							'SEPA Mandate': sepaHandlers
+						});
 					}).not.toThrow();
 				}
 			});
@@ -266,7 +283,9 @@ describe('Real SEPA Mandate Controller', () => {
 			frm.doc.mandate_date = '2024-01-15';
 
 			expect(() => {
-				testFormEvent('SEPA Mandate', 'refresh', frm, { 'SEPA Mandate': sepaHandlers });
+				testFormEvent('SEPA Mandate', 'refresh', frm, {
+					'SEPA Mandate': sepaHandlers
+				});
 			}).not.toThrow();
 		});
 	});
@@ -276,7 +295,9 @@ describe('Real SEPA Mandate Controller', () => {
 			frm.doc.status = 'Active';
 			frm.doc.__islocal = 0;
 
-			testFormEvent('SEPA Mandate', 'refresh', frm, { 'SEPA Mandate': sepaHandlers });
+			testFormEvent('SEPA Mandate', 'refresh', frm, {
+				'SEPA Mandate': sepaHandlers
+			});
 
 			// Controller should setup mandate for direct debit processing
 			expect(frm.doc.status).toBe('Active');
@@ -285,11 +306,13 @@ describe('Real SEPA Mandate Controller', () => {
 		it('should prevent debit processing for inactive mandates', () => {
 			const inactiveStatuses = ['Draft', 'Suspended', 'Cancelled'];
 
-			inactiveStatuses.forEach(status => {
+			inactiveStatuses.forEach((status) => {
 				frm.doc.status = status;
 
 				expect(() => {
-					testFormEvent('SEPA Mandate', 'refresh', frm, { 'SEPA Mandate': sepaHandlers });
+					testFormEvent('SEPA Mandate', 'refresh', frm, {
+						'SEPA Mandate': sepaHandlers
+					});
 				}).not.toThrow();
 			});
 		});
@@ -305,11 +328,13 @@ describe('Real SEPA Mandate Controller', () => {
 				'IT60X0542811101000000123456' // Italy
 			];
 
-			sepaIBANs.forEach(iban => {
+			sepaIBANs.forEach((iban) => {
 				frm.doc.iban = iban;
 
 				expect(() => {
-					testFormEvent('SEPA Mandate', 'refresh', frm, { 'SEPA Mandate': sepaHandlers });
+					testFormEvent('SEPA Mandate', 'refresh', frm, {
+						'SEPA Mandate': sepaHandlers
+					});
 				}).not.toThrow();
 			});
 		});
@@ -317,11 +342,13 @@ describe('Real SEPA Mandate Controller', () => {
 		it('should handle mandate types correctly', () => {
 			const mandateTypes = ['OOFF', 'RCUR']; // One-off, Recurring
 
-			mandateTypes.forEach(type => {
+			mandateTypes.forEach((type) => {
 				frm.doc.mandate_type = type;
 
 				expect(() => {
-					testFormEvent('SEPA Mandate', 'refresh', frm, { 'SEPA Mandate': sepaHandlers });
+					testFormEvent('SEPA Mandate', 'refresh', frm, {
+						'SEPA Mandate': sepaHandlers
+					});
 				}).not.toThrow();
 			});
 		});
@@ -332,7 +359,9 @@ describe('Real SEPA Mandate Controller', () => {
 			frm.doc.member = null;
 
 			expect(() => {
-				testFormEvent('SEPA Mandate', 'refresh', frm, { 'SEPA Mandate': sepaHandlers });
+				testFormEvent('SEPA Mandate', 'refresh', frm, {
+					'SEPA Mandate': sepaHandlers
+				});
 			}).not.toThrow();
 		});
 
@@ -340,18 +369,24 @@ describe('Real SEPA Mandate Controller', () => {
 			frm.doc.iban = '';
 
 			expect(() => {
-				testFormEvent('SEPA Mandate', 'refresh', frm, { 'SEPA Mandate': sepaHandlers });
+				testFormEvent('SEPA Mandate', 'refresh', frm, {
+					'SEPA Mandate': sepaHandlers
+				});
 			}).not.toThrow();
 		});
 
 		it('should handle network timeout gracefully', () => {
 			// Mock network timeout
 			global.frappe.call.mockImplementation(({ error }) => {
-				if (error) { error('Network timeout'); }
+				if (error) {
+					error('Network timeout');
+				}
 			});
 
 			expect(() => {
-				testFormEvent('SEPA Mandate', 'refresh', frm, { 'SEPA Mandate': sepaHandlers });
+				testFormEvent('SEPA Mandate', 'refresh', frm, {
+					'SEPA Mandate': sepaHandlers
+				});
 			}).not.toThrow();
 		});
 	});
@@ -360,7 +395,9 @@ describe('Real SEPA Mandate Controller', () => {
 		it('should not make excessive server calls during refresh', () => {
 			const initialCallCount = global.frappe.call.mock.calls.length;
 
-			testFormEvent('SEPA Mandate', 'refresh', frm, { 'SEPA Mandate': sepaHandlers });
+			testFormEvent('SEPA Mandate', 'refresh', frm, {
+				'SEPA Mandate': sepaHandlers
+			});
 
 			const finalCallCount = global.frappe.call.mock.calls.length;
 			const callsAdded = finalCallCount - initialCallCount;
@@ -388,7 +425,9 @@ describe('Real SEPA Mandate Controller', () => {
 		it('should link mandate to member record', () => {
 			frm.doc.member = 'MEM-2024-001';
 
-			testFormEvent('SEPA Mandate', 'refresh', frm, { 'SEPA Mandate': sepaHandlers });
+			testFormEvent('SEPA Mandate', 'refresh', frm, {
+				'SEPA Mandate': sepaHandlers
+			});
 
 			// Mandate should be properly linked to member
 			expect(frm.doc.member).toBe('MEM-2024-001');
@@ -399,7 +438,9 @@ describe('Real SEPA Mandate Controller', () => {
 
 			// Test member field handler if it exists
 			if (sepaHandlers.member) {
-				testFormEvent('SEPA Mandate', 'member', frm, { 'SEPA Mandate': sepaHandlers });
+				testFormEvent('SEPA Mandate', 'member', frm, {
+					'SEPA Mandate': sepaHandlers
+				});
 
 				expect(global.frappe.call).toHaveBeenCalled();
 			} else {
@@ -413,6 +454,8 @@ describe('Real SEPA Mandate Controller', () => {
 // Export test utilities for reuse
 module.exports = {
 	testSEPAMandateHandler: (event, mockForm) => {
-		return testFormEvent('SEPA Mandate', event, mockForm, { 'SEPA Mandate': sepaHandlers });
+		return testFormEvent('SEPA Mandate', event, mockForm, {
+			'SEPA Mandate': sepaHandlers
+		});
 	}
 };

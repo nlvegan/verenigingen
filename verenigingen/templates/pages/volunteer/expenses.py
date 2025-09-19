@@ -299,11 +299,11 @@ def get_volunteer_expenses_from_claims(volunteer_name, limit=None):
                 "organization_type": org_type,
                 "organization_name": org_name,
                 "category": claim.custom_expense_category,
-                "category_name": frappe.db.get_value(
-                    "Expense Category", claim.custom_expense_category, "category_name"
-                )
-                if claim.custom_expense_category
-                else "Uncategorized",
+                "category_name": (
+                    frappe.db.get_value("Expense Category", claim.custom_expense_category, "category_name")
+                    if claim.custom_expense_category
+                    else "Uncategorized"
+                ),
                 "formatted_date": formatdate(claim.posting_date),
                 "status_class": get_status_class(status),
             }

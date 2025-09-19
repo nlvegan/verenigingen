@@ -9,6 +9,7 @@ Verenigingen is a comprehensive association management system built on Frappe Fr
 ### Core Technology Stack
 
 **Framework Foundation:**
+
 - **Frappe Framework v15+**: Modern Python web framework with built-in ORM, authentication, and UI
 - **ERPNext Integration**: Deep integration with financial, HR, and project modules
 - **MariaDB/MySQL**: Primary database with advanced indexing and optimization
@@ -16,6 +17,7 @@ Verenigingen is a comprehensive association management system built on Frappe Fr
 - **JavaScript/TypeScript**: Client-side development with Cypress E2E testing
 
 **Regulatory Compliance:**
+
 - **SEPA Compliance**: European banking standard integration for payment processing
 - **Dutch AVG/GDPR**: Complete data protection and privacy compliance
 - **Association Law**: Dutch association governance and regulatory adherence
@@ -24,12 +26,14 @@ Verenigingen is a comprehensive association management system built on Frappe Fr
 ### External Integrations
 
 **Financial Services:**
+
 - **eBoekhouden**: Dutch cloud accounting platform integration
 - **Mollie**: Payment processing with subscription management
 - **SEPA Banking**: Direct debit and bank statement processing
 - **Dutch Banking**: MT940 format processing and reconciliation
 
 **Communication Systems:**
+
 - **Email Integration**: Automated group management and campaign processing
 - **Member Portals**: Self-service member and volunteer portals
 - **Multi-Channel Notifications**: Automated communication workflows
@@ -41,6 +45,7 @@ Verenigingen is a comprehensive association management system built on Frappe Fr
 **Primary Purpose:** Complete member journey from application through termination
 
 **Key Features:**
+
 - **Dutch Name Handling**: Proper tussenvoegsel support and cultural conventions
 - **Geographic Assignment**: Automatic chapter assignment based on postal codes
 - **Application Processing**: Online applications with automated review workflows
@@ -48,6 +53,7 @@ Verenigingen is a comprehensive association management system built on Frappe Fr
 - **Address Optimization**: Household member detection and clustering
 
 **Integration Points:**
+
 - ERPNext Customer creation for financial operations
 - Employee integration for volunteer expense management
 - User account creation for portal access
@@ -58,6 +64,7 @@ Verenigingen is a comprehensive association management system built on Frappe Fr
 **Primary Purpose:** Comprehensive financial management with European compliance
 
 **Core Capabilities:**
+
 - **SEPA Direct Debit**: Complete mandate management and batch processing
 - **Automated Billing**: Membership dues schedules with flexible contribution models
 - **Invoice Processing**: ERPNext integration with payment reconciliation
@@ -65,6 +72,7 @@ Verenigingen is a comprehensive association management system built on Frappe Fr
 - **Payment History**: Real-time updates across all payment methods
 
 **Advanced Features:**
+
 - Risk assessment workflows for payment batches
 - Intelligent retry logic for failed payments
 - Comprehensive financial reporting and analytics
@@ -75,6 +83,7 @@ Verenigingen is a comprehensive association management system built on Frappe Fr
 **Primary Purpose:** Real-time synchronization with Dutch accounting platform
 
 **Integration Features:**
+
 - **Dual API Support**: REST API for performance, SOAP for legacy compatibility
 - **Chart of Accounts**: Complete account structure synchronization
 - **Transaction Mapping**: Automatic categorization and ERPNext integration
@@ -86,6 +95,7 @@ Verenigingen is a comprehensive association management system built on Frappe Fr
 **Primary Purpose:** Complete volunteer coordination with HR integration
 
 **Core Features:**
+
 - **Skills Tracking**: Volunteer capabilities and development goals
 - **Team Organization**: Flexible team structures with role-based permissions
 - **Expense Management**: Native ERPNext expense claim integration
@@ -97,6 +107,7 @@ Verenigingen is a comprehensive association management system built on Frappe Fr
 **Primary Purpose:** Geographic and administrative structure supporting local operations
 
 **Organizational Features:**
+
 - **Geographic Intelligence**: Pattern-based postal code assignment
 - **Board Management**: Sophisticated governance with role automation
 - **Regional Coordination**: Multi-chapter activity coordination
@@ -108,6 +119,7 @@ Verenigingen is a comprehensive association management system built on Frappe Fr
 **Primary Purpose:** Online payment processing with subscription management
 
 **Payment Features:**
+
 - **Multi-Method Support**: iDEAL, SEPA, credit cards, digital wallets
 - **Subscription Management**: Automated recurring payment handling
 - **Webhook Processing**: Real-time payment status updates
@@ -119,6 +131,7 @@ Verenigingen is a comprehensive association management system built on Frappe Fr
 **Primary Purpose:** Enterprise-grade security with compliance and audit capabilities
 
 **Security Architecture:**
+
 - **5-Tier API Security**: Critical, High, Standard, Public, and Development-only classifications
 - **Role-Based Access Control**: Sophisticated permission hierarchy
 - **Row-Level Security**: Chapter-boundary enforcement and data isolation
@@ -126,6 +139,7 @@ Verenigingen is a comprehensive association management system built on Frappe Fr
 - **Dutch Privacy Compliance**: AVG/GDPR regulation adherence
 
 **Security Features:**
+
 - Multi-level security decorators with operation-specific protection
 - Environment-aware security (production isolation of debug functions)
 - Rate limiting and CSRF protection
@@ -137,12 +151,14 @@ Verenigingen is a comprehensive association management system built on Frappe Fr
 **Primary Purpose:** Asynchronous task management and system automation
 
 **Processing Architecture:**
+
 - **Multi-Frequency Scheduling**: 37+ daily tasks, hourly monitoring, weekly maintenance
 - **Event-Driven Processing**: Document lifecycle event handling
 - **Performance Optimization**: Intelligent caching and bulk processing
 - **Error Handling**: Comprehensive retry logic and error recovery
 
 **Automation Categories:**
+
 - **Daily Operations**: Member updates, financial processing, communication
 - **Hourly Monitoring**: Payment validation, analytics alerts
 - **Weekly Maintenance**: Reporting, security checks, data optimization
@@ -153,12 +169,14 @@ Verenigingen is a comprehensive association management system built on Frappe Fr
 **Primary Purpose:** Comprehensive quality assurance and reliability testing
 
 **Testing Framework:**
+
 - **Enhanced Test Factory**: Business rule validation with Dutch-specific logic
 - **JavaScript E2E Testing**: 25+ DocType controller testing with Cypress
 - **Unit Testing**: Python and JavaScript component testing
 - **Performance Testing**: Load testing and optimization validation
 
 **Testing Sophistication:**
+
 - Real runtime environment testing for JavaScript controllers
 - SEPA operation testing with error recovery simulation
 - Dutch business logic validation (postal codes, IBAN, names)
@@ -171,12 +189,14 @@ Verenigingen is a comprehensive association management system built on Frappe Fr
 The system employs sophisticated event-driven architecture enabling real-time integration:
 
 **Document Event Processing:**
+
 - Document lifecycle events (validate, submit, cancel, trash)
 - Cross-system data synchronization
 - Background job queuing for heavy operations
 - External system integration triggers
 
 **Background Job Coordination:**
+
 - Immediate actions for fast operations
 - Heavy operations queued for background processing
 - External API calls processed asynchronously
@@ -185,6 +205,7 @@ The system employs sophisticated event-driven architecture enabling real-time in
 ### Data Flow Architecture
 
 **Member-Centric Model:**
+
 ```
 Member (central entity)
 ├── Membership (time-bounded periods)
@@ -198,6 +219,7 @@ Member (central entity)
 ```
 
 **Financial Process Flow:**
+
 1. Dues Schedule Generation → Invoice Creation
 2. Payment Processing (SEPA/Mollie) → Payment Collection
 3. Automatic Reconciliation → Payment-Invoice Matching
@@ -207,11 +229,13 @@ Member (central entity)
 ## Performance and Scalability
 
 ### Caching Strategy
+
 - **Multi-Layer Caching**: Application, permission, chapter, and security-aware caching
 - **Event-Driven Invalidation**: Automatic cache refresh on data changes
 - **Performance Optimization**: Intelligent batching and resource throttling
 
 ### Background Processing Optimization
+
 - **Parallel Processing**: Multi-threaded operations where safe
 - **Queue Management**: Priority-based job processing
 - **Resource Monitoring**: CPU and memory usage management
@@ -220,12 +244,14 @@ Member (central entity)
 ## Security Architecture
 
 ### Multi-Level Security Model
+
 1. **System Level**: Frappe framework authentication and session management
 2. **Application Level**: Role-based permissions with custom validation
 3. **Data Level**: Row-level security with chapter boundary enforcement
 4. **API Level**: Endpoint-specific security decorators and validation
 
 ### Dutch Regulatory Compliance
+
 - **Association Law**: Governance requirements and member rights management
 - **SEPA Compliance**: European payment processing standards
 - **Banking Standards**: MT940 processing and integration
@@ -234,12 +260,14 @@ Member (central entity)
 ## Development and Deployment
 
 ### Code Quality Assurance
+
 - **Pre-Commit Hooks**: Automatic formatting, linting, and security scanning
 - **Comprehensive Testing**: Unit, integration, and E2E testing frameworks
 - **Security Validation**: Automated vulnerability assessment
 - **Performance Testing**: Load testing and optimization validation
 
 ### Production Readiness
+
 - **Environment Configuration**: Development, staging, and production environments
 - **Monitoring Integration**: Comprehensive system health monitoring
 - **Error Handling**: Graceful degradation and recovery procedures
@@ -248,12 +276,14 @@ Member (central entity)
 ## Technical Excellence
 
 ### Dutch Market Specialization
+
 - **Cultural Adaptation**: Dutch terminology and business conventions
 - **Regulatory Integration**: Comprehensive Dutch law compliance
 - **Service Provider Integration**: Native integration with Dutch platforms
 - **Business Logic**: Dutch association governance patterns
 
 ### System Reliability
+
 - **High Availability**: Designed for 99.9% uptime
 - **Data Integrity**: Comprehensive validation and consistency checking
 - **Disaster Recovery**: Automated backup and recovery procedures

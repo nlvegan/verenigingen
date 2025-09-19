@@ -3,6 +3,7 @@
 Complete installation and setup guide for the Verenigingen comprehensive association management system with ERPNext integration.
 
 ## 📋 Table of Contents
+
 - [🎯 Overview](#-overview)
 - [⚙️ System Requirements](#️-system-requirements)
 - [📋 Prerequisites](#-prerequisites)
@@ -20,6 +21,7 @@ Complete installation and setup guide for the Verenigingen comprehensive associa
 The Verenigingen app is a comprehensive association management system built on the Frappe Framework with ERPNext integration. This guide covers the complete installation process from system preparation to production deployment.
 
 ### 🌟 Key Features Installed
+
 - **👥 Member Management**: Complete member lifecycle with automated workflows
 - **🏢 Chapter Organization**: Geographic organization with postal code matching
 - **🤝 Volunteer Coordination**: Team management with expense tracking
@@ -33,6 +35,7 @@ The Verenigingen app is a comprehensive association management system built on t
 ## ⚙️ System Requirements
 
 ### 💻 Minimum Requirements
+
 - **Operating System**: Ubuntu 20.04+ LTS, Debian 11+, CentOS Stream 8+, or RHEL 8+
 - **RAM**: 8GB minimum, 16GB recommended for production
 - **Storage**: 50GB minimum, 100GB+ recommended for production with eBoekhouden integration
@@ -40,6 +43,7 @@ The Verenigingen app is a comprehensive association management system built on t
 - **Network**: Stable internet connection (required for eBoekhouden API and email services)
 
 ### 🏭 Production Requirements
+
 - **RAM**: 32GB recommended for large organizations (5000+ members)
 - **Storage**: SSD storage with 200GB+ for optimal performance
 - **CPU**: 16+ cores for heavy financial integration workloads
@@ -49,6 +53,7 @@ The Verenigingen app is a comprehensive association management system built on t
 ### 🔧 Software Dependencies
 
 #### Core Framework Dependencies
+
 - **Python**: 3.10+ (Python 3.11+ recommended)
 - **Node.js**: 18.x LTS or 20.x LTS
 - **MariaDB**: 10.6+ (10.11+ recommended)
@@ -57,6 +62,7 @@ The Verenigingen app is a comprehensive association management system built on t
 - **Supervisor**: 4.x+ (for process management)
 
 #### Development Dependencies
+
 - **Git**: 2.34+ for source control
 - **Yarn**: Latest stable for asset building
 - **wkhtmltopdf**: 0.12.6+ for PDF generation
@@ -69,17 +75,20 @@ The Verenigingen app is a comprehensive association management system built on t
 The Verenigingen app has specific dependencies that must be installed in order:
 
 #### Core Framework Apps
+
 1. **Frappe Framework** v15.x (latest stable)
 2. **ERPNext** v15.x (latest stable - provides accounting foundation)
 3. **Payments App** (latest stable - essential for payment processing)
 
 #### Essential Additional Apps
+
 4. **HRMS App** (v15.x - required for employee and volunteer management)
 5. **Insights App** (optional but recommended - for advanced analytics)
 
 ### 🌐 External Service Prerequisites
 
 #### Required Services
+
 - **Email Service**:
   - SMTP server (Gmail, SendGrid, Mailgun, or corporate SMTP)
   - Domain authentication (SPF, DKIM records) for production
@@ -91,6 +100,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
   - Administrative access for account mapping
 
 #### Recommended Services
+
 - **SSL Certificate**: Let's Encrypt or commercial certificate
 - **Domain Name**: Dedicated domain for your association
 - **Backup Service**: Cloud backup solution (AWS S3, Google Cloud, etc.)
@@ -99,12 +109,14 @@ The Verenigingen app has specific dependencies that must be installed in order:
 ### 🔐 Security Prerequisites
 
 #### System Security
+
 - **Firewall Configuration**: Restrict access to necessary ports only
 - **User Management**: Non-root user for Frappe installation
 - **SSH Security**: Key-based authentication, disable password login
 - **Regular Updates**: Automated security updates for OS packages
 
 #### Application Security
+
 - **Strong Passwords**: Enforce strong password policies
 - **Two-Factor Authentication**: Enable 2FA for administrative users
 - **Access Logging**: Enable audit logging for sensitive operations
@@ -117,6 +129,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 🔨 Install System Dependencies
 
 1. **Update System Packages**:
+
    ```bash
    # Ubuntu/Debian
    sudo apt update && sudo apt upgrade -y
@@ -129,6 +142,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 2. **Configure MariaDB**:
+
    ```bash
    # Secure MariaDB installation
    sudo mysql_secure_installation
@@ -153,6 +167,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 3. **Setup Frappe User**:
+
    ```bash
    # Create frappe user
    sudo adduser frappe --home /home/frappe
@@ -167,6 +182,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 📦 Bench Installation
 
 1. **Install Frappe Bench**:
+
    ```bash
    # Install frappe-bench using pip
    pip3 install frappe-bench
@@ -177,6 +193,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 2. **Initialize New Bench (Frappe v15)**:
+
    ```bash
    # Initialize bench with Frappe v15
    bench init --frappe-branch version-15 frappe-bench
@@ -189,6 +206,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 3. **Create Site**:
+
    ```bash
    # Create new site (replace with your domain)
    bench new-site your-association.com --admin-password your-secure-password
@@ -202,6 +220,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 🎯 Core Application Installation
 
 1. **Install ERPNext**:
+
    ```bash
    # Get ERPNext v15
    bench get-app --branch version-15 erpnext
@@ -211,6 +230,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 2. **Install Payments App**:
+
    ```bash
    # Get Payments app
    bench get-app payments
@@ -220,6 +240,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 3. **Install HRMS (Essential for Volunteer Management)**:
+
    ```bash
    # Get HRMS v15
    bench get-app --branch version-15 hrms
@@ -229,6 +250,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 4. **Install Insights (Optional - Enhanced Analytics)**:
+
    ```bash
    # Get Insights app for advanced reporting
    bench get-app insights
@@ -242,6 +264,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 🏢 Primary Application Installation
 
 1. **Get Verenigingen App**:
+
    ```bash
    # Clone from repository (replace with your repository URL)
    bench get-app verenigingen https://github.com/your-organization/verenigingen.git
@@ -251,6 +274,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 2. **Install Application**:
+
    ```bash
    # Install Verenigingen app
    bench --site your-association.com install-app verenigingen
@@ -260,6 +284,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 3. **Run Migrations and Build Assets**:
+
    ```bash
    # Run database migrations
    bench --site your-association.com migrate
@@ -276,6 +301,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### ✅ Installation Verification
 
 1. **Start Development Server**:
+
    ```bash
    # Start all services
    bench start
@@ -290,6 +316,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    - **System Health**: Check **Settings → System Settings** for any configuration warnings
 
 3. **Initial System Check**:
+
    ```bash
    # Run system diagnostics
    bench --site your-association.com doctor
@@ -304,6 +331,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 🔧 Post-Installation Fixes
 
 1. **Fix Permissions** (if needed):
+
    ```bash
    # Fix file permissions
    sudo chown -R frappe:frappe /home/frappe/frappe-bench
@@ -311,6 +339,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 2. **Restart Services**:
+
    ```bash
    # Restart bench processes
    bench restart
@@ -327,9 +356,11 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 🏢 Company Configuration
 
 1. **Configure Company Details**:
+
    ```bash
    # Navigate to: Accounting → Company
    ```
+
    - **Company Name**: Enter your association's legal name
    - **Abbreviation**: Short code for your organization (e.g., "VNV")
    - **Default Currency**: EUR for Dutch organizations
@@ -338,9 +369,11 @@ The Verenigingen app has specific dependencies that must be installed in order:
    - **Address**: Complete legal address including postal code
 
 2. **Fiscal Year Setup**:
+
    ```bash
    # Navigate to: Accounting → Fiscal Year
    ```
+
    - **Year Start Date**: January 1 (standard for Dutch organizations)
    - **Year End Date**: December 31
    - **Year Name**: Clear naming convention (e.g., "2024-2025")
@@ -349,6 +382,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```bash
    # Navigate to: Accounting → Chart of Accounts
    ```
+
    - Use the default ERPNext chart or customize for your needs
    - Ensure accounts are set up for eBoekhouden integration
    - Create accounts for membership fees, donations, expenses
@@ -356,9 +390,11 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 🌐 Global Settings Configuration
 
 1. **System Settings**:
+
    ```bash
    # Navigate to: Settings → System Settings
    ```
+
    - **Country**: Netherlands
    - **Time Zone**: Europe/Amsterdam
    - **Date Format**: dd-mm-yyyy (Dutch standard)
@@ -369,6 +405,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```bash
    # Navigate to: Website → Website Settings
    ```
+
    - **Website Title**: Your association name
    - **Title Prefix**: Prefix for page titles
    - **Footer Items**: Add relevant footer links
@@ -379,14 +416,17 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 👥 User Account Setup
 
 1. **Create Administrative Users**:
+
    ```bash
    # Navigate to: Users and Permissions → User
    ```
+
    - **Board Members**: Users with administrative access
    - **Coordinators**: Users with operational access
    - **Volunteers**: Users with limited access to volunteer portal
 
 2. **Configure User Roles Automatically**:
+
    ```bash
    # CLI-friendly method (recommended for installation)
    bench --site your-association.com execute verenigingen.setup.role_profile_setup.setup_role_profiles_cli
@@ -399,6 +439,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```bash
    # Navigate to: Users and Permissions → Role Profile
    ```
+
    - **Board Member Profile**: Full system access
    - **Coordinator Profile**: Member and volunteer management
    - **Volunteer Profile**: Limited to volunteer functions
@@ -407,9 +448,11 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 🔐 Security Configuration
 
 1. **Enable Two-Factor Authentication**:
+
    ```bash
    # Navigate to: Settings → System Settings → Security
    ```
+
    - Enable for all administrative users
    - Recommend for coordinators and board members
 
@@ -417,6 +460,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```bash
    # Navigate to: Users and Permissions → Password Policy
    ```
+
    - **Minimum Length**: 12 characters
    - **Require Special Characters**: Yes
    - **Require Numbers**: Yes
@@ -427,17 +471,21 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 📧 Email Configuration
 
 1. **Configure Primary Email Domain**:
+
    ```bash
    # Navigate to: Settings → Email Domain
    ```
+
    - **Domain Name**: your-association.org
    - **Email Server**: Your organization's email server
    - **SMTP Settings**: Configure outgoing mail settings
 
 2. **Setup SMTP for Outgoing Emails**:
+
    ```bash
    # Navigate to: Settings → Email Account
    ```
+
    - **Email Server**: smtp.your-provider.com (Gmail: smtp.gmail.com)
    - **Port**: 587 (TLS) or 465 (SSL)
    - **Use TLS**: Yes
@@ -445,6 +493,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    - **Password**: App-specific password (for Gmail)
 
 3. **Install and Configure Email Templates**:
+
    ```bash
    # CLI-friendly method (recommended for installation)
    bench --site your-association.com execute verenigingen.api.email_template_manager.create_email_templates_cli
@@ -468,6 +517,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```bash
    # Navigate to: Setup → Notification
    ```
+
    - Set up notifications for membership applications
    - Configure payment failure notifications
    - Setup volunteer expense approval alerts
@@ -477,9 +527,11 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 👥 Membership Configuration
 
 1. **Create Membership Types**:
+
    ```bash
    # Navigate to: Verenigingen → Membership Type
    ```
+
    - **Individual**: Standard individual membership
    - **Student**: Discounted student membership
    - **Senior**: Senior citizen rates
@@ -494,9 +546,11 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 🏢 Chapter Organization
 
 1. **Setup Geographic Chapters** (if applicable):
+
    ```bash
    # Navigate to: Verenigingen → Chapter
    ```
+
    - **Amsterdam**: Postal codes 1000-1109
    - **Rotterdam**: Postal codes 3000-3199
    - **The Hague**: Postal codes 2490-2599
@@ -511,9 +565,11 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 💰 Payment Method Configuration
 
 1. **Configure SEPA Direct Debit**:
+
    ```bash
    # Navigate to: Verenigingen → SEPA Settings
    ```
+
    - **Creditor ID**: Your organization's SEPA creditor identifier
    - **Bank Account**: Primary organization bank account
    - **Mandate Configuration**: Set up mandate templates
@@ -523,6 +579,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```bash
    # Navigate to: Integrations → Payment Gateway
    ```
+
    - **iDEAL**: For Dutch online payments
    - **PayPal**: For international donations
    - **Stripe**: For credit card processing
@@ -532,9 +589,11 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 🧾 eBoekhouden Integration Setup
 
 1. **Configure eBoekhouden Settings**:
+
    ```bash
    # Navigate to: Setup → E-Boekhouden Settings
    ```
+
    - **API URL**: https://secure.e-boekhouden.nl/bh/api.asp
    - **REST API URL**: https://api.e-boekhouden.nl
    - **Username**: Your eBoekhouden username
@@ -543,6 +602,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    - **Default Company**: Map to your ERPNext company
 
 2. **Test eBoekhouden Connectivity**:
+
    ```bash
    # Test API connection
    bench --site your-association.com execute verenigingen.utils.eboekhouden_rest_iterator.test_rest_iterator
@@ -553,6 +613,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    # Create initial account mappings
    # Navigate to: Setup → eBoekhouden Account Mapping
    ```
+
    - Map eBoekhouden accounts to ERPNext chart of accounts
    - Configure default accounts for common transaction types
 
@@ -563,6 +624,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    # Configure Insights app (if installed)
    # Navigate to: Insights → Dashboard
    ```
+
    - Create membership analytics dashboard
    - Setup financial reporting dashboard
    - Configure volunteer activity tracking
@@ -572,6 +634,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 🌐 Member Portal Setup
 
 1. **Configure Member Portal Home Page**:
+
    ```bash
    # Setup member portal homepage
    bench --site your-association.com execute verenigingen.scripts.setup.setup_member_portal_home.main
@@ -581,6 +644,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```bash
    # Navigate to: Website → Portal Settings
    ```
+
    - **Default Role**: Member (for new portal users)
    - **Default Home Page**: /member/dashboard
    - **Menu Items**: Configure navigation for members
@@ -588,10 +652,12 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 🤝 Volunteer Portal Setup
 
 1. **Setup Volunteer Portal Pages**:
+
    ```bash
    # Configure volunteer portal
    # Navigate to: Verenigingen → Volunteer Settings
    ```
+
    - Enable expense submission features
    - Configure team assignment workflows
    - Setup activity tracking
@@ -600,6 +666,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```bash
    # Navigate to: Verenigingen → Volunteer Team
    ```
+
    - Create organizational teams
    - Assign team leaders and coordinators
    - Configure team-specific permissions
@@ -611,10 +678,12 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 🎨 Brand Management Setup
 
 1. **Configure Organization Branding**:
+
    ```bash
    # Access brand management (System Manager role required)
    # Navigate to: /brand_management
    ```
+
    - **Primary Color**: Set your organization's primary brand color
    - **Secondary Color**: Complementary color for accents
    - **Logo Upload**: Upload organization logo and favicon
@@ -625,6 +694,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    # Generate and apply custom CSS
    # Navigate to: Website → Brand CSS (/brand_css)
    ```
+
    - Custom CSS variables for consistent theming
    - Portal-specific styling modifications
    - Print format customizations
@@ -634,15 +704,18 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 📚 Onboarding Configuration
 
 1. **Setup User Onboarding Flows**:
+
    ```bash
    # Create minimal onboarding setup
    bench --site your-association.com execute verenigingen.scripts.setup.create_minimal_onboarding.main
    ```
 
 2. **Configure Welcome Messages**:
+
    ```bash
    # Navigate to: Settings → Website Settings → Onboarding
    ```
+
    - Member welcome email sequences
    - Volunteer orientation materials
    - Board member training resources
@@ -652,6 +725,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    # Create user documentation shortcuts
    # Navigate to: Help → Documentation
    ```
+
    - Link to user manuals and guides
    - Video tutorials and walkthroughs
    - FAQ and troubleshooting resources
@@ -661,6 +735,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 🧪 Development Testing (Non-Production Only)
 
 1. **Generate Test Data**:
+
    ```bash
    # Create test members for system validation
    bench --site your-association.com execute verenigingen.api.generate_test_members.create_test_members --args '{"count": 25}'
@@ -673,6 +748,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 2. **Run Comprehensive System Tests**:
+
    ```bash
    # Run smoke tests to verify basic functionality
    cd /home/frappe/frappe-bench/apps/verenigingen
@@ -691,6 +767,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### ✅ Production Validation
 
 1. **System Health Checks**:
+
    ```bash
    # Run system diagnostics
    bench --site your-association.com doctor
@@ -703,6 +780,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 2. **Integration Testing**:
+
    ```bash
    # Test email functionality
    bench --site your-association.com execute verenigingen.api.email_test.send_test_email --args '{"recipient": "admin@your-association.com"}'
@@ -721,6 +799,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 🔧 Production Configuration
 
 1. **Configure Production Mode**:
+
    ```bash
    # Enable production settings
    bench --site your-association.com set-config developer_mode 0
@@ -732,6 +811,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 2. **Configure Process Management**:
+
    ```bash
    # Setup Supervisor for process management
    sudo bench setup supervisor
@@ -743,6 +823,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 3. **Configure Web Server**:
+
    ```bash
    # Setup Nginx for web serving
    sudo bench setup nginx
@@ -758,6 +839,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 🔒 SSL and Security Setup
 
 1. **Install SSL Certificate**:
+
    ```bash
    # Option 1: Let's Encrypt (Free, Automated)
    sudo bench setup lets-encrypt your-association.com
@@ -768,10 +850,12 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 2. **Configure Security Headers**:
+
    ```bash
    # Add security headers to nginx configuration
    # Edit: /etc/nginx/conf.d/frappe.conf
    ```
+
    ```nginx
    # Add to server block
    add_header X-Frame-Options "SAMEORIGIN" always;
@@ -793,6 +877,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 📊 Monitoring and Logging
 
 1. **Configure System Monitoring**:
+
    ```bash
    # Setup log rotation
    sudo tee /etc/logrotate.d/frappe > /dev/null <<EOF
@@ -809,6 +894,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 2. **Setup Performance Monitoring**:
+
    ```bash
    # Configure Frappe monitoring
    bench --site your-association.com enable-scheduler
@@ -824,6 +910,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 💾 Backup Configuration
 
 1. **Setup Automated Backups**:
+
    ```bash
    # Configure automatic daily backups
    bench --site your-association.com set-config backup_count 7
@@ -835,6 +922,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 2. **Configure Offsite Backup**:
+
    ```bash
    # Example: AWS S3 backup script
    sudo tee /home/frappe/backup_to_s3.sh > /dev/null <<'EOF'
@@ -862,10 +950,12 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### ⚡ Database Optimization
 
 1. **Configure MariaDB for Production**:
+
    ```bash
    # Edit MariaDB configuration
    sudo nano /etc/mysql/conf.d/frappe-production.cnf
    ```
+
    ```ini
    [mysqld]
    # Performance settings
@@ -886,6 +976,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 2. **Optimize Database Indexes**:
+
    ```bash
    # Run database optimization
    bench --site your-association.com mariadb --execute "OPTIMIZE TABLE tabMember, tabVolunteer, tabChapter, tabMembership;"
@@ -897,6 +988,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 🚀 Application Performance
 
 1. **Configure Redis for Caching**:
+
    ```bash
    # Configure Redis for better performance
    sudo nano /etc/redis/redis.conf
@@ -907,6 +999,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 2. **Optimize Static Asset Serving**:
+
    ```bash
    # Build and compress assets
    bench build --app verenigingen
@@ -924,6 +1017,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 🧾 eBoekhouden Integration (Dutch Organizations)
 
 1. **Pre-Migration Setup**:
+
    ```bash
    # Test eBoekhouden API connectivity
    bench --site your-association.com execute verenigingen.utils.eboekhouden_rest_iterator.test_rest_iterator
@@ -933,6 +1027,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 2. **Complete Data Migration**:
+
    ```bash
    # Start full eBoekhouden migration (production-ready system)
    bench --site your-association.com execute verenigingen.utils.eboekhouden_rest_full_migration.start_full_rest_import --args '{"migration_name": "Initial Migration 2025"}'
@@ -942,6 +1037,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 3. **Post-Migration Validation**:
+
    ```bash
    # Verify balance accuracy
    bench --site your-association.com execute verenigingen.api.eboekhouden_account_manager.system_health_check
@@ -953,9 +1049,11 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 💳 Payment Gateway Integration
 
 1. **iDEAL Configuration** (Dutch online payments):
+
    ```bash
    # Navigate to: Integrations → Payment Gateway → iDEAL
    ```
+
    - Configure merchant credentials
    - Set up webhook URLs for payment confirmation
    - Test payment flow with small amounts
@@ -964,6 +1062,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```bash
    # Navigate to: Verenigingen → SEPA Batch Management
    ```
+
    - Configure automated batch creation schedules
    - Setup mandate collection workflows
    - Configure payment failure handling
@@ -975,6 +1074,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 🔍 Functional Testing
 
 1. **Core Functionality Tests**:
+
    ```bash
    # Test member lifecycle
    bench --site your-association.com execute verenigingen.api.test_member_lifecycle.run_comprehensive_test
@@ -987,6 +1087,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 2. **Integration Testing**:
+
    ```bash
    # Test email system
    cd /home/frappe/frappe-bench/apps/verenigingen
@@ -1002,6 +1103,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 🛡️ Security and Performance Testing
 
 1. **Security Validation**:
+
    ```bash
    # Run security tests (from app directory)
    cd /home/frappe/frappe-bench/apps/verenigingen
@@ -1015,6 +1117,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
    ```
 
 2. **Performance Testing**:
+
    ```bash
    # Test database performance (from app directory)
    cd /home/frappe/frappe-bench/apps/verenigingen
@@ -1031,6 +1134,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
 #### 🚨 Installation and Setup Problems
 
 **Issue**: Frappe Bench installation fails with permission errors
+
 ```bash
 # Solution: Ensure proper user setup and permissions
 sudo adduser frappe --home /home/frappe
@@ -1039,6 +1143,7 @@ sudo chown -R frappe:frappe /home/frappe
 ```
 
 **Issue**: App installation fails with dependency conflicts
+
 ```bash
 # Solution: Clean installation approach
 bench --site your-association.com uninstall-app verenigingen
@@ -1048,6 +1153,7 @@ bench --site your-association.com install-app verenigingen --force
 ```
 
 **Issue**: Migration errors during app installation
+
 ```bash
 # Solution: Reset database and migrate step by step
 bench --site your-association.com migrate --reset-permissions
@@ -1058,6 +1164,7 @@ bench --site your-association.com clear-cache
 #### 🗄️ Database and Performance Issues
 
 **Issue**: MariaDB connection timeouts
+
 ```bash
 # Solution: Optimize MariaDB configuration
 sudo nano /etc/mysql/conf.d/frappe.cnf
@@ -1067,6 +1174,7 @@ sudo systemctl restart mariadb
 ```
 
 **Issue**: Slow query performance
+
 ```bash
 # Solution: Optimize database and add indexes
 bench --site your-association.com mariadb --execute "SHOW PROCESSLIST;"
@@ -1074,6 +1182,7 @@ bench --site your-association.com mariadb --execute "ANALYZE TABLE tabMember, ta
 ```
 
 **Issue**: High memory usage
+
 ```bash
 # Solution: Optimize Redis and Frappe configuration
 # Edit Redis config: sudo nano /etc/redis/redis.conf
@@ -1085,6 +1194,7 @@ sudo systemctl restart redis
 #### 📧 Communication and Integration Issues
 
 **Issue**: Emails not sending
+
 ```bash
 # Solution: Debug email configuration step by step
 bench --site your-association.com console
@@ -1094,6 +1204,7 @@ frappe.sendmail(recipients=['test@example.com'], subject='Test', message='Test m
 ```
 
 **Issue**: eBoekhouden API connection failures
+
 ```bash
 # Solution: Validate credentials and connectivity
 bench --site your-association.com execute verenigingen.utils.eboekhouden_rest_iterator.test_rest_iterator
@@ -1104,6 +1215,7 @@ bench --site your-association.com execute verenigingen.utils.eboekhouden_rest_it
 ```
 
 **Issue**: SEPA mandate creation errors
+
 ```bash
 # Solution: Validate IBAN and mandate settings
 bench --site your-association.com execute verenigingen.utils.iban_validator.validate_iban --args '{"iban": "NL91ABNA0417164300"}'
@@ -1115,6 +1227,7 @@ bench --site your-association.com execute verenigingen.utils.iban_validator.vali
 #### 🌐 Portal and Frontend Issues
 
 **Issue**: Portal pages not loading correctly
+
 ```bash
 # Solution: Rebuild assets and clear cache
 bench build --app verenigingen
@@ -1123,6 +1236,7 @@ bench --site your-association.com clear-website-cache
 ```
 
 **Issue**: Brand CSS not applying
+
 ```bash
 # Solution: Regenerate brand CSS and verify configuration
 # Navigate to: /brand_management
@@ -1135,6 +1249,7 @@ bench --site your-association.com execute verenigingen.templates.pages.brand_css
 #### System Health Checks
 
 1. **Comprehensive System Diagnostics**:
+
    ```bash
    # Run full system diagnostics
    bench --site your-association.com doctor
@@ -1149,6 +1264,7 @@ bench --site your-association.com execute verenigingen.templates.pages.brand_css
    ```
 
 2. **Application-Specific Diagnostics**:
+
    ```bash
    # Check Verenigingen app status
    bench --site your-association.com list-apps --verbose
@@ -1163,6 +1279,7 @@ bench --site your-association.com execute verenigingen.templates.pages.brand_css
 #### 📊 Log Analysis
 
 1. **System Log Monitoring**:
+
    ```bash
    # Monitor Frappe logs
    tail -f /home/frappe/frappe-bench/logs/web.log
@@ -1175,6 +1292,7 @@ bench --site your-association.com execute verenigingen.templates.pages.brand_css
    ```
 
 2. **Error Log Analysis**:
+
    ```bash
    # Search for specific errors
    grep -r "ERROR" /home/frappe/frappe-bench/logs/

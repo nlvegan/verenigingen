@@ -9,9 +9,13 @@ frappe.pages['account_creation_dashboard'].on_page_load = function (wrapper) {
 	});
 
 	// Add refresh button
-	page.set_primary_action('Refresh', () => {
-		load_dashboard_data(page);
-	}, 'fa fa-refresh');
+	page.set_primary_action(
+		'Refresh',
+		() => {
+			load_dashboard_data(page);
+		},
+		'fa fa-refresh'
+	);
 
 	// Add secondary actions
 	page.add_menu_item('Process All Pending', () => {
@@ -115,7 +119,8 @@ function setup_dashboard_layout(page) {
 
 	// Add custom styles
 	$('<style>')
-		.text(`
+		.text(
+			`
             .dashboard-container {
                 padding: 20px;
             }
@@ -148,14 +153,16 @@ function setup_dashboard_layout(page) {
             .status-completed { background: #00b894; color: white; }
             .status-failed { background: #e17055; color: white; }
             .status-cancelled { background: #636e72; color: white; }
-        `)
+        `
+		)
 		.appendTo('head');
 }
 
 function load_dashboard_data(page) {
 	// Load statistics
 	frappe.call({
-		method: 'verenigingen.verenigingen.doctype.account_creation_request.account_creation_request.get_request_statistics',
+		method:
+      'verenigingen.verenigingen.doctype.account_creation_request.account_creation_request.get_request_statistics',
 		callback(r) {
 			if (r.message) {
 				update_statistics(r.message);
@@ -169,7 +176,10 @@ function load_dashboard_data(page) {
 
 function update_statistics(stats) {
 	// Initialize counters
-	let pending = 0; let processing = 0; let completed = 0; let failed = 0;
+	let pending = 0;
+	let processing = 0;
+	let completed = 0;
+	let failed = 0;
 
 	// Process statistics
 	stats.forEach((stat) => {
@@ -199,7 +209,9 @@ function update_statistics(stats) {
 
 function show_requests_table(filter_type) {
 	const container = $('#requests-table-container');
-	container.html('<div class="text-center" style="padding: 20px;"><i class="fa fa-spinner fa-spin"></i> Loading...</div>');
+	container.html(
+		'<div class="text-center" style="padding: 20px;"><i class="fa fa-spinner fa-spin"></i> Loading...</div>'
+	);
 
 	let filters = {};
 	let title = 'All Account Creation Requests';
@@ -226,9 +238,19 @@ function show_requests_table(filter_type) {
 			doctype: 'Account Creation Request',
 			filters,
 			fields: [
-				'name', 'request_type', 'source_record', 'email', 'full_name',
-				'status', 'pipeline_stage', 'failure_reason', 'retry_count',
-				'creation', 'priority', 'created_user', 'created_employee'
+				'name',
+				'request_type',
+				'source_record',
+				'email',
+				'full_name',
+				'status',
+				'pipeline_stage',
+				'failure_reason',
+				'retry_count',
+				'creation',
+				'priority',
+				'created_user',
+				'created_employee'
 			],
 			order_by: 'creation desc',
 			limit_page_length: 50
@@ -243,7 +265,9 @@ function show_requests_table(filter_type) {
 
 function render_requests_table(requests, container) {
 	if (requests.length === 0) {
-		container.html('<div class="text-center text-muted" style="padding: 40px;">No requests found</div>');
+		container.html(
+			'<div class="text-center text-muted" style="padding: 40px;">No requests found</div>'
+		);
 		return;
 	}
 
@@ -319,16 +343,22 @@ function render_action_buttons(req) {
 function retry_request(request_name) {
 	frappe.confirm('Retry this account creation request?', () => {
 		frappe.call({
-			method: 'verenigingen.utils.account_creation_manager.retry_failed_request',
+			method:
+        'verenigingen.utils.account_creation_manager.retry_failed_request',
 			args: {
 				request_name
 			},
 			callback(r) {
 				if (r.message && r.message.success) {
-					frappe.show_alert({ message: 'Request queued for retry', indicator: 'green' });
+					frappe.show_alert({
+						message: 'Request queued for retry',
+						indicator: 'green'
+					});
 					load_dashboard_data();
 				} else {
-					frappe.msgprint(`Failed to retry request: ${r.message.error || 'Unknown error'}`);
+					frappe.msgprint(
+						`Failed to retry request: ${r.message.error || 'Unknown error'}`
+					);
 				}
 			}
 		});
@@ -346,12 +376,16 @@ function queue_request(request_name) {
 		},
 		callback() {
 			frappe.call({
-				method: 'verenigingen.utils.account_creation_manager.process_account_creation_request',
+				method:
+          'verenigingen.utils.account_creation_manager.process_account_creation_request',
 				args: {
 					request_name
 				},
 				callback() {
-					frappe.show_alert({ message: 'Request queued for processing', indicator: 'blue' });
+					frappe.show_alert({
+						message: 'Request queued for processing',
+						indicator: 'blue'
+					});
 					load_dashboard_data();
 				}
 			});
@@ -372,7 +406,10 @@ function cancel_request(request_name) {
 				}
 			},
 			callback() {
-				frappe.show_alert({ message: 'Request cancelled', indicator: 'orange' });
+				frappe.show_alert({
+					message: 'Request cancelled',
+					indicator: 'orange'
+				});
 				load_dashboard_data();
 			}
 		});
@@ -393,17 +430,22 @@ function process_all_pending_requests(page) {
 				},
 				callback(r) {
 					if (r.message && r.message.length > 0) {
-						const request_names = r.message.map(req => req.name);
+						const request_names = r.message.map((req) => req.name);
 
 						frappe.call({
-							method: 'verenigingen.verenigingen.doctype.account_creation_request.account_creation_request.bulk_queue_requests',
+							method:
+                'verenigingen.verenigingen.doctype.account_creation_request.account_creation_request.bulk_queue_requests',
 							args: {
 								request_names
 							},
 							callback(r) {
 								if (r.message) {
-									const success_count = r.message.filter(result => result.success).length;
-									frappe.msgprint(`Queued ${success_count} requests for processing`);
+									const success_count = r.message.filter(
+										(result) => result.success
+									).length;
+									frappe.msgprint(
+										`Queued ${success_count} requests for processing`
+									);
 									load_dashboard_data(page);
 								}
 							}
@@ -427,14 +469,20 @@ function cleanup_old_requests(page) {
 					doctype: 'Account Creation Request',
 					filters: [
 						['status', '=', 'Completed'],
-						['creation', '<', frappe.datetime.add_days(frappe.datetime.nowdate(), -30)]
+						[
+							'creation',
+							'<',
+							frappe.datetime.add_days(frappe.datetime.nowdate(), -30)
+						]
 					],
 					fields: ['name'],
 					limit_page_length: 1000
 				},
 				callback(r) {
 					if (r.message && r.message.length > 0) {
-						frappe.msgprint(`Found ${r.message.length} old completed requests. Cleanup will be processed.`);
+						frappe.msgprint(
+							`Found ${r.message.length} old completed requests. Cleanup will be processed.`
+						);
 						// Could implement bulk deletion here
 					} else {
 						frappe.msgprint('No old requests found for cleanup');

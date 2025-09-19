@@ -85,9 +85,9 @@ function setupGlobalMocks() {
 	global.frappe = {
 		ui: { form: { on: jest.fn() } },
 		call: jest.fn(),
-		__: jest.fn(str => str)
+		__: jest.fn((str) => str)
 	};
-	global.__ = jest.fn(str => str);
+	global.__ = jest.fn((str) => str);
 }
 
 function teardownGlobalMocks() {

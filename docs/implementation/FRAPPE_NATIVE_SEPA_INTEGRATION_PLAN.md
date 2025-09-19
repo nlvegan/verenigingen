@@ -7,6 +7,7 @@ Following QCE review **Conditional Pass (8.5/10)**, the Frappe-native SEPA imple
 ## Implementation Overview
 
 ### Core Achievement
+
 - **Security Transformation**: From Critical Fail (4/10) to Conditional Pass (8.5/10)
 - **Zero Permission Bypasses**: Full compliance with Frappe's security model
 - **Framework Integration**: Native bulk operation patterns respecting Frappe constraints
@@ -34,6 +35,7 @@ Following QCE review **Conditional Pass (8.5/10)**, the Frappe-native SEPA imple
 ### Phase 1: Preparation (Week 1)
 
 #### 1.1 Environment Validation
+
 ```bash
 # Validate test environment setup
 bench --site dev.veganisme.net run-tests --module verenigingen.tests.test_frappe_native_sepa_operations
@@ -46,6 +48,7 @@ bench --site dev.veganisme.net show-jobs
 ```
 
 #### 1.2 Integration Points Assessment
+
 ```python
 # Key integration points to verify:
 # 1. Existing SEPA Mandate DocType compatibility
@@ -55,6 +58,7 @@ bench --site dev.veganisme.net show-jobs
 ```
 
 #### 1.3 Security Validation
+
 ```python
 # Verify zero permission bypasses in production
 from verenigingen.verenigingen_payments.utils.frappe_native_sepa_operations import FrappeNativeSEPAManager
@@ -69,6 +73,7 @@ for name, method in inspect.getmembers(manager, predicate=inspect.ismethod):
 ### Phase 2: Gradual Rollout (Week 2-3)
 
 #### 2.1 Small Batch Testing (Days 1-3)
+
 - Deploy to staging environment
 - Test with <20 operations (synchronous processing)
 - Validate audit logging and error handling
@@ -102,12 +107,14 @@ result = manager.process_bulk_operations_native(operations)
 ```
 
 #### 2.2 Medium Batch Testing (Days 4-7)
+
 - Test 21-100 operations (background processing)
 - Validate Redis queue handling and progress tracking
 - Monitor system performance and resource usage
 - Verify audit compliance for larger operations
 
 #### 2.3 Performance Validation (Days 8-10)
+
 - Measure actual throughput (expected: 2-5 docs/second)
 - Validate memory usage during bulk operations
 - Test error recovery for partial failures
@@ -116,6 +123,7 @@ result = manager.process_bulk_operations_native(operations)
 ### Phase 3: Production Deployment (Week 4)
 
 #### 3.1 Pre-deployment Checklist
+
 - [ ] All 14 tests passing in production environment
 - [ ] Background job queue configured and monitored
 - [ ] Audit log DocType deployed and permissions set
@@ -123,7 +131,9 @@ result = manager.process_bulk_operations_native(operations)
 - [ ] Performance monitoring baseline established
 
 #### 3.2 Deployment Steps
+
 1. **Deploy supporting infrastructure**
+
    ```bash
    # Deploy SEPA Operation Audit Log DocType
    bench --site dev.veganisme.net migrate
@@ -134,12 +144,14 @@ result = manager.process_bulk_operations_native(operations)
    ```
 
 2. **Deploy core implementation**
+
    ```bash
    # No special deployment steps required - standard code deployment
    # Implementation follows Frappe patterns requiring no configuration changes
    ```
 
 3. **Validate deployment**
+
    ```bash
    # Run full test suite
    bench --site dev.veganisme.net run-tests --module verenigingen.tests.test_frappe_native_sepa_operations
@@ -153,6 +165,7 @@ result = manager.process_bulk_operations_native(operations)
 #### 3.3 Integration with Existing Workflows
 
 **Member Onboarding Integration:**
+
 ```python
 # Integration point in existing member onboarding
 def create_member_sepa_mandate(member_name, mandate_data):
@@ -175,30 +188,33 @@ def create_member_sepa_mandate(member_name, mandate_data):
 ```
 
 **Bulk Processing UI Integration:**
+
 ```javascript
 // Frontend integration for bulk operations
-frappe.ui.form.on('Member List', {
-    bulk_create_sepa_mandates: function(frm) {
-        frappe.call({
-            method: 'verenigingen.verenigingen_payments.utils.frappe_native_sepa_operations.process_bulk_sepa_operations',
-            args: {
-                operations_json: JSON.stringify(selected_operations)
-            },
-            callback: function(response) {
-                if (response.message.success) {
-                    frappe.msgprint('SEPA operations processed successfully');
-                } else {
-                    frappe.msgprint('Some operations failed - check audit log');
-                }
-            }
-        });
-    }
+frappe.ui.form.on("Member List", {
+  bulk_create_sepa_mandates: function (frm) {
+    frappe.call({
+      method:
+        "verenigingen.verenigingen_payments.utils.frappe_native_sepa_operations.process_bulk_sepa_operations",
+      args: {
+        operations_json: JSON.stringify(selected_operations),
+      },
+      callback: function (response) {
+        if (response.message.success) {
+          frappe.msgprint("SEPA operations processed successfully");
+        } else {
+          frappe.msgprint("Some operations failed - check audit log");
+        }
+      },
+    });
+  },
 });
 ```
 
 ### Phase 4: Monitoring and Optimization (Ongoing)
 
 #### 4.1 Performance Monitoring
+
 - **Throughput tracking**: Monitor actual docs/second processing rate
 - **Error rate monitoring**: Track partial and complete failures
 - **Audit compliance**: Ensure all operations logged correctly
@@ -207,16 +223,19 @@ frappe.ui.form.on('Member List', {
 #### 4.2 Dutch Banking Integration Specifics
 
 **Triodos Bank Integration:**
+
 - Mandate format validation for Triodos requirements
 - SEPA compliance verification for Netherlands banking regulations
 - Integration with existing payment processing workflows
 
 **ING Bank Integration:**
+
 - ING-specific IBAN validation and formatting
 - Integration with ING's direct debit notification requirements
 - Compliance with ING's audit and reporting standards
 
 #### 4.3 Compliance Monitoring
+
 ```python
 # Audit compliance verification
 def verify_audit_compliance():
@@ -258,12 +277,14 @@ def verify_audit_compliance():
 ## Success Criteria
 
 ### Technical Success Metrics
+
 - ✅ **Security**: Zero permission bypasses in production
 - ✅ **Compliance**: 100% audit trail coverage for all SEPA operations
 - ✅ **Reliability**: <1% operation failure rate in production
 - ✅ **Performance**: Consistent 2-5 docs/second processing rate
 
 ### Business Success Metrics
+
 - ✅ **Integration**: Seamless integration with existing member workflows
 - ✅ **User Experience**: Clear feedback and progress tracking
 - ✅ **Regulatory**: Full compliance with Dutch banking regulations
@@ -283,6 +304,7 @@ If critical issues arise during deployment:
 The Frappe-native SEPA implementation represents a complete transformation from the previous security-compromised approach. With QCE approval (8.5/10) and comprehensive testing validation, this implementation is production-ready for Triodos/ING banking integration.
 
 **Key Success Factors:**
+
 - **Security First**: No performance shortcuts that compromise security
 - **Framework Native**: Full integration with Frappe's documented patterns
 - **Compliance Ready**: Complete audit trail for Dutch banking regulations

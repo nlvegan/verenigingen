@@ -9,6 +9,7 @@ The pytest-coverage integration adds automated test coverage checks to the pre-c
 ## Components
 
 ### 1. Pytest Configuration (`pytest.ini`)
+
 - **Location**: `/home/frappe/frappe-bench/apps/verenigingen/pytest.ini`
 - **Purpose**: Configures pytest test discovery, markers, and coverage settings
 - **Key Features**:
@@ -18,6 +19,7 @@ The pytest-coverage integration adds automated test coverage checks to the pre-c
   - Coverage omit patterns for test files and migrations
 
 ### 2. Pytest Frappe Runner
+
 - **Location**: `/home/frappe/frappe-bench/apps/verenigingen/scripts/testing/pytest_frappe_runner.py`
 - **Purpose**: Full pytest runner with Frappe context initialization
 - **Features**:
@@ -27,6 +29,7 @@ The pytest-coverage integration adds automated test coverage checks to the pre-c
   - Can run selective tests for pre-commit
 
 ### 3. Pre-commit Runner
+
 - **Location**: `/home/frappe/frappe-bench/apps/verenigingen/scripts/testing/pytest_precommit_runner.py`
 - **Purpose**: Lightweight runner specifically for pre-commit hooks
 - **Features**:
@@ -36,6 +39,7 @@ The pytest-coverage integration adds automated test coverage checks to the pre-c
   - Graceful failure handling
 
 ### 4. Pre-commit Hook Configuration
+
 - **Location**: `.pre-commit-config.yaml`
 - **Hook ID**: `pytest-coverage-critical`
 - **Features**:
@@ -104,15 +108,18 @@ pytest_args.extend([
 ## Troubleshooting
 
 ### Tests Not Running
+
 - Ensure pytest and pytest-cov are installed: `bench pip install pytest pytest-cov`
 - Check that test files exist in the expected locations
 - Verify Frappe site is accessible: `bench --site dev.veganisme.net console`
 
 ### Coverage Not Showing
+
 - The current setup uses `bench run-tests` which may not display detailed coverage
 - For full coverage reports, use the main pytest runner directly
 
 ### Pre-commit Timeout
+
 - Default timeout is 60 seconds
 - For longer test suites, increase timeout in `pytest_precommit_runner.py`
 

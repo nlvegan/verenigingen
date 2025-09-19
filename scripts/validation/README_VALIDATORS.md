@@ -5,6 +5,7 @@ This directory contains validation tools to ensure code quality and catch common
 ## Validation Tools Overview
 
 ### 1. 🚀 Fast Method Validator (`fast_method_validator.py`)
+
 **Purpose**: Quick validation for common method call issues  
 **Runtime**: ~30 seconds  
 **Best for**: Pre-commit hooks, daily development
@@ -18,12 +19,14 @@ python scripts/validation/fast_method_validator.py path/to/file.py
 ```
 
 **Detects**:
+
 - Deprecated method calls (`calculate_next_billing_date`)
-- Common typos (`delete_doc` → `delete`)  
+- Common typos (`delete_doc` → `delete`)
 - Suspicious patterns (`ignore_permissions=True`)
 - Known nonexistent methods
 
 ### 2. 🔍 Comprehensive Method Validator (`method_call_validator.py`)
+
 **Purpose**: Deep analysis of all method calls with signature database  
 **Runtime**: 2-5 minutes  
 **Best for**: Weekly reviews, major refactoring validation
@@ -32,7 +35,7 @@ python scripts/validation/fast_method_validator.py path/to/file.py
 # Quick mode (verenigingen only)
 python scripts/validation/method_call_validator.py
 
-# Comprehensive mode (includes Frappe core)  
+# Comprehensive mode (includes Frappe core)
 python scripts/validation/method_call_validator.py --comprehensive
 
 # Rebuild cache first
@@ -43,6 +46,7 @@ python scripts/validation/method_call_validator.py path/to/file.py
 ```
 
 **Features**:
+
 - **Method signature database**: Maps all available methods
 - **Call pattern analysis**: Handles complex call patterns (chained, dynamic, etc.)
 - **Similarity suggestions**: Suggests corrections for typos
@@ -50,6 +54,7 @@ python scripts/validation/method_call_validator.py path/to/file.py
 - **Caching system**: Builds once, validates fast
 
 ### 3. 🎯 Enhanced Field Validator (`enhanced_field_validator.py`)
+
 **Purpose**: Validates field references against DocType definitions  
 **Runtime**: ~45 seconds  
 **Best for**: Preventing field reference errors
@@ -59,6 +64,7 @@ python scripts/validation/enhanced_field_validator.py
 ```
 
 **Detects**:
+
 - Deprecated field references (`next_billing_date`)
 - Invalid field names in queries
 - Template variable errors
@@ -67,12 +73,14 @@ python scripts/validation/enhanced_field_validator.py
 ## Recommended Usage Workflow
 
 ### For Daily Development:
+
 ```bash
 # Before committing (automatic via pre-commit)
 python scripts/validation/fast_method_validator.py
 ```
 
 ### For Weekly Code Review:
+
 ```bash
 # Comprehensive analysis
 python scripts/validation/method_call_validator.py --comprehensive
@@ -80,6 +88,7 @@ python scripts/validation/enhanced_field_validator.py
 ```
 
 ### For Major Refactoring:
+
 ```bash
 # Full validation suite
 python scripts/validation/method_call_validator.py --rebuild-cache --comprehensive
@@ -90,6 +99,7 @@ python scripts/validation/comprehensive_validator.py
 ## Integration
 
 ### Pre-commit Hooks
+
 The validators are integrated into `.pre-commit-config.yaml`:
 
 - **Pre-commit**: Fast method validator (30s)
@@ -97,6 +107,7 @@ The validators are integrated into `.pre-commit-config.yaml`:
 - **Manual**: Comprehensive method validator (2-5min)
 
 ### CI/CD Integration
+
 For continuous integration, use the fast validators:
 
 ```yaml
@@ -104,31 +115,34 @@ For continuous integration, use the fast validators:
 - name: Validate method calls
   run: python scripts/validation/fast_method_validator.py
 
-- name: Validate field references  
+- name: Validate field references
   run: python scripts/validation/enhanced_field_validator.py
 ```
 
 ## Performance Characteristics
 
-| Validator | Runtime | Files Scanned | Methods Analyzed | Use Case |
-|-----------|---------|---------------|------------------|----------|
-| Fast Method | ~30s | 1,300+ | Pattern-based | Daily development |
-| Comprehensive | 2-5min | 5,000+ | 10,000+ signatures | Weekly review |
-| Enhanced Field | ~45s | 1,300+ | All field refs | Pre-push validation |
+| Validator      | Runtime | Files Scanned | Methods Analyzed   | Use Case            |
+| -------------- | ------- | ------------- | ------------------ | ------------------- |
+| Fast Method    | ~30s    | 1,300+        | Pattern-based      | Daily development   |
+| Comprehensive  | 2-5min  | 5,000+        | 10,000+ signatures | Weekly review       |
+| Enhanced Field | ~45s    | 1,300+        | All field refs     | Pre-push validation |
 
 ## Troubleshooting
 
 ### "Command timed out"
+
 - Use fast validator for routine checks
 - Run comprehensive validator manually when needed
 - Consider `--rebuild-cache` if cache is corrupted
 
 ### False Positives
+
 - Fast validator focuses on high-confidence issues
 - Comprehensive validator has better context awareness
 - Both validators skip test files and complex patterns
 
 ### Cache Issues
+
 - Cache files stored in `scripts/validation/.method_cache.pkl`
 - Cache expires after 1 hour automatically
 - Use `--rebuild-cache` to force refresh
@@ -142,7 +156,7 @@ All validators handle these Python call patterns:
 func()
 obj.method()
 
-# Complex patterns  
+# Complex patterns
 obj.attr.method()           # ✅ Chained access
 func().method()             # ✅ Dynamic calls
 obj[key]()                  # ✅ Subscript calls

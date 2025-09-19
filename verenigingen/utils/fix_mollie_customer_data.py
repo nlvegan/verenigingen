@@ -1,6 +1,7 @@
 """
 Fix Mollie data storage - move from Member to Customer fields
 """
+
 import frappe
 
 from verenigingen.utils.security.api_security_framework import (

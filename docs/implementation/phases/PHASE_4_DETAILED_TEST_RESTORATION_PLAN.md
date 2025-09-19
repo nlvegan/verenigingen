@@ -5,6 +5,7 @@
 ### 1. Expense Workflow Tests
 
 #### From `test_expense_workflow_complete.py`
+
 ```python
 def test_complete_expense_workflow():
     """Complete expense claim workflow with real data validation"""
@@ -21,6 +22,7 @@ def test_complete_expense_workflow():
 ### 2. Edge Case Scenarios
 
 #### From `test_edge_case_testing_demo.py`
+
 ```python
 def test_billing_frequency_conflict_with_new_methods():
     """Test conflicting billing frequencies on same membership"""
@@ -70,6 +72,7 @@ def create_edge_case_data(self):
 ### 4. Integration Test Capabilities
 
 #### From removed integration tests
+
 ```python
 def test_member_creation_to_payment_flow():
     """End-to-end member lifecycle"""
@@ -87,6 +90,7 @@ def test_termination_complete_workflow():
 ## Specific Factory Method Enhancements Needed
 
 ### 1. Restore Bulk Generation
+
 ```python
 class EnhancedTestDataFactory(TestDataFactory):
 
@@ -138,6 +142,7 @@ class EnhancedTestDataFactory(TestDataFactory):
 ```
 
 ### 2. Restore Performance Testing
+
 ```python
 def create_performance_test_data(self, scale='small'):
     """Generate data for performance testing"""
@@ -178,6 +183,7 @@ def create_performance_test_data(self, scale='small'):
 ## Test Organization for Phase 4.1
 
 ### Core Business Logic Tests
+
 ```
 tests/core/
 ├── test_member_lifecycle.py
@@ -195,6 +201,7 @@ tests/core/
 ```
 
 ### Edge Case Tests
+
 ```
 tests/edge_cases/
 ├── test_billing_conflicts.py
@@ -204,6 +211,7 @@ tests/edge_cases/
 ```
 
 ### Integration Tests
+
 ```
 tests/integration/
 ├── test_end_to_end_workflows.py
@@ -214,18 +222,21 @@ tests/integration/
 ## Implementation Priority
 
 ### Week 1: Critical Restorations
+
 1. Restore expense workflow tests
 2. Restore member lifecycle tests
 3. Add bulk generation to factory
 4. Create edge case scenario builder
 
 ### Week 2: Coverage Enhancement
+
 1. Restore integration tests
 2. Add performance test capabilities
 3. Implement billing conflict tests
 4. Add zero-amount handling tests
 
 ### Week 3: Validation & Documentation
+
 1. Validate all restored tests pass
 2. Document test scenarios
 3. Create test coverage report

@@ -3,6 +3,7 @@
 This guide helps members navigate and use the Verenigingen member portal effectively.
 
 ## Table of Contents
+
 - [Getting Started](#getting-started)
 - [Portal Overview](#portal-overview)
 - [Managing Your Profile](#managing-your-profile)
@@ -30,6 +31,7 @@ This guide helps members navigate and use the Verenigingen member portal effecti
 ### Portal Navigation
 
 The member portal provides easy access to:
+
 - **Dashboard**: Overview of your membership status
 - **Profile**: Personal information and preferences
 - **Payments**: Financial information and payment methods
@@ -43,18 +45,21 @@ The member portal provides easy access to:
 Your dashboard provides a quick overview of:
 
 #### Membership Status
+
 - **Current Status**: Active, Pending Renewal, etc.
 - **Membership Type**: Your current membership category
 - **Next Payment Date**: When your next payment is due
 - **Member Since**: Your join date and tenure
 
 #### Recent Activity
+
 - Payment history summary
 - Volunteer activity updates
 - Chapter event notifications
 - Important announcements
 
 #### Quick Actions
+
 - Update payment method
 - Modify membership fee
 - Join chapter activities
@@ -63,6 +68,7 @@ Your dashboard provides a quick overview of:
 ### Enhanced Portal (`/enhanced_portal`)
 
 The enhanced portal offers additional features:
+
 - Advanced activity tracking
 - Detailed payment history
 - Extended volunteer opportunities
@@ -219,6 +225,7 @@ Participate in local chapter activities:
 ### Chapter Communication
 
 Stay informed about chapter activities:
+
 - Chapter newsletters
 - Event announcements
 - Meeting minutes access
@@ -261,6 +268,7 @@ Track your volunteer involvement:
 ### Volunteer Dashboard (`/volunteer/dashboard`)
 
 Dedicated volunteer portal access:
+
 - Assignment calendar
 - Task management
 - Communication with team leaders
@@ -308,6 +316,7 @@ Stay informed through automated communications:
 ### Organizational Updates
 
 Stay connected with the organization:
+
 - Annual reports access
 - Financial transparency reports
 - Policy change notifications
@@ -320,12 +329,14 @@ Stay connected with the organization:
 #### Login Problems
 
 **Issue**: Can't remember password
+
 1. Use "Forgot Password" link on login page
 2. Check email for reset instructions
 3. Create new strong password
 4. Contact support if issues persist
 
 **Issue**: Account locked or suspended
+
 1. Check email for suspension notifications
 2. Review payment status
 3. Contact member services
@@ -334,12 +345,14 @@ Stay connected with the organization:
 #### Payment Issues
 
 **Issue**: SEPA direct debit failed
+
 1. Check bank account status and balance
 2. Verify IBAN details are correct
 3. Contact your bank about any blocks
 4. Update banking details if account changed
 
 **Issue**: Fee adjustment not working
+
 1. Clear browser cache and cookies
 2. Try different browser or device
 3. Check minimum fee requirements
@@ -348,12 +361,14 @@ Stay connected with the organization:
 #### Profile Update Problems
 
 **Issue**: Address change not reflected
+
 1. Verify all required fields completed
 2. Check for validation errors
 3. Allow time for processing
 4. Contact support if delays persist
 
 **Issue**: Chapter assignment incorrect
+
 1. Verify address details are accurate
 2. Check postal code format
 3. Contact support for manual review
@@ -362,6 +377,7 @@ Stay connected with the organization:
 ### Getting Help
 
 #### Self-Service Options
+
 1. **FAQ Section**: Common questions and answers
 2. **Help Documentation**: Detailed guides and tutorials
 3. **Video Tutorials**: Step-by-step visual guides
@@ -390,18 +406,21 @@ Stay connected with the organization:
 ### Best Practices
 
 #### Keeping Your Account Secure
+
 1. **Strong Passwords**: Use unique, complex passwords
 2. **Regular Updates**: Keep contact information current
 3. **Secure Access**: Log out from shared computers
 4. **Suspicious Activity**: Report unusual account activity
 
 #### Maximizing Your Membership
+
 1. **Stay Engaged**: Participate in chapter activities
 2. **Keep Informed**: Read newsletters and updates
 3. **Provide Feedback**: Share suggestions for improvement
 4. **Volunteer**: Contribute to organizational goals
 
 #### Communication Tips
+
 1. **Update Preferences**: Customize communication settings
 2. **Read Important Emails**: Don't ignore system notifications
 3. **Contact Information**: Keep multiple contact methods current

@@ -11,6 +11,7 @@ Frappe child tables (DocTypes with `istable: 1`) must be created through their p
 ### Example of the Bug Pattern
 
 **❌ INCORRECT** - This pattern causes bugs:
+
 ```python
 # This creates a standalone child table record, which doesn't work properly
 chapter_member = frappe.get_doc({
@@ -25,6 +26,7 @@ chapter_member.insert()  # This fails or creates orphaned records
 ```
 
 **✅ CORRECT** - This pattern works properly:
+
 ```python
 # Access child tables via the parent document
 chapter_doc = frappe.get_doc("Chapter", chapter)
@@ -53,6 +55,7 @@ chapter_doc.save()
 ### Integration Points
 
 #### Pre-commit Hook
+
 ```yaml
 - id: child-table-creation-validator
   name: 👥 Child Table Creation Validator
@@ -65,6 +68,7 @@ chapter_doc.save()
 ```
 
 #### Validation Suite
+
 The validator is integrated into `validation_suite_runner.py` as the 4th validation step, running after field, template, and loop context validation.
 
 ## Usage
@@ -200,6 +204,7 @@ The validator automatically loads all child table DocTypes from the Frappe appli
 ### Performance Monitoring
 
 The validator includes performance metrics in validation suite output:
+
 - Load time for child table metadata
 - AST parsing time per file
 - Issue detection and confidence scoring time

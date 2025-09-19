@@ -13,6 +13,7 @@ A comprehensive pre-commit security validation system has been implemented to pr
 **Purpose**: Identifies API endpoints lacking proper security decorators
 
 **Key Features**:
+
 - **Comprehensive scanning** of all API files for `@frappe.whitelist()` functions
 - **Pattern-based classification** to determine appropriate security levels
 - **Risk factor detection** including SQL injection, permission bypasses, financial operations
@@ -21,6 +22,7 @@ A comprehensive pre-commit security validation system has been implemented to pr
 - **Detailed remediation guidance** with complete code examples
 
 **Security Classifications**:
+
 - **Critical**: Financial operations, admin functions, data deletion
 - **High**: Member data operations, batch operations, administrative functions
 - **Medium**: Reporting, read-only operations, analytics
@@ -28,6 +30,7 @@ A comprehensive pre-commit security validation system has been implemented to pr
 - **Public**: No authentication required
 
 **Risk Pattern Detection**:
+
 - SQL injection risks
 - Data export operations
 - File operation risks
@@ -41,6 +44,7 @@ A comprehensive pre-commit security validation system has been implemented to pr
 **Purpose**: Validates compliance with the security framework patterns
 
 **Key Features**:
+
 - **Framework compliance checking** for proper security decorator usage
 - **Security pattern verification** including input validation, error handling
 - **Documentation validation** ensuring proper function documentation
@@ -49,6 +53,7 @@ A comprehensive pre-commit security validation system has been implemented to pr
 - **Comprehensive scoring** (0-100) based on security compliance
 
 **Validation Categories**:
+
 - Framework compliance
 - Security pattern implementation
 - Input validation presence
@@ -61,6 +66,7 @@ A comprehensive pre-commit security validation system has been implemented to pr
 #### Configuration (`.pre-commit-config.yaml`)
 
 **Security Validation Hooks**:
+
 ```yaml
 - id: insecure-api-detector
   name: 🔒 Insecure API Endpoint Detection
@@ -74,6 +80,7 @@ A comprehensive pre-commit security validation system has been implemented to pr
 ```
 
 **Additional Security Tools**:
+
 - **Bandit** for Python security linting
 - **Code quality** tools (Black, Flake8)
 - **Configuration validation** (YAML, JSON)
@@ -83,6 +90,7 @@ A comprehensive pre-commit security validation system has been implemented to pr
 #### guide (`docs/security/api-security-pre-commit-guide.md`)
 
 **Content Includes**:
+
 - **Quick start instructions** for installation and setup
 - **Common security issues** with complete fix examples
 - **Security decorator reference** with usage guidelines
@@ -91,6 +99,7 @@ A comprehensive pre-commit security validation system has been implemented to pr
 - **Best practices** for secure API development
 
 **Security Examples**:
+
 - Missing security decorators
 - Wrong security levels
 - SQL injection vulnerabilities
@@ -102,6 +111,7 @@ A comprehensive pre-commit security validation system has been implemented to pr
 #### Detector Configuration (`scripts/validation/security/detector_config.json`)
 
 **Configurable Settings**:
+
 - Security thresholds (fail on critical/high/medium/low)
 - Whitelisted functions for exceptions
 - Custom risk patterns
@@ -109,6 +119,7 @@ A comprehensive pre-commit security validation system has been implemented to pr
 - Performance monitoring settings
 
 **Example Configuration**:
+
 ```json
 {
   "settings": {
@@ -128,11 +139,13 @@ A comprehensive pre-commit security validation system has been implemented to pr
 ### Analysis Results (As of Implementation)
 
 **Overall Statistics**:
+
 - **Total API endpoints**: 437
 - **Secure endpoints**: 210 (48.1%)
 - **Insecure endpoints**: 227 (51.9%)
 
 **Issue Breakdown**:
+
 - **Critical issues**: 60 (financial operations, admin functions)
 - **High issues**: 126 (member data, batch operations)
 - **Medium issues**: 26 (reporting, read operations)
@@ -141,6 +154,7 @@ A comprehensive pre-commit security validation system has been implemented to pr
 ### High-Priority Security Issues
 
 **Critical Operations Missing Security**:
+
 - Financial transaction processing
 - Payment and SEPA operations
 - Member data manipulation
@@ -148,6 +162,7 @@ A comprehensive pre-commit security validation system has been implemented to pr
 - Data deletion operations
 
 **Common Patterns Detected**:
+
 - Missing `@critical_api()` for financial operations
 - Missing `@high_security_api()` for member data access
 - SQL injection vulnerabilities in query functions
@@ -158,6 +173,7 @@ A comprehensive pre-commit security validation system has been implemented to pr
 ### 1. Automated Security Enforcement
 
 **Prevention of Security Regressions**:
+
 - **Automatic detection** of insecure API endpoints
 - **Commit blocking** when security issues are found
 - **Clear remediation guidance** for developers
@@ -166,6 +182,7 @@ A comprehensive pre-commit security validation system has been implemented to pr
 ### 2. Developer Experience
 
 **Streamlined Security Implementation**:
+
 - **Clear error messages** with specific recommendations
 - **Complete code examples** for fixing issues
 - **Security decorator reference** for quick implementation
@@ -174,6 +191,7 @@ A comprehensive pre-commit security validation system has been implemented to pr
 ### 3. Continuous Security Improvement
 
 **Progressive Security Enhancement**:
+
 - **Gradual migration** of existing insecure endpoints
 - **Prevention of new** insecure code
 - **Security awareness** through automated feedback
@@ -220,6 +238,7 @@ python scripts/validation/security/api_security_validator.py --verbose verenigin
 ## Security Decorator Quick Reference
 
 ### Critical APIs (`@critical_api()`)
+
 ```python
 @frappe.whitelist()
 @critical_api()
@@ -229,6 +248,7 @@ def process_sepa_payment(payment_data):
 ```
 
 ### High Security APIs (`@high_security_api()`)
+
 ```python
 @frappe.whitelist()
 @high_security_api()
@@ -238,6 +258,7 @@ def create_member(member_data):
 ```
 
 ### Standard APIs (`@standard_api()`)
+
 ```python
 @frappe.whitelist()
 @standard_api()
@@ -247,6 +268,7 @@ def get_member_report(filters):
 ```
 
 ### Utility APIs (`@utility_api()`)
+
 ```python
 @frappe.whitelist()
 @utility_api()
@@ -260,6 +282,7 @@ def check_system_health():
 ### 1. Immediate Actions
 
 **High-Priority Fixes**:
+
 1. **Secure critical financial operations** (60 endpoints)
 2. **Protect member data access** (126 endpoints)
 3. **Fix SQL injection vulnerabilities**
@@ -268,16 +291,19 @@ def check_system_health():
 ### 2. Phased Implementation
 
 **Phase 1**: Critical and High Security Issues
+
 - Focus on financial and member data operations
 - Fix SQL injection vulnerabilities
 - Remove permission bypasses
 
 **Phase 2**: Medium and Low Security Issues
+
 - Add security decorators to reporting functions
 - Secure utility and status endpoints
 - Complete documentation
 
 **Phase 3**: Enhanced Security Features
+
 - Implement advanced input validation
 - Add audit logging
 - Enhance error handling
@@ -285,6 +311,7 @@ def check_system_health():
 ### 3. Continuous Monitoring
 
 **Ongoing Security Maintenance**:
+
 - **Pre-commit validation** prevents new insecure code
 - **Regular security audits** using the validation tools
 - **Security metrics tracking** for continuous improvement
@@ -306,7 +333,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: "3.x"
       - name: Run Security Validation
         run: |
           python scripts/validation/security/insecure_api_detector.py
@@ -318,6 +345,7 @@ jobs:
 ### 1. Advanced Features
 
 **Planned Improvements**:
+
 - **AI-powered risk assessment** using machine learning
 - **Dynamic security level adjustment** based on usage patterns
 - **Integration with monitoring systems** for runtime security
@@ -326,6 +354,7 @@ jobs:
 ### 2. Tool Enhancements
 
 **Development Roadmap**:
+
 - **IDE integration** for real-time security feedback
 - **Security metrics dashboard** for tracking progress
 - **Custom security patterns** for organization-specific needs
@@ -336,6 +365,7 @@ jobs:
 The pre-commit security validation system provides comprehensive protection against insecure API endpoints while maintaining developer productivity. With 437 total endpoints and automated detection of 227 insecure endpoints, the system demonstrates its effectiveness in identifying security issues.
 
 **Key Achievements**:
+
 - ✅ **security detection** with 85 API files scanned
 - ✅ **Detailed remediation guidance** with complete code examples
 - ✅ **Automated pre-commit integration** preventing security regressions
@@ -343,6 +373,7 @@ The pre-commit security validation system provides comprehensive protection agai
 - ✅ **Configurable security thresholds** for different environments
 
 **Security Impact**:
+
 - **Prevents new insecure APIs** from being committed
 - **Identifies existing security vulnerabilities** for remediation
 - **Standardizes security practices** across the development team

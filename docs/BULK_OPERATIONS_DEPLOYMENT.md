@@ -7,16 +7,19 @@ This document provides comprehensive guidance for deploying and monitoring the b
 The bulk account creation system implements a sophisticated three-tier architecture designed for scalability, reliability, and monitoring:
 
 ### 1. Request Processing Layer
+
 - **AccountCreationManager**: Core orchestration service for bulk operations
 - **BulkOperationTracker**: Real-time progress monitoring and status tracking
 - **Request Queue Management**: Organized processing with batch coordination
 
 ### 2. Background Processing Layer
+
 - **Redis Queue System**: Dedicated 'bulk' queue with resource isolation
 - **Parallel Batch Processing**: ThreadPoolExecutor with 5 workers per batch
 - **Automated Retry Processing**: Exponential backoff retry logic with scheduled recovery
 
 ### 3. Monitoring & Alerting Layer
+
 - **Performance Monitoring**: Real-time metrics collection and threshold alerting
 - **Queue Health Monitoring**: Stuck job detection and automatic cleanup
 - **Administrative Dashboard**: Web-based monitoring interface for operations teams
@@ -69,6 +72,7 @@ Production monitoring includes automatic alerting for:
 ### Access & Permissions
 
 The Bulk Operations Monitor is available to:
+
 - System Manager
 - Verenigingen Administrator
 
@@ -109,26 +113,30 @@ Access via: `Verenigingen Workspace → Bulk Operations Monitor`
 ### Administrative Actions
 
 #### Clear Stuck Jobs
+
 ```javascript
 // Available via dashboard button
 frappe.call({
-    method: 'verenigingen.utils.bulk_queue_config.clear_stuck_jobs'
+  method: "verenigingen.utils.bulk_queue_config.clear_stuck_jobs",
 });
 ```
 
 #### Manual Retry Processing
+
 ```javascript
 // Trigger immediate retry for specific tracker
 frappe.call({
-    method: 'verenigingen.utils.bulk_retry_processor.manual_retry_failed_requests',
-    args: { tracker_name }
+  method:
+    "verenigingen.utils.bulk_retry_processor.manual_retry_failed_requests",
+  args: { tracker_name },
 });
 ```
 
 #### Performance Reporting
+
 ```javascript
 // Generate comprehensive performance report
-frappe.set_route('query-report', 'Bulk Operations Performance Report');
+frappe.set_route("query-report", "Bulk Operations Performance Report");
 ```
 
 ## Performance Benchmarks
@@ -137,11 +145,11 @@ frappe.set_route('query-report', 'Bulk Operations Performance Report');
 
 Based on testing with realistic Dutch association data:
 
-| Scale | Time Estimate | Success Rate | Throughput |
-|-------|--------------|--------------|------------|
-| 50 members | 3-5 minutes | >98% | ~15/min |
-| 500 members | 35-45 minutes | >97% | ~12/min |
-| 4,700 members | 4-5 hours | >95% | ~16/min |
+| Scale         | Time Estimate | Success Rate | Throughput |
+| ------------- | ------------- | ------------ | ---------- |
+| 50 members    | 3-5 minutes   | >98%         | ~15/min    |
+| 500 members   | 35-45 minutes | >97%         | ~12/min    |
+| 4,700 members | 4-5 hours     | >95%         | ~16/min    |
 
 ### Resource Requirements
 
@@ -163,12 +171,12 @@ The retry processor implements intelligent recovery:
 
 ### Failure Categories
 
-| Failure Type | Recovery Strategy | Alert Level |
-|-------------|------------------|-------------|
-| Network timeout | Immediate retry | Info |
-| Validation error | Manual review required | Warning |
-| Permission denied | System configuration issue | Error |
-| Database error | Transaction rollback + retry | Critical |
+| Failure Type      | Recovery Strategy            | Alert Level |
+| ----------------- | ---------------------------- | ----------- |
+| Network timeout   | Immediate retry              | Info        |
+| Validation error  | Manual review required       | Warning     |
+| Permission denied | System configuration issue   | Error       |
+| Database error    | Transaction rollback + retry | Critical    |
 
 ### Monitoring Alerts
 
@@ -245,12 +253,14 @@ queue_status = frappe.call({
 ## Security Considerations
 
 ### Permission Model
+
 - No `ignore_permissions=True` bypasses in production code
 - Proper `frappe.has_permission()` validation throughout
 - Role-based access control for monitoring features
 - Audit logging for all administrative actions
 
 ### Data Protection
+
 - Transaction rollback protection for data integrity
 - Chunked processing prevents memory exhaustion
 - Failed request retry queues preserve data for recovery
@@ -261,24 +271,28 @@ queue_status = frappe.call({
 ### Common Issues
 
 #### Slow Processing Performance
+
 - Check Redis queue worker allocation
 - Review batch size configuration (reduce if high memory usage)
 - Verify database connection pool settings
 - Monitor network latency to external services
 
 #### High Failure Rates
+
 - Review member data quality (missing emails, invalid names)
 - Check permission assignments and role configurations
 - Verify external system availability (email services)
 - Analyze error patterns in BulkOperationTracker error logs
 
 #### Stuck Jobs
+
 - Use "Clear Stuck Jobs" dashboard function
 - Check Redis queue health and worker processes
 - Review system resource availability (memory, CPU)
 - Restart Frappe workers if necessary
 
 #### Monitoring Dashboard Issues
+
 - Verify user permissions (System Manager/Admin required)
 - Check workspace configuration for link presence
 - Validate API endpoint accessibility
@@ -287,6 +301,7 @@ queue_status = frappe.call({
 ### Log Analysis
 
 Key log locations for troubleshooting:
+
 - **Performance Logs**: `frappe.logger().info/warning` entries
 - **Error Logs**: Frappe Error Log DocType
 - **Queue Logs**: Redis queue worker logs

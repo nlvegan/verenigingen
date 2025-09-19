@@ -17,6 +17,7 @@ The Verenigingen test infrastructure has identified legitimate security policy g
 **Impact:** High - Unauthorized access to sensitive member information
 
 **Solution Steps:**
+
 1. Navigate to: **Setup > Users and Permissions > Role Permissions Manager**
 2. Select Role: **"Guest"**
 3. For the following DocTypes, **remove ALL permissions** (read, write, create, delete):
@@ -36,6 +37,7 @@ The Verenigingen test infrastructure has identified legitimate security policy g
 **Impact:** High - Exposure of sensitive financial data
 
 **Solution Steps:**
+
 1. Navigate to: **Setup > Users and Permissions > Role Permissions Manager**
 2. Select Role: **"Guest"**
 3. For financial DocTypes, **remove ALL permissions**:
@@ -55,6 +57,7 @@ The Verenigingen test infrastructure has identified legitimate security policy g
 **Impact:** Medium - Data isolation breach between chapters
 
 **Solution Steps:**
+
 1. Navigate to: **Setup > Users and Permissions > Role Permissions Manager**
 2. Select Role: **"Verenigingen Chapter Manager"**
 3. For DocType **"Member"**:
@@ -75,6 +78,7 @@ The Verenigingen test infrastructure has identified legitimate security policy g
 **Impact:** Medium - Audit and compliance requirements not met
 
 **Solution Steps:**
+
 1. Navigate to: **Setup > System Settings**
 2. Check **"Track Changes"** option
 3. Navigate to: **Setup > Customize > DocType List**
@@ -118,18 +122,20 @@ The system provides API endpoints to help validate security configuration:
 ```javascript
 // Get security configuration guide
 frappe.call({
-    method: "verenigingen.verenigingen.onboarding_step.verenigingen_configure_security.verenigingen_configure_security.get_security_configuration_guide",
-    callback: function(r) {
-        console.log(r.message); // Complete security checklist
-    }
+  method:
+    "verenigingen.verenigingen.onboarding_step.verenigingen_configure_security.verenigingen_configure_security.get_security_configuration_guide",
+  callback: function (r) {
+    console.log(r.message); // Complete security checklist
+  },
 });
 
 // Validate current security configuration
 frappe.call({
-    method: "verenigingen.verenigingen.onboarding_step.verenigingen_configure_security.verenigingen_configure_security.validate_security_configuration",
-    callback: function(r) {
-        console.log(r.message); // Issues found and recommendations
-    }
+  method:
+    "verenigingen.verenigingen.onboarding_step.verenigingen_configure_security.verenigingen_configure_security.validate_security_configuration",
+  callback: function (r) {
+    console.log(r.message); // Issues found and recommendations
+  },
 });
 ```
 
@@ -155,6 +161,7 @@ frappe.call({
 ### Log Monitoring
 
 Monitor the following in **Setup > System Console**:
+
 - Failed permission attempts (indicates potential security issues)
 - Unusual data access patterns
 - Version document creation (confirms audit trails working)
@@ -207,6 +214,7 @@ bench --site [site] console
 These security configurations are **mandatory** for production deployment of Verenigingen. The identified issues represent real security gaps that could lead to data breaches, regulatory non-compliance, and organizational data leakage.
 
 **Implementation Priority:**
+
 1. **Immediate (Critical)**: Guest access control and financial data isolation
 2. **High (Within 24 hours)**: Document-level permission enforcement
 3. **Medium (Within 1 week)**: Audit trail compliance

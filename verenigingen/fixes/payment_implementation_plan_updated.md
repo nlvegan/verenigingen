@@ -13,6 +13,7 @@ Based on the API analysis of mutations 7833, 5473, and 6217, here's the updated 
 ### Phase 1: Update Mutation Type Handlers
 
 #### 1.1 Create Payment Entry Handler (payment_entry_handler.py)
+
 ```python
 class PaymentEntryHandler:
     """Handles Type 3 (Customer Payment) and Type 4 (Supplier Payment) mutations"""
@@ -94,6 +95,7 @@ class PaymentEntryHandler:
 ```
 
 #### 1.2 Update Direct Payment Handler
+
 ```python
 class DirectPaymentHandler:
     """Handles Type 5 (Money Received) and Type 6 (Money Spent) mutations"""
@@ -138,6 +140,7 @@ class DirectPaymentHandler:
 ### Phase 2: Enhanced Mutation Processing
 
 #### 2.1 Update process_mutation in REST Iterator
+
 ```python
 def process_mutation(self, mutation_data):
     """Enhanced mutation processing with proper type handling"""
@@ -175,6 +178,7 @@ def process_mutation(self, mutation_data):
 ### Phase 3: Testing Strategy
 
 #### 3.1 Find More Multi-Invoice Examples
+
 ```python
 @frappe.whitelist()
 def find_multi_invoice_payments():
@@ -204,6 +208,7 @@ def find_multi_invoice_payments():
 ```
 
 #### 3.2 Test Payment Import
+
 ```python
 @frappe.whitelist()
 def test_payment_import(mutation_id):
@@ -234,7 +239,9 @@ def test_payment_import(mutation_id):
 ### Phase 4: Migration Updates
 
 #### 4.1 Update E-Boekhouden Migration DocType
+
 Add progress tracking for payment imports:
+
 ```python
 # In migrate_transactions method
 payment_mutations = [m for m in all_mutations if m["type"] in [3, 4]]
@@ -256,6 +263,7 @@ for mutation in payment_mutations:
 ### Phase 5: Validation and Reconciliation
 
 #### 5.1 Payment Validation
+
 ```python
 def validate_payment_import(payment_entry, mutation_data):
     """Validate that payment was imported correctly"""

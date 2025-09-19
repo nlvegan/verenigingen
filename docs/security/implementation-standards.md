@@ -24,18 +24,21 @@ This document defines the technical implementation standards for the API Securit
 #### 1. `get_user_chapters.py`
 
 **Current problematic imports**:
+
 ```python
 # ❌ BROKEN: Non-existent decorators
 from verenigingen.utils.security.authorization import high_security_api, standard_api
 ```
 
 **Required fix**:
+
 ```python
 # ✅ CORRECT: Use framework imports
 from verenigingen.utils.security.api_security_framework import high_security_api, standard_api, OperationType
 ```
 
 **Validation command**:
+
 ```bash
 python -c "from verenigingen.api.get_user_chapters import *; print('✅ Import fix successful')"
 ```
@@ -43,6 +46,7 @@ python -c "from verenigingen.api.get_user_chapters import *; print('✅ Import f
 #### 2. Additional files with mixed import patterns
 
 **Search for problematic patterns**:
+
 ```bash
 # Find deprecated authorization imports
 grep -r "from verenigingen.utils.security.authorization" verenigingen/api/
@@ -222,19 +226,20 @@ def secure_api_function(**kwargs):
 ```
 
 **Error response format**:
+
 ```json
 {
-    "success": false,
-    "error_type": "PermissionError",
-    "message": "Access denied. Required roles: System Manager",
-    "error_code": "INSUFFICIENT_PERMISSIONS",
-    "timestamp": "2025-07-26T10:30:00Z",
-    "request_id": "req_abc123",
-    "security_context": {
-        "security_level": "critical",
-        "operation_type": "financial",
-        "rate_limit_remaining": 9
-    }
+  "success": false,
+  "error_type": "PermissionError",
+  "message": "Access denied. Required roles: System Manager",
+  "error_code": "INSUFFICIENT_PERMISSIONS",
+  "timestamp": "2025-07-26T10:30:00Z",
+  "request_id": "req_abc123",
+  "security_context": {
+    "security_level": "critical",
+    "operation_type": "financial",
+    "rate_limit_remaining": 9
+  }
 }
 ```
 
@@ -466,6 +471,7 @@ These implementation standards ensure:
 - **Compliance**: Standards alignment for auditing
 
 **Implementation Priority**:
+
 1. **Immediate**: Fix import conflicts (15 minutes)
 2. **Short-term**: Standardize existing secured APIs (2 hours)
 3. **Ongoing**: Apply standards to new API development

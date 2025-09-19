@@ -3,7 +3,12 @@
     "create_payment": {
       "request": {
         "type": "object",
-        "required": ["amount", "description", "reference_doctype", "reference_docname"],
+        "required": [
+          "amount",
+          "description",
+          "reference_doctype",
+          "reference_docname"
+        ],
         "properties": {
           "amount": {
             "type": "object",
@@ -38,7 +43,15 @@
             "type": "array",
             "items": {
               "type": "string",
-              "enum": ["ideal", "creditcard", "bancontact", "sofort", "sepadirectdebit", "paypal", "banktransfer"]
+              "enum": [
+                "ideal",
+                "creditcard",
+                "bancontact",
+                "sofort",
+                "sepadirectdebit",
+                "paypal",
+                "banktransfer"
+              ]
             }
           },
           "redirect_url": {

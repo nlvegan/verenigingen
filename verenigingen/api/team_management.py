@@ -45,9 +45,11 @@ def get_team_members(team):
                     {
                         "email": volunteer_doc.email,
                         "phone": None,  # Phone field not available in Volunteer DocType
-                        "skills": [skill.skill for skill in volunteer_doc.skills]
-                        if hasattr(volunteer_doc, "skills")
-                        else [],
+                        "skills": (
+                            [skill.skill for skill in volunteer_doc.skills]
+                            if hasattr(volunteer_doc, "skills")
+                            else []
+                        ),
                     }
                 )
             except frappe.DoesNotExistError:

@@ -1,11 +1,13 @@
 # SEPA and Billing Systems Comprehensive Review
-*Last Updated: July 25, 2025*
+
+_Last Updated: July 25, 2025_
 
 ## Executive Summary
 
 This document presents a comprehensive analysis of the SEPA (Single Euro Payments Area) and billing-related components in the Verenigingen system. The review identifies critical security vulnerabilities, performance bottlenecks, and business logic gaps that require immediate attention to ensure production readiness.
 
 **Critical Statistics:**
+
 - **296 unvalidated API endpoints** requiring immediate security hardening (Week 1 priority)
 - **15+ N+1 query patterns** causing performance degradation (Week 2 priority)
 - **Multiple race conditions** in financial operations (Week 3 priority)
@@ -30,12 +32,14 @@ This document presents a comprehensive analysis of the SEPA (Single Euro Payment
 **Problem:** 296 API endpoints lack proper input validation, creating potential for injection attacks and data corruption.
 
 **Affected Files:**
+
 - `verenigingen/api/sepa_batch_ui.py` - Lines 12, 73, 101, 137, 181
 - `verenigingen/utils/sepa_mandate_service.py` - Lines 286, 294
 - `verenigingen/doctype/direct_debit_batch/direct_debit_batch.py`
 - All API endpoints in `verenigingen/api/` directory
 
 **Specific Vulnerabilities:**
+
 ```python
 # VULNERABLE: No input validation
 @frappe.whitelist()
@@ -45,6 +49,7 @@ def load_unpaid_invoices(date_range="overdue", membership_type=None, limit=100):
 ```
 
 **Solution Pattern:**
+
 ```python
 # SECURE: Proper input validation
 from verenigingen.utils.error_handling import validate_required_fields
@@ -73,10 +78,12 @@ def load_unpaid_invoices(date_range="overdue", membership_type=None, limit=100):
 **Problem:** Direct SQL queries without proper parameter binding in financial data operations.
 
 **Affected Files:**
+
 - `verenigingen/utils/nuke_financial_data.py` - Lines 44-60, 67-83
 - `verenigingen/utils/sepa_mandate_service.py` - Lines 145-194
 
 **Vulnerable Code:**
+
 ```python
 # RISK: Potential SQL injection in batch queries
 mandates = frappe.db.sql(f"""
@@ -86,6 +93,7 @@ mandates = frappe.db.sql(f"""
 ```
 
 **Secure Implementation:**
+
 ```python
 # SECURE: Proper parameter binding
 mandates = frappe.db.sql("""
@@ -99,6 +107,7 @@ mandates = frappe.db.sql("""
 **Problem:** Missing role-based access control on sensitive financial operations.
 
 **Required Fixes:**
+
 - Add `@validate_sepa_permissions` decorator to all SEPA operations
 - Implement proper role checking for batch processing
 - Add audit logging for all financial state changes
@@ -114,7 +123,9 @@ mandates = frappe.db.sql("""
 **Critical Areas:**
 
 #### A. SEPA Mandate Lookups
+
 **File:** `verenigingen/api/sepa_batch_ui.py:48-69`
+
 ```python
 # INEFFICIENT: N+1 queries for member data
 for invoice in invoices:
@@ -126,6 +137,7 @@ for invoice in invoices:
 ```
 
 **Optimized Solution:**
+
 ```python
 # EFFICIENT: Single batch query
 membership_ids = [inv.membership for inv in invoices if inv.membership]
@@ -162,7 +174,9 @@ for invoice in invoices:
 ```
 
 #### B. Batch Analytics Processing
+
 **File:** `verenigingen/api/sepa_batch_ui.py:138-178`
+
 - **Current:** Individual validation calls for each invoice
 - **Solution:** Implement `SEPAMandateService.validate_mandate_status_batch()`
 
@@ -171,6 +185,7 @@ for invoice in invoices:
 **Problem:** Critical queries lack proper indexing support.
 
 **Required Indexes:**
+
 ```sql
 -- SEPA invoice lookup optimization
 CREATE INDEX idx_sepa_invoice_lookup ON `tabSales Invoice`
@@ -190,6 +205,7 @@ CREATE INDEX idx_direct_debit_batch_invoice ON `tabDirect Debit Batch Invoice`
 **Problem:** Large dataset processing without pagination or streaming.
 
 **Solutions:**
+
 - Implement cursor-based pagination for large invoice batches
 - Add memory usage monitoring to batch operations
 - Implement progressive loading for UI components
@@ -203,11 +219,13 @@ CREATE INDEX idx_direct_debit_batch_invoice ON `tabDirect Debit Batch Invoice`
 **Problem:** Concurrent access to financial data can create inconsistent states.
 
 #### A. SEPA Batch Creation Race Condition
+
 **Location:** `verenigingen/doctype/direct_debit_batch/direct_debit_batch.py`
 
 **Scenario:** Two users creating batches simultaneously may include the same invoices.
 
 **Solution:**
+
 ```python
 def validate_invoice_availability(self):
     """Validate that invoices are still available for batching"""
@@ -229,6 +247,7 @@ def validate_invoice_availability(self):
 ```
 
 #### B. Mandate State Transitions
+
 **Problem:** Mandate status changes without proper validation of active transactions.
 
 **Solution:** Implement mandate lifecycle management with transaction checking.
@@ -238,12 +257,14 @@ def validate_invoice_availability(self):
 **Problem:** Complex logic for handling membership billing frequency changes lacks comprehensive validation.
 
 **Critical Scenarios:**
+
 - Member switching from Monthly to Annual mid-cycle
 - Prorated billing calculations
 - Schedule overlap detection
 - Refund/credit handling
 
 **Implementation Required:**
+
 ```python
 class BillingFrequencyTransitionManager:
     """Handles complex billing frequency transitions"""
@@ -269,6 +290,7 @@ class BillingFrequencyTransitionManager:
 **Problem:** Complex sequence type determination (FRST/RCUR/OOFF/FNAL) needs comprehensive business rule validation.
 
 **Current Issues:**
+
 - No validation of mandate usage history
 - Missing business rules for sequence type transitions
 - Incomplete error handling for edge cases
@@ -278,9 +300,11 @@ class BillingFrequencyTransitionManager:
 ## Implementation Timeline
 
 ### Week 1: Performance + Core Business Logic (DEV PRIORITY)
+
 **Goal:** Fix issues blocking daily development work
 
 **Tasks:**
+
 1. **N+1 Query Elimination** (Days 1-2)
    - Implement batch operations in `SEPAMandateService`
    - Optimize invoice loading queries
@@ -297,15 +321,18 @@ class BillingFrequencyTransitionManager:
    - Set up basic performance monitoring
 
 **Deliverables:**
+
 - [ ] N+1 queries eliminated (development speed improved)
 - [ ] Billing transitions working (core feature complete)
 - [ ] Database performance optimized
 - [ ] Development workflow smoother
 
 ### Week 2: Security Hardening (PRE-PRODUCTION)
+
 **Goal:** Secure the system before wider testing/deployment
 
 **Tasks:**
+
 1. **Input Validation Framework** (Days 1-2)
    - Implement `@validate_api_inputs` decorator
    - Create validation schemas for all API endpoints
@@ -322,15 +349,18 @@ class BillingFrequencyTransitionManager:
    - Create security test suite
 
 **Deliverables:**
+
 - [ ] All 296 API endpoints validated
 - [ ] Zero SQL injection vulnerabilities
 - [ ] Comprehensive security test suite
 - [ ] Ready for staging deployment
 
 ### Week 3: Race Conditions + Advanced Features (STABILITY)
+
 **Goal:** Ensure system stability under concurrent usage
 
 **Tasks:**
+
 1. **Race Condition Prevention** (Days 1-2)
    - Implement database locking for batch operations
    - Add transaction isolation levels
@@ -347,15 +377,18 @@ class BillingFrequencyTransitionManager:
    - Enhance logging for debugging
 
 **Deliverables:**
+
 - [ ] Race conditions eliminated
 - [ ] SEPA sequence logic robust
 - [ ] Better error handling and debugging
 - [ ] System stable under load
 
 ### Week 4: Monitoring + Polish (PRODUCTION READY)
+
 **Goal:** Complete production readiness with monitoring and documentation
 
 **Tasks:**
+
 1. **Memory Optimization** (Days 1-2)
    - Implement pagination for large datasets
    - Add memory usage monitoring
@@ -373,6 +406,7 @@ class BillingFrequencyTransitionManager:
    - Final testing and cleanup
 
 **Deliverables:**
+
 - [ ] Memory usage optimized
 - [ ] Monitoring dashboards active
 - [ ] Documentation complete
@@ -383,6 +417,7 @@ class BillingFrequencyTransitionManager:
 ## Testing Strategy
 
 ### 1. Security Testing
+
 ```python
 class TestSEPASecurityHardening(BaseTestCase):
     """Comprehensive security testing for SEPA operations"""
@@ -408,6 +443,7 @@ class TestSEPASecurityHardening(BaseTestCase):
 ```
 
 ### 2. Performance Testing
+
 ```python
 class TestSEPAPerformanceOptimization(BaseTestCase):
     """Performance testing for SEPA operations"""
@@ -427,6 +463,7 @@ class TestSEPAPerformanceOptimization(BaseTestCase):
 ```
 
 ### 3. Business Logic Testing
+
 ```python
 class TestBillingFrequencyTransitions(BaseTestCase):
     """Test complex billing frequency transitions"""
@@ -455,6 +492,7 @@ class TestBillingFrequencyTransitions(BaseTestCase):
 ## Code Examples and Solutions
 
 ### 1. Secure API Endpoint Pattern
+
 ```python
 from verenigingen.utils.error_handling import handle_api_error, validate_required_fields
 from verenigingen.utils.permissions import validate_sepa_permissions
@@ -543,6 +581,7 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type=None, limi
 ```
 
 ### 2. Race Condition Prevention Pattern
+
 ```python
 class SEPABatchManager:
     """Thread-safe SEPA batch operations"""
@@ -606,6 +645,7 @@ class SEPABatchManager:
 ```
 
 ### 3. Performance Monitoring Pattern
+
 ```python
 from verenigingen.utils.performance_utils import performance_monitor
 
@@ -662,6 +702,7 @@ class SEPAPerformanceMonitor:
 ## Progress Tracking
 
 ### Week 1: Performance + Core Business Logic (DEV PRIORITY)
+
 - [ ] **Day 1-2:** N+1 query elimination
   - [ ] `SEPAMandateService` batch operations implemented
   - [ ] Invoice loading queries optimized
@@ -676,6 +717,7 @@ class SEPAPerformanceMonitor:
   - [ ] Basic performance monitoring deployed
 
 ### Week 2: Security Hardening (PRE-PRODUCTION)
+
 - [ ] **Day 1-2:** Input validation framework implemented
   - [ ] `@validate_api_inputs` decorator created
   - [ ] Validation schemas defined for all endpoints
@@ -690,6 +732,7 @@ class SEPAPerformanceMonitor:
   - [ ] Security documentation updated
 
 ### Week 3: Race Conditions + Advanced Features (STABILITY)
+
 - [ ] **Day 1-2:** Race condition prevention
   - [ ] Database locking mechanisms implemented
   - [ ] Transaction isolation levels configured
@@ -704,6 +747,7 @@ class SEPAPerformanceMonitor:
   - [ ] Logging enhanced with proper categorization
 
 ### Week 4: Monitoring + Polish (PRODUCTION READY)
+
 - [ ] **Day 1-2:** Memory optimization
   - [ ] Pagination implemented for large datasets
   - [ ] Memory usage monitoring active
@@ -745,4 +789,4 @@ class SEPAPerformanceMonitor:
 
 ---
 
-*This document will be updated as implementation progresses. Last review: July 25, 2025*
+_This document will be updated as implementation progresses. Last review: July 25, 2025_

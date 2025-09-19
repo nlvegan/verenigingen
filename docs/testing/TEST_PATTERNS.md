@@ -1,6 +1,7 @@
 # Verenigingen Test Patterns and Best Practices
 
 ## Table of Contents
+
 1. [Overview](#overview)
 2. [Test Organization](#test-organization)
 3. [Test Data Management](#test-data-management)

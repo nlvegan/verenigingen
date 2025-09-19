@@ -1,4 +1,5 @@
 # Service Layer Migration Guide
+
 ## Phase 3.4: Complete Service Layer Integration
 
 **Document Version**: 1.0
@@ -38,6 +39,7 @@ verenigingen/utils/services/
 ### For SEPA Mandate Creation
 
 #### OLD PATTERN (Deprecated but still functional)
+
 ```python
 # Direct mixin method call - shows deprecation warning
 member = frappe.get_doc("Member", member_name)
@@ -45,6 +47,7 @@ mandate = member.create_sepa_mandate()
 ```
 
 #### NEW PATTERN (Recommended)
+
 ```python
 # Service layer approach - enhanced validation and error handling
 from verenigingen.utils.services.sepa_service import SEPAService
@@ -63,6 +66,7 @@ else:
 ```
 
 #### API ENDPOINT PATTERN
+
 ```python
 # Direct API access to service layer
 import frappe
@@ -78,12 +82,14 @@ result = frappe.call(
 ### For Getting Active Mandates
 
 #### OLD PATTERN
+
 ```python
 member = frappe.get_doc("Member", member_name)
 mandates = member.get_active_sepa_mandates()
 ```
 
 #### NEW PATTERN (Enhanced)
+
 ```python
 from verenigingen.utils.services.sepa_service import SEPAService
 
@@ -101,24 +107,28 @@ if stats['success']:
 ## SERVICE LAYER BENEFITS
 
 ### Enhanced Security
+
 - **Input Validation**: Comprehensive validation of all input parameters
 - **IBAN Validation**: MOD-97 algorithm validation with mock bank support
 - **SQL Injection Prevention**: Parameterized queries throughout
 - **Error Handling**: Secure error messages without information disclosure
 
 ### Better Error Handling
+
 - **Structured Responses**: Consistent success/error response format
 - **Enhanced Logging**: Comprehensive audit trail with privacy protection
 - **Graceful Failures**: Meaningful error messages for users and developers
 - **Exception Recovery**: Proper exception handling and recovery
 
 ### Improved Testability
+
 - **Mock Bank Support**: TEST, MOCK, DEMO banks for automated testing
 - **Isolated Testing**: Service methods can be tested independently
 - **Consistent Interfaces**: Predictable input/output patterns
 - **Better Coverage**: Easier to achieve comprehensive test coverage
 
 ### Enhanced Functionality
+
 - **Auto-BIC Derivation**: Automatic BIC generation for Dutch IBANs
 - **Duplicate Detection**: Check for existing mandates before creation
 - **Usage Statistics**: Comprehensive mandate usage analytics
@@ -129,12 +139,14 @@ if stats['success']:
 ## BACKWARD COMPATIBILITY
 
 ### Existing Code Continues to Work
+
 - **No Breaking Changes**: All existing mixin methods remain functional
 - **Deprecation Warnings**: Clear guidance for migration
 - **Gradual Migration**: Update code at your own pace
 - **Fallback Support**: Service layer falls back to mixin methods when needed
 
 ### Integration Layer
+
 The integration layer ensures seamless communication between service layer and existing mixins:
 
 ```python
@@ -154,6 +166,7 @@ def create_sepa_mandate_via_service(self, iban: str, bic: str = None):
 ### When to Use Service Layer
 
 ✅ **USE Service Layer For:**
+
 - New SEPA mandate creation workflows
 - API endpoints requiring enhanced validation
 - Batch operations requiring consistent error handling
@@ -161,6 +174,7 @@ def create_sepa_mandate_via_service(self, iban: str, bic: str = None):
 - Code requiring high test coverage
 
 ✅ **CONTINUE Using Mixins For:**
+
 - Simple member data access
 - Existing workflows that are working well
 - Internal operations not requiring enhanced validation
@@ -312,6 +326,7 @@ Service layer operations include performance tracking:
 ## MIGRATION TIMELINE
 
 ### Immediate (Completed)
+
 - ✅ Service layer infrastructure created
 - ✅ SEPA service implementation complete
 - ✅ Integration layer functional
@@ -319,18 +334,21 @@ Service layer operations include performance tracking:
 - ✅ Mock bank support implemented
 
 ### Short Term (Next 2-4 weeks)
+
 - 🔄 Update API endpoints to use service layer
 - 🔄 Migrate high-traffic workflows
 - 🔄 Add comprehensive test coverage
 - 🔄 Performance optimization based on usage
 
 ### Medium Term (Next 2-3 months)
+
 - 📋 Additional service layers (Payment, Membership)
 - 📋 Enhanced analytics and reporting
 - 📋 Advanced validation rules
 - 📋 Integration with external systems
 
 ### Long Term (6+ months)
+
 - 📋 Complete mixin consolidation
 - 📋 Legacy method removal
 - 📋 Advanced service layer features
@@ -343,6 +361,7 @@ Service layer operations include performance tracking:
 ### Common Issues
 
 **Issue**: Deprecation warnings appearing in UI
+
 ```python
 # Solution: Update to service layer pattern
 # OLD:
@@ -354,6 +373,7 @@ SEPAService.create_mandate_enhanced(member.name, iban, bic)
 ```
 
 **Issue**: IBAN validation failing for test data
+
 ```python
 # Solution: Use mock bank IBANs for testing
 test_iban = 'NL13TEST0123456789'  # Valid mock bank IBAN
@@ -361,6 +381,7 @@ assert SEPAService.validate_iban(test_iban) == True
 ```
 
 **Issue**: Service layer import errors
+
 ```python
 # Solution: Check service layer package structure
 from verenigingen.utils.services.sepa_service import SEPAService
@@ -383,6 +404,7 @@ service = get_sepa_service()
 The Phase 3 service layer implementation provides a robust, secure, and maintainable foundation for SEPA operations while preserving complete backward compatibility. Developers can migrate to the new patterns gradually while benefiting from enhanced validation, error handling, and testing capabilities.
 
 **Key Success Factors:**
+
 1. **Evolutionary Approach** - No breaking changes
 2. **Enhanced Security** - Comprehensive input validation
 3. **Better Testing** - Mock bank support and isolated testing
@@ -390,6 +412,7 @@ The Phase 3 service layer implementation provides a robust, secure, and maintain
 5. **Comprehensive Documentation** - Complete developer support
 
 **Next Steps:**
+
 1. Review existing SEPA workflows for migration opportunities
 2. Update high-traffic operations to use service layer
 3. Implement comprehensive test coverage using mock banks

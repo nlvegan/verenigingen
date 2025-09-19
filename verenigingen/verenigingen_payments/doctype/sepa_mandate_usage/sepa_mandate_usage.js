@@ -45,30 +45,47 @@ frappe.ui.form.on('SEPA Mandate Usage', {
 		}
 
 		// Add navigation buttons to related records
-		if (frm.doc.reference_doctype === 'SEPA Mandate' && frm.doc.reference_name) {
-			frm.add_custom_button(__('View Mandate'), () => {
-				frappe.set_route('Form', 'SEPA Mandate', frm.doc.reference_name);
-			}, __('Related Records'));
+		if (
+			frm.doc.reference_doctype === 'SEPA Mandate'
+      && frm.doc.reference_name
+		) {
+			frm.add_custom_button(
+				__('View Mandate'),
+				() => {
+					frappe.set_route('Form', 'SEPA Mandate', frm.doc.reference_name);
+				},
+				__('Related Records')
+			);
 		}
 
 		if (frm.doc.batch_reference) {
-			frm.add_custom_button(__('View Transaction'), () => {
-				// Navigate to related payment or batch record
-				frappe.db.get_value('Direct Debit Batch',
-					{ name: frm.doc.batch_reference },
-					'name')
-					.then(r => {
-						if (r.message && r.message.name) {
-							frappe.set_route('Form', 'Direct Debit Batch', r.message.name);
-						} else {
-							frappe.msgprint(__('Related transaction not found'));
-						}
-					});
-			}, __('Related Records'));
+			frm.add_custom_button(
+				__('View Transaction'),
+				() => {
+					// Navigate to related payment or batch record
+					frappe.db
+						.get_value(
+							'Direct Debit Batch',
+							{ name: frm.doc.batch_reference },
+							'name'
+						)
+						.then((r) => {
+							if (r.message && r.message.name) {
+								frappe.set_route('Form', 'Direct Debit Batch', r.message.name);
+							} else {
+								frappe.msgprint(__('Related transaction not found'));
+							}
+						});
+				},
+				__('Related Records')
+			);
 		}
 
 		// Show usage statistics
-		if (frm.doc.reference_doctype === 'SEPA Mandate' && frm.doc.reference_name) {
+		if (
+			frm.doc.reference_doctype === 'SEPA Mandate'
+      && frm.doc.reference_name
+		) {
 			frappe.call({
 				method: 'frappe.client.get_list',
 				args: {
@@ -92,8 +109,13 @@ frappe.ui.form.on('SEPA Mandate Usage', {
 
 	reference_name(frm) {
 		// Auto-populate mandate details when SEPA Mandate is selected
-		if (frm.doc.reference_doctype === 'SEPA Mandate' && frm.doc.reference_name) {
-			frappe.db.get_value('SEPA Mandate', frm.doc.reference_name,
+		if (
+			frm.doc.reference_doctype === 'SEPA Mandate'
+      && frm.doc.reference_name
+		) {
+			frappe.db.get_value(
+				'SEPA Mandate',
+				frm.doc.reference_name,
 				['mandate_id', 'member', 'status', 'first_use_date'],
 				(r) => {
 					if (r) {
@@ -114,9 +136,17 @@ frappe.ui.form.on('SEPA Mandate Usage', {
 
 function show_usage_statistics(frm, usage_data) {
 	const total_usage = usage_data.length;
-	const total_amount = usage_data.reduce((sum, record) => sum + (record.amount || 0), 0);
-	const successful_transactions = usage_data.filter(record => record.status === 'Completed').length;
-	const success_rate = total_usage > 0 ? (successful_transactions / total_usage * 100).toFixed(1) : 0;
+	const total_amount = usage_data.reduce(
+		(sum, record) => sum + (record.amount || 0),
+		0
+	);
+	const successful_transactions = usage_data.filter(
+		(record) => record.status === 'Completed'
+	).length;
+	const success_rate
+    = total_usage > 0
+    	? ((successful_transactions / total_usage) * 100).toFixed(1)
+    	: 0;
 
 	const stats_html = `
 		<div class="mandate-usage-stats">
@@ -152,7 +182,9 @@ function show_usage_statistics(frm, usage_data) {
 
 	// Add CSS if not already present
 	if (!$('#mandate-usage-styles').length) {
-		$('<style id="mandate-usage-styles">').html(`
+		$('<style id="mandate-usage-styles">')
+			.html(
+				`
 			.mandate-usage-stats {
 				background: #f8f9fa;
 				padding: 15px;
@@ -178,16 +210,21 @@ function show_usage_statistics(frm, usage_data) {
 				letter-spacing: 0.5px;
 				margin-top: 5px;
 			}
-		`).appendTo('head');
+		`
+			)
+			.appendTo('head');
 	}
 
 	// Add to form
 	if (!frm.fields_dict.usage_stats_html) {
-		frm.add_field({
-			fieldname: 'usage_stats_html',
-			fieldtype: 'HTML',
-			options: stats_html
-		}, 'section_break_1');
+		frm.add_field(
+			{
+				fieldname: 'usage_stats_html',
+				fieldtype: 'HTML',
+				options: stats_html
+			},
+			'section_break_1'
+		);
 	} else {
 		$(frm.fields_dict.usage_stats_html.wrapper).html(stats_html);
 	}

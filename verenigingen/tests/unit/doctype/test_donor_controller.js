@@ -17,10 +17,10 @@ const mockFrappe = {
 	msgprint: jest.fn(),
 	throw: jest.fn(),
 	confirm: jest.fn(),
-	__: jest.fn(msg => msg),
+	__: jest.fn((msg) => msg),
 	datetime: {
 		get_today: jest.fn(() => '2025-01-15'),
-		str_to_obj: jest.fn(dateStr => new Date(dateStr))
+		str_to_obj: jest.fn((dateStr) => new Date(dateStr))
 	},
 	ui: {
 		Dialog: jest.fn(),
@@ -82,7 +82,7 @@ describe('Donor DocType Controller', () => {
 					'987654321' // Valid BSN with different pattern
 				];
 
-				validBSNs.forEach(bsn => {
+				validBSNs.forEach((bsn) => {
 					const result = validate_bsn(bsn);
 					expect(result.valid).toBe(true);
 					expect(result.error).toBeNull();
@@ -98,7 +98,7 @@ describe('Donor DocType Controller', () => {
 					'12345678a' // Contains letters
 				];
 
-				invalidBSNs.forEach(bsn => {
+				invalidBSNs.forEach((bsn) => {
 					const result = validate_bsn(bsn);
 					expect(result.valid).toBe(false);
 					expect(result.error).toBeTruthy();
@@ -128,7 +128,9 @@ describe('Donor DocType Controller', () => {
 					message: { valid: true, formatted_bsn: '123456782' }
 				});
 
-				const { validate_bsn_dialog } = require('../../../verenigingen/doctype/donor/donor.js');
+				const {
+					validate_bsn_dialog
+				} = require('../../../verenigingen/doctype/donor/donor.js');
 
 				validate_bsn_dialog(mockForm);
 
@@ -148,7 +150,7 @@ describe('Donor DocType Controller', () => {
 					'001234567' // RSIN with leading zeros
 				];
 
-				validRSINs.forEach(rsin => {
+				validRSINs.forEach((rsin) => {
 					const result = validate_rsin(rsin);
 					expect(result.valid).toBe(true);
 				});
@@ -161,7 +163,7 @@ describe('Donor DocType Controller', () => {
 					'1234567890' // Too long
 				];
 
-				invalidRSINs.forEach(rsin => {
+				invalidRSINs.forEach((rsin) => {
 					const result = validate_rsin(rsin);
 					expect(result.valid).toBe(false);
 				});
@@ -207,28 +209,31 @@ describe('Donor DocType Controller', () => {
 				const mockDonations = [
 					{
 						date: '2025-01-01',
-						amount: 100.00,
+						amount: 100.0,
 						type: 'One-time',
 						tax_deductible: 1
 					},
 					{
 						date: '2024-12-01',
-						amount: 50.00,
+						amount: 50.0,
 						type: 'Monthly',
 						tax_deductible: 1
 					}
 				];
 
 				mockFrappe.call.mockResolvedValue({
-					message: { donations: mockDonations, total: 150.00 }
+					message: { donations: mockDonations, total: 150.0 }
 				});
 
-				const { sync_donation_history } = require('../../../verenigingen/doctype/donor/donor.js');
+				const {
+					sync_donation_history
+				} = require('../../../verenigingen/doctype/donor/donor.js');
 
 				await sync_donation_history(mockForm);
 
 				expect(mockFrappe.call).toHaveBeenCalledWith({
-					method: 'verenigingen.verenigingen.doctype.donor.donor.get_donation_history',
+					method:
+            'verenigingen.verenigingen.doctype.donor.donor.get_donation_history',
 					args: { donor_name: 'DON-2025-001' }
 				});
 			});
@@ -236,7 +241,9 @@ describe('Donor DocType Controller', () => {
 			test('should handle donation sync errors gracefully', async () => {
 				mockFrappe.call.mockRejectedValue(new Error('API Error'));
 
-				const { sync_donation_history } = require('../../../verenigingen/doctype/donor/donor.js');
+				const {
+					sync_donation_history
+				} = require('../../../verenigingen/doctype/donor/donor.js');
 
 				await sync_donation_history(mockForm);
 
@@ -307,7 +314,7 @@ describe('Donor DocType Controller', () => {
 			test('should detect BSN format', () => {
 				const bsnNumbers = ['123456782', '987654321'];
 
-				bsnNumbers.forEach(number => {
+				bsnNumbers.forEach((number) => {
 					expect(detect_tax_id_type(number)).toBe('BSN');
 				});
 			});
@@ -315,7 +322,7 @@ describe('Donor DocType Controller', () => {
 			test('should detect RSIN format', () => {
 				const rsinNumbers = ['123456782', '001234567'];
 
-				rsinNumbers.forEach(number => {
+				rsinNumbers.forEach((number) => {
 					// RSIN uses same format as BSN, so context matters
 					expect(detect_tax_id_type(number, 'business')).toBe('RSIN');
 				});
@@ -339,8 +346,14 @@ describe('Donor DocType Controller', () => {
 
 				await sync_donor_address(mockForm, 'ADDR-2025-001');
 
-				expect(mockForm.set_value).toHaveBeenCalledWith('address_line1', mockAddress.address_line1);
-				expect(mockForm.set_value).toHaveBeenCalledWith('city', mockAddress.city);
+				expect(mockForm.set_value).toHaveBeenCalledWith(
+					'address_line1',
+					mockAddress.address_line1
+				);
+				expect(mockForm.set_value).toHaveBeenCalledWith(
+					'city',
+					mockAddress.city
+				);
 			});
 
 			test('should handle missing address data', async () => {
@@ -362,39 +375,27 @@ describe('Donor DocType Controller', () => {
 					'jan.de.vries@example.com'
 				];
 
-				const invalidEmails = [
-					'invalid-email',
-					'test@',
-					'@example.com'
-				];
+				const invalidEmails = ['invalid-email', 'test@', '@example.com'];
 
-				validEmails.forEach(email => {
+				validEmails.forEach((email) => {
 					expect(validate_email_format(email)).toBe(true);
 				});
 
-				invalidEmails.forEach(email => {
+				invalidEmails.forEach((email) => {
 					expect(validate_email_format(email)).toBe(false);
 				});
 			});
 
 			test('should validate Dutch phone numbers', () => {
-				const validPhones = [
-					'+31612345678',
-					'0612345678',
-					'+31 6 12345678'
-				];
+				const validPhones = ['+31612345678', '0612345678', '+31 6 12345678'];
 
-				const invalidPhones = [
-					'1234567',
-					'+1234567890',
-					'invalid'
-				];
+				const invalidPhones = ['1234567', '+1234567890', 'invalid'];
 
-				validPhones.forEach(phone => {
+				validPhones.forEach((phone) => {
 					expect(validate_dutch_phone(phone)).toBe(true);
 				});
 
-				invalidPhones.forEach(phone => {
+				invalidPhones.forEach((phone) => {
 					expect(validate_dutch_phone(phone)).toBe(false);
 				});
 			});
@@ -411,12 +412,15 @@ describe('Donor DocType Controller', () => {
 				anbi_qualified: 1
 			};
 
-			const { create_donation_agreement } = require('../../../verenigingen/doctype/donor/donor.js');
+			const {
+				create_donation_agreement
+			} = require('../../../verenigingen/doctype/donor/donor.js');
 
 			create_donation_agreement(mockForm, agreementData);
 
 			expect(mockFrappe.call).toHaveBeenCalledWith({
-				method: 'verenigingen.verenigingen.doctype.periodic_donation_agreement.periodic_donation_agreement.create_from_donor',
+				method:
+          'verenigingen.verenigingen.doctype.periodic_donation_agreement.periodic_donation_agreement.create_from_donor',
 				args: expect.objectContaining(agreementData)
 			});
 		});
@@ -477,7 +481,7 @@ describe('Donor DocType Controller', () => {
 				'123.456.782' // With dots
 			];
 
-			malformedInputs.forEach(input => {
+			malformedInputs.forEach((input) => {
 				const cleaned = clean_bsn_input(input);
 				expect(cleaned).toBe('123456782');
 			});
@@ -528,8 +532,10 @@ function calculate_bsn_checksum(bsn) {
 	const weights = [9, 8, 7, 6, 5, 4, 3, 2, -1];
 	const digits = bsn.split('').map(Number);
 
-	const sum = digits.reduce((total, digit, index) =>
-		total + (digit * weights[index]), 0);
+	const sum = digits.reduce(
+		(total, digit, index) => total + digit * weights[index],
+		0
+	);
 
 	return sum % 11;
 }
@@ -557,13 +563,13 @@ function calculate_donation_statistics(donations) {
 		total_amount: total,
 		average_amount: total / donations.length,
 		donation_count: donations.length,
-		largest_donation: Math.max(...donations.map(d => d.amount))
+		largest_donation: Math.max(...donations.map((d) => d.amount))
 	};
 }
 
 function calculate_tax_deductible_amount(donations) {
 	return donations
-		.filter(d => d.tax_deductible)
+		.filter((d) => d.tax_deductible)
 		.reduce((sum, d) => sum + d.amount, 0);
 }
 
@@ -574,7 +580,10 @@ function encrypt_tax_identifier(identifier) {
 
 function decrypt_tax_identifier(encrypted) {
 	try {
-		return Buffer.from(encrypted.replace('encrypted_', ''), 'base64').toString();
+		return Buffer.from(
+			encrypted.replace('encrypted_', ''),
+			'base64'
+		).toString();
 	} catch (error) {
 		throw new Error('Decryption failed');
 	}
@@ -586,8 +595,12 @@ function detect_tax_id_type(number, context = 'individual') {
 
 async function sync_donor_address(frm, addressId) {
 	try {
-		const address = await mockFrappe.db.get_value('Address', addressId,
-			['address_line1', 'city', 'pincode', 'country']);
+		const address = await mockFrappe.db.get_value('Address', addressId, [
+			'address_line1',
+			'city',
+			'pincode',
+			'country'
+		]);
 
 		if (address.message) {
 			frm.set_value('address_line1', address.message.address_line1);
@@ -618,8 +631,12 @@ function validate_agreement_eligibility(donor) {
 function mask_sensitive_data(data) {
 	return {
 		...data,
-		bsn: data.bsn ? `${data.bsn.substring(0, 3)}***${data.bsn.substring(6)}` : null,
-		email: data.email ? `${data.email.charAt(0)}***@${data.email.split('@')[1]}` : null
+		bsn: data.bsn
+			? `${data.bsn.substring(0, 3)}***${data.bsn.substring(6)}`
+			: null,
+		email: data.email
+			? `${data.email.charAt(0)}***@${data.email.split('@')[1]}`
+			: null
 	};
 }
 

@@ -54,7 +54,9 @@ frappe.ui.form.on('Team Responsibility', {
 			});
 
 			if (!team_member_exists) {
-				frappe.msgprint(__('The assigned person must be a member of this team'));
+				frappe.msgprint(
+					__('The assigned person must be a member of this team')
+				);
 				frappe.model.set_value(cdt, cdn, 'assigned_to', '');
 			}
 		}

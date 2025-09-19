@@ -7,6 +7,7 @@ This comprehensive guide answers frequently asked questions and provides solutio
 **For comprehensive error recovery procedures, see:** [**Error Recovery Guide**](troubleshooting/ERROR_RECOVERY_GUIDE.md)
 
 The Error Recovery Guide provides detailed step-by-step procedures for:
+
 - **Payment Failures** - SEPA direct debit failures, mandate errors, reconciliation issues
 - **Portal Access Issues** - Login failures, permission errors, session timeouts
 - **Data Processing Errors** - Import failures, validation errors, duplicate entries
@@ -14,6 +15,7 @@ The Error Recovery Guide provides detailed step-by-step procedures for:
 - **System-Level Issues** - Database problems, Redis/cache issues, background job failures
 
 ## Table of Contents
+
 - [General Questions](#general-questions)
 - [Installation and Setup](#installation-and-setup)
 - [Member Portal Issues](#member-portal-issues)
@@ -30,6 +32,7 @@ The Error Recovery Guide provides detailed step-by-step procedures for:
 **Q: What is the Verenigingen app and what does it do?**
 
 A: Verenigingen is a comprehensive association management system built on the Frappe/ERPNext platform. It provides:
+
 - Complete member lifecycle management
 - Payment processing with SEPA direct debit
 - Volunteer coordination and management
@@ -42,6 +45,7 @@ A: Verenigingen is a comprehensive association management system built on the Fr
 **Q: What are the system requirements for Verenigingen?**
 
 A: The system requires:
+
 - **Server**: Ubuntu 20.04+ or CentOS 8+
 - **RAM**: 4GB minimum, 8GB recommended
 - **Storage**: 20GB minimum, 50GB+ for production
@@ -57,6 +61,7 @@ A: Yes, Verenigingen is designed as an ERPNext app and integrates seamlessly wit
 **Q: Is the system GDPR compliant?**
 
 A: Yes, the system includes GDPR compliance features:
+
 - Member consent management
 - Data access and portability tools
 - Automatic data retention policies
@@ -66,6 +71,7 @@ A: Yes, the system includes GDPR compliance features:
 **Q: Where is data stored and how is it secured?**
 
 A: Data is stored in your own MariaDB/MySQL database. Security features include:
+
 - Role-based access control
 - Data encryption for sensitive information
 - Regular backup systems
@@ -81,11 +87,13 @@ A: Data is stored in your own MariaDB/MySQL database. Security features include:
 A: This usually indicates the app source is not properly configured:
 
 1. **Check app source**:
+
    ```bash
    bench get-app verenigingen [repository-url]
    ```
 
 2. **Verify app is in apps directory**:
+
    ```bash
    ls apps/
    ```
@@ -100,6 +108,7 @@ A: This usually indicates the app source is not properly configured:
 A: Migration errors can occur due to dependency issues:
 
 1. **Ensure dependencies are installed**:
+
    ```bash
    bench install-app erpnext
    bench install-app payments
@@ -108,6 +117,7 @@ A: Migration errors can occur due to dependency issues:
    ```
 
 2. **Run migrations manually**:
+
    ```bash
    bench migrate --skip-failing
    bench migrate
@@ -130,6 +140,7 @@ A: Email issues are usually configuration-related:
    - Test with "Send Test Email"
 
 2. **Check email templates**:
+
    ```bash
    bench --site site_name execute verenigingen.api.email_template_manager.create_comprehensive_email_templates
    ```
@@ -143,6 +154,7 @@ A: Email issues are usually configuration-related:
 A: This is typically a permissions issue:
 
 1. **Deploy role profiles**:
+
    ```bash
    bench --site site_name execute verenigingen.setup.role_profile_setup.setup_role_profiles
    ```
@@ -161,6 +173,7 @@ A: This is typically a permissions issue:
 A: Database issues can prevent proper installation:
 
 1. **Check MariaDB status**:
+
    ```bash
    sudo systemctl status mariadb
    sudo systemctl restart mariadb
@@ -413,11 +426,13 @@ A: Payment delays can have various causes:
 A: Role assignment issues require systematic checking:
 
 1. **Role profile deployment**:
+
    ```bash
    bench --site site_name execute verenigingen.setup.role_profile_setup.setup_role_profiles
    ```
 
 2. **Permission cache**:
+
    ```bash
    bench clear-cache
    bench restart
@@ -512,12 +527,14 @@ A: Performance problems require systematic diagnosis:
 A: Server errors require log analysis:
 
 1. **Check error logs**:
+
    ```bash
    bench logs
    tail -f sites/site_name/logs/web.log
    ```
 
 2. **Review system logs**:
+
    ```bash
    sudo tail -f /var/log/nginx/error.log
    sudo journalctl -u supervisor
@@ -533,6 +550,7 @@ A: Server errors require log analysis:
 A: Background job issues:
 
 1. **Check worker status**:
+
    ```bash
    bench worker --queue default
    bench worker --queue long
@@ -588,6 +606,7 @@ A: SEPA file issues:
 A: Database problems require careful handling:
 
 1. **Database integrity check**:
+
    ```bash
    # Connect to MariaDB console
    bench --site site_name mariadb
@@ -597,6 +616,7 @@ A: Database problems require careful handling:
    ```
 
 2. **Backup and restore**:
+
    ```bash
    bench backup
    bench restore backup_file
@@ -638,6 +658,7 @@ A: Security incidents require immediate action:
 A: Database performance optimization:
 
 1. **Index optimization**:
+
    ```bash
    # Connect to MariaDB and run SQL commands
    bench --site site_name mariadb --execute "SHOW INDEX FROM tabMember;"
@@ -645,6 +666,7 @@ A: Database performance optimization:
    ```
 
 2. **Query analysis**:
+
    ```bash
    # Analyze query performance
    bench --site site_name mariadb --execute "EXPLAIN SELECT * FROM tabMember WHERE email = 'test@example.com';"
@@ -693,4 +715,4 @@ A: Application performance tuning:
 
 ### bugs, feature requests and other issues
 
-   - these can be submitted to github.com/nlvegan/verenigingen/issues
+- these can be submitted to github.com/nlvegan/verenigingen/issues

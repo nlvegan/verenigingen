@@ -39,11 +39,13 @@ repos:
 ### Installation
 
 1. **Install pre-commit** (if not already installed):
+
    ```bash
    pip install pre-commit
    ```
 
 2. **Install the hooks**:
+
    ```bash
    pre-commit install
    ```
@@ -62,6 +64,7 @@ Once installed, the validation runs automatically on every commit. If issues are
 ### Issue 1: Missing Security Decorator
 
 **Error Message**:
+
 ```
 ❌ CRITICAL: create_member_payment
 File: verenigingen/api/payment_processing.py:45
@@ -70,6 +73,7 @@ Fix: Add @critical_api()
 ```
 
 **Solution**:
+
 ```python
 # Before (insecure)
 @frappe.whitelist()
@@ -90,6 +94,7 @@ def create_member_payment(member_id, amount):
 ### Issue 2: Wrong Security Level
 
 **Error Message**:
+
 ```
 ⚠️ HIGH: get_member_data
 Issue: Function handles sensitive data but uses @utility_api()
@@ -97,6 +102,7 @@ Recommended: @high_security_api()
 ```
 
 **Solution**:
+
 ```python
 # Before (under-secured)
 @frappe.whitelist()
@@ -116,6 +122,7 @@ def get_member_data(member_id):
 ### Issue 3: Missing Input Validation
 
 **Error Message**:
+
 ```
 ⚠️ MEDIUM: update_member_details
 Issue: Create/modify function should implement input validation
@@ -123,6 +130,7 @@ Recommendation: Add input validation using validate_required_fields
 ```
 
 **Solution**:
+
 ```python
 from verenigingen.utils.error_handling import validate_required_fields
 
@@ -142,6 +150,7 @@ def update_member_details(member_id, details):
 ### Issue 4: SQL Injection Risk
 
 **Error Message**:
+
 ```
 🔴 CRITICAL: search_members
 Issue: Potential SQL injection vulnerability detected
@@ -149,6 +158,7 @@ Recommendation: Use parameterized queries with %s placeholders
 ```
 
 **Solution**:
+
 ```python
 # Before (vulnerable)
 @frappe.whitelist()
@@ -174,6 +184,7 @@ def search_members(search_term):
 ### Issue 5: Permission Bypass
 
 **Error Message**:
+
 ```
 🔴 CRITICAL: force_update_member
 Issue: Function bypasses permission checks
@@ -181,6 +192,7 @@ Recommendation: Remove ignore_permissions and implement proper authorization
 ```
 
 **Solution**:
+
 ```python
 # Before (insecure)
 @frappe.whitelist()
@@ -206,6 +218,7 @@ def update_member(member_id, data):
 ## Security Decorator Reference
 
 ### `@critical_api()`
+
 - **Use for**: Financial operations, admin functions, data deletion
 - **Security**: Highest security, CSRF protection, audit logging, rate limiting
 - **Examples**: Payment processing, SEPA operations, system administration
@@ -219,6 +232,7 @@ def process_sepa_payment(payment_data):
 ```
 
 ### `@high_security_api()`
+
 - **Use for**: Member data operations, batch operations
 - **Security**: High security, audit logging, input validation
 - **Examples**: Member creation, data modification, batch processing
@@ -232,6 +246,7 @@ def create_member(member_data):
 ```
 
 ### `@standard_api()`
+
 - **Use for**: Reporting, read operations, analytics
 - **Security**: Standard security, basic validation
 - **Examples**: Reports, dashboards, data export
@@ -245,6 +260,7 @@ def get_member_report(filters):
 ```
 
 ### `@utility_api()`
+
 - **Use for**: Health checks, status endpoints, utility functions
 - **Security**: Basic security, minimal overhead
 - **Examples**: System status, health checks, validation utilities
@@ -258,6 +274,7 @@ def check_system_health():
 ```
 
 ### `@public_api()`
+
 - **Use for**: Public information, no authentication required
 - **Security**: Minimal security, no authentication
 - **Examples**: Public data, documentation endpoints
@@ -347,6 +364,7 @@ python scripts/validation/security/api_security_validator.py --verbose --json-ou
 If you have a legitimate reason to exempt a function from security requirements, you can add it to the whitelist:
 
 1. **Edit the detector configuration**:
+
    ```python
    # In scripts/validation/security/insecure_api_detector.py
    WHITELIST_FUNCTIONS = {
@@ -393,6 +411,7 @@ python scripts/validation/security/insecure_api_detector.py --verbose
 ```
 
 This will show:
+
 - Detailed analysis of each function
 - Complete suggested fixes
 - Classification reasoning
@@ -414,7 +433,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: "3.x"
       - name: Run Security Validation
         run: |
           python scripts/validation/security/insecure_api_detector.py
@@ -440,26 +459,31 @@ pipeline {
 ## Best Practices
 
 ### 1. **Security by Default**
+
 - Always add security decorators to new APIs
 - Start with higher security and adjust down if needed
 - Never commit APIs without security decorators
 
 ### 2. **Input Validation**
+
 - Validate all user inputs
 - Use schema validation for complex data
 - Sanitize text inputs to prevent XSS
 
 ### 3. **Error Handling**
+
 - Use `@handle_api_error` decorator
 - Never expose internal errors to users
 - Log errors for debugging
 
 ### 4. **Documentation**
+
 - Document security requirements in function docstrings
 - Explain why specific security levels are chosen
 - Include usage examples
 
 ### 5. **Testing**
+
 - Test APIs with different user roles
 - Verify permission enforcement
 - Test with invalid inputs
@@ -482,18 +506,22 @@ Before committing new API endpoints:
 ## Support and Resources
 
 ### Documentation
+
 - [API Security Framework Reference](./sepa-security-implementation.md)
 - [Security Best Practices](../technical/security-best-practices.md)
 - [Testing Security APIs](../testing/security-testing-guide.md)
 
 ### Getting Help
+
 - Check existing secure APIs for examples
 - Review security framework documentation
 - Ask the development team for guidance
 - Use verbose mode for detailed analysis
 
 ### Reporting Security Issues
+
 If you discover a security vulnerability:
+
 1. **Do not commit the code**
 2. Report to the security team immediately
 3. Include detailed description and potential impact

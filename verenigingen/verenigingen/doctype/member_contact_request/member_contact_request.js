@@ -42,66 +42,104 @@ frappe.ui.form.on('Member Contact Request', {
 	refresh(frm) {
 		// Set status indicator
 		if (frm.doc.status) {
-			frm.set_indicator_label(frm.doc.status,
-				frm.doc.status === 'Open' ? 'orange'
-					: frm.doc.status === 'In Progress' ? 'blue'
-						: frm.doc.status === 'Waiting for Response' ? 'yellow'
-							: frm.doc.status === 'Resolved' ? 'green' : 'gray');
+			frm.set_indicator_label(
+				frm.doc.status,
+				frm.doc.status === 'Open'
+					? 'orange'
+					: frm.doc.status === 'In Progress'
+						? 'blue'
+						: frm.doc.status === 'Waiting for Response'
+							? 'yellow'
+							: frm.doc.status === 'Resolved'
+								? 'green'
+								: 'gray'
+			);
 		}
 
 		// Add custom buttons
 		if (!frm.is_new()) {
 			// View member button
 			if (frm.doc.member) {
-				frm.add_custom_button(__('View Member'), () => {
-					frappe.set_route('Form', 'Member', frm.doc.member);
-				}, __('Actions'));
+				frm.add_custom_button(
+					__('View Member'),
+					() => {
+						frappe.set_route('Form', 'Member', frm.doc.member);
+					},
+					__('Actions')
+				);
 			}
 
 			// View CRM Lead button
 			if (frm.doc.crm_lead) {
-				frm.add_custom_button(__('View CRM Lead'), () => {
-					frappe.set_route('Form', 'Lead', frm.doc.crm_lead);
-				}, __('Actions'));
+				frm.add_custom_button(
+					__('View CRM Lead'),
+					() => {
+						frappe.set_route('Form', 'Lead', frm.doc.crm_lead);
+					},
+					__('Actions')
+				);
 			}
 
 			// Create Opportunity button (if lead exists and status is in progress)
-			if (frm.doc.crm_lead && frm.doc.status === 'In Progress' && !frm.doc.crm_opportunity) {
-				frm.add_custom_button(__('Create Opportunity'), () => {
-					create_opportunity_from_lead(frm);
-				}, __('CRM'));
+			if (
+				frm.doc.crm_lead
+        && frm.doc.status === 'In Progress'
+        && !frm.doc.crm_opportunity
+			) {
+				frm.add_custom_button(
+					__('Create Opportunity'),
+					() => {
+						create_opportunity_from_lead(frm);
+					},
+					__('CRM')
+				);
 			}
 
 			// Quick status update buttons
 			if (frm.doc.status === 'Open') {
-				frm.add_custom_button(__('Start Working'), () => {
-					frm.set_value('status', 'In Progress');
-					frm.save();
-				}, __('Status'));
+				frm.add_custom_button(
+					__('Start Working'),
+					() => {
+						frm.set_value('status', 'In Progress');
+						frm.save();
+					},
+					__('Status')
+				);
 			}
 
 			if (frm.doc.status === 'In Progress') {
-				frm.add_custom_button(__('Mark Resolved'), () => {
-					frm.set_value('status', 'Resolved');
-					if (!frm.doc.resolution) {
-						frappe.prompt({
-							label: 'Resolution',
-							fieldname: 'resolution',
-							fieldtype: 'Small Text',
-							reqd: 1
-						}, (values) => {
-							frm.set_value('resolution', values.resolution);
+				frm.add_custom_button(
+					__('Mark Resolved'),
+					() => {
+						frm.set_value('status', 'Resolved');
+						if (!frm.doc.resolution) {
+							frappe.prompt(
+								{
+									label: 'Resolution',
+									fieldname: 'resolution',
+									fieldtype: 'Small Text',
+									reqd: 1
+								},
+								(values) => {
+									frm.set_value('resolution', values.resolution);
+									frm.save();
+								},
+								__('Provide Resolution')
+							);
+						} else {
 							frm.save();
-						}, __('Provide Resolution'));
-					} else {
-						frm.save();
-					}
-				}, __('Status'));
+						}
+					},
+					__('Status')
+				);
 			}
 		}
 
 		// Hide CRM fields for portal users
-		if (frappe.user_roles.includes('Member') && !frappe.user_roles.includes('System Manager')) {
+		if (
+			frappe.user_roles.includes('Member')
+      && !frappe.user_roles.includes('System Manager')
+		) {
 			frm.set_df_property('crm_integration_section', 'hidden', 1);
 			frm.set_df_property('notes', 'hidden', 1);
 			frm.set_df_property('assigned_to', 'hidden', 1);
@@ -112,13 +150,12 @@ frappe.ui.form.on('Member Contact Request', {
 	member(frm) {
 		// Auto-populate member details when member is selected
 		if (frm.doc.member) {
-			frappe.db.get_doc('Member', frm.doc.member)
-				.then(member => {
-					frm.set_value('member_name', member.member_name);
-					frm.set_value('email', member.email_address);
-					frm.set_value('phone', member.phone_number);
-					frm.set_value('organization', member.organization);
-				});
+			frappe.db.get_doc('Member', frm.doc.member).then((member) => {
+				frm.set_value('member_name', member.member_name);
+				frm.set_value('email', member.email_address);
+				frm.set_value('phone', member.phone_number);
+				frm.set_value('organization', member.organization);
+			});
 		}
 	},
 
@@ -135,9 +172,20 @@ frappe.ui.form.on('Member Contact Request', {
 		// Set follow-up date based on urgency
 		if (frm.doc.urgency && !frm.doc.follow_up_date) {
 			let days = 7; // Default
-			if (frm.doc.urgency === 'Urgent') { days = 1; } else if (frm.doc.urgency === 'High') { days = 2; } else if (frm.doc.urgency === 'Normal') { days = 5; } else if (frm.doc.urgency === 'Low') { days = 10; }
+			if (frm.doc.urgency === 'Urgent') {
+				days = 1;
+			} else if (frm.doc.urgency === 'High') {
+				days = 2;
+			} else if (frm.doc.urgency === 'Normal') {
+				days = 5;
+			} else if (frm.doc.urgency === 'Low') {
+				days = 10;
+			}
 
-			frm.set_value('follow_up_date', frappe.datetime.add_days(frappe.datetime.now_date(), days));
+			frm.set_value(
+				'follow_up_date',
+				frappe.datetime.add_days(frappe.datetime.now_date(), days)
+			);
 		}
 	},
 
@@ -147,7 +195,10 @@ frappe.ui.form.on('Member Contact Request', {
 			frm.set_value('response_date', frappe.datetime.now_date());
 		}
 
-		if ((frm.doc.status === 'Resolved' || frm.doc.status === 'Closed') && !frm.doc.closed_date) {
+		if (
+			(frm.doc.status === 'Resolved' || frm.doc.status === 'Closed')
+      && !frm.doc.closed_date
+		) {
 			frm.set_value('closed_date', frappe.datetime.now_date());
 		}
 	}

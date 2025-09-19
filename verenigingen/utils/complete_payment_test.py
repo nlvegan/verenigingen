@@ -1,6 +1,7 @@
 """
 Complete payment test: simulate payment completion and reconciliation
 """
+
 import json
 from unittest.mock import MagicMock, patch
 

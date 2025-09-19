@@ -73,7 +73,9 @@ function assign_chapter_for_member(frm) {
 				fieldname: 'note',
 				fieldtype: 'Small Text',
 				label: __('Assignment Note (Optional)'),
-				description: __('Optional note explaining the reason for this assignment')
+				description: __(
+					'Optional note explaining the reason for this assignment'
+				)
 			}
 		],
 		primary_action_label: __('Assign to Chapter'),
@@ -92,7 +94,8 @@ function assign_chapter_for_member(frm) {
 
 function assign_chapter_to_member(frm, chapter_name, note) {
 	frappe.call({
-		method: 'verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter_with_cleanup',
+		method:
+      'verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter_with_cleanup',
 		args: {
 			member: frm.doc.name,
 			chapter: chapter_name,
@@ -102,17 +105,25 @@ function assign_chapter_to_member(frm, chapter_name, note) {
 			if (r.message && r.message.success) {
 				// Refresh the form to get the updated values
 				frm.reload_doc();
-				frappe.show_alert({
-					message: __('Chapter assigned successfully'),
-					indicator: 'green'
-				}, 5);
+				frappe.show_alert(
+					{
+						message: __('Chapter assigned successfully'),
+						indicator: 'green'
+					},
+					5
+				);
 
 				// Show additional info if previous memberships were cleaned up
 				if (r.message.cleanup_performed) {
-					frappe.show_alert({
-						message: __('Previous chapter memberships and board roles have been ended'),
-						indicator: 'blue'
-					}, 7);
+					frappe.show_alert(
+						{
+							message: __(
+								'Previous chapter memberships and board roles have been ended'
+							),
+							indicator: 'blue'
+						},
+						7
+					);
 				}
 			} else {
 				frappe.msgprint({

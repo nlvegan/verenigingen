@@ -1,7 +1,9 @@
 # Testing Standards for Verenigingen
-*Mandatory Patterns for Real Integration Testing*
+
+_Mandatory Patterns for Real Integration Testing_
 
 ## **Executive Summary**
+
 These standards establish mandatory testing patterns to eliminate mock abuse and ensure genuine quality assurance. All new tests MUST follow these patterns. Existing tests should be migrated according to the Testing Reformation Plan.
 
 ---
@@ -9,18 +11,21 @@ These standards establish mandatory testing patterns to eliminate mock abuse and
 ## **Core Principles**
 
 ### **1. Real Business Logic Validation**
+
 - Test actual business rules, not mocked approximations
 - Use real database operations with proper transaction isolation
 - Validate actual field references and schema constraints
 - Test permission boundaries without bypasses
 
 ### **2. Strategic Mocking Only**
+
 - Mock ONLY external services (email, SMS, external APIs)
 - NEVER mock Frappe database operations (`frappe.db.*`)
 - NEVER mock core business logic or validation functions
 - Document every mock with explicit justification
 
 ### **3. Enhanced Test Factory Mandatory**
+
 - All new tests MUST use `EnhancedTestCase` base class
 - Use Enhanced Test Factory for realistic test data generation
 - Leverage built-in field validation and business rule enforcement
@@ -32,6 +37,7 @@ These standards establish mandatory testing patterns to eliminate mock abuse and
 ## **Mandatory Test Patterns**
 
 ### **Integration Test Pattern**
+
 ```python
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from unittest.mock import patch
@@ -74,6 +80,7 @@ class TestMyWorkflowIntegration(EnhancedTestCase):
 ```
 
 ### **❌ PROHIBITED Patterns**
+
 ```python
 # ❌ NEVER mock database operations
 with patch('frappe.db.get_value') as mock_db:
@@ -96,6 +103,7 @@ member.save()
 ## **Test Categories and Requirements**
 
 ### **1. Unit Tests**
+
 - **Scope**: Individual functions and methods
 - **Mocking**: Allowed for dependencies and external calls
 - **Requirements**: Fast execution (<1 second), isolated, deterministic
@@ -116,6 +124,7 @@ def test_iban_validation_unit():
 ```
 
 ### **2. Integration Tests**
+
 - **Scope**: Complete workflows and API endpoints
 - **Mocking**: Only external services (email, SMS, external APIs)
 - **Requirements**: Real database operations, transaction isolation
@@ -128,6 +137,7 @@ def test_membership_approval_integration():
 ```
 
 ### **3. API Security Tests**
+
 - **Scope**: Authentication, authorization, permission validation
 - **Mocking**: PROHIBITED - must test real permission boundaries
 - **Requirements**: Real user contexts, actual role validation
@@ -151,6 +161,7 @@ def test_api_security_real_permissions():
 ## **Enhanced Test Factory Usage**
 
 ### **Mandatory Base Class**
+
 ```python
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
@@ -159,6 +170,7 @@ class TestMyFeature(EnhancedTestCase):
 ```
 
 ### **Required Factory Methods**
+
 - `self.create_test_member()` - Creates realistic member with business rule validation
 - `self.create_test_chapter()` - Creates valid chapter with proper postal codes
 - `self.create_test_membership_type()` - Creates membership type with valid amounts
@@ -166,6 +178,7 @@ class TestMyFeature(EnhancedTestCase):
 - `self.create_test_volunteer()` - Creates volunteer with age validation
 
 ### **Transaction Isolation**
+
 ```python
 def setUp(self):
     """Enhanced Test Factory provides automatic transaction isolation"""
@@ -184,6 +197,7 @@ def tearDown(self):
 ## **Field Reference Validation**
 
 ### **Mandatory Field Validation**
+
 All field references MUST be validated against actual DocType schemas:
 
 ```python
@@ -199,6 +213,7 @@ member.non_existent_field = "value"  # Will cause runtime error
 ```
 
 ### **Pre-Commit Field Validation**
+
 - Pre-commit hooks validate all field references
 - Tests with invalid field references will be blocked
 - Use `scripts/validation/field_reference_validator.py`
@@ -208,12 +223,14 @@ member.non_existent_field = "value"  # Will cause runtime error
 ## **Performance Requirements**
 
 ### **Test Execution Time Limits**
+
 - **Unit Tests**: <1 second per test
 - **Integration Tests**: <30 seconds per test
 - **Full Critical Workflow Suite**: <5 minutes
 - **Complete Test Suite**: <15 minutes
 
 ### **Database Operation Guidelines**
+
 - Use transaction isolation for cleanup (automatic in EnhancedTestCase)
 - Minimize database queries through efficient test data setup
 - Reuse test data within test classes where possible
@@ -224,6 +241,7 @@ member.non_existent_field = "value"  # Will cause runtime error
 ## **Documentation Requirements**
 
 ### **Test Documentation Standards**
+
 ```python
 class TestMembershipWorkflow(EnhancedTestCase):
     """
@@ -249,6 +267,7 @@ class TestMembershipWorkflow(EnhancedTestCase):
 ```
 
 ### **Mock Justification Required**
+
 Every mock MUST include justification comment:
 
 ```python
@@ -267,18 +286,21 @@ with patch('validate_member_age'):  # No justification provided
 ## **Enforcement and Compliance**
 
 ### **Pre-Commit Validation**
+
 - Block new database operation mocks
 - Require justification for all mocks
 - Validate field references against DocType schemas
 - Enforce Enhanced Test Factory usage
 
 ### **Code Review Requirements**
+
 - All tests must pass Enhanced Test Factory validation
 - Mock usage must be justified and minimal
 - Integration tests must demonstrate real business logic validation
 - Performance requirements must be met
 
 ### **Migration Timeline**
+
 - **New Tests**: Must follow these standards immediately
 - **Existing Tests**: Migrate according to Testing Reformation Plan
 - **Legacy Patterns**: Will be deprecated and eventually removed
@@ -288,11 +310,13 @@ with patch('validate_member_age'):  # No justification provided
 ## **Examples and Templates**
 
 ### **Complete Integration Test Template**
+
 See `/verenigingen/tests/integration/test_membership_approval_real.py` for complete example.
 
 ### **Real vs Mocked Comparison**
 
 #### ❌ Old Mock-Heavy Pattern (PROHIBITED)
+
 ```python
 @patch('frappe.db.get_value')
 @patch('frappe.sendmail')
@@ -307,6 +331,7 @@ def test_approval_mocked(self, mock_rules, mock_email, mock_db):
 ```
 
 #### ✅ New Integration Pattern (REQUIRED)
+
 ```python
 def test_approval_real(self):
     """Real integration test validating actual business logic"""
@@ -328,11 +353,13 @@ def test_approval_real(self):
 ## **Support and Training**
 
 ### **Getting Help**
+
 - Consult existing integration test examples in `/tests/integration/`
 - Review Enhanced Test Factory documentation
 - Ask questions in development team meetings
 
 ### **Migration Support**
+
 - Use migration helpers in Enhanced Test Factory
 - Gradual migration timeline in Testing Reformation Plan
 - Performance monitoring during transition

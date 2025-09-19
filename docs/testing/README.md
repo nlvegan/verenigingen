@@ -40,18 +40,23 @@ This directory contains comprehensive documentation for the Verenigingen testing
 ## 🎯 Which Document Should I Read?
 
 ### I'm New to the Project
+
 Start with the **[Quick Reference Guide](quick-reference-controller-testing.md)** to get up and running quickly.
 
 ### I Need to Write a Controller Test
+
 Use the **[Quick Reference Guide](quick-reference-controller-testing.md)** templates and examples.
 
 ### I Need to Understand the Architecture
+
 Read the **[JavaScript Controller Testing Architecture](javascript-controller-testing-architecture.md)** for complete technical details.
 
 ### I'm Troubleshooting Issues
+
 Check the troubleshooting sections in both guides, then use the **[Debug Utilities](../../tests/utils/)**.
 
 ### I'm Maintaining/Extending the Infrastructure
+
 Study the **[Architecture Documentation](javascript-controller-testing-architecture.md)** and examine the **[Test Infrastructure](../../tests/setup/)** source code.
 
 ## 🏗️ Architecture Overview
@@ -110,36 +115,40 @@ Our controller testing approach balances:
 
 ## 📈 Metrics
 
-| Metric | Value |
-|--------|--------|
-| **Total Test Coverage** | 166 tests (138 controller + 28 API contract) |
-| **Pass Rate** | 100% across all test suites |
-| **Security Rating** | 9/10 (VM sandboxed, no vulnerabilities) |
-| **Performance** | <100ms per test (controller), <50ms per validation |
-| **Code Quality** | 8.5/10 (API contracts), enterprise-grade |
-| **Code Reduction** | ~60% through centralized infrastructure |
-| **API Contract Coverage** | 6 critical methods validated |
+| Metric                    | Value                                              |
+| ------------------------- | -------------------------------------------------- |
+| **Total Test Coverage**   | 166 tests (138 controller + 28 API contract)       |
+| **Pass Rate**             | 100% across all test suites                        |
+| **Security Rating**       | 9/10 (VM sandboxed, no vulnerabilities)            |
+| **Performance**           | <100ms per test (controller), <50ms per validation |
+| **Code Quality**          | 8.5/10 (API contracts), enterprise-grade           |
+| **Code Reduction**        | ~60% through centralized infrastructure            |
+| **API Contract Coverage** | 6 critical methods validated                       |
 
 ## 🛣️ Future Roadmap
 
 ### Recently Completed ✅
+
 - **API Contract Testing**: JavaScript-to-Python integration validation (8.5/10 quality)
 - **Double Code Review**: Comprehensive quality assurance process
 - **Production Approval**: Ready for immediate deployment with full test coverage
 
 ### Short Term (Next 1-3 months)
+
 - **Expand API Coverage**: Add schemas for financial and SEPA APIs (target: 20+ methods)
 - **Performance Optimization**: Implement validator caching for faster execution
 - **CI/CD Integration**: Add contract validation to deployment pipeline
 - **Team Training**: Conduct workshops on API contract testing usage
 
 ### Medium Term (3-6 months)
+
 - **Auto-Schema Generation**: Extract schemas from Python docstrings
 - **Advanced Mock Server**: Full MSW integration for HTTP contract testing
 - **VS Code Extension**: Real-time contract validation in IDE
 - **Cypress Integration**: End-to-end contract validation
 
 ### Long Term (6+ months)
+
 - **Framework-Agnostic**: Support other Python web frameworks
 - **AI-Assisted Generation**: Intelligent test and schema generation
 - **Contract Versioning**: API evolution management
@@ -164,7 +173,7 @@ When contributing to the testing infrastructure:
 
 ---
 
-*This testing infrastructure represents a significant investment in code quality and developer productivity. Please help maintain these standards by following the documented patterns and contributing improvements.*
+_This testing infrastructure represents a significant investment in code quality and developer productivity. Please help maintain these standards by following the documented patterns and contributing improvements._
 
 **Last Updated**: January 2025
 **Maintained by**: Verenigingen Development Team

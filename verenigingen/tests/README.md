@@ -8,7 +8,7 @@ This document describes the reorganized test structure for the Verenigingen app.
 verenigingen/tests/
 ├── frontend/                    # JavaScript/Frontend tests
 │   ├── unit/                   # Frontend unit tests
-│   ├── integration/            # Frontend integration tests  
+│   ├── integration/            # Frontend integration tests
 │   └── components/             # Component-specific tests
 ├── backend/                    # Python backend tests
 │   ├── unit/                   # Backend unit tests
@@ -33,6 +33,7 @@ verenigingen/tests/
 ## 🚀 Running Tests
 
 ### Quick Start
+
 ```bash
 # Run all tests
 python verenigingen/tests/run_all_tests.py --all
@@ -48,6 +49,7 @@ python verenigingen/tests/run_all_tests.py --category backend --subcategory unit
 ```
 
 ### Frappe Testing Commands
+
 ```bash
 # Run via Frappe framework
 cd /home/frappe/frappe-bench
@@ -60,6 +62,7 @@ bench --site dev.veganisme.net run-tests --app verenigingen --module vereniginge
 ## 📂 Test Categories
 
 ### Frontend Tests (`frontend/`)
+
 - **Unit Tests**: Individual component/function testing
 - **Integration Tests**: Cross-component integration
 - **Components**: Specific UI component tests
@@ -69,11 +72,13 @@ bench --site dev.veganisme.net run-tests --app verenigingen --module vereniginge
 ### Backend Tests (`backend/`)
 
 #### Core Categories:
+
 - **Unit Tests**: Individual function/method testing
 - **Integration Tests**: Cross-system integration testing
 - **Workflows**: Business process and workflow testing
 
 #### Specialized Categories:
+
 - **Components**: Feature-specific tests (members, payments, volunteers, etc.)
 - **Business Logic**: Core business rule testing
 - **Validation**: Data validation and constraint testing
@@ -84,6 +89,7 @@ bench --site dev.veganisme.net run-tests --app verenigingen --module vereniginge
 - **Features**: Complete feature testing (applications, ANBI, etc.)
 
 ### Support Directories:
+
 - **Fixtures**: Test data, personas, and mock objects
 - **Utils**: Test utilities, base classes, and helpers
 - **Docs**: Test documentation and summaries
@@ -91,11 +97,13 @@ bench --site dev.veganisme.net run-tests --app verenigingen --module vereniginge
 ## 🔧 Test Organization Principles
 
 ### File Naming Convention:
+
 - Python tests: `test_*.py`
 - JavaScript tests: `*.test.js` or `*.spec.js`
 - Specific naming: `test_[component]_[feature].py`
 
 ### Import Structure:
+
 ```python
 # Standard test imports
 import unittest
@@ -108,6 +116,7 @@ from verenigingen.tests.backend.components.test_member_lifecycle import MemberTe
 ```
 
 ### Test Dependencies:
+
 - All test utilities are in `utils/`
 - All test data is in `fixtures/`
 - Base test classes extend from `utils/base.py`
@@ -115,6 +124,7 @@ from verenigingen.tests.backend.components.test_member_lifecycle import MemberTe
 ## 📋 Migration Notes
 
 ### Changes Made:
+
 1. **Consolidated Structure**: Merged `/tests` and `/verenigingen/tests` directories
 2. **Logical Organization**: Grouped tests by functionality and type
 3. **Improved Naming**: Renamed vague test files for clarity
@@ -122,6 +132,7 @@ from verenigingen.tests.backend.components.test_member_lifecycle import MemberTe
 5. **Comprehensive Runner**: New test runner supports all categories
 
 ### File Movements:
+
 - App-level JavaScript tests → `frontend/`
 - Python backend tests → `backend/[category]/`
 - Test utilities → `utils/`
@@ -129,6 +140,7 @@ from verenigingen.tests.backend.components.test_member_lifecycle import MemberTe
 - Documentation → `docs/`
 
 ### Removed Duplicates:
+
 - Merged overlapping IBAN validation tests
 - Consolidated JavaScript integration tests
 - Removed redundant test fixtures
@@ -136,12 +148,14 @@ from verenigingen.tests.backend.components.test_member_lifecycle import MemberTe
 ## 🛠️ Development Guidelines
 
 ### Adding New Tests:
+
 1. Choose appropriate category in `backend/` or `frontend/`
 2. Follow naming conventions
 3. Use base classes from `utils/`
 4. Add test data to `fixtures/` if needed
 
 ### Test Categories Decision Tree:
+
 - **Frontend component?** → `frontend/`
 - **API endpoint?** → `backend/unit/api/`
 - **Business workflow?** → `backend/workflows/`
@@ -151,6 +165,7 @@ from verenigingen.tests.backend.components.test_member_lifecycle import MemberTe
 - **Full feature test?** → `backend/features/`
 
 ### Best Practices:
+
 - Write clear test docstrings
 - Use descriptive test method names
 - Leverage existing test utilities
@@ -160,6 +175,7 @@ from verenigingen.tests.backend.components.test_member_lifecycle import MemberTe
 ## 🔍 Legacy Compatibility
 
 The reorganization maintains compatibility with existing Frappe test commands:
+
 ```bash
 # These still work
 bench --site dev.veganisme.net run-tests --app verenigingen
@@ -171,9 +187,10 @@ However, some import paths in custom scripts may need updating to reflect the ne
 ## 📊 Test Statistics
 
 **Total Test Files**: 100+ organized test files
-**Coverage Areas**: 
+**Coverage Areas**:
+
 - Member management
-- Payment processing  
+- Payment processing
 - Volunteer workflows
 - SEPA integration
 - Financial reporting
@@ -182,8 +199,9 @@ However, some import paths in custom scripts may need updating to reflect the ne
 - Data migration
 
 **Test Types**:
+
 - Unit Tests: 40+ files
-- Integration Tests: 20+ files  
+- Integration Tests: 20+ files
 - Workflow Tests: 15+ files
 - Component Tests: 25+ files
 - Validation Tests: 10+ files

@@ -19,7 +19,10 @@
 
 /* global describe, it, expect, jest, beforeEach, afterEach */
 
-const { setupTestMocks, cleanupTestMocks } = require('../../setup/frappe-mocks');
+const {
+	setupTestMocks,
+	cleanupTestMocks
+} = require('../../setup/frappe-mocks');
 
 // Initialize test environment
 setupTestMocks();
@@ -135,14 +138,20 @@ class MockFailingResource {
 			case 'rate_limit':
 				throw MockMollieErrors.createRateLimitError();
 			case 'validation':
-				throw MockMollieErrors.createValidationError('amount', 'Invalid amount format');
+				throw MockMollieErrors.createValidationError(
+					'amount',
+					'Invalid amount format'
+				);
 			case 'network':
 				throw MockMollieErrors.createNetworkError();
 			case 'timeout':
 				throw MockMollieErrors.createTimeoutError();
 			case 'api':
 			default:
-				throw MockMollieErrors.createApiError('api_error', 'Generic API error occurred');
+				throw MockMollieErrors.createApiError(
+					'api_error',
+					'Generic API error occurred'
+				);
 		}
 	}
 }
@@ -170,7 +179,7 @@ class ErrorRecoverySimulator {
 				// Simulate backoff delay (shortened for testing)
 				if (attempt > 0) {
 					const delay = Math.min(this.backoffIntervals[attempt - 1] / 100, 50); // Speed up for tests
-					await new Promise(resolve => setTimeout(resolve, delay));
+					await new Promise((resolve) => setTimeout(resolve, delay));
 				}
 
 				return await operation();
@@ -192,15 +201,22 @@ class ErrorRecoverySimulator {
 
 	isNonRetryableError(error) {
 		// Don't retry authentication, validation, or client errors
-		return error.status && (error.status === 401 || error.status === 403 || error.status === 422);
+		return (
+			error.status
+      && (error.status === 401 || error.status === 403 || error.status === 422)
+		);
 	}
 
 	getRetryStats() {
 		return {
 			totalAttempts: this.retryAttempts.length,
 			attempts: this.retryAttempts,
-			averageInterval: this.retryAttempts.length > 1
-				? (this.retryAttempts[this.retryAttempts.length - 1].timestamp - this.retryAttempts[0].timestamp) / (this.retryAttempts.length - 1) : 0
+			averageInterval:
+        this.retryAttempts.length > 1
+        	? (this.retryAttempts[this.retryAttempts.length - 1].timestamp
+              - this.retryAttempts[0].timestamp)
+            / (this.retryAttempts.length - 1)
+        	: 0
 		};
 	}
 }
@@ -316,7 +332,9 @@ describe('Mollie Error Scenario Tests', () => {
 		});
 
 		it('should not retry authentication errors', async () => {
-			const operation = jest.fn().mockRejectedValue(MockMollieErrors.createAuthenticationError());
+			const operation = jest
+				.fn()
+				.mockRejectedValue(MockMollieErrors.createAuthenticationError());
 
 			try {
 				await errorRecovery.simulateRetryWithBackoff(operation);
@@ -366,7 +384,9 @@ describe('Mollie Error Scenario Tests', () => {
 
 		it('should implement circuit breaker for sustained rate limiting', async () => {
 			// Simulate multiple rate limit errors
-			const operation = jest.fn().mockRejectedValue(MockMollieErrors.createRateLimitError());
+			const operation = jest
+				.fn()
+				.mockRejectedValue(MockMollieErrors.createRateLimitError());
 
 			// Fill up the circuit breaker
 			for (let i = 0; i < 5; i++) {
@@ -431,7 +451,9 @@ describe('Mollie Error Scenario Tests', () => {
 		it('should provide fallback mechanisms for connectivity issues', () => {
 			const connectivityChecker = {
 				isOnline: jest.fn().mockReturnValue(false),
-				getLastSuccessfulConnection: jest.fn().mockReturnValue(Date.now() - 60000),
+				getLastSuccessfulConnection: jest
+					.fn()
+					.mockReturnValue(Date.now() - 60000),
 				enableOfflineMode: jest.fn()
 			};
 
@@ -443,7 +465,10 @@ describe('Mollie Error Scenario Tests', () => {
 
 				// In real implementation, would queue requests for later processing
 				const offlineQueue = [];
-				offlineQueue.push({ operation: 'create_payment', data: { amount: '25.00' } });
+				offlineQueue.push({
+					operation: 'create_payment',
+					data: { amount: '25.00' }
+				});
 
 				expect(offlineQueue).toHaveLength(1);
 			}
@@ -461,7 +486,7 @@ describe('Mollie Error Scenario Tests', () => {
 				undefined // Undefined value
 			];
 
-			invalidAmounts.forEach(amount => {
+			invalidAmounts.forEach((amount) => {
 				const validationError = MockMollieErrors.createValidationError(
 					'amount',
 					`Invalid amount: ${amount}`
@@ -483,16 +508,22 @@ describe('Mollie Error Scenario Tests', () => {
 			];
 
 			const dutchIbanValidator = (iban) => {
-				if (!iban || typeof iban !== 'string') { return false; }
+				if (!iban || typeof iban !== 'string') {
+					return false;
+				}
 				// Strict validation - no spaces allowed, must be exactly right format
-				if (!iban.match(/^NL\d{2}[A-Z]{4}\d{10}$/)) { return false; }
+				if (!iban.match(/^NL\d{2}[A-Z]{4}\d{10}$/)) {
+					return false;
+				}
 				// Additional check for checksum not being 00
-				if (iban.substring(2, 4) === '00') { return false; }
+				if (iban.substring(2, 4) === '00') {
+					return false;
+				}
 
 				return iban.length === 18 && iban.startsWith('NL');
 			};
 
-			invalidIbans.forEach(iban => {
+			invalidIbans.forEach((iban) => {
 				expect(dutchIbanValidator(iban)).toBe(false);
 			});
 
@@ -512,11 +543,13 @@ describe('Mollie Error Scenario Tests', () => {
 			];
 
 			const dutchPostalValidator = (postalCode) => {
-				if (!postalCode || typeof postalCode !== 'string') { return false; }
+				if (!postalCode || typeof postalCode !== 'string') {
+					return false;
+				}
 				return /^[1-9]\d{3}\s[A-Z]{2}$/.test(postalCode);
 			};
 
-			invalidPostalCodes.forEach(postal => {
+			invalidPostalCodes.forEach((postal) => {
 				expect(dutchPostalValidator(postal)).toBe(false);
 			});
 
@@ -540,16 +573,26 @@ describe('Mollie Error Scenario Tests', () => {
 
 			const webhookValidator = (payload) => {
 				try {
-					if (!payload || typeof payload !== 'object') { return false; }
-					if (!payload.resource || !payload.id) { return false; }
-					if (!['payment', 'subscription', 'chargeback', 'mandate'].includes(payload.resource)) { return false; }
+					if (!payload || typeof payload !== 'object') {
+						return false;
+					}
+					if (!payload.resource || !payload.id) {
+						return false;
+					}
+					if (
+						!['payment', 'subscription', 'chargeback', 'mandate'].includes(
+							payload.resource
+						)
+					) {
+						return false;
+					}
 					return true;
 				} catch (error) {
 					return false;
 				}
 			};
 
-			malformedPayloads.forEach(payload => {
+			malformedPayloads.forEach((payload) => {
 				expect(webhookValidator(payload)).toBe(false);
 			});
 
@@ -580,8 +623,12 @@ describe('Mollie Error Scenario Tests', () => {
 				return signature === expectedSignature;
 			};
 
-			expect(verifySignature(payloadString, validSignature, webhookSecret)).toBe(true);
-			expect(verifySignature(payloadString, invalidSignature, webhookSecret)).toBe(false);
+			expect(
+				verifySignature(payloadString, validSignature, webhookSecret)
+			).toBe(true);
+			expect(
+				verifySignature(payloadString, invalidSignature, webhookSecret)
+			).toBe(false);
 		});
 
 		it('should handle duplicate webhook deliveries', () => {
@@ -593,7 +640,10 @@ describe('Mollie Error Scenario Tests', () => {
 				}
 
 				processedWebhooks.add(webhookId);
-				return { status: 'processed', message: 'Webhook processed successfully' };
+				return {
+					status: 'processed',
+					message: 'Webhook processed successfully'
+				};
 			};
 
 			const webhookId = 'tr_test_12345';
@@ -619,15 +669,34 @@ describe('Mollie Error Scenario Tests', () => {
 			];
 
 			const paymentDataValidator = (data) => {
-				if (!data || typeof data !== 'object') { return false; }
-				if (!data.id || typeof data.id !== 'string') { return false; }
-				if (!data.amount || !data.amount.value || !data.amount.currency) { return false; }
-				if (isNaN(parseFloat(data.amount.value))) { return false; }
-				if (!['open', 'canceled', 'pending', 'expired', 'failed', 'paid'].includes(data.status)) { return false; }
+				if (!data || typeof data !== 'object') {
+					return false;
+				}
+				if (!data.id || typeof data.id !== 'string') {
+					return false;
+				}
+				if (!data.amount || !data.amount.value || !data.amount.currency) {
+					return false;
+				}
+				if (isNaN(parseFloat(data.amount.value))) {
+					return false;
+				}
+				if (
+					![
+						'open',
+						'canceled',
+						'pending',
+						'expired',
+						'failed',
+						'paid'
+					].includes(data.status)
+				) {
+					return false;
+				}
 				return true;
 			};
 
-			corruptedPaymentData.forEach(data => {
+			corruptedPaymentData.forEach((data) => {
 				expect(paymentDataValidator(data)).toBe(false);
 			});
 
@@ -658,9 +727,13 @@ describe('Mollie Error Scenario Tests', () => {
 
 				validate(data, schema) {
 					// Simple validation mock
-					if (!data || typeof data !== 'object') { return false; }
+					if (!data || typeof data !== 'object') {
+						return false;
+					}
 					for (const field of schema.required || []) {
-						if (!(field in data)) { return false; }
+						if (!(field in data)) {
+							return false;
+						}
 					}
 					return true;
 				}
@@ -701,13 +774,16 @@ describe('Mollie Error Scenario Tests', () => {
 					});
 
 					this.metrics.totalErrors++;
-					this.metrics.errorsByType[error.name] = (this.metrics.errorsByType[error.name] || 0) + 1;
-					this.metrics.errorsByEndpoint[context.endpoint] = (this.metrics.errorsByEndpoint[context.endpoint] || 0) + 1;
+					this.metrics.errorsByType[error.name]
+            = (this.metrics.errorsByType[error.name] || 0) + 1;
+					this.metrics.errorsByEndpoint[context.endpoint]
+            = (this.metrics.errorsByEndpoint[context.endpoint] || 0) + 1;
 				},
 
-				getErrorRate(timeWindow = 3600000) { // 1 hour
+				getErrorRate(timeWindow = 3600000) {
+					// 1 hour
 					const cutoff = Date.now() - timeWindow;
-					const recentErrors = this.errors.filter(e => e.timestamp > cutoff);
+					const recentErrors = this.errors.filter((e) => e.timestamp > cutoff);
 					return recentErrors.length;
 				},
 
@@ -755,8 +831,10 @@ describe('Mollie Error Scenario Tests', () => {
 				},
 
 				getTimeRange(errors) {
-					if (errors.length === 0) { return null; }
-					const timestamps = errors.map(e => e.timestamp);
+					if (errors.length === 0) {
+						return null;
+					}
+					const timestamps = errors.map((e) => e.timestamp);
 					return {
 						start: Math.min(...timestamps),
 						end: Math.max(...timestamps)
@@ -780,8 +858,12 @@ describe('Mollie Error Scenario Tests', () => {
 
 				categorizeErrors(errors) {
 					return errors.reduce((categories, error) => {
-						const category = error.status >= 500 ? 'server'
-							: error.status >= 400 ? 'client' : 'network';
+						const category
+              = error.status >= 500
+              	? 'server'
+              	: error.status >= 400
+              		? 'client'
+              		: 'network';
 						categories[category] = (categories[category] || 0) + 1;
 						return categories;
 					}, {});
@@ -790,19 +872,23 @@ describe('Mollie Error Scenario Tests', () => {
 				generateRecommendations(errors) {
 					const recommendations = [];
 
-					const authErrors = errors.filter(e => e.status === 401);
+					const authErrors = errors.filter((e) => e.status === 401);
 					if (authErrors.length > 0) {
 						recommendations.push('Check API key validity and permissions');
 					}
 
-					const rateLimitErrors = errors.filter(e => e.status === 429);
+					const rateLimitErrors = errors.filter((e) => e.status === 429);
 					if (rateLimitErrors.length > 2) {
-						recommendations.push('Implement exponential backoff and rate limiting');
+						recommendations.push(
+							'Implement exponential backoff and rate limiting'
+						);
 					}
 
-					const validationErrors = errors.filter(e => e.status === 422);
+					const validationErrors = errors.filter((e) => e.status === 422);
 					if (validationErrors.length > 0) {
-						recommendations.push('Review data validation logic and input sanitization');
+						recommendations.push(
+							'Review data validation logic and input sanitization'
+						);
 					}
 
 					return recommendations;
@@ -820,7 +906,9 @@ describe('Mollie Error Scenario Tests', () => {
 			expect(report.summary.totalErrors).toBe(3);
 			expect(report.summary.severity).toBeGreaterThan(1);
 			expect(report.breakdown).toHaveProperty('client');
-			expect(report.recommendations).toContain('Check API key validity and permissions');
+			expect(report.recommendations).toContain(
+				'Check API key validity and permissions'
+			);
 		});
 	});
 });

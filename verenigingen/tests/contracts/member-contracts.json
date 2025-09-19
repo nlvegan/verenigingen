@@ -49,7 +49,14 @@
           },
           "membership_type": {
             "type": "string",
-            "enum": ["Regular", "Student", "Senior", "Family", "Corporate", "Honorary"]
+            "enum": [
+              "Regular",
+              "Student",
+              "Senior",
+              "Family",
+              "Corporate",
+              "Honorary"
+            ]
           },
           "chapter": {
             "type": "string",
@@ -172,7 +179,14 @@
           },
           "membership_type": {
             "type": "string",
-            "enum": ["Regular", "Student", "Senior", "Family", "Corporate", "Honorary"]
+            "enum": [
+              "Regular",
+              "Student",
+              "Senior",
+              "Family",
+              "Corporate",
+              "Honorary"
+            ]
           },
           "dues_rate": {
             "type": "number",
@@ -249,7 +263,13 @@
           },
           "payment_method": {
             "type": "string",
-            "enum": ["SEPA Direct Debit", "Mollie", "Bank Transfer", "Cash", "Other"]
+            "enum": [
+              "SEPA Direct Debit",
+              "Mollie",
+              "Bank Transfer",
+              "Cash",
+              "Other"
+            ]
           },
           "payment_date": {
             "type": "string",

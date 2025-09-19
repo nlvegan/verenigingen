@@ -7,12 +7,14 @@ The Membership Dues Coverage Analysis report provides comprehensive tracking of 
 ## Features
 
 ### Core Analysis
+
 - **Coverage Timeline**: Complete timeline of covered vs uncovered periods
 - **Gap Identification**: Automatic detection of coverage gaps with severity classification
 - **Payment Status**: Tracks which coverage periods are paid vs outstanding
 - **Catch-up Calculations**: Determines exactly what invoices need to be generated
 
 ### Gap Severity Classification
+
 - **Minor**: 1-7 days
 - **Moderate**: 8-30 days
 - **Significant**: 31-90 days
@@ -21,22 +23,26 @@ The Membership Dues Coverage Analysis report provides comprehensive tracking of 
 ### Report Columns
 
 #### Member Information
+
 - Member ID and name
 - Membership start date and status
 
 #### Coverage Analysis
+
 - Total active days during analysis period
 - Days covered by invoices
 - Days with coverage gaps
 - Coverage percentage
 
 #### Financial Information
+
 - Outstanding amounts
 - Unpaid coverage days
 - Billing frequency and dues rate
 - Last invoice date and next due date
 
 #### Catch-up Analysis
+
 - Whether catch-up is required
 - Total catch-up amount needed
 - Detailed catch-up periods
@@ -54,6 +60,7 @@ The Membership Dues Coverage Analysis report provides comprehensive tracking of 
 ## Usage
 
 ### Accessing the Report
+
 1. Go to Verenigingen module
 2. Navigate to Reports
 3. Select "Membership Dues Coverage Analysis"
@@ -61,16 +68,19 @@ The Membership Dues Coverage Analysis report provides comprehensive tracking of 
 ### Common Use Cases
 
 #### 1. Monthly Coverage Review
+
 - Set date range to last month
 - Use "Show Only Gaps" filter
 - Review members with coverage issues
 
 #### 2. Critical Gap Investigation
+
 - Set "Gap Severity" to "Critical"
 - Export detailed analysis
 - Generate catch-up invoices
 
 #### 3. Billing System Health Check
+
 - Run without filters for all active members
 - Review coverage percentages
 - Identify systematic billing issues
@@ -78,18 +88,21 @@ The Membership Dues Coverage Analysis report provides comprehensive tracking of 
 ### Action Buttons
 
 #### Generate Catch-up Invoices
+
 - Automatically creates invoices for identified gaps
 - Respects billing frequency settings
 - Links to existing SEPA mandates
 - Provides detailed generation report
 
 #### Export Gap Analysis
+
 - Creates detailed Excel export
 - Includes gap-by-gap breakdown
 - Useful for accounting review
 - Provides audit trail
 
 #### Coverage Timeline
+
 - Visual timeline for selected member
 - Shows coverage periods and gaps
 - Color-coded by payment status
@@ -123,6 +136,7 @@ The Membership Dues Coverage Analysis report provides comprehensive tracking of 
 ## Installation
 
 1. Place report files in correct directory structure:
+
    ```
    verenigingen/verenigingen/report/membership_dues_coverage_analysis/
    ├── __init__.py
@@ -133,6 +147,7 @@ The Membership Dues Coverage Analysis report provides comprehensive tracking of 
    ```
 
 2. Restart Frappe to load the report:
+
    ```bash
    bench restart
    ```
@@ -144,16 +159,19 @@ The Membership Dues Coverage Analysis report provides comprehensive tracking of 
 ### Common Issues
 
 #### No Data Showing
+
 - Verify members have active memberships
 - Check that Sales Invoices have coverage date fields populated
 - Ensure Membership Dues Schedules exist and are active
 
 #### Incorrect Gap Calculations
+
 - Verify invoice coverage dates are accurate
 - Check for overlapping coverage periods
 - Ensure membership periods are correct
 
 #### Catch-up Invoice Generation Fails
+
 - Verify "Membership Dues" item exists
 - Check member has valid customer record
 - Ensure proper permissions for invoice creation
@@ -161,6 +179,7 @@ The Membership Dues Coverage Analysis report provides comprehensive tracking of 
 ### Debug Information
 
 Enable debug logging to troubleshoot issues:
+
 ```python
 frappe.log_error("Debug info", "Dues Coverage Debug")
 ```

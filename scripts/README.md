@@ -19,6 +19,7 @@ This directory contains organized debug, test, validation, setup, and migration 
 ## Usage
 
 ### Debug Scripts
+
 ```bash
 # Debug board member issues
 python scripts/debug/board/debug_board_addition.py
@@ -34,6 +35,7 @@ python scripts/debug/fix_expense_claim_accounts.py
 ```
 
 ### Test Runners
+
 ```bash
 # Run comprehensive regression tests
 python scripts/testing/runners/regression_test_runner.py
@@ -49,6 +51,7 @@ python scripts/testing/runners/test_contact_request_workflow.py
 ```
 
 ### Validation Scripts
+
 ```bash
 # Validate specific features
 python scripts/validation/features/validate_bank_details.py
@@ -60,6 +63,7 @@ python scripts/validation/validation_check.py
 ```
 
 ### Setup Scripts
+
 ```bash
 # Set up member portal home page
 python scripts/setup/setup_member_portal_home.py
@@ -72,6 +76,7 @@ python scripts/setup/setup_policy_expenses.py
 ```
 
 ### Migration Scripts
+
 ```bash
 # Migrate amendment data
 python scripts/migration/migrate_amendment_data.py
@@ -81,6 +86,7 @@ python scripts/migration/fix_team_assignment_history.py
 ```
 
 ### Developer Tools
+
 ```bash
 # Regression helper for Claude Code
 python scripts/tools/claude_regression_helper.py

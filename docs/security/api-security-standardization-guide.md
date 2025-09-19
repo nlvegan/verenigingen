@@ -46,6 +46,7 @@ from verenigingen.utils.security.audit_logging import audit_event
 **Step-by-step conversion process**:
 
 1. **Identify deprecated imports**:
+
    ```bash
    grep -r "from verenigingen.utils.security.authorization" verenigingen/api/
    grep -r "from verenigingen.utils.security.csrf_protection" verenigingen/api/
@@ -53,6 +54,7 @@ from verenigingen.utils.security.audit_logging import audit_event
    ```
 
 2. **Replace with standardized imports**:
+
    ```python
    # Before
    from verenigingen.utils.security.authorization import high_security_api
@@ -84,6 +86,7 @@ def process_payment(**payment_data):
 ```
 
 **Security Profile Applied**:
+
 - Rate limit: 10 requests/hour
 - CSRF protection: Required
 - Audit logging: Comprehensive
@@ -103,6 +106,7 @@ def update_member_profile(**profile_data):
 ```
 
 **Security Profile Applied**:
+
 - Rate limit: 50 requests/hour
 - CSRF protection: Required
 - Audit logging: Detailed
@@ -121,6 +125,7 @@ def generate_member_report(filters=None):
 ```
 
 **Security Profile Applied**:
+
 - Rate limit: 200 requests/hour
 - CSRF protection: Not required (read-only)
 - Audit logging: Basic
@@ -139,6 +144,7 @@ def health_check():
 ```
 
 **Security Profile Applied**:
+
 - Rate limit: 500 requests/hour
 - CSRF protection: Not required
 - Audit logging: Minimal
@@ -157,6 +163,7 @@ def get_public_information():
 ```
 
 **Security Profile Applied**:
+
 - Rate limit: 1000 requests/hour
 - CSRF protection: Not required
 - Audit logging: None
@@ -203,6 +210,7 @@ def process_sepa_batch(**batch_data):
 ### 1. Mixed Import Patterns
 
 ❌ **Wrong**:
+
 ```python
 # Mixing old and new imports
 from verenigingen.utils.security.authorization import high_security_api
@@ -210,6 +218,7 @@ from verenigingen.utils.security.api_security_framework import OperationType
 ```
 
 ✅ **Correct**:
+
 ```python
 # Consistent imports from framework
 from verenigingen.utils.security.api_security_framework import (
@@ -220,6 +229,7 @@ from verenigingen.utils.security.api_security_framework import (
 ### 2. Incorrect Decorator Order
 
 ❌ **Wrong**:
+
 ```python
 @performance_monitor()
 @frappe.whitelist()
@@ -229,6 +239,7 @@ def process_payment(**data):
 ```
 
 ✅ **Correct**:
+
 ```python
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
@@ -240,6 +251,7 @@ def process_payment(**data):
 ### 3. Over-Securing Low-Risk Operations
 
 ❌ **Wrong**:
+
 ```python
 @critical_api(operation_type=OperationType.UTILITY)  # Too restrictive
 def get_system_status():
@@ -247,6 +259,7 @@ def get_system_status():
 ```
 
 ✅ **Correct**:
+
 ```python
 @utility_api(operation_type=OperationType.UTILITY)  # Appropriate level
 def get_system_status():
@@ -256,6 +269,7 @@ def get_system_status():
 ### 4. Under-Securing Critical Operations
 
 ❌ **Wrong**:
+
 ```python
 @utility_api(operation_type=OperationType.FINANCIAL)  # Insufficient security
 def process_payment(**data):
@@ -263,6 +277,7 @@ def process_payment(**data):
 ```
 
 ✅ **Correct**:
+
 ```python
 @critical_api(operation_type=OperationType.FINANCIAL)  # Appropriate security
 def process_payment(**data):
@@ -272,6 +287,7 @@ def process_payment(**data):
 ### 5. Missing Operation Type
 
 ❌ **Wrong**:
+
 ```python
 @critical_api()  # Missing operation type
 def process_payment(**data):
@@ -279,6 +295,7 @@ def process_payment(**data):
 ```
 
 ✅ **Correct**:
+
 ```python
 @critical_api(operation_type=OperationType.FINANCIAL)  # Clear operation type
 def process_payment(**data):
@@ -290,6 +307,7 @@ def process_payment(**data):
 ### Example 1: Migrating from Deprecated Pattern
 
 **Before (deprecated)**:
+
 ```python
 from verenigingen.utils.security.authorization import high_security_api
 from verenigingen.utils.security.csrf_protection import csrf_required
@@ -302,6 +320,7 @@ def update_member_data(**data):
 ```
 
 **After (standardized)**:
+
 ```python
 from verenigingen.utils.security.api_security_framework import (
     high_security_api, OperationType
@@ -476,6 +495,7 @@ python scripts/reporting/weekly_security_standardization_report.py
 ### Quick Reference
 
 **Standard Security Levels**:
+
 - `critical_api`: Financial, admin operations (10/hour)
 - `high_security_api`: Member data, sensitive operations (50/hour)
 - `standard_api`: Reporting, standard operations (200/hour)
@@ -483,6 +503,7 @@ python scripts/reporting/weekly_security_standardization_report.py
 - `public_api`: Public information (1000/hour)
 
 **Operation Types**:
+
 - `OperationType.FINANCIAL`: Payment processing, invoicing
 - `OperationType.MEMBER_DATA`: Member information access
 - `OperationType.ADMIN`: System administration
@@ -516,6 +537,7 @@ Following these standardization guidelines ensures:
 The standardization guidelines are designed to eliminate the import conflicts and inconsistent patterns identified in the security review while maintaining the excellent security posture achieved.
 
 **Next Steps**:
+
 1. Apply immediate import conflict fixes (30 minutes)
 2. Standardize existing secured APIs (2 hours)
 3. Implement validation automation (4 hours)

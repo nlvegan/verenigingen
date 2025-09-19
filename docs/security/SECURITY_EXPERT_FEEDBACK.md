@@ -13,6 +13,7 @@ A security review was conducted by the Quality Control Enforcer on our webhook s
 ### 1. RED FLAG: Dangerous Permission Escalation (CRITICAL)
 
 **Location**: Line 639 in `secure_webhook_handler.py`
+
 ```python
 # Set system user context for authenticated webhook processing
 frappe.set_user("Administrator")
@@ -27,6 +28,7 @@ frappe.set_user("Administrator")
 ### 2. SECURITY BYPASS: Test Mode Vulnerabilities (CRITICAL)
 
 **Location**: Lines 40-46 in `webhook_security.py`
+
 ```python
 if settings.test_mode and not signature_header:
     # Enhanced test mode validation - verify webhook is actually from Mollie
@@ -46,6 +48,7 @@ if settings.test_mode and not signature_header:
 ### 3. TRANSACTION MANAGER: Disabled Security Controls
 
 **Issue**: All transaction boundaries are disabled, defeating the entire purpose of the "atomic" transaction manager.
+
 ```python
 # TEMPORARILY DISABLED: Let Frappe manage transactions to avoid implicit commit errors
 # frappe.db.begin()
@@ -62,14 +65,17 @@ if settings.test_mode and not signature_header:
 ## Code Quality Issues
 
 ### 4. WORKAROUND PATTERN: Disabled Transaction Management
+
 The transaction manager is essentially non-functional due to disabled database operations. This is a classic workaround rather than a proper fix.
 
 ### 5. INCOMPLETE ERROR HANDLING
+
 - Rate limiting lacks proper cleanup for memory leaks
 - Permission checks are inconsistent across operations
 - No proper rollback for external API calls (Mollie customer creation)
 
 ### 6. MISSING DEPENDENCY VALIDATION
+
 The code references `Webhook Processing Log` DocType but doesn't verify its existence, potentially causing runtime failures.
 
 ---
@@ -77,6 +83,7 @@ The code references `Webhook Processing Log` DocType but doesn't verify its exis
 ## Business Logic Concerns
 
 ### 7. DOCUMENT TYPE CONFUSION
+
 The webhook handler attempts to support both `Donation` and `Donation Agreement` but the logic is inconsistent:
 
 - Line 254: `document_type = "Donation Agreement" if payment.metadata.get("agreement_id") else "Donation"`
@@ -84,6 +91,7 @@ The webhook handler attempts to support both `Donation` and `Donation Agreement`
 - No validation that required fields exist on the target document
 
 ### 8. CUSTOMER RECORD UPDATE ISSUES NOT RESOLVED
+
 The webhook URL fixes don't address the root cause - the payment processing logic still has race conditions and inconsistent customer linking.
 
 ---
@@ -91,6 +99,7 @@ The webhook URL fixes don't address the root cause - the payment processing logi
 ## Performance and Reliability Issues
 
 ### 9. RATE LIMITING MEMORY LEAKS
+
 ```python
 # Clean old entries (keep last 100)
 if len(self.processed_webhooks) > 100:
@@ -102,7 +111,9 @@ if len(self.processed_webhooks) > 100:
 **Issue**: Memory cleanup logic is flawed - it only removes 50 entries when hitting 100, causing gradual memory growth.
 
 ### 10. N+1 QUERY PATTERNS
+
 Despite claims of optimization, the webhook processing still has database query inefficiencies:
+
 - Multiple individual lookups instead of batch operations
 - Redundant permission checks
 - No query optimization for high-volume webhook processing
@@ -112,42 +123,47 @@ Despite claims of optimization, the webhook processing still has database query 
 ## Architectural Red Flags
 
 ### 11. SECURITY THEATER
+
 The rate limiting and input sanitization provide false security confidence while fundamental authentication bypasses remain.
 
 ### 12. COMPLEX LAYERED BYPASSES
+
 The security implementation has multiple layers of bypasses and fallbacks that create attack surface rather than defense in depth.
 
 ---
 
 ## Production Readiness Assessment
 
-| Component | Status | Details |
-|-----------|--------|---------|
-| **Security Architecture** | FAIL | Critical authentication bypasses and dangerous privilege escalation |
-| **Code Quality** | FAIL | Core functionality disabled through workarounds rather than proper fixes |
-| **Integration Integrity** | FAIL | URL fixes don't address underlying business logic issues |
-| **Error Handling** | FAIL | Missing transaction boundaries mean no atomicity guarantees |
-| **Performance Impact** | WARNING | Rate limiting may impact legitimate traffic and has memory leaks |
-| **Business Logic Correctness** | FAIL | Document type handling inconsistencies will cause processing failures |
-| **Thread Safety** | FAIL | Disabled transaction management eliminates concurrency safety |
+| Component                      | Status  | Details                                                                  |
+| ------------------------------ | ------- | ------------------------------------------------------------------------ |
+| **Security Architecture**      | FAIL    | Critical authentication bypasses and dangerous privilege escalation      |
+| **Code Quality**               | FAIL    | Core functionality disabled through workarounds rather than proper fixes |
+| **Integration Integrity**      | FAIL    | URL fixes don't address underlying business logic issues                 |
+| **Error Handling**             | FAIL    | Missing transaction boundaries mean no atomicity guarantees              |
+| **Performance Impact**         | WARNING | Rate limiting may impact legitimate traffic and has memory leaks         |
+| **Business Logic Correctness** | FAIL    | Document type handling inconsistencies will cause processing failures    |
+| **Thread Safety**              | FAIL    | Disabled transaction management eliminates concurrency safety            |
 
 ---
 
 ## Required Fixes for Production
 
 ### Immediate Security Fixes (Critical Priority)
+
 1. **Remove Administrator escalation** - Create dedicated webhook service user
 2. **Remove test mode bypasses** - Always require proper signature verification
 3. **Fix transaction boundaries** - Resolve implicit commit issues properly
 4. **Implement proper rollback handlers** for external API calls
 
 ### Business Logic Fixes (High Priority)
+
 1. **Standardize document type handling** - Single consistent interface
 2. **Fix customer linking race conditions** - Use proper locking mechanisms
 3. **Validate field existence** before accessing document properties
 4. **Add proper DocType existence validation**
 
 ### Quality Improvements (Medium Priority)
+
 1. **Fix rate limiting memory management**
 2. **Optimize database query patterns**
 3. **Add comprehensive integration tests**
@@ -160,6 +176,7 @@ The security implementation has multiple layers of bypasses and fallbacks that c
 **DO NOT DEPLOY TO PRODUCTION** until all critical security issues are resolved. The current implementation introduces more security vulnerabilities than it solves.
 
 **Alternative Approach**: Consider implementing a simple, secure webhook handler without the complex layered security that has multiple bypass mechanisms. Focus on:
+
 1. Proper signature verification (no bypasses)
 2. Minimal necessary permissions (no Administrator escalation)
 3. Simple, working transaction boundaries

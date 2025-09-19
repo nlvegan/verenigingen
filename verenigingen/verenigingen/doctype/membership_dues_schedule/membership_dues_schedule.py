@@ -54,9 +54,11 @@ class MembershipDuesSchedule(Document):
 
             values.update(
                 {
-                    "minimum_amount": template.minimum_amount
-                    if template.minimum_amount is not None
-                    else membership_type_minimum,
+                    "minimum_amount": (
+                        template.minimum_amount
+                        if template.minimum_amount is not None
+                        else membership_type_minimum
+                    ),
                     "suggested_amount": template.suggested_amount,  # Required field, validated above
                     "billing_frequency": template.billing_frequency
                     or "Annual",  # Explicit default, validated in template creation

@@ -30,6 +30,7 @@ The Verenigingen Security Framework implements a layered security approach for a
 ### Design Philosophy
 
 The framework follows a **Selective Hardening** approach:
+
 - **80/20 Principle**: Secure the 20% of operations that represent 80% of risk
 - **Runtime Configuration**: Security policies managed via DocType without code deployment
 - **Business Logic Awareness**: Security rules understand business context and thresholds
@@ -61,6 +62,7 @@ The framework follows a **Selective Hardening** approach:
 The framework defines five security levels with corresponding requirements:
 
 #### CRITICAL
+
 - **Use Cases**: Financial transactions, payment processing, system administration
 - **Requirements**:
   - System Manager or Verenigingen Administrator roles
@@ -71,6 +73,7 @@ The framework defines five security levels with corresponding requirements:
   - Optional business hours validation for SEPA operations
 
 #### HIGH
+
 - **Use Cases**: Member data access, batch operations, administrative functions
 - **Requirements**:
   - Verenigingen Manager role or higher
@@ -80,6 +83,7 @@ The framework defines five security levels with corresponding requirements:
   - Input validation required
 
 #### MEDIUM
+
 - **Use Cases**: Reporting, read-only operations, analytics
 - **Requirements**:
   - Verenigingen Staff role or higher
@@ -88,6 +92,7 @@ The framework defines five security levels with corresponding requirements:
   - Input validation required
 
 #### LOW
+
 - **Use Cases**: Utility functions, health checks, status endpoints
 - **Requirements**:
   - Any authenticated user
@@ -95,6 +100,7 @@ The framework defines five security levels with corresponding requirements:
   - Minimal audit logging
 
 #### PUBLIC
+
 - **Use Cases**: Public information, documentation, no authentication required
 - **Requirements**:
   - No authentication required
@@ -127,6 +133,7 @@ Critical Operation Rules are stored in the database and provide runtime configur
 ### Field Reference
 
 #### Operation Details
+
 - **operation_name**: Unique identifier for the operation
 - **operation_type**: Type classification (financial, member_data, admin, reporting, utility, public)
 - **description**: Human-readable description of the operation
@@ -136,30 +143,35 @@ Critical Operation Rules are stored in the database and provide runtime configur
 - **business_context**: Business justification for the operation
 
 #### Permission Settings
+
 - **required_roles**: Comma-separated list of required roles
 - **required_permissions**: Comma-separated list of required permissions (format: "DocType:permission")
 - **allow_system_user**: Whether to allow system user fallback
 - **bypass_validations**: Allowed validation bypasses
 
 #### Rate Limiting
+
 - **rate_limit_calls**: Maximum calls allowed
 - **rate_limit_period_seconds**: Time window for rate limiting
 - **rate_limit_scope**: Scope (per_user, per_ip, global)
 - **rate_limit_key_pattern**: Custom key pattern for rate limiting
 
 #### Business Rules
+
 - **enable_business_validation**: Enable business logic validation
 - **amount_threshold**: Alert threshold for financial amounts
 - **time_restrictions**: Business hours and time-based restrictions
 - **ip_restrictions**: Allowed IP ranges
 
 #### Audit Settings
+
 - **audit_level**: Logging detail level (minimal, standard, detailed, critical)
 - **requires_justification**: Whether operation requires justification
 - **alert_on_execution**: Send alerts when operation executes
 - **notification_recipients**: Email addresses for alerts
 
 #### Monitoring
+
 - **monitor_execution_time**: Track execution performance
 - **execution_time_threshold_ms**: Performance threshold in milliseconds
 - **monitor_failure_rate**: Track failure rates
@@ -168,6 +180,7 @@ Critical Operation Rules are stored in the database and provide runtime configur
 ### Creating Critical Operation Rules
 
 #### Via UI
+
 1. Navigate to **Vereiningen Settings** → **Critical Operation Rule**
 2. Click **New**
 3. Fill in the operation details:
@@ -178,6 +191,7 @@ Critical Operation Rules are stored in the database and provide runtime configur
 5. Save and enable the rule
 
 #### Via Fixtures
+
 ```json
 {
   "doctype": "Critical Operation Rule",
@@ -198,6 +212,7 @@ Critical Operation Rules are stored in the database and provide runtime configur
 ### Managing Rules
 
 #### Viewing All Rules
+
 ```bash
 # List all critical operation rules
 bench --site dev.veganisme.net execute "
@@ -209,6 +224,7 @@ for rule in rules:
 ```
 
 #### Testing Rule Configuration
+
 ```python
 from verenigingen.utils.secure_operations import get_critical_operations_registry
 
@@ -218,6 +234,7 @@ print(frappe.as_json(config, indent=2))
 ```
 
 #### Clearing Rule Cache
+
 ```python
 # Clear all rule caches
 frappe.cache().delete_value("critical_operation_rules")
@@ -233,6 +250,7 @@ frappe.cache().delete_value("critical_operation_rule:create_financial_document")
 The API Security Framework provides convenient decorators for different security levels:
 
 #### @critical_api
+
 For critical operations like financial transactions and system administration:
 
 ```python
@@ -247,6 +265,7 @@ def process_member_payment(member_id, amount, payment_method):
 ```
 
 #### @high_security_api
+
 For member data access and batch operations:
 
 ```python
@@ -259,6 +278,7 @@ def update_member_batch(member_updates):
 ```
 
 #### @standard_api
+
 For reporting and read operations:
 
 ```python
@@ -271,6 +291,7 @@ def generate_membership_report(filters=None):
 ```
 
 #### @utility_api
+
 For utility functions and health checks:
 
 ```python
@@ -282,6 +303,7 @@ def check_system_health():
 ```
 
 #### @public_api
+
 For public information (no authentication required):
 
 ```python
@@ -295,6 +317,7 @@ def get_public_chapter_info():
 ### Environment-Aware Decorators
 
 #### @development_only_api
+
 Restrict access to development environment only:
 
 ```python
@@ -307,6 +330,7 @@ def debug_member_data(member_id):
 ```
 
 #### @staging_and_dev_api
+
 Allow access in staging and development:
 
 ```python
@@ -321,6 +345,7 @@ def reset_test_data():
 ### Custom Security Configuration
 
 #### Advanced Decorator Configuration
+
 ```python
 from verenigingen.utils.security.api_security_framework import (
     api_security_framework,
@@ -364,6 +389,7 @@ def create_sales_invoice(invoice_data):
 ```
 
 When a Critical Operation Rule exists for the function name, the framework will:
+
 - Apply additional security requirements from the rule
 - Validate business rules (amount thresholds, patterns)
 - Add critical operation metadata to audit logs
@@ -376,6 +402,7 @@ When a Critical Operation Rule exists for the function name, the framework will:
 The security framework includes business logic monitoring that goes beyond technical security to detect suspicious patterns:
 
 #### High-Value Payment Detection
+
 ```python
 def check_high_value_payments(threshold: float = 5000) -> List[Dict]:
     """Alert on payments exceeding threshold"""
@@ -384,20 +411,25 @@ def check_high_value_payments(threshold: float = 5000) -> List[Dict]:
 ```
 
 #### Financial Pattern Anomalies
+
 - **Round Amount Detection**: Alerts on invoices with round amounts (potential fraud indicator)
 - **Excessive Discount Patterns**: Detects invoices with >30% discounts
 - **Rapid Financial Operations**: Monitors for unusual financial activity patterns
 
 #### Member Operation Anomalies
+
 - **Bulk Member Updates**: Alerts when users update >10 members in one hour
 - **Unusual Access Patterns**: Detects abnormal member data access
 
 #### SEPA Operation Monitoring
+
 - **Rapid Mandate Creation**: Alerts on >5 SEPA mandates created per hour by one user
 - **Mandate Pattern Analysis**: Monitors SEPA mandate creation patterns
 
 #### Policy Change Monitoring
+
 Immediate alerts when Critical Operation Rules are modified:
+
 ```python
 def monitor_policy_changes() -> List[Dict]:
     """Send immediate alert on any Critical Operation Rule changes"""
@@ -407,6 +439,7 @@ def monitor_policy_changes() -> List[Dict]:
 ### Running Monitoring
 
 #### Background Job Setup
+
 ```bash
 # Add to hooks.py or scheduler configuration
 scheduler_events = {
@@ -419,6 +452,7 @@ scheduler_events = {
 ```
 
 #### Manual Monitoring Execution
+
 ```python
 from verenigingen.utils.security.security_monitoring import run_business_rule_monitoring
 
@@ -466,6 +500,7 @@ For each critical operation in your system:
    - Risk level assessment
 
 2. **Create the Rule**
+
    ```python
    rule = frappe.get_doc({
        "doctype": "Critical Operation Rule",
@@ -483,6 +518,7 @@ For each critical operation in your system:
    ```
 
 3. **Test the Rule**
+
    ```python
    from verenigingen.utils.secure_operations import get_critical_operations_registry
 
@@ -561,6 +597,7 @@ print(f"Current environment: {current_env.value}")
 ```
 
 Environment detection uses:
+
 1. `frappe.conf.developer_mode` (Development)
 2. `frappe.conf.deployment_environment` (Custom)
 3. `frappe.conf.environment` (Site-specific)
@@ -585,18 +622,21 @@ def debug_function():
 ### Rule Management Commands
 
 #### Import Rules from Fixtures
+
 ```bash
 bench --site dev.veganisme.net import-doc \
     /home/frappe/frappe-bench/apps/verenigingen/verenigingen/fixtures/critical_operation_rule.json
 ```
 
 #### Export Rules to Fixtures
+
 ```bash
 bench --site dev.veganisme.net export-doc "Critical Operation Rule" \
     --path /home/frappe/frappe-bench/apps/verenigingen/verenigingen/fixtures/
 ```
 
 #### Bulk Rule Operations
+
 ```python
 # Enable all financial operation rules
 frappe.db.sql("""
@@ -618,11 +658,13 @@ frappe.db.sql("""
 ### Security Rule Design
 
 #### 1. Follow Naming Conventions
+
 - Use snake_case for operation names
 - Include operation context: `create_financial_document`, `process_member_payment`
 - Be specific: `submit_expense_claim` vs `submit_expense`
 
 #### 2. Set Appropriate Security Levels
+
 ```python
 # Financial operations should be critical or high
 operation_type="financial" -> security_level="critical"
@@ -635,12 +677,15 @@ operation_type="reporting" -> security_level="medium"
 ```
 
 #### 3. Configure Business Rules
+
 For financial operations, always configure:
+
 - Amount thresholds for large transactions
 - Business hours restrictions if applicable
 - IP restrictions for sensitive operations
 
 #### 4. Set Reasonable Rate Limits
+
 ```python
 # Critical operations: 5-10 calls per hour
 rate_limit_calls=10, rate_limit_period_seconds=3600
@@ -655,6 +700,7 @@ rate_limit_calls=200, rate_limit_period_seconds=3600
 ### API Development
 
 #### 1. Always Use Security Decorators
+
 ```python
 # Good
 @frappe.whitelist()
@@ -669,6 +715,7 @@ def process_payment(amount, member_id):
 ```
 
 #### 2. Choose Correct Operation Types
+
 ```python
 # Financial operations
 @critical_api(operation_type=OperationType.FINANCIAL)
@@ -684,6 +731,7 @@ def process_payment(amount, member_id):
 ```
 
 #### 3. Handle Security Errors Gracefully
+
 ```python
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
@@ -700,6 +748,7 @@ def financial_operation(data):
 ### Monitoring and Alerting
 
 #### 1. Configure Appropriate Alert Recipients
+
 ```python
 # System administrators for critical operations
 notification_recipients = "admin@company.com,security@company.com"
@@ -709,6 +758,7 @@ notification_recipients = "finance@company.com"  # For financial operations
 ```
 
 #### 2. Set Meaningful Thresholds
+
 ```python
 # Amount thresholds based on business context
 amount_threshold = 1000.0  # For regular transactions
@@ -717,6 +767,7 @@ amount_threshold = 10000.0  # For exceptional transactions
 ```
 
 #### 3. Monitor Execution Time
+
 ```python
 # Set realistic execution time thresholds
 execution_time_threshold_ms = 1000   # For simple operations
@@ -727,6 +778,7 @@ execution_time_threshold_ms = 10000  # For batch operations
 ### Performance Optimization
 
 #### 1. Use Caching Effectively
+
 The framework automatically caches Critical Operation Rules for 5 minutes. For custom implementations:
 
 ```python
@@ -738,11 +790,13 @@ def check_user_permissions(user, operation):
 ```
 
 #### 2. Minimize Security Overhead
+
 - Only apply security decorators to API endpoints (@frappe.whitelist functions)
 - Use appropriate security levels (don't over-secure utility functions)
 - Configure reasonable rate limits
 
 #### 3. Optimize Business Rule Validation
+
 ```python
 # Good - early return for non-financial operations
 if operation_type != "financial":
@@ -759,9 +813,11 @@ def validate_amount_threshold(amount, threshold):
 ### Common Issues
 
 #### 1. Security Decorator Not Working
+
 **Symptoms**: API calls succeed even when they should be blocked
 
 **Diagnosis**:
+
 ```python
 # Check if decorator is properly applied
 func = frappe.get_attr("verenigingen.api.financial.process_payment")
@@ -770,14 +826,17 @@ print(f"Security level: {getattr(func, '_security_level', 'None')}")
 ```
 
 **Solutions**:
+
 - Ensure `@frappe.whitelist()` comes before security decorator
 - Verify function is properly imported
 - Check that security framework is initialized
 
 #### 2. Critical Operation Rule Not Found
+
 **Symptoms**: Rule configured but not being applied
 
 **Diagnosis**:
+
 ```python
 from verenigingen.utils.secure_operations import get_critical_operations_registry
 
@@ -792,14 +851,17 @@ print(f"Cached config: {cached_config}")
 ```
 
 **Solutions**:
+
 - Verify rule is enabled
 - Clear rule cache: `frappe.cache().delete_value("critical_operation_rules")`
 - Check operation name matches exactly
 
 #### 3. Rate Limiting Issues
+
 **Symptoms**: Users getting rate limited unexpectedly
 
 **Diagnosis**:
+
 ```python
 from verenigingen.utils.security.rate_limiting import get_rate_limiter
 
@@ -810,14 +872,17 @@ print(f"Rate limit status: {status}")
 ```
 
 **Solutions**:
+
 - Adjust rate limit settings in Critical Operation Rule
 - Check rate limit scope (per_user vs per_ip vs global)
 - Consider user workflow and adjust limits accordingly
 
 #### 4. Business Rule Validation Failing
+
 **Symptoms**: Valid operations being rejected by business rules
 
 **Diagnosis**:
+
 ```python
 from verenigingen.utils.secure_operations import get_critical_operations_registry
 
@@ -827,14 +892,17 @@ print(f"Business rule violations: {violations}")
 ```
 
 **Solutions**:
+
 - Check amount thresholds are appropriate
 - Verify business rule configuration
 - Ensure operation data matches expected format
 
 #### 5. Environment Detection Issues
+
 **Symptoms**: Functions not available in expected environment
 
 **Diagnosis**:
+
 ```python
 from verenigingen.utils.security.api_security_framework import get_security_framework
 
@@ -844,6 +912,7 @@ print(f"Environment validation: {env_info}")
 ```
 
 **Solutions**:
+
 - Set explicit environment in site config
 - Check `developer_mode` setting
 - Verify `deployment_environment` configuration
@@ -851,6 +920,7 @@ print(f"Environment validation: {env_info}")
 ### Debugging Tools
 
 #### 1. Security Analysis
+
 ```python
 # Analyze API security status
 @frappe.whitelist()
@@ -860,6 +930,7 @@ def debug_security_status():
 ```
 
 #### 2. Rule Configuration Dump
+
 ```python
 # Get all rule configurations
 @frappe.whitelist()
@@ -869,6 +940,7 @@ def debug_rules():
 ```
 
 #### 3. Security Event Monitoring
+
 ```python
 # Check recent security events
 @frappe.whitelist()
@@ -883,6 +955,7 @@ def debug_security_events():
 ```
 
 #### 4. Cache Inspection
+
 ```python
 # Inspect cache contents
 @frappe.whitelist()
@@ -906,6 +979,7 @@ def debug_cache():
 ### Performance Monitoring
 
 #### 1. Security Overhead Measurement
+
 ```python
 import time
 
@@ -939,6 +1013,7 @@ def measure_security_overhead():
 ```
 
 #### 2. Rate Limit Performance
+
 ```python
 @frappe.whitelist()
 def debug_rate_limit_performance():

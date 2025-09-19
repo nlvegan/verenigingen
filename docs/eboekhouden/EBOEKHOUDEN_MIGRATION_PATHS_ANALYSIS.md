@@ -11,6 +11,7 @@ After detailed investigation, both migration paths **call the exact same core pr
 **Entry Point**: `execute_enhanced_migration(migration_name)` → `EnhancedEBoekhoudenMigration.execute_migration()`
 
 **Flow**:
+
 ```
 1. ✅ Pre-migration validation
 2. ✅ Backup creation
@@ -29,6 +30,7 @@ After detailed investigation, both migration paths **call the exact same core pr
 **Entry Point**: `execute_enhanced_migration(migration_name)` → Direct call to main migration
 
 **Flow**:
+
 ```
 1. ❌ No pre-migration validation
 2. ❌ No backup creation
@@ -81,27 +83,27 @@ _import_rest_mutations_batch_enhanced() →
 
 ### **CORE PROCESSING: 100% IDENTICAL**
 
-| Aspect | Enhanced Migration | Direct Main Migration |
-|--------|-------------------|----------------------|
-| **SSoT Compliance** | ✅ Uses eBoekhouden ledgerID | ✅ Uses eBoekhouden ledgerID |
-| **Row-level Processing** | ✅ fetch_mutation_detail() | ✅ fetch_mutation_detail() |
-| **Transaction Functions** | ✅ Same functions | ✅ Same functions |
-| **WooCommerce/FactuurSturen Logic** | ✅ Included | ✅ Included |
-| **All Mutation Types (0-10)** | ✅ Supported | ✅ Supported |
-| **Account Mapping** | ✅ Via ledgerID | ✅ Via ledgerID |
+| Aspect                              | Enhanced Migration           | Direct Main Migration        |
+| ----------------------------------- | ---------------------------- | ---------------------------- |
+| **SSoT Compliance**                 | ✅ Uses eBoekhouden ledgerID | ✅ Uses eBoekhouden ledgerID |
+| **Row-level Processing**            | ✅ fetch_mutation_detail()   | ✅ fetch_mutation_detail()   |
+| **Transaction Functions**           | ✅ Same functions            | ✅ Same functions            |
+| **WooCommerce/FactuurSturen Logic** | ✅ Included                  | ✅ Included                  |
+| **All Mutation Types (0-10)**       | ✅ Supported                 | ✅ Supported                 |
+| **Account Mapping**                 | ✅ Via ledgerID              | ✅ Via ledgerID              |
 
 ### **ENTERPRISE FEATURES: ONLY IN ENHANCED**
 
-| Feature | Enhanced Migration | Direct Main Migration |
-|---------|-------------------|----------------------|
-| **Pre-migration Validation** | ✅ Yes | ❌ No |
-| **Backup Creation** | ✅ Yes | ❌ No |
-| **Progress Tracking** | ✅ Real-time (5% → 100%) | ❌ Basic only |
-| **Audit Trail** | ✅ Comprehensive | ❌ None |
-| **Error Recovery** | ✅ Rollback capability | ❌ Basic handling |
-| **Data Integrity Check** | ✅ Post-import validation | ❌ None |
-| **Dry-run Reporting** | ✅ Comprehensive | ❌ None |
-| **Enterprise Error Handling** | ✅ Advanced | ❌ Basic |
+| Feature                       | Enhanced Migration        | Direct Main Migration |
+| ----------------------------- | ------------------------- | --------------------- |
+| **Pre-migration Validation**  | ✅ Yes                    | ❌ No                 |
+| **Backup Creation**           | ✅ Yes                    | ❌ No                 |
+| **Progress Tracking**         | ✅ Real-time (5% → 100%)  | ❌ Basic only         |
+| **Audit Trail**               | ✅ Comprehensive          | ❌ None               |
+| **Error Recovery**            | ✅ Rollback capability    | ❌ Basic handling     |
+| **Data Integrity Check**      | ✅ Post-import validation | ❌ None               |
+| **Dry-run Reporting**         | ✅ Comprehensive          | ❌ None               |
+| **Enterprise Error Handling** | ✅ Advanced               | ❌ Basic              |
 
 ## 🔄 MY DELEGATION WORK STATUS
 
@@ -114,6 +116,7 @@ _import_rest_mutations_batch_enhanced() →
 ## 📊 PRACTICAL DIFFERENCES FOR USERS
 
 ### **Functionality: IDENTICAL**
+
 - ✅ Both paths import all transaction types correctly
 - ✅ Both paths use proper SSoT compliance (ledgerID)
 - ✅ Both paths include WooCommerce/FactuurSturen special handling
@@ -121,10 +124,12 @@ _import_rest_mutations_batch_enhanced() →
 - ✅ Both paths create the same ERPNext documents
 
 ### **User Experience: DIFFERENT**
+
 - **Enhanced Migration**: Rich progress updates, audit trails, error recovery
 - **Direct Migration**: Minimal feedback, basic error handling
 
 ### **Data Quality: IDENTICAL**
+
 - Both paths create exactly the same ERPNext documents
 - Both paths follow the same validation rules
 - Both paths use the same account mapping logic
@@ -134,6 +139,7 @@ _import_rest_mutations_batch_enhanced() →
 **The choice between Enhanced vs Direct Migration does NOT affect data processing quality or SSoT compliance.**
 
 **It ONLY affects**:
+
 1. **User Experience** (progress tracking, audit trails)
 2. **Error Recovery** (rollback capabilities, detailed logging)
 3. **Operational Features** (backup creation, integrity checks)
@@ -141,16 +147,19 @@ _import_rest_mutations_batch_enhanced() →
 ## 💡 RECOMMENDATIONS
 
 ### **Option 1: Keep Current Architecture (Recommended)**
+
 - Enhanced Migration = Main Migration + Enterprise Features
 - Both paths ensure correct data processing
 - Users can choose based on their needs for enterprise features
 
 ### **Option 2: Remove Choice Entirely**
+
 - Always use Enhanced Migration for better user experience
 - Remove the checkbox to eliminate confusion
 - Everyone gets enterprise features by default
 
 ### **Option 3: Activate My Delegation Work**
+
 - Modify Enhanced Migration to use my comprehensive delegation instead of calling `start_full_rest_import()`
 - This would make the architecture cleaner but wouldn't change functionality
 

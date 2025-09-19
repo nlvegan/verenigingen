@@ -61,13 +61,13 @@
 
 frappe.ready(() => {
 	/**
-	 * Application state management for migration wizard
-	 * @type {Object}
-	 * @property {Object|null} stagedData - Cached staging results from E-Boekhouden
-	 * @property {Array} mappings - Current account type mappings configuration
-	 * @property {number} currentStep - Current wizard step (1-5)
-	 * @property {string|null} migrationId - Active migration process identifier
-	 */
+   * Application state management for migration wizard
+   * @type {Object}
+   * @property {Object|null} stagedData - Cached staging results from E-Boekhouden
+   * @property {Array} mappings - Current account type mappings configuration
+   * @property {number} currentStep - Current wizard step (1-5)
+   * @property {string|null} migrationId - Active migration process identifier
+   */
 	const state = {
 		stagedData: null,
 		mappings: [],
@@ -122,7 +122,8 @@ frappe.ready(() => {
                     <div class="info-item">
                         <label class="text-muted">${__('Staged Data')}</label>
                         <p class="mb-0">
-                            ${data.staged_data_exists
+                            ${
+	data.staged_data_exists
 		? `<span class="badge badge-success">${__('Available')}</span> - ${data.staged_count || 0} ${__('transactions')}`
 		: `<span class="badge badge-secondary">${__('Not staged')}</span>`
 }
@@ -138,10 +139,12 @@ frappe.ready(() => {
                     </div>
                 </div>
             </div>
-            ${data.last_staging_date
+            ${
+	data.last_staging_date
 		? `<div class="mt-2">
                     <small class="text-muted">${__('Last staged')}: ${frappe.datetime.str_to_user(data.last_staging_date)}</small>
-                </div>` : ''
+                </div>`
+		: ''
 }
         `;
 		statusContainer.innerHTML = html;
@@ -150,33 +153,55 @@ frappe.ready(() => {
 	// Attach event listeners
 	function attachEventListeners() {
 		// Stage data button
-		document.getElementById('stage-data-btn').addEventListener('click', stageData);
+		document
+			.getElementById('stage-data-btn')
+			.addEventListener('click', stageData);
 
 		// Review data button
-		document.getElementById('review-data-btn').addEventListener('click', reviewStagedData);
+		document
+			.getElementById('review-data-btn')
+			.addEventListener('click', reviewStagedData);
 
 		// Add mapping button
-		document.getElementById('add-mapping-btn').addEventListener('click', addMapping);
+		document
+			.getElementById('add-mapping-btn')
+			.addEventListener('click', addMapping);
 
 		// Preview impact button
-		document.getElementById('preview-impact-btn').addEventListener('click', previewImpact);
+		document
+			.getElementById('preview-impact-btn')
+			.addEventListener('click', previewImpact);
 
 		// Start migration button
-		document.getElementById('start-migration-btn').addEventListener('click', startMigration);
+		document
+			.getElementById('start-migration-btn')
+			.addEventListener('click', startMigration);
 
 		// Export/Import buttons
-		document.getElementById('export-config-btn').addEventListener('click', exportConfiguration);
-		document.getElementById('import-config-btn').addEventListener('click', importConfiguration);
+		document
+			.getElementById('export-config-btn')
+			.addEventListener('click', exportConfiguration);
+		document
+			.getElementById('import-config-btn')
+			.addEventListener('click', importConfiguration);
 
 		// Quick actions
-		document.getElementById('review-account-types-btn').addEventListener('click', openAccountTypeReview);
-		document.getElementById('refresh-status-btn').addEventListener('click', loadInitialStatus);
-		document.getElementById('clear-mappings-btn').addEventListener('click', clearAllMappings);
+		document
+			.getElementById('review-account-types-btn')
+			.addEventListener('click', openAccountTypeReview);
+		document
+			.getElementById('refresh-status-btn')
+			.addEventListener('click', loadInitialStatus);
+		document
+			.getElementById('clear-mappings-btn')
+			.addEventListener('click', clearAllMappings);
 
 		// Enter key on mapping inputs
-		['account-code', 'account-type', 'mapping-notes'].forEach(id => {
+		['account-code', 'account-type', 'mapping-notes'].forEach((id) => {
 			document.getElementById(id).addEventListener('keypress', (e) => {
-				if (e.key === 'Enter') { addMapping(); }
+				if (e.key === 'Enter') {
+					addMapping();
+				}
 			});
 		});
 	}
@@ -185,7 +210,9 @@ frappe.ready(() => {
 	function updateStepVisibility() {
 		for (let i = 1; i <= 5; i++) {
 			const card = document.getElementById(`step${i}-card`);
-			if (!card) { continue; }
+			if (!card) {
+				continue;
+			}
 
 			if (i <= state.currentStep) {
 				card.style.display = 'block';
@@ -205,7 +232,9 @@ frappe.ready(() => {
 	// Stage data from E-Boekhouden
 	async function stageData() {
 		const dateRange = await promptDateRange();
-		if (!dateRange) { return; }
+		if (!dateRange) {
+			return;
+		}
 
 		try {
 			const response = await frappe.call({
@@ -284,25 +313,32 @@ frappe.ready(() => {
                             </tr>
                         </thead>
                         <tbody>
-                            ${data.accounts.map(account => `
+                            ${data.accounts
+		.map(
+			(account) => `
                                 <tr>
                                     <td><code>${account.code}</code></td>
                                     <td>${account.name}</td>
                                     <td>${account.count}</td>
                                     <td>${frappe.format(account.total, { fieldtype: 'Currency' })}</td>
-                                    <td>${account.suggested_type
+                                    <td>${
+	account.suggested_type
 		? `<span class="badge badge-info">${account.suggested_type}</span>`
 		: '<span class="text-muted">-</span>'
 }</td>
                                 </tr>
-                            `).join('')}
+                            `
+		)
+		.join('')}
                         </tbody>
                     </table>
                 </div>
 
                 <h6 class="mt-3">${__('Transaction Types')}</h6>
                 <div class="row">
-                    ${Object.entries(data.transaction_types || {}).map(([type, count]) => `
+                    ${Object.entries(data.transaction_types || {})
+		.map(
+			([type, count]) => `
                         <div class="col-md-4">
                             <div class="card mb-2">
                                 <div class="card-body p-2">
@@ -311,7 +347,9 @@ frappe.ready(() => {
                                 </div>
                             </div>
                         </div>
-                    `).join('')}
+                    `
+		)
+		.join('')}
                 </div>
             </div>
         `;
@@ -388,7 +426,9 @@ frappe.ready(() => {
                         </tr>
                     </thead>
                     <tbody>
-                        ${state.mappings.map((mapping, index) => `
+                        ${state.mappings
+		.map(
+			(mapping, index) => `
                             <tr>
                                 <td>
                                     <input type="checkbox" class="mapping-checkbox" value="${index}">
@@ -405,19 +445,24 @@ frappe.ready(() => {
                                     </button>
                                 </td>
                             </tr>
-                        `).join('')}
+                        `
+		)
+		.join('')}
                     </tbody>
                 </table>
             </div>
         `;
 
 		// Show bulk edit button if there are mappings
-		document.getElementById('bulk-edit-btn').style.display = state.mappings.length > 0 ? 'inline-block' : 'none';
+		document.getElementById('bulk-edit-btn').style.display
+      = state.mappings.length > 0 ? 'inline-block' : 'none';
 	}
 
 	// Remove a mapping
 	window.removeMapping = async function (index) {
-		if (!confirm(__('Are you sure you want to remove this mapping?'))) { return; }
+		if (!confirm(__('Are you sure you want to remove this mapping?'))) {
+			return;
+		}
 
 		try {
 			const mapping = state.mappings[index];
@@ -483,33 +528,53 @@ frappe.ready(() => {
                     </div>
                 </div>
 
-                ${preview.warnings && preview.warnings.length > 0 ? `
+                ${
+	preview.warnings && preview.warnings.length > 0
+		? `
                     <div class="alert alert-warning mt-3">
                         <h6>${__('Warnings')}</h6>
                         <ul class="mb-0">
-                            ${preview.warnings.map(w => `<li>${w}</li>`).join('')}
+                            ${preview.warnings.map((w) => `<li>${w}</li>`).join('')}
                         </ul>
                     </div>
-                ` : ''}
+                `
+		: ''
+}
 
-                ${preview.unmapped_accounts && preview.unmapped_accounts.length > 0 ? `
+                ${
+	preview.unmapped_accounts
+                  && preview.unmapped_accounts.length > 0
+		? `
                     <div class="mt-3">
                         <h6>${__('Unmapped Accounts')}</h6>
                         <p class="text-muted">${__('These accounts will use default mappings:')}</p>
                         <div class="unmapped-list">
-                            ${preview.unmapped_accounts.map(a =>
-		`<span class="badge badge-secondary mr-1">${a.code} - ${a.name}</span>`
-	).join('')}
+                            ${preview.unmapped_accounts
+		.map(
+			(a) =>
+				`<span class="badge badge-secondary mr-1">${a.code} - ${a.name}</span>`
+		)
+		.join('')}
                         </div>
                     </div>
-                ` : ''}
+                `
+		: ''
+}
             </div>
         `;
 	}
 
 	// Start the migration
 	async function startMigration() {
-		if (!confirm(__('Are you ready to start the migration with your current configuration?'))) { return; }
+		if (
+			!confirm(
+				__(
+					'Are you ready to start the migration with your current configuration?'
+				)
+			)
+		) {
+			return;
+		}
 
 		try {
 			const response = await frappe.call({
@@ -545,7 +610,9 @@ frappe.ready(() => {
 			});
 
 			const config = response.message;
-			const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+			const blob = new Blob([JSON.stringify(config, null, 2)], {
+				type: 'application/json'
+			});
 			const url = window.URL.createObjectURL(blob);
 			const a = document.createElement('a');
 			a.href = url;
@@ -600,7 +667,15 @@ frappe.ready(() => {
 
 	// Clear all mappings
 	async function clearAllMappings() {
-		if (!confirm(__('Are you sure you want to clear all mappings? This cannot be undone.'))) { return; }
+		if (
+			!confirm(
+				__(
+					'Are you sure you want to clear all mappings? This cannot be undone.'
+				)
+			)
+		) {
+			return;
+		}
 
 		try {
 			const response = await frappe.call({
@@ -667,7 +742,9 @@ frappe.ready(() => {
 	window.toggleAllMappings = function () {
 		const selectAll = document.getElementById('select-all-mappings');
 		const checkboxes = document.querySelectorAll('.mapping-checkbox');
-		checkboxes.forEach(cb => { cb.checked = selectAll.checked; });
+		checkboxes.forEach((cb) => {
+			cb.checked = selectAll.checked;
+		});
 		updateBulkEditButton();
 	};
 
@@ -676,7 +753,8 @@ frappe.ready(() => {
 		const checkedBoxes = document.querySelectorAll('.mapping-checkbox:checked');
 		const bulkEditBtn = document.getElementById('bulk-edit-btn');
 		if (bulkEditBtn) {
-			bulkEditBtn.style.display = checkedBoxes.length > 0 ? 'inline-block' : 'none';
+			bulkEditBtn.style.display
+        = checkedBoxes.length > 0 ? 'inline-block' : 'none';
 		}
 	}
 
@@ -699,8 +777,16 @@ frappe.ready(() => {
 					fieldname: 'account_type',
 					fieldtype: 'Select',
 					options: [
-						'Asset', 'Liability', 'Equity', 'Income', 'Expense',
-						'Bank', 'Cash', 'Receivable', 'Payable', 'Tax'
+						'Asset',
+						'Liability',
+						'Equity',
+						'Income',
+						'Expense',
+						'Bank',
+						'Cash',
+						'Receivable',
+						'Payable',
+						'Tax'
 					],
 					default: mapping.target_account_type || mapping.account_type
 				},
@@ -748,7 +834,9 @@ frappe.ready(() => {
 	// Bulk edit selected mappings
 	document.getElementById('bulk-edit-btn').addEventListener('click', () => {
 		const checkboxes = document.querySelectorAll('.mapping-checkbox:checked');
-		const selectedIndices = Array.from(checkboxes).map(cb => parseInt(cb.value, 10));
+		const selectedIndices = Array.from(checkboxes).map((cb) =>
+			parseInt(cb.value, 10)
+		);
 
 		if (selectedIndices.length === 0) {
 			frappe.show_alert({
@@ -766,8 +854,17 @@ frappe.ready(() => {
 					fieldname: 'account_type',
 					fieldtype: 'Select',
 					options: [
-						'', 'Asset', 'Liability', 'Equity', 'Income', 'Expense',
-						'Bank', 'Cash', 'Receivable', 'Payable', 'Tax'
+						'',
+						'Asset',
+						'Liability',
+						'Equity',
+						'Income',
+						'Expense',
+						'Bank',
+						'Cash',
+						'Receivable',
+						'Payable',
+						'Tax'
 					],
 					description: __('Leave empty to keep existing values')
 				},
@@ -787,7 +884,8 @@ frappe.ready(() => {
 						if (values.account_type || values.priority) {
 							updates.push({
 								mapping_id: mapping.name || mapping.id,
-								account_type: values.account_type || mapping.target_account_type,
+								account_type:
+                  values.account_type || mapping.target_account_type,
 								priority: values.priority || mapping.priority
 							});
 						}
@@ -815,93 +913,107 @@ frappe.ready(() => {
 	});
 
 	// Auto-suggest mappings
-	document.getElementById('suggest-mappings-btn').addEventListener('click', async () => {
-		try {
-			const response = await frappe.call({
-				method: 'verenigingen.e_boekhouden.api.suggest_account_mappings',
-				freeze: true,
-				freeze_message: __('Analyzing accounts and suggesting mappings...')
-			});
-
-			if (response.message.success) {
-				const suggestions = response.message.suggestions;
-
-				const d = new frappe.ui.Dialog({
-					title: __('Suggested Account Mappings'),
-					fields: [
-						{
-							fieldtype: 'HTML',
-							fieldname: 'suggestions_html'
-						}
-					],
-					primary_action_label: __('Apply Selected'),
-					async primary_action() {
-						const selected = [];
-						document.querySelectorAll('.suggestion-checkbox:checked').forEach(cb => {
-							selected.push(JSON.parse(cb.value));
-						});
-
-						if (selected.length === 0) {
-							frappe.show_alert({
-								message: __('Please select suggestions to apply'),
-								indicator: 'orange'
-							});
-							return;
-						}
-
-						try {
-							const applyResponse = await frappe.call({
-								method: 'verenigingen.e_boekhouden.api.apply_suggested_mappings',
-								args: { suggestions: selected }
-							});
-
-							if (applyResponse.message.success) {
-								frappe.show_alert({
-									message: __('Applied {0} mappings', [selected.length]),
-									indicator: 'green'
-								});
-								loadInitialStatus();
-								d.hide();
-							}
-						} catch (error) {
-							showError('Failed to apply suggestions', error);
-						}
-					}
+	document
+		.getElementById('suggest-mappings-btn')
+		.addEventListener('click', async () => {
+			try {
+				const response = await frappe.call({
+					method: 'verenigingen.e_boekhouden.api.suggest_account_mappings',
+					freeze: true,
+					freeze_message: __('Analyzing accounts and suggesting mappings...')
 				});
 
-				// Build suggestions HTML
-				let html = '<div class="suggestions-list">';
-				html += `<div class="mb-2"><label><input type="checkbox" id="select-all-suggestions"> ${__('Select All')}</label></div>`;
-				html += `<table class="table table-sm"><thead><tr><th></th><th>${__('Account')}</th><th>${__('Suggested Type')}</th><th>${__('Confidence')}</th></tr></thead><tbody>`;
+				if (response.message.success) {
+					const suggestions = response.message.suggestions;
 
-				suggestions.forEach((sug, _idx) => {
-					const confidence = sug.confidence || 'medium';
-					const badgeClass = confidence === 'high' ? 'success' : confidence === 'medium' ? 'warning' : 'secondary';
-					html += `<tr>
+					const d = new frappe.ui.Dialog({
+						title: __('Suggested Account Mappings'),
+						fields: [
+							{
+								fieldtype: 'HTML',
+								fieldname: 'suggestions_html'
+							}
+						],
+						primary_action_label: __('Apply Selected'),
+						async primary_action() {
+							const selected = [];
+							document
+								.querySelectorAll('.suggestion-checkbox:checked')
+								.forEach((cb) => {
+									selected.push(JSON.parse(cb.value));
+								});
+
+							if (selected.length === 0) {
+								frappe.show_alert({
+									message: __('Please select suggestions to apply'),
+									indicator: 'orange'
+								});
+								return;
+							}
+
+							try {
+								const applyResponse = await frappe.call({
+									method:
+                    'verenigingen.e_boekhouden.api.apply_suggested_mappings',
+									args: { suggestions: selected }
+								});
+
+								if (applyResponse.message.success) {
+									frappe.show_alert({
+										message: __('Applied {0} mappings', [selected.length]),
+										indicator: 'green'
+									});
+									loadInitialStatus();
+									d.hide();
+								}
+							} catch (error) {
+								showError('Failed to apply suggestions', error);
+							}
+						}
+					});
+
+					// Build suggestions HTML
+					let html = '<div class="suggestions-list">';
+					html += `<div class="mb-2"><label><input type="checkbox" id="select-all-suggestions"> ${__('Select All')}</label></div>`;
+					html += `<table class="table table-sm"><thead><tr><th></th><th>${__('Account')}</th><th>${__('Suggested Type')}</th><th>${__('Confidence')}</th></tr></thead><tbody>`;
+
+					suggestions.forEach((sug, _idx) => {
+						const confidence = sug.confidence || 'medium';
+						const badgeClass
+              = confidence === 'high'
+              	? 'success'
+              	: confidence === 'medium'
+              		? 'warning'
+              		: 'secondary';
+						html += `<tr>
                         <td><input type="checkbox" class="suggestion-checkbox" value='${JSON.stringify(sug)}'></td>
                         <td><code>${sug.account_code}</code> - ${sug.account_name}</td>
                         <td><span class="badge badge-primary">${sug.suggested_type}</span></td>
                         <td><span class="badge badge-${badgeClass}">${confidence}</span></td>
                     </tr>`;
-				});
-
-				html += '</tbody></table></div>';
-
-				d.fields_dict.suggestions_html.$wrapper.html(html);
-
-				// Add select all functionality
-				document.getElementById('select-all-suggestions').addEventListener('change', function () {
-					document.querySelectorAll('.suggestion-checkbox').forEach(cb => {
-						cb.checked = this.checked;
 					});
-				});
 
-				d.show();
+					html += '</tbody></table></div>';
+
+					d.fields_dict.suggestions_html.$wrapper.html(html);
+
+					// Add select all functionality
+					document
+						.getElementById('select-all-suggestions')
+						.addEventListener('change', function () {
+							document
+								.querySelectorAll('.suggestion-checkbox')
+								.forEach((cb) => {
+									cb.checked = this.checked;
+								});
+						});
+
+					d.show();
+				}
+			} catch (error) {
+				showError('Failed to get suggestions', error);
 			}
-		} catch (error) {
-			showError('Failed to get suggestions', error);
-		}
-	});
+		});
 
 	// Add event delegation for checkbox changes
 	document.addEventListener('change', (e) => {
