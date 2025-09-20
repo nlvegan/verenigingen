@@ -22,29 +22,24 @@ class VerenigingenSettings(Document):
     def validate_donation_accounts(self):
         """Validate donation account configuration"""
         if self.automate_donation_payment_entries:
-            if not self.donation_payment_account:
-                frappe.throw(
-                    _("Donation Payment Account is required when automating donation payment entries")
-                )
+            if not self.donations_gl_account:
+                frappe.throw(_("Donations GL Account is required when automating donation payment entries"))
             if not self.donation_debit_account:
                 frappe.throw(_("Donation Debit Account is required when automating donation payment entries"))
 
         # Validate that earmarked accounts are different from main donation account
-        if self.campaign_donation_account and self.campaign_donation_account == self.donation_payment_account:
+        if self.campaign_donation_account and self.campaign_donation_account == self.donations_gl_account:
             frappe.msgprint(
                 _(
-                    "Campaign Donation Account should be different from main Donation Payment Account for proper fund segregation"
+                    "Campaign Donation Account should be different from main Donations GL Account for proper fund segregation"
                 ),
                 indicator="yellow",
             )
 
-        if (
-            self.restricted_donation_account
-            and self.restricted_donation_account == self.donation_payment_account
-        ):
+        if self.restricted_donation_account and self.restricted_donation_account == self.donations_gl_account:
             frappe.msgprint(
                 _(
-                    "Restricted Donation Account should be different from main Donation Payment Account for proper fund segregation"
+                    "Restricted Donation Account should be different from main Donations GL Account for proper fund segregation"
                 ),
                 indicator="yellow",
             )
@@ -134,8 +129,8 @@ def validate_donation_configuration():
 
     # Check account configuration
     if settings.automate_donation_payment_entries:
-        if not settings.donation_payment_account:
-            validation_results["errors"].append("Donation Payment Account is not configured")
+        if not settings.donations_gl_account:
+            validation_results["errors"].append("Donations GL Account is not configured")
         if not settings.donation_debit_account:
             validation_results["errors"].append("Donation Debit Account is not configured")
 

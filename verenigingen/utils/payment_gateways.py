@@ -48,8 +48,12 @@ def mollie_payment_webhook():
     payload = frappe.request.get_data(as_text=True) if frappe.request else ""
     frappe.logger().info(f"🔄 Payment webhook payload preview: {payload[:200]}...")
 
-    # Redirect to the working simple webhook handler
-    return handle_payment_first_donation()
+    # Redirect to the working webhook handler
+    from verenigingen.integrations.mollie.api.payment_webhook import (
+        handle_mollie_payment_webhook as working_handler,
+    )
+
+    return working_handler()
 
 
 @frappe.whitelist(allow_guest=True)

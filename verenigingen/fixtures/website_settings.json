@@ -1,0 +1,13 @@
+[
+  {
+    "doctype": "Website Settings",
+    "name": "Website Settings",
+    "enable_cors": 1,
+    "cors_enabled": 1,
+    "cors_allowed_origins": "https://dev.veganisme.net\nhttps://veganisme.net\nhttps://www.veganisme.net\nhttps://localhost:3000\nhttps://localhost:8080",
+    "cors_allowed_methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "cors_allowed_headers": "Content-Type, Authorization, X-Frappe-CSRF-Token, X-Frappe-Cmd",
+    "cors_allow_credentials": 1,
+    "cors_max_age": 86400
+  }
+]

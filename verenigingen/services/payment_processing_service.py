@@ -117,7 +117,7 @@ class PaymentProcessingService:
 
     def create_payment_entry(self, donation, payment_id: str) -> Dict[str, Any]:
         """
-        Create Payment Entry for a donation with proper accounting
+        Create Payment Entry for a donation with proper accounting (matches working webhook implementation)
 
         Args:
             donation: Donation document
@@ -127,90 +127,121 @@ class PaymentProcessingService:
             Processing result dict
         """
         try:
-            # Check if Payment Entry already exists for this payment
-            existing_payment_entry = frappe.db.get_value(
-                "Payment Entry", {"reference_no": payment_id, "docstatus": 1}, "name"
-            )
-            if existing_payment_entry:
+            # Get the customer linked to the donor, create if missing (robust guest donation support)
+            donor_doc = frappe.get_doc("Donor", donation.donor)
+            customer = donor_doc.customer
+
+            if not customer:
                 self.logger.info(
-                    f"⚠️ [{self.debug_context}] Payment Entry {existing_payment_entry} already exists for payment {payment_id}"
+                    f"🔧 [{self.debug_context}] Creating customer for donor {donation.donor} (guest donation)"
                 )
+                customer = self._create_customer_for_donor(donor_doc)
+                if not customer:
+                    self.logger.error(
+                        f"❌ [{self.debug_context}] Failed to create customer for donor {donation.donor}"
+                    )
+                    return {
+                        "status": "error",
+                        "message": f"Failed to create customer for donor {donation.donor}",
+                    }
+
+                # Link customer to donor
+                donor_doc.customer = customer
+                donor_doc.flags.ignore_permissions = True
+                donor_doc.save()
+                self.logger.info(
+                    f"✅ [{self.debug_context}] Created and linked customer {customer} to donor {donation.donor}"
+                )
+
+            # Check if Payment Entry already exists (following working implementation)
+            existing_pe = frappe.db.get_value(
+                "Payment Entry",
+                {"payment_type": "Receive", "reference_no": payment_id, "party": customer},
+                "name",
+            )
+            if existing_pe:
+                self.logger.info(f"⚠️ [{self.debug_context}] Payment Entry already exists: {existing_pe}")
                 return {
                     "status": "exists",
                     "message": f"Payment Entry already exists for payment {payment_id}",
-                    "payment_entry": existing_payment_entry,
+                    "payment_entry": existing_pe,
                 }
 
-            # Ensure customer exists for the donor
-            customer_name = donation.donor
-            if customer_name and not DocumentExistenceValidator.check_document_exists(
-                "Customer", customer_name
-            ):
-                # Create customer record
-                customer = frappe.new_doc("Customer")
-                customer.customer_name = customer_name
-                customer.customer_type = "Individual"
-                customer.customer_group = (
-                    frappe.db.get_single_value("Selling Settings", "customer_group") or "Individual"
+            # Get company and accounts (following working implementation)
+            settings = frappe.get_single("Verenigingen Settings")
+            company = settings.donation_company or frappe.defaults.get_global_default("company")
+
+            # Get accounts (following working implementation)
+            donation_receivable_account = settings.donation_receivable_account
+            if not donation_receivable_account:
+                donation_receivable_account = frappe.get_value(
+                    "Company", company, "default_receivable_account"
                 )
-                customer.territory = (
-                    frappe.db.get_single_value("Selling Settings", "territory") or "All Territories"
+
+            donation_bank_account = settings.donation_bank_account
+            if not donation_bank_account:
+                # Fallback to Mollie account if donation_bank_account not set
+                donation_bank_account = frappe.get_value(
+                    "Account", {"company": company, "account_name": "Mollie"}, "name"
                 )
-                customer.insert()
-                customer_name = customer.name
-                self.logger.info(f"✅ [{self.debug_context}] Created customer {customer_name} for donor")
 
-            payment_entry = frappe.new_doc("Payment Entry")
-            payment_entry.payment_type = "Receive"
-            payment_entry.company = donation.company
-
-            # Set customer as party
-            if customer_name:
-                payment_entry.party_type = "Customer"
-                payment_entry.party = customer_name
-
-            payment_entry.paid_amount = donation.amount
-            payment_entry.received_amount = donation.amount
-            payment_entry.reference_no = payment_id
-            payment_entry.reference_date = frappe.utils.nowdate()
-
-            # Get accounts from Verenigingen Settings
-            verenigingen_settings = frappe.get_single("Verenigingen Settings")
-            cash_account = frappe.get_value("Company", donation.company, "default_cash_account")
-            receivable_account = verenigingen_settings.get("default_receivable_account")
-
-            if not cash_account or not receivable_account:
-                error_msg = f"Missing accounts - Cash: {cash_account}, Receivable: {receivable_account}"
+            # Validate accounts
+            if not donation_receivable_account or not donation_bank_account:
+                error_msg = f"Missing accounts - Receivable: {donation_receivable_account}, Bank: {donation_bank_account}"
                 self.logger.error(f"❌ [{self.debug_context}] {error_msg}")
                 return {"status": "error", "message": error_msg}
 
-            payment_entry.paid_to = cash_account
-            payment_entry.paid_from = receivable_account
+            # Validate Mode of Payment exists (following working implementation)
+            if not DocumentExistenceValidator.check_document_exists("Mode of Payment", "Mollie"):
+                self.logger.error(f"❌ [{self.debug_context}] Mollie Mode of Payment not configured")
+                return {"status": "error", "message": "Mollie Mode of Payment not configured"}
 
-            payment_entry.insert()
+            # Generate meaningful Payment Entry name (following working implementation)
+            donor_name_clean = frappe.scrub(donor_doc.donor_name)  # Clean name for naming
+            donation_number = donation.name.split("-")[-1]  # Extract number from donation name
+            custom_naming_series = f"PE-{donor_name_clean}-{donation_number}-"
 
-            # Rename Payment Entry with human-readable format: "Donor Name - Donation ID"
-            try:
-                new_name = self._generate_payment_entry_name(donation)
-                frappe.rename_doc("Payment Entry", payment_entry.name, new_name)
-                payment_entry.name = new_name
-                self.logger.info(f"✅ [{self.debug_context}] Renamed Payment Entry to: {new_name}")
+            # Set cost center
+            cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
 
-            except Exception as e:
-                self.logger.warning(
-                    f"⚠️ [{self.debug_context}] Could not rename Payment Entry {payment_entry.name}: {str(e)}"
-                )
-
-            payment_entry.submit()
-
-            self.logger.info(
-                f"✅ [{self.debug_context}] Payment Entry {payment_entry.name} created successfully"
+            # Create Payment Entry (following working implementation structure)
+            pe = frappe.get_doc(
+                {
+                    "doctype": "Payment Entry",
+                    "naming_series": custom_naming_series,
+                    "payment_type": "Receive",
+                    "party_type": "Customer",
+                    "party": customer,
+                    "paid_amount": donation.amount,
+                    "received_amount": donation.amount,
+                    "company": company,
+                    "mode_of_payment": "Mollie",
+                    "reference_no": payment_id,
+                    "reference_date": frappe.utils.nowdate(),
+                    "paid_from": donation_receivable_account,
+                    "paid_to": donation_bank_account,
+                    "cost_center": cost_center,
+                }
             )
+
+            # Insert and submit (following working implementation)
+            pe.insert()
+            pe.submit()
+
+            self.logger.info(f"✅ [{self.debug_context}] Created Payment Entry: {pe.name}")
+
+            # CRITICAL: Mark donation as paid after successful Payment Entry creation
+            donation.paid = 1
+            donation.flags.ignore_permissions = True  # Allow webhook to update
+            donation.save()
+            frappe.db.commit()
+
+            self.logger.info(f"✅ [{self.debug_context}] Donation {donation.name} marked as paid")
 
             return {
                 "status": "success",
-                "message": f"Payment Entry {payment_entry.name} created successfully",
-                "payment_entry": payment_entry.name,
+                "message": f"Payment Entry {pe.name} created successfully and donation marked as paid",
+                "payment_entry": pe.name,
             }
 
         except Exception as e:
@@ -287,3 +318,48 @@ class PaymentProcessingService:
         except Exception as e:
             self.logger.error(f"❌ [{self.debug_context}] Failed to add payment history: {str(e)}")
             # Don't raise - payment history is non-critical
+
+    def _create_customer_for_donor(self, donor_doc) -> str:
+        """
+        Create a Customer record for a donor (guest donation support)
+
+        Args:
+            donor_doc: Donor document
+
+        Returns:
+            Customer name if successful, None if failed
+        """
+        try:
+            # Get company for customer creation
+            settings = frappe.get_single("Verenigingen Settings")
+            company = settings.donation_company or frappe.defaults.get_global_default("company")
+
+            # Create customer with donor information
+            customer_doc = frappe.get_doc(
+                {
+                    "doctype": "Customer",
+                    "customer_name": donor_doc.donor_name or f"Donor {donor_doc.name}",
+                    "customer_type": "Individual",
+                    "customer_group": "Individual",  # Default customer group
+                    "territory": "Netherlands",  # Default territory
+                    "company": company,
+                    # Link to donor
+                    "custom_donor": donor_doc.name,
+                    # Contact information
+                    "email_id": donor_doc.donor_email,
+                }
+            )
+
+            customer_doc.flags.ignore_permissions = True
+            customer_doc.insert()
+
+            self.logger.info(
+                f"✅ [{self.debug_context}] Created customer {customer_doc.name} for donor {donor_doc.name}"
+            )
+            return customer_doc.name
+
+        except Exception as e:
+            self.logger.error(
+                f"❌ [{self.debug_context}] Failed to create customer for donor {donor_doc.name}: {str(e)}"
+            )
+            return None

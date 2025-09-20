@@ -86,6 +86,84 @@ class CompletePaymentService:
             frappe.log_error(error_msg, "Payment Creation Error")
             raise MolliePaymentError(error_msg, original_error=e)
 
+    def create_recurring_donation_payment(
+        self, donation_doc: Any, form_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Create a recurring donation payment following the legacy pattern.
+
+        Args:
+            donation_doc: The Donation document
+            form_data: Payment form data from frontend
+
+        Returns:
+            Dict with payment creation results
+        """
+        try:
+            frappe.logger().info(f"🔄 Creating recurring donation payment for {donation_doc.name}")
+
+            # Validate donation and form data
+            self._validate_donation_payment_data(donation_doc, form_data)
+
+            # Create or get customer first (critical for recurring payments)
+            customer_data = {
+                "email": form_data.get("donor_email", ""),
+                "name": form_data.get("donor_name", ""),
+                "locale": form_data.get("locale", "nl_NL"),
+            }
+
+            customer_result = self._create_or_get_customer(customer_data)
+
+            if not customer_result.get("customer_id"):
+                raise MolliePaymentError(
+                    f"Failed to create customer for recurring payment: {customer_result.get('error')}"
+                )
+
+            # Prepare payment data for first payment in subscription
+            payment_data = self._prepare_payment_data(donation_doc, form_data)
+
+            # Add customer ID and subscription setup flag
+            payment_data["customerId"] = customer_result["customer_id"]
+            payment_data["sequenceType"] = "first"  # This creates the mandate
+
+            # Add subscription metadata like legacy system
+            payment_data["metadata"].update(
+                {
+                    "subscription_setup": "true",
+                    "subscription_interval": form_data.get("subscription_interval", "1 month"),
+                    "subscription_amount": f"{float(donation_doc.amount):.2f}",
+                    "customer_id": customer_result["customer_id"],
+                }
+            )
+
+            # Create payment in Mollie
+            mollie_payment = self.client.create_payment(payment_data)
+
+            # Update donation with payment and customer details
+            self._update_donation_with_payment(donation_doc, mollie_payment)
+
+            # Store customer ID on donation for future reference
+            donation_doc.db_set("mollie_customer_id", customer_result["customer_id"])
+
+            frappe.logger().info(
+                f"✅ Recurring payment created: {mollie_payment.id} with customer {customer_result['customer_id']}"
+            )
+
+            return {
+                "status": "subscription_redirect_required",
+                "payment_id": mollie_payment.id,
+                "payment_url": mollie_payment.checkout_url,
+                "checkout_url": mollie_payment.checkout_url,  # For compatibility
+                "customer_id": customer_result["customer_id"],
+                "message": "Setting up recurring donation",
+                "info": "After this payment, you'll be charged automatically each period",
+            }
+
+        except Exception as e:
+            error_msg = f"Failed to create recurring payment for donation {donation_doc.name}: {e}"
+            frappe.log_error(error_msg, "Recurring Payment Creation Error")
+            raise MolliePaymentError(error_msg, original_error=e)
+
     def create_customer_subscription(
         self, customer_data: Dict[str, Any], subscription_data: Dict[str, Any]
     ) -> Dict[str, Any]:
@@ -109,16 +187,35 @@ class CompletePaymentService:
             self._validate_subscription_data(customer_data, subscription_data)
 
             # Create or get customer
-            mollie_customer = self._create_or_get_customer(customer_data)
+            customer_result = self._create_or_get_customer(customer_data)
 
-            # Create subscription
-            mollie_subscription = self.client.create_subscription(mollie_customer.id, subscription_data)
+            if not customer_result.get("customer_id"):
+                raise MolliePaymentError(
+                    f"Failed to create customer for subscription: {customer_result.get('error')}"
+                )
+
+            # Create subscription (NOTE: This will fail if no mandate exists!)
+            # For recurring donations, use create_recurring_donation_payment() instead
+            # which establishes mandate first
+            try:
+                mollie_subscription = self.client.create_subscription(
+                    customer_result["customer_id"], subscription_data
+                )
+            except Exception as e:
+                if "No suitable mandates found" in str(e):
+                    raise MolliePaymentError(
+                        "Cannot create subscription: No mandate exists for customer. "
+                        "For recurring donations, use create_recurring_donation_payment() "
+                        "to establish mandate first with sequenceType='first' payment.",
+                        original_error=e,
+                    )
+                raise
 
             frappe.logger().info(f"✅ Subscription created: {mollie_subscription.id}")
 
             return {
                 "status": "success",
-                "customer_id": mollie_customer.id,
+                "customer_id": customer_result["customer_id"],
                 "subscription_id": mollie_subscription.id,
                 "subscription_status": mollie_subscription.status,
                 "next_payment_date": getattr(mollie_subscription, "next_payment_date", None),
@@ -290,16 +387,60 @@ class CompletePaymentService:
 
         return payment_data
 
-    def _create_or_get_customer(self, customer_data: Dict[str, Any]) -> Any:
-        """Create a new customer or get existing one."""
-        # For now, always create a new customer
-        # TODO: Add logic to check for existing customers by email
-        mollie_customer_data = {"name": customer_data.get("name", ""), "email": customer_data["email"]}
+    def _create_or_get_customer(self, customer_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new customer or get existing one based on legacy pattern."""
+        try:
+            email = customer_data["email"]
 
-        if customer_data.get("locale"):
-            mollie_customer_data["locale"] = customer_data["locale"]
+            # First try to find existing donor by email
+            existing_donors = frappe.get_all(
+                "Donor", filters={"donor_email": email}, fields=["name", "mollie_customer_id"]
+            )
 
-        return self.client.create_customer(mollie_customer_data)
+            if existing_donors:
+                donor_doc = frappe.get_doc("Donor", existing_donors[0]["name"])
+
+                # If donor has existing customer ID, verify it exists in Mollie
+                if donor_doc.mollie_customer_id:
+                    try:
+                        customer = self.client.get_customer(donor_doc.mollie_customer_id)
+                        frappe.logger().info(
+                            f"Found existing Mollie customer {customer.id} for donor {donor_doc.name}"
+                        )
+                        return {"status": "found", "customer_id": customer.id}
+                    except Exception as e:
+                        frappe.logger().warning(
+                            f"Existing customer ID {donor_doc.mollie_customer_id} not found in Mollie: {e}"
+                        )
+                        # Continue to create new customer
+
+            # Create new customer in Mollie
+            mollie_customer_data = {"name": customer_data.get("name", ""), "email": email}
+
+            if customer_data.get("locale"):
+                mollie_customer_data["locale"] = customer_data["locale"]
+
+            customer = self.client.create_customer(mollie_customer_data)
+            frappe.logger().info(f"Created new Mollie customer {customer.id}")
+
+            # Update donor with new customer ID if donor exists
+            if existing_donors:
+                try:
+                    donor_doc = frappe.get_doc("Donor", existing_donors[0]["name"])
+                    donor_doc.mollie_customer_id = customer.id
+                    donor_doc.flags.ignore_permissions = True
+                    donor_doc.save()
+                    frappe.db.commit()
+                    frappe.logger().info(f"Saved customer ID {customer.id} to donor {donor_doc.name}")
+                except Exception as e:
+                    frappe.logger().warning(f"Failed to save customer ID to donor: {e}")
+
+            return {"status": "created", "customer_id": customer.id}
+
+        except Exception as e:
+            error_msg = f"Failed to create or get Mollie customer: {e}"
+            frappe.log_error(error_msg, "Mollie Customer Error")
+            return {"success": False, "error": error_msg}
 
     def _update_donation_with_payment(self, donation_doc: Any, mollie_payment: Any) -> None:
         """Update donation document with Mollie payment details."""

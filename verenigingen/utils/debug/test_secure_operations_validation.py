@@ -128,9 +128,9 @@ def test_secure_document_operation_pattern():
             }
         )
 
-        # Clean up if successful
+        # Clean up if successful - use SQL delete for test cleanup to avoid permission issues
         if operation_result.success and operation_result.doc_name:
-            frappe.delete_doc("Customer", operation_result.doc_name, ignore_permissions=True)
+            frappe.db.delete("Customer", {"name": operation_result.doc_name})
 
         # Test 2: Verify SecureOperationResult structure
         result_structure_valid = all(

@@ -318,9 +318,11 @@ def create_reconciliation_report(company: str, from_date: str, to_date: str) -> 
         "unreconciled_withdrawals": unreconciled_withdrawals,
         "total_reconciled": reconciled_deposits - reconciled_withdrawals,
         "total_unreconciled": unreconciled_deposits - unreconciled_withdrawals,
-        "reconciliation_rate": (len(reconciled) / (len(reconciled) + len(unreconciled)) * 100)
-        if (reconciled or unreconciled)
-        else 0,
+        "reconciliation_rate": (
+            (len(reconciled) / (len(reconciled) + len(unreconciled)) * 100)
+            if (reconciled or unreconciled)
+            else 0
+        ),
     }
 
 

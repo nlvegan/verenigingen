@@ -482,9 +482,9 @@ def create_bank_transaction(transaction_data: Dict) -> str:
             "date": transaction_data.get("date", today()),
             "description": transaction_data.get("description", ""),
             "deposit": transaction_data.get("amount", 0) if transaction_data.get("amount", 0) > 0 else 0,
-            "withdrawal": abs(transaction_data.get("amount", 0))
-            if transaction_data.get("amount", 0) < 0
-            else 0,
+            "withdrawal": (
+                abs(transaction_data.get("amount", 0)) if transaction_data.get("amount", 0) < 0 else 0
+            ),
             "currency": "EUR",
             "bank_account": transaction_data.get("bank_account"),
             "company": transaction_data.get("company"),

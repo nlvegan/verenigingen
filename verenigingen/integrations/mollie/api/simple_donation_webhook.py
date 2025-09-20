@@ -234,21 +234,11 @@ def handle_payment_first_donation():
         if error_handler.is_error_result(payment_entry_result):
             error_handler.update_webhook_log(webhook_log, payment_entry_result)
             return payment_entry_result
-        elif payment_entry_result.get("status") == "exists":
-            # Payment Entry already exists - return success
-            result = error_handler.create_success_response(
-                payment_entry_result["message"],
-                {
-                    "payment_entry": payment_entry_result["payment_entry"],
-                    "donation_id": donation.name,
-                    "amount": donation.amount,
-                    "mandate_id": mollie_ids.get("mandate_id"),
-                },
-            )
-            error_handler.update_webhook_log(webhook_log, result)
-            return result
 
-        # Add payment history entry to donation
+        # Extract payment entry name from result (works for both new and existing)
+        payment_entry_name = payment_entry_result.get("payment_entry")
+
+        # Add payment history entry to donation (always do this, even if Payment Entry exists)
         history_result = error_handler.wrap_with_error_handling(
             "add payment history entry", payment_service.add_payment_history_entry, donation, payment_id
         )
@@ -263,11 +253,7 @@ def handle_payment_first_donation():
                 "donation_id": donation.name,
                 "amount": donation.amount,
                 "mandate_id": mollie_ids.get("mandate_id"),
-                "payment_entry": (
-                    payment_entry_result.get("payment_entry")
-                    if payment_entry_result and payment_entry_result.get("status") == "success"
-                    else None
-                ),
+                "payment_entry": payment_entry_name,
                 "is_new_donation": is_new_donation,
                 "flow_type": flow_type,
             },

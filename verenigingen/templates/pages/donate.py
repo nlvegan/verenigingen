@@ -61,10 +61,42 @@ def get_context(context):
                 context.payment_status = "success"
                 context.title = _("Donation Successful")
             else:
-                # Check if payment is still pending or failed
+                # Check actual payment status from Mollie if payment_id exists
                 if donation.payment_id:
-                    context.payment_status = "failed"
-                    context.title = _("Payment Failed")
+                    # Check payment status from Mollie to get real status
+                    try:
+                        from verenigingen.integrations.mollie.core.client import MollieClient
+
+                        client = MollieClient()
+                        payment = client.get_payment(donation.payment_id)
+
+                        if hasattr(payment, "status"):
+                            mollie_status = payment.status
+                        elif isinstance(payment, dict):
+                            mollie_status = payment.get("status", "unknown")
+                        else:
+                            mollie_status = "unknown"
+
+                        if mollie_status == "paid":
+                            context.payment_status = "success"
+                            context.title = _("Payment Successful")
+                            context.payment_pending_webhook = True  # Webhook hasn't processed yet
+                        elif mollie_status in ["open", "pending"]:
+                            context.payment_status = "pending"
+                            context.title = _("Payment Pending")
+                        elif mollie_status in ["failed", "canceled", "expired"]:
+                            context.payment_status = "failed"
+                            context.title = _("Payment Failed")
+                        else:
+                            context.payment_status = "pending"
+                            context.title = _("Payment Status Unknown")
+
+                    except Exception as e:
+                        frappe.log_error(
+                            f"Failed to check Mollie payment status for {donation.payment_id}: {str(e)}"
+                        )
+                        context.payment_status = "pending"
+                        context.title = _("Payment Status Unknown")
                 else:
                     context.payment_status = "pending"
                     context.title = _("Payment Pending")
@@ -316,18 +348,20 @@ def get_or_create_donor(form_data):
             }
         )
 
-        # PUBLIC DONATION FLOW: Use system user for creating public donation records
-        # This ensures proper ownership and permissions for webhook processing
+        # PUBLIC DONATION FLOW: Use Administrator context for creating public donation records
+        # This ensures proper permissions and ownership for webhook processing
         try:
-            # Temporarily switch to system user for donor creation
-            original_user = frappe.session.user
-            frappe.set_user("webhook.user@veganisme.org")
+            # Use Administrator context to avoid permission issues with public donations
+            frappe.set_user("Administrator")
 
+            # Set ignore_permissions for public donation flow
+            donor_doc.flags.ignore_permissions = True
             donor_doc.insert()
             frappe.db.commit()
 
-            # Switch back to original user
-            frappe.set_user(original_user)
+            # Ensure the donor is owned by the webhook user for proper webhook processing
+            frappe.db.set_value("Donor", donor_doc.name, "owner", "webhook.user@veganisme.org")
+            frappe.db.commit()
 
             frappe.log_error(
                 f"Created donor record for public donation: {form_data.donor_name} ({form_data.donor_email})",
@@ -336,9 +370,6 @@ def get_or_create_donor(form_data):
             return donor_doc
 
         except Exception as e:
-            # Ensure we switch back to original user even on error
-            if "original_user" in locals():
-                frappe.set_user(original_user)
             frappe.log_error(
                 f"Failed to create donor record for public donation: {str(e)}",
                 "Public Donation - Donor Creation Error",
@@ -640,24 +671,18 @@ def process_mollie_payment(donation, form_data):
         is_recurring = form_data.get("donation_status") == "Recurring"
 
         if is_recurring:
-            # For recurring donations, create first payment with sequenceType to establish mandate
-            # The subscription will be created by the webhook after successful first payment
-            payment_form_data["sequenceType"] = "first"
-            payment_form_data[
-                "description"
-            ] = f"First payment for recurring donation to {frappe.get_value('Company', donation.company, 'company_name')}"
-
-            # Store subscription details in metadata for webhook processing
-            payment_form_data.setdefault("metadata", {}).update(
+            # For recurring donations, use the dedicated recurring payment method that follows legacy pattern
+            payment_form_data.update(
                 {
-                    "is_recurring": "true",
+                    "donor_email": form_data.get("email", ""),
+                    "donor_name": f"{form_data.get('first_name', '')} {form_data.get('last_name', '')}".strip(),
                     "subscription_interval": form_data.get("recurring_interval", "1 month"),
-                    "subscription_amount": f"{float(donation.amount):.2f}",
+                    "locale": "nl_NL",
                 }
             )
 
-            # Create the first payment (mandate creation will happen automatically)
-            result = payment_service.create_donation_payment(donation, payment_form_data)
+            # Use the new recurring payment method that creates customer first
+            result = payment_service.create_recurring_donation_payment(donation, payment_form_data)
         else:
             # Create single payment using enhanced service
             result = payment_service.create_donation_payment(donation, payment_form_data)

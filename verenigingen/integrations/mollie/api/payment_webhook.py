@@ -5,10 +5,13 @@ Hybrid implementation that can optionally use the service layer architecture.
 Falls back to direct function calls if service layer is not available.
 """
 
+from datetime import datetime, timedelta
+
 import frappe
 from frappe import _
 
 from verenigingen.utils.security.api_security_framework import OperationType, public_api
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
@@ -34,6 +37,36 @@ def handle_mollie_payment_webhook():
         if not payment_id:
             frappe.response.http_status_code = 400
             return {"status": "error", "message": "No payment ID provided"}
+
+        # Set proper user context for webhook processing
+        def get_webhook_user():
+            """Get the configured webhook user or fallback to a user with proper permissions"""
+            try:
+                # Try to get webhook user from Verenigingen Payments Settings
+                settings = frappe.get_single("Verenigingen Payments Settings")
+                webhook_user = settings.get("webhook_user")
+
+                if webhook_user and frappe.db.exists("User", webhook_user):
+                    return webhook_user
+            except:
+                pass
+
+            # Fallback: Look for a user with Verenigingen Webhook User role
+            webhook_users = frappe.get_all(
+                "Has Role", filters={"role": "Verenigingen Webhook User"}, fields=["parent"], limit=1
+            )
+
+            if webhook_users:
+                user_email = webhook_users[0].parent
+                if frappe.db.get_value("User", user_email, "enabled"):
+                    return user_email
+
+            # Final fallback: Use Administrator (not ideal but ensures webhook works)
+            return "Administrator"
+
+        webhook_user = get_webhook_user()
+        frappe.set_user(webhook_user)
+        frappe.logger().info(f"🔐 Set webhook user context: {webhook_user}")
 
         frappe.logger().info(f"🔔 Webhook received for payment: {payment_id}")
 
@@ -276,25 +309,66 @@ def find_donation_for_payment(payment_id, payment):
 
 
 def _determine_recurring_status(donation, mollie_data):
-    """Determine if payment should be treated as recurring based on Mollie data and donation status"""
-    has_mollie_subscription = bool(mollie_data.get("subscription_id"))
+    """
+    Determine if payment should be treated as recurring with priority ordering
 
-    # Check Mollie payment description for recurring intent (primary source of truth for first payments)
-    donation_metadata_recurring = False
+    Priority 1: Explicit metadata override (highest priority)
+    Priority 2: Mollie subscription ID (definitive)
+    Priority 3: SEPA mandate setup (mandate + customer indicates subscription intent)
+    Priority 4: Other metadata indicators
+    Priority 5: Legacy JSON description parsing
+    Priority 6: Existing donation status
+    """
+
+    # Priority 1: Explicit metadata override (highest priority)
+    if "metadata" in mollie_data and mollie_data["metadata"]:
+        metadata = mollie_data["metadata"]
+        subscription_setup = metadata.get("subscription_setup")
+        if subscription_setup == "false":
+            frappe.logger().info("🔍 Explicit subscription_setup=false override - marking as one-time")
+            return False  # Explicit override
+        elif subscription_setup == "true":
+            frappe.logger().info("🔍 Explicit subscription_setup=true override - marking as recurring")
+            return True  # Explicit override
+
+    # Priority 2: Mollie subscription ID (definitive)
+    if mollie_data.get("subscription_id"):
+        frappe.logger().info("🔍 Mollie subscription_id present - marking as recurring")
+        return True
+
+    # Priority 3: SEPA mandate setup (mandate + customer indicates subscription intent)
+    if mollie_data.get("mandate_id") and mollie_data.get("customer_id"):
+        frappe.logger().info("🔍 SEPA mandate + customer detected - marking as recurring")
+        return True
+
+    # Priority 4: Other metadata indicators
+    if "metadata" in mollie_data and mollie_data["metadata"]:
+        metadata = mollie_data["metadata"]
+        if metadata.get("subscription_interval") or metadata.get("subscription_amount"):
+            frappe.logger().info("🔍 Subscription metadata indicators found - marking as recurring")
+            return True
+
+    # Priority 5: Legacy JSON description parsing (backward compatibility)
     mollie_description = mollie_data.get("description")
     if mollie_description:
         try:
             import json
 
             desc_data = json.loads(mollie_description)
-            donation_metadata_recurring = desc_data.get("type") == "recurring"
+            if desc_data.get("type") == "recurring":
+                frappe.logger().info("🔍 Legacy JSON description indicates recurring - marking as recurring")
+                return True
         except (json.JSONDecodeError, TypeError):
             pass
 
-    # Also check if donation was already marked as recurring (for subsequent payments)
-    already_recurring = donation.get("status") == "Recurring" if hasattr(donation, "status") else False
+    # Priority 6: Existing donation status (for subsequent payments)
+    if hasattr(donation, "status") and donation.get("status") == "Recurring":
+        frappe.logger().info("🔍 Donation already marked as recurring - preserving status")
+        return True
 
-    return has_mollie_subscription or donation_metadata_recurring or already_recurring
+    # Default to one-time if no indicators found
+    frappe.logger().info("🔍 No subscription indicators found - marking as one-time")
+    return False
 
 
 def process_successful_payment_with_idempotency(donation, payment, idempotency_status):
@@ -307,33 +381,8 @@ def process_successful_payment_with_idempotency(donation, payment, idempotency_s
     mollie_data = extract_mollie_payment_data(payment)
     frappe.logger().info("🔍 Full mollie_data: %s", mollie_data)
 
-    # Determine if this is recurring - check both Mollie data AND original donation intent
-    has_mollie_subscription = bool(mollie_data.get("subscription_id"))
-
-    # For first payments of subscriptions, Mollie won't have subscription_id yet
-    # So we check the Mollie payment description for recurring metadata
-    donation_metadata_recurring = False
-    mollie_description = mollie_data.get("description")
-    frappe.logger().info("🔍 Mollie description raw: %s", repr(mollie_description))
-
-    if mollie_description:
-        try:
-            import json
-
-            desc_data = json.loads(mollie_description)
-            donation_metadata_recurring = desc_data.get("type") == "recurring"
-            frappe.logger().info("🔍 Parsed description JSON: %s", desc_data)
-            frappe.logger().info("🔍 Type field: %s", desc_data.get("type"))
-            frappe.logger().info("🔍 Is recurring from description: %s", donation_metadata_recurring)
-        except (json.JSONDecodeError, TypeError) as e:
-            frappe.logger().info("⚠️ Failed to parse Mollie description JSON: %s", e)
-    else:
-        frappe.logger().info("⚠️ No Mollie description found")
-
-    # Also check if donation was already marked as recurring (for subsequent payments)
-    already_recurring = donation.get("status") == "Recurring" if hasattr(donation, "status") else False
-
-    is_recurring = has_mollie_subscription or donation_metadata_recurring or already_recurring
+    # Determine if this is recurring using improved detection logic
+    is_recurring = _determine_recurring_status(donation, mollie_data)
 
     # Initialize results with base data
     results = {"donation_id": donation.name, "mollie_payment_id": payment.id, "components_processed": []}
@@ -414,25 +463,8 @@ def process_successful_payment(donation, payment):
     # Extract Mollie metadata first
     mollie_data = extract_mollie_payment_data(payment)
 
-    # Determine if this is recurring - same logic as process_successful_payment_with_idempotency
-    has_mollie_subscription = bool(mollie_data.get("subscription_id"))
-
-    # Check Mollie payment description for recurring intent (primary source of truth for first payments)
-    donation_metadata_recurring = False
-    mollie_description = mollie_data.get("description")
-    if mollie_description:
-        try:
-            import json
-
-            desc_data = json.loads(mollie_description)
-            donation_metadata_recurring = desc_data.get("type") == "recurring"
-        except (json.JSONDecodeError, TypeError):
-            pass
-
-    # Also check if donation was already marked as recurring (for subsequent payments)
-    already_recurring = donation.get("status") == "Recurring" if hasattr(donation, "status") else False
-
-    is_recurring = has_mollie_subscription or donation_metadata_recurring or already_recurring
+    # Determine if this is recurring using improved detection logic
+    is_recurring = _determine_recurring_status(donation, mollie_data)
 
     # Update donation status using proper document operations
     donation.paid = 1
@@ -443,11 +475,8 @@ def process_successful_payment(donation, payment):
     if is_recurring:
         donation.status = "Recurring"
         frappe.logger().info(
-            "✅ Set donation %s status to Recurring (has_subscription=%s, already_recurring=%s, metadata_recurring=%s)",
+            "✅ Set donation %s status to Recurring (improved detection logic)",
             donation.name,
-            has_mollie_subscription,
-            already_recurring,
-            donation_metadata_recurring,
         )
     else:
         donation.status = "One-time"
@@ -554,9 +583,20 @@ def create_payment_entry_for_donation(donation, mollie_data):
         # Get the customer linked to the donor first (needed for both checking existing PE and creating new one)
         donor_doc = frappe.get_doc("Donor", donation.donor)
         customer = donor_doc.customer
+
+        # Create customer if missing (guest donation support)
         if not customer:
-            frappe.logger().error("❌ No customer linked to donor %s", donation.donor)
-            return None
+            frappe.logger().info("🔧 Creating customer for donor %s (guest donation)", donation.donor)
+            customer = _create_customer_for_donor(donor_doc)
+            if not customer:
+                frappe.logger().error("❌ Failed to create customer for donor %s", donation.donor)
+                return None
+
+            # Link customer to donor
+            donor_doc.customer = customer
+            donor_doc.flags.ignore_permissions = True
+            donor_doc.save()
+            frappe.logger().info("✅ Created and linked customer %s to donor %s", customer, donation.donor)
 
         # Check if Payment Entry already exists
         existing_pe = frappe.db.get_value(
@@ -612,6 +652,9 @@ def create_payment_entry_for_donation(donation, mollie_data):
             donation.name,
         )
 
+        # Set cost center for the company to satisfy P&L account requirements
+        cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+
         # Create Payment Entry for donation (Receive type with party tracking)
         pe = frappe.get_doc(
             {
@@ -628,6 +671,7 @@ def create_payment_entry_for_donation(donation, mollie_data):
                 "paid_from": donation_account,  # Money comes FROM receivable account (party account)
                 "paid_to": bank_account,  # Money goes TO Mollie bank account
                 "mode_of_payment": "Mollie",
+                "cost_center": cost_center,  # Required for P&L accounts
                 "remarks": f"Donation payment {donation.name} via Mollie ({mollie_data.get('method', 'Unknown method')}) - {donor_doc.donor_name}",
             }
         )
@@ -725,3 +769,73 @@ def check_payment_processing_status_by_id(payment_id):
         return {"all_complete": False, "message": "No donation found for payment ID"}
 
     return check_payment_processing_status(donation, payment_id)
+
+
+def _create_customer_for_donor(donor_doc):
+    """
+    Create a Customer record for a donor (guest donation support)
+
+    Args:
+        donor_doc: Donor document
+
+    Returns:
+        Customer name if successful, None if failed
+    """
+    try:
+        # Get company for customer creation
+        settings = frappe.get_single("Verenigingen Settings")
+        company = settings.donation_company or frappe.defaults.get_global_default("company")
+
+        # Validate and get Customer Group with fallback
+        customer_group = "Individual"
+        if not frappe.db.exists("Customer Group", customer_group):
+            frappe.logger().warning("⚠️ Customer Group 'Individual' not found, using fallback")
+            # Get any non-group customer group as fallback
+            fallback_group = frappe.get_value("Customer Group", {"is_group": 0}, "name")
+            customer_group = fallback_group or "All Customer Groups"
+
+        # Validate and get Territory with fallback
+        territory = "Netherlands"
+        if not frappe.db.exists("Territory", territory):
+            frappe.logger().warning("⚠️ Territory 'Netherlands' not found, using fallback")
+            # Get any non-group territory as fallback
+            fallback_territory = frappe.get_value("Territory", {"is_group": 0}, "name")
+            territory = fallback_territory or "All Territories"
+
+        # Validate donor email
+        donor_email = donor_doc.donor_email
+        if donor_email and not frappe.utils.validate_email_address(donor_email):
+            frappe.logger().warning("⚠️ Invalid email for donor %s: %s", donor_doc.name, donor_email)
+            donor_email = None  # Customer creation can proceed without email
+
+        # Create customer with validated information
+        customer_doc = frappe.get_doc(
+            {
+                "doctype": "Customer",
+                "customer_name": donor_doc.donor_name or f"Donor {donor_doc.name}",
+                "customer_type": "Individual",
+                "customer_group": customer_group,
+                "territory": territory,
+                "company": company,
+                # Link to donor
+                "custom_donor": donor_doc.name,
+                # Contact information (only if valid)
+                "email_id": donor_email,
+            }
+        )
+
+        customer_doc.flags.ignore_permissions = True
+        customer_doc.insert()
+
+        frappe.logger().info(
+            "✅ Created customer %s for donor %s (group: %s, territory: %s)",
+            customer_doc.name,
+            donor_doc.name,
+            customer_group,
+            territory,
+        )
+        return customer_doc.name
+
+    except Exception as e:
+        frappe.logger().error("❌ Failed to create customer for donor %s: %s", donor_doc.name, str(e))
+        return None

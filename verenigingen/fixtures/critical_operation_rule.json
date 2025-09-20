@@ -39228,5 +39228,21 @@
     "rate_limit_scope": "user",
     "audit_level": "standard",
     "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "handle_mollie_payment_webhook",
+    "operation_name": "handle_mollie_payment_webhook",
+    "operation_type": "PUBLIC",
+    "description": "Mollie payment webhook forwarder endpoint for external payment notifications",
+    "enabled": 1,
+    "security_level": "high",
+    "business_context": "Critical payment processing webhook that receives payment notifications from Mollie and forwards to internal handler",
+    "required_roles": "System Manager\nVerenigingen Manager\nVerenigingen Webhook User\nGuest",
+    "rate_limit_calls": 50,
+    "rate_limit_period_seconds": 3600,
+    "rate_limit_scope": "global",
+    "audit_level": "detailed",
+    "alert_on_execution": 0
   }
 ]

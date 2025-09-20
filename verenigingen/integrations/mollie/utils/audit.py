@@ -186,9 +186,11 @@ class MollieAuditLogger:
             event_category="webhook",
             description="Mollie webhook received",
             data={
-                "webhook_data": webhook_data
-                if self.log_settings.get("detailed_logging")
-                else {"id": webhook_data.get("id")},
+                "webhook_data": (
+                    webhook_data
+                    if self.log_settings.get("detailed_logging")
+                    else {"id": webhook_data.get("id")}
+                ),
                 "headers": safe_headers,
                 "timestamp": now_datetime(),
             },
@@ -227,9 +229,11 @@ class MollieAuditLogger:
             description=f"Webhook processing error: {error_message}",
             data={
                 "error_message": error_message,
-                "webhook_data": webhook_data
-                if self.log_settings.get("detailed_logging")
-                else {"id": webhook_data.get("id")},
+                "webhook_data": (
+                    webhook_data
+                    if self.log_settings.get("detailed_logging")
+                    else {"id": webhook_data.get("id")}
+                ),
                 "timestamp": now_datetime(),
             },
             severity="error",

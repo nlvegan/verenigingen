@@ -130,13 +130,15 @@ def test_audit_routing():
                 # Try to delete from SEPA Audit Log
                 if frappe.db.exists("SEPA Audit Log", {"event_id": event_id}):
                     doc_name = frappe.db.get_value("SEPA Audit Log", {"event_id": event_id}, "name")
-                    frappe.delete_doc("SEPA Audit Log", doc_name, ignore_permissions=True)
+                    # Use SQL delete for test cleanup to avoid permission issues
+                    frappe.db.delete("SEPA Audit Log", {"name": doc_name})
                     cleanup_count += 1
 
                 # Try to delete from API Audit Log
                 if frappe.db.exists("API Audit Log", {"event_id": event_id}):
                     doc_name = frappe.db.get_value("API Audit Log", {"event_id": event_id}, "name")
-                    frappe.delete_doc("API Audit Log", doc_name, ignore_permissions=True)
+                    # Use SQL delete for test cleanup to avoid permission issues
+                    frappe.db.delete("API Audit Log", {"name": doc_name})
                     cleanup_count += 1
 
             except Exception as e:
@@ -216,8 +218,8 @@ def test_field_mapping():
 
             results["tests"].append(sepa_test)
 
-            # Cleanup
-            frappe.delete_doc("SEPA Audit Log", sepa_doc.name, ignore_permissions=True)
+            # Cleanup - use SQL delete for test cleanup to avoid permission issues
+            frappe.db.delete("SEPA Audit Log", {"name": sepa_doc.name})
 
         except Exception as e:
             results["tests"].append({"test": "SEPA Field Mapping", "status": "FAIL", "error": str(e)})
@@ -257,8 +259,8 @@ def test_field_mapping():
 
             results["tests"].append(api_test)
 
-            # Cleanup
-            frappe.delete_doc("API Audit Log", api_doc.name, ignore_permissions=True)
+            # Cleanup - use SQL delete for test cleanup to avoid permission issues
+            frappe.db.delete("API Audit Log", {"name": api_doc.name})
 
         except Exception as e:
             results["tests"].append({"test": "API Field Mapping", "status": "FAIL", "error": str(e)})

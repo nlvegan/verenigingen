@@ -360,15 +360,11 @@ class WebhookService:
         # Convert to datetime if it's a string
         if isinstance(payment_created, str):
             try:
-                from datetime import datetime
-
                 payment_created = datetime.fromisoformat(payment_created.replace("Z", "+00:00"))
             except (ValueError, TypeError):
                 return None
 
         # Search for donations within 30-minute window
-        from datetime import timedelta
-
         time_window_start = payment_created - timedelta(minutes=30)
         time_window_end = payment_created + timedelta(minutes=30)
 
@@ -485,9 +481,9 @@ class WebhookService:
         """Extract relevant data from Mollie payment object"""
         return {
             "payment_id": payment.id,
-            "amount": float(payment.amount.value)
-            if hasattr(payment.amount, "value")
-            else float(payment.amount),
+            "amount": (
+                float(payment.amount.value) if hasattr(payment.amount, "value") else float(payment.amount)
+            ),
             "currency": payment.amount.currency if hasattr(payment.amount, "currency") else "EUR",
             "status": payment.status,
             "method": getattr(payment, "method", None),
@@ -515,8 +511,6 @@ class WebhookService:
 
         if mollie_description:
             try:
-                import json
-
                 desc_data = json.loads(mollie_description)
                 donation_metadata_recurring = desc_data.get("type") == "recurring"
                 frappe.logger().info(f"🔍 Parsed description JSON: {desc_data}")

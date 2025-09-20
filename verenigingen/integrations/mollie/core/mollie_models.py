@@ -73,9 +73,9 @@ class Payment:
             status=data["status"],
             customer_id=data.get("customerId"),
             created_at=datetime.fromisoformat(data["createdAt"].replace("Z", "+00:00")),
-            paid_at=datetime.fromisoformat(data["paidAt"].replace("Z", "+00:00"))
-            if data.get("paidAt")
-            else None,
+            paid_at=(
+                datetime.fromisoformat(data["paidAt"].replace("Z", "+00:00")) if data.get("paidAt") else None
+            ),
             metadata=data.get("metadata", {}),
             method=data.get("method"),
         )
@@ -121,9 +121,11 @@ class Subscription:
             description=data["description"],
             status=data["status"],
             created_at=datetime.fromisoformat(data["createdAt"].replace("Z", "+00:00")),
-            next_payment_date=datetime.fromisoformat(data["nextPaymentDate"].replace("Z", "+00:00"))
-            if data.get("nextPaymentDate")
-            else None,
+            next_payment_date=(
+                datetime.fromisoformat(data["nextPaymentDate"].replace("Z", "+00:00"))
+                if data.get("nextPaymentDate")
+                else None
+            ),
             metadata=data.get("metadata", {}),
         )
 

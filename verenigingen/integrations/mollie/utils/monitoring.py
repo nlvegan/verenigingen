@@ -217,9 +217,9 @@ class MollieHealthChecker:
                 details={
                     "check": "api_methods_list",
                     "methods_count": len(methods),
-                    "api_key_prefix": mollie_settings.api_key[:8] + "..."
-                    if mollie_settings.api_key
-                    else None,
+                    "api_key_prefix": (
+                        mollie_settings.api_key[:8] + "..." if mollie_settings.api_key else None
+                    ),
                 },
             )
 

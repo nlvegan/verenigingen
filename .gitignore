@@ -30,7 +30,9 @@ jest-junit.xml
 .vscode/
 .idea/
 coverage/
-
+.codanna
+.fastembed_cache
+.codannaignore
 # Security: Environment and credential files
 .env
 .env.*

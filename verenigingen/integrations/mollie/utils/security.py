@@ -32,9 +32,11 @@ class WebhookSecurityManager:
                     fieldname="webhook_secret", raise_exception=False
                 ),
                 "verify_ssl": mollie_settings.get("verify_ssl", True),
-                "allowed_ips": mollie_settings.get("allowed_webhook_ips", "").split(",")
-                if mollie_settings.get("allowed_webhook_ips")
-                else [],
+                "allowed_ips": (
+                    mollie_settings.get("allowed_webhook_ips", "").split(",")
+                    if mollie_settings.get("allowed_webhook_ips")
+                    else []
+                ),
                 "signature_validation": mollie_settings.get("enable_signature_validation", True),
             }
         except Exception as e:

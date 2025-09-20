@@ -262,7 +262,7 @@ class MollieErrorRecovery:
         self.recovery_queues[workflow_name].append(recovery_data)
 
         self.logger.info(
-            f"Created recovery workflow",
+            "Created recovery workflow",
             {
                 "workflow_id": workflow_id,
                 "strategy": recovery_strategy,
@@ -464,18 +464,44 @@ class MollieErrorRecovery:
         # Store recovery metrics in cache for monitoring
         cache_key = f"mollie_recovery_success:{operation_name}"
         current_data = frappe.cache().get(cache_key) or {"count": 0, "total_attempts": 0}
+        if isinstance(current_data, str):
+            # Handle case where cache returns JSON string
+            import json
+
+            try:
+                current_data = json.loads(current_data)
+            except (json.JSONDecodeError, TypeError):
+                current_data = {"count": 0, "total_attempts": 0}
+
         current_data["count"] += 1
         current_data["total_attempts"] += attempts
-        frappe.cache().set(cache_key, current_data, 3600)
+
+        # Serialize data before storing in Redis cache
+        import json
+
+        frappe.cache().set(cache_key, json.dumps(current_data), 3600)
 
     def _record_operation_failure(self, operation_name: str, attempts: int, error: Exception):
         """Record operation failure after all retries."""
         # Store failure metrics in cache for monitoring
         cache_key = f"mollie_operation_failure:{operation_name}"
         current_data = frappe.cache().get(cache_key) or {"count": 0, "total_attempts": 0}
+        if isinstance(current_data, str):
+            # Handle case where cache returns JSON string
+            import json
+
+            try:
+                current_data = json.loads(current_data)
+            except (json.JSONDecodeError, TypeError):
+                current_data = {"count": 0, "total_attempts": 0}
+
         current_data["count"] += 1
         current_data["total_attempts"] += attempts
-        frappe.cache().set(cache_key, current_data, 3600)
+
+        # Serialize data before storing in Redis cache
+        import json
+
+        frappe.cache().set(cache_key, json.dumps(current_data), 3600)
 
     def _persist_recovery_workflow(self, recovery_data: Dict[str, Any]):
         """Persist recovery workflow to database."""

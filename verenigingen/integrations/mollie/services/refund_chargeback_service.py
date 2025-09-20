@@ -370,9 +370,11 @@ class RefundChargebackService:
                     "paid_amount": refund_amount,
                     "received_amount": refund_amount,
                     "reference_no": refund_details.get("id"),
-                    "reference_date": getdate(refund_details.get("created_at"))
-                    if refund_details.get("created_at")
-                    else getdate(),
+                    "reference_date": (
+                        getdate(refund_details.get("created_at"))
+                        if refund_details.get("created_at")
+                        else getdate()
+                    ),
                     "remarks": f"Mollie refund for donation {donation_name}. Description: {refund_details.get('description', 'N/A')}",
                     "mode_of_payment": "Mollie",
                     "posting_date": getdate(),
@@ -412,9 +414,11 @@ class RefundChargebackService:
                     "paid_amount": chargeback_amount,
                     "received_amount": chargeback_amount,
                     "reference_no": chargeback_details.get("id"),
-                    "reference_date": getdate(chargeback_details.get("created_at"))
-                    if chargeback_details.get("created_at")
-                    else getdate(),
+                    "reference_date": (
+                        getdate(chargeback_details.get("created_at"))
+                        if chargeback_details.get("created_at")
+                        else getdate()
+                    ),
                     "remarks": f"Mollie chargeback for donation {donation_name}. Reason: {reason_text}",
                     "mode_of_payment": "Mollie",
                     "posting_date": getdate(),
@@ -448,9 +452,11 @@ class RefundChargebackService:
             donation.append(
                 "payment_history",
                 {
-                    "payment_date": getdate(refund_details.get("created_at"))
-                    if refund_details.get("created_at")
-                    else getdate(),
+                    "payment_date": (
+                        getdate(refund_details.get("created_at"))
+                        if refund_details.get("created_at")
+                        else getdate()
+                    ),
                     "payment_method": "Mollie",
                     "status": "Refunded",
                     "amount": -(refund_amount or 0),  # Negative amount for refund
@@ -480,9 +486,11 @@ class RefundChargebackService:
             donation.append(
                 "payment_history",
                 {
-                    "payment_date": getdate(chargeback_details.get("created_at"))
-                    if chargeback_details.get("created_at")
-                    else getdate(),
+                    "payment_date": (
+                        getdate(chargeback_details.get("created_at"))
+                        if chargeback_details.get("created_at")
+                        else getdate()
+                    ),
                     "payment_method": "Mollie",
                     "status": "Chargeback",
                     "amount": -(chargeback_amount or 0),  # Negative amount for chargeback

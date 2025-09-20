@@ -282,6 +282,7 @@
 {% block page_content %}
 <div class="donation-form">
 
+
     {% if payment_status == "success" %}
         <!-- Payment Success Screen -->
         <div class="payment-result success text-center">
@@ -701,7 +702,7 @@
 // Retry payment function
 function retryPayment(donationId) {
     // Redirect to Mollie payment page for retry
-    window.location.href = `/api/method/vereinigingen.templates.pages.donate.retry_payment?donation_id=${donationId}`;
+    window.location.href = `/api/method/verenigingen.templates.pages.donate.retry_payment?donation_id=${donationId}`;
 }
 </script>
 {% endblock %}
