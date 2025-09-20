@@ -18,6 +18,7 @@ from verenigingen.utils.security.api_security_framework import (
 class VerenigingenSettings(Document):
     def validate(self):
         self.validate_donation_accounts()
+        self.validate_grace_period_settings()  # Moved from hooks.py
 
     def validate_donation_accounts(self):
         """Validate donation account configuration"""
@@ -43,6 +44,17 @@ class VerenigingenSettings(Document):
                 ),
                 indicator="yellow",
             )
+
+    def validate_grace_period_settings(self):
+        """Validation for grace period settings (moved from hooks.py)"""
+        # Validate grace period settings
+        if self.default_grace_period_days:
+            if self.default_grace_period_days < 1 or self.default_grace_period_days > 180:
+                frappe.throw(_("Default grace period days must be between 1 and 180 days"))
+
+        if self.grace_period_notification_days:
+            if self.grace_period_notification_days < 1 or self.grace_period_notification_days > 30:
+                frappe.throw(_("Grace period notification days must be between 1 and 30 days"))
 
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.ADMIN)

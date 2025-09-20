@@ -110,6 +110,7 @@ class Chapter(WebsiteGenerator):
         self._ensure_route()
         self._auto_fix_required_fields()
         self.validate_role_profile_configuration()
+        self.validate_chapter_access()  # Moved from hooks.py
 
         # Comprehensive validation using validator - streamlined approach
         validation_result = self.validator.validate_before_save()
@@ -302,6 +303,29 @@ class Chapter(WebsiteGenerator):
                     # Validate that the chapter role exists
                     if not frappe.db.exists("Chapter Role", row.chapter_role):
                         frappe.throw(_("Chapter Role '{0}' does not exist").format(row.chapter_role))
+
+    def validate_chapter_access(self):
+        """Validate chapter access permissions (moved from hooks.py)"""
+        try:
+            if frappe.session.user == "Administrator" or "System Manager" in frappe.get_roles():
+                return
+
+            settings = frappe.get_single("Verenigingen Settings")
+            if not settings.get("national_board_chapter"):
+                return
+
+            if self.name == settings.national_board_chapter:
+                user_roles = frappe.get_roles()
+                if "Verenigingen Administrator" in user_roles and "System Manager" not in user_roles:
+                    frappe.throw(
+                        _(
+                            "Verenigingen Administrators cannot edit the National Board chapter. Please contact an administrator."
+                        )
+                    )
+
+        except Exception as e:
+            frappe.log_error(f"Error validating chapter access for {self.name}: {str(e)}")
+            # Don't block access on validation errors
 
     def is_board_member(self, member_name=None, user=None, volunteer_name=None):
         """Check if user is board member - delegates to BoardManager"""

@@ -319,7 +319,7 @@ doctype_js = {
 doc_events = {
     # Core membership system events
     "Membership": {
-        "validate": "verenigingen.validations.validate_membership_grace_period",
+        # validate: now handled in controller validate() method
         "on_submit": [
             "verenigingen.verenigingen.doctype.membership.membership.on_submit",
             "verenigingen.utils.performance_cache.on_membership_update",  # Performance cache invalidation
@@ -332,12 +332,12 @@ doc_events = {
     },
     # Updated to use dues schedule system instead of subscription hooks
     "Chapter": {
-        "validate": "verenigingen.verenigingen.doctype.chapter.chapter.validate_chapter_access",
+        # validate: now handled in controller validate() method
         "on_update": "verenigingen.utils.optimized_chapter_lookup.invalidate_chapter_lookup_cache",
         "after_save": "verenigingen.utils.optimized_chapter_lookup.invalidate_chapter_lookup_cache",
     },
     "Verenigingen Settings": {
-        "validate": "verenigingen.validations.validate_verenigingen_settings",
+        # validate: now handled in controller validate() method
         "on_update": [
             "verenigingen.verenigingen.doctype.member.member_utils.sync_member_counter_with_settings",
             "verenigingen.utils.optimized_chapter_lookup.invalidate_chapter_lookup_cache",
@@ -389,7 +389,7 @@ doc_events = {
     },
     # Termination system events
     "Membership Termination Request": {
-        "validate": "verenigingen.validations.validate_termination_request",
+        # validate: now handled in controller validate() method
         "on_update_after_submit": "verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.handle_status_change",
     },
     "Expulsion Report Entry": {
@@ -427,8 +427,7 @@ doc_events = {
             "verenigingen.utils.cache_invalidation.on_document_update",  # Cache invalidation
         ],
     },
-    # Brand Settings - regenerate CSS when colors change (Single doctype)
-    "Brand Settings": {"on_update": "verenigingen.utils.brand_css_generator.generate_brand_css_file"},
+    # Brand Settings - now handled in controller on_update method
     # Account Group Project Framework - validate and apply defaults
     "Journal Entry": {
         "validate": "verenigingen.utils.account_group_validation_hooks.validate_journal_entry",

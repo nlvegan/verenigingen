@@ -19,6 +19,7 @@ class MembershipTerminationRequest(Document):
         self.set_approval_requirements()
         self.validate_permissions()
         self.validate_dates()
+        self.validate_termination_request()  # Moved from hooks.py
 
     def set_defaults(self):
         """Set default values"""
@@ -585,6 +586,53 @@ class MembershipTerminationRequest(Document):
             if getdate(self.grace_period_end) < getdate(self.termination_date):
                 frappe.throw(_("Grace period end cannot be before termination date"))
 
+    def validate_termination_request(self):
+        """Additional validation logic for termination requests (moved from hooks.py)"""
+        # Validate that member exists and is active
+        if not frappe.db.exists("Member", self.member):
+            frappe.throw(_("Member {0} does not exist").format(self.member))
+
+        member_status = frappe.db.get_value("Member", self.member, "status")
+        if member_status in ["Terminated", "Expired", "Banned", "Deceased"]:
+            frappe.throw(_("Cannot terminate member with status: {0}").format(member_status))
+
+        # Validate disciplinary terminations
+        disciplinary_types = ["Policy Violation", "Disciplinary Action", "Expulsion"]
+        if self.termination_type in disciplinary_types:
+            # Require documentation
+            if not self.disciplinary_documentation:
+                frappe.throw(_("Documentation is required for disciplinary terminations"))
+
+            # Require secondary approver for pending approval status
+            if not self.secondary_approver and self.status == "Pending Approval":
+                frappe.throw(_("Secondary approver is required for disciplinary terminations"))
+
+            # Validate approver permissions
+            if self.secondary_approver:
+                self._validate_approver_permissions(self.secondary_approver)
+
+    def _validate_approver_permissions(self, user):
+        """Validate that the user has permission to approve termination requests"""
+        # Check if user exists and is enabled
+        if not frappe.db.exists("User", user):
+            frappe.throw(_("Approver {0} does not exist").format(user))
+
+        user_doc = frappe.get_doc("User", user)
+        if not user_doc.enabled:
+            frappe.throw(_("Approver {0} is disabled").format(user))
+
+        # Check if user has appropriate roles
+        required_roles = [
+            "System Manager",
+            "Verenigingen Administrator",
+            "Chapter Administrator",
+            "Board Member",
+        ]
+        user_roles = frappe.get_roles(user)
+
+        if not any(role in user_roles for role in required_roles):
+            frappe.throw(_("User {0} does not have permission to approve termination requests").format(user))
+
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.MEMBER_DATA)
     def get_termination_preview(self):
@@ -841,7 +889,7 @@ def generate_expulsion_report(filters=None):
             values.append(filters["termination_type"])
 
         if filters.get("chapter"):
-            conditions.append("mem.current_chapter = %s")
+            conditions.append("mem.current_chapter_display = %s")
             values.append(filters["chapter"])
 
         # Get expulsion data
@@ -851,7 +899,7 @@ def generate_expulsion_report(filters=None):
                 ter.member,
                 mem.full_name as member_name,
                 mem.email as member_email,
-                mem.current_chapter,
+                mem.current_chapter_display,
                 ter.termination_type,
                 ter.termination_reason,
                 ter.termination_date,
@@ -881,7 +929,7 @@ def generate_expulsion_report(filters=None):
             summary["by_type"][exp_type] = summary["by_type"].get(exp_type, 0) + 1
 
             # Count by chapter
-            chapter = exp.current_chapter or "Unknown"
+            chapter = exp.current_chapter_display or "Unknown"
             summary["by_chapter"][chapter] = summary["by_chapter"].get(chapter, 0) + 1
 
         return {"success": True, "expulsions": expulsions, "summary": summary}

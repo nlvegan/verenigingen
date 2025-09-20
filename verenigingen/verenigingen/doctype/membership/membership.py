@@ -17,6 +17,7 @@ class Membership(Document):
         self.validate_dates()
         self.validate_membership_type()
         self.validate_existing_memberships()
+        self.validate_grace_period()  # Moved from hooks.py
         self.set_renewal_date()  # Calculate renewal date based on start date and membership type
         self.set_grace_period_expiry()  # Set default grace period expiry if needed
         self.set_status()
@@ -485,6 +486,19 @@ class Membership(Document):
 
             if not membership_type.is_active:
                 frappe.throw(_("Membership Type {0} is inactive").format(self.membership_type))
+
+    def validate_grace_period(self):
+        """Validation for Membership grace period fields (moved from hooks.py)"""
+        from frappe.utils import getdate, today
+
+        # Validate grace period expiry date
+        if self.grace_period_status == "Grace Period":
+            if not getattr(self, "grace_period_expiry_date", None):
+                frappe.throw(_("Grace period expiry date is required when grace period status is set"))
+
+            # Ensure grace period expiry is in the future (allow same day)
+            if getdate(self.grace_period_expiry_date) < getdate(today()):
+                frappe.throw(_("Grace period expiry date cannot be in the past"))
 
     def set_status(self):
         """Set the status based on dates, payment amount, and cancellation"""

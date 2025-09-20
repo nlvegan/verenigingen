@@ -276,8 +276,15 @@ class SQLFieldValidator:
                     if suggested_fix:
                         message += f" → Suggested: {suggested_fix}"
                     
+                    # Handle both absolute and relative paths safely
+                    try:
+                        relative_path = str(file_path.relative_to(self.app_path))
+                    except ValueError:
+                        # Path is already relative or outside app_path
+                        relative_path = str(file_path)
+
                     violations.append(ValidationIssue(
-                        file=str(file_path.relative_to(self.app_path)),
+                        file=relative_path,
                         line=line_num,
                         field=field,
                         doctype=doctype,
@@ -381,8 +388,15 @@ class SQLFieldValidator:
                     if suggested_fix:
                         message += f" → Suggested: {suggested_fix}"
                     
+                    # Handle both absolute and relative paths safely
+                    try:
+                        relative_path = str(file_path.relative_to(self.app_path))
+                    except ValueError:
+                        # Path is already relative or outside app_path
+                        relative_path = str(file_path)
+
                     violations.append(ValidationIssue(
-                        file=str(file_path.relative_to(self.app_path)),
+                        file=relative_path,
                         line=line_num,
                         field=field,
                         doctype=table,

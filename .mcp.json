@@ -5,6 +5,10 @@
       "command": "npx -y @modelcontextprotocol/server-playwright",
       "args": [],
       "env": {}
+    },
+    "codanna": {
+	    "command": "codanna",
+	    "args": ["serve", "--watch"]
     }
   }
 }

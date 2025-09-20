@@ -98,6 +98,9 @@ class BrandSettings(Document):
         # Clear website cache to rebuild portal pages
         frappe.clear_cache()
 
+        # Generate static CSS file (moved from hooks.py)
+        self.generate_static_css_file()
+
         # Trigger CSS rebuild for brand changes
         frappe.publish_realtime(
             "brand_settings_updated", {"message": "Brand settings updated", "settings_name": "Brand Settings"}
@@ -105,6 +108,15 @@ class BrandSettings(Document):
 
         # Sync with Owl Theme Settings if available
         self.sync_to_owl_theme()
+
+    def generate_static_css_file(self):
+        """Generate static CSS file for brand colors"""
+        try:
+            from verenigingen.utils.brand_css_generator import generate_brand_css_file
+
+            generate_brand_css_file(doc=self)
+        except Exception as e:
+            frappe.log_error(f"Error generating static CSS file: {str(e)}", "Brand Settings CSS Generation")
 
     def sync_to_owl_theme(self):
         """Sync Brand Settings to Owl Theme Settings if owl_theme app is installed"""
