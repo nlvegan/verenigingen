@@ -196,7 +196,8 @@ class TestRecentCodeChanges(EnhancedTestCase):
         ]
 
         for birth_date, expected_group in test_cases:
-            age_group = member._get_age_group(birth_date)
+            from verenigingen.utils.member_age_service import get_age_group
+            age_group = get_age_group(birth_date)
             self.assertEqual(
                 age_group,
                 expected_group,
@@ -248,19 +249,15 @@ class TestRecentCodeChanges(EnhancedTestCase):
         # Skip board member creation if it causes link validation errors
         # This test focuses on expense approver functionality, not board structure
         try:
-            # Create chapter board member as treasurer
-            board_member = frappe.get_doc(
-                {
-                    "doctype": "Chapter Board Member",
-                    "parent": self.test_chapter.name,
-                    "parenttype": "Chapter",
-                    "parentfield": "board_members",
-                    "volunteer": treasurer_volunteer.name,
-                    "chapter_role": "Board Member",  # Use generic role to avoid validation issues
-                    "is_active": 1}
-            )
-            board_member.insert()
-            self.test_records.append(board_member)
+            # Create chapter board member as treasurer using proper child table pattern
+            chapter_doc = frappe.get_doc("Chapter", self.test_chapter.name)
+            board_member = chapter_doc.append("board_members", {
+                "volunteer": treasurer_volunteer.name,
+                "chapter_role": "Board Member",  # Use generic role to avoid validation issues
+                "is_active": 1
+            })
+            chapter_doc.save()
+            self.test_records.append(chapter_doc)
         except Exception as e:
             print(f"Skipping board member creation due to validation: {e}")
 

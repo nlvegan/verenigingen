@@ -7,7 +7,7 @@
       "env": {}
     },
     "codanna": {
-	    "command": "codanna",
+	    "command": "/home/frappe/.cargo/bin/codanna",
 	    "args": ["serve", "--watch"]
     }
   }

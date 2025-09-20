@@ -224,12 +224,10 @@ def get_dutch_postal_code_pattern() -> str:
 
 
 def validate_dutch_postal_code(postal_code: str) -> bool:
-    """Validate Dutch postal code format"""
-    import re
+    """Validate Dutch postal code format - delegated to postal_code_validator"""
+    from verenigingen.utils.validation.postal_code_validator import is_valid_dutch_postal_code
 
-    pattern = get_dutch_postal_code_pattern()
-    clean_code = postal_code.upper().replace(" ", "")
-    return bool(re.match(pattern, clean_code))
+    return is_valid_dutch_postal_code(postal_code)
 
 
 def get_batch_size(operation_type: str = "default") -> int:

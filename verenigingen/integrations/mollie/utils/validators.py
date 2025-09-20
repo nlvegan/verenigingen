@@ -277,20 +277,11 @@ class PaymentDataValidator:
     @classmethod
     def validate_dutch_postal_code(cls, postal_code: str) -> bool:
         """
-        Validate Dutch postal code format.
-
-        Args:
-            postal_code: Dutch postal code to validate
-
-        Returns:
-            True if format is valid, False otherwise
+        Validate Dutch postal code format - delegated to postal_code_validator.
         """
-        if not postal_code:
-            return False
+        from verenigingen.utils.validation.postal_code_validator import is_valid_dutch_postal_code
 
-        # Dutch postal code format: 1234 AB or 1234AB
-        dutch_postal_pattern = r"^\d{4}\s?[A-Z]{2}$"
-        return re.match(dutch_postal_pattern, postal_code.upper()) is not None
+        return is_valid_dutch_postal_code(postal_code)
 
     @classmethod
     def validate_member_data(cls, member_data: Dict[str, Any]) -> List[str]:

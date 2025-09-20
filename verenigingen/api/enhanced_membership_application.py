@@ -30,6 +30,9 @@ import frappe
 from frappe import _
 from frappe.utils import cstr, flt, getdate, today
 
+# Import extracted services
+from verenigingen.utils.dutch_name_service import is_valid_dutch_tussenvoegsel
+
 # Import security framework
 from verenigingen.utils.security.api_security_framework import OperationType, public_api, standard_api
 
@@ -1229,19 +1232,10 @@ def validate_payment_method_requirements(data):
 
 
 def _is_valid_dutch_postal_code(postal_code):
-    """Check if postal code matches Dutch format (1234 AB).
+    """Check if postal code matches Dutch format (1234 AB) - delegated to postal_code_validator"""
+    from verenigingen.utils.validation.postal_code_validator import is_valid_dutch_postal_code
 
-    Args:
-        postal_code (str): Postal code to validate
-
-    Returns:
-        bool: True if valid Dutch postal code format
-    """
-    import re
-
-    # Dutch postal code: 4 digits + space + 2 letters
-    pattern = r"^\d{4}\s[A-Z]{2}$"
-    return bool(re.match(pattern, postal_code.upper()))
+    return is_valid_dutch_postal_code(postal_code)
 
 
 def _validate_iban_format(iban):
@@ -1276,32 +1270,15 @@ def _validate_iban_format(iban):
 def _is_valid_tussenvoegsel(tussenvoegsel):
     """Check if tussenvoegsel is a valid Dutch name particle.
 
+    Delegates to the extracted dutch_name_service for consistent validation.
+
     Args:
         tussenvoegsel (str): Name particle to validate
 
     Returns:
         bool: True if valid tussenvoegsel
     """
-    valid_particles = [
-        "van",
-        "de",
-        "der",
-        "den",
-        "het",
-        "van der",
-        "van den",
-        "van het",
-        "von",
-        "du",
-        "da",
-        "di",
-        "del",
-        "della",
-        "van de",
-        "ter",
-        "te",
-    ]
-    return tussenvoegsel.lower() in valid_particles
+    return is_valid_dutch_tussenvoegsel(tussenvoegsel)
 
 
 def _is_valid_dutch_phone(phone):

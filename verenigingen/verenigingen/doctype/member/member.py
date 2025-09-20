@@ -38,18 +38,40 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import date_diff, getdate, now, now_datetime, today
 
+from verenigingen.services.customer_service import create_customer_for_member
 from verenigingen.services.member_address_service import member_address_service
+from verenigingen.services.member_id_service import generate_application_id, generate_member_id
 from verenigingen.services.member_lifecycle_service import member_lifecycle_service
+from verenigingen.services.member_status_service import (
+    set_member_application_status_defaults,
+    sync_member_status_fields,
+    update_member_membership_status,
+)
 from verenigingen.utils.address_matching.dutch_address_normalizer import (
     AddressFingerprintCollisionHandler,
     DutchAddressNormalizer,
 )
+from verenigingen.utils.dutch_name_service import update_member_full_name, validate_member_name_fields
 from verenigingen.utils.dutch_name_utils import (
     format_dutch_full_name,
     get_full_last_name,
     is_dutch_installation,
 )
+from verenigingen.utils.member_age_service import (
+    get_age_group,
+    update_member_age_field,
+    validate_member_age_requirements,
+)
 from verenigingen.utils.member_utils import get_volunteer_for_member
+
+# Extracted services
+from verenigingen.utils.membership_duration_service import (
+    calculate_total_membership_days as calculate_duration_days,
+)
+from verenigingen.utils.membership_duration_service import (
+    format_duration_human_readable,
+    update_member_duration_fields,
+)
 from verenigingen.utils.safe_member_optimizer import safe_member_optimizer
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -143,12 +165,12 @@ class Member(
                 frappe.logger().info(
                     f"Generating member ID for {self.name} - application_status: {getattr(self, 'application_status', 'None')}, is_application: {self.is_application_member()}"
                 )
-                self.member_id = self.generate_member_id()
+                self.member_id = generate_member_id()
                 frappe.logger().info(f"Generated member ID: {self.member_id} for {self.name}")
             elif self.is_application_member() and not self.application_id:
                 # Assign application ID for tracking pending applications
                 self.application_id = None
-                self.application_id = self.generate_application_id()
+                self.application_id = generate_application_id()
         else:
             frappe.logger().debug(f"Member {self.name} already has member_id: {self.member_id}")
 
@@ -167,7 +189,7 @@ class Member(
             self.reset_counter_to = None
 
         # Ensure application status is properly set based on member state
-        self.set_application_status_defaults()
+        set_member_application_status_defaults(self)
 
     def _should_update_chapter_display(self):
         """Check if chapter display needs updating to avoid unnecessary processing.
@@ -312,8 +334,10 @@ class Member(
             return f'<div class="text-danger"><i class="fa fa-exclamation-triangle"></i> Error loading member information: {str(e)}</div>'
 
     def _get_status_color(self, status):
-        """Get Bootstrap color class for member status"""
-        return member_lifecycle_service.get_status_color(status)
+        """Get Bootstrap color class for member status - delegated to member_status_service"""
+        from verenigingen.services.member_status_service import get_member_status_color
+
+        return get_member_status_color(status)
 
     @frappe.whitelist()
     @development_only_api(operation_type=OperationType.UTILITY)
@@ -489,66 +513,24 @@ class Member(
         return getattr(self, "application_status", "") == "Approved"
 
     def generate_member_id(self):
-        """Generate a unique member ID"""
-        if frappe.session.user == "Guest":
-            return None
-
-        try:
-            settings = frappe.get_single("Verenigingen Settings")
-
-            # Check if the field exists
-            if not hasattr(settings, "last_member_id"):
-                # Use a simple timestamp-based ID if settings field doesn't exist
-                import time
-
-                return str(int(time.time() * 1000))[-8:]  # Last 8 digits of timestamp
-
-            if not settings.last_member_id:
-                start_id = getattr(settings, "member_id_start", 10000)
-                settings.last_member_id = start_id - 1
-
-            new_id = int(settings.last_member_id) + 1
-
-            settings.last_member_id = new_id
-            settings.save()
-
-            return str(new_id)
-        except Exception:
-            # Fallback to simple ID generation
-            import time
-
-            return str(int(time.time() * 1000))[-8:]
+        """Generate a unique member ID - delegated to member_id_service"""
+        return generate_member_id()
 
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.ADMIN)
     def ensure_member_id(self):
-        """Ensure this member has a member ID if they should have one"""
-        if not self.member_id and self.should_have_member_id():
-            self.member_id = self.generate_member_id()
-            self.save()
-            return {"success": True, "message": _("Member ID assigned successfully")}
-        return {"success": False, "message": _("Member already has an ID or doesn't qualify for one")}
+        """Ensure this member has a member ID if they should have one - delegated to member_id_service"""
+        from verenigingen.services.member_id_service import ensure_member_has_id
+
+        return ensure_member_has_id(self)
 
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.ADMIN)
     def force_assign_member_id(self):
-        """Force assign a member ID regardless of normal rules (admin only)"""
-        # Check if user has permission
-        if not frappe.has_permission("Member", "write") or "System Manager" not in frappe.get_roles():
-            frappe.throw(_("Only System Managers can force assign member IDs"))
+        """Force assign a member ID regardless of normal rules (admin only) - delegated to member_id_service"""
+        from verenigingen.services.member_id_service import force_assign_member_id
 
-        if self.member_id:
-            return {
-                "success": False,
-                "message": _("Member already has a member ID: {0}").format(self.member_id),
-            }
-
-        self.member_id = self.generate_member_id()
-        self.save()
-        return {
-            "success": True,
-            "message": _("Member ID force assigned successfully: {0}").format(self.member_id),
-        }
+        return force_assign_member_id(self)
 
     def _guess_relationship(self, other_member):
         """Attempt to guess relationship based on name patterns and data"""
@@ -598,27 +580,8 @@ class Member(
         return "Household Member"
 
     def _get_age_group(self, birth_date):
-        """Get age group for privacy-friendly display using standardized age calculation"""
-        if not birth_date:
-            return None
-
-        try:
-            from verenigingen.utils.validation_utilities import AgeValidator
-
-            age = AgeValidator.calculate_age(birth_date)
-
-            if age < 18:
-                return "Minor"
-            elif age < 30:
-                return "Young Adult"
-            elif age < 50:
-                return "Adult"
-            elif age < 65:
-                return "Middle-aged"
-            else:
-                return "Senior"
-        except Exception:
-            return None
+        """Get age group for privacy-friendly display - delegated to member_age_service"""
+        return get_age_group(birth_date)
 
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.ADMIN)
@@ -713,11 +676,11 @@ class Member(
         # after creation, or through the application approval process for application members
 
         # Core validations (always required)
-        self.validate_name()
-        self.update_full_name()
-        self.update_membership_status()
-        self.calculate_age()
-        self.validate_age_requirements()  # Add age validation
+        validate_member_name_fields(self)
+        update_member_full_name(self)
+        update_member_membership_status(self)
+        update_member_age_field(self)
+        validate_member_age_requirements(self)  # Add age validation
 
         # Only calculate duration if explicitly requested or if this is a new member
         # Daily scheduler handles routine duration updates to avoid on-visit field changes
@@ -733,7 +696,7 @@ class Member(
         # Member ID validation
         validate_member_id_change(self)
         self.handle_fee_override_changes()
-        self.sync_status_fields()
+        sync_member_status_fields(self)
 
     def on_update(self):
         """Emit events for status changes to trigger background operations"""
@@ -783,378 +746,104 @@ class Member(
             )
 
     def set_application_status_defaults(self):
-        """Set appropriate defaults for application_status based on member type"""
-        # Use lifecycle service for setting application status defaults
-        result = member_lifecycle_service.set_application_status_defaults(self)
-
-        if not result["success"]:
-            frappe.log_error(f"Error setting application status defaults for {self.name}: {result['errors']}")
+        """Set appropriate defaults for application_status based on member type - delegated to member_status_service"""
+        return set_member_application_status_defaults(self)
 
     def sync_status_fields(self):
-        """Ensure status and application_status fields are synchronized"""
-        # Use lifecycle service for status synchronization
-        result = member_lifecycle_service.sync_status_fields(self)
-
-        if not result["success"]:
-            frappe.log_error(f"Error syncing status fields for {self.name}: {result['errors']}")
+        """Ensure status and application_status fields are synchronized - delegated to member_status_service"""
+        return sync_member_status_fields(self)
 
     def after_insert(self):
         """Execute after document is inserted"""
         if not self.customer and self.email:
-            self.create_customer()
+            customer_name = create_customer_for_member(self, suppress_messages=False)
+            self.customer = customer_name
 
     def calculate_age(self):
-        """Calculate age based on birth_date field"""
-        try:
-            if self.birth_date:
-                from datetime import date, datetime
-
-                today_date = date.today()
-                if isinstance(self.birth_date, str):
-                    born = datetime.strptime(self.birth_date, "%Y-%m-%d").date()
-                else:
-                    born = self.birth_date
-                age = (
-                    today_date.year
-                    - born.year
-                    - ((today_date.month, today_date.day) < (born.month, born.day))
-                )
-                self.age = age
-            else:
-                self.age = None
-        except Exception as e:
-            frappe.log_error(f"Error calculating age: {str(e)}", "Member Error")
+        """Calculate age based on birth_date field - delegated to member_age_service"""
+        update_member_age_field(self)
 
     def validate_age_requirements(self):
-        """Validate age requirements for membership and volunteering using configurable age validation"""
-        if not self.birth_date:
-            return  # Skip validation if no birth date provided
-
-        try:
-            from verenigingen.utils.validation_utilities import AgeValidator
-
-            # Validate membership age requirements
-            allow_parental_consent = (
-                self.is_application_member()
-                if hasattr(self, "is_application_member") and callable(self.is_application_member)
-                else False
-            )
-
-            membership_result = AgeValidator.validate_age(
-                self.birth_date,
-                context="membership",
-                allow_parental_consent=allow_parental_consent,
-                throw_on_error=False,
-            )
-
-            if not membership_result.is_valid:
-                if allow_parental_consent and membership_result.warning:
-                    # Show warning for applications requiring parental consent
-                    frappe.msgprint(membership_result.warning)
-                else:
-                    # Throw error for direct member creation or hard validation failures
-                    frappe.throw(membership_result.message, frappe.ValidationError)
-            elif membership_result.warning:
-                # Show any warnings (e.g., parental consent required)
-                frappe.msgprint(membership_result.warning)
-
-            # Additional validation for volunteering
-            if hasattr(self, "interested_in_volunteering") and self.interested_in_volunteering:
-                volunteer_result = AgeValidator.validate_age(
-                    self.birth_date, context="volunteer", throw_on_error=False
-                )
-
-                if not volunteer_result.is_valid:
-                    frappe.throw(volunteer_result.message, frappe.ValidationError)
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error validating age requirements for member {self.name}: {str(e)}", "Age Validation Error"
-            )
+        """Validate age requirements for membership and volunteering - delegated to member_age_service"""
+        validate_member_age_requirements(self)
 
     def calculate_total_membership_days(self):
-        """Calculate total membership days from all active membership periods"""
-        try:
-            if not self.name or not frappe.db.exists("Member", self.name):
-                # For new records, can't calculate duration yet
-                return 0
+        """Calculate total membership days from all active membership periods.
 
-            # Get all memberships for this member, ordered by start date
-            memberships = frappe.get_all(
-                "Membership",
-                filters={"member": self.name, "docstatus": 1},
-                fields=["name", "start_date", "renewal_date", "status", "cancellation_date"],
-                order_by="start_date asc",
-            )
+        Extracted to membership_duration_service for reusability. Delegates to the
+        extracted service for consistent duration calculations.
 
-            if not memberships:
-                return 0
-
-            total_days = 0
-            today_date = getdate(today())
-
-            for membership in memberships:
-                start_date = getdate(membership.start_date)
-
-                # Determine end date for this membership period
-                if membership.status in ["Cancelled", "Expired"]:
-                    # Use cancellation date if available, otherwise renewal date
-                    end_date = (
-                        getdate(membership.cancellation_date)
-                        if membership.cancellation_date
-                        else getdate(membership.renewal_date)
-                    )
-                elif membership.status == "Active":
-                    # For active memberships, use today or renewal date (whichever is earlier)
-                    renewal_date = getdate(membership.renewal_date) if membership.renewal_date else today_date
-                    end_date = min(today_date, renewal_date)
-                else:
-                    # For other statuses, use renewal date if available
-                    end_date = getdate(membership.renewal_date) if membership.renewal_date else start_date
-
-                # Calculate days for this membership period
-                if end_date >= start_date:
-                    period_days = (
-                        date_diff(end_date, start_date) + 1
-                    )  # +1 to include both start and end dates
-                    total_days += period_days
-
-            return total_days
-
-        except Exception as e:
-            frappe.log_error(f"Error calculating total membership days: {str(e)}", "Member Error")
-            return 0
+        Returns:
+            int: Total membership days, or 0 if calculation fails
+        """
+        return calculate_duration_days(self.name)
 
     @frappe.whitelist()
     @standard_api(operation_type=OperationType.UTILITY)
     def update_membership_duration(self):
-        """Update the total membership days and human-readable duration"""
+        """Update the total membership days and human-readable duration.
+
+        Extracted to membership_duration_service for reusability. Delegates to the
+        extracted service for consistent duration updates.
+
+        Returns:
+            dict: Result with success status and calculated values
+        """
         try:
-            # Calculate the raw days
-            total_days = self.calculate_total_membership_days()
+            # Use extracted service to update duration fields
+            result = update_member_duration_fields(self)
 
-            # Update the fields
-            self.total_membership_days = total_days
-            self.last_duration_update = now()
+            if result["success"]:
+                # Save the record - proper validation maintained
+                self.save()
 
-            # Calculate human-readable format
-            self.calculate_cumulative_membership_duration()
-
-            # Save the record - proper validation maintained
-            self.save()
-
-            return {
-                "success": True,
-                "total_days": total_days,
-                "duration": self.cumulative_membership_duration,
-                "updated": self.last_duration_update,
-            }
+            return result
 
         except Exception as e:
             frappe.log_error(f"Error updating membership duration for {self.name}: {str(e)}")
             return {"success": False, "error": str(e)}
 
     def generate_application_id(self):
-        """Generate unique application ID"""
-        year = frappe.utils.today()[:4]
-        random_part = str(random.randint(1000, 9999))
-        app_id = f"APP-{year}-{random_part}"
-
-        while frappe.db.exists("Member", {"application_id": app_id}):
-            random_part = str(random.randint(1000, 9999))
-            app_id = f"APP-{year}-{random_part}"
-
-        return app_id
+        """Generate unique application ID - delegated to member_id_service"""
+        return generate_application_id()
 
     def validate_name(self):
-        """Validate that name fields don't contain special characters"""
-        for field in ["first_name", "middle_name", "last_name"]:
-            if not hasattr(self, field) or not getattr(self, field):
-                continue
-
-            # Use the improved validation from application_validators
-            try:
-                from verenigingen.utils.validation.application_validators import validate_name
-
-                field_value = getattr(self, field)
-                field_name = field.replace("_", " ").title()
-
-                validation_result = validate_name(field_value, field_name)
-
-                if not validation_result["valid"]:
-                    frappe.throw(_(validation_result["message"]))
-
-                # Use sanitized version if available
-                if validation_result.get("sanitized"):
-                    setattr(self, field, validation_result["sanitized"])
-
-            except ImportError:
-                # Fallback to basic validation if import fails
-                field_value = getattr(self, field)
-                # Allow letters, spaces, hyphens, apostrophes, and accented characters
-                import re
-
-                if not re.match(
-                    r"^[\w\s\-\'\.\u00C0-\u017F\u0100-\u024F\u1E00-\u1EFF]+$", field_value, re.UNICODE
-                ):
-                    frappe.throw(_("{0} contains invalid characters").format(field.replace("_", " ").title()))
+        """Validate that name fields don't contain special characters - delegated to dutch_name_service"""
+        validate_member_name_fields(self)
 
     def update_full_name(self):
-        """Update the full name based on first names, name particles (tussenvoegsels), and last name"""
-        # For Dutch installations, prioritize tussenvoegsel field over middle_name
-        if is_dutch_installation() and hasattr(self, "tussenvoegsel") and self.tussenvoegsel:
-            full_name = format_dutch_full_name(
-                self.first_name,
-                None,  # Don't use middle_name for Dutch names when tussenvoegsel is available
-                self.tussenvoegsel,
-                self.last_name,
-            )
-        else:
-            # Build full name with proper handling of name particles (legacy approach)
-            name_parts = []
-
-            if self.first_name:
-                name_parts.append(self.first_name.strip())
-
-            # Handle name particles (tussenvoegsels) - these should be lowercase when in the middle
-            if self.middle_name:
-                particles = self.middle_name.strip()
-                # Check if it's a Dutch particle (like van, de, der, etc.) or a regular middle name
-                dutch_particles = ["van", "de", "der", "den", "ter", "te", "het", "'t", "op", "in"]
-
-                if particles:
-                    # Split to handle compound particles like "van der"
-                    words = particles.split()
-                    if words and words[0].lower() in dutch_particles:
-                        # It's a particle, make it lowercase
-                        name_parts.append(particles.lower())
-                    else:
-                        # It's a regular middle name, keep original casing
-                        name_parts.append(particles)
-
-            if self.last_name:
-                name_parts.append(self.last_name.strip())
-
-            full_name = " ".join(name_parts)
-
-        self.full_name = None
-        if self.full_name != full_name:
-            self.full_name = full_name
+        """Update the full name based on first names, name particles (tussenvoegsels), and last name - delegated to dutch_name_service"""
+        update_member_full_name(self)
 
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.FINANCIAL)
     def create_customer(self):
-        """Create a customer for this member in ERPNext"""
-        self.customer = None
-        if self.customer:
-            # Only show existing customer message if not during application submission
-            if not getattr(self, "_suppress_customer_messages", False):
-                frappe.msgprint(_("Customer {0} already exists for this member").format(self.customer))
-            return self.customer
+        """Create a customer for this member in ERPNext - delegated to customer_service"""
+        suppress_messages = getattr(self, "_suppress_customer_messages", False)
+        customer_name = create_customer_for_member(self, suppress_messages)
 
-        if self.full_name:
-            similar_name_customers = frappe.get_all(
-                "Customer",
-                filters=[["customer_name", "like", f"%{self.full_name}%"]],
-                fields=["name", "customer_name", "email_id", "mobile_no"],
+        # Update member with customer reference using secure operations
+        if customer_name and customer_name != self.customer:
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            self.customer = customer_name
+
+            # Secure member update with explicit permission validation
+            member_result = secure_document_operation(
+                operation="save",
+                doc=self,
+                justification=f"Member update to link customer {customer_name}",
+                required_permissions=["Member:write"],
             )
 
-            exact_name_match = next(
-                (c for c in similar_name_customers if c.customer_name.lower() == self.full_name.lower()), None
-            )
-            if exact_name_match and not getattr(self, "_suppress_customer_messages", False):
-                customer_info = f"Name: {exact_name_match.name}, Email: {exact_name_match.email_id or 'N/A'}"
-                frappe.msgprint(
-                    _("Found existing customer with same name: {0}").format(customer_info)
-                    + _(
-                        "\nCreating a new customer for this member. If you want to link to the existing customer instead, please do so manually."
-                    )
-                )
+            if not member_result.success:
+                frappe.throw(_("Failed to update member: {0}").format("; ".join(member_result.errors)))
 
-            elif similar_name_customers and not getattr(self, "_suppress_customer_messages", False):
-                customer_list = "\n".join(
-                    [f"- {c.customer_name} ({c.name})" for c in similar_name_customers[:5]]
-                )
-                frappe.msgprint(
-                    _("Found similar customer names. Please review:")
-                    + f"\n{customer_list}"
-                    + (
-                        _("\n(Showing first 5 of {0} matches)").format(len(similar_name_customers))
-                        if len(similar_name_customers) > 5
-                        else ""
-                    )
-                    + _("\nCreating a new customer for this member.")
-                )
+            # Only show success message if not during application submission
+            if not suppress_messages:
+                frappe.msgprint(_("Customer {0} created successfully").format(customer_name))
 
-        customer = frappe.new_doc("Customer")
-        customer.customer_name = self.full_name
-        customer.customer_type = "Individual"
-        customer.member = self.name  # Link customer back to member
-
-        if self.email:
-            customer.email_id = self.email
-        if hasattr(self, "contact_number") and self.contact_number:
-            customer.mobile_no = self.contact_number
-            customer.phone = self.contact_number
-
-        customer.flags.ignore_mandatory = True
-
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        from verenigingen.utils.secure_operations import secure_document_operation
-
-        # Suppress all messages during customer creation if we're in application submission
-        if getattr(self, "_suppress_customer_messages", False):
-            customer.flags.ignore_messages = True
-            # Also temporarily disable all message printing during customer creation
-            original_msgprint = frappe.msgprint
-            frappe.msgprint = lambda *args, **kwargs: None
-            try:
-                # Secure customer creation with explicit permission validation
-                customer_result = secure_document_operation(
-                    operation="insert",
-                    doc=customer,
-                    justification=f"Automated customer creation for member {self.name} during application submission",
-                    required_permissions=["Customer:create"],
-                )
-
-                if not customer_result.success:
-                    frappe.throw(
-                        _("Failed to create customer: {0}").format("; ".join(customer_result.errors))
-                    )
-
-            finally:
-                # Restore original msgprint function
-                frappe.msgprint = original_msgprint
-        else:
-            # Secure customer creation with explicit permission validation
-            customer_result = secure_document_operation(
-                operation="insert",
-                doc=customer,
-                justification=f"Automated customer creation for member {self.name}",
-                required_permissions=["Customer:create"],
-            )
-
-            if not customer_result.success:
-                frappe.throw(_("Failed to create customer: {0}").format("; ".join(customer_result.errors)))
-
-        self.customer = customer.name
-
-        # Secure member update with explicit permission validation
-        member_result = secure_document_operation(
-            operation="save",
-            doc=self,
-            justification=f"Member update to link customer {customer.name}",
-            required_permissions=["Member:write"],
-        )
-
-        if not member_result.success:
-            frappe.throw(_("Failed to update member: {0}").format("; ".join(member_result.errors)))
-
-        # Only show success message if not during application submission
-        if not getattr(self, "_suppress_customer_messages", False):
-            frappe.msgprint(_("Customer {0} created successfully").format(customer.name))
-
-        return customer.name
+        return customer_name
 
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.ADMIN)
@@ -1361,15 +1050,8 @@ class Member(
         return None
 
     def update_membership_status(self):
-        """Update member's membership_status field based on active memberships"""
-        # Use lifecycle service for membership status updates
-        result = member_lifecycle_service.update_membership_status(self)
-
-        if not result["success"]:
-            frappe.log_error(f"Error updating membership status for {self.name}: {result['errors']}")
-            return None
-
-        return result["membership_status"]
+        """Update member's membership_status field based on active memberships - delegated to member_status_service"""
+        return update_member_membership_status(self)
 
     @frappe.whitelist()
     @development_only_api(operation_type=OperationType.UTILITY)
@@ -1441,37 +1123,23 @@ class Member(
             return []
 
     def calculate_cumulative_membership_duration(self):
-        """Calculate and set total membership duration in human-readable format"""
+        """Calculate and set total membership duration in human-readable format.
+
+        Extracted to membership_duration_service for reusability. Delegates to the
+        extracted service for consistent duration formatting.
+
+        Returns:
+            float: Duration in years for backward compatibility
+        """
         try:
             # Use the already calculated total_membership_days if available, otherwise calculate it
             total_days = getattr(self, "total_membership_days", 0) or self.calculate_total_membership_days()
 
-            if total_days <= 0:
-                self.cumulative_membership_duration = "Less than 1 day"
-                return 0
+            # Use extracted service for formatting
+            self.cumulative_membership_duration = format_duration_human_readable(total_days)
 
-            # Convert total days to human-readable format
-            years = total_days // 365
-            remaining_days = total_days % 365
-            months = remaining_days // 30
-            remaining_days = remaining_days % 30
-
-            # Build duration string
-            duration_parts = []
-            if years > 0:
-                duration_parts.append(f"{years} year{'s' if years != 1 else ''}")
-            if months > 0:
-                duration_parts.append(f"{months} month{'s' if months != 1 else ''}")
-            if remaining_days > 0 and years == 0:  # Only show days if less than a year
-                duration_parts.append(f"{remaining_days} day{'s' if remaining_days != 1 else ''}")
-
-            if duration_parts:
-                self.cumulative_membership_duration = ", ".join(duration_parts)
-            else:
-                self.cumulative_membership_duration = "Less than 1 day"
-
-            # Also return the value in years for backward compatibility
-            return total_days / 365.25
+            # Return the value in years for backward compatibility
+            return total_days / 365.25 if total_days > 0 else 0
 
         except Exception as e:
             frappe.log_error(

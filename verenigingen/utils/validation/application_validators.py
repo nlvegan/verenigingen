@@ -36,24 +36,10 @@ def validate_email(email):
 
 
 def validate_postal_code(postal_code, country="Netherlands"):
-    """Validate postal code format"""
-    if not postal_code:
-        return {"valid": False, "message": _("Postal code is required")}
+    """Validate postal code format - delegated to postal_code_validator"""
+    from verenigingen.utils.validation.postal_code_validator import validate_postal_code as validate_pc
 
-    # Basic format validation based on country
-    postal_patterns = {
-        "Netherlands": r"^[1-9][0-9]{3}\s?[A-Z]{2}$",
-        "Germany": r"^[0-9]{5}$",
-        "Belgium": r"^[1-9][0-9]{3}$",
-        "France": r"^[0-9]{5}$",
-    }
-
-    pattern = postal_patterns.get(country, r"^.+$")  # Default: any non-empty
-
-    if not re.match(pattern, postal_code.upper().strip()):
-        return {"valid": False, "message": _("Invalid postal code format for {0}").format(country)}
-
-    return {"valid": True, "message": _("Valid postal code")}
+    return validate_pc(postal_code, country)
 
 
 def validate_phone_number(phone, country="Netherlands"):
@@ -265,7 +251,7 @@ def validate_custom_amount(membership_type, amount):
             return {
                 "valid": False,
                 "message": _("Minimum amount is {0}").format(
-                    frappe.utils.fmt_money(min_amount, currency=membership_type_doc.currency or "EUR")
+                    frappe.utils.fmt_money(min_amount, currency="EUR")
                 ),
             }
 
