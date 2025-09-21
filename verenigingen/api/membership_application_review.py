@@ -6,6 +6,14 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, now_datetime, today
 
+# Import extracted services
+from verenigingen.services.member.approval.member_approval_service import (
+    create_member_iban_history,
+    finalize_member_approval,
+    process_member_approval,
+    resolve_membership_type,
+    validate_approval_prerequisites,
+)
 from verenigingen.utils.member_utils import get_volunteer_for_member
 from verenigingen.utils.secure_operations import secure_document_operation
 
@@ -67,68 +75,6 @@ def assign_member_to_chapter(member, chapter):
         frappe.logger().warning(f"Could not create chapter membership for {member.name}: {str(e)}")
 
 
-def resolve_membership_type(member, membership_type=None):
-    """Resolve and validate membership type - extracted from approval workflow"""
-    # Use provided membership type or fallback to selected
-    if not membership_type:
-        membership_type = getattr(member, "selected_membership_type", None)
-
-    # Additional fallback to current membership type if selected is not set
-    if not membership_type:
-        membership_type = getattr(member, "current_membership_type", None)
-
-    # If still no membership type, try to set a default from available types
-    if not membership_type:
-        membership_types = frappe.get_all("Membership Type", fields=["name"], limit=1)
-        if membership_types:
-            membership_type = membership_types[0].name
-            # Set this as the selected type for the member
-            try:
-                member.selected_membership_type = membership_type
-                member.save()
-                frappe.logger().info(
-                    f"Auto-assigned membership type {membership_type} to member {member.name}"
-                )
-            except Exception as e:
-                frappe.logger().error(f"Could not save membership type to member: {str(e)}")
-        else:
-            frappe.throw(
-                _("No membership types available in the system. Please create a membership type first.")
-            )
-
-    if not membership_type:
-        frappe.throw(_("Please select a membership type"))
-
-    return membership_type
-
-
-def create_member_iban_history(member):
-    """Create initial IBAN history - extracted from approval workflow"""
-    if not (hasattr(member, "iban") and member.iban):
-        return
-
-    try:
-        frappe.db.insert(
-            {
-                "doctype": "Member IBAN History",
-                "parent": member.name,
-                "parenttype": "Member",
-                "parentfield": "iban_history",
-                "iban": member.iban,
-                "bic": getattr(member, "bic", None),
-                "bank_account_name": getattr(member, "bank_account_name", None),
-                "from_date": today(),
-                "is_active": 1,
-                "changed_by": frappe.session.user,
-                "change_reason": "Other",
-            }
-        )
-        frappe.logger().info(f"Created initial IBAN history for approved member {member.name}")
-    except Exception as e:
-        frappe.logger().error(f"Error creating IBAN history for {member.name}: {str(e)}")
-        # Don't fail the approval process due to IBAN history error
-
-
 def create_membership_and_invoice(member, membership_type):
     """Create membership record and invoice - extracted from approval workflow"""
     # Check for existing active membership first
@@ -185,58 +131,6 @@ def create_membership_and_invoice(member, membership_type):
         frappe.throw(_("Failed to submit membership. Please try again."))
 
     return membership, membership_type_doc, billing_amount
-
-
-def finalize_member_approval(member, notes=None):
-    """Finalize member approval status with robust concurrency handling"""
-    max_retries = 3
-
-    for attempt in range(max_retries):
-        try:
-            # Always reload member to get latest version
-            if attempt > 0:
-                member.reload()
-
-            member.application_status = "Approved"
-            member.status = "Active"
-            member.member_since = today()
-            member.reviewed_by = frappe.session.user
-            member.review_date = now_datetime()
-            if notes:
-                member.review_notes = notes
-
-            member.save()
-            # Success - break out of retry loop
-            frappe.logger().info(
-                f"Member approval finalized successfully for {member.name} on attempt {attempt + 1}"
-            )
-            return
-
-        except frappe.TimestampMismatchError as e:
-            if attempt == max_retries - 1:
-                # Final attempt failed
-                safe_log_error(
-                    f"Final timestamp mismatch for member {member.name} after {max_retries} attempts: {str(e)}"
-                )
-                frappe.throw(_("Document has been modified by another user. Please refresh and try again."))
-            else:
-                # Wait briefly before retry
-                import time
-
-                time.sleep(0.1 * (attempt + 1))  # Progressive backoff
-                continue
-
-        except Exception as e:
-            from verenigingen.utils.security.rate_limiter import log_security_event
-
-            safe_log_error(f"Failed to save final approval status for member {member.name}: {str(e)}")
-            log_security_event(
-                frappe.session.user,
-                "approval_final_save_failed",
-                f"Failed to save final approval status for member {member.name}",
-                "high",
-            )
-            frappe.throw(_("Failed to save final approval status. Please try again."))
 
 
 @frappe.whitelist()
@@ -373,12 +267,14 @@ def approve_membership_application(
     invoice = None
 
     try:
-        from verenigingen.api.payment_processing import create_application_invoice, get_or_create_customer
+        from verenigingen.api.payment_processing import create_application_invoice
+        from verenigingen.services.customer_service import create_customer_for_member
 
-        # Create customer with error handling
-        customer_result = get_or_create_customer(member)
-        if not customer_result:
-            raise Exception("Failed to create or retrieve customer record")
+        # Create customer with error handling using extracted service
+        if not member.customer:
+            customer_name = create_customer_for_member(member, suppress_messages=True)
+            member.db_set("customer", customer_name)
+            frappe.logger().info(f"Created customer {customer_name} for member {member.name}")
 
         # Create invoice with retry mechanism
         max_retries = 3

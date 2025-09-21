@@ -43,7 +43,13 @@ def calculate_member_age(birth_date):
         else:
             return None
     except Exception as e:
-        frappe.log_error(f"Error calculating age: {str(e)}", "Member Age Service Error")
+        handle_service_error(
+            e,
+            "MemberAgeService",
+            "Calculate member age",
+            {"member": getattr(member_doc, "name", "Unknown")},
+            raise_error=False,
+        )
         return None
 
 
@@ -62,7 +68,13 @@ def update_member_age_field(member_doc):
         else:
             member_doc.age = None
     except Exception as e:
-        frappe.log_error(f"Error updating age field: {str(e)}", "Member Age Service Error")
+        handle_service_error(
+            e,
+            "MemberAgeService",
+            "Update age field",
+            {"member": getattr(member_doc, "name", "Unknown")},
+            raise_error=False,
+        )
 
 
 def validate_member_age_requirements(member_doc, allow_parental_consent=None):

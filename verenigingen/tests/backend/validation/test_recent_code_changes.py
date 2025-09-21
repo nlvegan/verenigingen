@@ -196,7 +196,7 @@ class TestRecentCodeChanges(EnhancedTestCase):
         ]
 
         for birth_date, expected_group in test_cases:
-            from verenigingen.utils.member_age_service import get_age_group
+            from verenigingen.services.member.utils.member_age_service import get_age_group
             age_group = get_age_group(birth_date)
             self.assertEqual(
                 age_group,

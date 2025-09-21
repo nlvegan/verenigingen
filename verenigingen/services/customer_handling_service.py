@@ -9,15 +9,48 @@ from typing import Any, Dict, Optional
 
 import frappe
 
+from verenigingen.services.infrastructure.base_service import StatefulService
+from verenigingen.services.infrastructure.service_config import get_service_config
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
-class CustomerHandlingService:
-    """Service class for handling customer and mandate operations"""
+class CustomerHandlingService(StatefulService):
+    """Service class for handling customer and mandate operations
 
-    def __init__(self, debug_context: str = "webhook"):
+    Inherits from StatefulService to provide:
+    - Performance monitoring and metrics
+    - Standardized error handling
+    - Database transaction management
+    - Resource cleanup capabilities
+    """
+
+    def __init__(self, service_name: str = None, debug_context: str = "webhook"):
+        super().__init__(service_name or "customer_handling")
         self.debug_context = debug_context
-        self.logger = frappe.logger()
+        self.config = get_service_config("customer_handling")
+
+        # Configure service-specific settings
+        self.config.set("default_customer_group", "Individual")
+        self.config.set("default_territory", "All Territories")
+        self.config.set("default_customer_type", "Individual")
+        self.config.set("enable_validation", True)
+
+    def validate_configuration(self) -> bool:
+        """Validate service configuration including DocType access."""
+        try:
+            # Check database connectivity (from parent)
+            super().validate_configuration()
+
+            # Verify we can access Customer DocType
+            frappe.get_meta("Customer")
+
+            # Check selling settings access
+            frappe.db.get_single_value("Selling Settings", "customer_group")
+
+            return True
+        except Exception as e:
+            self.logger.error(f"Configuration validation failed: {str(e)}")
+            return False
 
     def update_customer_mandate(self, customer_id: str, mandate_id: str) -> Dict[str, Any]:
         """
@@ -28,11 +61,19 @@ class CustomerHandlingService:
             mandate_id: Mollie mandate ID
 
         Returns:
-            Processing result dict
+            Standardized service result dict
         """
+        operation_name = "update_customer_mandate"
+        start_time = self._start_operation(operation_name)
+
         try:
             if not customer_id or not mandate_id:
-                return {"status": "skipped", "message": "Missing customer_id or mandate_id"}
+                self._end_operation(operation_name, start_time, success=False)
+                return self.create_result(
+                    success=False,
+                    message="Missing customer_id or mandate_id",
+                    errors=["customer_id and mandate_id are required"],
+                )
 
             # Find customer by Mollie customer ID
             customers = frappe.get_all(
@@ -43,10 +84,12 @@ class CustomerHandlingService:
                 self.logger.warning(
                     f"⚠️ [{self.debug_context}] No customer found with mollie_customer_id: {customer_id}"
                 )
-                return {
-                    "status": "warning",
-                    "message": f"No customer found with mollie_customer_id: {customer_id}",
-                }
+                self._end_operation(operation_name, start_time, success=False)
+                return self.create_result(
+                    success=False,
+                    message=f"No customer found with mollie_customer_id: {customer_id}",
+                    errors=[f"Customer with Mollie ID {customer_id} not found"],
+                )
 
             customer = frappe.get_doc("Customer", customers[0]["name"])
 
@@ -62,24 +105,27 @@ class CustomerHandlingService:
                     f"✅ [{self.debug_context}] Updated customer {customer.name} with mandate {mandate_id}"
                 )
 
-                return {
-                    "status": "success",
-                    "message": f"Customer {customer.name} updated with mandate {mandate_id}",
-                    "customer": customer.name,
-                }
+                self._end_operation(operation_name, start_time, success=True)
+                return self.create_result(
+                    success=True,
+                    message=f"Customer {customer.name} updated with mandate {mandate_id}",
+                    data={"customer": customer.name, "mandate_id": mandate_id, "customer_id": customer_id},
+                )
             else:
-                return {
-                    "status": "skipped",
-                    "message": f"Customer {customer.name} already has mandate {mandate_id}",
-                }
+                self._end_operation(operation_name, start_time, success=True)
+                return self.create_result(
+                    success=True,
+                    message=f"Customer {customer.name} already has mandate {mandate_id}",
+                    data={"customer": customer.name, "mandate_id": mandate_id, "skipped": True},
+                )
 
         except Exception as e:
-            error_msg = f"Failed to update customer mandate: {str(e)}"
-            frappe.log_error(error_msg, f"Customer Mandate Update Error [{self.debug_context}]")
-            self.logger.error(f"❌ [{self.debug_context}] {error_msg}")
-            return {"status": "error", "message": error_msg}
+            self._end_operation(operation_name, start_time, success=False)
+            return self.handle_error(
+                e, operation_name, {"customer_id": customer_id, "mandate_id": mandate_id}, raise_error=False
+            )
 
-    def ensure_donor_customer_exists(self, donor_name: str) -> Optional[str]:
+    def ensure_donor_customer_exists(self, donor_name: str) -> Dict[str, Any]:
         """
         Ensure a customer record exists for the donor
 
@@ -87,37 +133,53 @@ class CustomerHandlingService:
             donor_name: Donor name/ID
 
         Returns:
-            Customer name if successful, None if failed
+            Standardized service result dict with customer name in data
         """
+        operation_name = "ensure_donor_customer_exists"
+        start_time = self._start_operation(operation_name)
+
         try:
             if not donor_name:
-                return None
+                self._end_operation(operation_name, start_time, success=False)
+                return self.create_result(
+                    success=False,
+                    message="Donor name is required",
+                    errors=["donor_name parameter cannot be empty"],
+                )
 
             # Check if customer already exists
             if DocumentExistenceValidator.check_document_exists("Customer", donor_name):
-                return donor_name
+                self._end_operation(operation_name, start_time, success=True)
+                return self.create_result(
+                    success=True,
+                    message=f"Customer {donor_name} already exists",
+                    data={"customer_name": donor_name, "created": False},
+                )
 
             # Create customer record
             customer = frappe.new_doc("Customer")
             customer.customer_name = donor_name
-            customer.customer_type = "Individual"
-            customer.customer_group = (
-                frappe.db.get_single_value("Selling Settings", "customer_group") or "Individual"
-            )
-            customer.territory = (
-                frappe.db.get_single_value("Selling Settings", "territory") or "All Territories"
-            )
+            customer.customer_type = self.config.get("default_customer_type", "Individual")
+            customer.customer_group = frappe.db.get_single_value(
+                "Selling Settings", "customer_group"
+            ) or self.config.get("default_customer_group", "Individual")
+            customer.territory = frappe.db.get_single_value(
+                "Selling Settings", "territory"
+            ) or self.config.get("default_territory", "All Territories")
             customer.insert()
 
             self.logger.info(f"✅ [{self.debug_context}] Created customer {customer.name} for donor")
 
-            return customer.name
+            self._end_operation(operation_name, start_time, success=True)
+            return self.create_result(
+                success=True,
+                message=f"Created customer {customer.name} for donor",
+                data={"customer_name": customer.name, "created": True},
+            )
 
         except Exception as e:
-            self.logger.error(
-                f"❌ [{self.debug_context}] Failed to create customer for donor {donor_name}: {str(e)}"
-            )
-            return None
+            self._end_operation(operation_name, start_time, success=False)
+            return self.handle_error(e, operation_name, {"donor_name": donor_name}, raise_error=False)
 
     def link_customer_to_mollie(
         self, customer_name: str, mollie_ids: Dict[str, Optional[str]]

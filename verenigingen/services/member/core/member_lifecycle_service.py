@@ -56,15 +56,6 @@ class MemberLifecycleService:
             if not validation_result["success"]:
                 return validation_result
 
-            # Store original values for rollback
-            original_values = {
-                "member_id": member.member_id,
-                "application_status": member.application_status,
-                "status": member.status,
-                "reviewed_by": getattr(member, "reviewed_by", None),
-                "review_date": getattr(member, "review_date", None),
-            }
-
             # Assign member ID if needed
             if not member.member_id:
                 member.member_id = member.generate_member_id()

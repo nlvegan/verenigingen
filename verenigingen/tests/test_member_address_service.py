@@ -15,7 +15,7 @@ import frappe
 from frappe.test_runner import make_test_records
 
 from verenigingen.tests.utils.base import VereningingenTestCase
-from verenigingen.services.member_address_service import member_address_service
+from verenigingen.services.member.core.member_address_service import member_address_service
 
 
 class TestMemberAddressService(VereningingenTestCase):

@@ -108,27 +108,20 @@ def create_customer_for_member(member_doc, suppress_messages=False):
     # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
     from verenigingen.utils.secure_operations import secure_document_operation
 
-    # Suppress all messages during customer creation if requested
+    # Suppress messages during customer creation if requested
     if suppress_messages:
         customer.flags.ignore_messages = True
-        # Also temporarily disable all message printing during customer creation
-        original_msgprint = frappe.msgprint
-        frappe.msgprint = lambda *args, **kwargs: None
-        try:
-            # Secure customer creation with explicit permission validation
-            customer_result = secure_document_operation(
-                operation="insert",
-                doc=customer,
-                justification=f"Automated customer creation for member {member_doc.name} during application submission",
-                required_permissions=["Customer:create"],
-            )
 
-            if not customer_result.success:
-                frappe.throw(_("Failed to create customer: {0}").format("; ".join(customer_result.errors)))
+        # Secure customer creation with explicit permission validation
+        customer_result = secure_document_operation(
+            operation="insert",
+            doc=customer,
+            justification=f"Automated customer creation for member {member_doc.name} during application submission",
+            required_permissions=["Customer:create"],
+        )
 
-        finally:
-            # Restore original msgprint function
-            frappe.msgprint = original_msgprint
+        if not customer_result.success:
+            frappe.throw(_("Failed to create customer: {0}").format("; ".join(customer_result.errors)))
     else:
         # Secure customer creation with explicit permission validation
         customer_result = secure_document_operation(
@@ -215,5 +208,11 @@ def update_member_customer_reference(member_doc, customer_name):
         member_doc.customer = customer_name
         return True
     except Exception as e:
-        frappe.log_error(f"Failed to update member customer reference: {str(e)}")
+        handle_service_error(
+            e,
+            "CustomerService",
+            "Update member customer reference",
+            {"member": getattr(member_doc, "name", "Unknown"), "customer_name": customer_name},
+            raise_error=False,
+        )
         return False

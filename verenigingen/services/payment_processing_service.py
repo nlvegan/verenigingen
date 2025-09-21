@@ -145,10 +145,22 @@ class PaymentProcessingService:
                         "message": f"Failed to create customer for donor {donation.donor}",
                     }
 
-                # Link customer to donor
+                # Link customer to donor using secure operations
                 donor_doc.customer = customer
-                donor_doc.flags.ignore_permissions = True
-                donor_doc.save()
+
+                # Use secure document operation for donor update
+                from verenigingen.utils.secure_operations import secure_document_operation
+
+                donor_result = secure_document_operation(
+                    operation="save",
+                    doc=donor_doc,
+                    justification=f"Automated customer linking for payment processing {payment_id}",
+                    required_permissions=["Donor:write"],
+                )
+
+                if not donor_result.success:
+                    self.logger.error(f"Failed to update donor {donation.donor}: {donor_result.errors}")
+                    # Continue processing anyway as this is not critical
                 self.logger.info(
                     f"✅ [{self.debug_context}] Created and linked customer {customer} to donor {donation.donor}"
                 )
@@ -232,8 +244,22 @@ class PaymentProcessingService:
 
             # CRITICAL: Mark donation as paid after successful Payment Entry creation
             donation.paid = 1
-            donation.flags.ignore_permissions = True  # Allow webhook to update
-            donation.save()
+
+            # Use secure operation for donation update
+            donation_result = secure_document_operation(
+                operation="save",
+                doc=donation,
+                justification=f"Automated donation status update after payment processing {payment_id}",
+                required_permissions=["Donation:write"],
+            )
+
+            if not donation_result.success:
+                self.logger.error(f"Failed to mark donation as paid: {donation_result.errors}")
+                return {
+                    "status": "error",
+                    "message": f"Payment created but failed to update donation status: {donation_result.errors}",
+                }
+
             frappe.db.commit()
 
             self.logger.info(f"✅ [{self.debug_context}] Donation {donation.name} marked as paid")
@@ -350,8 +376,17 @@ class PaymentProcessingService:
                 }
             )
 
-            customer_doc.flags.ignore_permissions = True
-            customer_doc.insert()
+            # Use secure operation for customer creation
+            customer_result = secure_document_operation(
+                operation="insert",
+                doc=customer_doc,
+                justification=f"Automated customer creation for donor {donor_doc.name} during payment processing",
+                required_permissions=["Customer:create"],
+            )
+
+            if not customer_result.success:
+                self.logger.error(f"Failed to create customer for donor: {customer_result.errors}")
+                return None
 
             self.logger.info(
                 f"✅ [{self.debug_context}] Created customer {customer_doc.name} for donor {donor_doc.name}"
