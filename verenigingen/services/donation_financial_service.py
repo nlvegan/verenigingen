@@ -28,14 +28,16 @@ class DonationFinancialService:
         """
         results = {}
 
-        # Create sales invoice if needed
-        if self._should_create_sales_invoice():
+        # Create payment history entry if needed
+        if self._should_create_payment_history():
             try:
-                sales_invoice = self.create_sales_invoice()
-                results["sales_invoice"] = sales_invoice.name
+                payment_history_entry = self.create_payment_history_entry()
+                results["payment_history"] = (
+                    payment_history_entry.name if hasattr(payment_history_entry, "name") else "created"
+                )
             except Exception as e:
-                results["sales_invoice_error"] = str(e)
-                self.logger.error(f"Sales invoice creation failed: {str(e)}")
+                results["payment_history_error"] = str(e)
+                self.logger.error(f"Payment history entry creation failed: {str(e)}")
 
         # Create payment entry if needed
         if self._should_create_payment_entry():
@@ -57,47 +59,33 @@ class DonationFinancialService:
 
         return results
 
-    def create_sales_invoice(self) -> Any:
-        """Create sales invoice for the donation"""
-        # Get or create customer from donor
-        customer = self._get_or_create_customer_from_donor()
-        if not customer:
-            frappe.throw(_("Cannot create sales invoice without customer"))
+    def create_payment_history_entry(self) -> Any:
+        """Create payment history entry for the donation using the new Payment History child table model"""
+        # Check if payment history entry already exists
+        existing_entries = [
+            entry
+            for entry in getattr(self.donation, "payment_history", [])
+            if entry.payment_id == getattr(self.donation, "payment_id", None)
+        ]
 
-        # Create sales invoice
-        sales_invoice = frappe.new_doc("Sales Invoice")
-        sales_invoice.company = self.donation.company
-        sales_invoice.customer = customer.name
-        sales_invoice.posting_date = self.donation.donation_date or nowdate()
-        sales_invoice.due_date = self.donation.donation_date or nowdate()
+        if existing_entries:
+            self.logger.info(f"Payment history entry already exists for donation {self.donation.name}")
+            return existing_entries[0]
 
-        # Set territory
-        sales_invoice.territory = self._get_default_territory()
+        # Add payment history record to donation
+        payment_history = self.donation.append("payment_history", {})
+        payment_history.payment_date = self.donation.donation_date or nowdate()
+        payment_history.amount = flt(self.donation.amount)
+        payment_history.payment_method = getattr(self.donation, "mode_of_payment", "Manual")
+        payment_history.payment_id = getattr(self.donation, "payment_id", None)
+        payment_history.transaction_reference = getattr(self.donation, "bank_reference", None)
+        payment_history.payment_status = "Completed" if getattr(self.donation, "paid", False) else "Pending"
+        payment_history.notes = f"Donation: {getattr(self.donation, 'donation_purpose', 'General')}"
 
-        # Add donation as line item
-        sales_invoice.append(
-            "items",
-            {
-                "item_code": self._get_donation_item_code(),
-                "item_name": f"Donation - {self.donation.donation_type}",
-                "description": f"Donation: {self.donation.donation_purpose or 'General'}",
-                "qty": 1,
-                "rate": flt(self.donation.amount),
-                "amount": flt(self.donation.amount),
-            },
-        )
+        # Save the donation with the payment history
+        self.donation.save()
 
-        # Set campaign dimension if applicable
-        if self.donation.campaign:
-            campaign_dimension = self._get_campaign_accounting_dimension()
-            if campaign_dimension:
-                for item in sales_invoice.items:
-                    setattr(item, campaign_dimension["fieldname"], self.donation.campaign)
-
-        sales_invoice.insert()
-        sales_invoice.submit()
-
-        return sales_invoice
+        return payment_history
 
     def create_payment_entry_for_sales_invoice(self, date: Optional[str] = None) -> Any:
         """Create payment entry for the donation's sales invoice"""
@@ -229,15 +217,19 @@ class DonationFinancialService:
 
         return summary
 
-    def _should_create_sales_invoice(self) -> bool:
-        """Check if sales invoice should be created"""
-        # Check settings
-        verenigingen_settings = frappe.get_single("Verenigingen Settings")
-        if not getattr(verenigingen_settings, "create_sales_invoice_for_donations", True):
-            return False
+    def _should_create_payment_history(self) -> bool:
+        """Check if payment history entry should be created"""
+        # Always create payment history entries for donations (replaces sales invoice creation)
+        # This maintains better financial tracking without creating unnecessary invoices
 
-        # Don't create for recurring donations that already have agreements
-        if self.donation.is_recurring and self.donation.periodic_donation_agreement:
+        # Don't create duplicate entries if already exists
+        existing_entries = [
+            entry
+            for entry in getattr(self.donation, "payment_history", [])
+            if entry.payment_id == getattr(self.donation, "payment_id", None)
+        ]
+
+        if existing_entries:
             return False
 
         return True

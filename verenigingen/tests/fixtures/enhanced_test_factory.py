@@ -2090,8 +2090,13 @@ class EnhancedTestCase(FrappeTestCase):
                 # Check if any company exists first
                 existing_company = frappe.db.get_value("Company", {}, "name")
                 if existing_company:
-                    # Use existing company
+                    # Use existing company and update all related records
                     frappe.db.sql("UPDATE `tabCompany` SET name='Test Company' WHERE name=%s", existing_company)
+                    # Update all Account records that reference the old company name
+                    frappe.db.sql("UPDATE `tabAccount` SET company='Test Company' WHERE company=%s", existing_company)
+                    # Update other related tables that reference company
+                    frappe.db.sql("UPDATE `tabFiscal Year` SET company='Test Company' WHERE company=%s", existing_company)
+                    frappe.db.sql("UPDATE `tabCost Center` SET company='Test Company' WHERE company=%s", existing_company)
                     frappe.db.commit()
                 else:
                     # Create new company with proper permission handling

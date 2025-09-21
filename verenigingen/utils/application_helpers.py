@@ -51,9 +51,11 @@ def save_with_system_context(doc, context_description="system operation"):
         doc.save()
         ctx.log_operation(doc.doctype, doc.name)
     """
-    from verenigingen.utils.secure_operations import secure_user_context
+    from verenigingen.utils.secure_operations import get_system_user_for_operation, secure_user_context
 
-    with secure_user_context(get_creation_user(), context_description) as ctx:
+    with secure_user_context(
+        get_system_user_for_operation("save_with_system_context"), context_description
+    ) as ctx:
         doc.save()
         ctx.log_operation(doc.doctype, doc.name)
 
@@ -976,8 +978,19 @@ def create_pending_chapter_membership(member, chapter_name):
             {"member": member.name, "chapter_join_date": today(), "enabled": 1, "status": "Pending"},
         )
 
-        # Save the chapter document with system context for members field management - SECURE VERSION
-        save_with_system_context(chapter_doc, "pending member addition to chapter")
+        # Save the chapter document with secure operations for members field management
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        result = secure_document_operation(
+            operation="save",
+            doc=chapter_doc,
+            justification="pending member addition to chapter",
+            required_permissions=["Chapter:write"],
+            allow_system_user=True,  # Allow for automated member assignment
+        )
+
+        if not result.success:
+            frappe.throw(_("Failed to save chapter membership: {0}").format("; ".join(result.errors)))
 
         # Add membership history tracking for pending membership
         from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager

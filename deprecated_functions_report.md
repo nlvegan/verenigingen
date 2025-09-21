@@ -20,9 +20,9 @@ Functions affected: 3
 
    📍 verenigingen/tests/test_membership_application_workflow.py:158
       user = get_creation_user()
-   📍 verenigingen/utils/application_helpers.py:55
+   📍 verenigingen/utils/application_helpers.py:56
       with secure_user_context(get_creation_user(), context_description) as ctx:
-   📍 verenigingen/utils/application_helpers.py:410
+   📍 verenigingen/utils/application_helpers.py:412
       "owner": get_creation_user(),
 
 🚨 Function: save_with_system_context

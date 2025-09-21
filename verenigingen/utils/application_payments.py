@@ -76,6 +76,7 @@ def create_membership_invoice_with_amount(member, membership, amount):
     # Create invoice with dues schedule system
     invoice_data = {
         "doctype": "Sales Invoice",
+        "company": settings.company,  # Use company from Verenigingen Settings
         "customer": member.customer,
         "member": member.name,
         "membership": membership.name,

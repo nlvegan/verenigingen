@@ -249,10 +249,10 @@ def create_membership_and_invoice(member, membership_type, create_invoice=True):
                 from verenigingen.utils.application_payments import create_membership_invoice
 
                 invoice = create_membership_invoice(
-                    member.name,
-                    billing_amount,
-                    membership_type,
-                    invoice_description=f"Membership dues for {membership_type}",
+                    member,
+                    membership,
+                    membership_type_doc,
+                    amount=billing_amount,
                 )
                 frappe.logger().info(f"Created invoice {invoice.name} for member {member.name}")
             except Exception as e:
@@ -304,6 +304,9 @@ def finalize_member_approval(member, notes=None):
             # Always reload member to get latest version
             if attempt > 0:
                 member.reload()
+
+            # Set system update flag early to bypass fee override validation during approval
+            member._system_update = True
 
             member.application_status = "Approved"
             member.status = "Active"

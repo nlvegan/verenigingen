@@ -526,9 +526,28 @@ class APISecurityFramework:
                 )
                 return True
 
+        # Get user roles once for efficiency
+        user_roles = frappe.get_roles(user)
+
+        # System Manager should have access to low and medium security operations
+        try:
+            has_system_manager = "System Manager" in user_roles
+            is_low_or_medium = profile.level in [SecurityLevel.LOW, SecurityLevel.MEDIUM]
+
+            frappe.logger("verenigingen.api_security").info(
+                f"System Manager check: has_role={has_system_manager}, level={profile.level.value}, is_low_or_medium={is_low_or_medium}"
+            )
+
+            if has_system_manager and is_low_or_medium:
+                frappe.logger("verenigingen.api_security").info(
+                    f"Access granted: System Manager has access to {profile.level.value} operations"
+                )
+                return True
+        except Exception as e:
+            frappe.logger("verenigingen.api_security").error(f"Error in System Manager check: {str(e)}")
+
         # Collect user info for error message
         user_profiles = self._get_user_role_profiles(user)
-        user_roles = frappe.get_roles(user)
 
         # Deny access with detailed error message
         error_details = []

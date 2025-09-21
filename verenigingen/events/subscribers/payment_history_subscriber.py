@@ -148,14 +148,14 @@ def handle_invoice_submitted(event_name=None, event_data=None, **kwargs):
             # FIXED: Use batching system directly to avoid double-queueing
             from verenigingen.utils.financial_history_batch_processor import queue_payment_update
 
-            queue_payment_update(member.name, invoice)
+            queue_payment_update(member["name"], invoice)
 
             frappe.logger("payment_history").info(
-                f"Queued invoice {invoice} for payment history update for member {member.name} (batching system)"
+                f"Queued invoice {invoice} for payment history update for member {member['name']} (batching system)"
             )
         except Exception as e:
             frappe.log_error(
-                f"Failed to update payment history for member {member.name} after invoice {invoice}: {str(e)}",
+                f"Failed to update payment history for member {member['name']} after invoice {invoice}: {str(e)}",
                 "Invoice Payment History Update Error",
             )
 

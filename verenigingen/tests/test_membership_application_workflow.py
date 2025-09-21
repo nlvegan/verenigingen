@@ -152,14 +152,15 @@ class TestMembershipApplicationWorkflow(VereningingenTestCase):
         # This test ensures critical imports work properly
         # Regression test for secure_context_manager import issues
 
-        # Test importing application helpers functions
+        # Test importing secure operations functions (updated from deprecated application helpers)
         try:
-            from verenigingen.utils.application_helpers import get_creation_user, create_member_from_application
-            user = get_creation_user()
+            from verenigingen.utils.secure_operations import get_system_user_for_operation
+            from verenigingen.utils.application_helpers import create_member_from_application
+            user = get_system_user_for_operation("test_membership_workflow")
             self.assertIsNotNone(user)
-            print("✅ Application helpers imports working correctly")
+            print("✅ Secure operations imports working correctly")
         except ImportError as e:
-            self.fail(f"Import error in application helpers: {str(e)}")
+            self.fail(f"Import error in secure operations: {str(e)}")
 
         # Test employee user link imports
         try:

@@ -11,11 +11,16 @@ import frappe
 from frappe import _
 
 
-def handle_status_change_notifications(event_name, event_data):
+def handle_status_change_notifications(event_name, event_data, **kwargs):
     """
     Handle notification sending for member status changes.
 
     Sends appropriate emails based on status transitions (Pending -> Approved, etc.).
+
+    Args:
+        event_name: Name of the event being handled
+        event_data: Event data dictionary
+        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
         member_name = event_data.get("member")
@@ -47,11 +52,16 @@ def handle_status_change_notifications(event_name, event_data):
         )
 
 
-def handle_chapter_assignment_updates(event_name, event_data):
+def handle_chapter_assignment_updates(event_name, event_data, **kwargs):
     """
     Handle chapter assignment updates when member status changes.
 
     Updates chapter membership records based on member status transitions.
+
+    Args:
+        event_name: Name of the event being handled
+        event_data: Event data dictionary
+        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
         member_name = event_data.get("member")
@@ -74,11 +84,16 @@ def handle_chapter_assignment_updates(event_name, event_data):
         frappe.log_error(f"Failed to update chapter assignments: {str(e)}", "Chapter Assignment Update Error")
 
 
-def handle_lifecycle_notifications(event_name, event_data):
+def handle_lifecycle_notifications(event_name, event_data, **kwargs):
     """
     Handle notifications for member lifecycle changes.
 
     Sends appropriate communications for status transitions like Active -> Suspended.
+
+    Args:
+        event_name: Name of the event being handled
+        event_data: Event data dictionary
+        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
         member_name = event_data.get("member")
@@ -108,11 +123,16 @@ def handle_lifecycle_notifications(event_name, event_data):
         )
 
 
-def handle_user_account_updates(event_name, event_data):
+def handle_user_account_updates(event_name, event_data, **kwargs):
     """
     Handle user account updates when member lifecycle changes.
 
     Manages user account status based on member status transitions.
+
+    Args:
+        event_name: Name of the event being handled
+        event_data: Event data dictionary
+        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
         member_name = event_data.get("member")
@@ -140,11 +160,16 @@ def handle_user_account_updates(event_name, event_data):
         frappe.log_error(f"Failed to update user account: {str(e)}", "User Account Update Error")
 
 
-def handle_cache_invalidation(event_name, event_data):
+def handle_cache_invalidation(event_name, event_data, **kwargs):
     """
     Handle cache invalidation for member lifecycle changes.
 
     Clears relevant caches when member status changes to ensure data consistency.
+
+    Args:
+        event_name: Name of the event being handled
+        event_data: Event data dictionary
+        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
         member_name = event_data.get("member")
@@ -174,10 +199,18 @@ def _send_approval_notification(member):
     if not member.email:
         return
 
-    template = frappe.get_doc("Email Template", "Member Approval Notification")
-    template.send(
-        member.email, args={"member_name": member.get_full_name(), "membership_number": member.name}
-    )
+    try:
+        if frappe.db.exists("Email Template", "Member Approval Notification"):
+            template = frappe.get_doc("Email Template", "Member Approval Notification")
+            template.send(
+                member.email, args={"member_name": member.get_full_name(), "membership_number": member.name}
+            )
+        else:
+            frappe.logger("events").warning(
+                "Member Approval Notification email template not found - skipping notification"
+            )
+    except Exception as e:
+        frappe.logger("events").error(f"Failed to send approval notification: {str(e)}")
 
 
 def _send_lifecycle_notification(member, old_status, new_status):
@@ -203,8 +236,16 @@ def _send_suspension_notification(member):
     if not member.email:
         return
 
-    template = frappe.get_doc("Email Template", "Member Suspension Notification")
-    template.send(member.email, args={"member_name": member.get_full_name()})
+    try:
+        if frappe.db.exists("Email Template", "Member Suspension Notification"):
+            template = frappe.get_doc("Email Template", "Member Suspension Notification")
+            template.send(member.email, args={"member_name": member.get_full_name()})
+        else:
+            frappe.logger("events").warning(
+                "Member Suspension Notification email template not found - skipping notification"
+            )
+    except Exception as e:
+        frappe.logger("events").error(f"Failed to send suspension notification: {str(e)}")
 
 
 def _send_termination_notification(member):
@@ -212,8 +253,16 @@ def _send_termination_notification(member):
     if not member.email:
         return
 
-    template = frappe.get_doc("Email Template", "Member Termination Notification")
-    template.send(member.email, args={"member_name": member.get_full_name()})
+    try:
+        if frappe.db.exists("Email Template", "Member Termination Notification"):
+            template = frappe.get_doc("Email Template", "Member Termination Notification")
+            template.send(member.email, args={"member_name": member.get_full_name()})
+        else:
+            frappe.logger("events").warning(
+                "Member Termination Notification email template not found - skipping notification"
+            )
+    except Exception as e:
+        frappe.logger("events").error(f"Failed to send termination notification: {str(e)}")
 
 
 def _send_reactivation_notification(member):
@@ -221,8 +270,16 @@ def _send_reactivation_notification(member):
     if not member.email:
         return
 
-    template = frappe.get_doc("Email Template", "Member Reactivation Notification")
-    template.send(member.email, args={"member_name": member.get_full_name()})
+    try:
+        if frappe.db.exists("Email Template", "Member Reactivation Notification"):
+            template = frappe.get_doc("Email Template", "Member Reactivation Notification")
+            template.send(member.email, args={"member_name": member.get_full_name()})
+        else:
+            frappe.logger("events").warning(
+                "Member Reactivation Notification email template not found - skipping notification"
+            )
+    except Exception as e:
+        frappe.logger("events").error(f"Failed to send reactivation notification: {str(e)}")
 
 
 def _assign_member_to_chapter(member):
@@ -237,10 +294,10 @@ def _assign_member_to_chapter(member):
         return
 
     # Find appropriate chapter based on postal code
-    chapters = frappe.get_all("Chapter", filters={"is_active": 1}, fields=["name", "postal_code_ranges"])
+    chapters = frappe.get_all("Chapter", filters={"status": "Active"}, fields=["name", "postal_codes"])
 
     for chapter in chapters:
-        if _postal_code_matches_chapter(postal_code, chapter.postal_code_ranges):
+        if _postal_code_matches_chapter(postal_code, chapter.postal_codes):
             # Create or update chapter membership
             existing = frappe.db.exists("Chapter Member", {"member": member.name, "chapter": chapter.name})
 
@@ -267,15 +324,22 @@ def _update_chapter_membership_status(member, status):
         chapter_member.save()
 
 
-def _postal_code_matches_chapter(postal_code, postal_code_ranges):
+def _postal_code_matches_chapter(postal_code, postal_codes):
     """Check if postal code falls within chapter's ranges"""
-    if not postal_code_ranges:
+    if not postal_codes:
         return False
 
-    # Simple implementation - could be enhanced based on actual postal code range format
-    postal_numeric = int(postal_code.split()[0]) if postal_code else 0
+    # Extract numeric part from Dutch postal code (e.g., "1234AB" -> 1234, "1234 AB" -> 1234)
+    try:
+        import re
 
-    for range_str in postal_code_ranges.split(","):
+        # Extract the first numeric part from the postal code
+        numeric_match = re.match(r"(\d+)", postal_code.strip() if postal_code else "")
+        postal_numeric = int(numeric_match.group(1)) if numeric_match else 0
+    except (ValueError, AttributeError):
+        return False
+
+    for range_str in postal_codes.split(","):
         if "-" in range_str:
             start, end = range_str.strip().split("-")
             if int(start) <= postal_numeric <= int(end):
