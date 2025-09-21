@@ -346,7 +346,7 @@ def export_overdue_payments(filters=None, format="CSV"):
         }
 
     except Exception as e:
-        log_error(f"Export failed: {str(e)}", "Payment Export Error")
+        log_error(e, {"operation": "export_overdue_payments", "context": "Payment Export Error"})
         return {"success": False, "message": _("Export failed: {0}").format(str(e))}
 
 

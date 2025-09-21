@@ -24,14 +24,18 @@ def safe_log_error(message, title=None):
 
 def get_creation_user():
     """
-    DEPRECATED: Import from secure_context_manager instead
+    DEPRECATED: Import from secure_operations instead
 
     For new code use:
-    from verenigingen.utils.secure_context_manager import get_creation_user
-    """
-    from verenigingen.utils.secure_context_manager import get_creation_user as _get_creation_user
+    from verenigingen.utils.secure_operations import get_system_user_for_operation
 
-    return _get_creation_user()
+    This function now properly references Verenigingen Settings creation_user
+    to maintain consistency with the secure operations framework.
+    """
+    # Use the same logic as secure_operations for consistency
+    from verenigingen.utils.secure_operations import get_system_user_for_operation
+
+    return get_system_user_for_operation("legacy_get_creation_user_call")
 
 
 def save_with_system_context(doc, context_description="system operation"):
@@ -41,13 +45,13 @@ def save_with_system_context(doc, context_description="system operation"):
     Legacy compatibility function for existing code.
     For new code, use:
 
-    from verenigingen.utils.secure_context_manager import secure_user_context, get_creation_user
+    from verenigingen.utils.secure_operations import secure_user_context
 
     with secure_user_context(get_creation_user(), context_description) as ctx:
         doc.save()
         ctx.log_operation(doc.doctype, doc.name)
     """
-    from verenigingen.utils.secure_context_manager import secure_user_context
+    from verenigingen.utils.secure_operations import secure_user_context
 
     with secure_user_context(get_creation_user(), context_description) as ctx:
         doc.save()
@@ -314,13 +318,13 @@ def create_address_from_application(data):
         if validation_result.get("valid") and validation_result.get("sanitized"):
             last_name = validation_result["sanitized"]
 
-    # Use system user context for address creation during application processing - SECURE VERSION
-    current_user = frappe.session.user
-    try:
-        # Switch to creation user for system operations
-        creation_user = get_creation_user()
-        frappe.set_user(creation_user)
+    # Use secure operations framework for address creation during application processing
+    from verenigingen.utils.secure_operations import get_system_user_for_operation, secure_user_context
 
+    system_user = get_system_user_for_operation("address_creation_during_member_application")
+    with secure_user_context(
+        system_user, f"Address creation for member application {data.get('email', 'unknown')}"
+    ) as ctx:
         address = frappe.get_doc(
             {
                 "doctype": "Address",
@@ -337,12 +341,9 @@ def create_address_from_application(data):
                 "is_primary_address": 1,
             }
         )
-        # Insert with proper permissions using system user context - NO ignore_permissions=True
+        # Insert with proper permissions using secure operations framework
         address.insert()
         return address
-    finally:
-        # Restore original user context
-        frappe.set_user(current_user)
 
 
 def create_member_from_application(data, application_id, address=None):
@@ -505,18 +506,16 @@ def create_member_from_application(data, application_id, address=None):
     # Suppress customer creation messages during application submission
     member._suppress_customer_messages = True
 
-    # Use system user context for member creation during application processing - SECURE VERSION
-    current_user = frappe.session.user
-    try:
-        # Switch to creation user for system operations
-        creation_user = get_creation_user()
-        frappe.set_user(creation_user)
+    # Use secure operations framework for member creation during application processing
+    from verenigingen.utils.secure_operations import get_system_user_for_operation, secure_user_context
 
+    system_user = get_system_user_for_operation("member_creation_during_application")
+    with secure_user_context(system_user, f"Member creation for application {application_id}") as ctx:
         # Handle potential application_id collision with retry logic
         max_attempts = 3
         for attempt in range(max_attempts):
             try:
-                # Insert with proper permissions using system user context - NO ignore_permissions=True
+                # Insert with proper permissions using secure operations framework
                 member.insert()
                 return member
             except Exception as e:
@@ -542,9 +541,6 @@ def create_member_from_application(data, application_id, address=None):
                 else:
                     # Not an application_id collision, re-raise immediately
                     raise
-    finally:
-        # Restore original user context
-        frappe.set_user(current_user)
 
 
 def create_volunteer_record(member):
@@ -644,19 +640,14 @@ def create_volunteer_record(member):
                         },
                     )
 
-        # Use system user context for volunteer creation during application processing - SECURE VERSION
-        current_user = frappe.session.user
-        try:
-            # Switch to creation user for system operations
-            creation_user = get_creation_user()
-            frappe.set_user(creation_user)
+        # Use secure operations framework for volunteer creation during application processing
+        from verenigingen.utils.secure_operations import get_system_user_for_operation, secure_user_context
 
-            # Insert with proper permissions using system user context - NO ignore_permissions=True
+        system_user = get_system_user_for_operation("volunteer_creation_during_application")
+        with secure_user_context(system_user, f"Volunteer creation for member {member.name}") as ctx:
+            # Insert with proper permissions using secure operations framework
             volunteer.insert()
             return volunteer
-        finally:
-            # Restore original user context
-            frappe.set_user(current_user)
     except Exception as e:
         safe_log_error(f"Error creating volunteer record: {str(e)}")
         return None

@@ -951,6 +951,13 @@ class APISecurityFramework:
                     frappe.cache.set_value(cache_key, result, expires_in_sec=600)
                     return result
 
+            # Log when operation rules aren't found to help with debugging
+            frappe.logger("verenigingen.api_security").info(
+                f"Critical Operation Rule lookup failed for function '{func_name}' from module '{module_name}'. "
+                f"Tried operation names: {potential_operation_names}. "
+                f"This indicates either missing Critical Operation Rule fixture data or incorrect naming conventions."
+            )
+
         except Exception as e:
             frappe.logger("verenigingen.api_security").warning(
                 f"Failed to check critical operation integration: {str(e)}"

@@ -147,6 +147,54 @@ class TestMembershipApplicationWorkflow(VereningingenTestCase):
         
         print("✅ Workflow states have correct docstatus values")
 
+    def test_member_creation_imports_integration(self):
+        """Test that member creation process works without import errors"""
+        # This test ensures critical imports work properly
+        # Regression test for secure_context_manager import issues
+
+        # Test importing application helpers functions
+        try:
+            from verenigingen.utils.application_helpers import get_creation_user, create_member_from_application
+            user = get_creation_user()
+            self.assertIsNotNone(user)
+            print("✅ Application helpers imports working correctly")
+        except ImportError as e:
+            self.fail(f"Import error in application helpers: {str(e)}")
+
+        # Test employee user link imports
+        try:
+            from verenigingen.utils.employee_user_link import create_user_for_volunteer
+            print("✅ Employee user link imports working correctly")
+        except ImportError as e:
+            self.fail(f"Import error in employee user link: {str(e)}")
+
+        # Test member creation workflow simulation (without actual data)
+        test_data = {
+            "first_name": "Test",
+            "last_name": "Member",
+            "email": "test.import@example.com",
+            "contact_number": "+31612345678",
+            "birth_date": "1990-01-01",
+            "address_line1": "Test Street 123",
+            "postal_code": "1234AB",
+            "city": "Amsterdam",
+            "country": "Netherlands",
+            "membership_type": "Annual",
+            "payment_method": "SEPA Direct Debit",
+            "iban": "NL91ABNA0417164300",
+            "bank_account_name": "Test Member"
+        }
+
+        # Test that we can call the member creation function without import errors
+        try:
+            from verenigingen.api.membership_application import submit_application
+            # We don't actually submit but test the import path works
+            print("✅ Member creation API imports working correctly")
+        except ImportError as e:
+            self.fail(f"Import error in member creation API: {str(e)}")
+
+        print("✅ All critical member creation imports validated")
+
 
 if __name__ == "__main__":
     unittest.main()

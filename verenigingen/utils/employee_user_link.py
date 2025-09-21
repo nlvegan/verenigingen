@@ -264,12 +264,11 @@ def _create_user_via_account_creation_manager(volunteer_doc):
     """Create user via secure AccountCreationManager when direct permissions insufficient"""
     try:
         from verenigingen.utils.account_creation_manager import AccountCreationManager
-        from verenigingen.utils.secure_context_manager import get_creation_user, secure_user_context
+        from verenigingen.utils.secure_operations import secure_user_context
 
         # Create account creation request with secure context
-        with secure_user_context(
-            get_creation_user(), f"volunteer_account_creation_{volunteer_doc.name}"
-        ) as ctx:
+        creation_user = frappe.session.user if frappe.session.user != "Guest" else "Administrator"
+        with secure_user_context(creation_user, f"volunteer_account_creation_{volunteer_doc.name}") as ctx:
             request_doc = frappe.get_doc(
                 {
                     "doctype": "Account Creation Request",

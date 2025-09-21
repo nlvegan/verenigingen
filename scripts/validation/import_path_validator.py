@@ -497,6 +497,10 @@ def main():
                        help='Enable verbose output')
     parser.add_argument('--pre-commit', action='store_true',
                        help='Pre-commit mode (exit with error if violations found)')
+    parser.add_argument('--quick', action='store_true',
+                       help='Quick mode for pre-commit hooks (faster validation)')
+    parser.add_argument('files', nargs='*',
+                       help='Files to check (when used with pre-commit)')
     
     args = parser.parse_args()
     
@@ -507,19 +511,46 @@ def main():
     )
     
     # Run validation
-    if args.file:
+    violations = []
+
+    if args.files:
+        # Pre-commit mode: validate specific files
+        for file_path in args.files:
+            if file_path.endswith('.py'):
+                file_violations = validator.validate_file(Path(file_path))
+                violations.extend(file_violations)
+    elif args.file:
+        # Single file mode
         violations = validator.validate_file(Path(args.file))
+    elif args.quick:
+        # Quick mode: only check recently modified files or critical paths
+        critical_paths = [
+            'verenigingen/utils/application_helpers.py',
+            'verenigingen/utils/employee_user_link.py',
+            'verenigingen/api/membership_application.py'
+        ]
+
+        for path in critical_paths:
+            full_path = Path(args.app_path) / path
+            if full_path.exists():
+                file_violations = validator.validate_file(full_path)
+                violations.extend(file_violations)
     else:
+        # Full directory scan
         violations = validator.validate_directory()
-    
+
     # Generate report
-    report = validator.generate_report(violations)
-    print(report)
-    
-    # Exit code for pre-commit
-    if args.pre_commit and violations:
-        return 1
-    
+    if violations:
+        report = validator.generate_report(violations)
+        print(report)
+
+        # Exit code for pre-commit
+        if args.pre_commit or args.quick:
+            return 1
+    else:
+        if args.verbose or not (args.pre_commit or args.quick):
+            print("✅ No import path violations found!")
+
     return 0
 
 

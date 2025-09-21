@@ -6,7 +6,12 @@ from frappe import _
 from frappe.model.document import Document
 
 from verenigingen.utils.secure_operations import secure_document_operation
-from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    high_security_api,
+    public_api,
+    standard_api,
+)
 
 
 class BrandSettings(Document):
@@ -101,6 +106,9 @@ class BrandSettings(Document):
         # Generate static CSS file (moved from hooks.py)
         self.generate_static_css_file()
 
+        # Export logo to public location for portal/web access
+        self.export_logo_to_public()
+
         # Trigger CSS rebuild for brand changes
         frappe.publish_realtime(
             "brand_settings_updated", {"message": "Brand settings updated", "settings_name": "Brand Settings"}
@@ -117,6 +125,49 @@ class BrandSettings(Document):
             generate_brand_css_file(doc=self)
         except Exception as e:
             frappe.log_error(f"Error generating static CSS file: {str(e)}", "Brand Settings CSS Generation")
+
+    def export_logo_to_public(self):
+        """Export logo to publicly accessible location for portal/web pages"""
+        try:
+            import os
+            import shutil
+            from pathlib import Path
+
+            if not self.logo:
+                # No logo set, remove existing public logo if it exists
+                public_logo_path = Path(frappe.get_site_path("public", "files", "organization_logo.png"))
+                if public_logo_path.exists():
+                    public_logo_path.unlink()
+                    frappe.cache().delete_key("organization_logo")
+                return
+
+            # Get the source logo file path
+            logo_file = frappe.get_doc("File", {"file_url": self.logo})
+            if not logo_file:
+                return
+
+            source_path = Path(frappe.get_site_path()) / logo_file.file_name.lstrip("/")
+            if not source_path.exists():
+                frappe.log_error(f"Source logo file not found: {source_path}", "Logo Export Error")
+                return
+
+            # Copy to public location with standard name
+            public_dir = Path(frappe.get_site_path("public", "files"))
+            public_dir.mkdir(parents=True, exist_ok=True)
+
+            # Use .png extension for consistency, regardless of source format
+            public_logo_path = public_dir / "organization_logo.png"
+
+            shutil.copy2(source_path, public_logo_path)
+
+            # Update cache with public URL
+            public_url = "/files/organization_logo.png"
+            frappe.cache().set_value("organization_logo", public_url, expires_in_sec=86400)  # 24 hours
+
+            frappe.logger().info(f"Logo exported to public location: {public_logo_path}")
+
+        except Exception as e:
+            frappe.log_error(f"Error exporting logo to public location: {str(e)}", "Logo Export Error")
 
     def sync_to_owl_theme(self):
         """Sync Brand Settings to Owl Theme Settings if owl_theme app is installed"""
@@ -181,7 +232,7 @@ class BrandSettings(Document):
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.PUBLIC)
+@public_api
 def get_active_brand_settings():
     """Get the brand settings (now a Single doctype)"""
     # Try to get from cache first
@@ -552,7 +603,7 @@ body.portal-page .to-purple-800,
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.PUBLIC)
+@public_api
 def get_organization_logo():
     """Get the currently active organization logo"""
     # Try to get from cache first
@@ -560,14 +611,31 @@ def get_organization_logo():
     if cached_logo:
         return cached_logo
 
-    settings = get_active_brand_settings()
-    logo_url = settings.get("logo")
+    # Check for public logo file first (no authentication needed)
+    from pathlib import Path
 
-    # Cache for 1 hour
-    if logo_url:
-        frappe.cache().set_value("organization_logo", logo_url, expires_in_sec=3600)
+    public_logo_path = Path(frappe.get_site_path("public", "files", "organization_logo.png"))
+    if public_logo_path.exists():
+        public_url = "/files/organization_logo.png"
+        # Cache for future requests
+        frappe.cache().set_value("organization_logo", public_url, expires_in_sec=86400)
+        return public_url
 
-    return logo_url
+    # Fallback to database lookup (requires authentication)
+    try:
+        settings = get_active_brand_settings()
+        logo_url = settings.get("logo")
+
+        # Cache for 1 hour
+        if logo_url:
+            frappe.cache().set_value("organization_logo", logo_url, expires_in_sec=3600)
+
+        return logo_url
+    except Exception as e:
+        # If database lookup fails (e.g., no authentication), return None
+        # This allows pages to gracefully handle missing logos
+        frappe.logger().warning(f"Could not fetch logo from database: {str(e)}")
+        return None
 
 
 @frappe.whitelist()

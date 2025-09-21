@@ -127,6 +127,12 @@ def create_membership_invoice_with_amount(member, membership, amount):
 
 def create_customer_for_member(member):
     """Create customer record for member with proper Contact integration"""
+    # Check if customer already exists for this member
+    existing_customer = frappe.db.get_value("Customer", {"member": member.name}, "name")
+    if existing_customer:
+        frappe.logger().info(f"Customer {existing_customer} already exists for Member {member.name}")
+        return frappe.get_doc("Customer", existing_customer)
+
     # Validate permissions
     if not frappe.has_permission("Customer", "create"):
         frappe.throw(_("Insufficient permissions to create Customer"))

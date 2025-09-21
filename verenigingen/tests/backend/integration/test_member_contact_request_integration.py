@@ -5,6 +5,7 @@ Tests the complete flow from portal submission to CRM integration
 
 import frappe
 from frappe.utils import add_days, today
+from unittest.mock import patch
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 
 

@@ -79,7 +79,7 @@
       "fieldname": "change_reason",
       "fieldtype": "Select",
       "label": "Reason for Change",
-      "options": "\nBank Change\nAccount Correction\nFraud Prevention\nMandate Update\nOther"
+      "options": "\nApplication Approval\nBank Change\nAccount Correction\nFraud Prevention\nMandate Update\nOther"
     },
     {
       "fieldname": "notes",

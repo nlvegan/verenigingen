@@ -123,7 +123,12 @@ def create_member_iban_history(member):
     """
     try:
         if not (hasattr(member, "iban") and member.iban):
-            return create_service_result(success=True, message="No IBAN provided, skipping history creation")
+            return create_service_result(
+                success=True,
+                data={"message": "No IBAN provided, skipping history creation"},
+                service_name="MemberApprovalService",
+                operation="create_member_iban_history",
+            )
 
         # Check if IBAN history already exists to avoid duplicates
         existing_history = frappe.db.exists(
@@ -134,20 +139,25 @@ def create_member_iban_history(member):
             frappe.logger().info(f"IBAN history already exists for member {member.name}")
             return create_service_result(
                 success=True,
-                message="IBAN history already exists",
-                data={"existing_record": existing_history},
+                data={"existing_record": existing_history, "message": "IBAN history already exists"},
+                service_name="MemberApprovalService",
+                operation="create_member_iban_history",
             )
 
-        # Create IBAN history record
+        # Create IBAN history record as child table entry
         iban_history = frappe.get_doc(
             {
                 "doctype": "Member IBAN History",
-                "member": member.name,
                 "iban": member.iban,
-                "account_holder_name": getattr(member, "account_holder_name", ""),
-                "start_date": today(),
-                "status": "Active",
-                "source": "Application Approval",
+                "bank_account_name": getattr(
+                    member, "bank_account_name", member.iban.split()[-1] if member.iban else ""
+                ),
+                "from_date": today(),
+                "is_active": 1,
+                "change_reason": "Application Approval",
+                "parent": member.name,
+                "parenttype": "Member",
+                "parentfield": "iban_history",
             }
         )
 
@@ -155,8 +165,9 @@ def create_member_iban_history(member):
 
         return create_service_result(
             success=True,
-            message="IBAN history created successfully",
-            data={"iban_history": iban_history.name},
+            data={"iban_history": iban_history.name, "message": "IBAN history created successfully"},
+            service_name="MemberApprovalService",
+            operation="create_member_iban_history",
         )
 
     except Exception as e:
@@ -249,8 +260,8 @@ def create_membership_and_invoice(member, membership_type, create_invoice=True):
 
         return create_service_result(
             success=True,
-            message="Membership and invoice created successfully",
             data={
+                "message": "Membership and invoice created successfully",
                 "membership": membership.name,
                 "membership_type": membership_type,
                 "billing_amount": billing_amount,
@@ -311,8 +322,8 @@ def finalize_member_approval(member, notes=None):
 
             return create_service_result(
                 success=True,
-                message="Member approval finalized successfully",
                 data={
+                    "message": "Member approval finalized successfully",
                     "member": member.name,
                     "status": member.status,
                     "application_status": member.application_status,
@@ -390,8 +401,8 @@ def process_member_approval(member_name, membership_type=None, notes=None, creat
         # Return comprehensive result
         return create_service_result(
             success=True,
-            message="Member approval completed successfully",
             data={
+                "message": "Member approval completed successfully",
                 "member": member_name,
                 "membership_type": resolved_membership_type,
                 "iban_history": iban_result.get("data", {}).get("iban_history"),
@@ -447,8 +458,14 @@ def validate_approval_prerequisites(member_name):
 
         return create_service_result(
             success=len(errors) == 0,
-            message="Validation completed",
-            data={"ready_for_approval": len(errors) == 0, "errors": errors, "warnings": warnings},
+            data={
+                "message": "Validation completed",
+                "ready_for_approval": len(errors) == 0,
+                "errors": errors,
+                "warnings": warnings,
+            },
+            service_name="MemberApprovalService",
+            operation="validate_approval_prerequisites",
         )
 
     except Exception as e:

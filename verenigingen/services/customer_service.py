@@ -57,6 +57,14 @@ def create_customer_for_member(member_doc, suppress_messages=False):
             frappe.msgprint(_("Customer {0} already exists for this member").format(member_doc.customer))
         return member_doc.customer
 
+    # Check if customer already exists for this member (database constraint check)
+    existing_customer = frappe.db.get_value("Customer", {"member": member_doc.name}, "name")
+    if existing_customer:
+        frappe.logger().info(f"Customer {existing_customer} already exists for Member {member_doc.name}")
+        # Update member record to reflect the existing customer link
+        member_doc.db_set("customer", existing_customer, update_modified=False)
+        return existing_customer
+
     # Check for similar customers and warn user
     if member_doc.full_name:
         similar_name_customers = frappe.get_all(

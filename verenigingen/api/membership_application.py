@@ -153,7 +153,7 @@ def test_all_endpoints():
 
 
 @frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.MEMBER_DATA)
+@public_api(operation_type=OperationType.PUBLIC)
 def get_application_form_data():
     """Get data needed for application form"""
     try:
@@ -187,7 +187,7 @@ def get_application_form_data():
 
 
 @frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.MEMBER_DATA)
+@public_api(operation_type=OperationType.PUBLIC)
 @performance_monitor(threshold_ms=200)
 @rate_limit(max_requests=30)
 def validate_email(email):
@@ -215,14 +215,14 @@ def validate_email(email):
 
 
 @frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.MEMBER_DATA)
+@public_api(operation_type=OperationType.PUBLIC)
 def validate_email_endpoint(email):
     """Validate email format and check if it already exists (legacy endpoint)"""
     return validate_email(email)
 
 
 @frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.MEMBER_DATA)
+@public_api(operation_type=OperationType.PUBLIC)
 def validate_postal_code(postal_code, country="Netherlands"):
     """Validate postal code format and suggest chapters"""
     result = validate_postal_code_util(postal_code, country)
@@ -246,49 +246,49 @@ def validate_postal_code(postal_code, country="Netherlands"):
 
 
 @frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.MEMBER_DATA)
+@public_api(operation_type=OperationType.PUBLIC)
 def validate_postal_code_endpoint(postal_code, country="Netherlands"):
     """Validate postal code format and suggest chapters (legacy endpoint)"""
     return validate_postal_code(postal_code, country)
 
 
 @frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.MEMBER_DATA)
+@public_api(operation_type=OperationType.PUBLIC)
 def validate_phone_number(phone, country="Netherlands"):
     """Validate phone number format"""
     return validate_phone_number_util(phone, country)
 
 
 @frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.MEMBER_DATA)
+@public_api(operation_type=OperationType.PUBLIC)
 def validate_phone_number_endpoint(phone, country="Netherlands"):
     """Validate phone number format (legacy endpoint)"""
     return validate_phone_number(phone, country)
 
 
 @frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.MEMBER_DATA)
+@public_api(operation_type=OperationType.PUBLIC)
 def validate_birth_date(birth_date):
     """Validate birth date"""
     return validate_birth_date_util(birth_date)
 
 
 @frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.MEMBER_DATA)
+@public_api(operation_type=OperationType.PUBLIC)
 def validate_birth_date_endpoint(birth_date):
     """Validate birth date (legacy endpoint)"""
     return validate_birth_date(birth_date)
 
 
 @frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.MEMBER_DATA)
+@public_api(operation_type=OperationType.PUBLIC)
 def validate_name(name, field_name="Name"):
     """Validate name fields"""
     return validate_name_util(name, field_name)
 
 
 @frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.MEMBER_DATA)
+@public_api(operation_type=OperationType.PUBLIC)
 def validate_name_endpoint(name, field_name="Name"):
     """Validate name fields (legacy endpoint)"""
     return validate_name(name, field_name)
@@ -645,7 +645,7 @@ def process_application_payment_endpoint(member_name, payment_method, payment_re
 
 
 @frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.MEMBER_DATA)
+@public_api(operation_type=OperationType.PUBLIC)
 def get_membership_fee_info_endpoint(membership_type):
     """Get membership fee information"""
     try:
@@ -665,7 +665,7 @@ def get_membership_type_details_endpoint(membership_type):
 
 
 @frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.MEMBER_DATA)
+@public_api(operation_type=OperationType.PUBLIC)
 def suggest_membership_amounts_endpoint(membership_type_name):
     """Suggest membership amounts based on type"""
     try:
@@ -675,21 +675,21 @@ def suggest_membership_amounts_endpoint(membership_type_name):
 
 
 @frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.MEMBER_DATA)
+@public_api(operation_type=OperationType.PUBLIC)
 def validate_membership_amount_selection_endpoint(membership_type, amount, uses_custom):
     """Validate membership amount selection"""
     return validate_membership_amount_selection(membership_type, amount, uses_custom)
 
 
 @frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.MEMBER_DATA)
+@public_api(operation_type=OperationType.PUBLIC)
 def validate_custom_amount_endpoint(membership_type, amount):
     """Validate custom membership amount"""
     return validate_custom_amount_util(membership_type, amount)
 
 
 @frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.MEMBER_DATA)
+@public_api(operation_type=OperationType.PUBLIC)
 def get_payment_methods_endpoint():
     """Get available payment methods"""
     try:
@@ -1316,7 +1316,7 @@ def get_application_form_data_legacy():
 
 
 @frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.MEMBER_DATA)
+@public_api(operation_type=OperationType.PUBLIC)
 def validate_address_endpoint(data):
     """Validate address data"""
     try:
@@ -1327,7 +1327,7 @@ def validate_address_endpoint(data):
 
 
 @frappe.whitelist(allow_guest=True)
-@public_api(operation_type=OperationType.MEMBER_DATA)
+@public_api(operation_type=OperationType.PUBLIC)
 @handle_api_error
 @performance_monitor(threshold_ms=1000)
 def suggest_chapters_for_postal_code(postal_code):

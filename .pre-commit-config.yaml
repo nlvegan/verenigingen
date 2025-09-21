@@ -203,6 +203,26 @@ repos:
         stages: [pre-commit]
         exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py|.*_test\.py|debug_.*\.py)'
 
+      - id: import-path-validator
+        name: 🔍 Import Path Validation
+        description: Validates that Python import statements reference modules that actually exist
+        entry: python scripts/validation/import_path_validator.py --quick
+        language: system
+        pass_filenames: true
+        files: '\.py$'
+        stages: [pre-commit]
+        exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/testing/|scripts/debug/|.*_test\.py|debug_.*\.py)'
+        fail_fast: true
+
+      - id: deprecated-function-checker
+        name: 🚨 Deprecated Function Usage Check
+        description: Check for usage of deprecated functions using Codanna
+        entry: python scripts/validation/codanna_deprecated_checker.py --directory verenigingen
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/testing/|scripts/debug/)'
+
       - id: workspace-validator
         name: Workspace integrity validation
         entry: python scripts/validation/workspace_integrity_validator.py
