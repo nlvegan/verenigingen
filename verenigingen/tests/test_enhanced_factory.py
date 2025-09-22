@@ -87,7 +87,8 @@ class TestEnhancedFactory(EnhancedTestCase):
         # Create volunteer
         volunteer = self.create_test_volunteer(
             member_name=member.name,
-            volunteer_name="Test Volunteer"
+            volunteer_name="Test Volunteer",
+            _exact_name=True
         )
         
         self.assertEqual(volunteer.member, member.name)

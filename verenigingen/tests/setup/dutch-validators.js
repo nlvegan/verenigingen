@@ -162,6 +162,17 @@ function validateDutchPostalCode(postalCode) {
 	// Remove spaces and convert to uppercase
 	const cleaned = postalCode.replace(/\s/g, '').toUpperCase();
 
+	// Check if this is just a 4-digit postal code prefix (for range validation)
+	const prefixPattern = /^(\d{4})$/;
+	if (prefixPattern.test(cleaned)) {
+		const num = parseInt(cleaned);
+		// Dutch postal codes range from 1000 to 9999
+		if (num >= 1000 && num <= 9999) {
+			return { valid: true, formatted: cleaned, type: 'prefix' };
+		}
+		return { valid: false, error: 'Postal code prefix must be between 1000-9999' };
+	}
+
 	// Dutch postal code pattern: 4 digits + 2 letters
 	const pattern = /^(\d{4})([A-Z]{2})$/;
 	const match = cleaned.match(pattern);

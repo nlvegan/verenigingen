@@ -21,6 +21,7 @@ class NotificationDispatcher:
         # Notification type mappings
         self.template_mapping = {
             "member_approval": "membership_application_approved",
+            "chapter_membership_approval": "chapter_membership_approved",
             "member_suspension": "Member Suspension Notification",
             "member_termination": "Member Termination Notification",
             "member_reactivation": "Member Reactivation Notification",

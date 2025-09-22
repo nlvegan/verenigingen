@@ -456,18 +456,18 @@ class MemberManager(BaseManager):
 
                 email_service = get_email_service()
 
-                # Prepare context for chapter approval template
+                # Prepare context for chapter-specific approval template
                 context = {
                     "member": member_doc,
                     "member_name": member_doc.full_name,
                     "chapter": self.chapter_doc,
                     "chapter_name": self.chapter_name,
-                    "approval_type": "chapter_membership",
+                    "company": frappe.defaults.get_global_default("company") or "Verenigingen",
                 }
 
-                # Send using member approval notification
+                # Send using chapter-specific notification type
                 email_service.send_notification(
-                    notification_type="member_approval",
+                    notification_type="chapter_membership_approval",
                     recipients=[member_doc.email],
                     data=context,
                     reference_doctype="Chapter",

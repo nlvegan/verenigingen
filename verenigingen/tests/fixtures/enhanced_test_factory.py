@@ -159,7 +159,7 @@ from faker import Faker
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import now_datetime, add_days, add_months, getdate, random_string
+from frappe.utils import now_datetime, add_days, add_months, getdate
 
 from .field_validator import FieldValidator, validate_field
 
@@ -205,9 +205,9 @@ class EnhancedTestDataFactory:
         # Track sequence counters for deterministic IDs
         self.sequence_counters = {}
         
-        # Generate unique test run ID with microseconds for better uniqueness
-        now = datetime.now()
-        self.test_run_id = f"TEST-{random_string(8)}-{int(now.timestamp())}-{now.microsecond:06d}"
+        # Generate deterministic test run ID based on seed for reproducible tests
+        deterministic_seed_hash = hash(f"test_run_{seed}") % 1000000
+        self.test_run_id = f"TEST-{seed}-{deterministic_seed_hash}"
         
         # ISOLATION ENHANCEMENT: Track created documents for cleanup
         self.created_documents = []
@@ -220,18 +220,17 @@ class EnhancedTestDataFactory:
     def generate_test_email(self, purpose: str = "member") -> str:
         """Generate clearly marked test email"""
         seq = self.get_next_sequence(f'email_{purpose}')  # Purpose-specific sequence
-        timestamp = int(datetime.now().timestamp())
-        # Add microseconds for additional uniqueness within the same second
-        microseconds = datetime.now().microsecond
-        
+        # Use deterministic "timestamp" based on sequence and test run ID for reproducibility
+        deterministic_id = hash(f"{self.test_run_id}_{purpose}_{seq}") % 1000000
+
         if self.use_faker:
             # Use Faker but clearly mark as test
             base_email = self.fake.email()
             username, domain = base_email.split('@')
-            # Add sequence number, timestamp, microseconds, and test run ID to ensure uniqueness
-            return f"TEST_{purpose}_{seq:04d}_{timestamp}_{microseconds:06d}_{username}_{self.test_run_id}@test.invalid"
+            # Add sequence number, deterministic ID, and test run ID to ensure uniqueness while being deterministic
+            return f"TEST_{purpose}_{seq:04d}_{deterministic_id}_{username}_{self.test_run_id}@test.invalid"
         else:
-            return f"TEST_{purpose}_{seq:04d}_{timestamp}_{microseconds:06d}_{self.test_run_id}@test.invalid"
+            return f"TEST_{purpose}_{seq:04d}_{deterministic_id}_{self.test_run_id}@test.invalid"
             
     def generate_test_name(self, type_name: str = "Person") -> str:
         """Generate clearly marked test name"""
@@ -265,11 +264,11 @@ class EnhancedTestDataFactory:
         
         # Generate compact uniqueness components
         seq = self.get_next_sequence(f'forced_{clean_base}')
-        # Use last 6 digits of timestamp for compactness (still unique enough for tests)
-        short_timestamp = int(datetime.now().timestamp()) % 1000000
+        # Use deterministic ID based on hash for compactness and reproducibility
+        short_deterministic_id = hash(f"{self.test_run_id}_{clean_base}_{seq}") % 1000000
         
         # Create shorter, length-aware unique name
-        unique_name = f"TEST {clean_base} {seq:03d}_{short_timestamp}"
+        unique_name = f"TEST {clean_base} {seq:03d}_{short_deterministic_id}"
         
         # Ensure we don't exceed max_length
         if len(unique_name) > max_length:
@@ -412,17 +411,20 @@ class EnhancedTestDataFactory:
         if "start_date" in data and "member" in data:
             start_date = getdate(data["start_date"])
             member = frappe.get_doc("Member", data["member"])
-            
+
             if member.birth_date:
                 # Use AgeValidator for consistent business rule enforcement
+                # BUT use start_date as reference date for age calculation
                 from verenigingen.utils.validation_utilities import AgeValidator
                 try:
-                    AgeValidator.validate_age(member.birth_date, context="volunteer", throw_on_error=True)
+                    # Calculate age at volunteer start date, not today
+                    age_at_start = AgeValidator.calculate_age(member.birth_date, start_date)
+                    if age_at_start < 16:
+                        raise BusinessRuleError(f"Volunteers must be at least 16 years old at start date (age at start: {age_at_start:.1f})")
                 except Exception as e:
+                    if isinstance(e, BusinessRuleError):
+                        raise
                     raise BusinessRuleError(f"Volunteer age validation failed: {str(e)}")
-                    
-            # Volunteers must be 16+ at start date, so check age at start date
-            # (This is the actual business rule, not join date)
                 
         return data
         
@@ -552,9 +554,10 @@ class EnhancedTestDataFactory:
             member = self.create_member()
             member_name = member.name
             
-        # Validate fields
+        # Validate fields (skip control parameters starting with _)
         for field in kwargs.keys():
-            self.validate_field_exists("Volunteer", field)
+            if not field.startswith('_'):  # Skip control parameters like _exact_name
+                self.validate_field_exists("Volunteer", field)
             
         # Set intelligent defaults with forced uniqueness
         base_volunteer_name = self.generate_test_name("Verenigingen Volunteer")
@@ -569,8 +572,13 @@ class EnhancedTestDataFactory:
         data = {**defaults, **kwargs}
         
         # QCE FIX: Apply unique naming to volunteer_name if provided to prevent test conflicts
+        # But allow tests to specify exact values with _exact_name suffix
         if "volunteer_name" in kwargs:
-            data["volunteer_name"] = self.force_unique_name(kwargs["volunteer_name"], "Volunteer")
+            if kwargs.get("_exact_name", False):
+                # Allow exact volunteer name for specific test requirements
+                data["volunteer_name"] = kwargs["volunteer_name"]
+            else:
+                data["volunteer_name"] = self.force_unique_name(kwargs["volunteer_name"], "Volunteer")
             
         # QCE FIX: Apply unique email generation if email provided to prevent test conflicts
         if "email" in kwargs:
@@ -580,34 +588,37 @@ class EnhancedTestDataFactory:
                 local_part = kwargs["email"].split("@")[0]
                 purpose = local_part.replace(".", "_").replace("-", "_")
             seq = self.get_next_sequence(f'email_{purpose}')
-            timestamp = int(datetime.now().timestamp()) % 1000000
-            data["email"] = f"{purpose}_{seq}_{timestamp}@example.com"
+            deterministic_id = hash(f"{self.test_run_id}_{purpose}_{seq}") % 1000000
+            data["email"] = f"{purpose}_{seq}_{deterministic_id}@example.com"
         
+        # Remove control parameters before validation
+        clean_data = {k: v for k, v in data.items() if not k.startswith('_')}
+
         # Validate business rules
-        data = self.validate_volunteer_business_rules(data)
+        clean_data = self.validate_volunteer_business_rules(clean_data)
         # Validate required fields using meta
         try:
             meta = frappe.get_meta("Volunteer")
             for field in meta.fields:
-                if field.reqd and field.fieldname not in data:
+                if field.reqd and field.fieldname not in clean_data:
                     if field.fieldtype == "Data":
-                        data[field.fieldname] = f"Test-{field.fieldname}"
+                        clean_data[field.fieldname] = f"Test-{field.fieldname}"
                     elif field.fieldtype == "Select" and field.options:
-                        data[field.fieldname] = field.options.split("\n")[0]
+                        clean_data[field.fieldname] = field.options.split("\n")[0]
         except (frappe.DoesNotExistError, AttributeError) as e:
             frappe.log_error(f"Failed to get Volunteer meta for field validation: {e}", "EnhancedTestFactory")
             # Continue without meta validation - let document validation catch issues
-        
+
         try:
             # Set flags to skip automatic account creation during tests
             frappe.flags.skip_volunteer_account_creation = True
-            
+
             # Ensure proper user context for volunteer creation
             self.ensure_test_user_has_role("Verenigingen Administrator")
-            
+
             volunteer = frappe.get_doc({
                 "doctype": "Volunteer",
-                **data
+                **clean_data
             })
             
             # Use ignore_permissions for test environment to avoid complex role timing issues
@@ -618,7 +629,7 @@ class EnhancedTestDataFactory:
             # Enhanced debugging for volunteer creation failures
             error_details = []
             error_details.append(f"Volunteer creation failed: {str(e)}")
-            error_details.append(f"Data provided: {data}")
+            error_details.append(f"Data provided: {clean_data}")
             if hasattr(e, '__traceback__'):
                 import traceback
                 error_details.append(f"Full traceback: {traceback.format_exc()}")

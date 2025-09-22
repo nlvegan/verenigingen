@@ -136,11 +136,16 @@ def handle_membership_notifications(event_name, event_data):
         )
 
 
-def handle_member_role_updates(event_name, event_data):
+def handle_member_role_updates(event_name, event_data, **kwargs):
     """
     Handle member role updates when chapter membership changes.
 
     Updates member permissions and access levels.
+
+    Args:
+        event_name: Name of the event that triggered this handler
+        event_data: Dict containing event-specific data
+        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
         chapter_name = event_data.get("chapter")

@@ -101,6 +101,14 @@ class TeamRoleProfileManager(BaseRoleProfileManager):
             )
         ).run(as_dict=True)
 
+    def _get_user_from_member_doc(self, doc: "frappe._dict") -> Optional[str]:
+        """Extract user from team member document (abstract method implementation)
+
+        Args:
+            doc: TeamMember document with volunteer and team_role fields
+        """
+        return self._get_user_from_team_member_doc(doc)
+
     def _get_user_from_team_member_doc(self, doc: "frappe._dict") -> Optional[str]:
         """Extract user from team member document
 

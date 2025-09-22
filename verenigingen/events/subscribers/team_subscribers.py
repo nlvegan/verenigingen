@@ -207,11 +207,16 @@ def handle_permissions_updates(event_name, event_data):
         frappe.log_error(f"Failed to update permissions: {str(e)}", "Team Permissions Update Error")
 
 
-def handle_cache_invalidation(event_name, event_data):
+def handle_cache_invalidation(event_name, event_data, **kwargs):
     """
     Handle cache invalidation for team changes.
 
     Clears relevant caches when team data changes.
+
+    Args:
+        event_name: Name of the event that triggered this handler
+        event_data: Dict containing event-specific data
+        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
         team_name = event_data.get("team")

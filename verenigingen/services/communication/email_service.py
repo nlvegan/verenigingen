@@ -150,7 +150,7 @@ class EmailService:
             # Render template
             rendered_content = self._render_template(template, email_context)
             subject = subject_override or rendered_content.get(
-                "subject", f"Message from {self.settings.get('organization_name', 'Verenigingen')}"
+                "subject", f"Message from {self.settings.get('organization_name') or 'Your Organization'}"
             )
 
             # Send email
@@ -210,6 +210,7 @@ class EmailService:
             # Map notification types to templates
             template_mapping = {
                 "member_approval": "membership_application_approved",
+                "chapter_membership_approval": "chapter_membership_approved",
                 "member_suspension": "Member Suspension Notification",
                 "member_termination": "Member Termination Notification",
                 "member_reactivation": "Member Reactivation Notification",
@@ -427,14 +428,14 @@ class EmailService:
         try:
             settings = frappe.get_single("Verenigingen Settings")
             return {
-                "organization_name": getattr(settings, "organization_name", "Verenigingen"),
+                "organization_name": getattr(settings, "company_name", ""),
                 "contact_email": getattr(settings, "contact_email", ""),
                 "website_url": getattr(settings, "website_url", ""),
                 "current_date": get_datetime(),
             }
         except Exception:
             return {
-                "organization_name": "Verenigingen",
+                "organization_name": "",
                 "current_date": get_datetime(),
             }
 
@@ -443,13 +444,13 @@ class EmailService:
         try:
             settings = frappe.get_single("Verenigingen Settings")
             return {
-                "organization_name": getattr(settings, "organization_name", "Verenigingen"),
+                "organization_name": getattr(settings, "company_name", ""),
                 "default_sender": getattr(settings, "default_email_sender", "noreply@verenigingen.org"),
                 "contact_email": getattr(settings, "contact_email", ""),
             }
         except Exception:
             return {
-                "organization_name": "Verenigingen",
+                "organization_name": "",
                 "default_sender": "noreply@verenigingen.org",
             }
 
