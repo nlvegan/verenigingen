@@ -225,17 +225,26 @@ def _send_lifecycle_notification(member, old_status, new_status):
     if not member.email:
         return
 
-    subject = f"Membership Status Update: {old_status} to {new_status}"
-    message = f"""
-    Dear {member.get_full_name()},
+    # MIGRATED: Use unified EmailService with professional template
+    from verenigingen.services.communication.email_service import get_email_service
 
-    Your membership status has been updated from {old_status} to {new_status}.
+    email_service = get_email_service()
+    context = {
+        "member_name": member.get_full_name(),
+        "old_status": old_status,
+        "new_status": new_status,
+        "membership_number": member.name,
+        "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+    }
 
-    Best regards,
-    The Verenigingen Team
-    """
-
-    frappe.sendmail(recipients=[member.email], subject=subject, message=message)
+    email_service.send_templated_email(
+        template_name="member_lifecycle_notification",
+        recipients=[member.email],
+        context=context,
+        subject_override=f"Membership Status Update: {old_status} to {new_status}",
+        reference_doctype="Member",
+        reference_name=member.name,
+    )
 
 
 def _send_suspension_notification(member):

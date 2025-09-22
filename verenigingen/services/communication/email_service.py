@@ -128,13 +128,23 @@ class EmailService:
             if not template:
                 return create_service_result(
                     success=False,
-                    errors=[f"Email template '{template_name}' not found"],
+                    error=f"Email template '{template_name}' not found",
                     service_name="EmailService",
                     operation="send_templated_email",
                 )
 
-            # Prepare context
-            email_context = context or {}
+            # Prepare context with validation
+            if context is None:
+                email_context = {}
+            elif isinstance(context, dict):
+                email_context = context.copy()
+            else:
+                # Invalid context type - log warning and use empty dict
+                frappe.logger("email_service").warning(
+                    f"Invalid context type {type(context)}, expected dict. Using empty context."
+                )
+                email_context = {}
+
             email_context.update(self._get_default_context())
 
             # Render template
@@ -161,8 +171,10 @@ class EmailService:
                     "recipients_count": len(recipients),
                     "communication_id": result.get("communication_id"),
                     "message": "Email sent successfully" if result["success"] else "Email sending failed",
-                },
-                errors=result.get("errors", []),
+                }
+                if result["success"]
+                else None,
+                error="; ".join(result.get("errors", [])) if not result["success"] else None,
                 service_name="EmailService",
                 operation="send_templated_email",
             )
@@ -211,7 +223,7 @@ class EmailService:
             if not template_name:
                 return create_service_result(
                     success=False,
-                    errors=[f"Unknown notification type: {notification_type}"],
+                    error=f"Unknown notification type: {notification_type}",
                     service_name="EmailService",
                     operation="send_notification",
                 )
@@ -387,7 +399,7 @@ class EmailService:
                 template_doc = frappe.get_doc("Email Template", template_name)
                 template_data = {
                     "subject": template_doc.subject,
-                    "content": template_doc.response_,
+                    "content": template_doc.response_html if template_doc.use_html else template_doc.response,
                     "doc": template_doc,
                 }
                 # Store in bounded cache

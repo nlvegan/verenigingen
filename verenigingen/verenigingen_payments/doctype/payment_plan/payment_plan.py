@@ -301,26 +301,27 @@ class PaymentPlan(Document):
         try:
             member = frappe.get_doc("Member", self.member)
 
-            subject = _("Payment Received - Payment Plan {0}").format(self.name)
-            message = f"""
-            Dear {member.full_name},
+            # MIGRATED: Use unified EmailService with payment notification template
+            from verenigingen.services.communication.email_service import get_email_service
 
-            We have received your payment of €{amount:.2f} for installment #{installment_number} of your payment plan.
+            email_service = get_email_service()
 
-            Payment Plan: {self.name}
-            Remaining Balance: €{self.remaining_balance:.2f}
-            Next Payment Due: {self.next_payment_date or 'N/A'}
+            context = {
+                "member_name": member.full_name,
+                "notification_message": f"We have received your payment of €{amount:.2f} for installment #{installment_number} of your payment plan.",
+                "payment_reference": self.name,
+                "amount": f"€{amount:.2f}",
+                "payment_date": str(frappe.utils.today()),
+                "payment_method": "Payment Plan Installment",
+                "next_steps": f"Remaining Balance: €{self.remaining_balance:.2f}. Next Payment Due: {self.next_payment_date or 'N/A'}",
+                "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+            }
 
-            Thank you for your payment.
-
-            Best regards,
-            The Membership Team
-            """
-
-            frappe.sendmail(
+            email_service.send_templated_email(
+                template_name="payment_notification",
                 recipients=[member.email],
-                subject=subject,
-                message=message,
+                context=context,
+                subject_override=_("Payment Received - Payment Plan {0}").format(self.name),
                 reference_doctype="Payment Plan",
                 reference_name=self.name,
             )
@@ -347,28 +348,28 @@ class PaymentPlan(Document):
         try:
             member = frappe.get_doc("Member", self.member)
 
-            subject = _("Payment Overdue - Payment Plan {0}").format(self.name)
-            message = f"""
-            Dear {member.full_name},
+            # MIGRATED: Use unified EmailService with payment notification template
+            from verenigingen.services.communication.email_service import get_email_service
 
-            Your payment for installment #{installment_number} is now overdue.
+            email_service = get_email_service()
 
-            Payment Plan: {self.name}
-            Outstanding Amount: €{self.remaining_balance:.2f}
-            Consecutive Missed Payments: {self.consecutive_missed_payments}
+            context = {
+                "member_name": member.full_name,
+                "notification_message": f"Your payment for installment #{installment_number} is now overdue.",
+                "payment_reference": self.name,
+                "amount": f"€{self.remaining_balance:.2f}",
+                "payment_date": str(frappe.utils.today()),
+                "payment_method": "Payment Plan Installment",
+                "action_required": f"Outstanding Amount: €{self.remaining_balance:.2f}. Consecutive Missed Payments: {self.consecutive_missed_payments}. Please make your payment as soon as possible to avoid suspension of your payment plan.",
+                "next_steps": "If you are experiencing financial difficulties, please contact us to discuss options.",
+                "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+            }
 
-            Please make your payment as soon as possible to avoid suspension of your payment plan.
-
-            If you are experiencing financial difficulties, please contact us to discuss options.
-
-            Best regards,
-            The Membership Team
-            """
-
-            frappe.sendmail(
+            email_service.send_templated_email(
+                template_name="payment_notification",
                 recipients=[member.email],
-                subject=subject,
-                message=message,
+                context=context,
+                subject_override=_("Payment Overdue - Payment Plan {0}").format(self.name),
                 reference_doctype="Payment Plan",
                 reference_name=self.name,
             )

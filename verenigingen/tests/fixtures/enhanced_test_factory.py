@@ -343,10 +343,11 @@ class EnhancedTestDataFactory:
     def _generate_unique_test_member_id(self) -> str:
         """Generate unique member ID for test members to avoid database conflicts"""
         # Use a test-specific prefix to distinguish from production member IDs
-        # Format: TEST followed by timestamp and sequence to ensure uniqueness
+        # Format: TEST followed by microsecond timestamp and sequence to ensure uniqueness
         seq = self.get_next_sequence('member_id')
-        timestamp = int(datetime.now().timestamp() * 1000) % 100000  # Last 5 digits for brevity
-        return f"TEST{timestamp:05d}{seq:03d}"
+        now = datetime.now()
+        microsec_part = int(now.timestamp() * 1000000) % 1000000  # Use microseconds for better uniqueness
+        return f"TEST{microsec_part:06d}{seq:03d}"
 
     def ensure_test_user_has_role(self, role_name):
         """Ensure the current test user has the required role for document operations"""
@@ -667,6 +668,7 @@ class EnhancedTestDataFactory:
             "name": f"TEST-Chapter-{unique_suffix}",
             "region": region_name,
             "postal_codes": f"{1000 + self.get_next_sequence('postal'):04d}",
+            "contact_email": f"chapter{unique_suffix}@test.invalid",
             "introduction": f"Test chapter created by EnhancedTestDataFactory - {self.test_run_id}"
         }
         

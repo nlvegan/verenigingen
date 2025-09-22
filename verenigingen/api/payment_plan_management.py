@@ -380,23 +380,28 @@ def send_payment_plan_request_notification(payment_plan):
         if not admin_emails:
             return
 
-        subject = f"Payment Plan Request - {member.full_name}"
-        message = f"""
-        A new payment plan request has been submitted:
+        # MIGRATED: Use unified EmailService with payment notification template
+        from verenigingen.services.communication.email_service import get_email_service
 
-        Member: {member.full_name} ({member.email})
-        Total Amount: €{payment_plan.total_amount:.2f}
-        Installments: {payment_plan.number_of_installments} x €{payment_plan.installment_amount:.2f}
-        Frequency: {payment_plan.frequency}
-        Reason: {payment_plan.reason}
+        email_service = get_email_service()
 
-        Please review and approve/reject this request in the system.
-        """
+        context = {
+            "member_name": "System Administrator",
+            "notification_message": f"A new payment plan request has been submitted by {member.full_name} ({member.email}).",
+            "payment_reference": payment_plan.name,
+            "amount": f"€{payment_plan.total_amount:.2f}",
+            "payment_date": str(frappe.utils.today()),
+            "payment_method": f"Payment Plan - {payment_plan.frequency}",
+            "action_required": f"Total Amount: €{payment_plan.total_amount:.2f}. Installments: {payment_plan.number_of_installments} x €{payment_plan.installment_amount:.2f}. Reason: {payment_plan.reason}",
+            "next_steps": "Please review and approve/reject this request in the system.",
+            "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+        }
 
-        frappe.sendmail(
+        email_service.send_templated_email(
+            template_name="payment_notification",
             recipients=admin_emails,
-            subject=subject,
-            message=message,
+            context=context,
+            subject_override=f"Payment Plan Request - {member.full_name}",
             reference_doctype="Payment Plan",
             reference_name=payment_plan.name,
         )
@@ -410,45 +415,42 @@ def send_payment_plan_approval_notification(payment_plan, approved=True, reason=
     try:
         member = frappe.get_doc("Member", payment_plan.member)
 
+        # MIGRATED: Use unified EmailService with payment notification template
+        from verenigingen.services.communication.email_service import get_email_service
+
+        email_service = get_email_service()
+
         if approved:
+            context = {
+                "member_name": member.full_name,
+                "notification_message": "Your payment plan request has been approved!",
+                "payment_reference": payment_plan.name,
+                "amount": f"€{payment_plan.total_amount:.2f}",
+                "payment_date": str(payment_plan.start_date),
+                "payment_method": f"Payment Plan - {payment_plan.frequency}",
+                "next_steps": f"Installments: {payment_plan.number_of_installments} x €{payment_plan.installment_amount:.2f}. Your first payment is due on {payment_plan.next_payment_date}. Thank you for choosing a payment plan option.",
+                "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+            }
             subject = f"Payment Plan Approved - {payment_plan.name}"
-            message = f"""
-            Dear {member.full_name},
-
-            Your payment plan request has been approved!
-
-            Payment Plan: {payment_plan.name}
-            Total Amount: €{payment_plan.total_amount:.2f}
-            Installments: {payment_plan.number_of_installments} x €{payment_plan.installment_amount:.2f}
-            Frequency: {payment_plan.frequency}
-            Start Date: {payment_plan.start_date}
-
-            Your first payment is due on {payment_plan.next_payment_date}.
-
-            Thank you for choosing a payment plan option.
-            """
         else:
+            context = {
+                "member_name": member.full_name,
+                "notification_message": "Unfortunately, your payment plan request could not be approved at this time.",
+                "payment_reference": payment_plan.name,
+                "amount": f"€{payment_plan.total_amount:.2f}",
+                "payment_date": str(frappe.utils.today()),
+                "payment_method": f"Payment Plan - {payment_plan.frequency}",
+                "action_required": f"Reason: {reason}" if reason else "Request not approved",
+                "next_steps": "Please contact us if you would like to discuss other payment options.",
+                "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+            }
             subject = f"Payment Plan Request - {payment_plan.name}"
-            message = f"""
-            Dear {member.full_name},
 
-            Unfortunately, your payment plan request could not be approved at this time.
-
-            """
-            if reason:
-                message += f"Reason: {reason}\n\n"
-
-            message += """
-            Please contact us if you would like to discuss other payment options.
-
-            Best regards,
-            The Membership Team
-            """
-
-        frappe.sendmail(
+        email_service.send_templated_email(
+            template_name="payment_notification",
             recipients=[member.email],
-            subject=subject,
-            message=message,
+            context=context,
+            subject_override=subject,
             reference_doctype="Payment Plan",
             reference_name=payment_plan.name,
         )

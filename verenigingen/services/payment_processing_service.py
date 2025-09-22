@@ -5,6 +5,7 @@ Handles payment-related operations for webhook processing.
 Extracted from monolithic webhook handler for better maintainability.
 """
 
+import json
 from typing import Any, Dict, Optional, Tuple
 
 import frappe
@@ -115,13 +116,63 @@ class PaymentProcessingService:
 
         return {"customer_id": customer_id, "mandate_id": mandate_id, "subscription_id": subscription_id}
 
-    def create_payment_entry(self, donation, payment_id: str) -> Dict[str, Any]:
+    def _extract_record_reference(self, payment_id: str, mollie_payment_data: Any = None) -> str:
+        """
+        Extract record reference from Mollie payment data for origin-agnostic payment entry titles.
+
+        Tries multiple sources in order:
+        1. metadata.record_id (most reliable)
+        2. description JSON parsing
+        3. payment_id as fallback
+
+        Args:
+            payment_id: Mollie payment ID
+            mollie_payment_data: Full Mollie payment object (optional)
+
+        Returns:
+            Record reference string (donation ID, membership ID, etc.)
+        """
+        try:
+            # Method 1: Extract from payment metadata (most reliable)
+            if mollie_payment_data:
+                metadata = getattr(mollie_payment_data, "metadata", {})
+                if isinstance(metadata, dict) and metadata.get("record_id"):
+                    self.logger.info(
+                        f"🔍 [{self.debug_context}] Found record_id in metadata: {metadata['record_id']}"
+                    )
+                    return metadata["record_id"]
+
+                # Method 2: Parse from description if it contains JSON
+                description = getattr(mollie_payment_data, "description", "")
+                if description:
+                    try:
+                        desc_data = json.loads(description)
+                        if isinstance(desc_data, dict) and desc_data.get("record_id"):
+                            self.logger.info(
+                                f"🔍 [{self.debug_context}] Found record_id in description: {desc_data['record_id']}"
+                            )
+                            return desc_data["record_id"]
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+            # Method 3: Fallback to payment_id
+            self.logger.info(f"🔍 [{self.debug_context}] Using payment_id as record reference: {payment_id}")
+            return payment_id
+
+        except Exception as e:
+            self.logger.warning(f"⚠️ [{self.debug_context}] Error extracting record reference: {e}")
+            return payment_id
+
+    def create_payment_entry(
+        self, donation, payment_id: str, mollie_payment_data: Any = None
+    ) -> Dict[str, Any]:
         """
         Create Payment Entry for a donation with proper accounting (matches working webhook implementation)
 
         Args:
             donation: Donation document
             payment_id: Mollie payment ID
+            mollie_payment_data: Full Mollie payment object (optional, for better titles)
 
         Returns:
             Processing result dict
@@ -130,6 +181,10 @@ class PaymentProcessingService:
             # Get the customer linked to the donor, create if missing (robust guest donation support)
             donor_doc = frappe.get_doc("Donor", donation.donor)
             customer = donor_doc.customer
+
+            # If customer exists but isn't properly linked back to donor, fix the link
+            if customer and not self._customer_has_donor_link(customer, donor_doc.name):
+                self._fix_customer_donor_link(customer, donor_doc.name)
 
             if not customer:
                 self.logger.info(
@@ -208,10 +263,18 @@ class PaymentProcessingService:
                 self.logger.error(f"❌ [{self.debug_context}] Mollie Mode of Payment not configured")
                 return {"status": "error", "message": "Mollie Mode of Payment not configured"}
 
+            # Extract record reference from Mollie data (origin-agnostic approach)
+            record_reference = self._extract_record_reference(payment_id, mollie_payment_data)
+
+            # Get the actual customer name (not the customer ID)
+            customer_doc = frappe.get_doc("Customer", customer)
+            display_name = customer_doc.customer_name or donor_doc.donor_name or "Unknown"
+
             # Generate meaningful Payment Entry name (following working implementation)
-            donor_name_clean = frappe.scrub(donor_doc.donor_name)  # Clean name for naming
-            donation_number = donation.name.split("-")[-1]  # Extract number from donation name
-            custom_naming_series = f"PE-{donor_name_clean}-{donation_number}-"
+            donor_name_clean = frappe.scrub(display_name)  # Clean name for naming
+            # Extract identifier from record reference (donation, membership, etc.)
+            record_number = record_reference.split("-")[-1] if "-" in record_reference else record_reference
+            custom_naming_series = f"PE-{donor_name_clean}-{record_number}-"
 
             # Set cost center
             cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
@@ -233,6 +296,8 @@ class PaymentProcessingService:
                     "paid_from": donation_receivable_account,
                     "paid_to": donation_bank_account,
                     "cost_center": cost_center,
+                    "title": f"{display_name} - {record_reference}",
+                    "remarks": f"Payment for {record_reference} via Mollie ({payment_id}) - {donor_doc.donor_name}",
                 }
             )
 
@@ -398,3 +463,38 @@ class PaymentProcessingService:
                 f"❌ [{self.debug_context}] Failed to create customer for donor {donor_doc.name}: {str(e)}"
             )
             return None
+
+    def _customer_has_donor_link(self, customer_name: str, donor_name: str) -> bool:
+        """Check if customer has proper custom_donor link"""
+        try:
+            customer_doc = frappe.get_doc("Customer", customer_name)
+            return getattr(customer_doc, "custom_donor", None) == donor_name
+        except Exception:
+            return False
+
+    def _fix_customer_donor_link(self, customer_name: str, donor_name: str) -> None:
+        """Fix broken customer-donor relationship"""
+        try:
+            customer_doc = frappe.get_doc("Customer", customer_name)
+            customer_doc.custom_donor = donor_name
+
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            result = secure_document_operation(
+                operation="save",
+                doc=customer_doc,
+                justification=f"Fix customer-donor link for payment processing",
+                required_permissions=["Customer:write"],
+            )
+
+            if result.success:
+                self.logger.info(
+                    f"✅ [{self.debug_context}] Fixed customer-donor link: {customer_name} -> {donor_name}"
+                )
+            else:
+                self.logger.warning(
+                    f"⚠️ [{self.debug_context}] Failed to fix customer-donor link: {result.errors}"
+                )
+
+        except Exception as e:
+            self.logger.warning(f"⚠️ [{self.debug_context}] Error fixing customer-donor link: {e}")

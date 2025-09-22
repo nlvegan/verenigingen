@@ -106,7 +106,10 @@ class TestEmailTemplateXSSProtection(EnhancedTestCase):
 
         for template in self.templates:
             template_name = template.get('name', 'Unknown')
-            content = template.get('response', '') + ' ' + template.get('subject', '')
+            # Handle both response and response_html fields
+            response_content = template.get('response') or template.get('response_html') or ''
+            subject_content = template.get('subject') or ''
+            content = response_content + ' ' + subject_content
 
             for pattern in vulnerable_patterns:
                 matches = re.findall(pattern, content)
@@ -166,12 +169,14 @@ class TestEmailTemplateXSSProtection(EnhancedTestCase):
             if not template.get('subject'):
                 invalid_templates.append(f"{template_name}: Missing subject")
 
-            if not template.get('response'):
-                invalid_templates.append(f"{template_name}: Missing response")
+            # Check for content in either response or response_html
+            has_content = template.get('response') or template.get('response_html')
+            if not has_content:
+                invalid_templates.append(f"{template_name}: Missing response content")
 
-            # Check for use_html flag
-            if template.get('use_html') != 1:
-                invalid_templates.append(f"{template_name}: use_html not set to 1")
+            # For HTML templates, check use_html flag
+            if template.get('response_html') and template.get('use_html') != 1:
+                invalid_templates.append(f"{template_name}: use_html not set to 1 for HTML template")
 
         if invalid_templates:
             self.fail(
@@ -185,7 +190,10 @@ class TestEmailTemplateXSSProtection(EnhancedTestCase):
 
         for template in self.templates:
             template_name = template.get('name', 'Unknown')
-            content = template.get('response', '') + ' ' + template.get('subject', '')
+            # Handle both response and response_html fields
+            response_content = template.get('response') or template.get('response_html') or ''
+            subject_content = template.get('subject') or ''
+            content = response_content + ' ' + subject_content
 
             # Find all escaping filters
             escaping_pattern = r'\{\{\s*([^}]+\|e[^}]*)\s*\}\}'
@@ -210,7 +218,8 @@ class TestEmailTemplateXSSProtection(EnhancedTestCase):
 
         for template in self.templates:
             template_name = template.get('name', 'Unknown')
-            content = template.get('response', '')
+            # Handle both response and response_html fields
+            content = template.get('response') or template.get('response_html') or ''
 
             # Find href attributes with variables
             href_pattern = r'href=["\']([^"\']*\{\{[^}]+\}\}[^"\']*)["\']'
@@ -240,7 +249,8 @@ class TestEmailTemplateXSSProtection(EnhancedTestCase):
 
         for template in self.templates:
             template_name = template.get('name', 'Unknown')
-            content = template.get('response', '')
+            # Handle both response and response_html fields
+            content = template.get('response') or template.get('response_html') or ''
 
             # Check for potentially dangerous patterns
             dangerous_patterns = [

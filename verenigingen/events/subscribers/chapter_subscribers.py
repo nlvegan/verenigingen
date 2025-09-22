@@ -164,11 +164,16 @@ def handle_member_role_updates(event_name, event_data):
         frappe.log_error(f"Failed to update member roles: {str(e)}", "Chapter Member Role Update Error")
 
 
-def handle_cache_invalidation(event_name, event_data):
+def handle_cache_invalidation(event_name, event_data, **kwargs):
     """
     Handle cache invalidation for chapter changes.
 
     Clears relevant caches when chapter data changes.
+
+    Args:
+        event_name: Name of the event that triggered this handler
+        event_data: Dict containing event-specific data
+        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
         chapter_name = event_data.get("chapter")
@@ -311,19 +316,28 @@ def _send_board_member_added_notification(chapter, volunteer, role):
         member_doc = frappe.get_doc("Member", volunteer_doc.member)
 
         if member_doc.email:
-            subject = f"Board Appointment - {chapter.name}"
-            message = f"""
-            Dear {member_doc.get_full_name()},
+            # MIGRATED: Use unified EmailService with professional template
+            from verenigingen.services.communication.email_service import get_email_service
 
-            Congratulations! You have been appointed to the board of {chapter.name} as {role}.
+            email_service = get_email_service()
+            context = {
+                "member_name": member_doc.get_full_name(),
+                "chapter_name": chapter.name,
+                "change_type": "Board Appointment",
+                "board_position": role,
+                "effective_date": frappe.utils.today(),
+                "additional_message": "Congratulations! Welcome to the board!",
+                "company": frappe.defaults.get_global_default("company") or "Chapter Management",
+            }
 
-            Welcome to the team!
-
-            Best regards,
-            The Verenigingen Team
-            """
-
-            frappe.sendmail(recipients=[member_doc.email], subject=subject, message=message)
+            email_service.send_templated_email(
+                template_name="chapter_board_notification",
+                recipients=[member_doc.email],
+                context=context,
+                subject_override=f"Board Appointment - {chapter.name}",
+                reference_doctype="Chapter",
+                reference_name=chapter.name,
+            )
 
 
 def _send_board_member_removed_notification(chapter, volunteer, role):
@@ -333,19 +347,28 @@ def _send_board_member_removed_notification(chapter, volunteer, role):
         member_doc = frappe.get_doc("Member", volunteer_doc.member)
 
         if member_doc.email:
-            subject = f"Board Tenure Ended - {chapter.name}"
-            message = f"""
-            Dear {member_doc.get_full_name()},
+            # MIGRATED: Use unified EmailService with professional template
+            from verenigingen.services.communication.email_service import get_email_service
 
-            Your tenure as {role} on the board of {chapter.name} has ended.
+            email_service = get_email_service()
+            context = {
+                "member_name": member_doc.get_full_name(),
+                "chapter_name": chapter.name,
+                "change_type": "Board Tenure Ended",
+                "board_position": role,
+                "effective_date": frappe.utils.today(),
+                "additional_message": "Thank you for your service!",
+                "company": frappe.defaults.get_global_default("company") or "Chapter Management",
+            }
 
-            Thank you for your service!
-
-            Best regards,
-            The Verenigingen Team
-            """
-
-            frappe.sendmail(recipients=[member_doc.email], subject=subject, message=message)
+            email_service.send_templated_email(
+                template_name="chapter_board_notification",
+                recipients=[member_doc.email],
+                context=context,
+                subject_override=f"Board Tenure Ended - {chapter.name}",
+                reference_doctype="Chapter",
+                reference_name=chapter.name,
+            )
 
 
 def _send_board_role_changed_notification(chapter, volunteer, old_role, new_role):
@@ -355,55 +378,87 @@ def _send_board_role_changed_notification(chapter, volunteer, old_role, new_role
         member_doc = frappe.get_doc("Member", volunteer_doc.member)
 
         if member_doc.email:
-            subject = f"Board Role Update - {chapter.name}"
-            message = f"""
-            Dear {member_doc.get_full_name()},
+            # MIGRATED: Use unified EmailService with professional template
+            from verenigingen.services.communication.email_service import get_email_service
 
-            Your role on the board of {chapter.name} has been updated from {old_role} to {new_role}.
+            email_service = get_email_service()
+            context = {
+                "member_name": member_doc.get_full_name(),
+                "chapter_name": chapter.name,
+                "change_type": "Board Role Update",
+                "board_position": new_role,
+                "effective_date": frappe.utils.today(),
+                "additional_message": f"Your role has been updated from {old_role} to {new_role}.",
+                "company": frappe.defaults.get_global_default("company") or "Chapter Management",
+            }
 
-            Best regards,
-            The Verenigingen Team
-            """
-
-            frappe.sendmail(recipients=[member_doc.email], subject=subject, message=message)
+            email_service.send_templated_email(
+                template_name="chapter_board_notification",
+                recipients=[member_doc.email],
+                context=context,
+                subject_override=f"Board Role Update - {chapter.name}",
+                reference_doctype="Chapter",
+                reference_name=chapter.name,
+            )
 
 
 def _send_member_welcome_notification(chapter, member_doc):
     """Send welcome notification to new chapter member"""
     if member_doc.email:
-        subject = f"Welcome to {chapter.name}"
-        message = f"""
-        Dear {member_doc.get_full_name()},
+        # MIGRATED: Use unified EmailService with professional template
+        from verenigingen.services.communication.email_service import get_email_service
 
-        Welcome to {chapter.name}! We're excited to have you as part of our chapter.
+        email_service = get_email_service()
+        context = {
+            "member_name": member_doc.get_full_name(),
+            "chapter_name": chapter.name,
+            "change_type": "Chapter Welcome",
+            "effective_date": frappe.utils.today(),
+            "additional_message": f"Welcome to {chapter.name}! We're excited to have you as part of our chapter.\n\n{chapter.introduction or ''}",
+            "company": frappe.defaults.get_global_default("company") or "Chapter Management",
+        }
 
-        {chapter.introduction or ""}
-
-        Best regards,
-        The {chapter.name} Team
-        """
-
-        frappe.sendmail(recipients=[member_doc.email], subject=subject, message=message)
+        email_service.send_templated_email(
+            template_name="chapter_board_notification",
+            recipients=[member_doc.email],
+            context=context,
+            subject_override=f"Welcome to {chapter.name}",
+            reference_doctype="Chapter",
+            reference_name=chapter.name,
+        )
 
 
 def _send_member_farewell_notification(chapter, member_doc, reason):
     """Send farewell notification to departing chapter member"""
     if member_doc.email:
-        subject = f"Farewell from {chapter.name}"
-        message = f"""
-        Dear {member_doc.get_full_name()},
+        # MIGRATED: Use unified EmailService with professional template
+        from verenigingen.services.communication.email_service import get_email_service
 
-        We're sorry to see you leave {chapter.name}. Thank you for being part of our community.
+        email_service = get_email_service()
+        farewell_message = (
+            f"We're sorry to see you leave {chapter.name}. Thank you for being part of our community."
+        )
+        if reason:
+            farewell_message += f"\n\nReason: {reason}"
+        farewell_message += "\n\nYou're always welcome back!"
 
-        {f"Reason: {reason}" if reason else ""}
+        context = {
+            "member_name": member_doc.get_full_name(),
+            "chapter_name": chapter.name,
+            "change_type": "Chapter Departure",
+            "effective_date": frappe.utils.today(),
+            "additional_message": farewell_message,
+            "company": frappe.defaults.get_global_default("company") or "Chapter Management",
+        }
 
-        You're always welcome back!
-
-        Best regards,
-        The {chapter.name} Team
-        """
-
-        frappe.sendmail(recipients=[member_doc.email], subject=subject, message=message)
+        email_service.send_templated_email(
+            template_name="chapter_board_notification",
+            recipients=[member_doc.email],
+            context=context,
+            subject_override=f"Farewell from {chapter.name}",
+            reference_doctype="Chapter",
+            reference_name=chapter.name,
+        )
 
 
 def _grant_chapter_member_permissions(chapter_name, member_doc):
@@ -475,23 +530,29 @@ def _send_settings_change_notification(chapter, changed_fields):
     """Send notification about chapter settings changes to board members"""
     board_members = chapter.get_board_members()
 
+    # MIGRATED: Use unified EmailService with professional template
+    from verenigingen.services.communication.email_service import get_email_service
+
+    email_service = get_email_service()
+
     for board_member in board_members:
         if board_member.get("email"):
-            subject = f"Chapter Settings Updated - {chapter.name}"
-            message = f"""
-            Dear Board Member,
+            context = {
+                "member_name": board_member.get("name", "Board Member"),
+                "chapter_name": chapter.name,
+                "change_type": "Settings Update",
+                "additional_message": f"The following settings have been updated: {', '.join(changed_fields)}. Please review the changes in the chapter administration panel.",
+                "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+            }
 
-            The settings for {chapter.name} have been updated.
-
-            Changed settings: {', '.join(changed_fields)}
-
-            Please review the changes in the chapter administration panel.
-
-            Best regards,
-            The Verenigingen System
-            """
-
-            frappe.sendmail(recipients=[board_member.get("email")], subject=subject, message=message)
+            email_service.send_templated_email(
+                template_name="chapter_board_notification",
+                recipients=[board_member.get("email")],
+                context=context,
+                subject_override=f"Chapter Settings Updated - {chapter.name}",
+                reference_doctype="Chapter",
+                reference_name=chapter.name,
+            )
 
 
 def _update_chapter_permissions(chapter_name):

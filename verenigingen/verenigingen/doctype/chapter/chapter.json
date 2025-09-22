@@ -17,6 +17,7 @@
     "region",
     "cost_center",
     "postal_codes",
+    "contact_email",
     "board_section",
     "board_members",
     "board_role_profile_section",
@@ -72,6 +73,13 @@
       "fieldname": "postal_codes",
       "fieldtype": "Small Text",
       "label": "Postal Codes"
+    },
+    {
+      "fieldname": "contact_email",
+      "fieldtype": "Data",
+      "label": "Contact Email",
+      "options": "Email",
+      "description": "Primary email address for chapter communications"
     },
     {
       "fieldname": "board_section",

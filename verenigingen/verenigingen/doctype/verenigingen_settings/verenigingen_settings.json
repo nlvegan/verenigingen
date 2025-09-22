@@ -1,768 +1,768 @@
 {
-  "actions": [],
-  "app": "verenigingen",
-  "creation": "2020-03-29 12:57:03.005120",
-  "doctype": "DocType",
-  "editable_grid": 1,
-  "engine": "InnoDB",
-  "field_order": [
-    "organization_section",
-    "company",
-    "company_name",
-    "organization_email_domain",
-    "member_contact_email",
-    "support_email",
-    "creation_user",
-    "column_break_org",
-    "national_board_chapter",
-    "enable_chapter_management",
-    "member_id_start",
-    "last_member_id",
-    "last_member_history_refresh",
-    "membership_section",
-    "default_grace_period_days",
-    "grace_period_auto_apply",
-    "grace_period_notification_days",
-    "max_fee_adjustments_per_year",
-    "column_break_membership",
-    "maximum_fee_multiplier",
-    "max_reasonable_dues_rate",
-    "max_rate_change_percent",
-    "financial_section",
-    "company_iban",
-    "company_account_holder",
-    "company_bic",
-    "creditor_id",
-    "sepa_mandate_naming_pattern",
-    "sepa_mandate_starting_counter",
-    "column_break_financial",
-    "membership_payment_account",
-    "dues_payments_receivable_account",
-    "donation_receivable_account",
-    "default_cash_account",
-    "automate_membership_payment_entries",
-    "donations_section",
-    "donation_company",
-    "automate_donation_payment_entries",
-    "donation_debit_account",
-    "tax_exempt_for_contributions",
-    "enable_anbi_functionality",
-    "anbi_minimum_reportable_amount",
-    "default_tax_exemption_type",
-    "default_tax_template",
-    "kor_exemption_applied",
-    "column_break_donations",
-    "donations_gl_account",
-    "auto_create_donors",
-    "donor_customer_groups",
-    "minimum_donation_amount",
-    "unrestricted_donation_account",
-    "default_donor_type",
-    "campaign_donation_account",
-    "restricted_donation_account",
-    "batch_processing_section",
-    "enable_auto_batch_creation",
-    "sepa_strict_period_mode",
-    "batch_creation_days",
-    "financial_admin_emails",
-    "batch_optimization_config",
-    "column_break_batch",
-    "last_batch_creation_run",
-    "contact_email",
-    "sepa_allowed_ips",
-    "auto_submit_membership_invoices",
-    "default_item_group",
-    "automation_section",
-    "auto_cancel_sepa_mandates",
-    "auto_end_board_positions",
-    "send_termination_notifications",
-    "column_break_hzjj",
-    "enable_email_group_sync",
-    "enable_email_analytics",
-    "age_validation_section",
-    "minimum_membership_age",
-    "minimum_volunteer_age",
-    "minimum_voting_age",
-    "column_break_age_validation",
-    "minimum_student_age",
-    "minimum_youth_age",
-    "minimum_senior_age",
-    "invoicing_section",
-    "send_email",
-    "send_invoice",
-    "email_template",
-    "column_break_invoicing",
-    "membership_print_format",
-    "inv_print_format",
-    "membership_webhook_secret",
-    "monitoring_section",
-    "stuck_schedule_notification_emails",
-    "column_break_ybid",
-    "payment_history_failure_threshold"
-  ],
-  "fields": [
-    {
-      "fieldname": "organization_section",
-      "fieldtype": "Section Break",
-      "label": "Organization Settings"
-    },
-    {
-      "fieldname": "column_break_org",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "membership_section",
-      "fieldtype": "Section Break",
-      "label": "Membership Settings"
-    },
-    {
-      "fieldname": "column_break_membership",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "financial_section",
-      "fieldtype": "Section Break",
-      "label": "Financial & SEPA Settings"
-    },
-    {
-      "fieldname": "column_break_financial",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "invoicing_section",
-      "fieldtype": "Section Break",
-      "label": "Invoicing & Communications"
-    },
-    {
-      "fieldname": "column_break_invoicing",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "donations_section",
-      "fieldtype": "Section Break",
-      "label": "Donations & ANBI Settings"
-    },
-    {
-      "fieldname": "column_break_donations",
-      "fieldtype": "Column Break"
-    },
-    {
-      "description": "GL Account for donations. When payments are allocated to this account, donors will be automatically created if auto-creation is enabled.",
-      "fieldname": "donations_gl_account",
-      "fieldtype": "Link",
-      "label": "Donations GL Account",
-      "options": "Account"
-    },
-    {
-      "default": "0",
-      "description": "Automatically create donor records when payments are allocated to the donations GL account from unknown customers",
-      "fieldname": "auto_create_donors",
-      "fieldtype": "Check",
-      "label": "Auto-Create Donors from Donations"
-    },
-    {
-      "depends_on": "eval:doc.auto_create_donors",
-      "description": "Comma-separated list of Customer Groups that are eligible for automatic donor creation. Leave empty to allow all customer groups.",
-      "fieldname": "donor_customer_groups",
-      "fieldtype": "Data",
-      "label": "Eligible Customer Groups"
-    },
-    {
-      "default": "0",
-      "depends_on": "eval:doc.auto_create_donors",
-      "description": "Minimum donation amount required to trigger automatic donor creation. Set to 0 to create donors for any amount.",
-      "fieldname": "minimum_donation_amount",
-      "fieldtype": "Currency",
-      "label": "Minimum Donation Amount"
-    },
-    {
-      "description": "This company will be set for the Memberships created via webhook.",
-      "fieldname": "company",
-      "fieldtype": "Link",
-      "in_list_view": 1,
-      "label": "Company",
-      "options": "Company",
-      "reqd": 1
-    },
-    {
-      "default": "1",
-      "description": "When enabled, allows assigning members to chapters and using chapter-based features",
-      "fieldname": "enable_chapter_management",
-      "fieldtype": "Check",
-      "label": "Enable Chapter Management"
-    },
-    {
-      "default": "0",
-      "description": "When enabled, BTW exemption codes will be applied according to Dutch tax regulations",
-      "fieldname": "tax_exempt_for_contributions",
-      "fieldtype": "Check",
-      "label": "Tax Exempt for Contributions and Donations"
-    },
-    {
-      "description": "Bank account number (IBAN) where direct debit payments will be collected. Example: NL91ABNA0417164300",
-      "fieldname": "company_iban",
-      "fieldtype": "Data",
-      "label": "Company IBAN"
-    },
-    {
-      "description": "Legal name of the account holder as registered with the bank. This name will appear on member bank statements.",
-      "fieldname": "company_account_holder",
-      "fieldtype": "Data",
-      "label": "Bank Account Holder Name"
-    },
-    {
-      "description": "Bank Identifier Code (BIC/SWIFT). Optional - can be automatically derived from Dutch IBANs. Example: ABNANL2A",
-      "fieldname": "company_bic",
-      "fieldtype": "Data",
-      "label": "Company BIC/SWIFT (Optional)"
-    },
-    {
-      "description": "SEPA Creditor Identifier (Incassant ID) issued by your bank for direct debit authorization. Format: NL##ZZZ############ Example: NL13ZZZ123456780000",
-      "fieldname": "creditor_id",
-      "fieldtype": "Data",
-      "label": "SEPA Creditor ID (Incassant ID)"
-    },
-    {
-      "default": "MANDATE-.YY.-.MM.-.####",
-      "description": "Naming pattern for SEPA Mandate References (mandate_id) communicated to banks. Use Frappe naming series format with dots. Example: MANDATE-.YY.-.MM.-.####",
-      "fieldname": "sepa_mandate_naming_pattern",
-      "fieldtype": "Data",
-      "label": "SEPA Mandate Naming Pattern"
-    },
-    {
-      "default": "1",
-      "description": "Starting number for SEPA mandate counter. Set this to control where numbering begins (e.g., 1000 to start from MANDATE-25-01-1000).",
-      "fieldname": "sepa_mandate_starting_counter",
-      "fieldtype": "Int",
-      "label": "SEPA Mandate Starting Counter"
-    },
-    {
-      "description": "Organization name as it should appear in member notifications",
-      "fieldname": "company_name",
-      "fieldtype": "Data",
-      "label": "Company Name"
-    },
-    {
-      "description": "Support email address for member inquiries about payments and mandates",
-      "fieldname": "support_email",
-      "fieldtype": "Data",
-      "label": "Support Email"
-    },
-    {
-      "default": "EXEMPT_MEMBERSHIP",
-      "depends_on": "eval:doc.tax_exempt_for_contributions",
-      "fieldname": "default_tax_exemption_type",
-      "fieldtype": "Select",
-      "label": "Default Tax Exemption Type",
-      "options": "\nEXEMPT_NONPROFIT\nEXEMPT_MEMBERSHIP\nEXEMPT_FUNDRAISING\nEXEMPT_SMALL_BUSINESS\nOUTSIDE_SCOPE\nEXEMPT_WITH_INPUT\nEXEMPT_NO_INPUT"
-    },
-    {
-      "depends_on": "eval:doc.tax_exempt_for_contributions",
-      "fieldname": "default_tax_template",
-      "fieldtype": "Link",
-      "label": "Default Tax Template",
-      "options": "Sales Taxes and Charges Template"
-    },
-    {
-      "default": "0",
-      "description": "Check if your organization has applied for the KOR exemption",
-      "fieldname": "kor_exemption_applied",
-      "fieldtype": "Check",
-      "label": "Small Business Scheme (KOR) Applied"
-    },
-    {
-      "default": "0",
-      "depends_on": "eval:doc.send_email",
-      "fieldname": "send_invoice",
-      "fieldtype": "Check",
-      "label": "Send Invoice with Email"
-    },
-    {
-      "default": "0",
-      "fieldname": "send_email",
-      "fieldtype": "Check",
-      "label": "Send Membership Acknowledgement"
-    },
-    {
-      "depends_on": "eval: doc.send_invoice",
-      "fieldname": "inv_print_format",
-      "fieldtype": "Link",
-      "label": "Invoice Print Format",
-      "mandatory_depends_on": "eval: doc.send_invoice",
-      "options": "Print Format"
-    },
-    {
-      "depends_on": "eval:doc.send_email",
-      "fieldname": "membership_print_format",
-      "fieldtype": "Link",
-      "label": "Membership Print Format",
-      "options": "Print Format"
-    },
-    {
-      "depends_on": "eval:doc.send_email",
-      "fieldname": "email_template",
-      "fieldtype": "Link",
-      "label": "Email Template",
-      "mandatory_depends_on": "eval:doc.send_email",
-      "options": "Email Template"
-    },
-    {
-      "default": "0",
-      "description": "Skip automatic Payment Entry creation for Membership payments. Warning: May cause accounting issues.",
-      "fieldname": "automate_membership_payment_entries",
-      "fieldtype": "Check",
-      "label": "Skip Automatic Membership Payment Entries"
-    },
-    {
-      "depends_on": "eval:doc.automate_membership_payment_entries",
-      "description": "Account for accepting membership payments",
-      "fieldname": "membership_payment_account",
-      "fieldtype": "Link",
-      "label": "Membership Payment To",
-      "mandatory_depends_on": "eval:doc.automate_membership_payment_entries",
-      "options": "Account"
-    },
-    {
-      "description": "Default receivable account for membership dues invoices. If not set, will use Company default receivable account.",
-      "fieldname": "dues_payments_receivable_account",
-      "fieldtype": "Link",
-      "label": "Dues Payments Receivable Account",
-      "options": "Account"
-    },
-    {
-      "fieldname": "membership_webhook_secret",
-      "fieldtype": "Password",
-      "label": "Membership Webhook Secret",
-      "read_only": 1
-    },
-    {
-      "default": "0",
-      "description": "Skip automatic Payment Entry creation for Donations when marked as paid. Warning: May cause accounting issues.",
-      "fieldname": "automate_donation_payment_entries",
-      "fieldtype": "Check",
-      "label": "Skip Automatic Donation Payment Entries"
-    },
-    {
-      "depends_on": "automate_donation_payment_entries",
-      "fieldname": "donation_debit_account",
-      "fieldtype": "Link",
-      "label": "Debit Account",
-      "mandatory_depends_on": "automate_donation_payment_entries",
-      "options": "Account"
-    },
-    {
-      "description": "This company will be set for donations created in the system.",
-      "fieldname": "donation_company",
-      "fieldtype": "Link",
-      "in_list_view": 1,
-      "label": "Company",
-      "options": "Company",
-      "reqd": 1
-    },
-    {
-      "description": "The user that will be used to create Donations, Memberships, Invoices, and Payment Entries. This user should have the relevant permissions.",
-      "fieldname": "creation_user",
-      "fieldtype": "Link",
-      "label": "Creation User",
-      "options": "User",
-      "reqd": 1
-    },
-    {
-      "default": "1000",
-      "description": "The starting number for new member IDs",
-      "fieldname": "member_id_start",
-      "fieldtype": "Int",
-      "label": "Member ID Starting Number"
-    },
-    {
-      "description": "Automatically updated when new member IDs are assigned",
-      "fieldname": "last_member_id",
-      "fieldtype": "Int",
-      "label": "Last Assigned Member ID",
-      "read_only": 1
-    },
-    {
-      "description": "Automatically updated when the scheduled member history refresh runs",
-      "fieldname": "last_member_history_refresh",
-      "fieldtype": "Datetime",
-      "label": "Last Member History Refresh",
-      "read_only": 1
-    },
-    {
-      "default": "0",
-      "description": "When enabled, BTW exemption codes will be applied according to Dutch tax regulations",
-      "fieldname": "tax_exempt_for_contributions",
-      "fieldtype": "Check",
-      "label": "Tax Exempt for Contributions and Donations"
-    },
-    {
-      "description": "This chapter will be treated as the National Board with restricted access",
-      "fieldname": "national_board_chapter",
-      "fieldtype": "Link",
-      "label": "National Board Chapter",
-      "options": "Chapter"
-    },
-    {
-      "description": "Domain to use for organization email addresses (e.g., members.union.org)",
-      "fieldname": "organization_email_domain",
-      "fieldtype": "Data",
-      "label": "Organization Email Domain"
-    },
-    {
-      "description": "Email address for member support and contact (used in fee adjustment forms and member communications)",
-      "fieldname": "member_contact_email",
-      "fieldtype": "Data",
-      "label": "Member Contact Email",
-      "options": "Email"
-    },
-    {
-      "depends_on": "eval:doc.enable_termination_system",
-      "fieldname": "automation_section",
-      "fieldtype": "Section Break",
-      "label": "Automation Settings"
-    },
-    {
-      "default": "1",
-      "description": "Automatically cancel SEPA mandates when terminating",
-      "fieldname": "auto_cancel_sepa_mandates",
-      "fieldtype": "Check",
-      "label": "Auto-Cancel SEPA Mandates"
-    },
-    {
-      "default": "1",
-      "description": "Automatically end board/committee positions",
-      "fieldname": "auto_end_board_positions",
-      "fieldtype": "Check",
-      "label": "Auto-End Board Positions"
-    },
-    {
-      "default": "1",
-      "description": "Send email notifications for termination events",
-      "fieldname": "send_termination_notifications",
-      "fieldtype": "Check",
-      "label": "Send Notifications"
-    },
-    {
-      "default": "1",
-      "description": "Enable ANBI (Algemeen Nut Beogende Instelling) functionality for tax-deductible donations and periodic donation agreements",
-      "fieldname": "enable_anbi_functionality",
-      "fieldtype": "Check",
-      "label": "Enable ANBI Functionality"
-    },
-    {
-      "default": "500",
-      "depends_on": "eval:doc.enable_anbi_functionality",
-      "description": "Minimum donation amount to automatically mark as reportable to Belastingdienst",
-      "fieldname": "anbi_minimum_reportable_amount",
-      "fieldtype": "Currency",
-      "label": "ANBI Minimum Reportable Amount"
-    },
-    {
-      "description": "Account for general unrestricted donations (can be used for any purpose)",
-      "fieldname": "unrestricted_donation_account",
-      "fieldtype": "Link",
-      "label": "Unrestricted Donation Account",
-      "options": "Account"
-    },
-    {
-      "default": "Individual",
-      "depends_on": "eval:doc.enable_anbi_functionality",
-      "description": "Default donor type for new donors created through donation forms",
-      "fieldname": "default_donor_type",
-      "fieldtype": "Select",
-      "label": "Default Donor Type",
-      "options": "\nIndividual\nOrganization"
-    },
-    {
-      "description": "Account for donations restricted to specific campaigns (temporarily restricted funds)",
-      "fieldname": "campaign_donation_account",
-      "fieldtype": "Link",
-      "label": "Campaign Donation Account",
-      "options": "Account"
-    },
-    {
-      "description": "Account for other donor-restricted purposes (e.g., 'youth programs only', 'building fund')",
-      "fieldname": "restricted_donation_account",
-      "fieldtype": "Link",
-      "label": "Other Restricted Donation Account",
-      "options": "Account"
-    },
-    {
-      "default": "10",
-      "description": "Maximum multiplier for membership fee contributions (e.g., 10 allows up to 10x the base membership fee)",
-      "fieldname": "maximum_fee_multiplier",
-      "fieldtype": "Int",
-      "label": "Maximum Fee Multiplier"
-    },
-    {
-      "default": "10000",
-      "description": "Maximum reasonable dues rate to prevent obviously incorrect entries (e.g., \u20ac10,000 per year)",
-      "fieldname": "max_reasonable_dues_rate",
-      "fieldtype": "Currency",
-      "label": "Maximum Reasonable Dues Rate"
-    },
-    {
-      "default": "200",
-      "description": "Maximum allowed rate change percentage between consecutive invoices (e.g., 200 allows up to 200% change)",
-      "fieldname": "max_rate_change_percent",
-      "fieldtype": "Percent",
-      "label": "Maximum Rate Change Percent"
-    },
-    {
-      "default": "30",
-      "description": "Number of days to automatically extend membership grace periods",
-      "fieldname": "default_grace_period_days",
-      "fieldtype": "Int",
-      "label": "Default Grace Period Days"
-    },
-    {
-      "default": "0",
-      "description": "Automatically suspend members after consecutive payment failures (after grace period expires). When disabled, members remain in extended grace period indefinitely.",
-      "fieldname": "grace_period_auto_apply",
-      "fieldtype": "Check",
-      "label": "Enable Automatic Member Suspension"
-    },
-    {
-      "default": "7",
-      "depends_on": "eval:doc.grace_period_auto_apply",
-      "description": "Days before grace period expiry to send warning notifications",
-      "fieldname": "grace_period_notification_days",
-      "fieldtype": "Int",
-      "label": "Grace Period Notification Days"
-    },
-    {
-      "default": "2",
-      "description": "Maximum number of fee adjustments a member can make per year through the member portal",
-      "fieldname": "max_fee_adjustments_per_year",
-      "fieldtype": "Int",
-      "label": "Max Fee Adjustments Per Year"
-    },
-    {
-      "fieldname": "batch_processing_section",
-      "fieldtype": "Section Break",
-      "label": "SEPA Batch Processing"
-    },
-    {
-      "default": "0",
-      "description": "Automatically create SEPA Direct Debit batches on specified days",
-      "fieldname": "enable_auto_batch_creation",
-      "fieldtype": "Check",
-      "label": "Enable Automatic Batch Creation"
-    },
-    {
-      "default": "1",
-      "depends_on": "eval:doc.enable_auto_batch_creation",
-      "description": "Comma-separated list of days of the month (1-31) when batches should be created. Example: '1,15' for 1st and 15th of each month",
-      "fieldname": "batch_creation_days",
-      "fieldtype": "Data",
-      "label": "Batch Creation Days"
-    },
-    {
-      "depends_on": "eval:doc.enable_auto_batch_creation",
-      "description": "Comma-separated list of email addresses for SEPA batch notifications. Example: 'treasurer@org.com,finance@org.com'",
-      "fieldname": "financial_admin_emails",
-      "fieldtype": "Data",
-      "label": "Financial Admin Emails"
-    },
-    {
-      "fieldname": "column_break_batch",
-      "fieldtype": "Column Break"
-    },
-    {
-      "depends_on": "eval:doc.enable_auto_batch_creation",
-      "description": "JSON configuration for batch optimization parameters",
-      "fieldname": "batch_optimization_config",
-      "fieldtype": "Long Text",
-      "label": "Batch Optimization Configuration"
-    },
-    {
-      "description": "Timestamp of the last automated batch creation",
-      "fieldname": "last_batch_creation_run",
-      "fieldtype": "Datetime",
-      "label": "Last Batch Creation Run",
-      "read_only": 1
-    },
-    {
-      "default": "0",
-      "description": "Enable strict period mode for SEPA batch processing - prevents overlapping payment periods",
-      "fieldname": "sepa_strict_period_mode",
-      "fieldtype": "Check",
-      "label": "SEPA Strict Period Mode"
-    },
-    {
-      "description": "General contact email for notifications and communications",
-      "fieldname": "contact_email",
-      "fieldtype": "Data",
-      "label": "Contact Email",
-      "options": "Email"
-    },
-    {
-      "description": "Comma-separated list of IP addresses allowed for SEPA operations (for security)",
-      "fieldname": "sepa_allowed_ips",
-      "fieldtype": "Text",
-      "label": "SEPA Allowed IP Addresses"
-    },
-    {
-      "description": "Default cash account for payment processing",
-      "fieldname": "default_cash_account",
-      "fieldtype": "Link",
-      "label": "Default Cash Account",
-      "options": "Account"
-    },
-    {
-      "default": "0",
-      "description": "Automatically submit membership invoices when created",
-      "fieldname": "auto_submit_membership_invoices",
-      "fieldtype": "Check",
-      "label": "Auto-Submit Membership Invoices"
-    },
-    {
-      "description": "Default item group for membership items",
-      "fieldname": "default_item_group",
-      "fieldtype": "Link",
-      "label": "Default Item Group",
-      "options": "Item Group"
-    },
-    {
-      "fieldname": "monitoring_section",
-      "fieldtype": "Section Break",
-      "label": "System Monitoring"
-    },
-    {
-      "description": "Comma-separated list of email addresses to notify about stuck dues schedules. Leave empty to use default admin roles (System Manager, Verenigingen Administrator).",
-      "fieldname": "stuck_schedule_notification_emails",
-      "fieldtype": "Data",
-      "label": "Stuck Schedule Notification Emails"
-    },
-    {
-      "default": "10",
-      "description": "Minimum number of payment history failures to trigger alert notifications",
-      "fieldname": "payment_history_failure_threshold",
-      "fieldtype": "Int",
-      "label": "Payment History Failure Threshold"
-    },
-    {
-      "default": "0",
-      "description": "Enable automatic synchronization of email groups",
-      "fieldname": "enable_email_group_sync",
-      "fieldtype": "Check",
-      "label": "Enable Email Group Sync"
-    },
-    {
-      "default": "0",
-      "description": "Enable email campaign analytics tracking",
-      "fieldname": "enable_email_analytics",
-      "fieldtype": "Check",
-      "label": "Enable Email Analytics"
-    },
-    {
-      "description": "Default receivable account for payment plans and member transactions",
-      "fieldname": "donation_receivable_account",
-      "fieldtype": "Link",
-      "label": "Donation Receivable Account",
-      "options": "Account"
-    },
-    {
-      "fieldname": "column_break_hzjj",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "column_break_ybid",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "age_validation_section",
-      "fieldtype": "Section Break",
-      "label": "Age Validation Settings"
-    },
-    {
-      "default": "16",
-      "description": "Minimum age required for membership eligibility",
-      "fieldname": "minimum_membership_age",
-      "fieldtype": "Int",
-      "label": "Minimum Membership Age"
-    },
-    {
-      "default": "16",
-      "description": "Minimum age required for volunteer activities",
-      "fieldname": "minimum_volunteer_age",
-      "fieldtype": "Int",
-      "label": "Minimum Volunteer Age"
-    },
-    {
-      "default": "18",
-      "description": "Minimum age required for voting in organizational matters",
-      "fieldname": "minimum_voting_age",
-      "fieldtype": "Int",
-      "label": "Minimum Voting Age"
-    },
-    {
-      "fieldname": "column_break_age_validation",
-      "fieldtype": "Column Break"
-    },
-    {
-      "default": "14",
-      "description": "Minimum age for student membership types",
-      "fieldname": "minimum_student_age",
-      "fieldtype": "Int",
-      "label": "Minimum Student Age"
-    },
-    {
-      "default": "12",
-      "description": "Minimum age for youth membership categories",
-      "fieldname": "minimum_youth_age",
-      "fieldtype": "Int",
-      "label": "Minimum Youth Age"
-    },
-    {
-      "default": "65",
-      "description": "Minimum age for senior membership benefits",
-      "fieldname": "minimum_senior_age",
-      "fieldtype": "Int",
-      "label": "Minimum Senior Age"
-    }
-  ],
-  "index_web_pages_for_search": 1,
-  "issingle": 1,
-  "links": [],
-  "modified": "2025-09-15 08:47:43.388833",
-  "modified_by": "Administrator",
-  "module": "Verenigingen",
-  "name": "Verenigingen Settings",
-  "owner": "Administrator",
-  "permissions": [
-    {
-      "create": 1,
-      "delete": 1,
-      "email": 1,
-      "print": 1,
-      "read": 1,
-      "role": "System Manager",
-      "share": 1,
-      "write": 1
-    },
-    {
-      "create": 1,
-      "delete": 1,
-      "email": 1,
-      "print": 1,
-      "read": 1,
-      "role": "Verenigingen Administrator",
-      "share": 1,
-      "write": 1
-    },
-    {
-      "email": 1,
-      "print": 1,
-      "read": 1,
-      "role": "Verenigingen Member",
-      "share": 1
-    }
-  ],
-  "quick_entry": 1,
-  "row_format": "Dynamic",
-  "sort_field": "modified",
-  "sort_order": "DESC",
-  "states": [],
-  "track_changes": 1
+ "actions": [],
+ "app": "verenigingen",
+ "creation": "2020-03-29 12:57:03.005120",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "organization_section",
+  "company",
+  "company_name",
+  "organization_email_domain",
+  "member_contact_email",
+  "support_email",
+  "creation_user",
+  "column_break_org",
+  "national_board_chapter",
+  "enable_chapter_management",
+  "member_id_start",
+  "last_member_id",
+  "last_member_history_refresh",
+  "membership_section",
+  "default_grace_period_days",
+  "grace_period_auto_apply",
+  "grace_period_notification_days",
+  "max_fee_adjustments_per_year",
+  "column_break_membership",
+  "maximum_fee_multiplier",
+  "max_reasonable_dues_rate",
+  "max_rate_change_percent",
+  "financial_section",
+  "company_iban",
+  "company_account_holder",
+  "company_bic",
+  "creditor_id",
+  "sepa_mandate_naming_pattern",
+  "sepa_mandate_starting_counter",
+  "column_break_financial",
+  "membership_payment_account",
+  "dues_payments_receivable_account",
+  "donation_receivable_account",
+  "default_cash_account",
+  "automate_membership_payment_entries",
+  "donations_section",
+  "donation_company",
+  "automate_donation_payment_entries",
+  "donation_debit_account",
+  "tax_exempt_for_contributions",
+  "enable_anbi_functionality",
+  "anbi_minimum_reportable_amount",
+  "default_tax_exemption_type",
+  "default_tax_template",
+  "kor_exemption_applied",
+  "column_break_donations",
+  "donations_gl_account",
+  "auto_create_donors",
+  "donor_customer_groups",
+  "minimum_donation_amount",
+  "unrestricted_donation_account",
+  "default_donor_type",
+  "campaign_donation_account",
+  "restricted_donation_account",
+  "batch_processing_section",
+  "enable_auto_batch_creation",
+  "sepa_strict_period_mode",
+  "batch_creation_days",
+  "financial_admin_emails",
+  "batch_optimization_config",
+  "column_break_batch",
+  "last_batch_creation_run",
+  "contact_email",
+  "sepa_allowed_ips",
+  "auto_submit_membership_invoices",
+  "default_item_group",
+  "automation_section",
+  "auto_cancel_sepa_mandates",
+  "auto_end_board_positions",
+  "send_termination_notifications",
+  "column_break_hzjj",
+  "enable_email_group_sync",
+  "enable_email_analytics",
+  "age_validation_section",
+  "minimum_membership_age",
+  "minimum_volunteer_age",
+  "minimum_voting_age",
+  "column_break_age_validation",
+  "minimum_student_age",
+  "minimum_youth_age",
+  "minimum_senior_age",
+  "invoicing_section",
+  "send_email",
+  "send_invoice",
+  "email_template",
+  "column_break_invoicing",
+  "membership_print_format",
+  "inv_print_format",
+  "membership_webhook_secret",
+  "monitoring_section",
+  "stuck_schedule_notification_emails",
+  "column_break_ybid",
+  "payment_history_failure_threshold"
+ ],
+ "fields": [
+  {
+   "fieldname": "organization_section",
+   "fieldtype": "Section Break",
+   "label": "Organization Settings"
+  },
+  {
+   "fieldname": "column_break_org",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "membership_section",
+   "fieldtype": "Section Break",
+   "label": "Membership Settings"
+  },
+  {
+   "fieldname": "column_break_membership",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "financial_section",
+   "fieldtype": "Section Break",
+   "label": "Financial & SEPA Settings"
+  },
+  {
+   "fieldname": "column_break_financial",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "invoicing_section",
+   "fieldtype": "Section Break",
+   "label": "Invoicing & Communications"
+  },
+  {
+   "fieldname": "column_break_invoicing",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "donations_section",
+   "fieldtype": "Section Break",
+   "label": "Donations & ANBI Settings"
+  },
+  {
+   "fieldname": "column_break_donations",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "GL Account for donations. When payments are allocated to this account, donors will be automatically created if auto-creation is enabled.",
+   "fieldname": "donations_gl_account",
+   "fieldtype": "Link",
+   "label": "Donations GL Account",
+   "options": "Account"
+  },
+  {
+   "default": "0",
+   "description": "Automatically create donor records when payments are allocated to the donations GL account from unknown customers",
+   "fieldname": "auto_create_donors",
+   "fieldtype": "Check",
+   "label": "Auto-Create Donors from Donations"
+  },
+  {
+   "depends_on": "eval:doc.auto_create_donors",
+   "description": "Comma-separated list of Customer Groups that are eligible for automatic donor creation. Leave empty to allow all customer groups.",
+   "fieldname": "donor_customer_groups",
+   "fieldtype": "Data",
+   "label": "Eligible Customer Groups"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.auto_create_donors",
+   "description": "Minimum donation amount required to trigger automatic donor creation. Set to 0 to create donors for any amount.",
+   "fieldname": "minimum_donation_amount",
+   "fieldtype": "Currency",
+   "label": "Minimum Donation Amount"
+  },
+  {
+   "description": "This company will be set for the Memberships created via webhook.",
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Organization",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "description": "When enabled, allows assigning members to chapters and using chapter-based features",
+   "fieldname": "enable_chapter_management",
+   "fieldtype": "Check",
+   "label": "Enable Chapter Management"
+  },
+  {
+   "default": "0",
+   "description": "When enabled, BTW exemption codes will be applied according to Dutch tax regulations",
+   "fieldname": "tax_exempt_for_contributions",
+   "fieldtype": "Check",
+   "label": "Tax Exempt for Contributions and Donations"
+  },
+  {
+   "description": "Bank account number (IBAN) where direct debit payments will be collected. Example: NL91ABNA0417164300",
+   "fieldname": "company_iban",
+   "fieldtype": "Data",
+   "label": "Company IBAN"
+  },
+  {
+   "description": "Legal name of the account holder as registered with the bank. This name will appear on member bank statements.",
+   "fieldname": "company_account_holder",
+   "fieldtype": "Data",
+   "label": "Bank Account Holder Name"
+  },
+  {
+   "description": "Bank Identifier Code (BIC/SWIFT). Optional - can be automatically derived from Dutch IBANs. Example: ABNANL2A",
+   "fieldname": "company_bic",
+   "fieldtype": "Data",
+   "label": "Company BIC/SWIFT (Optional)"
+  },
+  {
+   "description": "SEPA Creditor Identifier (Incassant ID) issued by your bank for direct debit authorization. Format: NL##ZZZ############ Example: NL13ZZZ123456780000",
+   "fieldname": "creditor_id",
+   "fieldtype": "Data",
+   "label": "SEPA Creditor ID (Incassant ID)"
+  },
+  {
+   "default": "MANDATE-.YY.-.MM.-.####",
+   "description": "Naming pattern for SEPA Mandate References (mandate_id) communicated to banks. Use Frappe naming series format with dots. Example: MANDATE-.YY.-.MM.-.####",
+   "fieldname": "sepa_mandate_naming_pattern",
+   "fieldtype": "Data",
+   "label": "SEPA Mandate Naming Pattern"
+  },
+  {
+   "default": "1",
+   "description": "Starting number for SEPA mandate counter. Set this to control where numbering begins (e.g., 1000 to start from MANDATE-25-01-1000).",
+   "fieldname": "sepa_mandate_starting_counter",
+   "fieldtype": "Int",
+   "label": "SEPA Mandate Starting Counter"
+  },
+  {
+   "description": "Organization name as it should appear in member notifications",
+   "fieldname": "company_name",
+   "fieldtype": "Data",
+   "label": "Organization Name"
+  },
+  {
+   "description": "Support email address for member inquiries about payments and mandates",
+   "fieldname": "support_email",
+   "fieldtype": "Data",
+   "label": "Support Email"
+  },
+  {
+   "default": "EXEMPT_MEMBERSHIP",
+   "depends_on": "eval:doc.tax_exempt_for_contributions",
+   "fieldname": "default_tax_exemption_type",
+   "fieldtype": "Select",
+   "label": "Default Tax Exemption Type",
+   "options": "\nEXEMPT_NONPROFIT\nEXEMPT_MEMBERSHIP\nEXEMPT_FUNDRAISING\nEXEMPT_SMALL_BUSINESS\nOUTSIDE_SCOPE\nEXEMPT_WITH_INPUT\nEXEMPT_NO_INPUT"
+  },
+  {
+   "depends_on": "eval:doc.tax_exempt_for_contributions",
+   "fieldname": "default_tax_template",
+   "fieldtype": "Link",
+   "label": "Default Tax Template",
+   "options": "Sales Taxes and Charges Template"
+  },
+  {
+   "default": "0",
+   "description": "Check if your organization has applied for the KOR exemption",
+   "fieldname": "kor_exemption_applied",
+   "fieldtype": "Check",
+   "label": "Small Business Scheme (KOR) Applied"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.send_email",
+   "fieldname": "send_invoice",
+   "fieldtype": "Check",
+   "label": "Send Invoice with Email"
+  },
+  {
+   "default": "0",
+   "fieldname": "send_email",
+   "fieldtype": "Check",
+   "label": "Send Membership Acknowledgement"
+  },
+  {
+   "depends_on": "eval: doc.send_invoice",
+   "fieldname": "inv_print_format",
+   "fieldtype": "Link",
+   "label": "Invoice Print Format",
+   "mandatory_depends_on": "eval: doc.send_invoice",
+   "options": "Print Format"
+  },
+  {
+   "depends_on": "eval:doc.send_email",
+   "fieldname": "membership_print_format",
+   "fieldtype": "Link",
+   "label": "Membership Print Format",
+   "options": "Print Format"
+  },
+  {
+   "depends_on": "eval:doc.send_email",
+   "fieldname": "email_template",
+   "fieldtype": "Link",
+   "label": "Email Template",
+   "mandatory_depends_on": "eval:doc.send_email",
+   "options": "Email Template"
+  },
+  {
+   "default": "0",
+   "description": "Skip automatic Payment Entry creation for Membership payments. Warning: May cause accounting issues.",
+   "fieldname": "automate_membership_payment_entries",
+   "fieldtype": "Check",
+   "label": "Skip Automatic Membership Payment Entries"
+  },
+  {
+   "depends_on": "eval:doc.automate_membership_payment_entries",
+   "description": "Account for accepting membership payments",
+   "fieldname": "membership_payment_account",
+   "fieldtype": "Link",
+   "label": "Membership Payment To",
+   "mandatory_depends_on": "eval:doc.automate_membership_payment_entries",
+   "options": "Account"
+  },
+  {
+   "description": "Default receivable account for membership dues invoices. If not set, will use Company default receivable account.",
+   "fieldname": "dues_payments_receivable_account",
+   "fieldtype": "Link",
+   "label": "Dues Payments Receivable Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "membership_webhook_secret",
+   "fieldtype": "Password",
+   "label": "Membership Webhook Secret",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Skip automatic Payment Entry creation for Donations when marked as paid. Warning: May cause accounting issues.",
+   "fieldname": "automate_donation_payment_entries",
+   "fieldtype": "Check",
+   "label": "Skip Automatic Donation Payment Entries"
+  },
+  {
+   "depends_on": "automate_donation_payment_entries",
+   "fieldname": "donation_debit_account",
+   "fieldtype": "Link",
+   "label": "Debit Account",
+   "mandatory_depends_on": "automate_donation_payment_entries",
+   "options": "Account"
+  },
+  {
+   "description": "This company will be set for donations created in the system.",
+   "fieldname": "donation_company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "description": "The user that will be used to create Donations, Memberships, Invoices, and Payment Entries. This user should have the relevant permissions.",
+   "fieldname": "creation_user",
+   "fieldtype": "Link",
+   "label": "Creation User",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "default": "1000",
+   "description": "The starting number for new member IDs",
+   "fieldname": "member_id_start",
+   "fieldtype": "Int",
+   "label": "Member ID Starting Number"
+  },
+  {
+   "description": "Automatically updated when new member IDs are assigned",
+   "fieldname": "last_member_id",
+   "fieldtype": "Int",
+   "label": "Last Assigned Member ID",
+   "read_only": 1
+  },
+  {
+   "description": "Automatically updated when the scheduled member history refresh runs",
+   "fieldname": "last_member_history_refresh",
+   "fieldtype": "Datetime",
+   "label": "Last Member History Refresh",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "When enabled, BTW exemption codes will be applied according to Dutch tax regulations",
+   "fieldname": "tax_exempt_for_contributions",
+   "fieldtype": "Check",
+   "label": "Tax Exempt for Contributions and Donations"
+  },
+  {
+   "description": "This chapter will be treated as the National Board with restricted access",
+   "fieldname": "national_board_chapter",
+   "fieldtype": "Link",
+   "label": "National Board Chapter",
+   "options": "Chapter"
+  },
+  {
+   "description": "Domain to use for organization email addresses (e.g., members.union.org)",
+   "fieldname": "organization_email_domain",
+   "fieldtype": "Data",
+   "label": "Organization Email Domain"
+  },
+  {
+   "description": "Email address for member support and contact (used in fee adjustment forms and member communications)",
+   "fieldname": "member_contact_email",
+   "fieldtype": "Data",
+   "label": "Member Contact Email",
+   "options": "Email"
+  },
+  {
+   "depends_on": "eval:doc.enable_termination_system",
+   "fieldname": "automation_section",
+   "fieldtype": "Section Break",
+   "label": "Automation Settings"
+  },
+  {
+   "default": "1",
+   "description": "Automatically cancel SEPA mandates when terminating",
+   "fieldname": "auto_cancel_sepa_mandates",
+   "fieldtype": "Check",
+   "label": "Auto-Cancel SEPA Mandates"
+  },
+  {
+   "default": "1",
+   "description": "Automatically end board/committee positions",
+   "fieldname": "auto_end_board_positions",
+   "fieldtype": "Check",
+   "label": "Auto-End Board Positions"
+  },
+  {
+   "default": "1",
+   "description": "Send email notifications for termination events",
+   "fieldname": "send_termination_notifications",
+   "fieldtype": "Check",
+   "label": "Send Notifications"
+  },
+  {
+   "default": "1",
+   "description": "Enable ANBI (Algemeen Nut Beogende Instelling) functionality for tax-deductible donations and periodic donation agreements",
+   "fieldname": "enable_anbi_functionality",
+   "fieldtype": "Check",
+   "label": "Enable ANBI Functionality"
+  },
+  {
+   "default": "500",
+   "depends_on": "eval:doc.enable_anbi_functionality",
+   "description": "Minimum donation amount to automatically mark as reportable to Belastingdienst",
+   "fieldname": "anbi_minimum_reportable_amount",
+   "fieldtype": "Currency",
+   "label": "ANBI Minimum Reportable Amount"
+  },
+  {
+   "description": "Account for general unrestricted donations (can be used for any purpose)",
+   "fieldname": "unrestricted_donation_account",
+   "fieldtype": "Link",
+   "label": "Unrestricted Donation Account",
+   "options": "Account"
+  },
+  {
+   "default": "Individual",
+   "depends_on": "eval:doc.enable_anbi_functionality",
+   "description": "Default donor type for new donors created through donation forms",
+   "fieldname": "default_donor_type",
+   "fieldtype": "Select",
+   "label": "Default Donor Type",
+   "options": "\nIndividual\nOrganization"
+  },
+  {
+   "description": "Account for donations restricted to specific campaigns (temporarily restricted funds)",
+   "fieldname": "campaign_donation_account",
+   "fieldtype": "Link",
+   "label": "Campaign Donation Account",
+   "options": "Account"
+  },
+  {
+   "description": "Account for other donor-restricted purposes (e.g., 'youth programs only', 'building fund')",
+   "fieldname": "restricted_donation_account",
+   "fieldtype": "Link",
+   "label": "Other Restricted Donation Account",
+   "options": "Account"
+  },
+  {
+   "default": "10",
+   "description": "Maximum multiplier for membership fee contributions (e.g., 10 allows up to 10x the base membership fee)",
+   "fieldname": "maximum_fee_multiplier",
+   "fieldtype": "Int",
+   "label": "Maximum Fee Multiplier"
+  },
+  {
+   "default": "10000",
+   "description": "Maximum reasonable dues rate to prevent obviously incorrect entries (e.g., \u20ac10,000 per year)",
+   "fieldname": "max_reasonable_dues_rate",
+   "fieldtype": "Currency",
+   "label": "Maximum Reasonable Dues Rate"
+  },
+  {
+   "default": "200",
+   "description": "Maximum allowed rate change percentage between consecutive invoices (e.g., 200 allows up to 200% change)",
+   "fieldname": "max_rate_change_percent",
+   "fieldtype": "Percent",
+   "label": "Maximum Rate Change Percent"
+  },
+  {
+   "default": "30",
+   "description": "Number of days to automatically extend membership grace periods",
+   "fieldname": "default_grace_period_days",
+   "fieldtype": "Int",
+   "label": "Default Grace Period Days"
+  },
+  {
+   "default": "0",
+   "description": "Automatically suspend members after consecutive payment failures (after grace period expires). When disabled, members remain in extended grace period indefinitely.",
+   "fieldname": "grace_period_auto_apply",
+   "fieldtype": "Check",
+   "label": "Enable Automatic Member Suspension"
+  },
+  {
+   "default": "7",
+   "depends_on": "eval:doc.grace_period_auto_apply",
+   "description": "Days before grace period expiry to send warning notifications",
+   "fieldname": "grace_period_notification_days",
+   "fieldtype": "Int",
+   "label": "Grace Period Notification Days"
+  },
+  {
+   "default": "2",
+   "description": "Maximum number of fee adjustments a member can make per year through the member portal",
+   "fieldname": "max_fee_adjustments_per_year",
+   "fieldtype": "Int",
+   "label": "Max Fee Adjustments Per Year"
+  },
+  {
+   "fieldname": "batch_processing_section",
+   "fieldtype": "Section Break",
+   "label": "SEPA Batch Processing"
+  },
+  {
+   "default": "0",
+   "description": "Automatically create SEPA Direct Debit batches on specified days",
+   "fieldname": "enable_auto_batch_creation",
+   "fieldtype": "Check",
+   "label": "Enable Automatic Batch Creation"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.enable_auto_batch_creation",
+   "description": "Comma-separated list of days of the month (1-31) when batches should be created. Example: '1,15' for 1st and 15th of each month",
+   "fieldname": "batch_creation_days",
+   "fieldtype": "Data",
+   "label": "Batch Creation Days"
+  },
+  {
+   "depends_on": "eval:doc.enable_auto_batch_creation",
+   "description": "Comma-separated list of email addresses for SEPA batch notifications. Example: 'treasurer@org.com,finance@org.com'",
+   "fieldname": "financial_admin_emails",
+   "fieldtype": "Data",
+   "label": "Financial Admin Emails"
+  },
+  {
+   "fieldname": "column_break_batch",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.enable_auto_batch_creation",
+   "description": "JSON configuration for batch optimization parameters",
+   "fieldname": "batch_optimization_config",
+   "fieldtype": "Long Text",
+   "label": "Batch Optimization Configuration"
+  },
+  {
+   "description": "Timestamp of the last automated batch creation",
+   "fieldname": "last_batch_creation_run",
+   "fieldtype": "Datetime",
+   "label": "Last Batch Creation Run",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Enable strict period mode for SEPA batch processing - prevents overlapping payment periods",
+   "fieldname": "sepa_strict_period_mode",
+   "fieldtype": "Check",
+   "label": "SEPA Strict Period Mode"
+  },
+  {
+   "description": "General contact email for notifications and communications",
+   "fieldname": "contact_email",
+   "fieldtype": "Data",
+   "label": "Contact Email",
+   "options": "Email"
+  },
+  {
+   "description": "Comma-separated list of IP addresses allowed for SEPA operations (for security)",
+   "fieldname": "sepa_allowed_ips",
+   "fieldtype": "Text",
+   "label": "SEPA Allowed IP Addresses"
+  },
+  {
+   "description": "Default cash account for payment processing",
+   "fieldname": "default_cash_account",
+   "fieldtype": "Link",
+   "label": "Default Cash Account",
+   "options": "Account"
+  },
+  {
+   "default": "0",
+   "description": "Automatically submit membership invoices when created",
+   "fieldname": "auto_submit_membership_invoices",
+   "fieldtype": "Check",
+   "label": "Auto-Submit Membership Invoices"
+  },
+  {
+   "description": "Default item group for membership items",
+   "fieldname": "default_item_group",
+   "fieldtype": "Link",
+   "label": "Default Item Group",
+   "options": "Item Group"
+  },
+  {
+   "fieldname": "monitoring_section",
+   "fieldtype": "Section Break",
+   "label": "System Monitoring"
+  },
+  {
+   "description": "Comma-separated list of email addresses to notify about stuck dues schedules. Leave empty to use default admin roles (System Manager, Verenigingen Administrator).",
+   "fieldname": "stuck_schedule_notification_emails",
+   "fieldtype": "Data",
+   "label": "Stuck Schedule Notification Emails"
+  },
+  {
+   "default": "10",
+   "description": "Minimum number of payment history failures to trigger alert notifications",
+   "fieldname": "payment_history_failure_threshold",
+   "fieldtype": "Int",
+   "label": "Payment History Failure Threshold"
+  },
+  {
+   "default": "0",
+   "description": "Enable automatic synchronization of email groups",
+   "fieldname": "enable_email_group_sync",
+   "fieldtype": "Check",
+   "label": "Enable Email Group Sync"
+  },
+  {
+   "default": "0",
+   "description": "Enable email campaign analytics tracking",
+   "fieldname": "enable_email_analytics",
+   "fieldtype": "Check",
+   "label": "Enable Email Analytics"
+  },
+  {
+   "description": "Default receivable account for payment plans and member transactions",
+   "fieldname": "donation_receivable_account",
+   "fieldtype": "Link",
+   "label": "Donation Receivable Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "column_break_hzjj",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_ybid",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "age_validation_section",
+   "fieldtype": "Section Break",
+   "label": "Age Validation Settings"
+  },
+  {
+   "default": "16",
+   "description": "Minimum age required for membership eligibility",
+   "fieldname": "minimum_membership_age",
+   "fieldtype": "Int",
+   "label": "Minimum Membership Age"
+  },
+  {
+   "default": "16",
+   "description": "Minimum age required for volunteer activities",
+   "fieldname": "minimum_volunteer_age",
+   "fieldtype": "Int",
+   "label": "Minimum Volunteer Age"
+  },
+  {
+   "default": "18",
+   "description": "Minimum age required for voting in organizational matters",
+   "fieldname": "minimum_voting_age",
+   "fieldtype": "Int",
+   "label": "Minimum Voting Age"
+  },
+  {
+   "fieldname": "column_break_age_validation",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "14",
+   "description": "Minimum age for student membership types",
+   "fieldname": "minimum_student_age",
+   "fieldtype": "Int",
+   "label": "Minimum Student Age"
+  },
+  {
+   "default": "12",
+   "description": "Minimum age for youth membership categories",
+   "fieldname": "minimum_youth_age",
+   "fieldtype": "Int",
+   "label": "Minimum Youth Age"
+  },
+  {
+   "default": "65",
+   "description": "Minimum age for senior membership benefits",
+   "fieldname": "minimum_senior_age",
+   "fieldtype": "Int",
+   "label": "Minimum Senior Age"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2025-09-22 11:33:59.140000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Verenigingen Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Verenigingen Member",
+   "share": 1
+  }
+ ],
+ "quick_entry": 1,
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
 }

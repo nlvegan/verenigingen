@@ -379,19 +379,28 @@ def _send_team_member_added_notification(team, volunteer_doc, role):
     if volunteer_doc.member:
         member_doc = frappe.get_doc("Member", volunteer_doc.member)
         if member_doc.email:
-            subject = f"Team Assignment - {team.name}"
-            message = f"""
-            Dear {member_doc.get_full_name()},
+            # MIGRATED: Use unified EmailService with professional template
+            from verenigingen.services.communication.email_service import get_email_service
 
-            You have been assigned to the team "{team.name}" as {role}.
+            email_service = get_email_service()
+            context = {
+                "member_name": member_doc.get_full_name(),
+                "team_name": team.name,
+                "change_type": "Team Assignment",
+                "new_role": role,
+                "effective_date": frappe.utils.today(),
+                "additional_message": "Welcome to the team!",
+                "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+            }
 
-            Welcome to the team!
-
-            Best regards,
-            The Verenigingen Team
-            """
-
-            frappe.sendmail(recipients=[member_doc.email], subject=subject, message=message)
+            email_service.send_templated_email(
+                template_name="team_role_notification",
+                recipients=[member_doc.email],
+                context=context,
+                subject_override=f"Team Assignment - {team.name}",
+                reference_doctype="Team",
+                reference_name=team.name,
+            )
 
 
 def _send_team_member_removed_notification(team, volunteer_doc, role):
@@ -399,19 +408,28 @@ def _send_team_member_removed_notification(team, volunteer_doc, role):
     if volunteer_doc.member:
         member_doc = frappe.get_doc("Member", volunteer_doc.member)
         if member_doc.email:
-            subject = f"Team Assignment Ended - {team.name}"
-            message = f"""
-            Dear {member_doc.get_full_name()},
+            # MIGRATED: Use unified EmailService with professional template
+            from verenigingen.services.communication.email_service import get_email_service
 
-            Your assignment to the team "{team.name}" as {role} has ended.
+            email_service = get_email_service()
+            context = {
+                "member_name": member_doc.get_full_name(),
+                "team_name": team.name,
+                "change_type": "Team Assignment Ended",
+                "new_role": role,
+                "effective_date": frappe.utils.today(),
+                "additional_message": "Thank you for your contribution!",
+                "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+            }
 
-            Thank you for your contribution!
-
-            Best regards,
-            The Verenigingen Team
-            """
-
-            frappe.sendmail(recipients=[member_doc.email], subject=subject, message=message)
+            email_service.send_templated_email(
+                template_name="team_role_notification",
+                recipients=[member_doc.email],
+                context=context,
+                subject_override=f"Team Assignment Ended - {team.name}",
+                reference_doctype="Team",
+                reference_name=team.name,
+            )
 
 
 def _send_team_role_changed_notification(team, volunteer_doc, old_role, new_role):
@@ -419,17 +437,28 @@ def _send_team_role_changed_notification(team, volunteer_doc, old_role, new_role
     if volunteer_doc.member:
         member_doc = frappe.get_doc("Member", volunteer_doc.member)
         if member_doc.email:
-            subject = f"Team Role Update - {team.name}"
-            message = f"""
-            Dear {member_doc.get_full_name()},
+            # MIGRATED: Use unified EmailService with professional template
+            from verenigingen.services.communication.email_service import get_email_service
 
-            Your role in the team "{team.name}" has been updated from {old_role} to {new_role}.
+            email_service = get_email_service()
+            context = {
+                "member_name": member_doc.get_full_name(),
+                "team_name": team.name,
+                "change_type": "Role Update",
+                "new_role": new_role,
+                "effective_date": frappe.utils.today(),
+                "additional_message": f"Your role has been updated from {old_role} to {new_role}.",
+                "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+            }
 
-            Best regards,
-            The Verenigingen Team
-            """
-
-            frappe.sendmail(recipients=[member_doc.email], subject=subject, message=message)
+            email_service.send_templated_email(
+                template_name="team_role_notification",
+                recipients=[member_doc.email],
+                context=context,
+                subject_override=f"Team Role Update - {team.name}",
+                reference_doctype="Team",
+                reference_name=team.name,
+            )
 
 
 def _update_volunteer_team_affiliation(volunteer_doc, team_name, action):
@@ -473,19 +502,27 @@ def _send_team_settings_notification(team, changed_fields):
             if volunteer_doc.member:
                 member_doc = frappe.get_doc("Member", volunteer_doc.member)
                 if member_doc.email:
-                    subject = f"Team Settings Updated - {team.name}"
-                    message = f"""
-                    Dear Team Member,
+                    # MIGRATED: Use unified EmailService with professional template
+                    from verenigingen.services.communication.email_service import get_email_service
 
-                    The settings for your team "{team.name}" have been updated.
+                    email_service = get_email_service()
+                    context = {
+                        "member_name": member_doc.get_full_name(),
+                        "team_name": team.name,
+                        "change_type": "Team Settings Update",
+                        "effective_date": frappe.utils.today(),
+                        "additional_message": f"Changed settings: {', '.join(changed_fields)}",
+                        "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+                    }
 
-                    Changed settings: {', '.join(changed_fields)}
-
-                    Best regards,
-                    The Verenigingen System
-                    """
-
-                    frappe.sendmail(recipients=[member_doc.email], subject=subject, message=message)
+                    email_service.send_templated_email(
+                        template_name="team_role_notification",
+                        recipients=[member_doc.email],
+                        context=context,
+                        subject_override=f"Team Settings Updated - {team.name}",
+                        reference_doctype="Team",
+                        reference_name=team.name,
+                    )
 
 
 def _update_team_permissions(team_name):
@@ -540,19 +577,27 @@ def _send_leadership_change_notification(team, old_lead, new_lead):
                             except:
                                 pass
 
-                        message = f"""
-                        Dear Team Member,
+                        # MIGRATED: Use unified EmailService with professional template
+                        from verenigingen.services.communication.email_service import get_email_service
 
-                        There has been a leadership change in your team "{team.name}".
+                        email_service = get_email_service()
+                        context = {
+                            "member_name": member_doc.get_full_name(),
+                            "team_name": team.name,
+                            "change_type": "Leadership Change",
+                            "effective_date": frappe.utils.today(),
+                            "additional_message": f"Previous leader: {old_lead_name}\nNew leader: {new_lead_name}",
+                            "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+                        }
 
-                        Previous leader: {old_lead_name}
-                        New leader: {new_lead_name}
-
-                        Best regards,
-                        The Verenigingen Team
-                        """
-
-                        frappe.sendmail(recipients=[member_doc.email], subject=subject, message=message)
+                        email_service.send_templated_email(
+                            template_name="team_role_notification",
+                            recipients=[member_doc.email],
+                            context=context,
+                            subject_override=subject,
+                            reference_doctype="Team",
+                            reference_name=team.name,
+                        )
 
         frappe.logger("events").info(f"Sent leadership change notifications for {team.name}")
 

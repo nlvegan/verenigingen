@@ -54,52 +54,39 @@ def send_critical_batch_notification(batch, errors):
 
         subject = f"🚨 URGENT: SEPA Batch {batch.name} Blocked - Manual Intervention Required"
 
-        body = f"""
-<h2 style="color: #d32f2f;">SEPA Batch Processing Blocked</h2>
+        # MIGRATED: Use unified EmailService with payment notification template
+        from verenigingen.services.communication.email_service import get_email_service
 
-<p>SEPA batch processing has been automatically blocked due to critical sequence type errors that violate SEPA compliance requirements.</p>
+        email_service = get_email_service()
 
-<h3>Batch Information:</h3>
-<ul>
-<li><strong>Batch:</strong> {batch.name}</li>
-<li><strong>Target Date:</strong> {batch.batch_date}</li>
-<li><strong>Total Amount:</strong> €{batch.total_amount:,.2f}</li>
-<li><strong>Entry Count:</strong> {batch.entry_count}</li>
-<li><strong>Status:</strong> {batch.validation_status}</li>
-</ul>
-
-<h3>Critical Errors ({len(errors)}):</h3>
-<ul>
-"""
-
+        # Format error details for template
+        error_details = []
         for error in errors:
-            body += f"""<li><strong>Invoice {error['invoice']}:</strong> {error['issue']}<br>
-                       <em>Expected: {error.get('expected', 'N/A')}, Actual: {error.get('actual', 'N/A')}</em>
-                       {f"<br><small>{error.get('reason', '')}</small>" if error.get('reason') else ""}
-                       </li>"""
+            error_details.append(
+                f"Invoice {error['invoice']}: {error['issue']} (Expected: {error.get('expected', 'N/A')}, Actual: {error.get('actual', 'N/A')})"
+            )
 
-        body += f"""
-</ul>
+        context = {
+            "member_name": "Financial Administrator",
+            "notification_message": f"SEPA batch processing has been automatically blocked due to {len(errors)} critical sequence type errors that violate SEPA compliance requirements.",
+            "payment_reference": batch.name,
+            "amount": f"€{batch.total_amount:,.2f}",
+            "payment_date": str(batch.batch_date),
+            "payment_method": "SEPA Direct Debit",
+            "action_required": f"Review and correct sequence types in batch {batch.name}. Critical errors: {'; '.join(error_details[:3])}{'...' if len(error_details) > 3 else ''}",
+            "next_steps": "Re-run batch creation after corrections. Monitor submission deadlines: FRST transactions must be submitted 5 business days before target date, RCUR transactions must be submitted 2 business days before target date.",
+            "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+        }
 
-<h3>Required Actions:</h3>
-<ol>
-<li>Review and correct sequence types in batch <a href="{get_batch_url(batch.name)}">{batch.name}</a></li>
-<li>Re-run batch creation after corrections</li>
-<li>Monitor submission deadlines:
-   <ul>
-   <li><strong>FRST transactions:</strong> Must be submitted 5 business days before target date</li>
-   <li><strong>RCUR transactions:</strong> Must be submitted 2 business days before target date</li>
-   </ul>
-</li>
-</ol>
-
-<p><em>This is an automated message from the SEPA batch processing system. Please address these issues promptly to avoid payment delays.</em></p>
-"""
-
-        # MIGRATED: Use unified EmailService instead of direct frappe.sendmail
-        from verenigingen.services.communication.compatibility import send_sepa_email
-
-        send_sepa_email(recipients=recipients, subject=subject, context={"message": body}, priority="high")
+        email_service.send_templated_email(
+            template_name="payment_notification",
+            recipients=recipients,
+            context=context,
+            subject_override=subject,
+            reference_doctype="Direct Debit Batch",
+            reference_name=batch.name,
+            priority="high",
+        )
 
         frappe.logger().info(
             f"Critical batch notification sent for {batch.name} to {len(recipients)} recipients"
@@ -118,44 +105,37 @@ def send_batch_warning_notification(batch, warnings):
 
         subject = f"ℹ️ SEPA Batch {batch.name} Processed with Warnings"
 
-        body = f"""
-<h2 style="color: #f57c00;">SEPA Batch Processed with Warnings</h2>
+        # MIGRATED: Use unified EmailService with payment notification template
+        from verenigingen.services.communication.email_service import get_email_service
 
-<p>SEPA batch has been processed successfully but contains sequence type warnings that should be reviewed when convenient.</p>
+        email_service = get_email_service()
 
-<h3>Batch Information:</h3>
-<ul>
-<li><strong>Batch:</strong> {batch.name}</li>
-<li><strong>Status:</strong> Ready for submission</li>
-<li><strong>Target Date:</strong> {batch.batch_date}</li>
-<li><strong>Total Amount:</strong> €{batch.total_amount:,.2f}</li>
-<li><strong>Entry Count:</strong> {batch.entry_count}</li>
-</ul>
-
-<h3>Warnings ({len(warnings)}):</h3>
-<ul>
-"""
-
+        # Format warning details for template
+        warning_details = []
         for warning in warnings:
-            body += f"""<li><strong>Invoice {warning['invoice']}:</strong> {warning['issue']}<br>
-                       <em>Expected: {warning.get('expected', 'N/A')}, Actual: {warning.get('actual', 'N/A')}</em>
-                       {f"<br><small>{warning.get('reason', '')}</small>" if warning.get('reason') else ""}
-                       </li>"""
+            warning_details.append(
+                f"Invoice {warning['invoice']}: {warning['issue']} (Expected: {warning.get('expected', 'N/A')}, Actual: {warning.get('actual', 'N/A')})"
+            )
 
-        body += f"""
-</ul>
+        context = {
+            "member_name": "Financial Administrator",
+            "notification_message": f"SEPA batch has been processed successfully but contains {len(warnings)} sequence type warnings that should be reviewed when convenient.",
+            "payment_reference": batch.name,
+            "amount": f"€{batch.total_amount:,.2f}",
+            "payment_date": str(batch.batch_date),
+            "payment_method": "SEPA Direct Debit",
+            "next_steps": f"The batch can be submitted as-is, but please review these warnings: {'; '.join(warning_details[:3])}{'...' if len(warning_details) > 3 else ''}",
+            "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+        }
 
-<p>The batch can be submitted as-is, but please review these items when convenient.</p>
-
-<p><strong>Batch Location:</strong> <a href="{get_batch_url(batch.name)}">{batch.name}</a></p>
-
-<p><em>This is an automated message from the SEPA batch processing system.</em></p>
-"""
-
-        # MIGRATED: Use unified EmailService instead of direct frappe.sendmail
-        from verenigingen.services.communication.compatibility import send_sepa_email
-
-        send_sepa_email(recipients=recipients, subject=subject, context={"message": body})
+        email_service.send_templated_email(
+            template_name="payment_notification",
+            recipients=recipients,
+            context=context,
+            subject_override=subject,
+            reference_doctype="Direct Debit Batch",
+            reference_name=batch.name,
+        )
 
         frappe.logger().info(
             f"Warning batch notification sent for {batch.name} to {len(recipients)} recipients"
@@ -178,39 +158,35 @@ def send_daily_batch_summary(validation_summary, batch_result):
 
         subject = f"📊 Daily SEPA Batch Summary - {today()}"
 
-        body = f"""
-<h2>Daily SEPA Batch Processing Summary</h2>
+        # MIGRATED: Use unified EmailService with payment notification template
+        from verenigingen.services.communication.email_service import get_email_service
 
-<p><strong>Date:</strong> {today()}</p>
+        email_service = get_email_service()
 
-<h3>Processing Results:</h3>
-<ul>
-<li><strong>Successfully Processed:</strong> {validation_summary.get('processed', 0)} batches</li>
-<li><strong>Processed with Warnings:</strong> {validation_summary.get('processed_with_warnings', 0)} batches</li>
-<li><strong>Blocked (Critical Errors):</strong> {validation_summary.get('blocked', 0)} batches</li>
-</ul>
+        status_summary = f"Successfully Processed: {validation_summary.get('processed', 0)} batches, With Warnings: {validation_summary.get('processed_with_warnings', 0)} batches, Blocked: {validation_summary.get('blocked', 0)} batches"
 
-<h3>Total Statistics:</h3>
-<ul>
-<li><strong>Batches Created:</strong> {batch_result.get('batches_created', 0)}</li>
-<li><strong>Total Invoices:</strong> {batch_result.get('total_invoices', 0)}</li>
-<li><strong>Success Rate:</strong> {((validation_summary.get('processed', 0) + validation_summary.get('processed_with_warnings', 0)) / total_batches * 100):.1f}%</li>
-</ul>
-"""
+        context = {
+            "member_name": "Financial Administrator",
+            "notification_message": f"Daily SEPA batch processing summary for {today()}. Total batches: {total_batches}",
+            "payment_reference": f"Daily Summary {today()}",
+            "amount": f"{batch_result.get('total_invoices', 0)} invoices processed",
+            "payment_date": today(),
+            "payment_method": "SEPA Batch Processing",
+            "next_steps": f"Processing Results: {status_summary}. Batches Created: {batch_result.get('batches_created', 0)}. Success Rate: {((validation_summary.get('processed', 0) + validation_summary.get('processed_with_warnings', 0)) / total_batches * 100):.1f}%",
+            "action_required": f"{validation_summary.get('blocked', 0)} batch(es) require manual intervention"
+            if validation_summary.get("blocked", 0) > 0
+            else None,
+            "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+        }
 
-        if validation_summary.get("blocked", 0) > 0:
-            body += f"""
-<div style="background-color: #ffebee; padding: 10px; border-left: 4px solid #d32f2f; margin: 10px 0;">
-<strong>⚠️ Attention Required:</strong> {validation_summary['blocked']} batch(es) were blocked due to critical errors and require manual intervention.
-</div>
-"""
-
-        body += "<p><em>This is an automated daily summary from the SEPA batch processing system.</em></p>"
-
-        # MIGRATED: Use unified EmailService instead of direct frappe.sendmail
-        from verenigingen.services.communication.compatibility import send_sepa_email
-
-        send_sepa_email(recipients=recipients, subject=subject, context={"message": body})
+        email_service.send_templated_email(
+            template_name="payment_notification",
+            recipients=recipients,
+            context=context,
+            subject_override=subject,
+            reference_doctype=None,
+            reference_name=None,
+        )
 
         frappe.logger().info(f"Daily batch summary sent to {len(recipients)} recipients")
 
@@ -225,31 +201,32 @@ def send_system_error_notification(error_message):
 
         subject = f"🔥 CRITICAL: SEPA Batch System Error - {today()}"
 
-        body = f"""
-<h2 style="color: #d32f2f;">Critical SEPA System Error</h2>
+        # MIGRATED: Use unified EmailService with payment notification template
+        from verenigingen.services.communication.email_service import get_email_service
 
-<p>The automated SEPA batch processing system has encountered a critical error that prevented batch creation.</p>
+        email_service = get_email_service()
 
-<h3>Error Details:</h3>
-<pre style="background-color: #f5f5f5; padding: 10px; border-radius: 4px;">{error_message}</pre>
+        context = {
+            "member_name": "System Administrator",
+            "notification_message": "The automated SEPA batch processing system has encountered a critical error that prevented batch creation.",
+            "payment_reference": f"System Error {today()}",
+            "amount": "N/A",
+            "payment_date": str(frappe.utils.now()),
+            "payment_method": "SEPA System",
+            "action_required": f"Critical system error: {error_message[:200]}{'...' if len(error_message) > 200 else ''}",
+            "next_steps": "Check system logs for detailed error information. Verify SEPA system configuration and dependencies. Run manual batch creation if needed. Contact system administrator if error persists.",
+            "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+        }
 
-<h3>Required Actions:</h3>
-<ol>
-<li>Check system logs for detailed error information</li>
-<li>Verify SEPA system configuration and dependencies</li>
-<li>Run manual batch creation if needed</li>
-<li>Contact system administrator if error persists</li>
-</ol>
-
-<p><strong>Date/Time:</strong> {frappe.utils.now()}</p>
-
-<p><em>This is an automated error notification from the SEPA batch processing system.</em></p>
-"""
-
-        # MIGRATED: Use unified EmailService instead of direct frappe.sendmail
-        from verenigingen.services.communication.compatibility import send_sepa_email
-
-        send_sepa_email(recipients=recipients, subject=subject, context={"message": body}, priority="high")
+        email_service.send_templated_email(
+            template_name="payment_notification",
+            recipients=recipients,
+            context=context,
+            subject_override=subject,
+            reference_doctype=None,
+            reference_name=None,
+            priority="high",
+        )
 
         frappe.logger().error(f"System error notification sent: {error_message}")
 
@@ -313,25 +290,31 @@ def test_notification_system():
         recipients = get_financial_admin_emails()
 
         subject = "🧪 SEPA Notification System Test"
-        body = f"""
-<h2>SEPA Notification System Test</h2>
 
-<p>This is a test message to verify the SEPA batch notification system is working correctly.</p>
+        # MIGRATED: Use unified EmailService with payment notification template
+        from verenigingen.services.communication.email_service import get_email_service
 
-<h3>System Information:</h3>
-<ul>
-<li><strong>Site:</strong> {frappe.local.site}</li>
-<li><strong>Time:</strong> {frappe.utils.now()}</li>
-<li><strong>Recipients Found:</strong> {len(recipients)}</li>
-</ul>
+        email_service = get_email_service()
 
-<p>If you receive this message, the notification system is configured correctly.</p>
-"""
+        context = {
+            "member_name": "System Administrator",
+            "notification_message": "This is a test message to verify the SEPA batch notification system is working correctly.",
+            "payment_reference": f"Test {frappe.utils.now()}",
+            "amount": "N/A",
+            "payment_date": str(frappe.utils.now()),
+            "payment_method": "SEPA Notification Test",
+            "next_steps": f"System Information: Site: {frappe.local.site}, Recipients Found: {len(recipients)}. If you receive this message, the notification system is configured correctly.",
+            "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+        }
 
-        # MIGRATED: Use unified EmailService instead of direct frappe.sendmail
-        from verenigingen.services.communication.compatibility import send_sepa_email
-
-        send_sepa_email(recipients=recipients, subject=subject, context={"message": body})
+        email_service.send_templated_email(
+            template_name="payment_notification",
+            recipients=recipients,
+            context=context,
+            subject_override=subject,
+            reference_doctype=None,
+            reference_name=None,
+        )
 
         return {
             "success": True,

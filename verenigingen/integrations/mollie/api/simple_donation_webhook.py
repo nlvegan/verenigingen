@@ -228,7 +228,7 @@ def handle_payment_first_donation():
 
         # Create Payment Entry with comprehensive error handling
         payment_entry_result = error_handler.wrap_with_error_handling(
-            "create payment entry", payment_service.create_payment_entry, donation, payment_id
+            "create payment entry", payment_service.create_payment_entry, donation, payment_id, payment
         )
 
         if error_handler.is_error_result(payment_entry_result):

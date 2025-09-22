@@ -52,8 +52,8 @@ class EmailTemplateValidator:
         
         for template in templates:
             template_name = template.get('name', 'Unknown')
-            subject = template.get('subject', '')
-            response = template.get('response', '')
+            subject = template.get('subject', '') or ''
+            response = template.get('response', '') or ''
             
             # Validate Jinja2 syntax
             subject_issues = self._validate_jinja2_syntax(subject, f"{template_name} subject")

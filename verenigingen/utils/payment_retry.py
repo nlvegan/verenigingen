@@ -203,30 +203,31 @@ class PaymentRetryManager:
         recipients = [admin.user for admin in admins]
 
         if recipients:
-            frappe.sendmail(
+            # MIGRATED: Use unified EmailService with payment notification template
+            from verenigingen.services.communication.email_service import get_email_service
+
+            email_service = get_email_service()
+
+            context = {
+                "member_name": "Verenigingen Manager",
+                "notification_message": f"Payment collection has failed after {retry_record.retry_count} attempts for member {member.full_name}.",
+                "payment_reference": retry_record.invoice,
+                "amount": f"€{retry_record.original_amount}",
+                "payment_date": str(frappe.utils.today()),
+                "payment_method": "Failed Payment Retry",
+                "action_required": f"Member: {member.full_name} (ID: {member.name}). Last Failure Reason: {retry_record.last_failure_reason}. Total Attempts: {retry_record.retry_count}.",
+                "next_steps": "Please review and take manual action to resolve the payment failure.",
+                "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+            }
+
+            email_service.send_templated_email(
+                template_name="payment_notification",
                 recipients=recipients,
-                subject=f"Payment Failure Escalation - {member.full_name}",
-                message="""
-                <h3>Payment Retry Escalation</h3>
-                <p>Payment collection has failed after {retry_record.retry_count} attempts.</p>
-
-                <h4>Member Details:</h4>
-                <ul>
-                    <li>Name: {member.full_name}</li>
-                    <li>Member ID: {member.name}</li>
-                    <li>Invoice: {retry_record.invoice}</li>
-                    <li>Amount: €{retry_record.original_amount}</li>
-                </ul>
-
-                <h4>Failure History:</h4>
-                <ul>
-                    <li>Last Failure Reason: {retry_record.last_failure_reason}</li>
-                    <li>Total Attempts: {retry_record.retry_count}</li>
-                </ul>
-
-                <p>Please review and take manual action.</p>
-                """,
-                delayed=False,
+                context=context,
+                subject_override=f"Payment Failure Escalation - {member.full_name}",
+                reference_doctype="Member",
+                reference_name=member.name,
+                priority="high",
             )
 
 

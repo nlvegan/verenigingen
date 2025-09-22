@@ -15,9 +15,17 @@ class SEPAMandateNotificationManager:
         self._template_cache = {}
 
     def _get_settings(self):
-        """Get cached settings"""
+        """Get cached settings with fallback"""
         if not self.settings:
-            self.settings = frappe.get_single("Verenigingen Settings")
+            try:
+                self.settings = frappe.get_single("Verenigingen Settings")
+            except frappe.DoesNotExistError:
+                # Fallback if settings don't exist
+                self.settings = type(
+                    "MockSettings",
+                    (),
+                    {"company_name": "Verenigingen", "support_email": "support@verenigingen.org"},
+                )()
         return self.settings
 
     def _get_template(self, template_name):

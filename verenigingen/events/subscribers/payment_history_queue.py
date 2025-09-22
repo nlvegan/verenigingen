@@ -323,25 +323,38 @@ def _alert_payment_history_failures(failed_count, processed_count):
         admin_emails = get_notification_recipients("stuck_schedule_notification_emails")
 
         if admin_emails:
-            subject = "[ALERT] High Payment History Update Failure Rate"
-            message = f"""
-            <h3>⚠️ Payment History Update Alert</h3>
-            <p>The payment history queue processing has encountered a high failure rate:</p>
-            <ul>
-                <li><strong>Failed Updates:</strong> {failed_count}</li>
-                <li><strong>Successful Updates:</strong> {processed_count}</li>
-                <li><strong>Failure Rate:</strong> {(failed_count / (failed_count + processed_count)) * 100:.1f}%</li>
-            </ul>
-            <p>This may indicate a system issue that requires investigation.</p>
-            <p><strong>Recommended Actions:</strong></p>
-            <ul>
-                <li>Check Error Log for specific failure causes</li>
-                <li>Review Payment History Update Queue for failed entries</li>
-                <li>Verify Member documents and Sales Invoice references</li>
-            </ul>
-            """
+            # MIGRATED: Use unified EmailService with payment notification template
+            from verenigingen.services.communication.email_service import get_email_service
 
-            frappe.sendmail(recipients=admin_emails, subject=subject, message=message, now=True)
+            email_service = get_email_service()
+
+            failure_rate = (
+                (failed_count / (failed_count + processed_count)) * 100
+                if (failed_count + processed_count) > 0
+                else 0
+            )
+
+            context = {
+                "member_name": "System Administrator",
+                "notification_message": "The payment history queue processing has encountered a high failure rate.",
+                "payment_reference": f"Processing Alert {frappe.utils.today()}",
+                "amount": f"{failed_count + processed_count} total updates",
+                "payment_date": str(frappe.utils.today()),
+                "payment_method": "Payment History Queue",
+                "action_required": f"Failed Updates: {failed_count}, Successful Updates: {processed_count}, Failure Rate: {failure_rate:.1f}%",
+                "next_steps": "Check Error Log for specific failure causes. Review Payment History Update Queue for failed entries. Verify Member documents and Sales Invoice references.",
+                "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+            }
+
+            email_service.send_templated_email(
+                template_name="payment_notification",
+                recipients=admin_emails,
+                context=context,
+                subject_override="[ALERT] High Payment History Update Failure Rate",
+                reference_doctype=None,
+                reference_name=None,
+                priority="high",
+            )
 
             frappe.logger("payment_history").info(f"Sent failure alert to {len(admin_emails)} administrators")
     except Exception as e:
@@ -358,16 +371,32 @@ def _alert_payment_history_critical_error(error_msg):
         )
 
         if admin_emails:
-            subject = "[CRITICAL] Payment History Queue Processing Failed"
-            message = f"""
-            <h3>🚨 Critical Payment History Error</h3>
-            <p>The payment history queue processing has failed completely with a critical error:</p>
-            <pre>{error_msg}</pre>
-            <p><strong>Impact:</strong> Payment history updates are not being processed, which may affect member financial records.</p>
-            <p><strong>Required Action:</strong> Immediate investigation and resolution needed.</p>
-            """
+            # MIGRATED: Use unified EmailService with payment notification template
+            from verenigingen.services.communication.email_service import get_email_service
 
-            frappe.sendmail(recipients=admin_emails, subject=subject, message=message, now=True)
+            email_service = get_email_service()
+
+            context = {
+                "member_name": "System Administrator",
+                "notification_message": "The payment history queue processing has failed completely with a critical error.",
+                "payment_reference": f"Critical Error {frappe.utils.today()}",
+                "amount": "N/A",
+                "payment_date": str(frappe.utils.today()),
+                "payment_method": "Payment History Queue",
+                "action_required": f"Critical error occurred: {error_msg[:200]}{'...' if len(error_msg) > 200 else ''}. Impact: Payment history updates are not being processed, which may affect member financial records.",
+                "next_steps": "Immediate investigation and resolution needed.",
+                "company": frappe.defaults.get_global_default("company") or "Verenigingen",
+            }
+
+            email_service.send_templated_email(
+                template_name="payment_notification",
+                recipients=admin_emails,
+                context=context,
+                subject_override="[CRITICAL] Payment History Queue Processing Failed",
+                reference_doctype=None,
+                reference_name=None,
+                priority="high",
+            )
 
             frappe.logger("payment_history").error(
                 f"Sent critical error alert to {len(admin_emails)} administrators"

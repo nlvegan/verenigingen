@@ -510,6 +510,53 @@ def process_successful_payment(donation, payment):
     }
 
 
+def _extract_record_reference_from_mollie_data(payment_data, payment_id: str) -> str:
+    """
+    Extract record reference from Mollie payment data for origin-agnostic payment entry titles.
+
+    Args:
+        payment_data: Mollie payment object or extracted data dict
+        payment_id: Mollie payment ID as fallback
+
+    Returns:
+        Record reference string (donation ID, membership ID, etc.)
+    """
+    try:
+        # Method 1: From metadata
+        if hasattr(payment_data, "metadata") and payment_data.metadata:
+            metadata = payment_data.metadata
+            if isinstance(metadata, dict) and metadata.get("record_id"):
+                frappe.logger().info(f"🔍 Found record_id in metadata: {metadata['record_id']}")
+                return metadata["record_id"]
+
+        # Method 2: From description JSON
+        if hasattr(payment_data, "description") and payment_data.description:
+            try:
+                import json
+
+                desc_data = json.loads(payment_data.description)
+                if isinstance(desc_data, dict) and desc_data.get("record_id"):
+                    frappe.logger().info(f"🔍 Found record_id in description: {desc_data['record_id']}")
+                    return desc_data["record_id"]
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # Method 3: From dict-style data (if payment_data is already extracted)
+        if isinstance(payment_data, dict):
+            metadata = payment_data.get("metadata", {})
+            if isinstance(metadata, dict) and metadata.get("record_id"):
+                frappe.logger().info(f"🔍 Found record_id in dict metadata: {metadata['record_id']}")
+                return metadata["record_id"]
+
+        # Fallback to payment_id
+        frappe.logger().info(f"🔍 Using payment_id as record reference: {payment_id}")
+        return payment_id
+
+    except Exception as e:
+        frappe.logger().warning(f"⚠️ Error extracting record reference: {e}")
+        return payment_id
+
+
 def extract_mollie_payment_data(payment):
     """Extract relevant data from Mollie payment object"""
 
@@ -638,12 +685,19 @@ def create_payment_entry_for_donation(donation, mollie_data):
             frappe.logger().error("❌ Mollie Mode of Payment not configured")
             return None
 
-        # Generate meaningful Payment Entry name using donor name + donation series
-        donor_name_clean = frappe.scrub(donor_doc.donor_name)  # Clean name for naming
-        donation_number = donation.name.split("-")[-1]  # Extract number from donation name
+        # Extract record reference from Mollie data for origin-agnostic approach
+        record_reference = _extract_record_reference_from_mollie_data(payment, mollie_data["payment_id"])
 
-        # Create custom naming series: PE-[DonorName]-[DonationNumber]-
-        custom_naming_series = f"PE-{donor_name_clean}-{donation_number}-"
+        # Get the actual customer name (not the customer ID) for proper display
+        customer_doc = frappe.get_doc("Customer", customer)
+        display_name = customer_doc.customer_name or donor_doc.donor_name or "Unknown"
+
+        # Generate meaningful Payment Entry name using display name + record reference
+        donor_name_clean = frappe.scrub(display_name)  # Clean name for naming
+        record_number = record_reference.split("-")[-1] if "-" in record_reference else record_reference
+
+        # Create custom naming series: PE-[DonorName]-[RecordNumber]-
+        custom_naming_series = f"PE-{donor_name_clean}-{record_number}-"
 
         frappe.logger().info(
             "🏷️ Custom PE naming: %s for donor '%s' donation %s",
@@ -672,7 +726,8 @@ def create_payment_entry_for_donation(donation, mollie_data):
                 "paid_to": bank_account,  # Money goes TO Mollie bank account
                 "mode_of_payment": "Mollie",
                 "cost_center": cost_center,  # Required for P&L accounts
-                "remarks": f"Donation payment {donation.name} via Mollie ({mollie_data.get('method', 'Unknown method')}) - {donor_doc.donor_name}",
+                "title": f"{display_name} - {record_reference}",
+                "remarks": f"Payment for {record_reference} via Mollie ({mollie_data.get('method', 'Unknown method')}) - {donor_doc.donor_name}",
             }
         )
 
