@@ -200,15 +200,22 @@ def _send_approval_notification(member):
         return
 
     try:
-        if frappe.db.exists("Email Template", "Member Approval Notification"):
-            template = frappe.get_doc("Email Template", "Member Approval Notification")
-            template.send(
-                member.email, args={"member_name": member.get_full_name(), "membership_number": member.name}
-            )
+        # MIGRATED: Use unified EmailService instead of direct template calls
+        from verenigingen.services.communication.compatibility import send_member_notification
+
+        result = send_member_notification(
+            member_name=member.name,
+            notification_type="approval",
+            context={"member_name": member.get_full_name(), "membership_number": member.name},
+        )
+
+        if result.get("success"):
+            frappe.logger("events").info(f"Approval notification sent successfully to {member.email}")
         else:
             frappe.logger("events").warning(
-                "Member Approval Notification email template not found - skipping notification"
+                f"Failed to send approval notification: {'; '.join(result.get('errors', []))}"
             )
+
     except Exception as e:
         frappe.logger("events").error(f"Failed to send approval notification: {str(e)}")
 
@@ -237,13 +244,22 @@ def _send_suspension_notification(member):
         return
 
     try:
-        if frappe.db.exists("Email Template", "Member Suspension Notification"):
-            template = frappe.get_doc("Email Template", "Member Suspension Notification")
-            template.send(member.email, args={"member_name": member.get_full_name()})
+        # MIGRATED: Use unified EmailService instead of direct template calls
+        from verenigingen.services.communication.compatibility import send_member_notification
+
+        result = send_member_notification(
+            member_name=member.name,
+            notification_type="suspension",
+            context={"member_name": member.get_full_name(), "membership_number": member.name},
+        )
+
+        if result.get("success"):
+            frappe.logger("events").info(f"Suspension notification sent successfully to {member.email}")
         else:
             frappe.logger("events").warning(
-                "Member Suspension Notification email template not found - skipping notification"
+                f"Failed to send suspension notification: {'; '.join(result.get('errors', []))}"
             )
+
     except Exception as e:
         frappe.logger("events").error(f"Failed to send suspension notification: {str(e)}")
 
@@ -254,13 +270,22 @@ def _send_termination_notification(member):
         return
 
     try:
-        if frappe.db.exists("Email Template", "Member Termination Notification"):
-            template = frappe.get_doc("Email Template", "Member Termination Notification")
-            template.send(member.email, args={"member_name": member.get_full_name()})
+        # MIGRATED: Use unified EmailService instead of direct template calls
+        from verenigingen.services.communication.compatibility import send_member_notification
+
+        result = send_member_notification(
+            member_name=member.name,
+            notification_type="termination",
+            context={"member_name": member.get_full_name(), "membership_number": member.name},
+        )
+
+        if result.get("success"):
+            frappe.logger("events").info(f"Termination notification sent successfully to {member.email}")
         else:
             frappe.logger("events").warning(
-                "Member Termination Notification email template not found - skipping notification"
+                f"Failed to send termination notification: {'; '.join(result.get('errors', []))}"
             )
+
     except Exception as e:
         frappe.logger("events").error(f"Failed to send termination notification: {str(e)}")
 
@@ -271,13 +296,22 @@ def _send_reactivation_notification(member):
         return
 
     try:
-        if frappe.db.exists("Email Template", "Member Reactivation Notification"):
-            template = frappe.get_doc("Email Template", "Member Reactivation Notification")
-            template.send(member.email, args={"member_name": member.get_full_name()})
+        # MIGRATED: Use unified EmailService instead of direct template calls
+        from verenigingen.services.communication.compatibility import send_member_notification
+
+        result = send_member_notification(
+            member_name=member.name,
+            notification_type="reactivation",
+            context={"member_name": member.get_full_name(), "membership_number": member.name},
+        )
+
+        if result.get("success"):
+            frappe.logger("events").info(f"Reactivation notification sent successfully to {member.email}")
         else:
             frappe.logger("events").warning(
-                "Member Reactivation Notification email template not found - skipping notification"
+                f"Failed to send reactivation notification: {'; '.join(result.get('errors', []))}"
             )
+
     except Exception as e:
         frappe.logger("events").error(f"Failed to send reactivation notification: {str(e)}")
 

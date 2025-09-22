@@ -66,10 +66,20 @@ def notify_about_orphaned_records():
             recipients.extend([r.strip() for r in settings.orphaned_report_recipients.split(",")])
 
         if recipients:
-            frappe.sendmail(
+            # MIGRATED: Use unified EmailService for orphaned records report
+            from verenigingen.services.communication.email_service import get_email_service
+
+            email_service = get_email_service()
+
+            context = {
+                "orphaned_data": orphaned_data,
+                "company": frappe.defaults.get_global_default("company") or "System Maintenance",
+            }
+
+            email_service.send_templated_email(
+                template_name="orphaned_records_report",
                 recipients=recipients,
-                subject="Orphaned Memberships and Dues Schedules Report",
-                message=email_content,
+                context=context,
                 reference_doctype="Membership",
                 reference_name="Report",
             )
@@ -146,21 +156,28 @@ def send_renewal_reminders():
             # Get member details
             member = frappe.get_doc("Member", membership.member)
 
-            # Prepare context for email
-            context = {
+            # Context prepared below as enhanced_context
+
+            # MIGRATED: Use unified EmailService for renewal reminders
+            from verenigingen.services.communication.email_service import get_email_service
+
+            email_service = get_email_service()
+
+            # Enhanced context for unified service
+            enhanced_context = {
                 "member": member.as_dict(),
                 "membership": membership,
                 "days_to_expiry": membership.days_to_expiry,
+                "company": frappe.defaults.get_global_default("company"),
             }
 
-            # Send email using Email Template
-            email_template_doc = frappe.get_doc("Email Template", template)
-            frappe.sendmail(
-                recipients=membership.email,
-                subject=email_template_doc.subject
-                or f"Membership Renewal Reminder: {membership.days_to_expiry} days left",
-                message=frappe.render_template(email_template_doc.response, context),
-                header=[_("Membership Renewal"), "blue"],
+            email_service.send_templated_email(
+                template_name=template,
+                recipients=[membership.email],
+                context=enhanced_context,
+                subject_override=f"Membership Renewal Reminder: {membership.days_to_expiry} days left",
+                reference_doctype="Membership",
+                reference_name=membership.name,
             )
 
             # Log the email

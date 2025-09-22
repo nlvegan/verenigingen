@@ -3466,6 +3466,32 @@ def validate_business_rules(doctype):
         }
         return bic_mapping.get(bank_code, "ABNANL2A")
 
+    def create_test_email_template(self, name, subject, response_html=None, response=None, **kwargs):
+        """Create a test email template with proper validation."""
+        # Ensure unique name with test prefix
+        if not name.startswith("test_"):
+            name = f"test_{name}"
+
+        # Add timestamp to ensure uniqueness
+        import time
+        timestamp = str(int(time.time()))[-6:]  # Last 6 digits
+        unique_name = f"{name}_{timestamp}"
+
+        template_data = {
+            "doctype": "Email Template",
+            "name": unique_name,
+            "subject": subject,
+            "enabled": 1,
+            "use_html": 1 if response_html else 0,
+            "response": response,
+            "response_html": response_html,
+            **kwargs
+        }
+
+        template = frappe.get_doc(template_data)
+        template.insert()
+        return template
+
 
 if __name__ == "__main__":
     # Example usage and testing

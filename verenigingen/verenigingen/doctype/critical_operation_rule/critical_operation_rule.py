@@ -165,22 +165,29 @@ class CriticalOperationRule(Document):
                 )
                 return
 
-            # Send notification for critical/high security rule changes
-            frappe.sendmail(
-                recipients=admin_emails,
-                subject=f"Critical Operation Rule Changed: {self.operation_name}",
-                message=f"""
-                <h3>Security Policy Change Alert</h3>
-                <p><strong>Rule:</strong> {self.operation_name}</p>
-                <p><strong>Security Level:</strong> {self.security_level}</p>
-                <p><strong>Operation Type:</strong> {self.operation_type}</p>
-                <p><strong>Changed By:</strong> {frappe.session.user}</p>
-                <p><strong>Changed At:</strong> {frappe.utils.now()}</p>
-                <p><strong>Enabled:</strong> {'Yes' if self.enabled else 'No'}</p>
+            # MIGRATED: Use unified EmailService for security policy alerts
+            from verenigingen.services.communication.email_service import get_email_service
 
-                <p>Please review this change to ensure it aligns with security policies.</p>
-                """,
-                send_priority=1,
+            email_service = get_email_service()
+
+            context = {
+                "operation_name": self.operation_name,
+                "security_level": self.security_level,
+                "operation_type": self.operation_type,
+                "changed_by": frappe.session.user,
+                "changed_at": frappe.utils.now(),
+                "enabled_status": "Yes" if self.enabled else "No",
+                "company": frappe.defaults.get_global_default("company") or "Security Team",
+            }
+
+            email_service.send_templated_email(
+                template_name="security_policy_change_alert",
+                recipients=admin_emails,
+                context=context,
+                subject_override=f"Security Policy Change Alert - {self.operation_name}",
+                reference_doctype="Critical Operation Rule",
+                reference_name=self.name,
+                priority=1,
             )
 
         except Exception as e:

@@ -182,11 +182,31 @@ class AnalyticsAlertRule(Document):
                     )
 
         if self.send_email and recipients:
-            frappe.sendmail(
+            # MIGRATED: Use unified EmailService for analytics alerts
+            from verenigingen.services.communication.email_service import get_email_service
+
+            email_service = get_email_service()
+
+            # Prepare context for analytics alert template
+            context = {
+                "rule_name": self.rule_name,
+                "metric": alert_data.get("metric"),
+                "current_value": alert_data.get("current_value"),
+                "threshold": alert_data.get("threshold"),
+                "condition": alert_data.get("condition"),
+                "alert_data": alert_data,
+                "rule": self,
+                "message": message,
+            }
+
+            # Send using analytics alert template
+            email_service.send_templated_email(
+                template_name="analytics_alert",
                 recipients=recipients,
-                subject=f"Analytics Alert: {self.rule_name}",
-                message=message,
-                delayed=False,
+                context=context,
+                subject_override=f"Analytics Alert: {self.rule_name}",
+                reference_doctype="Analytics Alert Rule",
+                reference_name=self.name,
             )
 
     def format_message(self, alert_data):

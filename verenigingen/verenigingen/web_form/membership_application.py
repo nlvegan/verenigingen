@@ -198,38 +198,71 @@ def send_application_notifications(member):
     recipients = list(set(recipients))
 
     if recipients:
-        frappe.sendmail(
+        # MIGRATED: Use unified EmailService for application notifications
+        from verenigingen.services.communication.email_service import get_email_service
+
+        email_service = get_email_service()
+
+        # Prepare context for new application notification template
+        context = {
+            "member_name": member.full_name,
+            "member_email": member.email,
+            "suggested_chapter": member.suggested_chapter,
+            "previous_chapter": member.previous_chapter or "None",
+            "application_date": frappe.utils.format_datetime(member.application_date),
+            "review_url": f"{frappe.utils.get_url()}/app/member/{member.name}",
+            "member": member,
+        }
+
+        # Send using new application notification template
+        email_service.send_templated_email(
+            template_name="new_membership_application_notification",
             recipients=recipients,
-            subject=f"New Membership Application: {member.full_name}",
-            message=f"""
-            <h3>New Membership Application Received</h3>
-            <p>A new membership application has been submitted:</p>
-            <ul>
-                <li><strong>Name:</strong> {member.full_name}</li>
-                <li><strong>Email:</strong> {member.email}</li>
-                <li><strong>Previous Chapter:</strong> {member.previous_chapter or 'None'}</li>
-                <li><strong>Application Date:</strong> {frappe.utils.format_datetime(member.application_date)}</li>
-            </ul>
-            <p><a href="{frappe.utils.get_url()}/app/member/{member.name}">Review Application</a></p>
-            """,
-            now=True,
+            context=context,
+            subject_override=f"New Membership Application: {member.full_name}",
+            reference_doctype="Member",
+            reference_name=member.name,
         )
 
 
 def send_application_confirmation(member):
     """Send confirmation email to applicant"""
-    frappe.sendmail(
+    # MIGRATED: Use unified EmailService for application confirmation
+    from verenigingen.services.communication.email_service import get_email_service
+
+    email_service = get_email_service()
+
+    # Prepare context for application confirmation template
+    context = {
+        "first_name": member.first_name,
+        "member_name": member.full_name,
+        "application_date": frappe.utils.format_datetime(member.application_date),
+        "suggested_chapter": member.suggested_chapter,
+        "member": member,
+    }
+
+    # Enhance context to match existing template expectations
+    context.update(
+        {
+            "membership_type": "Standard Membership",  # Default for web form
+            "contribution_description": "To be determined during review",
+            "payment_method": member.payment_method or "To be arranged",
+            "next_steps": [
+                "Your application will be reviewed by our membership committee",
+                "You will receive an email once your application has been processed",
+                "If approved, you'll receive payment instructions to complete your membership",
+            ],
+        }
+    )
+
+    # Send using existing application confirmation template
+    email_service.send_templated_email(
+        template_name="membership_application_confirmation",
         recipients=[member.email],
-        subject="Membership Application Received",
-        message=f"""
-        <h3>Thank you for your membership application!</h3>
-        <p>Dear {member.first_name},</p>
-        <p>We have received your membership application and it is currently under review.</p>
-        <p>You will receive an email once your application has been processed.</p>
-        <p>If you have any questions, please don't hesitate to contact us.</p>
-        <p>Best regards,<br>The Membership Team</p>
-        """,
-        now=True,
+        context=context,
+        subject_override="Membership Application Received",
+        reference_doctype="Member",
+        reference_name=member.name,
     )
 
 

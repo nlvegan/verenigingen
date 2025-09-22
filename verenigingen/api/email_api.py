@@ -1,0 +1,305 @@
+"""
+Email API Endpoints
+
+Provides JavaScript-accessible API endpoints for the unified EmailService.
+These endpoints allow frontend applications to send emails through the
+consolidated email infrastructure.
+"""
+
+from typing import Any, Dict, List, Union
+
+import frappe
+from frappe import _
+
+from verenigingen.services.communication.compatibility import (
+    send_chapter_email,
+    send_member_notification,
+    send_sepa_email,
+)
+from verenigingen.services.communication.email_service import get_email_service
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+
+
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.COMMUNICATION)
+def send_templated_email(
+    template_name: str,
+    recipients: Union[str, List[str]],
+    context: Dict[str, Any] = None,
+    subject_override: str = None,
+    reference_doctype: str = None,
+    reference_name: str = None,
+) -> Dict[str, Any]:
+    """
+    Send templated email via unified EmailService.
+
+    Args:
+        template_name: Name of the email template
+        recipients: Email addresses (string or JSON array)
+        context: Template context variables (JSON object)
+        subject_override: Override template subject
+        reference_doctype: Link to specific DocType
+        reference_name: Link to specific document
+
+    Returns:
+        Dict with success status and details
+    """
+    try:
+        # Parse recipients if it's a JSON string
+        if isinstance(recipients, str):
+            try:
+                import json
+
+                recipients = json.loads(recipients)
+            except json.JSONDecodeError:
+                # If not JSON, treat as single email
+                recipients = [recipients]
+
+        # Parse context if it's a JSON string
+        if isinstance(context, str):
+            try:
+                import json
+
+                context = json.loads(context)
+            except json.JSONDecodeError:
+                context = {}
+
+        email_service = get_email_service()
+
+        result = email_service.send_templated_email(
+            template_name=template_name,
+            recipients=recipients,
+            context=context or {},
+            subject_override=subject_override,
+            reference_doctype=reference_doctype,
+            reference_name=reference_name,
+        )
+
+        return result
+
+    except Exception as e:
+        frappe.log_error(f"Email API error: {str(e)}", "Email API")
+        return {"success": False, "errors": [str(e)], "operation": "send_templated_email"}
+
+
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.COMMUNICATION)
+def send_notification(
+    notification_type: str,
+    recipients: Union[str, List[str]],
+    data: Dict[str, Any],
+    reference_doctype: str = None,
+    reference_name: str = None,
+) -> Dict[str, Any]:
+    """
+    Send system notification via unified EmailService.
+
+    Args:
+        notification_type: Type of notification (approval, suspension, etc.)
+        recipients: Email addresses
+        data: Notification data
+        reference_doctype: Link to specific DocType
+        reference_name: Link to specific document
+
+    Returns:
+        Dict with success status and details
+    """
+    try:
+        # Parse recipients if it's a JSON string
+        if isinstance(recipients, str):
+            try:
+                import json
+
+                recipients = json.loads(recipients)
+            except json.JSONDecodeError:
+                recipients = [recipients]
+
+        # Parse data if it's a JSON string
+        if isinstance(data, str):
+            try:
+                import json
+
+                data = json.loads(data)
+            except json.JSONDecodeError:
+                data = {}
+
+        email_service = get_email_service()
+
+        result = email_service.send_notification(
+            notification_type=notification_type,
+            recipients=recipients,
+            data=data,
+            reference_doctype=reference_doctype,
+            reference_name=reference_name,
+        )
+
+        return result
+
+    except Exception as e:
+        frappe.log_error(f"Notification API error: {str(e)}", "Email API")
+        return {"success": False, "errors": [str(e)], "operation": "send_notification"}
+
+
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.COMMUNICATION)
+def send_member_email(
+    member_name: str, notification_type: str, context: Dict[str, Any] = None
+) -> Dict[str, Any]:
+    """
+    Send email to member via compatibility layer.
+
+    Args:
+        member_name: Name/ID of member
+        notification_type: Type of notification
+        context: Email context variables
+
+    Returns:
+        Dict with success status and details
+    """
+    try:
+        # Parse context if it's a JSON string
+        if isinstance(context, str):
+            try:
+                import json
+
+                context = json.loads(context)
+            except json.JSONDecodeError:
+                context = {}
+
+        result = send_member_notification(
+            member_name=member_name, notification_type=notification_type, context=context or {}
+        )
+
+        return result
+
+    except Exception as e:
+        frappe.log_error(f"Member email API error: {str(e)}", "Email API")
+        return {"success": False, "errors": [str(e)], "operation": "send_member_email"}
+
+
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.COMMUNICATION)
+def send_chapter_email_api(
+    chapter_name: str,
+    recipients: Union[str, List[str]],
+    subject: str,
+    content: str = None,
+    template: str = None,
+    context: Dict[str, Any] = None,
+) -> Dict[str, Any]:
+    """
+    Send email via chapter communication system.
+
+    Args:
+        chapter_name: Name of chapter
+        recipients: Email addresses
+        subject: Email subject
+        content: Email content (if not using template)
+        template: Template name (if using template)
+        context: Template context variables
+
+    Returns:
+        Dict with success status and details
+    """
+    try:
+        # Parse recipients if it's a JSON string
+        if isinstance(recipients, str):
+            try:
+                import json
+
+                recipients = json.loads(recipients)
+            except json.JSONDecodeError:
+                recipients = [recipients]
+
+        # Parse context if it's a JSON string
+        if isinstance(context, str):
+            try:
+                import json
+
+                context = json.loads(context)
+            except json.JSONDecodeError:
+                context = {}
+
+        result = send_chapter_email(
+            chapter_name=chapter_name,
+            recipients=recipients,
+            subject=subject,
+            content=content,
+            template=template,
+            context=context or {},
+        )
+
+        return result
+
+    except Exception as e:
+        frappe.log_error(f"Chapter email API error: {str(e)}", "Email API")
+        return {"success": False, "errors": [str(e)], "operation": "send_chapter_email"}
+
+
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.READ)
+def get_available_templates() -> Dict[str, Any]:
+    """
+    Get list of available email templates.
+
+    Returns:
+        Dict with template names and details
+    """
+    try:
+        from verenigingen.services.communication.template_manager import TemplateManager
+
+        template_manager = TemplateManager()
+        templates = template_manager.get_available_templates()
+
+        return {"success": True, "templates": templates, "count": len(templates)}
+
+    except Exception as e:
+        frappe.log_error(f"Template list API error: {str(e)}", "Email API")
+        return {"success": False, "errors": [str(e)], "operation": "get_available_templates"}
+
+
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.READ)
+def get_supported_notification_types() -> Dict[str, Any]:
+    """
+    Get list of supported notification types.
+
+    Returns:
+        Dict with notification types
+    """
+    try:
+        from verenigingen.services.communication.notification_dispatcher import NotificationDispatcher
+
+        dispatcher = NotificationDispatcher()
+        types = dispatcher.get_supported_notification_types()
+
+        return {"success": True, "notification_types": types, "count": len(types)}
+
+    except Exception as e:
+        frappe.log_error(f"Notification types API error: {str(e)}", "Email API")
+        return {"success": False, "errors": [str(e)], "operation": "get_supported_notification_types"}
+
+
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.READ)
+def validate_template(template_name: str) -> Dict[str, Any]:
+    """
+    Validate email template exists and is properly configured.
+
+    Args:
+        template_name: Name of template to validate
+
+    Returns:
+        Dict with validation results
+    """
+    try:
+        from verenigingen.services.communication.template_manager import TemplateManager
+
+        template_manager = TemplateManager()
+        validation_result = template_manager.validate_template(template_name)
+
+        return {"success": True, "template": template_name, "validation": validation_result}
+
+    except Exception as e:
+        frappe.log_error(f"Template validation API error: {str(e)}", "Email API")
+        return {"success": False, "errors": [str(e)], "operation": "validate_template"}

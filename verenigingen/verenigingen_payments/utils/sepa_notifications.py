@@ -86,7 +86,10 @@ class SEPAMandateNotificationManager:
             "company_name": settings.company_name,
         }
 
-        self._send_email(
+        # MIGRATED: Use unified EmailService instead of custom _send_email
+        from verenigingen.services.communication.compatibility import send_sepa_email
+
+        send_sepa_email(
             recipients=[member.email],
             subject=_("SEPA Direct Debit Mandate Activated"),
             template="sepa_mandate_created",
@@ -123,7 +126,10 @@ class SEPAMandateNotificationManager:
             "support_email": settings.support_email,
         }
 
-        self._send_email(
+        # MIGRATED: Use unified EmailService instead of custom _send_email
+        from verenigingen.services.communication.compatibility import send_sepa_email
+
+        send_sepa_email(
             recipients=[member.email],
             subject=_("SEPA Direct Debit Mandate Cancelled"),
             template="sepa_mandate_cancelled",
@@ -160,7 +166,10 @@ class SEPAMandateNotificationManager:
             "renewal_link": f"{frappe.utils.get_url()}/bank_details",
         }
 
-        self._send_email(
+        # MIGRATED: Use unified EmailService instead of custom _send_email
+        from verenigingen.services.communication.compatibility import send_sepa_email
+
+        send_sepa_email(
             recipients=[member.email],
             subject=_("SEPA Mandate Expiring Soon - Action Required"),
             template="sepa_mandate_expiring",
@@ -187,8 +196,11 @@ class SEPAMandateNotificationManager:
             "payment_link": f"{frappe.utils.get_url()}/payment-dashboard",
         }
 
+        # MIGRATED: Use unified EmailService instead of custom _send_email
+        from verenigingen.services.communication.compatibility import send_sepa_email
+
         if retry_record.status == "Scheduled":
-            self._send_email(
+            send_sepa_email(
                 recipients=[member.email],
                 subject=_("Payment Retry Scheduled - {0}").format(invoice.name),
                 template="payment_retry_scheduled",
@@ -196,7 +208,7 @@ class SEPAMandateNotificationManager:
                 member=member.name,
             )
         elif retry_record.status == "Failed":
-            self._send_email(
+            send_sepa_email(
                 recipients=[member.email],
                 subject=_("Payment Failed - Action Required"),
                 template="payment_retry_failed",
@@ -230,7 +242,10 @@ class SEPAMandateNotificationManager:
             "receipt_link": f"{frappe.utils.get_url()}/payment-dashboard",
         }
 
-        self._send_email(
+        # MIGRATED: Use unified EmailService instead of custom _send_email
+        from verenigingen.services.communication.compatibility import send_sepa_email
+
+        send_sepa_email(
             recipients=[member_doc.email],
             subject=_("Payment Received - Thank You"),
             template="payment_success",
@@ -453,19 +468,17 @@ class SEPAMandateNotificationManager:
         )
 
     def _send_email(self, recipients, subject, template, context, member=None):
-        """Send email using template - optimized version"""
-        # For single emails, use batch processing of 1
-        email_batch = [
-            {
-                "recipients": recipients,
-                "subject": subject,
-                "template": template,
-                "context": self._prepare_context(context),
-                "member": member,
-            }
-        ]
+        """Send email using template - MIGRATED to unified EmailService"""
+        # MIGRATED: Use unified EmailService instead of custom batch processing
+        from verenigingen.services.communication.compatibility import send_sepa_email
 
-        self._send_email_batch(email_batch)
+        send_sepa_email(
+            recipients=recipients,
+            subject=subject,
+            template=template,
+            context=self._prepare_context(context),
+            member=member,
+        )
 
     def _prepare_context(self, context):
         """Prepare email context with common variables"""

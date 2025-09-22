@@ -305,18 +305,27 @@ class MemberManager(BaseManager):
                         board_members.append(member_email)
 
             if board_members:
-                frappe.sendmail(
+                # MIGRATED: Use unified EmailService for chapter join requests
+                from verenigingen.services.communication.email_service import get_email_service
+
+                email_service = get_email_service()
+
+                # Prepare context for chapter join request template
+                context = {
+                    "member": member_doc,
+                    "member_name": member_doc.full_name,
+                    "chapter": self.chapter_doc,
+                    "chapter_name": self.chapter_name,
+                    "request_type": "join_request",
+                }
+
+                # Send using chapter assignment notification
+                email_service.send_notification(
+                    notification_type="chapter_assignment",
                     recipients=board_members,
-                    subject=_("New Chapter Join Request - {0}").format(self.chapter_name),
-                    message=_(
-                        """
-                        <p>A new member has requested to join your chapter:</p>
-                        <p><strong>Member:</strong> {0}</p>
-                        <p><strong>Chapter:</strong> {1}</p>
-                        <p>Please review and approve/reject this request in the chapter dashboard.</p>
-                    """
-                    ).format(member_doc.full_name, self.chapter_name),
-                    delayed=False,
+                    data=context,
+                    reference_doctype="Chapter",
+                    reference_name=self.chapter_name,
                 )
         except Exception as e:
             frappe.log_error(f"Error sending join request notification: {str(e)}")
@@ -442,17 +451,27 @@ class MemberManager(BaseManager):
         try:
             member_doc = frappe.get_doc("Member", member_id)
             if member_doc.email:
-                frappe.sendmail(
+                # MIGRATED: Use unified EmailService for chapter membership approval
+                from verenigingen.services.communication.email_service import get_email_service
+
+                email_service = get_email_service()
+
+                # Prepare context for chapter approval template
+                context = {
+                    "member": member_doc,
+                    "member_name": member_doc.full_name,
+                    "chapter": self.chapter_doc,
+                    "chapter_name": self.chapter_name,
+                    "approval_type": "chapter_membership",
+                }
+
+                # Send using member approval notification
+                email_service.send_notification(
+                    notification_type="member_approval",
                     recipients=[member_doc.email],
-                    subject=_("Chapter Membership Approved - {0}").format(self.chapter_name),
-                    message=_(
-                        """
-                        <p>Great news! Your request to join {0} has been approved.</p>
-                        <p>You are now an active member of the chapter and can participate in all chapter activities.</p>
-                        <p>Welcome to {0}!</p>
-                    """
-                    ).format(self.chapter_name),
-                    delayed=False,
+                    data=context,
+                    reference_doctype="Chapter",
+                    reference_name=self.chapter_name,
                 )
         except Exception as e:
             frappe.log_error(f"Error sending approval notification: {str(e)}")
@@ -462,20 +481,28 @@ class MemberManager(BaseManager):
         try:
             member_doc = frappe.get_doc("Member", member_id)
             if member_doc.email:
-                frappe.sendmail(
+                # MIGRATED: Use unified EmailService for chapter membership rejection
+                from verenigingen.services.communication.email_service import get_email_service
+
+                email_service = get_email_service()
+
+                # Prepare context for chapter rejection template
+                context = {
+                    "member": member_doc,
+                    "member_name": member_doc.full_name,
+                    "chapter": self.chapter_doc,
+                    "chapter_name": self.chapter_name,
+                    "reason": reason,
+                    "rejection_type": "chapter_membership",
+                }
+
+                # Send using member rejection notification
+                email_service.send_notification(
+                    notification_type="member_rejection",
                     recipients=[member_doc.email],
-                    subject=_("Chapter Membership Request - {0}").format(self.chapter_name),
-                    message=_(
-                        """
-                        <p>Thank you for your interest in joining {0}.</p>
-                        <p>Unfortunately, your membership request could not be approved at this time.</p>
-                        {1}
-                        <p>You are welcome to contact the chapter directly if you have any questions.</p>
-                    """
-                    ).format(
-                        self.chapter_name, f"<p><strong>Reason:</strong> {reason}</p>" if reason else ""
-                    ),
-                    delayed=False,
+                    data=context,
+                    reference_doctype="Chapter",
+                    reference_name=self.chapter_name,
                 )
         except Exception as e:
             frappe.log_error(f"Error sending rejection notification: {str(e)}")

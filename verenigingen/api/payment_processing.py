@@ -458,33 +458,43 @@ def send_payment_reminder_email(
     }
 
     try:
-        # Check if template exists using DocumentExistenceValidator
-        from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+        # MIGRATED: Use unified EmailService for payment reminders
+        from verenigingen.services.communication.email_service import get_email_service
 
-        if DocumentExistenceValidator.validate_document_exists(
-            "Email Template", template_name, throw_on_error=False
-        ):
-            email_template_doc = frappe.get_doc("Email Template", template_name)
-            frappe.sendmail(
-                recipients=[member.email],
-                subject=email_template_doc.subject or get_reminder_subject(reminder_type, payment_info),
-                message=frappe.render_template(email_template_doc.response, context),
-                now=True,
+        email_service = get_email_service()
+
+        # Try template-based email first
+        result = email_service.send_templated_email(
+            template_name=template_name,
+            recipients=[member.email],
+            context=context,
+            subject_override=get_reminder_subject(reminder_type, payment_info),
+            reference_doctype="Member",
+            reference_name=member_name,
+        )
+
+        # If template not found, send with fallback content
+        if not result.get("success") and "not found" in str(result.get("errors", [])):
+            fallback_content = generate_payment_reminder_html(
+                member, payment_info, reminder_type, custom_message
             )
-        else:
-            # Fallback to simple HTML email
-            message = generate_payment_reminder_html(member, payment_info, reminder_type, custom_message)
-            frappe.sendmail(
+
+            result = email_service._send_email_internal(
                 recipients=[member.email],
                 subject=get_reminder_subject(reminder_type, payment_info),
-                message=message,
-                now=True,
+                content=fallback_content,
+                reference_doctype="Member",
+                reference_name=member_name,
             )
 
-        # Log the reminder
-        create_payment_reminder_log(member_name, reminder_type, payment_info)
-
-        return True
+        # Check if email was sent successfully
+        if result.get("success"):
+            # Log the reminder
+            create_payment_reminder_log(member_name, reminder_type, payment_info)
+            return True
+        else:
+            frappe.logger().error(f"Payment reminder email failed: {'; '.join(result.get('errors', []))}")
+            return False
 
     except Exception as e:
         frappe.logger().error(f"Failed to send payment reminder to {member.email}: {str(e)}")
@@ -503,30 +513,34 @@ def send_chapter_notification(chapter, member_name, payment_info):
 
         member = frappe.get_doc("Member", member_name)
 
-        message = f"""
-        <h3>Overdue Payment Notification</h3>
+        # MIGRATED: Use unified EmailService for chapter notifications
+        from verenigingen.services.communication.email_service import get_email_service
 
-        <p>A member in your chapter has overdue payments:</p>
+        email_service = get_email_service()
 
-        <ul>
-            <li><strong>Member:</strong> {member.full_name} ({member_name})</li>
-            <li><strong>Email:</strong> {member.email}</li>
-            <li><strong>Overdue Amount:</strong> {frappe.format_value(payment_info.get('total_overdue'), {'fieldtype': 'Currency'})}</li>
-            <li><strong>Days Overdue:</strong> {payment_info.get('days_overdue')} days</li>
-            <li><strong>Number of Invoices:</strong> {payment_info.get('overdue_count')}</li>
-        </ul>
+        # Prepare context for notification
+        context = {
+            "member": member,
+            "chapter": chapter_doc,
+            "payment_info": payment_info,
+            "total_overdue": frappe.format_value(
+                payment_info.get("total_overdue"), {"fieldtype": "Currency"}
+            ),
+            "days_overdue": payment_info.get("days_overdue"),
+            "overdue_count": payment_info.get("overdue_count"),
+        }
 
-        <p>Please follow up with this member as appropriate.</p>
-        """
-
-        frappe.sendmail(
+        # Send notification using the payment_failure notification type
+        result = email_service.send_notification(
+            notification_type="payment_failure",
             recipients=board_emails,
-            subject=f"Overdue Payment Alert - {member.full_name}",
-            message=message,
-            now=True,
+            data=context,
+            reference_doctype="Member",
+            reference_name=member_name,
         )
 
-        return True
+        # Return success status based on EmailService result
+        return result.get("success", False)
 
     except Exception as e:
         frappe.logger().error(f"Failed to send chapter notification: {str(e)}")

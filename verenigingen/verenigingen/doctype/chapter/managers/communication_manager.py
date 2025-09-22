@@ -546,33 +546,39 @@ class CommunicationManager(BaseManager):
         reference_doctype: str = None,
         reference_name: str = None,
     ) -> bool:
-        """Send email using template"""
+        """Send email using template - MIGRATED to unified EmailService"""
         try:
-            # Prepare email content
-            if hasattr(template, "response"):
-                content = frappe.render_template(template.response, context)
-            else:
-                content = frappe.render_template(template.message, context)
+            # MIGRATED: Use unified EmailService instead of direct frappe.sendmail
+            from verenigingen.services.communication.compatibility import send_chapter_email
 
-            # Send email
-            frappe.sendmail(
+            result = send_chapter_email(
+                chapter_name=self.chapter_name,
                 recipients=recipients,
                 subject=subject,
-                message=content,
+                template=template.name if template else None,
+                context=context,
+                communication_type="Email",
                 reference_doctype=reference_doctype,
                 reference_name=reference_name,
-                header=[_("Chapter Notification"), "blue"],
             )
 
-            # Create communication record
-            self.create_email_communication(recipients, subject, content)
-
-            self.log_action(
-                f"Email sent using template {template.name}",
-                {"recipients_count": len(recipients), "subject": subject},
-            )
-
-            return True
+            if result.get("success"):
+                self.log_action(
+                    f"Email sent using template {template.name if template else 'direct'}",
+                    {"recipients_count": len(recipients), "subject": subject},
+                )
+                return True
+            else:
+                self.log_action(
+                    "Failed to send templated email",
+                    {
+                        "template": template.name if template else "None",
+                        "recipients_count": len(recipients),
+                        "errors": result.get("errors", []),
+                    },
+                    "error",
+                )
+                return False
 
         except Exception as e:
             self.log_action(

@@ -96,7 +96,10 @@ def send_critical_batch_notification(batch, errors):
 <p><em>This is an automated message from the SEPA batch processing system. Please address these issues promptly to avoid payment delays.</em></p>
 """
 
-        frappe.sendmail(recipients=recipients, subject=subject, message=body, priority="high")
+        # MIGRATED: Use unified EmailService instead of direct frappe.sendmail
+        from verenigingen.services.communication.compatibility import send_sepa_email
+
+        send_sepa_email(recipients=recipients, subject=subject, context={"message": body}, priority="high")
 
         frappe.logger().info(
             f"Critical batch notification sent for {batch.name} to {len(recipients)} recipients"
@@ -149,7 +152,10 @@ def send_batch_warning_notification(batch, warnings):
 <p><em>This is an automated message from the SEPA batch processing system.</em></p>
 """
 
-        frappe.sendmail(recipients=recipients, subject=subject, message=body)
+        # MIGRATED: Use unified EmailService instead of direct frappe.sendmail
+        from verenigingen.services.communication.compatibility import send_sepa_email
+
+        send_sepa_email(recipients=recipients, subject=subject, context={"message": body})
 
         frappe.logger().info(
             f"Warning batch notification sent for {batch.name} to {len(recipients)} recipients"
@@ -201,7 +207,10 @@ def send_daily_batch_summary(validation_summary, batch_result):
 
         body += "<p><em>This is an automated daily summary from the SEPA batch processing system.</em></p>"
 
-        frappe.sendmail(recipients=recipients, subject=subject, message=body)
+        # MIGRATED: Use unified EmailService instead of direct frappe.sendmail
+        from verenigingen.services.communication.compatibility import send_sepa_email
+
+        send_sepa_email(recipients=recipients, subject=subject, context={"message": body})
 
         frappe.logger().info(f"Daily batch summary sent to {len(recipients)} recipients")
 
@@ -237,7 +246,10 @@ def send_system_error_notification(error_message):
 <p><em>This is an automated error notification from the SEPA batch processing system.</em></p>
 """
 
-        frappe.sendmail(recipients=recipients, subject=subject, message=body, priority="high")
+        # MIGRATED: Use unified EmailService instead of direct frappe.sendmail
+        from verenigingen.services.communication.compatibility import send_sepa_email
+
+        send_sepa_email(recipients=recipients, subject=subject, context={"message": body}, priority="high")
 
         frappe.logger().error(f"System error notification sent: {error_message}")
 
@@ -316,7 +328,10 @@ def test_notification_system():
 <p>If you receive this message, the notification system is configured correctly.</p>
 """
 
-        frappe.sendmail(recipients=recipients, subject=subject, message=body)
+        # MIGRATED: Use unified EmailService instead of direct frappe.sendmail
+        from verenigingen.services.communication.compatibility import send_sepa_email
+
+        send_sepa_email(recipients=recipients, subject=subject, context={"message": body})
 
         return {
             "success": True,

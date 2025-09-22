@@ -868,30 +868,32 @@ def send_application_confirmation(application, invoice):
         # Get email template or create basic email
         subject = _("Membership Application Received")
 
-        message = f"""
-        Dear {application.first_name},
+        # MIGRATED: Use unified EmailService for application confirmation
+        from verenigingen.services.communication.email_service import get_email_service
 
-        Thank you for your membership application! We have received your application with the following details:
+        email_service = get_email_service()
 
-        Membership Type: {application.selected_membership_type}
-        Contribution: {generate_contribution_description(data)}
-        Payment Method: {data.get("payment_method")}
+        # Prepare context for template
+        context = {
+            "application": application,
+            "first_name": application.first_name,
+            "membership_type": application.selected_membership_type,
+            "contribution_description": generate_contribution_description(data),
+            "payment_method": data.get("payment_method"),
+            "contribution_amount": data.get("contribution_amount", 0),
+            "next_steps": [
+                f"Complete your first payment of €{data.get('contribution_amount', 0):.2f}",
+                "We will review your application",
+                "You will receive a welcome package once approved",
+            ],
+        }
 
-        Next Steps:
-        1. Complete your first payment of €{data.get("contribution_amount"):.2f}
-        2. We will review your application
-        3. You will receive a welcome package once approved
-
-        If you have any questions, please contact us.
-
-        Best regards,
-        The Membership Team
-        """
-
-        frappe.sendmail(
+        # Send using EmailService with template fallback
+        email_service.send_templated_email(
+            template_name="membership_application_confirmation",
             recipients=[application.email],
-            subject=subject,
-            message=message,
+            context=context,
+            subject_override=subject,
             reference_doctype="Membership Application",
             reference_name=application.name,
         )
