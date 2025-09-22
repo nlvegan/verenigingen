@@ -90,7 +90,7 @@ def handle_role_profile_assignments(event_name, event_data):
         frappe.log_error(f"Failed to update role profiles: {str(e)}", "Team Role Profile Error")
 
 
-def handle_membership_notifications(event_name, event_data):
+def handle_membership_notifications(event_name, event_data, **kwargs):
     """
     Handle notification sending for team membership changes.
 

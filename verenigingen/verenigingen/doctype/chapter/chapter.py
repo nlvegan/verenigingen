@@ -147,8 +147,22 @@ class Chapter(WebsiteGenerator):
                 "board_member_additions", lambda: self.board_manager.handle_board_member_additions(old_doc)
             )
 
+    def after_insert(self):
+        """After insert hook - create cost center for new chapter"""
+        self._safe_manager_operation(
+            "cost_center_creation",
+            lambda: self._create_chapter_cost_center(),
+        )
+
     def after_save(self):
         """After save hook - streamlined with safe operations"""
+        # Handle cost center renaming if chapter name changed
+        if self.has_value_changed("name"):
+            self._safe_manager_operation(
+                "cost_center_rename",
+                lambda: self._update_chapter_cost_center_name(),
+            )
+
         # Sync with volunteer system if needed
         if self.has_value_changed("board_members"):
             self._safe_manager_operation(
@@ -815,6 +829,215 @@ class Chapter(WebsiteGenerator):
                 "volunteer_integration_stats": {},
                 "last_updated": getdate(today()),
             }
+
+    # ========================================================================
+    # COST CENTER MANAGEMENT
+    # ========================================================================
+
+    def _create_chapter_cost_center(self):
+        """Create a cost center for this chapter with proper security validation"""
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        try:
+            # Skip if cost center already exists
+            if self.cost_center and frappe.db.exists("Cost Center", self.cost_center):
+                frappe.log_error(
+                    f"Cost center {self.cost_center} already exists for chapter {self.name}",
+                    "Chapter Cost Center",
+                )
+                return
+
+            # Get and validate company
+            company = self._get_validated_company()
+            if not company:
+                frappe.log_error(
+                    f"No valid company found - cannot create cost center for chapter {self.name}",
+                    "Chapter Cost Center",
+                )
+                return
+
+            # Generate cost center name
+            cost_center_name = f"{self.name} - Chapter"
+
+            # Use transaction to prevent race conditions
+            frappe.db.begin()
+            try:
+                # Check if cost center already exists by name (within transaction)
+                existing_cost_center = frappe.db.exists(
+                    "Cost Center", {"cost_center_name": cost_center_name, "company": company}
+                )
+                if existing_cost_center:
+                    # Link existing cost center to chapter
+                    self.db_set("cost_center", existing_cost_center, update_modified=False)
+                    frappe.log_error(
+                        f"Linked existing cost center {existing_cost_center} to chapter {self.name}",
+                        "Chapter Cost Center",
+                    )
+                    frappe.db.commit()
+                    return
+
+                # Create new cost center
+                cost_center_doc = frappe.new_doc("Cost Center")
+                cost_center_doc.cost_center_name = cost_center_name
+                cost_center_doc.company = company
+                cost_center_doc.is_group = 0  # Individual cost center, not a group
+
+                # Find appropriate parent cost center
+                parent_cost_center = self._get_appropriate_parent_cost_center(company)
+                if parent_cost_center:
+                    cost_center_doc.parent_cost_center = parent_cost_center
+
+                # Use secure operation instead of ignore_permissions
+                result = secure_document_operation(
+                    operation="insert",
+                    doc=cost_center_doc,
+                    justification=f"Auto-create cost center for chapter {self.name}",
+                    required_permissions=["Cost Center:create"],
+                )
+
+                if result.success:
+                    # Link the created cost center to this chapter
+                    self.db_set("cost_center", cost_center_doc.name, update_modified=False)
+                    frappe.log_error(
+                        f"Created cost center {cost_center_doc.name} for chapter {self.name}",
+                        "Chapter Cost Center",
+                    )
+                    frappe.db.commit()
+                else:
+                    frappe.db.rollback()
+                    frappe.log_error(
+                        f"Failed to create cost center for chapter {self.name}: {'; '.join(result.errors)}",
+                        "Chapter Cost Center",
+                    )
+
+            except Exception as transaction_error:
+                frappe.db.rollback()
+                raise transaction_error
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error creating cost center for chapter {self.name}: {str(e)}", "Chapter Cost Center"
+            )
+            # Don't fail chapter creation if cost center creation fails
+
+    def _get_validated_company(self):
+        """Get and validate company for cost center creation"""
+        # First try default company
+        company = frappe.db.get_single_value("Global Defaults", "default_company")
+
+        if company:
+            # Validate the company exists and is active
+            company_data = frappe.db.get_value("Company", company, ["name", "disabled"], as_dict=True)
+            if company_data and not company_data.disabled:
+                return company
+            else:
+                frappe.log_error(
+                    f"Default company {company} is disabled or doesn't exist", "Chapter Cost Center"
+                )
+
+        # Fallback: get first active company, but only if there's exactly one
+        active_companies = frappe.get_all("Company", filters={"disabled": 0}, pluck="name")
+
+        if len(active_companies) == 1:
+            frappe.log_error(
+                f"Using single active company {active_companies[0]} for chapter {self.name}",
+                "Chapter Cost Center",
+            )
+            return active_companies[0]
+        elif len(active_companies) > 1:
+            frappe.log_error(
+                f"Multiple active companies found - cannot auto-select for chapter {self.name}: {active_companies}",
+                "Chapter Cost Center",
+            )
+            return None
+        else:
+            frappe.log_error(f"No active companies found for chapter {self.name}", "Chapter Cost Center")
+            return None
+
+    def _get_appropriate_parent_cost_center(self, company):
+        """Get appropriate parent cost center for the given company"""
+        # First try to find the company's root cost center (should be the company name itself)
+        root_cost_center = frappe.db.get_value(
+            "Cost Center",
+            {"company": company, "is_group": 1, "disabled": 0, "cost_center_name": company},
+            "name",
+        )
+
+        if root_cost_center:
+            return root_cost_center
+
+        # Fallback: find any active group cost center, preferring one with minimal hierarchy depth
+        parent_cost_center = frappe.db.get_value(
+            "Cost Center",
+            {"company": company, "is_group": 1, "disabled": 0},
+            "name",
+            order_by="lft asc",  # Use nested set ordering for proper hierarchy
+        )
+
+        if parent_cost_center:
+            frappe.log_error(
+                f"Using fallback parent cost center {parent_cost_center} for chapter {self.name}",
+                "Chapter Cost Center",
+            )
+            return parent_cost_center
+        else:
+            frappe.log_error(
+                f"No suitable parent cost center found for company {company}", "Chapter Cost Center"
+            )
+            return None
+
+    def _update_chapter_cost_center_name(self):
+        """Update cost center name when chapter name changes with recreation logic"""
+        from verenigingen.utils.secure_operations import secure_document_operation
+
+        try:
+            if not self.cost_center:
+                # No cost center assigned, try to create one
+                self._create_chapter_cost_center()
+                return
+
+            try:
+                # Get the old cost center document
+                cost_center_doc = frappe.get_doc("Cost Center", self.cost_center)
+
+                # Update cost center name to match new chapter name
+                new_cost_center_name = f"{self.name} - Chapter"
+
+                if cost_center_doc.cost_center_name != new_cost_center_name:
+                    cost_center_doc.cost_center_name = new_cost_center_name
+
+                    # Use secure operation instead of ignore_permissions
+                    result = secure_document_operation(
+                        operation="save",
+                        doc=cost_center_doc,
+                        justification=f"Update cost center name for renamed chapter {self.name}",
+                        required_permissions=["Cost Center:write"],
+                    )
+
+                    if result.success:
+                        frappe.log_error(
+                            f"Updated cost center name to {new_cost_center_name} for chapter {self.name}",
+                            "Chapter Cost Center",
+                        )
+                    else:
+                        frappe.log_error(
+                            f"Failed to update cost center name for chapter {self.name}: {'; '.join(result.errors)}",
+                            "Chapter Cost Center",
+                        )
+
+            except frappe.DoesNotExistError:
+                frappe.log_error(
+                    f"Cost center {self.cost_center} not found for chapter {self.name} - attempting recreation",
+                    "Chapter Cost Center",
+                )
+                # Clear the invalid cost center reference and recreate
+                self.db_set("cost_center", None, update_modified=False)
+                self._create_chapter_cost_center()
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error updating cost center name for chapter {self.name}: {str(e)}", "Chapter Cost Center"
+            )
 
 
 # ============================================================================

@@ -1115,13 +1115,13 @@ unction create_volunteer_from_member(frm) {
 
 ### General/Other (33 methods)
 
-#### `verenigingen.utils.payment_utils.get_donation_payment_entry`
+#### ~~`verenigingen.utils.payment_utils.get_donation_payment_entry`~~ → `erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry`
 
 - **File**: `verenigingen/verenigingen/doctype/donation/donation.js:14`
-- **Purpose**: Data Retrieval - Fetches data from database
-- **Implementation Complexity**: Easy
-- **Status**: No suitable file found for method path: utils/payment_utils
-- **Recommended Action**: Add missing method
+- **Purpose**: Data Retrieval - Creates payment entry for donation
+- **Implementation Complexity**: ~~Easy~~ **FIXED**
+- **Status**: ~~No suitable file found~~ **Uses ERPNext standard API**
+- **Recommended Action**: ~~Add missing method~~ **COMPLETED - Fixed to use standard ERPNext payment entry creation**
 
 **Context Preview:**
 
@@ -1134,7 +1134,7 @@ button(__('Create Payment Entry'), function() {
 
 	make_payment_entry: function(frm) {
 		return frappe.call({
-			method: 'verenigingen.utils.payment_utils.get_donation_payment_entry',
+			method: 'erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry',
 			args: {
 				'dt': frm.doc.doctype,
 				'dn': frm.doc.name

@@ -695,7 +695,7 @@ function showSuccessStep(response) {
 		} else {
 			successContent += `
                 <div class="alert alert-info">
-                    ${response.payment_info.message}
+                    ${response.payment_info.message || ''}
                     ${response.payment_info.info ? `<br><small>${response.payment_info.info}</small>` : ''}
                 </div>
             `;

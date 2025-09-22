@@ -104,7 +104,7 @@ def handle_volunteer_sync(event_name, event_data):
         frappe.log_error(f"Failed to sync volunteer system: {str(e)}", "Chapter Volunteer Sync Error")
 
 
-def handle_membership_notifications(event_name, event_data):
+def handle_membership_notifications(event_name, event_data, **kwargs):
     """
     Handle notifications for chapter membership changes.
 

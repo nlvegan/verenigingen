@@ -367,7 +367,7 @@ class TestDutchBankingComplianceIntegration(EnhancedTestCase):
             ""
         ]
 
-        from verenigingen.utils.dutch_validation_helpers import validate_dutch_iban
+        from verenigingen.tests.fixtures.dutch_validation_helpers import validate_dutch_iban
 
         # Test valid IBANs
         for iban in valid_ibans:
@@ -536,7 +536,7 @@ class TestBankIntegrationErrorHandling(EnhancedTestCase):
             m.get("https://api.bank.nl/statements",
                   exc=requests_mock.exceptions.ConnectTimeout)
 
-            from verenigingen.utils.bank_api_client import BankAPIClient
+            from verenigingen.utils.bank_integration import BankAPIClient
 
             client = BankAPIClient()
 

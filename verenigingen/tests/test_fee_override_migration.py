@@ -140,7 +140,7 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         self.test_member.save()
         
         # Simulate migration
-        from scripts.migration.migrate_fee_overrides_to_dues_schedules import migrate_member_override
+        from verenigingen.scripts.migration.migrate_fee_overrides_to_dues_schedules import migrate_member_override
         
         membership = self.create_test_membership()
         

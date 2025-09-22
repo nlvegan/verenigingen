@@ -1179,7 +1179,7 @@ def validate_sepa_configuration():
 
     # Validate IBAN format
     try:
-        from verenigingen.utils.iban_validator import validate_iban
+        from verenigingen.utils.validation.iban_validator import validate_iban
 
         iban_validation = validate_iban(settings.company_iban)
     except ImportError:

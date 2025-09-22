@@ -813,7 +813,7 @@ class EnhancedTestDataFactory:
         account_number = f"{self.get_next_sequence('account'):010d}"
         
         try:
-            from verenigingen.utils.iban_validator import generate_test_iban
+            from verenigingen.utils.validation.iban_validator import generate_test_iban
             return generate_test_iban(bank_code, account_number)
         except ImportError:
             # Fallback if IBAN validator not available
@@ -2763,7 +2763,40 @@ class EnhancedTestCase(FrappeTestCase):
         except Exception:
             # Table might not exist - that's OK, chapter membership is in Chapter.members
             pass
-        
+
+        # Clean up cost centers created for test chapters
+        for pattern in chapter_pattern:
+            # Find chapters that match the pattern to get their cost centers
+            chapters = frappe.db.sql("""
+                SELECT cost_center FROM `tabChapter`
+                WHERE name LIKE %s AND cost_center IS NOT NULL
+            """, (pattern,), as_dict=True)
+
+            # Delete the associated cost centers
+            for chapter in chapters:
+                if chapter.cost_center:
+                    try:
+                        frappe.db.sql("""
+                            DELETE FROM `tabCost Center`
+                            WHERE name = %s
+                        """, (chapter.cost_center,))
+                    except Exception:
+                        # Cost center might not exist or have dependencies - that's OK
+                        pass
+
+        # Also clean up cost centers by name pattern (for test cost centers)
+        for pattern in chapter_pattern:
+            # Convert chapter pattern to cost center pattern
+            cost_center_pattern = pattern.replace('%', '% - Chapter%') if '%' in pattern else f"%{pattern}% - Chapter%"
+            try:
+                frappe.db.sql("""
+                    DELETE FROM `tabCost Center`
+                    WHERE cost_center_name LIKE %s
+                """, (cost_center_pattern,))
+            except Exception:
+                # Cost center might not exist or have dependencies - that's OK
+                pass
+
         # Note: No commit needed in test context - Frappe handles transaction rollback
 
 

@@ -94,6 +94,8 @@
     "review_notes",
     "interested_in_volunteering",
     "application_custom_fee",
+    "communication_preferences_section",
+    "accepts_optional_communications",
     "termination_status_section",
     "termination_status_html",
     "amendment_status_section",
@@ -352,6 +354,19 @@
       "label": "Application Custom Fee",
       "options": "EUR",
       "read_only": 1
+    },
+    {
+      "collapsible": 1,
+      "fieldname": "communication_preferences_section",
+      "fieldtype": "Section Break",
+      "label": "Communication Preferences"
+    },
+    {
+      "default": "1",
+      "description": "Allow receiving newsletters, event announcements, and other non-essential communications",
+      "fieldname": "accepts_optional_communications",
+      "fieldtype": "Check",
+      "label": "Accepts Optional Communications"
     },
     {
       "fieldname": "bic",

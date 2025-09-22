@@ -508,7 +508,7 @@ Our contract testing covers these critical API endpoints:
 **Financial Operations**
 
 - `verenigingen.templates.pages.donate.submit_donation`
-- `verenigingen.utils.payment_utils.get_donation_payment_entry`
+- ~~`verenigingen.utils.payment_utils.get_donation_payment_entry`~~ → **FIXED**: Now uses `erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry`
 
 ### Schema Validation
 
@@ -876,7 +876,7 @@ it("should integrate with payment processing workflow", () => {
   // Verify integration
   expect(global.frappe.call).toHaveBeenCalledWith(
     expect.objectContaining({
-      method: "verenigingen.utils.payment_utils.get_donation_payment_entry",
+      method: "erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry",
     }),
   );
   expect(global.frappe.set_route).toHaveBeenCalledWith(

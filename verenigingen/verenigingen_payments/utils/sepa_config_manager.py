@@ -266,7 +266,7 @@ class SEPAConfigManager:
         # IBAN format validation
         if config.get("company_iban"):
             try:
-                from verenigingen.utils.iban_validator import validate_iban
+                from verenigingen.utils.validation.iban_validator import validate_iban
 
                 iban_validation = validate_iban(config["company_iban"])
                 if not iban_validation["valid"]:

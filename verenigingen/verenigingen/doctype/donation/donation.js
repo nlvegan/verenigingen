@@ -112,7 +112,7 @@ frappe.ui.form.on('Donation', {
    * @throws {ValidationError} If donation is not eligible for payment processing
    * @throws {APIError} If payment entry creation fails
    *
-   * @see {@link verenigingen.utils.payment_utils.get_donation_payment_entry} Backend payment utility
+   * @see {@link erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry} ERPNext standard payment entry creation
    *
    * @example
    * // Called when user clicks "Create Payment Entry" button:
@@ -120,7 +120,7 @@ frappe.ui.form.on('Donation', {
    */
 	make_payment_entry(frm) {
 		return frappe.call({
-			method: 'verenigingen.utils.payment_utils.get_donation_payment_entry',
+			method: 'erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry',
 			args: {
 				dt: frm.doc.doctype,
 				dn: frm.doc.name

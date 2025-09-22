@@ -79,6 +79,7 @@ class CompletePaymentService:
                 "payment_url": mollie_payment.checkout_url,
                 "checkout_url": mollie_payment.checkout_url,  # For compatibility
                 "message": "Payment created successfully",
+                "info": "You will be redirected to complete your payment securely",
             }
 
         except Exception as e:

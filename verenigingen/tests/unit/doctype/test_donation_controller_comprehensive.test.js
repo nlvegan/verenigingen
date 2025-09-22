@@ -151,7 +151,7 @@ const customDonationTests = {
 
 			// Verify API call was made
 			expect(global.frappe.call).toHaveBeenCalledWith({
-				method: 'verenigingen.utils.payment_utils.get_donation_payment_entry',
+				method: 'erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry',
 				args: {
 					dt: 'Donation',
 					dn: 'DON-2024-07-0004'
@@ -343,7 +343,7 @@ const customDonationTests = {
 
 			// Verify API call was made with correct parameters
 			expect(global.frappe.call).toHaveBeenCalledWith({
-				method: 'verenigingen.utils.payment_utils.get_donation_payment_entry',
+				method: 'erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry',
 				args: {
 					dt: 'Donation',
 					dn: 'DON-API-001'

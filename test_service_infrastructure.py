@@ -29,8 +29,7 @@ def test_service_infrastructure():
 
     # Test 2: Service Factory
     try:
-        from vereinigingen.services.infrastructure.base_service import StatelessService
-
+        from verenigingen.services.infrastructure.base_service import StatelessService
         from verenigingen.services.infrastructure.service_factory import ServiceFactory
 
         class TestFactoryService(StatelessService):

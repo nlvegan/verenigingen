@@ -45,7 +45,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -93,7 +94,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -125,7 +127,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -141,7 +144,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -157,7 +161,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "global",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -189,7 +194,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -205,7 +211,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -221,7 +228,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -237,7 +245,8 @@
     "rate_limit_period_seconds": 300,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -269,7 +278,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -285,7 +295,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -301,7 +312,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -2907,7 +2919,8 @@
     "rate_limit_period_seconds": 300,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -2923,7 +2936,8 @@
     "rate_limit_period_seconds": 600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -2939,7 +2953,8 @@
     "rate_limit_period_seconds": 300,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -2955,7 +2970,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -2971,7 +2987,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -2987,7 +3004,8 @@
     "rate_limit_period_seconds": 600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -3003,7 +3021,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -3019,7 +3038,8 @@
     "rate_limit_period_seconds": 600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -3035,7 +3055,8 @@
     "rate_limit_period_seconds": 600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -3051,7 +3072,8 @@
     "rate_limit_period_seconds": 1800,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -3067,7 +3089,8 @@
     "rate_limit_period_seconds": 900,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -3083,7 +3106,8 @@
     "rate_limit_period_seconds": 1800,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -3099,7 +3123,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -3115,7 +3140,8 @@
     "rate_limit_period_seconds": 600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -3131,7 +3157,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -3147,7 +3174,8 @@
     "rate_limit_period_seconds": 7200,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -3163,7 +3191,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -3195,7 +3224,8 @@
     "rate_limit_period_seconds": 7200,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -3259,7 +3289,8 @@
     "rate_limit_period_seconds": 7200,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -3275,7 +3306,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -3339,7 +3371,8 @@
     "rate_limit_period_seconds": 1800,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -3403,7 +3436,8 @@
     "rate_limit_period_seconds": 1800,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -3755,7 +3789,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -3899,7 +3934,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -3915,7 +3951,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -3947,7 +3984,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -3963,7 +4001,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -3979,7 +4018,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -4043,7 +4083,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -4059,7 +4100,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -4283,7 +4325,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -4299,7 +4342,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -4315,7 +4359,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -4427,7 +4472,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -4491,7 +4537,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -4539,7 +4586,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -4555,7 +4603,8 @@
     "rate_limit_period_seconds": 300,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -4571,7 +4620,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -4587,7 +4637,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -4603,7 +4654,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -4619,7 +4671,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -4635,7 +4688,8 @@
     "rate_limit_period_seconds": 7200,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -4699,7 +4753,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -4715,7 +4770,8 @@
     "rate_limit_period_seconds": 7200,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -4731,7 +4787,8 @@
     "rate_limit_period_seconds": 7200,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -4779,7 +4836,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -4795,7 +4853,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5083,7 +5142,8 @@
     "rate_limit_period_seconds": 7200,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5099,7 +5159,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5115,7 +5176,8 @@
     "rate_limit_period_seconds": 1800,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5131,7 +5193,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5307,7 +5370,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5323,7 +5387,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5339,7 +5404,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5355,7 +5421,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5371,7 +5438,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5387,7 +5455,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5403,7 +5472,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "enhanced",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5419,7 +5489,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5435,7 +5506,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "enhanced",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5451,7 +5523,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "enhanced",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5467,7 +5540,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5483,7 +5557,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5499,7 +5574,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5515,7 +5591,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5531,7 +5608,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5547,7 +5625,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5563,7 +5642,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5579,7 +5659,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5595,7 +5676,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5611,7 +5693,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5627,7 +5710,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5643,7 +5727,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5659,7 +5744,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5675,7 +5761,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5691,7 +5778,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5707,7 +5795,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5723,7 +5812,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5739,7 +5829,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5755,7 +5846,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5771,7 +5863,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5787,7 +5880,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5803,7 +5897,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5819,7 +5914,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5835,7 +5931,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5851,7 +5948,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5867,7 +5965,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5883,7 +5982,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5899,7 +5999,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5915,7 +6016,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5931,7 +6033,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5947,7 +6050,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5963,7 +6067,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5979,7 +6084,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -5995,7 +6101,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6011,7 +6118,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6027,7 +6135,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6043,7 +6152,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6059,7 +6169,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6075,7 +6186,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6091,7 +6203,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6107,7 +6220,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6123,7 +6237,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6139,7 +6254,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6155,7 +6271,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6171,7 +6288,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6187,7 +6305,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6203,7 +6322,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6219,7 +6339,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6235,7 +6356,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6251,7 +6373,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6267,7 +6390,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6283,7 +6407,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6299,7 +6424,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6315,7 +6441,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6331,7 +6458,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6347,7 +6475,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6363,7 +6492,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6379,7 +6509,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6395,7 +6526,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6411,7 +6543,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6427,7 +6560,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6443,7 +6577,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6459,7 +6594,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6475,7 +6611,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6491,7 +6628,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6507,7 +6645,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6523,7 +6662,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6539,7 +6679,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6555,7 +6696,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6571,7 +6713,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6587,7 +6730,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6603,7 +6747,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6619,7 +6764,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6635,7 +6781,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6651,7 +6798,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6667,7 +6815,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6683,7 +6832,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6699,7 +6849,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6715,7 +6866,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6731,7 +6883,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6747,7 +6900,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6763,7 +6917,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6779,7 +6934,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6795,7 +6951,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6811,7 +6968,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6827,7 +6985,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -6843,7 +7002,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -9035,7 +9195,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -9051,7 +9212,8 @@
     "rate_limit_period_seconds": 60,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -9195,7 +9357,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -9211,7 +9374,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -9259,7 +9423,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -9291,7 +9456,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -9579,7 +9745,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -9595,7 +9762,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -9611,7 +9779,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -10315,7 +10484,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -10331,7 +10501,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -10347,7 +10518,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -10363,7 +10535,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -10395,7 +10568,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -10411,7 +10585,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -10427,7 +10602,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -10555,7 +10731,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -10571,7 +10748,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -10971,7 +11149,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -11003,7 +11182,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -11195,7 +11375,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -11243,7 +11424,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -11515,7 +11697,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -12315,7 +12498,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -12459,7 +12643,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -12523,7 +12708,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -13259,7 +13445,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -13275,7 +13462,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -13307,7 +13495,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -13339,7 +13528,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -13451,7 +13641,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -13483,7 +13674,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -13627,7 +13819,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -13659,7 +13852,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -13723,7 +13917,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -13787,7 +13982,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -13803,7 +13999,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -13851,7 +14048,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -14235,7 +14433,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -14251,7 +14450,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -14331,7 +14531,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -14539,7 +14740,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -14667,7 +14869,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -14683,7 +14886,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -14731,7 +14935,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -14763,7 +14968,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -15051,7 +15257,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -15083,7 +15290,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -15787,7 +15995,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -15803,7 +16012,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -15819,7 +16029,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -15835,7 +16046,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -15867,7 +16079,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -15883,7 +16096,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -15915,7 +16129,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -15931,7 +16146,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -15947,7 +16163,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "enabled",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -16299,7 +16516,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -16315,7 +16533,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -16363,7 +16582,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -16395,7 +16615,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -16683,7 +16904,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -16715,7 +16937,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -39291,7 +39514,8 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "user",
     "audit_level": "detailed",
-    "alert_on_execution": 1
+    "alert_on_execution": 1,
+    "notification_recipients": "beheerder@veganisme.org"
   },
   {
     "doctype": "Critical Operation Rule",

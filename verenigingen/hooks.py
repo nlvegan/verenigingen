@@ -548,7 +548,7 @@ scheduler_events = {
         "verenigingen.verenigingen.doctype.member.scheduler.update_all_membership_durations",
         # EMAIL SYSTEM INTEGRATION - Daily email system maintenance
         "verenigingen.email.email_group_sync.scheduled_email_group_sync",
-        "verenigingen.email.analytics_tracker.cleanup_old_email_analytics",
+        # "verenigingen.email.analytics_tracker.cleanup_old_email_analytics",  # Disabled - DocTypes don't exist
         "verenigingen.email.automated_campaigns.process_scheduled_campaigns",
         # Core membership system
         "verenigingen.verenigingen.doctype.membership.scheduler.process_expired_memberships",
