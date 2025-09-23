@@ -1,0 +1,1791 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Mollie Payments Debug") }}{% endblock %}
+
+{% block head_include %}
+<style>
+.debug-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.debug-input {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    margin-bottom: 0.5rem;
+}
+
+.debug-button {
+    background: #3b82f6;
+    color: white;
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-right: 0.5rem;
+}
+
+.debug-button:hover {
+    background: #2563eb;
+}
+
+.danger-button {
+    background: #dc2626;
+}
+
+.danger-button:hover {
+    background: #b91c1c;
+}
+
+.success-button {
+    background: #059669;
+}
+
+.success-button:hover {
+    background: #047857;
+}
+
+.result-area {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    padding: 1rem;
+    margin-top: 1rem;
+    font-family: monospace;
+    white-space: pre-wrap;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.error-result {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: #991b1b;
+}
+
+.success-result {
+    background: #f0fdf4;
+    border-color: #bbf7d0;
+    color: #166534;
+}
+
+.warning-result {
+    background: #fffbeb;
+    border-color: #fed7aa;
+    color: #d97706;
+}
+
+.tab-container {
+    border-bottom: 1px solid #e2e8f0;
+    margin-bottom: 1rem;
+}
+
+.tab-button {
+    padding: 0.5rem 1rem;
+    border: none;
+    background: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    margin-right: 1rem;
+}
+
+.tab-button.active {
+    border-bottom-color: #3b82f6;
+    color: #3b82f6;
+    font-weight: 600;
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.status-active { background: #dcfce7; color: #166534; }
+.status-canceled { background: #fef2f2; color: #991b1b; }
+.status-warning { background: #fef3c7; color: #d97706; }
+.status-error { background: #fef2f2; color: #991b1b; }
+.status-valid { background: #dbeafe; color: #1d4ed8; }
+.status-invalid { background: #fef2f2; color: #991b1b; }
+.status-pending { background: #fef3c7; color: #92400e; }
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="max-w-6xl mx-auto">
+        <div class="mb-6">
+            <h1 class="text-3xl font-bold text-gray-900 mb-2">{{ _("Mollie Payments Debug") }}</h1>
+            <p class="text-gray-600">{{ _("Administrative debugging interface for Mollie API operations") }}</p>
+
+            <div class="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <div class="flex items-center">
+                    <i class="fa fa-warning mr-2 text-yellow-600"></i>
+                    <div>
+                        <strong>{{ _("API Mode:") }}</strong>
+                        <span class="font-mono">{{ api_key_type.upper() }}</span>
+                        {% if not mollie_configured %}
+                        <span class="text-red-600 ml-2">{{ _("(Not configured)") }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab Navigation -->
+        <div class="tab-container">
+            <button class="tab-button active" onclick="switchTab('customer')">{{ _("Customer Debug") }}</button>
+            <button class="tab-button" onclick="switchTab('subscription')">{{ _("Subscription Debug") }}</button>
+            <button class="tab-button" onclick="switchTab('mandate')">{{ _("Mandate Debug") }}</button>
+            <button class="tab-button" onclick="switchTab('payment')">{{ _("Payment Debug") }}</button>
+            <button class="tab-button" onclick="switchTab('refunds')">{{ _("Refunds & Chargebacks") }}</button>
+            <button class="tab-button" onclick="switchTab('webhooks')">{{ _("Webhook Debug") }}</button>
+            <button class="tab-button" onclick="switchTab('admin')">{{ _("Admin Actions") }}</button>
+        </div>
+
+        <!-- Customer Debug Tab -->
+        <div id="customer-tab" class="tab-content active">
+            <div class="debug-card">
+                <h2 class="text-xl font-semibold mb-4">{{ _("Customer ID Debug") }}</h2>
+                <p class="text-gray-600 mb-4">{{ _("Query customer details, subscriptions, and mandates") }}</p>
+
+                <div class="flex gap-4 items-end">
+                    <div class="flex-1">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID") }}</label>
+                        <input type="text" id="customer-id-input" class="debug-input"
+                               placeholder="cst_xxxxxxxxxx" value="cst_DNZCrmyjcR">
+                    </div>
+                    <div class="flex items-center">
+                        <input type="checkbox" id="hide-canceled-items" class="mr-2" checked onchange="refreshResultsDisplay()">
+                        <label for="hide-canceled-items" class="text-sm text-gray-600">{{ _("Hide canceled items") }}</label>
+                    </div>
+                    <button onclick="debugCustomer()" class="debug-button">
+                        <i class="fa fa-search mr-1"></i>{{ _("Debug Customer") }}
+                    </button>
+                </div>
+
+                <!-- Customer Search Section -->
+                <div class="mt-6 p-4 border border-gray-300 rounded-lg bg-green-50">
+                    <h3 class="text-lg font-semibold text-green-800 mb-2">
+                        <i class="fa fa-search mr-2"></i>{{ _("Search Customers by Name") }}
+                    </h3>
+                    <p class="text-green-700 mb-4">{{ _("Search for customers by name or email address") }}</p>
+                    <div class="flex gap-4 items-end">
+                        <div class="flex-1">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Search Term") }}</label>
+                            <input type="text" id="customer-search-term" class="debug-input"
+                                   placeholder="{{ _('Enter name or email...') }}" min="2">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Limit") }}</label>
+                            <select id="customer-search-limit" class="debug-input w-32">
+                                <option value="10" selected>10</option>
+                                <option value="20">20</option>
+                                <option value="50">50</option>
+                            </select>
+                        </div>
+                        <button onclick="searchCustomers()" class="debug-button">
+                            <i class="fa fa-search mr-1"></i>{{ _("Search") }}
+                        </button>
+                    </div>
+                    <div id="customer-search-result" class="result-area" style="display: none;"></div>
+                </div>
+
+                <!-- Customer List Section -->
+                <div class="mt-6 p-4 border border-gray-300 rounded-lg bg-blue-50">
+                    <h3 class="text-lg font-semibold text-blue-800 mb-2">
+                        <i class="fa fa-list mr-2"></i>{{ _("Customer ID Lookup") }}
+                    </h3>
+                    <p class="text-blue-700 mb-4">{{ _("List recent customers to easily find and copy customer IDs") }}</p>
+
+                    <div class="flex gap-4 items-end">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Limit") }}</label>
+                            <select id="customer-list-limit" class="debug-input w-32">
+                                <option value="10">10</option>
+                                <option value="20" selected>20</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                            </select>
+                        </div>
+                        <button onclick="listCustomers()" class="debug-button">
+                            <i class="fa fa-list mr-1"></i>{{ _("List Customers") }}
+                        </button>
+                    </div>
+
+                    <div id="customer-list-result" class="result-area" style="display: none;"></div>
+                </div>
+
+                <div id="customer-result" class="result-area" style="display: none;"></div>
+            </div>
+        </div>
+
+        <!-- Subscription Debug Tab -->
+        <div id="subscription-tab" class="tab-content">
+            <div class="debug-card">
+                <h2 class="text-xl font-semibold mb-4">{{ _("Subscription ID Debug") }}</h2>
+                <p class="text-gray-600 mb-4">{{ _("Query specific subscription details") }}</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Subscription ID") }}</label>
+                        <input type="text" id="subscription-id-input" class="debug-input"
+                               placeholder="sub_xxxxxxxxxx">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID") }}</label>
+                        <input type="text" id="subscription-customer-id-input" class="debug-input"
+                               placeholder="cst_xxxxxxxxxx" value="cst_DNZCrmyjcR">
+                    </div>
+                </div>
+
+                <button onclick="debugSubscription()" class="debug-button">
+                    <i class="fa fa-search mr-1"></i>{{ _("Debug Subscription") }}
+                </button>
+
+                <div id="subscription-result" class="result-area" style="display: none;"></div>
+            </div>
+        </div>
+
+        <!-- Mandate Debug Tab -->
+        <div id="mandate-tab" class="tab-content">
+            <div class="debug-card">
+                <h2 class="text-xl font-semibold mb-4">{{ _("Mandate ID Debug") }}</h2>
+                <p class="text-gray-600 mb-4">{{ _("Query specific mandate details") }}</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Mandate ID") }}</label>
+                        <input type="text" id="mandate-id-input" class="debug-input"
+                               placeholder="mdt_xxxxxxxxxx">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID") }}</label>
+                        <input type="text" id="mandate-customer-id-input" class="debug-input"
+                               placeholder="cst_xxxxxxxxxx" value="cst_DNZCrmyjcR">
+                    </div>
+                </div>
+
+                <button onclick="debugMandate()" class="debug-button">
+                    <i class="fa fa-search mr-1"></i>{{ _("Debug Mandate") }}
+                </button>
+
+                <div id="mandate-result" class="result-area" style="display: none;"></div>
+            </div>
+        </div>
+
+        <!-- Payment Debug Tab -->
+        <div id="payment-tab" class="tab-content">
+            <div class="debug-card">
+                <h2 class="text-xl font-semibold mb-4">{{ _("Payment Debug") }}</h2>
+                <p class="text-gray-600 mb-4">{{ _("Debug individual payments with comprehensive details") }}</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Payment ID") }}</label>
+                        <input type="text" id="payment-id-input" class="debug-input"
+                               placeholder="tr_xxxxxxxxxx">
+                    </div>
+                </div>
+
+                <button onclick="debugPayment()" class="debug-button">
+                    <i class="fa fa-search mr-1"></i>{{ _("Debug Payment") }}
+                </button>
+
+                <div id="payment-result" class="result-area" style="display: none;"></div>
+
+                <!-- Payment List Section -->
+                <div class="mt-8 p-4 border-t border-gray-200">
+                    <h3 class="text-lg font-medium mb-3">{{ _("List Payments") }}</h3>
+                    <p class="text-gray-600 mb-4">{{ _("List recent payments with optional filtering") }}</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID (optional)") }}</label>
+                            <input type="text" id="payment-list-customer-id" class="debug-input"
+                                   placeholder="cst_xxxxxxxxxx">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Status Filter (optional)") }}</label>
+                            <select id="payment-status-filter" class="debug-input">
+                                <option value="">{{ _("All statuses") }}</option>
+                                <option value="paid">{{ _("Paid") }}</option>
+                                <option value="pending">{{ _("Pending") }}</option>
+                                <option value="failed">{{ _("Failed") }}</option>
+                                <option value="canceled">{{ _("Canceled") }}</option>
+                                <option value="expired">{{ _("Expired") }}</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Limit") }}</label>
+                            <input type="number" id="payment-list-limit" class="debug-input"
+                                   value="10" min="1" max="250">
+                        </div>
+                    </div>
+
+                    <button onclick="listPayments()" class="debug-button">
+                        <i class="fa fa-list mr-1"></i>{{ _("List Payments") }}
+                    </button>
+
+                    <div id="payment-list-result" class="result-area" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Refunds & Chargebacks Tab -->
+        <div id="refunds-tab" class="tab-content">
+            <div class="debug-card">
+                <h2 class="text-xl font-semibold mb-4">{{ _("Refunds & Chargebacks") }}</h2>
+                <p class="text-gray-600 mb-4">{{ _("Debug refunds and investigate disputed transactions") }}</p>
+
+                <!-- Debug Refund Section -->
+                <div class="mb-8">
+                    <h3 class="text-lg font-medium mb-3">{{ _("Debug Specific Refund") }}</h3>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Refund ID") }}</label>
+                            <input type="text" id="refund-id-input" class="debug-input"
+                                   placeholder="re_xxxxxxxxxx">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Payment ID (optional)") }}</label>
+                            <input type="text" id="refund-payment-id-input" class="debug-input"
+                                   placeholder="tr_xxxxxxxxxx">
+                        </div>
+                    </div>
+
+                    <button onclick="debugRefund()" class="debug-button">
+                        <i class="fa fa-search mr-1"></i>{{ _("Debug Refund") }}
+                    </button>
+
+                    <div id="refund-result" class="result-area" style="display: none;"></div>
+                </div>
+
+                <!-- List Chargebacks Section -->
+                <div class="p-4 border-t border-gray-200">
+                    <h3 class="text-lg font-medium mb-3 text-red-600">{{ _("List Chargebacks") }}</h3>
+                    <p class="text-gray-600 mb-4">{{ _("Investigate disputed transactions and chargebacks") }}</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID (optional)") }}</label>
+                            <input type="text" id="chargeback-customer-id" class="debug-input"
+                                   placeholder="cst_xxxxxxxxxx">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Limit") }}</label>
+                            <input type="number" id="chargeback-limit" class="debug-input"
+                                   value="10" min="1" max="100">
+                        </div>
+                    </div>
+
+                    <button onclick="listChargebacks()" class="debug-button">
+                        <i class="fa fa-exclamation-triangle mr-1"></i>{{ _("List Chargebacks") }}
+                    </button>
+
+                    <div id="chargeback-result" class="result-area" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Webhook Debug Tab -->
+        <div id="webhooks-tab" class="tab-content">
+            <div class="debug-card">
+                <h2 class="text-xl font-semibold mb-4">{{ _("Webhook Debug") }}</h2>
+                <p class="text-gray-600 mb-4">{{ _("Debug webhook delivery and payment status changes") }}</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Payment ID") }}</label>
+                        <input type="text" id="webhook-payment-id-input" class="debug-input"
+                               placeholder="tr_xxxxxxxxxx">
+                    </div>
+                </div>
+
+                <button onclick="debugWebhookDelivery()" class="debug-button">
+                    <i class="fa fa-search mr-1"></i>{{ _("Debug Webhook Delivery") }}
+                </button>
+
+                <div id="webhook-result" class="result-area" style="display: none;"></div>
+
+                <!-- Webhook Info Section -->
+                <div class="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <h3 class="text-lg font-medium text-blue-800 mb-2">{{ _("Webhook Information") }}</h3>
+                    <div class="text-sm text-blue-700">
+                        <p class="mb-2">{{ _("• Webhook URL configured for payments will show in payment details") }}</p>
+                        <p class="mb-2">{{ _("• Status change timeline helps identify webhook trigger points") }}</p>
+                        <p class="mb-2">{{ _("• Check your application logs for webhook delivery details") }}</p>
+                        <p>{{ _("• Mollie retries failed webhooks automatically") }}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Admin Actions Tab -->
+        <div id="admin-tab" class="tab-content">
+            <div class="debug-card">
+                <h2 class="text-xl font-semibold mb-4 text-red-600">{{ _("Administrative Actions") }}</h2>
+                <p class="text-gray-600 mb-4">{{ _("Dangerous operations - use with extreme caution") }}</p>
+
+                <!-- Cancel Subscription -->
+                <div class="mb-6 p-4 border border-red-200 rounded-lg">
+                    <h3 class="text-lg font-medium text-red-700 mb-3">{{ _("Cancel Subscription") }}</h3>
+                    <div class="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-700">
+                        <i class="fa fa-info-circle mr-1"></i>{{ _("Status messages will appear at the bottom of this page after clicking the button") }}
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID") }}</label>
+                            <input type="text" id="cancel-customer-id" class="debug-input"
+                                   placeholder="cst_xxxxxxxxxx" value="cst_DNZCrmyjcR">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Subscription ID") }}</label>
+                            <input type="text" id="cancel-subscription-id" class="debug-input"
+                                   placeholder="sub_xxxxxxxxxx">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Reason") }}</label>
+                            <input type="text" id="cancel-reason" class="debug-input"
+                                   placeholder="Administrative cancellation" value="Debug page cancellation">
+                        </div>
+                    </div>
+
+                    <button onclick="adminCancelSubscription()" class="danger-button">
+                        <i class="fa fa-times mr-1"></i>{{ _("Cancel Subscription") }}
+                    </button>
+                </div>
+
+                <!-- Revoke Mandate -->
+                <div class="mb-6 p-4 border border-red-200 rounded-lg">
+                    <h3 class="text-lg font-medium text-red-700 mb-3">{{ _("Revoke Mandate") }}</h3>
+                    <div class="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-700">
+                        <i class="fa fa-info-circle mr-1"></i>{{ _("Status messages will appear at the bottom of this page after clicking the button") }}
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID") }}</label>
+                            <input type="text" id="revoke-customer-id" class="debug-input"
+                                   placeholder="cst_xxxxxxxxxx" value="cst_DNZCrmyjcR">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Mandate ID") }}</label>
+                            <input type="text" id="revoke-mandate-id" class="debug-input"
+                                   placeholder="mdt_xxxxxxxxxx">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Reason") }}</label>
+                            <input type="text" id="revoke-reason" class="debug-input"
+                                   placeholder="Administrative revocation" value="Debug page revocation">
+                        </div>
+                    </div>
+
+                    <button onclick="adminRevokeMandate()" class="danger-button">
+                        <i class="fa fa-ban mr-1"></i>{{ _("Revoke Mandate") }}
+                    </button>
+                </div>
+
+                <!-- Cancel Payment -->
+                <div class="mb-6 p-4 border border-red-200 rounded-lg">
+                    <h3 class="text-lg font-medium text-red-700 mb-3">{{ _("Cancel Payment") }}</h3>
+                    <div class="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-700">
+                        <i class="fa fa-info-circle mr-1"></i>{{ _("Status messages will appear at the bottom of this page after clicking the button") }}
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Payment ID") }}</label>
+                            <input type="text" id="cancel-payment-id" class="debug-input"
+                                   placeholder="tr_xxxxxxxxxx">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Reason") }}</label>
+                            <input type="text" id="cancel-payment-reason" class="debug-input"
+                                   placeholder="Administrative cancellation" value="Debug page cancellation">
+                        </div>
+                    </div>
+
+                    <div class="mb-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-700">
+                        <i class="fa fa-exclamation-triangle mr-1"></i>{{ _("Note: Only pending/open payments can be cancelled. Paid, failed, or expired payments cannot be cancelled.") }}
+                    </div>
+
+                    <button onclick="adminCancelPayment()" class="danger-button">
+                        <i class="fa fa-stop mr-1"></i>{{ _("Cancel Payment") }}
+                    </button>
+                </div>
+
+                <!-- Customer Deletion (NUCLEAR OPTION) -->
+                <div class="mt-8 p-4 border-2 border-red-500 rounded-lg bg-red-50">
+                    <h3 class="text-lg font-semibold text-red-800 mb-2">
+                        <i class="fa fa-skull-crossbones mr-2"></i>{{ _("DANGER ZONE: Delete Customer") }}
+                    </h3>
+                    <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+                        <strong>{{ _("WARNING:") }}</strong> {{ _("This will permanently delete the customer AND automatically cancel ALL subscriptions and mandates. This action cannot be undone!") }}
+                        <br><br>
+                        <strong>{{ _("RESTRICTED TO:") }}</strong> {{ _("Verenigingen Administrator role only") }}
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label class="block text-sm font-medium text-red-700 mb-1">{{ _("Customer ID") }}</label>
+                            <input type="text" id="delete-customer-id" class="debug-input border-red-300"
+                                   placeholder="cst_xxxxxxxxxx">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-red-700 mb-1">{{ _("Deletion Reason") }}</label>
+                            <input type="text" id="delete-reason" class="debug-input border-red-300"
+                                   placeholder="Critical administrative cleanup">
+                        </div>
+                        <div class="md:col-span-2">
+                            <label class="block text-sm font-medium text-red-700 mb-1">
+                                {{ _("Type exactly") }} <strong>"DELETE CUSTOMER"</strong> {{ _("to confirm") }}:
+                            </label>
+                            <input type="text" id="delete-confirmation" class="debug-input border-red-300"
+                                   placeholder="DELETE CUSTOMER">
+                        </div>
+                    </div>
+
+                    <button onclick="adminDeleteCustomer()" class="bg-red-700 hover:bg-red-800 text-white px-6 py-2 rounded-lg font-medium">
+                        <i class="fa fa-trash-alt mr-2"></i>{{ _("DELETE CUSTOMER (IRREVERSIBLE)") }}
+                    </button>
+                </div>
+
+                <div id="admin-result" class="result-area" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Tab switching
+function switchTab(tabName) {
+    // Hide all tab contents
+    document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+    });
+
+    // Remove active class from all tab buttons
+    document.querySelectorAll('.tab-button').forEach(button => {
+        button.classList.remove('active');
+    });
+
+    // Show selected tab content
+    document.getElementById(tabName + '-tab').classList.add('active');
+
+    // Add active class to clicked button
+    event.target.classList.add('active');
+}
+
+// Customer Debug
+function debugCustomer() {
+    const customerId = document.getElementById('customer-id-input').value.trim();
+    if (!customerId) {
+        alert('{{ _("Please enter a customer ID") }}');
+        return;
+    }
+
+    showLoading('customer-result', '{{ _("Querying customer data...") }}');
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.debug_customer', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: `customer_id=${encodeURIComponent(customerId)}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            // Store customer data for dynamic filtering
+            lastCustomerData = data.message;
+            displayResult('customer-result', formatCustomerResult(data.message), data.message.error ? 'error' : 'success');
+        } else {
+            displayResult('customer-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('customer-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+// Subscription Debug
+function debugSubscription() {
+    const subscriptionId = document.getElementById('subscription-id-input').value.trim();
+    const customerId = document.getElementById('subscription-customer-id-input').value.trim();
+
+    if (!subscriptionId) {
+        alert('{{ _("Please enter a subscription ID") }}');
+        return;
+    }
+
+    showLoading('subscription-result', '{{ _("Querying subscription data...") }}');
+
+    const formData = new FormData();
+    formData.append('subscription_id', subscriptionId);
+    if (customerId) formData.append('customer_id', customerId);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.debug_subscription', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            displayResult('subscription-result', formatSubscriptionResult(data.message), data.message.error ? 'error' : 'success');
+        } else {
+            displayResult('subscription-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('subscription-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+// Mandate Debug
+function debugMandate() {
+    const mandateId = document.getElementById('mandate-id-input').value.trim();
+    const customerId = document.getElementById('mandate-customer-id-input').value.trim();
+
+    if (!mandateId) {
+        alert('{{ _("Please enter a mandate ID") }}');
+        return;
+    }
+
+    showLoading('mandate-result', '{{ _("Querying mandate data...") }}');
+
+    const formData = new FormData();
+    formData.append('mandate_id', mandateId);
+    if (customerId) formData.append('customer_id', customerId);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.debug_mandate', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            displayResult('mandate-result', formatMandateResult(data.message), data.message.error ? 'error' : 'success');
+        } else {
+            displayResult('mandate-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('mandate-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+// Admin Cancel Subscription
+function adminCancelSubscription() {
+    const customerId = document.getElementById('cancel-customer-id').value.trim();
+    const subscriptionId = document.getElementById('cancel-subscription-id').value.trim();
+    const reason = document.getElementById('cancel-reason').value.trim();
+
+    if (!customerId || !subscriptionId) {
+        alert('{{ _("Please enter customer ID and subscription ID") }}');
+        return;
+    }
+
+    const confirmMessage = `{{ _("ADMINISTRATIVE CANCELLATION") }}\\n\\n` +
+                          `{{ _("Customer ID:") }} ${customerId}\\n` +
+                          `{{ _("Subscription ID:") }} ${subscriptionId}\\n` +
+                          `{{ _("Reason:") }} ${reason}\\n\\n` +
+                          `{{ _("This action cannot be undone. Continue?") }}`;
+
+    if (!confirm(confirmMessage)) {
+        return;
+    }
+
+    showLoading('admin-result', '{{ _("Cancelling subscription...") }}');
+
+    const formData = new FormData();
+    formData.append('customer_id', customerId);
+    formData.append('subscription_id', subscriptionId);
+    formData.append('reason', reason);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.admin_cancel_subscription', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            // Handle different status types properly
+            const status = data.message.status;
+            const displayType = status === 'warning' ? 'warning' : (status === 'success' ? 'success' : 'error');
+            displayResult('admin-result', formatAdminResult(data.message, 'Subscription Cancellation'), displayType);
+
+            // Clear form fields on success
+            if (status === 'success') {
+                document.getElementById('cancel-customer-id').value = '';
+                document.getElementById('cancel-subscription-id').value = '';
+                document.getElementById('cancel-reason').value = 'Debug page cancellation';
+            }
+        } else {
+            displayResult('admin-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('admin-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+// Admin Revoke Mandate
+function adminRevokeMandate() {
+    const customerId = document.getElementById('revoke-customer-id').value.trim();
+    const mandateId = document.getElementById('revoke-mandate-id').value.trim();
+    const reason = document.getElementById('revoke-reason').value.trim();
+
+    if (!customerId || !mandateId) {
+        alert('{{ _("Please enter customer ID and mandate ID") }}');
+        return;
+    }
+
+    const confirmMessage = `{{ _("ADMINISTRATIVE MANDATE REVOCATION") }}\\n\\n` +
+                          `{{ _("Customer ID:") }} ${customerId}\\n` +
+                          `{{ _("Mandate ID:") }} ${mandateId}\\n` +
+                          `{{ _("Reason:") }} ${reason}\\n\\n` +
+                          `{{ _("This action cannot be undone. Continue?") }}`;
+
+    if (!confirm(confirmMessage)) {
+        return;
+    }
+
+    showLoading('admin-result', '{{ _("Revoking mandate...") }}');
+
+    const formData = new FormData();
+    formData.append('customer_id', customerId);
+    formData.append('mandate_id', mandateId);
+    formData.append('reason', reason);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.admin_revoke_mandate', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            // Handle different status types
+            const status = data.message.status;
+            const displayType = status === 'warning' ? 'warning' : (status === 'success' ? 'success' : 'error');
+            displayResult('admin-result', formatAdminResult(data.message, 'Mandate Revocation'), displayType);
+        } else {
+            displayResult('admin-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('admin-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+// Customer Search
+function searchCustomers() {
+    const searchTerm = document.getElementById('customer-search-term').value.trim();
+    const limit = document.getElementById('customer-search-limit').value;
+
+    if (!searchTerm || searchTerm.length < 2) {
+        alert('{{ _("Please enter at least 2 characters to search") }}');
+        return;
+    }
+
+    showLoading('customer-search-result', '{{ _("Searching customers...") }}');
+
+    const formData = new FormData();
+    formData.append('search_term', searchTerm);
+    formData.append('limit', limit);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.search_customers_by_name', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Frappe API responses can be wrapped in 'message' or be direct
+        const result = data.message || data;
+        if (result && (result.customers !== undefined || result.error)) {
+            displayResult('customer-search-result', formatCustomerSearchResult(result), result.error ? 'error' : 'success');
+        } else {
+            displayResult('customer-search-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('customer-search-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+function formatCustomerSearchResult(data) {
+    if (data.error) {
+        return `<div class="error">Error: ${data.error}</div>`;
+    }
+
+    let html = `<h3>Search Results for "${data.search_term}"</h3>`;
+    html += `<p class="text-gray-600 mb-3">Found ${data.total_found} customer(s)</p>`;
+
+    if (data.customers && data.customers.length > 0) {
+        html += '<div class="space-y-2">';
+        data.customers.forEach(customer => {
+            html += `<div class="p-3 border border-gray-200 rounded-lg bg-white">`;
+            html += `<div class="flex justify-between items-start">`;
+            html += `<div>`;
+            html += `<h4 class="font-semibold">${customer.name}</h4>`;
+            html += `<p class="text-sm text-gray-600">${customer.email}</p>`;
+            html += `<p class="text-xs text-gray-500">Created: ${new Date(customer.created_at).toLocaleDateString()}</p>`;
+            html += `</div>`;
+            html += `<div>`;
+            html += `<button onclick="useCustomerId('${customer.id}')" class="text-blue-600 hover:text-blue-800 text-sm font-medium">`;
+            html += `Use ID: ${customer.id}`;
+            html += `</button>`;
+            html += `</div>`;
+            html += `</div>`;
+            html += `</div>`;
+        });
+        html += '</div>';
+    } else {
+        html += '<p class="text-gray-500">No customers found matching your search.</p>';
+    }
+
+    return html;
+}
+
+// Customer List
+function listCustomers() {
+    const limit = document.getElementById('customer-list-limit').value;
+
+    showLoading('customer-list-result', '{{ _("Loading customer list...") }}');
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.list_customers', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: `limit=${encodeURIComponent(limit)}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            displayResult('customer-list-result', formatCustomerListResult(data.message), data.message.error ? 'error' : 'success');
+        } else {
+            displayResult('customer-list-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('customer-list-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+// Admin Delete Customer (NUCLEAR OPTION)
+function adminDeleteCustomer() {
+    const customerId = document.getElementById('delete-customer-id').value.trim();
+    const reason = document.getElementById('delete-reason').value.trim();
+    const confirmationText = document.getElementById('delete-confirmation').value.trim();
+
+    if (!customerId || !reason || !confirmationText) {
+        alert('{{ _("Please fill in all fields") }}');
+        return;
+    }
+
+    if (confirmationText !== 'DELETE CUSTOMER') {
+        alert('{{ _("Confirmation text must be exactly: DELETE CUSTOMER") }}');
+        return;
+    }
+
+    const warningMessage = `{{ _("🚨 CRITICAL WARNING 🚨") }}\\n\\n` +
+                          `{{ _("YOU ARE ABOUT TO PERMANENTLY DELETE:") }}\\n` +
+                          `{{ _("Customer ID:") }} ${customerId}\\n\\n` +
+                          `{{ _("THIS WILL CASCADE DELETE:") }}\\n` +
+                          `{{ _("• ALL subscriptions (canceled immediately)") }}\\n` +
+                          `{{ _("• ALL mandates (revoked immediately)") }}\\n` +
+                          `{{ _("• Customer record (deleted permanently)") }}\\n\\n` +
+                          `{{ _("Reason:") }} ${reason}\\n\\n` +
+                          `{{ _("⚠️ THIS ACTION CANNOT BE UNDONE ⚠️") }}\\n\\n` +
+                          `{{ _("Are you absolutely certain you want to proceed?") }}`;
+
+    if (!confirm(warningMessage)) {
+        return;
+    }
+
+    // Second confirmation for nuclear option
+    const finalConfirm = confirm(`{{ _("FINAL CONFIRMATION\\n\\nThis is your last chance to stop.\\n\\nClick OK to PERMANENTLY DELETE customer") }} ${customerId} {{ _("and ALL associated data.\\n\\nClick Cancel to abort.") }}`);
+    if (!finalConfirm) {
+        return;
+    }
+
+    showLoading('admin-result', '{{ _("🚨 DELETING CUSTOMER AND ALL DATA...") }}');
+
+    const formData = new FormData();
+    formData.append('customer_id', customerId);
+    formData.append('reason', reason);
+    formData.append('confirmation_text', confirmationText);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.admin_delete_customer', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Handle Frappe exception responses
+        if (data.exc_type || data.exception) {
+            // Frappe threw an exception - extract the error message
+            const errorMsg = data.exception || data._server_messages || 'Unknown error occurred';
+            displayResult('admin-result', `<div class="error">Error: ${errorMsg}</div>`, 'error');
+            return;
+        }
+
+        // Frappe API responses can be wrapped in 'message' or be direct
+        const result = data.message || data;
+        if (result && (result.status || result.error)) {
+            // Handle different status types
+            const status = result.status;
+            const displayType = status === 'warning' ? 'warning' : (status === 'success' ? 'success' : 'error');
+            displayResult('admin-result', formatCustomerDeletionResult(result), displayType);
+
+            // Clear form on success
+            if (status === 'success') {
+                document.getElementById('delete-customer-id').value = '';
+                document.getElementById('delete-reason').value = '';
+                document.getElementById('delete-confirmation').value = '';
+            }
+        } else {
+            displayResult('admin-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('admin-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+// Payment Debug Functions
+function debugPayment() {
+    const paymentId = document.getElementById('payment-id-input').value.trim();
+    if (!paymentId) {
+        alert('{{ _("Please enter a payment ID") }}');
+        return;
+    }
+
+    showLoading('payment-result', '{{ _("Querying payment data...") }}');
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.debug_payment', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: `payment_id=${encodeURIComponent(paymentId)}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            displayResult('payment-result', formatPaymentResult(data.message), data.message.error ? 'error' : 'success');
+        } else {
+            displayResult('payment-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('payment-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+function listPayments() {
+    const customerId = document.getElementById('payment-list-customer-id').value.trim();
+    const statusFilter = document.getElementById('payment-status-filter').value;
+    const limit = document.getElementById('payment-list-limit').value;
+
+    showLoading('payment-list-result', '{{ _("Loading payments list...") }}');
+
+    const formData = new FormData();
+    if (customerId) formData.append('customer_id', customerId);
+    if (statusFilter) formData.append('status_filter', statusFilter);
+    formData.append('limit', limit);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.list_payments', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            displayResult('payment-list-result', formatPaymentListResult(data.message), data.message.error ? 'error' : 'success');
+        } else {
+            displayResult('payment-list-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('payment-list-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+// Refund Debug Functions
+function debugRefund() {
+    const refundId = document.getElementById('refund-id-input').value.trim();
+    const paymentId = document.getElementById('refund-payment-id-input').value.trim();
+
+    if (!refundId) {
+        alert('{{ _("Please enter a refund ID") }}');
+        return;
+    }
+
+    showLoading('refund-result', '{{ _("Querying refund data...") }}');
+
+    const formData = new FormData();
+    formData.append('refund_id', refundId);
+    if (paymentId) formData.append('payment_id', paymentId);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.debug_refund', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            displayResult('refund-result', formatRefundResult(data.message), data.message.error ? 'error' : 'success');
+        } else {
+            displayResult('refund-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('refund-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+function listChargebacks() {
+    const customerId = document.getElementById('chargeback-customer-id').value.trim();
+    const limit = document.getElementById('chargeback-limit').value;
+
+    showLoading('chargeback-result', '{{ _("Loading chargebacks list...") }}');
+
+    const formData = new FormData();
+    if (customerId) formData.append('customer_id', customerId);
+    formData.append('limit', limit);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.list_chargebacks', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            displayResult('chargeback-result', formatChargebackListResult(data.message), data.message.error ? 'error' : 'success');
+        } else {
+            displayResult('chargeback-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('chargeback-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+// Webhook Debug Functions
+function debugWebhookDelivery() {
+    const paymentId = document.getElementById('webhook-payment-id-input').value.trim();
+    if (!paymentId) {
+        alert('{{ _("Please enter a payment ID") }}');
+        return;
+    }
+
+    showLoading('webhook-result', '{{ _("Querying webhook delivery data...") }}');
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.debug_webhook_delivery', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: `payment_id=${encodeURIComponent(paymentId)}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            displayResult('webhook-result', formatWebhookResult(data.message), data.message.error ? 'error' : 'success');
+        } else {
+            displayResult('webhook-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('webhook-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+// Helper Functions
+function showLoading(elementId, message) {
+    const element = document.getElementById(elementId);
+    element.style.display = 'block';
+    element.className = 'result-area';
+    element.textContent = message;
+}
+
+function displayResult(elementId, content, type) {
+    const element = document.getElementById(elementId);
+    element.style.display = 'block';
+
+    let resultClass = 'success-result';
+    if (type === 'error') resultClass = 'error-result';
+    else if (type === 'warning') resultClass = 'warning-result';
+
+    element.className = `result-area ${resultClass}`;
+    element.innerHTML = content;
+}
+
+function formatCustomerResult(data) {
+    if (data.error) {
+        return `<strong>Error:</strong> ${data.error}`;
+    }
+
+    let html = `<h3>Customer Debug Results</h3>`;
+    html += `<p><strong>Customer ID:</strong> ${data.customer_id}</p>`;
+    html += `<p><strong>API Mode:</strong> ${data.test_mode ? 'Test' : 'Live'}</p>`;
+    html += `<p><strong>Timestamp:</strong> ${data.timestamp}</p>`;
+
+    if (data.customer_found) {
+        const customer = data.customer_data;
+        html += `<h4>Customer Details:</h4>`;
+        html += `<p><strong>Name:</strong> ${customer.name}</p>`;
+        html += `<p><strong>Email:</strong> ${customer.email}</p>`;
+        html += `<p><strong>Created:</strong> ${customer.created_at}</p>`;
+        html += `<p><strong>Mode:</strong> ${customer.mode}</p>`;
+
+        if (data.subscriptions.length > 0) {
+            // Filter subscriptions based on checkbox
+            const hideCanceled = document.getElementById('hide-canceled-items').checked;
+            const filteredSubs = hideCanceled ?
+                data.subscriptions.filter(sub => sub.status === 'active') :
+                data.subscriptions;
+
+            html += `<h4>Subscriptions (${filteredSubs.length}${hideCanceled && filteredSubs.length !== data.subscriptions.length ? ` of ${data.subscriptions.length}` : ''}):</h4>`;
+            filteredSubs.forEach(sub => {
+                const statusClass = sub.status === 'active' ? 'status-active' : 'status-canceled';
+                html += `<div style="border: 1px solid #ddd; padding: 0.5rem; margin: 0.5rem 0; border-radius: 4px;">`;
+                html += `<p><strong>ID:</strong> ${sub.id} <span class="status-badge ${statusClass}">${sub.status}</span></p>`;
+                html += `<p><strong>Amount:</strong> ${sub.amount}</p>`;
+                html += `<p><strong>Interval:</strong> ${sub.interval}</p>`;
+                html += `<p><strong>Description:</strong> ${sub.description}</p>`;
+                html += `<p><strong>Created:</strong> ${sub.created_at}</p>`;
+                if (sub.next_payment_date) html += `<p><strong>Next Payment:</strong> ${sub.next_payment_date}</p>`;
+                if (sub.canceled_at) html += `<p><strong>Cancelled:</strong> ${sub.canceled_at}</p>`;
+                html += `</div>`;
+            });
+        }
+
+        if (data.mandates.length > 0) {
+            // Filter mandates based on checkbox
+            const hideCanceled = document.getElementById('hide-canceled-items').checked;
+            const filteredMandates = hideCanceled ?
+                data.mandates.filter(mandate => mandate.status === 'valid') :
+                data.mandates;
+
+            html += `<h4>Mandates (${filteredMandates.length}${hideCanceled && filteredMandates.length !== data.mandates.length ? ` of ${data.mandates.length}` : ''}):</h4>`;
+            filteredMandates.forEach(mandate => {
+                const statusClass = mandate.status === 'valid' ? 'status-valid' : 'status-invalid';
+                html += `<div style="border: 1px solid #ddd; padding: 0.5rem; margin: 0.5rem 0; border-radius: 4px;">`;
+                html += `<p><strong>ID:</strong> ${mandate.id} <span class="status-badge ${statusClass}">${mandate.status}</span></p>`;
+                html += `<p><strong>Method:</strong> ${mandate.method}</p>`;
+                html += `<p><strong>Created:</strong> ${mandate.created_at}</p>`;
+                if (mandate.mandate_reference) html += `<p><strong>Reference:</strong> ${mandate.mandate_reference}</p>`;
+                html += `</div>`;
+            });
+        }
+    } else {
+        html += `<p><strong>Customer not found in Mollie API</strong></p>`;
+    }
+
+    // Database records
+    const db = data.database_records;
+    if (db.members.length > 0 || db.donors.length > 0) {
+        html += `<h4>Database Records:</h4>`;
+
+        if (db.members.length > 0) {
+            html += `<h5>Members (${db.members.length}):</h5>`;
+            db.members.forEach(member => {
+                html += `<div style="border: 1px solid #ddd; padding: 0.5rem; margin: 0.5rem 0; border-radius: 4px; background-color: #f8f9fa;">`;
+                html += `<p><strong>ID:</strong> ${member.name}</p>`;
+                html += `<p><strong>Name:</strong> ${member.full_name}</p>`;
+                if (member.payment_method) html += `<p><strong>Payment Method:</strong> ${member.payment_method}</p>`;
+                if (member.mollie_subscription_id) html += `<p><strong>Subscription ID:</strong> ${member.mollie_subscription_id}</p>`;
+                if (member.subscription_status) html += `<p><strong>Status:</strong> <span class="status-badge ${member.subscription_status === 'active' ? 'status-active' : 'status-canceled'}">${member.subscription_status}</span></p>`;
+                html += `</div>`;
+            });
+        }
+
+        if (db.donors.length > 0) {
+            html += `<h5>Donors (${db.donors.length}):</h5>`;
+            db.donors.forEach(donor => {
+                html += `<div style="border: 1px solid #ddd; padding: 0.5rem; margin: 0.5rem 0; border-radius: 4px; background-color: #f8f9fa;">`;
+                html += `<p><strong>ID:</strong> ${donor.name}</p>`;
+                html += `<p><strong>Donor Name:</strong> ${donor.donor_name}</p>`;
+                if (donor.member) html += `<p><strong>Linked Member:</strong> ${donor.member}</p>`;
+                html += `</div>`;
+            });
+        }
+    }
+
+    return html;
+}
+
+function formatSubscriptionResult(data) {
+    if (data.error) {
+        return `<strong>Error:</strong> ${data.error}`;
+    }
+
+    let html = `<h3>Subscription Debug Results</h3>`;
+    html += `<p><strong>Subscription ID:</strong> ${data.subscription_id}</p>`;
+    html += `<p><strong>Customer ID:</strong> ${data.customer_id || 'N/A'}</p>`;
+
+    if (data.subscription_found) {
+        const sub = data.subscription_data;
+        const statusClass = sub.status === 'active' ? 'status-active' : 'status-canceled';
+        html += `<h4>Subscription Details:</h4>`;
+        html += `<p><strong>Status:</strong> <span class="status-badge ${statusClass}">${sub.status}</span></p>`;
+        html += `<p><strong>Amount:</strong> ${sub.amount}</p>`;
+        html += `<p><strong>Interval:</strong> ${sub.interval}</p>`;
+        html += `<p><strong>Description:</strong> ${sub.description}</p>`;
+        html += `<p><strong>Created:</strong> ${sub.created_at}</p>`;
+        if (sub.next_payment_date) html += `<p><strong>Next Payment:</strong> ${sub.next_payment_date}</p>`;
+        if (sub.canceled_at) html += `<p><strong>Cancelled:</strong> ${sub.canceled_at}</p>`;
+        if (sub.metadata && Object.keys(sub.metadata).length > 0) {
+            html += `<p><strong>Metadata:</strong> <pre>${JSON.stringify(sub.metadata, null, 2)}</pre></p>`;
+        }
+    } else {
+        html += `<p><strong>Subscription not found</strong></p>`;
+    }
+
+    return html;
+}
+
+function formatMandateResult(data) {
+    if (data.error) {
+        return `<strong>Error:</strong> ${data.error}`;
+    }
+
+    let html = `<h3>Mandate Debug Results</h3>`;
+    html += `<p><strong>Mandate ID:</strong> ${data.mandate_id}</p>`;
+    html += `<p><strong>Customer ID:</strong> ${data.customer_id || 'N/A'}</p>`;
+
+    if (data.mandate_found) {
+        const mandate = data.mandate_data;
+        const statusClass = mandate.status === 'valid' ? 'status-valid' : 'status-invalid';
+        html += `<h4>Mandate Details:</h4>`;
+        html += `<p><strong>Status:</strong> <span class="status-badge ${statusClass}">${mandate.status}</span></p>`;
+        html += `<p><strong>Method:</strong> ${mandate.method}</p>`;
+        html += `<p><strong>Created:</strong> ${mandate.created_at}</p>`;
+        if (mandate.mandate_reference) html += `<p><strong>Reference:</strong> ${mandate.mandate_reference}</p>`;
+        if (mandate.signature_date) html += `<p><strong>Signature Date:</strong> ${mandate.signature_date}</p>`;
+        if (mandate.consumer_name) html += `<p><strong>Consumer Name:</strong> ${mandate.consumer_name}</p>`;
+        if (mandate.consumer_account) html += `<p><strong>Consumer Account:</strong> ${mandate.consumer_account}</p>`;
+    } else {
+        html += `<p><strong>Mandate not found</strong></p>`;
+    }
+
+    return html;
+}
+
+function formatAdminResult(data, action) {
+    let html = `<h3>${action} Result</h3>`;
+
+    // Format status badge based on status type
+    let statusClass = 'status-active';
+    if (data.status === 'warning') statusClass = 'status-warning';
+    else if (data.status === 'success') statusClass = 'status-active';
+    else statusClass = 'status-error';
+
+    // Make success messages more prominent
+    if (data.status === 'success') {
+        html += `<div style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<p style="margin: 0; font-size: 1.1em;"><strong>✅ ${data.message}</strong></p>`;
+        html += `</div>`;
+    } else if (data.status === 'warning') {
+        html += `<div style="background: #fffbeb; border: 1px solid #fed7aa; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<p style="margin: 0; font-size: 1.1em;"><strong>⚠️ ${data.message}</strong></p>`;
+        html += `</div>`;
+    } else {
+        html += `<div style="background: #fef2f2; border: 1px solid #fecaca; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<p style="margin: 0; font-size: 1.1em;"><strong>❌ ${data.message}</strong></p>`;
+        html += `</div>`;
+    }
+
+    html += `<p><strong>Status:</strong> <span class="status-badge ${statusClass}">${data.status.toUpperCase()}</span></p>`;
+    html += `<p><strong>Customer ID:</strong> ${data.customer_id}</p>`;
+    if (data.subscription_id) html += `<p><strong>Subscription ID:</strong> ${data.subscription_id}</p>`;
+    if (data.mandate_id) html += `<p><strong>Mandate ID:</strong> ${data.mandate_id}</p>`;
+
+    // Handle different user fields for success vs warning
+    const userField = data.cancelled_by || data.revoked_by || data.attempted_by;
+    const userAction = data.cancelled_by ? 'Cancelled by' : (data.revoked_by ? 'Revoked by' : 'Attempted by');
+    html += `<p><strong>${userAction}:</strong> ${userField}</p>`;
+
+    html += `<p><strong>Reason:</strong> ${data.reason}</p>`;
+    html += `<p><strong>Timestamp:</strong> ${data.timestamp}</p>`;
+
+    // Show error detail for warning cases
+    if (data.error_detail) {
+        html += `<p><strong>API Response:</strong> ${data.error_detail}</p>`;
+    }
+
+    return html;
+}
+
+function formatCustomerDeletionResult(data) {
+    let html = `<h3>🚨 Customer Deletion Result</h3>`;
+
+    // Format status badge based on status type
+    let statusClass = 'status-active';
+    if (data.status === 'warning') statusClass = 'status-warning';
+    else if (data.status === 'success') statusClass = 'status-active';
+    else statusClass = 'status-error';
+
+    html += `<p><strong>Status:</strong> <span class="status-badge ${statusClass}">${data.status}</span></p>`;
+    html += `<p><strong>Message:</strong> ${data.message}</p>`;
+    html += `<p><strong>Customer ID:</strong> ${data.customer_id}</p>`;
+
+    // Handle different user fields for success vs warning
+    const userField = data.deleted_by || data.attempted_by;
+    const userAction = data.deleted_by ? 'Deleted by' : 'Attempted by';
+    html += `<p><strong>${userAction}:</strong> ${userField}</p>`;
+
+    html += `<p><strong>Reason:</strong> ${data.reason}</p>`;
+    html += `<p><strong>Timestamp:</strong> ${data.timestamp}</p>`;
+
+    // Show customer details for successful deletions
+    if (data.customer_details) {
+        html += `<h4>Deleted Customer Details:</h4>`;
+        html += `<div style="border: 1px solid #ddd; padding: 0.5rem; margin: 0.5rem 0; border-radius: 4px; background-color: #fff5f5;">`;
+        html += `<p><strong>Name:</strong> ${data.customer_details.name}</p>`;
+        html += `<p><strong>Email:</strong> ${data.customer_details.email}</p>`;
+        html += `<p><strong>Created:</strong> ${data.customer_details.created_at}</p>`;
+        html += `<p><strong>Mode:</strong> ${data.customer_details.mode}</p>`;
+        html += `</div>`;
+    }
+
+    // Show cascade deletion details
+    if (data.cascaded_deletions) {
+        html += `<h4>Cascaded Deletions:</h4>`;
+        html += `<div style="border: 1px solid #ddd; padding: 0.5rem; margin: 0.5rem 0; border-radius: 4px; background-color: #fff5f5;">`;
+        html += `<p><strong>Subscriptions Deleted:</strong> ${data.cascaded_deletions.subscriptions_deleted}</p>`;
+        html += `<p><strong>Mandates Deleted:</strong> ${data.cascaded_deletions.mandates_deleted}</p>`;
+        html += `</div>`;
+    }
+
+    // Show error detail for warning cases
+    if (data.error_detail) {
+        html += `<p><strong>API Response:</strong> ${data.error_detail}</p>`;
+    }
+
+    return html;
+}
+
+function formatCustomerListResult(data) {
+    if (data.error) {
+        return `<strong>Error:</strong> ${data.error}`;
+    }
+
+    let html = `<h3>Customer List</h3>`;
+    html += `<p><strong>API Mode:</strong> ${data.test_mode ? 'Test' : 'Live'}</p>`;
+    html += `<p><strong>Limit:</strong> ${data.limit}</p>`;
+    html += `<p><strong>Found:</strong> ${data.customers.length} customers</p>`;
+    html += `<p><strong>Timestamp:</strong> ${data.timestamp}</p>`;
+
+    if (data.customers.length > 0) {
+        html += `<div style="margin-top: 1rem;">`;
+        html += `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0.5rem;">`;
+
+        data.customers.forEach(customer => {
+            html += `<div style="border: 1px solid #ddd; padding: 0.75rem; border-radius: 4px; background-color: #f8f9fa; position: relative;">`;
+
+            // Customer ID with copy button
+            html += `<div style="display: flex; align-items: center; justify-content: between; margin-bottom: 0.5rem;">`;
+            html += `<p style="margin: 0; font-family: monospace; font-weight: bold; color: #2563eb; flex-grow: 1;">${customer.id}</p>`;
+            html += `<button onclick="copyToClipboard('${customer.id}')" style="background: #2563eb; color: white; border: none; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.75rem; cursor: pointer; margin-left: 0.5rem;" title="Copy Customer ID">`;
+            html += `<i class="fa fa-copy"></i>`;
+            html += `</button>`;
+            html += `</div>`;
+
+            html += `<p style="margin: 0.25rem 0;"><strong>Name:</strong> ${customer.name}</p>`;
+            html += `<p style="margin: 0.25rem 0;"><strong>Email:</strong> ${customer.email}</p>`;
+            html += `<p style="margin: 0.25rem 0;"><strong>Created:</strong> ${new Date(customer.created_at).toLocaleDateString()}</p>`;
+            html += `<p style="margin: 0.25rem 0;"><strong>Mode:</strong> <span class="status-badge ${customer.mode === 'test' ? 'status-pending' : 'status-active'}">${customer.mode}</span></p>`;
+
+            // Quick action button
+            html += `<button onclick="useCustomerId('${customer.id}')" style="background: #059669; color: white; border: none; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.75rem; cursor: pointer; margin-top: 0.5rem;" title="Use this Customer ID">`;
+            html += `<i class="fa fa-arrow-up mr-1"></i>Use ID`;
+            html += `</button>`;
+
+            html += `</div>`;
+        });
+
+        html += `</div>`;
+        html += `</div>`;
+    } else {
+        html += `<p><strong>No customers found</strong></p>`;
+    }
+
+    return html;
+}
+
+// New Formatting Functions for Payment Debug Features
+
+function formatPaymentResult(data) {
+    let html = `<h3>Payment Debug Results</h3>`;
+    html += `<p><strong>Payment ID:</strong> ${data.payment_id}</p>`;
+    html += `<p><strong>Test Mode:</strong> ${data.test_mode}</p>`;
+    html += `<p><strong>Timestamp:</strong> ${data.timestamp}</p>`;
+
+    if (data.error) {
+        html += `<div style="color: #dc2626; background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<strong>Error:</strong> ${data.error}`;
+        html += `</div>`;
+        return html;
+    }
+
+    if (data.payment_found && data.payment_data) {
+        const payment = data.payment_data;
+        html += `<div style="background: #f0fdf4; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<h4>Payment Details</h4>`;
+        html += `<p><strong>Status:</strong> <span class="status-badge status-${payment.status}">${payment.status}</span></p>`;
+        html += `<p><strong>Amount:</strong> ${payment.amount}</p>`;
+        html += `<p><strong>Description:</strong> ${payment.description || 'N/A'}</p>`;
+        html += `<p><strong>Method:</strong> ${payment.method || 'N/A'}</p>`;
+        html += `<p><strong>Created:</strong> ${new Date(payment.created_at).toLocaleString()}</p>`;
+
+        if (payment.paid_at) html += `<p><strong>Paid At:</strong> ${new Date(payment.paid_at).toLocaleString()}</p>`;
+        if (payment.failed_at) html += `<p><strong>Failed At:</strong> ${new Date(payment.failed_at).toLocaleString()}</p>`;
+        if (payment.canceled_at) html += `<p><strong>Canceled At:</strong> ${new Date(payment.canceled_at).toLocaleString()}</p>`;
+        if (payment.expired_at) html += `<p><strong>Expired At:</strong> ${new Date(payment.expired_at).toLocaleString()}</p>`;
+
+        html += `<p><strong>Customer ID:</strong> ${payment.customer_id || 'N/A'}</p>`;
+        html += `<p><strong>Subscription ID:</strong> ${payment.subscription_id || 'N/A'}</p>`;
+        html += `<p><strong>Mandate ID:</strong> ${payment.mandate_id || 'N/A'}</p>`;
+        html += `<p><strong>Sequence Type:</strong> ${payment.sequence_type || 'N/A'}</p>`;
+        html += `<p><strong>Webhook URL:</strong> ${payment.webhook_url || 'N/A'}</p>`;
+        html += `<p><strong>Settlement ID:</strong> ${payment.settlement_id || 'N/A'}</p>`;
+
+        if (payment.failure_reason) {
+            html += `<p><strong>Failure Reason:</strong> <span style="color: #dc2626;">${payment.failure_reason}</span></p>`;
+        }
+
+        html += `</div>`;
+
+        // Show refunds if any
+        if (data.refunds && data.refunds.length > 0) {
+            html += `<div style="background: #fef3c7; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+            html += `<h4>Refunds (${data.refunds.length})</h4>`;
+            data.refunds.forEach(refund => {
+                html += `<div style="border-left: 3px solid #d97706; padding-left: 0.5rem; margin: 0.5rem 0;">`;
+                html += `<p><strong>ID:</strong> ${refund.id}</p>`;
+                html += `<p><strong>Status:</strong> <span class="status-badge status-${refund.status}">${refund.status}</span></p>`;
+                html += `<p><strong>Amount:</strong> ${refund.amount}</p>`;
+                html += `<p><strong>Created:</strong> ${new Date(refund.created_at).toLocaleString()}</p>`;
+                if (refund.settled_at) html += `<p><strong>Settled:</strong> ${new Date(refund.settled_at).toLocaleString()}</p>`;
+                html += `</div>`;
+            });
+            html += `</div>`;
+        }
+
+        // Show chargebacks if any
+        if (data.chargebacks && data.chargebacks.length > 0) {
+            html += `<div style="background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+            html += `<h4>Chargebacks (${data.chargebacks.length})</h4>`;
+            data.chargebacks.forEach(chargeback => {
+                html += `<div style="border-left: 3px solid #dc2626; padding-left: 0.5rem; margin: 0.5rem 0;">`;
+                html += `<p><strong>ID:</strong> ${chargeback.id}</p>`;
+                html += `<p><strong>Amount:</strong> ${chargeback.amount}</p>`;
+                html += `<p><strong>Reason:</strong> ${chargeback.reason || 'N/A'}</p>`;
+                html += `<p><strong>Created:</strong> ${new Date(chargeback.created_at).toLocaleString()}</p>`;
+                if (chargeback.reversed_at) html += `<p><strong>Reversed:</strong> ${new Date(chargeback.reversed_at).toLocaleString()}</p>`;
+                html += `</div>`;
+            });
+            html += `</div>`;
+        }
+    } else {
+        html += `<p><strong>Payment not found</strong></p>`;
+    }
+
+    return html;
+}
+
+function formatPaymentListResult(data) {
+    let html = `<h3>Payment List Results</h3>`;
+    html += `<p><strong>Limit:</strong> ${data.limit}</p>`;
+    html += `<p><strong>Customer ID:</strong> ${data.customer_id || 'All customers'}</p>`;
+    html += `<p><strong>Status Filter:</strong> ${data.status_filter || 'All statuses'}</p>`;
+    html += `<p><strong>Test Mode:</strong> ${data.test_mode}</p>`;
+
+    if (data.error) {
+        html += `<div style="color: #dc2626; background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<strong>Error:</strong> ${data.error}`;
+        html += `</div>`;
+        return html;
+    }
+
+    if (data.payments && data.payments.length > 0) {
+        html += `<div style="background: #f0fdf4; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<h4>Payments (${data.payments.length})</h4>`;
+
+        data.payments.forEach(payment => {
+            html += `<div style="border: 1px solid #e5e7eb; border-radius: 4px; padding: 0.75rem; margin: 0.5rem 0; background: white;">`;
+            html += `<p><strong>ID:</strong> ${payment.id}</p>`;
+            html += `<p><strong>Status:</strong> <span class="status-badge status-${payment.status}">${payment.status}</span></p>`;
+            html += `<p><strong>Amount:</strong> ${payment.amount}</p>`;
+            html += `<p><strong>Description:</strong> ${payment.description || 'N/A'}</p>`;
+            html += `<p><strong>Method:</strong> ${payment.method || 'N/A'}</p>`;
+            html += `<p><strong>Created:</strong> ${new Date(payment.created_at).toLocaleString()}</p>`;
+            html += `<p><strong>Customer ID:</strong> ${payment.customer_id || 'N/A'}</p>`;
+            html += `<p><strong>Subscription ID:</strong> ${payment.subscription_id || 'N/A'}</p>`;
+            html += `<p><strong>Sequence:</strong> ${payment.sequence_type || 'N/A'}</p>`;
+            html += `</div>`;
+        });
+
+        html += `</div>`;
+    } else {
+        html += `<p><strong>No payments found</strong></p>`;
+    }
+
+    return html;
+}
+
+function formatRefundResult(data) {
+    let html = `<h3>Refund Debug Results</h3>`;
+    html += `<p><strong>Refund ID:</strong> ${data.refund_id}</p>`;
+    html += `<p><strong>Payment ID:</strong> ${data.payment_id || 'N/A'}</p>`;
+    html += `<p><strong>Test Mode:</strong> ${data.test_mode}</p>`;
+
+    if (data.error) {
+        html += `<div style="color: #dc2626; background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<strong>Error:</strong> ${data.error}`;
+        html += `</div>`;
+        return html;
+    }
+
+    if (data.refund_found && data.refund_data) {
+        const refund = data.refund_data;
+        html += `<div style="background: #fef3c7; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<h4>Refund Details</h4>`;
+        html += `<p><strong>Status:</strong> <span class="status-badge status-${refund.status}">${refund.status}</span></p>`;
+        html += `<p><strong>Amount:</strong> ${refund.amount}</p>`;
+        html += `<p><strong>Payment ID:</strong> ${refund.payment_id}</p>`;
+        html += `<p><strong>Description:</strong> ${refund.description || 'N/A'}</p>`;
+        html += `<p><strong>Created:</strong> ${new Date(refund.created_at).toLocaleString()}</p>`;
+        if (refund.settled_at) html += `<p><strong>Settled:</strong> ${new Date(refund.settled_at).toLocaleString()}</p>`;
+        html += `<p><strong>Settlement ID:</strong> ${refund.settlement_id || 'N/A'}</p>`;
+        html += `</div>`;
+    } else {
+        html += `<p><strong>Refund not found</strong></p>`;
+    }
+
+    return html;
+}
+
+function formatChargebackListResult(data) {
+    let html = `<h3>Chargeback List Results</h3>`;
+    html += `<p><strong>Customer ID:</strong> ${data.customer_id || 'All customers'}</p>`;
+    html += `<p><strong>Limit:</strong> ${data.limit}</p>`;
+    html += `<p><strong>Test Mode:</strong> ${data.test_mode}</p>`;
+
+    if (data.error) {
+        html += `<div style="color: #dc2626; background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<strong>Error:</strong> ${data.error}`;
+        html += `</div>`;
+        return html;
+    }
+
+    if (data.chargebacks && data.chargebacks.length > 0) {
+        html += `<div style="background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<h4>Chargebacks (${data.chargebacks.length})</h4>`;
+
+        data.chargebacks.forEach(chargeback => {
+            html += `<div style="border: 1px solid #fca5a5; border-radius: 4px; padding: 0.75rem; margin: 0.5rem 0; background: white;">`;
+            html += `<p><strong>ID:</strong> ${chargeback.id}</p>`;
+            html += `<p><strong>Payment ID:</strong> ${chargeback.payment_id || 'N/A'}</p>`;
+            html += `<p><strong>Amount:</strong> ${chargeback.amount}</p>`;
+            html += `<p><strong>Reason:</strong> ${chargeback.reason || 'N/A'}</p>`;
+            html += `<p><strong>Created:</strong> ${new Date(chargeback.created_at).toLocaleString()}</p>`;
+            if (chargeback.reversed_at) html += `<p><strong>Reversed:</strong> ${new Date(chargeback.reversed_at).toLocaleString()}</p>`;
+            html += `<p><strong>Settlement ID:</strong> ${chargeback.settlement_id || 'N/A'}</p>`;
+            html += `</div>`;
+        });
+
+        html += `</div>`;
+    } else {
+        html += `<p><strong>No chargebacks found</strong></p>`;
+    }
+
+    return html;
+}
+
+function formatWebhookResult(data) {
+    let html = `<h3>Webhook Debug Results</h3>`;
+    html += `<p><strong>Payment ID:</strong> ${data.payment_id}</p>`;
+    html += `<p><strong>Test Mode:</strong> ${data.test_mode}</p>`;
+
+    if (data.error) {
+        html += `<div style="color: #dc2626; background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<strong>Error:</strong> ${data.error}`;
+        html += `</div>`;
+        return html;
+    }
+
+    if (data.webhook_info) {
+        const webhook = data.webhook_info;
+        html += `<div style="background: #dbeafe; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<h4>Webhook Information</h4>`;
+        html += `<p><strong>Payment ID:</strong> ${webhook.payment_id}</p>`;
+        html += `<p><strong>Webhook URL:</strong> ${webhook.webhook_url || 'Not configured'}</p>`;
+        html += `<p><strong>Current Status:</strong> <span class="status-badge status-${webhook.status}">${webhook.status}</span></p>`;
+        html += `<p><strong>Created:</strong> ${new Date(webhook.created_at).toLocaleString()}</p>`;
+
+        if (webhook.status_changes && webhook.status_changes.length > 0) {
+            html += `<h5>Status Change Timeline</h5>`;
+            html += `<div style="background: white; padding: 0.5rem; border-radius: 4px; margin: 0.5rem 0;">`;
+            webhook.status_changes.forEach(change => {
+                html += `<p><strong>${change.status}:</strong> ${new Date(change.timestamp).toLocaleString()}</p>`;
+            });
+            html += `</div>`;
+        }
+
+        if (webhook.note) {
+            html += `<div style="background: #f3f4f6; padding: 0.5rem; border-radius: 4px; margin: 0.5rem 0; font-style: italic;">`;
+            html += `<p><strong>Note:</strong> ${webhook.note}</p>`;
+            html += `</div>`;
+        }
+
+        html += `</div>`;
+    }
+
+    return html;
+}
+
+// Store last customer results for dynamic filtering
+let lastCustomerData = null;
+
+function refreshResultsDisplay() {
+    // Re-render customer results if they exist
+    if (lastCustomerData && document.getElementById('customer-result').style.display !== 'none') {
+        displayResult('customer-result', formatCustomerResult(lastCustomerData), 'success');
+    }
+}
+
+// Utility functions for customer list
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(function() {
+        // Visual feedback
+        alert(`{{ _("Copied to clipboard:") }} ${text}`);
+    }).catch(function(err) {
+        // Fallback for older browsers
+        prompt('{{ _("Copy this customer ID:") }}', text);
+    });
+}
+
+// Admin Cancel Payment
+function adminCancelPayment() {
+    const paymentId = document.getElementById('cancel-payment-id').value.trim();
+    const reason = document.getElementById('cancel-payment-reason').value.trim();
+
+    if (!paymentId) {
+        alert('{{ _("Please enter a payment ID") }}');
+        return;
+    }
+
+    const confirmMessage = `{{ _("ADMINISTRATIVE PAYMENT CANCELLATION") }}\\n\\n` +
+                          `{{ _("Payment ID:") }} ${paymentId}\\n` +
+                          `{{ _("Reason:") }} ${reason}\\n\\n` +
+                          `{{ _("Only open, pending, or authorized payments can be cancelled.") }}\\n` +
+                          `{{ _("This action cannot be undone. Continue?") }}`;
+
+    if (!confirm(confirmMessage)) {
+        return;
+    }
+
+    showLoading('admin-result', '{{ _("Cancelling payment...") }}');
+
+    const formData = new FormData();
+    formData.append('payment_id', paymentId);
+    formData.append('reason', reason);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.admin_cancel_payment', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log('Cancel payment response:', data);
+        if (data.message) {
+            console.log('Found data.message:', data.message);
+            const status = data.message.status;
+            const displayType = status === 'warning' ? 'warning' : (status === 'success' ? 'success' : 'error');
+            displayResult('admin-result', formatAdminResult(data.message, 'Payment Cancellation'), displayType);
+        } else {
+            console.log('No data.message found, full response:', data);
+            displayResult('admin-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('admin-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+function useCustomerId(customerId) {
+    // Fill the customer ID in the debug input field
+    document.getElementById('customer-id-input').value = customerId;
+
+    // Visual feedback
+    const input = document.getElementById('customer-id-input');
+    input.style.backgroundColor = '#dcfce7';
+    input.style.borderColor = '#16a34a';
+
+    // Reset styling after 2 seconds
+    setTimeout(() => {
+        input.style.backgroundColor = '';
+        input.style.borderColor = '';
+    }, 2000);
+
+    alert(`{{ _("Customer ID filled in debug field:") }} ${customerId}`);
+}
+</script>
+{% endblock %}

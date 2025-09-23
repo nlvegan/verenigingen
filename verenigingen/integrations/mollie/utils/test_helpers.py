@@ -341,6 +341,150 @@ def cancel_mollie_subscription(member_name):
 @frappe.whitelist()
 @development_only_api(operation_type=OperationType.UTILITY)
 @development_only()
+@audit_operation("mollie_customer_debug", "System")
+def debug_mollie_customer(customer_id):
+    """
+    Debug a specific Mollie customer using the proper MollieClient
+
+    Args:
+        customer_id (str): Mollie customer ID to debug
+
+    Returns:
+        dict: Customer information and subscriptions
+    """
+    try:
+        from ..core.client import MollieClient
+
+        # Initialize Mollie client (uses proper API key from settings)
+        client = MollieClient()
+
+        print(f"=== MOLLIE CUSTOMER DEBUG: {customer_id} ===")
+        print(f"Test mode: {client.is_test_mode()}")
+
+        result = {
+            "customer_id": customer_id,
+            "test_mode": client.is_test_mode(),
+            "customer_found": False,
+            "subscriptions": [],
+            "database_records": {"member": None, "donor": None},
+        }
+
+        # Try to get customer from Mollie API
+        try:
+            customer = client.get_customer(customer_id)
+            result["customer_found"] = True
+            result["customer_data"] = {
+                "id": customer.id,
+                "name": customer.name,
+                "email": customer.email,
+                "created_at": customer.created_at,
+                "mode": customer.mode,
+            }
+
+            print(f"✅ Customer found:")
+            print(f"  Name: {customer.name}")
+            print(f"  Email: {customer.email}")
+            print(f"  Created: {customer.created_at}")
+            print(f"  Mode: {customer.mode}")
+
+            # Get customer subscriptions using the Mollie client instance
+            mollie_client = client._get_mollie_client()
+            customer_obj = mollie_client.customers.get(customer_id)
+            subscriptions = customer_obj.subscriptions.list()
+
+            print(f"\n📋 Found {len(subscriptions)} subscriptions:")
+            for i, sub in enumerate(subscriptions, 1):
+                sub_data = {
+                    "id": sub.id,
+                    "status": sub.status,
+                    "amount": sub.amount,
+                    "interval": sub.interval,
+                    "description": sub.description,
+                    "next_payment_date": getattr(sub, "next_payment_date", None),
+                    "created_at": sub.created_at,
+                }
+                result["subscriptions"].append(sub_data)
+
+                print(f"  Subscription {i}:")
+                print(f"    ID: {sub.id}")
+                print(f"    Status: {sub.status}")
+                print(f"    Amount: {sub.amount['value']} {sub.amount['currency']}")
+                print(f"    Interval: {sub.interval}")
+                print(f"    Next Payment: {getattr(sub, 'next_payment_date', 'N/A')}")
+
+        except Exception as api_error:
+            result["api_error"] = str(api_error)
+            print(f"❌ API Error: {api_error}")
+
+        # Check database for this customer ID
+        print(f"\n🗄️ Database lookup:")
+
+        # Check Member records
+        members = frappe.get_all(
+            "Member",
+            filters={"mollie_customer_id": customer_id},
+            fields=["name", "full_name", "mollie_subscription_id", "subscription_status", "payment_method"],
+        )
+
+        if members:
+            member = members[0]
+            result["database_records"]["member"] = member
+            print(f"  Found in Member: {member.name} ({member.full_name})")
+            print(f"    Subscription ID: {member.mollie_subscription_id}")
+            print(f"    Payment Method: {member.payment_method}")
+            print(f"    Status: {member.subscription_status}")
+        else:
+            print("  Not found in Member records")
+
+        # Check Donor records
+        donors = frappe.get_all(
+            "Donor", filters={"mollie_customer_id": customer_id}, fields=["name", "donor_name", "member"]
+        )
+
+        if donors:
+            donor = donors[0]
+            result["database_records"]["donor"] = donor
+            print(f"  Found in Donor: {donor.name} ({donor.donor_name})")
+            print(f"    Linked Member: {donor.member}")
+        else:
+            print("  Not found in Donor records")
+
+        # Generate summary message
+        if result["customer_found"]:
+            summary = f"""✅ **Customer Debug Results for {customer_id}**
+
+**API Data:**
+- Name: {result['customer_data']['name']}
+- Email: {result['customer_data']['email']}
+- Mode: {result['customer_data']['mode']}
+- Subscriptions: {len(result['subscriptions'])}
+
+**Database:**
+- Member Record: {'✅ Found' if result['database_records']['member'] else '❌ Not found'}
+- Donor Record: {'✅ Found' if result['database_records']['donor'] else '❌ Not found'}"""
+        else:
+            summary = f"""❌ **Customer Debug Results for {customer_id}**
+
+**API Error:** {result.get('api_error', 'Unknown error')}
+
+**Database:**
+- Member Record: {'✅ Found' if result['database_records']['member'] else '❌ Not found'}
+- Donor Record: {'✅ Found' if result['database_records']['donor'] else '❌ Not found'}"""
+
+        frappe.msgprint(summary, title="Customer Debug Results", indicator="blue")
+
+        return result
+
+    except Exception as e:
+        error_msg = f"Error debugging customer: {str(e)}"
+        frappe.log_error(error_msg, "Mollie Customer Debug")
+        frappe.msgprint(f"❌ {error_msg}", title="Debug Error", indicator="red")
+        return {"error": error_msg}
+
+
+@frappe.whitelist()
+@development_only_api(operation_type=OperationType.UTILITY)
+@development_only()
 @audit_operation("mollie_test_suite", "System")
 def run_mollie_integration_test_suite():
     """

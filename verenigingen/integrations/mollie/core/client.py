@@ -337,3 +337,250 @@ class MollieClient:
         """
         site_url = frappe.utils.get_url()
         return f"{site_url}/api/method/verenigingen.utils.payment_gateways.{endpoint}"
+
+    # Debug and Administrative Methods
+
+    @with_retry(RetryConfig(max_attempts=2, base_delay=1.0))
+    @with_circuit_breaker(CircuitBreakerConfig())
+    def debug_customer(self, customer_id: str) -> Dict[str, Any]:
+        """
+        Get comprehensive customer debug information including subscriptions and mandates.
+
+        Args:
+            customer_id: Mollie customer ID
+
+        Returns:
+            Dict with customer data, subscriptions, mandates, and database records
+
+        Raises:
+            MolliePaymentError: If customer retrieval fails
+        """
+        try:
+            result = {
+                "customer_id": customer_id,
+                "test_mode": self.is_test_mode(),
+                "timestamp": frappe.utils.now(),
+                "customer_found": False,
+                "subscriptions": [],
+                "mandates": [],
+                "database_records": {"members": [], "donors": []},
+                "error": None,
+            }
+
+            # Get customer data
+            customer = self.get_customer(customer_id)
+            result["customer_found"] = True
+            result["customer_data"] = {
+                "id": getattr(customer, "id", "Unknown"),
+                "name": getattr(customer, "name", "Unknown"),
+                "email": getattr(customer, "email", "Unknown"),
+                "created_at": str(getattr(customer, "created_at", "Unknown")),
+                "mode": getattr(customer, "mode", "Unknown"),
+            }
+
+            # Get subscriptions and mandates using raw client for list operations
+            client = self._get_mollie_client()
+            customer_obj = client.customers.get(customer_id)
+
+            # Get subscriptions
+            subscriptions = customer_obj.subscriptions.list()
+            for sub in subscriptions:
+                amount_str = "Unknown"
+                try:
+                    if hasattr(sub, "amount") and sub.amount:
+                        if isinstance(sub.amount, dict):
+                            amount_str = f"{sub.amount.get('value', '0')} {sub.amount.get('currency', 'EUR')}"
+                        else:
+                            amount_str = str(sub.amount)
+                except Exception:
+                    amount_str = "Error parsing amount"
+
+                result["subscriptions"].append(
+                    {
+                        "id": getattr(sub, "id", "Unknown"),
+                        "status": getattr(sub, "status", "Unknown"),
+                        "amount": amount_str,
+                        "interval": getattr(sub, "interval", "Unknown"),
+                        "description": getattr(sub, "description", "Unknown"),
+                        "created_at": str(getattr(sub, "created_at", "Unknown")),
+                        "next_payment_date": str(getattr(sub, "next_payment_date", None))
+                        if getattr(sub, "next_payment_date", None)
+                        else None,
+                        "canceled_at": str(getattr(sub, "canceled_at", None))
+                        if getattr(sub, "canceled_at", None)
+                        else None,
+                    }
+                )
+
+            # Get mandates
+            mandates = customer_obj.mandates.list()
+            for mandate in mandates:
+                result["mandates"].append(
+                    {
+                        "id": getattr(mandate, "id", "Unknown"),
+                        "status": getattr(mandate, "status", "Unknown"),
+                        "method": getattr(mandate, "method", "Unknown"),
+                        "created_at": str(getattr(mandate, "created_at", "Unknown")),
+                        "mandate_reference": getattr(mandate, "mandate_reference", None),
+                        "signature_date": str(getattr(mandate, "signature_date", None))
+                        if getattr(mandate, "signature_date", None)
+                        else None,
+                    }
+                )
+
+            # Check database records
+            members = frappe.get_all(
+                "Member",
+                filters={"mollie_customer_id": customer_id},
+                fields=[
+                    "name",
+                    "full_name",
+                    "mollie_subscription_id",
+                    "subscription_status",
+                    "payment_method",
+                ],
+            )
+            result["database_records"]["members"] = members
+
+            donors = frappe.get_all(
+                "Donor", filters={"mollie_customer_id": customer_id}, fields=["name", "donor_name", "member"]
+            )
+            result["database_records"]["donors"] = donors
+
+            return result
+
+        except Exception as e:
+            error_msg = f"Failed to debug customer {customer_id}: {e}"
+            frappe.log_error(error_msg, "Mollie Client Debug")
+            raise MolliePaymentError(error_msg, customer_id=customer_id, original_error=e)
+
+    @with_retry(RetryConfig(max_attempts=2, base_delay=1.0))
+    @with_circuit_breaker(CircuitBreakerConfig())
+    def debug_subscription(self, customer_id: str, subscription_id: str) -> Dict[str, Any]:
+        """
+        Get detailed subscription debug information.
+
+        Args:
+            customer_id: Mollie customer ID
+            subscription_id: Mollie subscription ID
+
+        Returns:
+            Dict with subscription details
+
+        Raises:
+            MolliePaymentError: If subscription retrieval fails
+        """
+        try:
+            result = {
+                "subscription_id": subscription_id,
+                "customer_id": customer_id,
+                "test_mode": self.is_test_mode(),
+                "timestamp": frappe.utils.now(),
+                "subscription_found": False,
+                "error": None,
+            }
+
+            client = self._get_mollie_client()
+            customer_obj = client.customers.get(customer_id)
+            subscription = customer_obj.subscriptions.get(subscription_id)
+
+            result["subscription_found"] = True
+            result["subscription_data"] = {
+                "id": subscription.id,
+                "customer_id": subscription.customer_id,
+                "status": subscription.status,
+                "amount": f"{subscription.amount['value']} {subscription.amount['currency']}",
+                "interval": subscription.interval,
+                "description": subscription.description,
+                "created_at": subscription.created_at,
+                "next_payment_date": getattr(subscription, "next_payment_date", None),
+                "canceled_at": getattr(subscription, "canceled_at", None),
+                "metadata": getattr(subscription, "metadata", {}),
+            }
+
+            return result
+
+        except Exception as e:
+            error_msg = f"Failed to debug subscription {subscription_id}: {e}"
+            frappe.log_error(error_msg, "Mollie Client Debug")
+            raise MolliePaymentError(error_msg, subscription_id=subscription_id, original_error=e)
+
+    @with_retry(RetryConfig(max_attempts=2, base_delay=1.0))
+    @with_circuit_breaker(CircuitBreakerConfig())
+    def debug_mandate(self, customer_id: str, mandate_id: str) -> Dict[str, Any]:
+        """
+        Get detailed mandate debug information.
+
+        Args:
+            customer_id: Mollie customer ID
+            mandate_id: Mollie mandate ID
+
+        Returns:
+            Dict with mandate details
+
+        Raises:
+            MolliePaymentError: If mandate retrieval fails
+        """
+        try:
+            result = {
+                "mandate_id": mandate_id,
+                "customer_id": customer_id,
+                "test_mode": self.is_test_mode(),
+                "timestamp": frappe.utils.now(),
+                "mandate_found": False,
+                "error": None,
+            }
+
+            client = self._get_mollie_client()
+            customer_obj = client.customers.get(customer_id)
+            mandate = customer_obj.mandates.get(mandate_id)
+
+            result["mandate_found"] = True
+            result["mandate_data"] = {
+                "id": mandate.id,
+                "status": mandate.status,
+                "method": mandate.method,
+                "created_at": mandate.created_at,
+                "mandate_reference": getattr(mandate, "mandate_reference", None),
+                "signature_date": getattr(mandate, "signature_date", None),
+                "consumer_name": getattr(mandate, "consumer_name", None),
+                "consumer_account": getattr(mandate, "consumer_account", None),
+            }
+
+            return result
+
+        except Exception as e:
+            error_msg = f"Failed to debug mandate {mandate_id}: {e}"
+            frappe.log_error(error_msg, "Mollie Client Debug")
+            raise MolliePaymentError(error_msg, mandate_id=mandate_id, original_error=e)
+
+    @with_retry(RetryConfig(max_attempts=2, base_delay=1.0))
+    @with_circuit_breaker(CircuitBreakerConfig())
+    def revoke_mandate(self, customer_id: str, mandate_id: str) -> Any:
+        """
+        Revoke a customer's mandate.
+
+        Args:
+            customer_id: Mollie customer ID
+            mandate_id: Mandate ID to revoke
+
+        Returns:
+            Revoked mandate object
+
+        Raises:
+            MolliePaymentError: If mandate revocation fails
+        """
+        try:
+            client = self._get_mollie_client()
+            customer_obj = client.customers.get(customer_id)
+            revoked_mandate = customer_obj.mandates.delete(mandate_id)
+
+            frappe.logger().info(f"Mandate {mandate_id} revoked for customer {customer_id}")
+            return revoked_mandate
+
+        except Exception as e:
+            error_msg = f"Failed to revoke mandate {mandate_id} for customer {customer_id}: {e}"
+            frappe.log_error(error_msg, "Mollie Client")
+            raise MolliePaymentError(
+                error_msg, customer_id=customer_id, mandate_id=mandate_id, original_error=e
+            )

@@ -29,28 +29,60 @@
         {% endif %}
 
         {% if mollie_subscription %}
-        <div class="bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-lg mb-6">
+        <div class="bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-lg mb-6" id="mollie-subscription-section">
             <div class="flex items-start">
                 <i class="fa fa-credit-card mr-2 mt-0.5"></i>
                 <div class="flex-1">
-                    <strong>{{ _("Mollie Subscription Status:") }}</strong>
-                    <span class="capitalize">{{ mollie_subscription.status or _("Unknown") }}</span><br>
-                    {% if mollie_subscription.next_payment_date %}
-                    {{ _("Next payment:") }} {{ frappe.utils.formatdate(mollie_subscription.next_payment_date) }}<br>
-                    {% endif %}
-                    {{ _("Your membership fees are automatically processed via Mollie.") }}
+                    <strong>{{ _("Mollie Recurring Payment") }}</strong>
 
-                    {% if mollie_subscription.status == "active" %}
-                    <div class="mt-3">
-                        <button type="button"
-                                onclick="cancelSubscription()"
-                                class="inline-flex items-center px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm rounded-md transition-colors duration-200">
-                            <i class="fa fa-times mr-1"></i>
-                            {{ _("Cancel Subscription") }}
-                        </button>
+                    <!-- Subscription Table -->
+                    <div class="mt-3" id="subscription-details">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm" id="subscriptions-table">
+                                <thead class="bg-blue-100">
+                                    <tr>
+                                        <th class="px-3 py-2 text-left font-medium">{{ _("Description") }}</th>
+                                        <th class="px-3 py-2 text-left font-medium">{{ _("Amount") }}</th>
+                                        <th class="px-3 py-2 text-left font-medium">{{ _("Interval") }}</th>
+                                        <th class="px-3 py-2 text-left font-medium">{{ _("Status") }}</th>
+                                        <th class="px-3 py-2 text-left font-medium">{{ _("Next Payment") }}</th>
+                                        <th class="px-3 py-2 text-center font-medium">{{ _("Action") }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="subscriptions-table-body">
+                                    <!-- Table rows will be populated by JavaScript -->
+                                    <tr id="loading-row">
+                                        <td colspan="6" class="px-3 py-4 text-center text-gray-500">
+                                            <i class="fa fa-spinner fa-spin mr-2"></i>
+                                            {{ _("Loading subscription details...") }}
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                    {% endif %}
+
+                    <!-- Information about subscription vs mandate -->
+                    <div class="mt-3 p-2 bg-blue-100 rounded text-sm">
+                        <i class="fa fa-info-circle mr-1"></i>
+                        {{ _("This manages your automatic membership payments. Your SEPA mandate remains active for other payments.") }}
+                    </div>
+
                 </div>
+            </div>
+
+            <!-- Loading indicator for real-time data -->
+            <div id="subscription-loading" class="hidden">
+                <div class="flex items-center justify-center py-2">
+                    <i class="fa fa-spinner fa-spin mr-2"></i>
+                    <span class="text-sm">{{ _("Loading current subscription details...") }}</span>
+                </div>
+            </div>
+
+            <!-- Error message for real-time data -->
+            <div id="subscription-error" class="hidden mt-2 p-2 bg-red-100 border border-red-300 text-red-700 rounded text-sm">
+                <i class="fa fa-exclamation-triangle mr-1"></i>
+                <span id="subscription-error-message"></span>
             </div>
         </div>
         {% endif %}
@@ -60,8 +92,16 @@
             <div class="flex items-start">
                 <i class="fa fa-check-circle mr-2 mt-0.5"></i>
                 <div>
-                    <strong>{{ _("Subscription Cancelled Successfully") }}</strong><br>
-                    {{ _("Your Mollie subscription has been cancelled. No further automatic payments will be processed.") }}
+                    <strong>{{ _("Recurring Payment Cancelled Successfully") }}</strong><br>
+                    {{ _("Your automatic membership payments have been cancelled. Your SEPA mandate remains active for other payments.") }}
+                    <br><br>
+                    <div class="text-sm">
+                        <strong>{{ _("What this means:") }}</strong><br>
+                        • {{ _("No more automatic monthly/yearly charges") }}<br>
+                        • {{ _("Your bank account details remain on file") }}<br>
+                        • {{ _("Manual payments can still be processed") }}<br>
+                        • {{ _("You can set up a new subscription anytime") }}
+                    </div>
                 </div>
             </div>
         </div>
@@ -221,8 +261,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Mollie subscription cancellation
     window.cancelSubscription = function() {
-        const confirmMessage = '{{ _("Are you sure you want to cancel your Mollie subscription?") }}\n\n' +
-                              '{{ _("This will stop all automatic membership fee payments. You can still make manual payments.") }}\n\n' +
+        const confirmMessage = '{{ _("Cancel Recurring Payment") }}\n\n' +
+                              '{{ _("Are you sure you want to cancel your automatic membership payments?") }}\n\n' +
+                              '• {{ _("Your SEPA mandate will remain ACTIVE") }}\n' +
+                              '• {{ _("Other payments can still be processed") }}\n' +
+                              '• {{ _("Manual payments will still be possible") }}\n' +
+                              '• {{ _("This only cancels the recurring subscription") }}\n\n' +
                               '{{ _("This action cannot be undone.") }}';
 
         if (!confirm(confirmMessage)) {
@@ -255,6 +299,63 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .catch(error => {
             console.error('Subscription cancellation error:', error);
+            alert('{{ _("Error cancelling recurring payment:") }} ' + error.message);
+
+            // Restore button state
+            button.disabled = false;
+            button.innerHTML = originalText;
+        });
+    };
+
+    // Cancel specific subscription
+    window.cancelSpecificSubscription = function(customerId, subscriptionId) {
+        const confirmMessage = '{{ _("Cancel Specific Subscription") }}\n\n' +
+                              '{{ _("Are you sure you want to cancel this subscription?") }}\n\n' +
+                              `{{ _("Subscription ID:") }} ${subscriptionId}\n\n` +
+                              '• {{ _("Your SEPA mandate will remain ACTIVE") }}\n' +
+                              '• {{ _("Other subscriptions will continue running") }}\n' +
+                              '• {{ _("This action cannot be undone") }}';
+
+        if (!confirm(confirmMessage)) {
+            return;
+        }
+
+        // Show loading state
+        const button = event.target.closest('button');
+        const originalText = button.innerHTML;
+        button.disabled = true;
+        button.innerHTML = '<i class="fa fa-spinner fa-spin mr-1"></i>{{ _("Cancelling...") }}';
+
+        // Call the cancellation API with specific subscription
+        const formData = new FormData();
+        formData.append('customer_id', customerId);
+        formData.append('subscription_id', subscriptionId);
+
+        fetch('/api/method/verenigingen.templates.pages.bank_details.cancel_specific_subscription', {
+            method: 'POST',
+            headers: {
+                'X-Frappe-CSRF-Token': '{{ frappe.session.csrf_token }}'
+            },
+            body: formData
+        })
+        .then(response => {
+            if (response.ok) {
+                // Success - show success message and reload after brief delay
+                button.innerHTML = '<i class="fa fa-check mr-1"></i>{{ _("Cancelled") }}';
+                button.className = 'inline-flex items-center px-2 py-1 bg-gray-400 text-white text-xs rounded cursor-not-allowed';
+
+                // Reload subscription data after a brief delay to allow Mollie to update
+                setTimeout(() => {
+                    loadSubscriptionDetails();
+                }, 1500);
+            } else {
+                return response.json().then(data => {
+                    throw new Error(data.message || '{{ _("Failed to cancel subscription") }}');
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Subscription cancellation error:', error);
             alert('{{ _("Error cancelling subscription:") }} ' + error.message);
 
             // Restore button state
@@ -262,6 +363,279 @@ document.addEventListener('DOMContentLoaded', function() {
             button.innerHTML = originalText;
         });
     };
+
+    // Load real-time subscription data
+    function loadSubscriptionDetails() {
+        const mollieSection = document.getElementById('mollie-subscription-section');
+        if (!mollieSection) return; // No Mollie subscription section present
+
+        const loadingIndicator = document.getElementById('subscription-loading');
+        const errorIndicator = document.getElementById('subscription-error');
+
+        // Show loading indicator
+        if (loadingIndicator) {
+            loadingIndicator.classList.remove('hidden');
+        }
+
+        // Hide error indicator
+        if (errorIndicator) {
+            errorIndicator.classList.add('hidden');
+        }
+
+        fetch('/api/method/verenigingen.templates.pages.bank_details.get_subscription_details', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Frappe-CSRF-Token': '{{ frappe.session.csrf_token }}'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Hide loading indicator
+            if (loadingIndicator) {
+                loadingIndicator.classList.add('hidden');
+            }
+
+            if (data.message && data.message.status === 'success') {
+                updateMultipleSubscriptionsDisplay(data.message.subscriptions, data.message.total_customers);
+            } else if (data.message && data.message.status === 'fallback') {
+                // Show fallback message
+                showSubscriptionError(data.message.message || '{{ _("Using last known data") }}');
+            } else if (data.message && data.message.status === 'no_subscription') {
+                // Hide the section if no subscription
+                if (mollieSection) {
+                    mollieSection.style.display = 'none';
+                }
+            } else {
+                showSubscriptionError(data.message?.message || '{{ _("Error loading subscription details") }}');
+            }
+        })
+        .catch(error => {
+            console.error('Error loading subscription details:', error);
+
+            // Hide loading indicator
+            if (loadingIndicator) {
+                loadingIndicator.classList.add('hidden');
+            }
+
+            showSubscriptionError('{{ _("Unable to load current subscription details") }}');
+        });
+    }
+
+    function updateMultipleSubscriptionsDisplay(subscriptions, totalCustomers) {
+        console.log('Updating display for', subscriptions.length, 'subscriptions from', totalCustomers, 'customers');
+
+        const tableBody = document.getElementById('subscriptions-table-body');
+        const loadingRow = document.getElementById('loading-row');
+
+        if (!tableBody) return;
+
+        // Remove loading row
+        if (loadingRow) {
+            loadingRow.remove();
+        }
+
+        // Clear existing rows
+        tableBody.innerHTML = '';
+
+        if (!subscriptions || subscriptions.length === 0) {
+            const noDataRow = document.createElement('tr');
+            noDataRow.innerHTML = `
+                <td colspan="6" class="px-3 py-4 text-center text-gray-500">
+                    {{ _("No active subscriptions found") }}
+                </td>
+            `;
+            tableBody.appendChild(noDataRow);
+            return;
+        }
+
+        // Sort subscriptions: active first, then by amount (highest first)
+        const sortedSubscriptions = subscriptions.sort((a, b) => {
+            if (a.subscription && b.subscription) {
+                // Active status priority
+                if (a.subscription.is_active !== b.subscription.is_active) {
+                    return b.subscription.is_active ? 1 : -1;
+                }
+                // Then by amount (descending)
+                return (b.subscription.amount || 0) - (a.subscription.amount || 0);
+            }
+            return 0;
+        });
+
+        // Add table rows for each subscription
+        sortedSubscriptions.forEach(subInfo => {
+            if (!subInfo.subscription) {
+                // Customer without subscription data
+                const row = document.createElement('tr');
+                row.className = 'border-b border-blue-200';
+                row.innerHTML = `
+                    <td class="px-3 py-2 text-gray-500" colspan="6">
+                        {{ _("Customer found but no subscription details available") }}
+                        ${subInfo.donor_name ? `(${subInfo.donor_name})` : ''}
+                    </td>
+                `;
+                tableBody.appendChild(row);
+                return;
+            }
+
+            const sub = subInfo.subscription;
+            const row = document.createElement('tr');
+            row.className = 'border-b border-blue-200 hover:bg-blue-25';
+
+            // Status styling
+            const statusClass = sub.is_active ? 'text-green-600' : 'text-red-600';
+            const statusText = sub.status.charAt(0).toUpperCase() + sub.status.slice(1);
+
+            // Description with source info
+            const sourceText = subInfo.source === 'member' ? '{{ _("Membership") }}' : '{{ _("Donation") }}';
+            const description = sub.description || `${sourceText} ${subInfo.source === 'donor' && subInfo.donor_name ? `(${subInfo.donor_name})` : ''}`;
+
+            row.innerHTML = `
+                <td class="px-3 py-2">
+                    <div class="font-medium">${description}</div>
+                    <div class="text-xs text-gray-500">${sourceText}</div>
+                </td>
+                <td class="px-3 py-2 font-medium">
+                    ${formatCurrency(sub.amount, sub.currency)}
+                </td>
+                <td class="px-3 py-2">
+                    ${formatInterval(sub.interval)}
+                </td>
+                <td class="px-3 py-2">
+                    <span class="capitalize font-medium ${statusClass}">${statusText}</span>
+                </td>
+                <td class="px-3 py-2">
+                    ${sub.next_payment_date ? formatDate(sub.next_payment_date) : '{{ _("N/A") }}'}
+                </td>
+                <td class="px-3 py-2 text-center">
+                    ${sub.is_active ? `
+                        <button type="button"
+                                onclick="cancelSpecificSubscription('${subInfo.customer_id}', '${sub.id}')"
+                                class="inline-flex items-center px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded transition-colors duration-200"
+                                title="{{ _('Cancel this subscription') }}">
+                            <i class="fa fa-times mr-1"></i>
+                            {{ _("Cancel") }}
+                        </button>
+                    ` : `
+                        <span class="text-gray-400 text-xs">{{ _("Cancelled") }}</span>
+                    `}
+                </td>
+            `;
+
+            tableBody.appendChild(row);
+        });
+
+        // Show multiple customers badge if needed
+        if (totalCustomers > 1) {
+            const mollieSection = document.getElementById('mollie-subscription-section');
+            if (mollieSection) {
+                const existingBadge = mollieSection.querySelector('.customer-count-badge');
+                if (!existingBadge) {
+                    const badge = document.createElement('span');
+                    badge.className = 'customer-count-badge inline-block bg-blue-200 text-blue-800 text-xs px-2 py-1 rounded-full ml-2';
+                    badge.textContent = totalCustomers + ' {{ _("Mollie accounts") }}';
+
+                    const header = mollieSection.querySelector('strong');
+                    if (header) {
+                        header.appendChild(badge);
+                    }
+                }
+            }
+        }
+    }
+
+    function updateSubscriptionDisplay(subscription) {
+        // Update status
+        const statusElement = document.getElementById('subscription-status');
+        if (statusElement && subscription.status) {
+            statusElement.textContent = subscription.status.charAt(0).toUpperCase() + subscription.status.slice(1);
+
+            // Update status color based on status
+            statusElement.className = 'font-medium capitalize';
+            if (subscription.status === 'active') {
+                statusElement.classList.add('text-green-600');
+            } else if (subscription.status === 'cancelled') {
+                statusElement.classList.add('text-red-600');
+            } else {
+                statusElement.classList.add('text-gray-600');
+            }
+        }
+
+        // Update amount
+        if (subscription.amount && subscription.currency) {
+            const amountRow = document.getElementById('subscription-amount-row');
+            const amountElement = document.getElementById('subscription-amount');
+            if (amountRow && amountElement) {
+                amountElement.textContent = formatCurrency(subscription.amount, subscription.currency);
+                amountRow.classList.remove('hidden');
+            }
+        }
+
+        // Update interval
+        if (subscription.interval) {
+            const intervalRow = document.getElementById('subscription-interval-row');
+            const intervalElement = document.getElementById('subscription-interval');
+            if (intervalRow && intervalElement) {
+                intervalElement.textContent = formatInterval(subscription.interval);
+                intervalRow.classList.remove('hidden');
+            }
+        }
+
+        // Update next payment date
+        if (subscription.next_payment_date) {
+            const nextPaymentElement = document.getElementById('next-payment-date');
+            if (nextPaymentElement) {
+                nextPaymentElement.textContent = formatDate(subscription.next_payment_date);
+            }
+        }
+    }
+
+    function showSubscriptionError(message) {
+        const errorIndicator = document.getElementById('subscription-error');
+        const errorMessage = document.getElementById('subscription-error-message');
+        if (errorIndicator && errorMessage) {
+            errorMessage.textContent = message;
+            errorIndicator.classList.remove('hidden');
+        }
+    }
+
+    function formatCurrency(amount, currency) {
+        try {
+            return new Intl.NumberFormat('nl-NL', {
+                style: 'currency',
+                currency: currency || 'EUR'
+            }).format(amount);
+        } catch (e) {
+            return (currency || 'EUR') + ' ' + parseFloat(amount).toFixed(2);
+        }
+    }
+
+    function formatInterval(interval) {
+        const intervals = {
+            '1 month': '{{ _("Monthly") }}',
+            '3 months': '{{ _("Quarterly") }}',
+            '6 months': '{{ _("Semi-annually") }}',
+            '1 year': '{{ _("Annually") }}',
+            '12 months': '{{ _("Annually") }}'
+        };
+        return intervals[interval] || interval;
+    }
+
+    function formatDate(dateString) {
+        try {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('nl-NL', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+        } catch (e) {
+            return dateString;
+        }
+    }
+
+    // Load subscription details on page load
+    loadSubscriptionDetails();
 });
 </script>
 {% endblock %}
