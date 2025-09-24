@@ -54,20 +54,24 @@ class EmailTemplateValidator:
             template_name = template.get('name', 'Unknown')
             subject = template.get('subject', '') or ''
             response = template.get('response', '') or ''
-            
+            response_html = template.get('response_html', '') or ''
+
             # Validate Jinja2 syntax
             subject_issues = self._validate_jinja2_syntax(subject, f"{template_name} subject")
             response_issues = self._validate_jinja2_syntax(response, f"{template_name} response")
-            
+            response_html_issues = self._validate_jinja2_syntax(response_html, f"{template_name} response_html")
+
             fixture_issues.extend(subject_issues)
             fixture_issues.extend(response_issues)
-            
+            fixture_issues.extend(response_html_issues)
+
             # Check for completeness
             if not subject.strip():
                 fixture_issues.append(f"Template '{template_name}': Empty subject")
-            
-            if not response.strip():
-                fixture_issues.append(f"Template '{template_name}': Empty response")
+
+            # Check that at least one response field has content
+            if not response.strip() and not response_html.strip():
+                fixture_issues.append(f"Template '{template_name}': Empty response (both response and response_html are empty)")
         
         self.issues.extend(fixture_issues)
         return len(fixture_issues) == 0

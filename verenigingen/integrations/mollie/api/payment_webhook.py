@@ -30,6 +30,9 @@ def handle_mollie_payment_webhook():
     """
 
     try:
+        # Validate webhook signature first for security
+        _validate_webhook_signature()
+
         # Get webhook data
         data = frappe.local.form_dict
         payment_id = data.get("id")
@@ -111,30 +114,59 @@ def handle_mollie_payment_webhook():
             frappe.response.http_status_code = 502
             return {"status": "error", "message": f"Failed to fetch payment from Mollie: {e}"}
 
-        if payment.status != "paid":
-            frappe.logger().info(f"⏭️ Payment {payment_id} status: {payment.status} - not processing")
+        # Handle different payment statuses
+        if payment.status == "paid":
+            # Find related donation for successful payments
+            donation = find_donation_for_payment(payment_id, payment)
+            if not donation:
+                # Try to find member for subscription payments
+                member = find_member_for_payment(payment_id, payment)
+                if member:
+                    frappe.logger().info(f"✅ Processing successful member subscription payment {payment_id}")
+                    result = process_successful_member_payment(member, payment)
+                    return {
+                        "status": "success",
+                        "message": "Member subscription payment processed",
+                        "data": result,
+                    }
+
+                frappe.logger().error(f"❌ No donation or member found for payment {payment_id}")
+                frappe.response.http_status_code = 404
+                return {"status": "error", "message": "No donation or member found for payment"}
+
+            # Process donation payment with idempotency protection
+            idempotency_status = check_payment_processing_status(donation, payment_id)
+            result = process_successful_payment_with_idempotency(donation, payment, idempotency_status)
+
+        elif payment.status in ["failed", "expired", "canceled"]:
+            # Handle failed payments
+            frappe.logger().info(f"❌ Processing failed payment {payment_id} with status: {payment.status}")
+            result = process_failed_payment(payment_id, payment)
+            return {
+                "status": "success",
+                "message": f"Failed payment processed: {payment.status}",
+                "data": result,
+            }
+
+        else:
+            # Handle other statuses (open, pending, authorized)
+            frappe.logger().info(
+                f"⏭️ Payment {payment_id} status: {payment.status} - acknowledged but not processed"
+            )
             return {"status": "success", "message": f"Payment status: {payment.status}"}
-
-        # Find related donation
-        donation = find_donation_for_payment(payment_id, payment)
-        if not donation:
-            frappe.logger().error(f"❌ No donation found for payment {payment_id}")
-            frappe.response.http_status_code = 404
-            return {"status": "error", "message": "No donation found for payment"}
-
-        # Check idempotency for this specific donation
-        idempotency_status = check_payment_processing_status(donation, payment_id)
-
-        # Process payment with idempotency protection
-        result = process_successful_payment_with_idempotency(donation, payment, idempotency_status)
 
         frappe.logger().info(f"✅ Webhook processing complete for {payment_id}")
         return {"status": "success", "message": "Payment processed successfully", "data": result}
 
     except Exception as e:
         frappe.log_error(f"Webhook processing failed: {e}", "Mollie Webhook")
-        frappe.response.http_status_code = 500
-        return {"status": "error", "message": "Internal server error", "error": str(e)}
+        frappe.logger().error(f"❌ Critical webhook error - returning success to prevent retries: {e}")
+        # Return HTTP 200 to prevent Mollie webhook retries that could overwhelm system
+        return {
+            "status": "error_logged",
+            "message": "Processing failed - logged for manual review",
+            "payment_id": payment_id,
+        }
 
 
 # ==================================================================================
@@ -894,3 +926,441 @@ def _create_customer_for_donor(donor_doc):
     except Exception as e:
         frappe.logger().error("❌ Failed to create customer for donor %s: %s", donor_doc.name, str(e))
         return None
+
+
+def find_member_for_payment(payment_id, payment):
+    """
+    Find member record associated with this payment
+
+    Matching strategy:
+    1. By subscription_id if this is a subscription payment
+    2. By customer_id + timestamp window for regular member payments
+    3. By payment metadata if available
+    """
+    try:
+        # Method 1: Direct subscription payment
+        if hasattr(payment, "subscription_id") and payment.subscription_id:
+            frappe.logger().info(f"🔍 Looking for member with subscription_id: {payment.subscription_id}")
+            member_name = frappe.db.get_value(
+                "Member", {"mollie_subscription_id": payment.subscription_id}, "name"
+            )
+            if member_name:
+                frappe.logger().info(f"✅ Found member via subscription_id: {member_name}")
+                return frappe.get_doc("Member", member_name)
+
+        # Method 2: By customer_id (for one-time member payments)
+        if hasattr(payment, "customer_id") and payment.customer_id:
+            frappe.logger().info(f"🔍 Looking for member with customer_id: {payment.customer_id}")
+            member_name = frappe.db.get_value("Member", {"mollie_customer_id": payment.customer_id}, "name")
+            if member_name:
+                frappe.logger().info(f"✅ Found member via customer_id: {member_name}")
+                return frappe.get_doc("Member", member_name)
+
+        # Method 3: Check metadata for member_id
+        if hasattr(payment, "metadata") and payment.metadata:
+            metadata = payment.metadata if isinstance(payment.metadata, dict) else {}
+            member_id = metadata.get("member_id")
+            if member_id and frappe.db.exists("Member", member_id):
+                frappe.logger().info(f"✅ Found member via metadata: {member_id}")
+                return frappe.get_doc("Member", member_id)
+
+        frappe.logger().info(f"❌ No member found for payment {payment_id}")
+        return None
+
+    except Exception as e:
+        frappe.logger().error(f"❌ Error finding member for payment {payment_id}: {e}")
+        return None
+
+
+def process_successful_member_payment(member, payment):
+    """
+    Process successful member subscription payment
+    """
+    try:
+        frappe.logger().info(f"🔄 Processing successful payment for member {member.name}")
+
+        # Extract payment data
+        mollie_data = extract_mollie_payment_data(payment)
+
+        # Update member payment history
+        member.append(
+            "payment_history",
+            {
+                "payment_date": frappe.utils.getdate(),
+                "amount": _validate_payment_amount(payment),
+                "payment_method": "Mollie",
+                "payment_reference": payment.id,
+                "payment_status": "Paid",
+                "mollie_payment_id": payment.id,
+                "mollie_subscription_id": getattr(payment, "subscription_id", None),
+                "remarks": f"Subscription payment via {mollie_data.get('method', 'Unknown')}",
+            },
+        )
+
+        # Update next payment date if this is a subscription
+        if hasattr(payment, "subscription_id") and payment.subscription_id:
+            # Get subscription details to calculate next payment date
+            from verenigingen.integrations.mollie.services.subscription_service import SubscriptionService
+
+            subscription_service = SubscriptionService()
+
+            try:
+                sub_status = subscription_service.get_subscription_status(
+                    member.mollie_customer_id, payment.subscription_id
+                )
+                if sub_status.get("next_payment_date"):
+                    member.next_payment_date = sub_status["next_payment_date"]
+
+            except Exception as e:
+                frappe.logger().warning(f"⚠️ Could not update next payment date: {e}")
+
+        member.save()  # Webhook user has proper permissions via role assignment
+
+        frappe.logger().info(f"✅ Successfully processed member payment for {member.name}")
+
+        return {
+            "member_id": member.name,
+            "payment_id": payment.id,
+            "amount": mollie_data.get("amount"),
+            "method": mollie_data.get("method"),
+            "status": "processed",
+        }
+
+    except Exception as e:
+        frappe.logger().error(f"❌ Error processing member payment: {e}")
+        frappe.log_error(f"Member payment processing failed: {e}", "Member Payment Processing")
+        raise
+
+
+def process_failed_payment(payment_id, payment):
+    """
+    Process failed payment for both donations and member subscriptions
+    """
+    try:
+        frappe.logger().info(f"🔄 Processing failed payment {payment_id}")
+
+        # Extract payment data
+        mollie_data = extract_mollie_payment_data(payment)
+
+        results = {
+            "payment_id": payment_id,
+            "status": payment.status,
+            "amount": mollie_data.get("amount"),
+            "method": mollie_data.get("method"),
+            "processed_records": [],
+        }
+
+        # Try to find related donation first
+        donation = find_donation_for_payment(payment_id, payment)
+        if donation:
+            frappe.logger().info(f"📝 Recording failed payment for donation {donation.name}")
+
+            # Add failed payment to donation history
+            donation.append(
+                "payments",
+                {
+                    "payment_date": frappe.utils.getdate(),
+                    "amount": donation.amount,
+                    "payment_method": "Mollie",
+                    "payment_id": payment_id,
+                    "payment_reference": payment_id,
+                    "payment_status": f"Failed ({payment.status})",
+                    "mollie_payment_id": payment_id,
+                    "remarks": f"Payment failed: {payment.status}",
+                },
+            )
+
+            donation.save()  # Webhook user has proper permissions via role assignment
+            results["processed_records"].append(
+                {"type": "donation", "id": donation.name, "status": "failed_payment_recorded"}
+            )
+
+        # Try to find related member
+        member = find_member_for_payment(payment_id, payment)
+        if member:
+            frappe.logger().info(f"📝 Recording failed payment for member {member.name}")
+
+            # Use database transaction to ensure atomic operations
+            frappe.db.begin()
+            try:
+                # Add failed payment to member history with subscription ID
+                member.append(
+                    "payment_history",
+                    {
+                        "payment_date": frappe.utils.getdate(),
+                        "amount": _validate_payment_amount(payment),
+                        "payment_method": "Mollie",
+                        "payment_reference": payment_id,
+                        "payment_status": f"Failed ({payment.status})",
+                        "mollie_payment_id": payment_id,
+                        "mollie_subscription_id": getattr(payment, "subscription_id", None),
+                        "remarks": f"Subscription payment failed: {payment.status}",
+                    },
+                )
+
+                # Handle subscription failures
+                if hasattr(payment, "subscription_id") and payment.subscription_id:
+                    # Check if subscription needs status update
+                    if payment.status == "failed":
+                        # Get current failure count BEFORE adding this failure to prevent race condition
+                        current_failure_count = _get_subscription_failure_count(
+                            member.name, payment.subscription_id
+                        )
+                        new_failure_count = (
+                            current_failure_count + 1
+                        )  # Account for the failure we're about to save
+
+                        frappe.logger().info(
+                            f"📊 Failure count for subscription {payment.subscription_id}: {current_failure_count} -> {new_failure_count}"
+                        )
+
+                        # Save the failure record within transaction
+                        member.save()  # Webhook user has proper permissions via role assignment
+                        frappe.db.commit()
+
+                        # Trigger member notification with accurate failure count
+                        _notify_member_of_payment_failure(member, payment, new_failure_count)
+
+                        results["processed_records"].append(
+                            {"type": "member", "id": member.name, "status": "failed_payment_recorded"}
+                        )
+                        return  # Early return - transaction already committed
+
+                # Save member record within transaction
+                member.save()  # Webhook user has proper permissions via role assignment
+                frappe.db.commit()
+
+                results["processed_records"].append(
+                    {"type": "member", "id": member.name, "status": "failed_payment_recorded"}
+                )
+
+            except Exception as member_error:
+                frappe.db.rollback()
+                frappe.logger().error(f"❌ Failed to save member payment failure: {member_error}")
+                # Continue processing - don't fail entire webhook for one member save error
+
+        if not donation and not member:
+            frappe.logger().warning(f"⚠️ No donation or member found for failed payment {payment_id}")
+            results["warning"] = "No associated record found"
+
+        frappe.logger().info(f"✅ Failed payment processing complete for {payment_id}")
+        return results
+
+    except Exception as e:
+        frappe.logger().error(f"❌ Error processing failed payment {payment_id}: {e}")
+        frappe.log_error(f"Failed payment processing error: {e}", "Failed Payment Processing")
+
+        # Return success to Mollie to prevent webhook retries
+        # Critical payment info is already logged for manual review
+        return {
+            "payment_id": payment_id,
+            "status": "processing_error",
+            "error": str(e),
+            "message": "Error logged for manual review - webhook acknowledged",
+        }
+
+
+def _get_subscription_failure_count(member_name, subscription_id):
+    """
+    Get failure count atomically from database to prevent race conditions
+
+    Args:
+        member_name: Member document name
+        subscription_id: Mollie subscription ID
+
+    Returns:
+        int: Number of failed payments for this subscription
+    """
+    try:
+        # Query the Member Payment History child table directly
+        failure_count = frappe.db.count(
+            "Member Payment History",
+            {
+                "parent": member_name,
+                "mollie_subscription_id": subscription_id,
+                "payment_status": ["like", "%Failed%"],
+            },
+        )
+
+        frappe.logger().info(f"🔍 Atomic failure count query for {member_name}: {failure_count}")
+        return failure_count
+
+    except Exception as e:
+        frappe.logger().error(f"❌ Error counting subscription failures: {e}")
+        return 0  # Safe fallback
+
+
+def _validate_payment_amount(payment):
+    """
+    Safely extract and validate payment amount with comprehensive error handling
+
+    Args:
+        payment: Mollie payment object
+
+    Returns:
+        float: Payment amount or 0.0 if invalid/unavailable
+    """
+    try:
+        # Handle None payment object
+        if not payment:
+            frappe.logger().warning("⚠️ Payment object is None")
+            return 0.0
+
+        amount_obj = getattr(payment, "amount", None)
+
+        # Handle missing amount entirely
+        if not amount_obj:
+            frappe.logger().warning(f"⚠️ Payment {getattr(payment, 'id', 'unknown')} has no amount field")
+            return 0.0
+
+        # Handle dictionary format (API response)
+        if isinstance(amount_obj, dict):
+            value = amount_obj.get("value", 0)
+            if value in [None, "", "0", "0.00"]:
+                frappe.logger().warning(
+                    f"⚠️ Payment {getattr(payment, 'id', 'unknown')} has zero/empty amount"
+                )
+                return 0.0
+            return float(value)
+
+        # Handle object format (SDK object)
+        elif hasattr(amount_obj, "value"):
+            value = getattr(amount_obj, "value", 0)
+            if value in [None, "", "0", "0.00"]:
+                frappe.logger().warning(
+                    f"⚠️ Payment {getattr(payment, 'id', 'unknown')} has zero/empty amount"
+                )
+                return 0.0
+            return float(value)
+
+        # Handle direct numeric value
+        elif isinstance(amount_obj, (int, float, str)):
+            value = float(amount_obj)
+            if value == 0.0:
+                frappe.logger().warning(f"⚠️ Payment {getattr(payment, 'id', 'unknown')} has zero amount")
+            return value
+
+        # Unknown format
+        else:
+            frappe.logger().error(
+                f"⚠️ Unknown amount format for payment {getattr(payment, 'id', 'unknown')}: {type(amount_obj)}"
+            )
+            return 0.0
+
+    except (ValueError, AttributeError, TypeError) as e:
+        frappe.logger().error(
+            f"❌ Payment amount validation error for payment {getattr(payment, 'id', 'unknown')}: {e}"
+        )
+        return 0.0
+
+
+def _validate_webhook_signature():
+    """
+    Validate Mollie webhook signature using webhook secret key
+
+    Raises:
+        frappe.PermissionError: If signature validation fails
+    """
+    try:
+        # Get request data
+        request_body = frappe.request.get_data(as_text=True) if frappe.request else ""
+        signature_header = frappe.request.headers.get("X-Mollie-Signature") if frappe.request else None
+
+        if not signature_header:
+            frappe.logger().warning("⚠️ No X-Mollie-Signature header found in webhook request")
+            frappe.throw("Missing webhook signature", frappe.PermissionError)
+
+        # Get webhook secret from Mollie Settings
+        mollie_settings = frappe.get_single("Mollie Settings")
+        webhook_secret = mollie_settings.get_webhook_secret()
+
+        if not webhook_secret:
+            frappe.logger().error("❌ No webhook secret configured in Mollie Settings")
+            frappe.throw("Webhook secret not configured", frappe.PermissionError)
+
+        # Calculate expected signature
+        import hmac
+        import hashlib
+
+        expected_signature = hmac.new(
+            webhook_secret.encode('utf-8'),
+            request_body.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+
+        # Compare signatures (constant time comparison for security)
+        if not hmac.compare_digest(signature_header, expected_signature):
+            frappe.logger().error(f"❌ Webhook signature validation failed")
+            frappe.throw("Invalid webhook signature", frappe.PermissionError)
+
+        frappe.logger().info("✅ Webhook signature validated successfully")
+
+    except frappe.PermissionError:
+        raise  # Re-raise permission errors
+    except Exception as e:
+        frappe.logger().error(f"❌ Webhook signature validation error: {e}")
+        frappe.throw(f"Webhook validation failed: {e}", frappe.PermissionError)
+
+
+def _notify_member_of_payment_failure(member, payment, failure_count):
+    """
+    Notify member of payment failure and take appropriate action
+    """
+    try:
+        # Import email service
+        from verenigingen.services.communication.email_service import get_email_service
+
+        frappe.logger().info(
+            f"📧 Notifying member {member.name} of payment failure (attempt #{failure_count})"
+        )
+
+        # Determine email template based on failure count
+        if failure_count == 1:
+            template_name = "payment_failure_first"
+        elif failure_count == 2:
+            template_name = "payment_failure_second"
+        else:
+            template_name = "payment_failure_final"
+
+        # Check if template exists, fallback to generic if not
+        if not frappe.db.exists("Email Template", template_name):
+            template_name = "payment_failure_generic"
+
+        # If generic template doesn't exist either, log and continue
+        if not frappe.db.exists("Email Template", template_name):
+            frappe.logger().warning(f"⚠️ No payment failure email template found")
+            return
+
+        # Send notification email
+        email_service = get_email_service()
+
+        context = {
+            "member": member,
+            "payment": payment,
+            "failure_count": failure_count,
+            "payment_status": payment.status,
+            "amount": _validate_payment_amount(payment),
+            "next_payment_date": member.next_payment_date,
+        }
+
+        result = email_service.send_templated_email(
+            template_name=template_name,
+            recipients=[member.email],
+            context=context,
+            reference_doctype="Member",
+            reference_name=member.name,
+        )
+
+        if result.get("status") == "success":
+            frappe.logger().info(f"✅ Payment failure notification sent to {member.email}")
+        else:
+            frappe.logger().warning(
+                f"⚠️ Failed to send payment failure notification: {result.get('message')}"
+            )
+
+    except Exception as e:
+        frappe.logger().error(f"❌ Error sending payment failure notification: {e}")
+        frappe.log_error(
+            f"Payment failure notification error for member {member.name}: {e}", "Payment Notification Error"
+        )
+        # Don't raise - notification failure shouldn't stop payment processing

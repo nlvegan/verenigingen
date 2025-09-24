@@ -364,17 +364,103 @@ def _update_local_subscription_records(subscription_status: Dict[str, Any]) -> D
 
 
 def _update_member_subscription_status(member, subscription_status: Dict[str, Any]) -> Dict[str, Any]:
-    """Update member subscription status."""
+    """Update member subscription status with failure handling."""
     try:
-        member.subscription_status = subscription_status["status"]
+        old_status = member.subscription_status
+        new_status = subscription_status["status"]
+
+        member.subscription_status = new_status
         member.next_payment_date = subscription_status.get("next_payment_date")
+
+        # Handle status change notifications
+        if old_status != new_status:
+            _handle_subscription_status_change(member, old_status, new_status, subscription_status)
+
         member.save(ignore_permissions=True)
 
         return {
             "updated": True,
-            "status": subscription_status["status"],
+            "status": new_status,
+            "previous_status": old_status,
             "next_payment_date": subscription_status.get("next_payment_date"),
         }
 
     except Exception as e:
         return {"updated": False, "error": str(e)}
+
+
+def _handle_subscription_status_change(member, old_status, new_status, subscription_status):
+    """Handle subscription status changes with appropriate notifications."""
+    try:
+        frappe.logger().info(f"🔄 Subscription status change for {member.name}: {old_status} → {new_status}")
+
+        # Handle transitions to problematic states
+        if new_status in ["canceled", "suspended"] and old_status in ["active", "pending"]:
+            frappe.logger().warning(f"⚠️ Subscription {new_status} for member {member.name}")
+
+            # Send notification email if member has email
+            if member.email:
+                _notify_subscription_status_change(member, old_status, new_status, subscription_status)
+
+            # Log the status change for audit purposes
+            frappe.log_error(
+                f"Subscription status changed to {new_status} for member {member.name} (was: {old_status})",
+                "Subscription Status Change",
+            )
+
+        # Handle reactivation
+        elif new_status == "active" and old_status in ["canceled", "suspended"]:
+            frappe.logger().info(f"✅ Subscription reactivated for member {member.name}")
+
+    except Exception as e:
+        frappe.logger().error(f"❌ Error handling subscription status change: {e}")
+        # Don't raise - status update is more important than notification
+
+
+def _notify_subscription_status_change(member, old_status, new_status, subscription_status):
+    """Send notification email for subscription status changes."""
+    try:
+        from verenigingen.services.communication.email_service import get_email_service
+
+        # Determine appropriate template
+        template_name = None
+        if new_status == "canceled":
+            template_name = "subscription_cancelled"
+        elif new_status == "suspended":
+            template_name = "subscription_suspended"
+
+        if not template_name:
+            return
+
+        # Check if template exists
+        if not frappe.db.exists("Email Template", template_name):
+            frappe.logger().warning(f"⚠️ Email template {template_name} not found")
+            return
+
+        # Send notification
+        email_service = get_email_service()
+
+        context = {
+            "member": member,
+            "old_status": old_status,
+            "new_status": new_status,
+            "subscription_status": subscription_status,
+            "subscription_id": subscription_status.get("id"),
+            "next_payment_date": subscription_status.get("next_payment_date"),
+        }
+
+        result = email_service.send_templated_email(
+            template_name=template_name,
+            recipients=[member.email],
+            context=context,
+            reference_doctype="Member",
+            reference_name=member.name,
+        )
+
+        if result.get("status") == "success":
+            frappe.logger().info(f"✅ Subscription status notification sent to {member.email}")
+        else:
+            frappe.logger().warning(f"⚠️ Failed to send status notification: {result.get('message')}")
+
+    except Exception as e:
+        frappe.logger().error(f"❌ Error sending subscription status notification: {e}")

@@ -180,8 +180,13 @@
                     </button>
                 </div>
 
-                <!-- Customer Search Section -->
-                <div class="mt-6 p-4 border border-gray-300 rounded-lg bg-green-50">
+                <!-- Customer Debug Result -->
+                <div id="customer-result" class="result-area" style="display: none;"></div>
+            </div>
+
+            <!-- Customer Search Section -->
+            <div class="debug-card mt-6">
+                <div class="p-4 border border-gray-300 rounded-lg bg-green-50">
                     <h3 class="text-lg font-semibold text-green-800 mb-2">
                         <i class="fa fa-search mr-2"></i>{{ _("Search Customers by Name") }}
                     </h3>
@@ -206,14 +211,15 @@
                     </div>
                     <div id="customer-search-result" class="result-area" style="display: none;"></div>
                 </div>
+            </div>
 
-                <!-- Customer List Section -->
-                <div class="mt-6 p-4 border border-gray-300 rounded-lg bg-blue-50">
+            <!-- Customer List Section -->
+            <div class="debug-card mt-6">
+                <div class="p-4 border border-gray-300 rounded-lg bg-blue-50">
                     <h3 class="text-lg font-semibold text-blue-800 mb-2">
                         <i class="fa fa-list mr-2"></i>{{ _("Customer ID Lookup") }}
                     </h3>
                     <p class="text-blue-700 mb-4">{{ _("List recent customers to easily find and copy customer IDs") }}</p>
-
                     <div class="flex gap-4 items-end">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Limit") }}</label>
@@ -228,11 +234,8 @@
                             <i class="fa fa-list mr-1"></i>{{ _("List Customers") }}
                         </button>
                     </div>
-
                     <div id="customer-list-result" class="result-area" style="display: none;"></div>
                 </div>
-
-                <div id="customer-result" class="result-area" style="display: none;"></div>
             </div>
         </div>
 
@@ -292,6 +295,7 @@
 
         <!-- Payment Debug Tab -->
         <div id="payment-tab" class="tab-content">
+            <!-- Individual Payment Debug -->
             <div class="debug-card">
                 <h2 class="text-xl font-semibold mb-4">{{ _("Payment Debug") }}</h2>
                 <p class="text-gray-600 mb-4">{{ _("Debug individual payments with comprehensive details") }}</p>
@@ -309,11 +313,15 @@
                 </button>
 
                 <div id="payment-result" class="result-area" style="display: none;"></div>
+            </div>
 
-                <!-- Payment List Section -->
-                <div class="mt-8 p-4 border-t border-gray-200">
-                    <h3 class="text-lg font-medium mb-3">{{ _("List Payments") }}</h3>
-                    <p class="text-gray-600 mb-4">{{ _("List recent payments with optional filtering") }}</p>
+            <!-- Payment List Section -->
+            <div class="debug-card mt-6">
+                <div class="p-4 border border-gray-300 rounded-lg bg-purple-50">
+                    <h3 class="text-lg font-semibold text-purple-800 mb-2">
+                        <i class="fa fa-list mr-2"></i>{{ _("List Payments") }}
+                    </h3>
+                    <p class="text-purple-700 mb-4">{{ _("List recent payments with optional filtering") }}</p>
 
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                         <div>
@@ -440,136 +448,143 @@
 
         <!-- Admin Actions Tab -->
         <div id="admin-tab" class="tab-content">
-            <div class="debug-card">
-                <h2 class="text-xl font-semibold mb-4 text-red-600">{{ _("Administrative Actions") }}</h2>
-                <p class="text-gray-600 mb-4">{{ _("Dangerous operations - use with extreme caution") }}</p>
+            <div class="mb-4">
+                <h2 class="text-2xl font-semibold mb-2 text-red-600">{{ _("Administrative Actions") }}</h2>
+                <p class="text-gray-600">{{ _("Dangerous operations - use with extreme caution") }}</p>
+            </div>
 
-                <!-- Cancel Subscription -->
-                <div class="mb-6 p-4 border border-red-200 rounded-lg">
-                    <h3 class="text-lg font-medium text-red-700 mb-3">{{ _("Cancel Subscription") }}</h3>
-                    <div class="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-700">
-                        <i class="fa fa-info-circle mr-1"></i>{{ _("Status messages will appear at the bottom of this page after clicking the button") }}
+            <!-- Cancel Subscription Section -->
+            <div class="debug-card mb-6">
+                <h3 class="text-lg font-medium text-red-700 mb-3">{{ _("Cancel Subscription") }}</h3>
+                <p class="text-gray-600 mb-4">{{ _("Cancel an active Mollie subscription for a customer") }}</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID") }}</label>
+                        <input type="text" id="cancel-customer-id" class="debug-input"
+                               placeholder="cst_xxxxxxxxxx" value="cst_DNZCrmyjcR">
                     </div>
-
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID") }}</label>
-                            <input type="text" id="cancel-customer-id" class="debug-input"
-                                   placeholder="cst_xxxxxxxxxx" value="cst_DNZCrmyjcR">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Subscription ID") }}</label>
-                            <input type="text" id="cancel-subscription-id" class="debug-input"
-                                   placeholder="sub_xxxxxxxxxx">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Reason") }}</label>
-                            <input type="text" id="cancel-reason" class="debug-input"
-                                   placeholder="Administrative cancellation" value="Debug page cancellation">
-                        </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Subscription ID") }}</label>
+                        <input type="text" id="cancel-subscription-id" class="debug-input"
+                               placeholder="sub_xxxxxxxxxx">
                     </div>
-
-                    <button onclick="adminCancelSubscription()" class="danger-button">
-                        <i class="fa fa-times mr-1"></i>{{ _("Cancel Subscription") }}
-                    </button>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Reason") }}</label>
+                        <input type="text" id="cancel-reason" class="debug-input"
+                               placeholder="Administrative cancellation" value="Debug page cancellation">
+                    </div>
                 </div>
 
-                <!-- Revoke Mandate -->
-                <div class="mb-6 p-4 border border-red-200 rounded-lg">
-                    <h3 class="text-lg font-medium text-red-700 mb-3">{{ _("Revoke Mandate") }}</h3>
-                    <div class="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-700">
-                        <i class="fa fa-info-circle mr-1"></i>{{ _("Status messages will appear at the bottom of this page after clicking the button") }}
-                    </div>
+                <button onclick="adminCancelSubscription()" class="danger-button">
+                    <i class="fa fa-times mr-1"></i>{{ _("Cancel Subscription") }}
+                </button>
 
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID") }}</label>
-                            <input type="text" id="revoke-customer-id" class="debug-input"
-                                   placeholder="cst_xxxxxxxxxx" value="cst_DNZCrmyjcR">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Mandate ID") }}</label>
-                            <input type="text" id="revoke-mandate-id" class="debug-input"
-                                   placeholder="mdt_xxxxxxxxxx">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Reason") }}</label>
-                            <input type="text" id="revoke-reason" class="debug-input"
-                                   placeholder="Administrative revocation" value="Debug page revocation">
-                        </div>
-                    </div>
+                <!-- Cancel Subscription Result -->
+                <div id="cancel-subscription-result" class="result-area" style="display: none;"></div>
+            </div>
 
-                    <button onclick="adminRevokeMandate()" class="danger-button">
-                        <i class="fa fa-ban mr-1"></i>{{ _("Revoke Mandate") }}
-                    </button>
+            <!-- Revoke Mandate Section -->
+            <div class="debug-card mb-6">
+                <h3 class="text-lg font-medium text-red-700 mb-3">{{ _("Revoke Mandate") }}</h3>
+                <p class="text-gray-600 mb-4">{{ _("Revoke a SEPA direct debit mandate for a customer") }}</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID") }}</label>
+                        <input type="text" id="revoke-customer-id" class="debug-input"
+                               placeholder="cst_xxxxxxxxxx" value="cst_DNZCrmyjcR">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Mandate ID") }}</label>
+                        <input type="text" id="revoke-mandate-id" class="debug-input"
+                               placeholder="mdt_xxxxxxxxxx">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Reason") }}</label>
+                        <input type="text" id="revoke-reason" class="debug-input"
+                               placeholder="Administrative revocation" value="Debug page revocation">
+                    </div>
                 </div>
 
-                <!-- Cancel Payment -->
-                <div class="mb-6 p-4 border border-red-200 rounded-lg">
-                    <h3 class="text-lg font-medium text-red-700 mb-3">{{ _("Cancel Payment") }}</h3>
-                    <div class="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-700">
-                        <i class="fa fa-info-circle mr-1"></i>{{ _("Status messages will appear at the bottom of this page after clicking the button") }}
-                    </div>
+                <button onclick="adminRevokeMandate()" class="danger-button">
+                    <i class="fa fa-ban mr-1"></i>{{ _("Revoke Mandate") }}
+                </button>
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Payment ID") }}</label>
-                            <input type="text" id="cancel-payment-id" class="debug-input"
-                                   placeholder="tr_xxxxxxxxxx">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Reason") }}</label>
-                            <input type="text" id="cancel-payment-reason" class="debug-input"
-                                   placeholder="Administrative cancellation" value="Debug page cancellation">
-                        </div>
-                    </div>
+                <!-- Revoke Mandate Result -->
+                <div id="revoke-mandate-result" class="result-area" style="display: none;"></div>
+            </div>
 
-                    <div class="mb-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-700">
-                        <i class="fa fa-exclamation-triangle mr-1"></i>{{ _("Note: Only pending/open payments can be cancelled. Paid, failed, or expired payments cannot be cancelled.") }}
-                    </div>
+            <!-- Cancel Payment Section -->
+            <div class="debug-card mb-6">
+                <h3 class="text-lg font-medium text-red-700 mb-3">{{ _("Cancel Payment") }}</h3>
+                <p class="text-gray-600 mb-4">{{ _("Cancel a pending payment transaction") }}</p>
 
-                    <button onclick="adminCancelPayment()" class="danger-button">
-                        <i class="fa fa-stop mr-1"></i>{{ _("Cancel Payment") }}
-                    </button>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Payment ID") }}</label>
+                        <input type="text" id="cancel-payment-id" class="debug-input"
+                               placeholder="tr_xxxxxxxxxx">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Reason") }}</label>
+                        <input type="text" id="cancel-payment-reason" class="debug-input"
+                               placeholder="Administrative cancellation" value="Debug page cancellation">
+                    </div>
                 </div>
 
-                <!-- Customer Deletion (NUCLEAR OPTION) -->
-                <div class="mt-8 p-4 border-2 border-red-500 rounded-lg bg-red-50">
-                    <h3 class="text-lg font-semibold text-red-800 mb-2">
-                        <i class="fa fa-skull-crossbones mr-2"></i>{{ _("DANGER ZONE: Delete Customer") }}
-                    </h3>
-                    <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-                        <strong>{{ _("WARNING:") }}</strong> {{ _("This will permanently delete the customer AND automatically cancel ALL subscriptions and mandates. This action cannot be undone!") }}
-                        <br><br>
-                        <strong>{{ _("RESTRICTED TO:") }}</strong> {{ _("Verenigingen Administrator role only") }}
+                <div class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <div class="text-sm text-yellow-700">
+                        <i class="fa fa-exclamation-triangle mr-1"></i>
+                        <strong>{{ _("Note:") }}</strong> {{ _("Only pending/open payments can be cancelled. Paid, failed, or expired payments cannot be cancelled.") }}
                     </div>
-
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                        <div>
-                            <label class="block text-sm font-medium text-red-700 mb-1">{{ _("Customer ID") }}</label>
-                            <input type="text" id="delete-customer-id" class="debug-input border-red-300"
-                                   placeholder="cst_xxxxxxxxxx">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-red-700 mb-1">{{ _("Deletion Reason") }}</label>
-                            <input type="text" id="delete-reason" class="debug-input border-red-300"
-                                   placeholder="Critical administrative cleanup">
-                        </div>
-                        <div class="md:col-span-2">
-                            <label class="block text-sm font-medium text-red-700 mb-1">
-                                {{ _("Type exactly") }} <strong>"DELETE CUSTOMER"</strong> {{ _("to confirm") }}:
-                            </label>
-                            <input type="text" id="delete-confirmation" class="debug-input border-red-300"
-                                   placeholder="DELETE CUSTOMER">
-                        </div>
-                    </div>
-
-                    <button onclick="adminDeleteCustomer()" class="bg-red-700 hover:bg-red-800 text-white px-6 py-2 rounded-lg font-medium">
-                        <i class="fa fa-trash-alt mr-2"></i>{{ _("DELETE CUSTOMER (IRREVERSIBLE)") }}
-                    </button>
                 </div>
 
-                <div id="admin-result" class="result-area" style="display: none;"></div>
+                <button onclick="adminCancelPayment()" class="danger-button">
+                    <i class="fa fa-stop mr-1"></i>{{ _("Cancel Payment") }}
+                </button>
+
+                <!-- Cancel Payment Result -->
+                <div id="cancel-payment-result" class="result-area" style="display: none;"></div>
+            </div>
+
+            <!-- Delete Customer Section (DANGER ZONE) -->
+            <div class="debug-card border-2 border-red-500 bg-red-50">
+                <h3 class="text-lg font-semibold text-red-800 mb-2">
+                    <i class="fa fa-skull-crossbones mr-2"></i>{{ _("DANGER ZONE: Delete Customer") }}
+                </h3>
+                <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+                    <strong>{{ _("WARNING:") }}</strong> {{ _("This will permanently delete the customer AND automatically cancel ALL subscriptions and mandates. This action cannot be undone!") }}
+                    <br><br>
+                    <strong>{{ _("RESTRICTED TO:") }}</strong> {{ _("Verenigingen Administrator role only") }}
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-red-700 mb-1">{{ _("Customer ID") }}</label>
+                        <input type="text" id="delete-customer-id" class="debug-input border-red-300"
+                               placeholder="cst_xxxxxxxxxx">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-red-700 mb-1">{{ _("Deletion Reason") }}</label>
+                        <input type="text" id="delete-reason" class="debug-input border-red-300"
+                               placeholder="Critical administrative cleanup">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-red-700 mb-1">
+                            {{ _("Type exactly") }} <strong>"DELETE CUSTOMER"</strong> {{ _("to confirm") }}:
+                        </label>
+                        <input type="text" id="delete-confirmation" class="debug-input border-red-300"
+                               placeholder="DELETE CUSTOMER">
+                    </div>
+                </div>
+
+                <button onclick="adminDeleteCustomer()" class="bg-red-700 hover:bg-red-800 text-white px-6 py-2 rounded-lg font-medium">
+                    <i class="fa fa-trash-alt mr-2"></i>{{ _("DELETE CUSTOMER (IRREVERSIBLE)") }}
+                </button>
+
+                <!-- Delete Customer Result -->
+                <div id="delete-customer-result" class="result-area" style="display: none;"></div>
             </div>
         </div>
     </div>
@@ -721,7 +736,7 @@ function adminCancelSubscription() {
         return;
     }
 
-    showLoading('admin-result', '{{ _("Cancelling subscription...") }}');
+    showLoading('cancel-subscription-result', '{{ _("Cancelling subscription...") }}');
 
     const formData = new FormData();
     formData.append('customer_id', customerId);
@@ -741,7 +756,7 @@ function adminCancelSubscription() {
             // Handle different status types properly
             const status = data.message.status;
             const displayType = status === 'warning' ? 'warning' : (status === 'success' ? 'success' : 'error');
-            displayResult('admin-result', formatAdminResult(data.message, 'Subscription Cancellation'), displayType);
+            displayResult('cancel-subscription-result', formatAdminResult(data.message, 'Subscription Cancellation'), displayType);
 
             // Clear form fields on success
             if (status === 'success') {
@@ -750,11 +765,11 @@ function adminCancelSubscription() {
                 document.getElementById('cancel-reason').value = 'Debug page cancellation';
             }
         } else {
-            displayResult('admin-result', 'Error: Invalid response format', 'error');
+            displayResult('cancel-subscription-result', 'Error: Invalid response format', 'error');
         }
     })
     .catch(error => {
-        displayResult('admin-result', `Error: ${error.message}`, 'error');
+        displayResult('cancel-subscription-result', `Error: ${error.message}`, 'error');
     });
 }
 
@@ -779,7 +794,7 @@ function adminRevokeMandate() {
         return;
     }
 
-    showLoading('admin-result', '{{ _("Revoking mandate...") }}');
+    showLoading('revoke-mandate-result', '{{ _("Revoking mandate...") }}');
 
     const formData = new FormData();
     formData.append('customer_id', customerId);
@@ -799,13 +814,13 @@ function adminRevokeMandate() {
             // Handle different status types
             const status = data.message.status;
             const displayType = status === 'warning' ? 'warning' : (status === 'success' ? 'success' : 'error');
-            displayResult('admin-result', formatAdminResult(data.message, 'Mandate Revocation'), displayType);
+            displayResult('revoke-mandate-result', formatAdminResult(data.message, 'Mandate Revocation'), displayType);
         } else {
-            displayResult('admin-result', 'Error: Invalid response format', 'error');
+            displayResult('revoke-mandate-result', 'Error: Invalid response format', 'error');
         }
     })
     .catch(error => {
-        displayResult('admin-result', `Error: ${error.message}`, 'error');
+        displayResult('revoke-mandate-result', `Error: ${error.message}`, 'error');
     });
 }
 
@@ -945,7 +960,7 @@ function adminDeleteCustomer() {
         return;
     }
 
-    showLoading('admin-result', '{{ _("🚨 DELETING CUSTOMER AND ALL DATA...") }}');
+    showLoading('delete-customer-result', '{{ _("🚨 DELETING CUSTOMER AND ALL DATA...") }}');
 
     const formData = new FormData();
     formData.append('customer_id', customerId);
@@ -965,7 +980,7 @@ function adminDeleteCustomer() {
         if (data.exc_type || data.exception) {
             // Frappe threw an exception - extract the error message
             const errorMsg = data.exception || data._server_messages || 'Unknown error occurred';
-            displayResult('admin-result', `<div class="error">Error: ${errorMsg}</div>`, 'error');
+            displayResult('delete-customer-result', `<div class="error">Error: ${errorMsg}</div>`, 'error');
             return;
         }
 
@@ -975,7 +990,7 @@ function adminDeleteCustomer() {
             // Handle different status types
             const status = result.status;
             const displayType = status === 'warning' ? 'warning' : (status === 'success' ? 'success' : 'error');
-            displayResult('admin-result', formatCustomerDeletionResult(result), displayType);
+            displayResult('delete-customer-result', formatCustomerDeletionResult(result), displayType);
 
             // Clear form on success
             if (status === 'success') {
@@ -984,11 +999,11 @@ function adminDeleteCustomer() {
                 document.getElementById('delete-confirmation').value = '';
             }
         } else {
-            displayResult('admin-result', 'Error: Invalid response format', 'error');
+            displayResult('delete-customer-result', 'Error: Invalid response format', 'error');
         }
     })
     .catch(error => {
-        displayResult('admin-result', `Error: ${error.message}`, 'error');
+        displayResult('delete-customer-result', `Error: ${error.message}`, 'error');
     });
 }
 
@@ -1739,7 +1754,7 @@ function adminCancelPayment() {
         return;
     }
 
-    showLoading('admin-result', '{{ _("Cancelling payment...") }}');
+    showLoading('cancel-payment-result', '{{ _("Cancelling payment...") }}');
 
     const formData = new FormData();
     formData.append('payment_id', paymentId);
@@ -1759,14 +1774,14 @@ function adminCancelPayment() {
             console.log('Found data.message:', data.message);
             const status = data.message.status;
             const displayType = status === 'warning' ? 'warning' : (status === 'success' ? 'success' : 'error');
-            displayResult('admin-result', formatAdminResult(data.message, 'Payment Cancellation'), displayType);
+            displayResult('cancel-payment-result', formatAdminResult(data.message, 'Payment Cancellation'), displayType);
         } else {
             console.log('No data.message found, full response:', data);
-            displayResult('admin-result', 'Error: Invalid response format', 'error');
+            displayResult('cancel-payment-result', 'Error: Invalid response format', 'error');
         }
     })
     .catch(error => {
-        displayResult('admin-result', `Error: ${error.message}`, 'error');
+        displayResult('cancel-payment-result', `Error: ${error.message}`, 'error');
     });
 }
 
