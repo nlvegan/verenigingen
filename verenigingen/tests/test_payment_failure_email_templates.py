@@ -70,7 +70,7 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
                         <h1>Test {template_name}</h1>
                         <p>Dear {{{{ member.first_name|e }}}},</p>
                         <p>Payment Status: {{{{ payment_status|e }}}}</p>
-                        <p>Amount: €{{{{ amount|floatformat:2|e }}}}</p>
+                        <p>Amount: €{{{{ "%.2f"|format(amount)|e }}}}</p>
                         <p>Failure Count: {{{{ failure_count|e }}}}</p>
                         <p>Next Payment: {{{{ next_payment_date|e }}}}</p>
                     </div>
@@ -152,9 +152,8 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
             )
             self.assertEqual(call_kwargs["context"]["failure_count"], failure_count)
 
-    @patch('frappe.db.exists')
     @patch('verenigingen.services.communication.email_service.get_email_service')
-    def test_email_template_fallback_mechanism(self, mock_get_service, mock_db_exists):
+    def test_email_template_fallback_mechanism(self, mock_get_service):
         """Test fallback to generic template when specific template doesn't exist"""
         from verenigingen.integrations.mollie.api.payment_webhook import _notify_member_of_payment_failure
 
@@ -163,31 +162,33 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
         mock_email_service.send_templated_email.return_value = {"status": "success"}
         mock_get_service.return_value = mock_email_service
 
-        # Mock template existence check - first template doesn't exist, generic does
-        def mock_exists(doctype, name):
-            if doctype == "Email Template":
-                if name == "payment_failure_first":
-                    return False  # Specific template doesn't exist
-                elif name == "payment_failure_generic":
-                    return True   # Generic fallback exists
-            return True
+        # Create only the generic email template in the database (real data, not mocked)
+        # This ensures payment_failure_first doesn't exist but payment_failure_generic does
+        if not frappe.db.exists("Email Template", "payment_failure_generic"):
+            frappe.get_doc({
+                "doctype": "Email Template",
+                "name": "payment_failure_generic",
+                "subject": "Payment Failed - Generic",
+                "response": "Your payment has failed. Please try again."
+            }).insert(ignore_permissions=True)
 
-        mock_db_exists.side_effect = mock_exists
+        # Ensure the specific template doesn't exist (delete if present)
+        if frappe.db.exists("Email Template", "payment_failure_first"):
+            frappe.delete_doc("Email Template", "payment_failure_first", ignore_permissions=True)
 
         # Mock payment
         mock_payment = Mock()
         mock_payment.status = "failed"
 
-        # Test fallback behavior
+        # Test fallback behavior with real database state
         _notify_member_of_payment_failure(self.test_member, mock_payment, 1)
 
         # Verify fallback template was used
         call_kwargs = mock_email_service.send_templated_email.call_args[1]
         self.assertEqual(call_kwargs["template_name"], "payment_failure_generic")
 
-    @patch('frappe.db.exists')
     @patch('verenigingen.services.communication.email_service.get_email_service')
-    def test_email_template_missing_graceful_handling(self, mock_get_service, mock_db_exists):
+    def test_email_template_missing_graceful_handling(self, mock_get_service):
         """Test graceful handling when no email templates exist"""
         from verenigingen.integrations.mollie.api.payment_webhook import _notify_member_of_payment_failure
 
@@ -195,8 +196,11 @@ class TestPaymentFailureEmailTemplates(EnhancedTestCase):
         mock_email_service = Mock()
         mock_get_service.return_value = mock_email_service
 
-        # Mock template existence check - no templates exist
-        mock_db_exists.return_value = False
+        # Ensure no email templates exist in the database (real data, not mocked)
+        template_names = ["payment_failure_first", "payment_failure_second", "payment_failure_final", "payment_failure_generic"]
+        for template_name in template_names:
+            if frappe.db.exists("Email Template", template_name):
+                frappe.delete_doc("Email Template", template_name, ignore_permissions=True)
 
         # Mock payment
         mock_payment = Mock()

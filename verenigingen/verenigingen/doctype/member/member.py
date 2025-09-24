@@ -2025,13 +2025,8 @@ class Member(
             ):
                 return
 
-            # Start transaction for sync operations
-            transaction_started = False
-            if not frappe.db.in_transaction():
-                frappe.db.begin()
-                transaction_started = True
-
             # Get current and previous chapter membership history
+            # Note: Transaction management removed - Frappe handles this automatically
             current_history = self.get("chapter_membership_history") or []
 
             # Compare with database version to detect changes
@@ -2076,34 +2071,22 @@ class Member(
                     # Entry was deleted - sync removal
                     self._sync_chapter_membership_removal(db_entry)
 
-            # Commit transaction if we started it
-            if transaction_started:
-                frappe.db.commit()
-
         except frappe.DoesNotExistError as e:
-            if transaction_started:
-                frappe.db.rollback()
             frappe.log_error(
                 f"Chapter or Chapter Member record not found during sync for member {self.name}: {str(e)}",
                 "Chapter Membership Sync Error",
             )
         except frappe.ValidationError as e:
-            if transaction_started:
-                frappe.db.rollback()
             frappe.log_error(
                 f"Validation error during chapter membership sync for member {self.name}: {str(e)}",
                 "Chapter Membership Sync Error",
             )
         except frappe.PermissionError as e:
-            if transaction_started:
-                frappe.db.rollback()
             frappe.log_error(
                 f"Permission denied during chapter membership sync for member {self.name}: {str(e)}",
                 "Chapter Membership Sync Error",
             )
         except Exception as e:
-            if transaction_started:
-                frappe.db.rollback()
             frappe.log_error(
                 f"Unexpected error during chapter membership sync for member {self.name}: {str(e)}",
                 "Chapter Membership Sync Error",
@@ -2121,13 +2104,8 @@ class Member(
             ):
                 return
 
-            # Start transaction for sync operations
-            transaction_started = False
-            if not frappe.db.in_transaction():
-                frappe.db.begin()
-                transaction_started = True
-
             # Check if this member has a volunteer record
+            # Note: Transaction management removed - Frappe handles this automatically
             volunteer_record = frappe.db.get_value("Volunteer", {"member": self.name}, "name")
             if not volunteer_record:
                 return  # No volunteer record to sync to
@@ -2199,22 +2177,16 @@ class Member(
                 "Volunteer Assignment Sync Error",
             )
         except frappe.ValidationError as e:
-            if transaction_started:
-                frappe.db.rollback()
             frappe.log_error(
                 f"Validation error during volunteer assignment sync for member {self.name}: {str(e)}",
                 "Volunteer Assignment Sync Error",
             )
         except frappe.PermissionError as e:
-            if transaction_started:
-                frappe.db.rollback()
             frappe.log_error(
                 f"Permission denied during volunteer assignment sync for member {self.name}: {str(e)}",
                 "Volunteer Assignment Sync Error",
             )
         except Exception as e:
-            if transaction_started:
-                frappe.db.rollback()
             frappe.log_error(
                 f"Unexpected error during volunteer assignment sync for member {self.name}: {str(e)}",
                 "Volunteer Assignment Sync Error",

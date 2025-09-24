@@ -2473,9 +2473,9 @@ class EnhancedTestCase(FrappeTestCase):
         }
         
         # Add optional fields
-        for field in ["belastingdienst_reportable", "anbi_agreement_number", "periodic_donation_agreement", 
+        for field in ["belastingdienst_reportable", "anbi_agreement_number", "periodic_donation_agreement",
                      "campaign", "donation_type", "status", "donation_purpose_type", "donation_notes",
-                     "company"]:
+                     "company", "payment_id"]:
             if field in kwargs:
                 donation_data[field] = kwargs[field]
                 

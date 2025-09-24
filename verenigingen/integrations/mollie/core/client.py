@@ -325,18 +325,51 @@ class MollieClient:
             frappe.log_error(error_msg, "Mollie Client")
             raise MolliePaymentError(error_msg, payment_id=payment_id, original_error=e)
 
-    def get_webhook_url(self, endpoint: str = "mollie_payment_webhook") -> str:
+    def get_webhook_url(self, endpoint: str = "mollie_payment_webhook", env: str = None) -> str:
         """
-        Get the webhook URL for this site.
+        Get the webhook URL for this site with environment parameter.
 
         Args:
             endpoint: The webhook endpoint name
+            env: Environment parameter ("test" or "live"). If None, auto-detects from current mode.
 
         Returns:
-            Full webhook URL
+            Full webhook URL with environment parameter
         """
         site_url = frappe.utils.get_url()
-        return f"{site_url}/api/method/verenigingen.utils.payment_gateways.{endpoint}"
+        base_url = f"{site_url}/api/method/verenigingen.utils.payment_gateways.{endpoint}"
+
+        # Use explicit env parameter if provided, otherwise auto-detect
+        if env is not None:
+            env_param = env
+        else:
+            # Auto-detect environment from Mollie Settings test_mode flag
+            try:
+                mollie_settings = frappe.get_single("Mollie Settings")
+                env_param = "test" if mollie_settings.test_mode else "live"
+            except frappe.DoesNotExistError as e:
+                frappe.log_error(f"Mollie Settings not configured: {e}", "Mollie Client Config")
+                frappe.logger().warning(
+                    "Mollie Settings not found, using API key fallback for environment detection"
+                )
+                env_param = "test" if self.is_test_mode() else "live"
+            except frappe.PermissionError as e:
+                frappe.log_error(
+                    f"Permission denied accessing Mollie Settings: {e}", "Mollie Client Security"
+                )
+                # Permission errors should not silently fallback - this is a security concern
+                from verenigingen.integrations.mollie.exceptions import MolliePaymentError
+
+                raise MolliePaymentError("Insufficient permissions to access Mollie configuration")
+            except Exception as e:
+                frappe.log_error(
+                    f"Unexpected error accessing Mollie Settings for webhook URL: {e}",
+                    "Mollie Client Webhook URL",
+                )
+                # Still provide fallback but log the unexpected error
+                env_param = "test" if self.is_test_mode() else "live"
+
+        return f"{base_url}?env={env_param}"
 
     # Debug and Administrative Methods
 

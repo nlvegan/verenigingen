@@ -38,22 +38,83 @@ def mollie_payment_webhook():
     Webhook endpoint for one-time payments
 
     Alternative webhook URL for Mollie dashboard configuration.
-    Forwards to the same unified webhook handler.
+    Handles ping events directly, forwards others to unified handler.
     """
     frappe.logger().info("🔄 Payment webhook endpoint called")
-    frappe.logger().info(
-        f"🔄 Request headers: {dict(frappe.request.headers) if frappe.request else 'No request'}"
-    )
 
-    payload = frappe.request.get_data(as_text=True) if frappe.request else ""
-    frappe.logger().info(f"🔄 Payment webhook payload preview: {payload[:200]}...")
+    # CRITICAL: Log ALL raw webhook data BEFORE any processing
+    try:
+        headers = dict(frappe.request.headers) if frappe.request else {}
+        payload = frappe.request.get_data(as_text=True) if frappe.request else ""
+        form_data = frappe.local.form_dict or {}
 
-    # Redirect to the working webhook handler
-    from verenigingen.integrations.mollie.api.payment_webhook import (
-        handle_mollie_payment_webhook as working_handler,
-    )
+        # Create comprehensive raw webhook log
+        raw_webhook_data = {
+            "timestamp": frappe.utils.now(),
+            "headers": headers,
+            "raw_payload": payload,
+            "form_data": form_data,
+            "method": frappe.request.method if frappe.request else None,
+            "url": frappe.request.url if frappe.request else None,
+            "content_type": frappe.request.content_type if frappe.request else None,
+        }
 
-    return working_handler()
+        # Log to both frappe.log AND create a debug file
+        frappe.logger().error(f"🔍 RAW WEBHOOK DATA: {frappe.as_json(raw_webhook_data)}")
+
+        # Also save to Error Log for persistence
+        frappe.log_error(
+            title=f"Raw Webhook Debug - {frappe.utils.now()}",
+            message=f"Raw webhook data:\n{frappe.as_json(raw_webhook_data, indent=2)}",
+        )
+
+        frappe.logger().info(f"🔄 Request headers: {headers}")
+        frappe.logger().info(f"🔄 Payment webhook payload preview: {payload[:200]}...")
+
+    except Exception as e:
+        frappe.logger().error(f"❌ Failed to log raw webhook data: {e}")
+
+    # Check for ping events AFTER logging raw data
+    # Handle JSON ping events
+    if payload:
+        try:
+            webhook_data = frappe.parse_json(payload)
+            if webhook_data.get("resource") == "event" and webhook_data.get("type") == "hook.ping":
+                frappe.logger().info("✅ Webhook ping event received - responding with success")
+                # Log ping-specific data
+                frappe.logger().error(f"🏓 PING EVENT RAW DATA: {frappe.as_json(raw_webhook_data)}")
+                return {"status": "success", "message": "Webhook ping received"}
+        except:
+            pass  # Not JSON, continue to regular processing
+
+    # Handle form data ping events
+    form_data = frappe.local.form_dict or {}
+    if form_data.get("type") == "hook.ping":
+        frappe.logger().info("✅ Webhook ping event received (form data) - responding with success")
+        # Log ping-specific data
+        frappe.logger().error(f"🏓 PING EVENT RAW DATA: {frappe.as_json(raw_webhook_data)}")
+        return {"status": "success", "message": "Webhook ping received"}
+
+    # Handle different webhook formats from Mollie
+    # Payment webhooks: form data without signatures
+    # Event webhooks: JSON with signatures
+
+    if headers.get("Content-Type") == "application/x-www-form-urlencoded":
+        # This is a payment webhook (form data, no signature expected)
+        frappe.logger().info("🔧 Processing form data payment webhook (no signature required)")
+        from verenigingen.integrations.mollie.api.payment_webhook import (
+            handle_mollie_payment_webhook as working_handler,
+        )
+
+        return working_handler()
+    else:
+        # This is a JSON webhook (event/ping, signature required)
+        frappe.logger().info("🔧 Processing JSON event webhook (signature required)")
+        from verenigingen.integrations.mollie.api.payment_webhook import (
+            handle_mollie_payment_webhook as working_handler,
+        )
+
+        return working_handler()
 
 
 @frappe.whitelist(allow_guest=True)

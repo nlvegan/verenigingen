@@ -286,7 +286,7 @@ class MemberFinancialHistoryManager:
                             doc=self.member,
                             justification=f"Background update {self.history_field} for member {self.member.name}",
                             required_permissions=["Member:write"],
-                            allow_system_user=False,  # Still require proper permissions
+                            allow_system_user=True,  # Allow system user for background operations
                             bypass_validations=["link_validation"],
                         )
                         if result.success:
@@ -298,7 +298,7 @@ class MemberFinancialHistoryManager:
                         doc=self.member,
                         justification=f"Update {self.history_field} for member {self.member.name}",
                         required_permissions=["Member:write"],
-                        allow_system_user=False,
+                        allow_system_user=True,  # Allow system user for interactive operations with proper permissions
                         bypass_validations=["link_validation"],
                     )
 
@@ -306,10 +306,14 @@ class MemberFinancialHistoryManager:
                     # ✅ FIX: Let Frappe handle transaction commit automatically
                     return True
                 else:
-                    # Log detailed permission errors for debugging
+                    # Log concise permission errors to prevent title truncation
                     error_details = "; ".join(result.errors)
+                    # Truncate error message to prevent cascading truncation errors
+                    truncated_error = (
+                        (error_details[:50] + "...") if len(error_details) > 50 else error_details
+                    )
                     frappe.log_error(
-                        f"Financial history save failed for {self.member.name}: {error_details}",
+                        f"Financial history save failed for {self.member.name}: {truncated_error}",
                         "Financial History Permission Error",
                     )
                     return False
@@ -350,8 +354,11 @@ class MemberFinancialHistoryManager:
                     # ✅ FIX: Let Frappe handle transaction rollback automatically on exceptions
                     continue
                 else:
+                    # Truncate error message to prevent cascading truncation errors
+                    error_msg = str(e)
+                    truncated_error = (error_msg[:50] + "...") if len(error_msg) > 50 else error_msg
                     frappe.log_error(
-                        f"Save failed for {self.member.name} after {max_retries} retries: {str(e)}",
+                        f"Save failed for {self.member.name} after {max_retries} retries: {truncated_error}",
                         "Financial History Save Error",
                     )
                     return False

@@ -331,9 +331,11 @@ class SecureMollieWebhookHandler:
                 "amount": {"currency": currency, "value": f"{float(amount):.2f}"},
                 "interval": self._convert_interval_format(recurring_frequency),
                 "description": f"Recurring donation - {donor}",
-                "webhookUrl": frappe.utils.get_url(
-                    "/api/method/verenigingen.api.simple_donation_webhook.handle_payment_first_donation"
-                ).replace("http://", "https://"),
+                "webhookUrl": self._ensure_https_url(
+                    frappe.utils.get_url(
+                        "/api/method/verenigingen.api.simple_donation_webhook.handle_payment_first_donation"
+                    )
+                ),
                 "metadata": {
                     metadata_key: document.name,
                     "donor_id": donor,
@@ -400,6 +402,40 @@ class SecureMollieWebhookHandler:
             "1 year": "1 year",
         }
         return mapping.get(frequency, "1 month")
+
+    def _ensure_https_url(self, url: str) -> str:
+        """
+        Securely ensure URL uses HTTPS scheme
+
+        Args:
+            url: URL to convert to HTTPS
+
+        Returns:
+            str: URL with HTTPS scheme
+
+        Raises:
+            frappe.ValidationError: If URL is malformed
+        """
+        from urllib.parse import urlparse, urlunparse
+
+        try:
+            parsed = urlparse(url)
+            if not parsed.netloc:
+                raise frappe.ValidationError(f"Invalid webhook URL format: {url}")
+
+            # Only convert HTTP to HTTPS, leave other schemes untouched
+            if parsed.scheme == "http":
+                return urlunparse(parsed._replace(scheme="https"))
+            elif parsed.scheme == "https":
+                return url
+            else:
+                raise frappe.ValidationError(f"Webhook URL must use HTTP/HTTPS scheme: {url}")
+
+        except Exception as e:
+            frappe.log_error(
+                f"URL parsing error for webhook URL: {e}", "Secure Webhook Handler URL Validation"
+            )
+            raise frappe.ValidationError(f"Invalid webhook URL: {url}")
 
     def _create_validated_payment_entry(self, document: Document, payment) -> Document:
         """

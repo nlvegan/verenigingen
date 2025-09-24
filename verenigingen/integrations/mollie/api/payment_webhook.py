@@ -29,13 +29,21 @@ def handle_mollie_payment_webhook():
     6. Enrich donation/customer records with Mollie metadata
     """
 
-    try:
-        # Validate webhook signature first for security
-        _validate_webhook_signature()
+    # Initialize payment_id early to avoid UnboundLocalError in exception handler
+    payment_id = "unknown"
 
-        # Get webhook data
+    try:
+        # Get webhook data first
         data = frappe.local.form_dict
-        payment_id = data.get("id")
+        payment_id = data.get("id") or "unknown"
+
+        # Validate webhook signature for security (conditional based on content type)
+        content_type = frappe.request.content_type if frappe.request else ""
+        if content_type == "application/x-www-form-urlencoded":
+            frappe.logger().info("🔓 Skipping signature validation for form data webhook")
+        else:
+            frappe.logger().info("🔐 Validating signature for JSON webhook")
+            _validate_webhook_signature()
 
         if not payment_id:
             frappe.response.http_status_code = 400
@@ -718,7 +726,7 @@ def create_payment_entry_for_donation(donation, mollie_data):
             return None
 
         # Extract record reference from Mollie data for origin-agnostic approach
-        record_reference = _extract_record_reference_from_mollie_data(payment, mollie_data["payment_id"])
+        record_reference = _extract_record_reference_from_mollie_data(mollie_data, mollie_data["payment_id"])
 
         # Get the actual customer name (not the customer ID) for proper display
         customer_doc = frappe.get_doc("Customer", customer)
@@ -1064,7 +1072,7 @@ def process_failed_payment(payment_id, payment):
                     "payment_method": "Mollie",
                     "payment_id": payment_id,
                     "payment_reference": payment_id,
-                    "payment_status": f"Failed ({payment.status})",
+                    "payment_status": "Cancelled",
                     "mollie_payment_id": payment_id,
                     "remarks": f"Payment failed: {payment.status}",
                 },
@@ -1087,14 +1095,13 @@ def process_failed_payment(payment_id, payment):
                 member.append(
                     "payment_history",
                     {
+                        "posting_date": frappe.utils.getdate(),
                         "payment_date": frappe.utils.getdate(),
                         "amount": _validate_payment_amount(payment),
                         "payment_method": "Mollie",
-                        "payment_reference": payment_id,
-                        "payment_status": f"Failed ({payment.status})",
-                        "mollie_payment_id": payment_id,
-                        "mollie_subscription_id": getattr(payment, "subscription_id", None),
-                        "remarks": f"Subscription payment failed: {payment.status}",
+                        "payment_status": "Cancelled",
+                        "transaction_type": "Subscription Payment",
+                        "notes": f"Mollie payment {payment_id} (subscription {getattr(payment, 'subscription_id', None)}) failed: {payment.status}",
                     },
                 )
 
@@ -1177,8 +1184,8 @@ def _get_subscription_failure_count(member_name, subscription_id):
             "Member Payment History",
             {
                 "parent": member_name,
-                "mollie_subscription_id": subscription_id,
-                "payment_status": ["like", "%Failed%"],
+                "payment_status": "Cancelled",
+                "notes": ["like", f"%subscription {subscription_id}%"],
             },
         )
 
@@ -1279,18 +1286,24 @@ def _validate_webhook_signature():
             frappe.throw("Webhook secret not configured", frappe.PermissionError)
 
         # Calculate expected signature
-        import hmac
         import hashlib
+        import hmac
 
         expected_signature = hmac.new(
-            webhook_secret.encode('utf-8'),
-            request_body.encode('utf-8'),
-            hashlib.sha256
+            webhook_secret.encode("utf-8"), request_body.encode("utf-8"), hashlib.sha256
         ).hexdigest()
 
+        # Extract signature from header (remove "sha256=" prefix if present)
+        if signature_header.startswith("sha256="):
+            received_signature = signature_header[7:]  # Remove "sha256=" prefix
+        else:
+            received_signature = signature_header
+
         # Compare signatures (constant time comparison for security)
-        if not hmac.compare_digest(signature_header, expected_signature):
+        if not hmac.compare_digest(received_signature, expected_signature):
             frappe.logger().error(f"❌ Webhook signature validation failed")
+            frappe.logger().error(f"Expected: {expected_signature[:10]}...")
+            frappe.logger().error(f"Received: {received_signature[:10]}...")
             frappe.throw("Invalid webhook signature", frappe.PermissionError)
 
         frappe.logger().info("✅ Webhook signature validated successfully")

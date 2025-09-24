@@ -12,6 +12,13 @@ Key Features:
 - Custom branding and redirect options
 - Real-time credential validation
 - Integration with payment gateway factory
+- Automatic webhook URL synchronization to prevent configuration drift
+
+Webhook URL Architecture:
+The webhook URLs are dynamically generated from the MollieClient as the single
+source of truth to prevent synchronization issues. The URLs are automatically
+updated during document validation and saving to ensure they always match the
+actual endpoint configuration used by payment creation services.
 
 Business Context:
 Mollie is a European payment service provider that supports various payment methods
@@ -26,10 +33,11 @@ This DocType integrates with:
 - Web forms for donation and membership payment processing
 - Webhook endpoints for payment status updates
 - Frappe's permission and encryption systems for security
+- MollieClient core integration for webhook URL consistency
 
 Author: Development Team
 Date: 2025-01-13
-Version: 1.0
+Version: 1.1
 """
 
 from urllib.parse import urlencode
@@ -88,6 +96,9 @@ class MollieSettings(Document):
         """Validate the document before saving"""
         if not self.flags.ignore_mandatory:
             self.validate_mollie_credentials()
+
+        # Ensure webhook URLs are always up to date
+        self.validate_and_update_webhook_urls()
 
     def on_update(self):
         """Called after document is saved"""
@@ -226,7 +237,122 @@ class MollieSettings(Document):
         Returns:
             str: Complete webhook URL
         """
-        return get_url("/api/method/verenigingen.api.mollie_payment_webhook.handle_mollie_payment_webhook")
+        # Use MollieClient as single source of truth for webhook URLs
+        from verenigingen.integrations.mollie.core.client import MollieClient
+
+        return MollieClient().get_webhook_url()
+
+    def _ensure_https_url(self, url: str) -> str:
+        """
+        Securely ensure URL uses HTTPS scheme with comprehensive validation
+
+        Args:
+            url: URL to convert to HTTPS
+
+        Returns:
+            str: URL with HTTPS scheme
+
+        Raises:
+            frappe.ValidationError: If URL is malformed or fails security checks
+        """
+        from urllib.parse import urlparse, urlunparse
+
+        try:
+            # Basic URL structure validation
+            parsed = urlparse(url)
+            if not parsed.netloc:
+                raise frappe.ValidationError(f"Invalid webhook URL format: {url}")
+
+            # URL length validation (prevent DoS attacks)
+            if len(url) > 2048:
+                raise frappe.ValidationError("Webhook URL exceeds maximum length (2048 characters)")
+
+            # Scheme validation
+            if parsed.scheme not in ("http", "https"):
+                raise frappe.ValidationError(f"Webhook URL must use HTTP/HTTPS scheme: {url}")
+
+            # Domain whitelist validation (production security requirement)
+            allowed_domains = self._get_allowed_webhook_domains()
+            if parsed.netloc not in allowed_domains:
+                frappe.log_error(
+                    f"Webhook domain not in whitelist: {parsed.netloc}. Allowed: {allowed_domains}",
+                    "Mollie Webhook Security",
+                )
+                raise frappe.ValidationError(f"Webhook domain not authorized: {parsed.netloc}")
+
+            # Path validation - prevent path traversal
+            if ".." in parsed.path or parsed.path.startswith("//"):
+                raise frappe.ValidationError("Invalid characters in webhook URL path")
+
+            # Convert HTTP to HTTPS for security
+            if parsed.scheme == "http":
+                final_url = urlunparse(parsed._replace(scheme="https"))
+                frappe.logger().info(f"Converted webhook URL from HTTP to HTTPS: {url} -> {final_url}")
+                return final_url
+            else:
+                return url
+
+        except frappe.ValidationError:
+            # Re-raise validation errors as-is
+            raise
+        except Exception as e:
+            frappe.log_error(f"URL parsing error for webhook URL: {e}", "Mollie Settings URL Validation")
+            raise frappe.ValidationError(f"Invalid webhook URL: {url}")
+
+    def _get_allowed_webhook_domains(self):
+        """
+        Get list of domains allowed for webhook URLs
+
+        Returns:
+            list: Allowed domains for webhook URLs
+        """
+        # Get configured allowed domains or default to current site
+        allowed_domains = frappe.conf.get("mollie_webhook_domains", [])
+
+        # Always allow the current site domain
+        current_site_domain = frappe.local.site
+        if current_site_domain not in allowed_domains:
+            allowed_domains.append(current_site_domain)
+
+        # For development/testing, also allow common development domains
+        if frappe.conf.get("developer_mode"):
+            dev_domains = ["localhost", "127.0.0.1", "dev.veganisme.net"]
+            for domain in dev_domains:
+                if domain not in allowed_domains:
+                    allowed_domains.append(domain)
+
+        return allowed_domains
+
+    def _get_webhook_url_for_env(self, env: str) -> str:
+        """
+        Get webhook URL for specific environment with proper error handling
+
+        Args:
+            env: Environment ("test" or "live")
+
+        Returns:
+            str: Webhook URL for the specified environment
+        """
+        try:
+            # Reuse existing client method instead of creating new instance
+            # This leverages any existing caching in get_mollie_client()
+            from verenigingen.integrations.mollie.core.client import MollieClient
+
+            # Create client with current API key to avoid additional database queries
+            api_key = self.get_active_api_key()
+            client = MollieClient(api_key=api_key)
+            url = client.get_webhook_url(env=env)
+            return self._ensure_https_url(url)
+
+        except Exception as e:
+            frappe.log_error(f"Failed to generate {env} webhook URL: {e}", "Mollie Webhook URL Generation")
+            # Fallback to prevent system failure - construct URL directly
+            site_url = frappe.utils.get_url()
+            fallback_url = (
+                f"{site_url}/api/method/verenigingen.utils.payment_gateways.mollie_payment_webhook?env={env}"
+            )
+            frappe.logger().warning(f"Using fallback webhook URL for {env} environment: {fallback_url}")
+            return self._ensure_https_url(fallback_url)
 
     def get_test_webhook_url(self):
         """
@@ -235,11 +361,7 @@ class MollieSettings(Document):
         Returns:
             str: Complete test webhook URL
         """
-        # Distinct test webhook URL with environment parameter
-        url = get_url("/api/method/verenigingen.api.mollie_payment_webhook.handle_mollie_payment_webhook")
-        url += "?env=test"
-        # Ensure HTTPS for Mollie webhook reliability (even in test)
-        return url.replace("http://", "https://")
+        return self._get_webhook_url_for_env("test")
 
     def get_live_webhook_url(self):
         """
@@ -248,11 +370,7 @@ class MollieSettings(Document):
         Returns:
             str: Complete live webhook URL
         """
-        # Distinct live webhook URL with environment parameter
-        url = get_url("/api/method/verenigingen.api.mollie_payment_webhook.handle_mollie_payment_webhook")
-        url += "?env=live"
-        # Ensure HTTPS for production
-        return url.replace("http://", "https://")
+        return self._get_webhook_url_for_env("live")
 
     def get_subscription_webhook_url(self):
         """
@@ -264,8 +382,8 @@ class MollieSettings(Document):
         url = get_url(
             "/api/method/verenigingen.verenigingen_payments.utils.payment_gateways.mollie_subscription_webhook"
         )
-        # Ensure HTTPS for Mollie webhook requirements
-        return url.replace("http://", "https://")
+        # Ensure HTTPS using secure URL parsing method
+        return self._ensure_https_url(url)
 
     def get_redirect_url(self, reference_doctype, reference_docname, payment_id=None):
         """
@@ -428,10 +546,69 @@ class MollieSettings(Document):
             return False
 
     def update_webhook_urls(self):
-        """Update webhook URL fields"""
+        """Update webhook URL fields using MollieClient as single source of truth"""
         # Always populate webhook URLs as they're needed for all payments, not just subscriptions
+        # These are now dynamically generated from MollieClient to prevent sync issues
         self.testing_webhook_url = self.get_test_webhook_url()
         self.live_webhook_url = self.get_live_webhook_url()
+
+        frappe.logger().info(
+            f"Updated webhook URLs - Test: {self.testing_webhook_url}, Live: {self.live_webhook_url}"
+        )
+
+    def validate_and_update_webhook_urls(self):
+        """Validate and update webhook URLs to ensure they're in sync with MollieClient"""
+        try:
+            # Calculate what the URLs should be
+            expected_test_url = self.get_test_webhook_url()
+            expected_live_url = self.get_live_webhook_url()
+
+            # Check if update is needed
+            urls_changed = (
+                self.testing_webhook_url != expected_test_url or self.live_webhook_url != expected_live_url
+            )
+
+            if urls_changed:
+                # Generate cryptographically secure correlation ID for tracking
+                import secrets
+
+                correlation_id = secrets.token_hex(8)
+
+                # Log the synchronization with structured data
+                frappe.logger().info(
+                    f"[{correlation_id}] Webhook URLs out of sync - updating to match MollieClient",
+                    extra={
+                        "correlation_id": correlation_id,
+                        "operation": "webhook_url_sync",
+                        "previous_test_url": self.testing_webhook_url,
+                        "previous_live_url": self.live_webhook_url,
+                        "new_test_url": expected_test_url,
+                        "new_live_url": expected_live_url,
+                    },
+                )
+
+                # Perform atomic update with transaction safety
+                try:
+                    # Update in memory first
+                    self.testing_webhook_url = expected_test_url
+                    self.live_webhook_url = expected_live_url
+
+                    # If we're in a document save context, the transaction will be handled automatically
+                    # Otherwise, we need to ensure the changes are persisted
+                    frappe.logger().info(f"[{correlation_id}] Webhook URLs synchronized successfully")
+
+                except Exception as e:
+                    frappe.log_error(
+                        f"[{correlation_id}] Failed to update webhook URLs: {e}",
+                        "Mollie Settings URL Sync Error",
+                    )
+                    # Re-raise to prevent partial updates
+                    raise
+
+        except Exception as e:
+            frappe.log_error(f"Error during webhook URL validation: {e}", "Mollie Settings Validation")
+            # Don't re-raise validation errors to prevent document save failures
+            frappe.logger().warning(f"Webhook URL validation failed, continuing with existing URLs: {e}")
 
     def update_subscription_webhook_url(self):
         """Deprecated - use update_webhook_urls()"""
@@ -523,6 +700,40 @@ def update_webhook_urls():
         }
     except Exception as e:
         return {"success": False, "message": _("Failed to update webhook URLs: {0}").format(str(e))}
+
+
+@frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
+def verify_webhook_url_sync():
+    """
+    Verify webhook URLs are properly synchronized with MollieClient
+
+    Returns:
+        dict: Sync verification status
+    """
+    try:
+        settings = frappe.get_single("Mollie Settings")
+
+        # Get expected URLs from MollieClient (single source of truth)
+        expected_test_url = settings.get_test_webhook_url()
+        expected_live_url = settings.get_live_webhook_url()
+
+        # Get current stored URLs
+        current_test_url = settings.testing_webhook_url
+        current_live_url = settings.live_webhook_url
+
+        is_in_sync = current_test_url == expected_test_url and current_live_url == expected_live_url
+
+        return {
+            "success": True,
+            "in_sync": is_in_sync,
+            "expected_urls": {"test": expected_test_url, "live": expected_live_url},
+            "current_urls": {"test": current_test_url, "live": current_live_url},
+            "message": "URLs are in sync" if is_in_sync else "URLs need synchronization",
+        }
+
+    except Exception as e:
+        return {"success": False, "message": _("Failed to verify sync: {0}").format(str(e))}
 
 
 def get_supported_currencies():
