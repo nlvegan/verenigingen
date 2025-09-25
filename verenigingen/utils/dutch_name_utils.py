@@ -18,18 +18,35 @@ from verenigingen.utils.security.api_security_framework import (
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.UTILITY)
 def is_dutch_installation():
-    """Check if this is a Dutch installation based on company country"""
+    """Check if this is a Dutch installation based on company country (cached for performance)"""
+    # Use cache to avoid repeated database queries
+    cache_key = "is_dutch_installation"
+    cached_result = frappe.cache().get_value(cache_key)
+
+    if cached_result is not None:
+        return cached_result
+
     try:
+        result = False
+
         # Check default company
         company = frappe.defaults.get_defaults().get("company")
         if company:
             company_doc = frappe.get_doc("Company", company)
-            return company_doc.country == "Netherlands"
+            result = company_doc.country == "Netherlands"
 
-        # Fallback: check all companies
-        companies = frappe.get_all("Company", fields=["country"])
-        return any(c.country == "Netherlands" for c in companies)
+        if not result:
+            # Fallback: check all companies
+            companies = frappe.get_all("Company", fields=["country"])
+            result = any(c.country == "Netherlands" for c in companies)
+
+        # Cache result for 1 hour - this rarely changes
+        frappe.cache().set_value(cache_key, result, expires_in_sec=3600)
+        return result
+
     except Exception:
+        # Cache False result for shorter time in case of errors
+        frappe.cache().set_value(cache_key, False, expires_in_sec=300)  # 5 minutes
         return False
 
 

@@ -100,13 +100,17 @@ class RefundChargebackService:
             if not refund_details:
                 return {"status": "error", "message": "Failed to fetch refund details from Mollie"}
 
-            # Only process completed refunds
-            if refund_details.get("status") != "refunded":
+            # Log refund status for debugging (consolidated logging will be done at bulk level)
+            refund_status = refund_details.get("status")
+
+            # Process refunds in completed states (refunded, processed, etc.)
+            valid_refund_statuses = ["refunded", "processed", "pending"]
+            if refund_status not in valid_refund_statuses:
                 return {
                     "status": "refund_not_completed",
                     "refund_id": refund_id,
-                    "refund_status": refund_details.get("status"),
-                    "message": "Refund not in 'refunded' status",
+                    "refund_status": refund_status,
+                    "message": f"Refund status '{refund_status}' not in valid statuses: {valid_refund_statuses}",
                 }
 
             # Find original payment and donation
@@ -124,24 +128,82 @@ class RefundChargebackService:
 
             credit_note_result = self._create_refund_credit_note(refund_details, donation_doc, refund_amount)
 
+            # Always try to update payment history, regardless of Credit Note success
+            payment_history_updated = False
             if credit_note_result["status"] == "success":
-                # Update donation payment history
-                self._update_donation_refund_history(
-                    donation_name, refund_details, credit_note_result["credit_note"]
-                )
+                # Update donation payment history with Credit Note
+                try:
+                    self._update_donation_refund_history(
+                        donation_name, refund_details, credit_note_result["credit_note"]
+                    )
+                    payment_history_updated = True
+                except Exception as e:
+                    self.logger.error(f"Failed to update payment history for Credit Note: {e}")
+            else:
+                # Try Payment Entry fallback AND update payment history independently
+                try:
+                    payment_entry_result = self._create_refund_payment_entry(
+                        refund_details, donation_doc, refund_amount
+                    )
+                    if payment_entry_result.get("status") == "success":
+                        # Payment Entry succeeded, try to update payment history
+                        try:
+                            self._update_donation_refund_history_payment_entry(
+                                donation_name, refund_details, payment_entry_result.get("payment_entry_id")
+                            )
+                            payment_history_updated = True
+                        except Exception as pe_history_error:
+                            self.logger.error(
+                                f"Payment Entry created but payment history update failed: {pe_history_error}"
+                            )
+                    else:
+                        # Payment Entry failed, but still try to update payment history
+                        try:
+                            self._update_donation_refund_history_payment_entry(
+                                donation_name, refund_details, None
+                            )
+                            payment_history_updated = True
+                        except Exception as fallback_error:
+                            self.logger.error(
+                                f"Both Payment Entry and payment history update failed: {fallback_error}"
+                            )
+                except Exception as e:
+                    self.logger.error(f"Payment Entry fallback completely failed: {e}")
+                    # Still try to update payment history as standalone operation
+                    try:
+                        self._update_donation_refund_history_payment_entry(
+                            donation_name, refund_details, None
+                        )
+                        payment_history_updated = True
+                    except Exception as standalone_error:
+                        self.logger.error(
+                            f"Standalone payment history update also failed: {standalone_error}"
+                        )
 
-                self.logger.success(
-                    "Refund processed successfully",
-                    {
-                        "refund_id": refund_id,
-                        "payment_id": payment_id,
-                        "credit_note": credit_note_result["credit_note"],
-                        "refund_amount": refund_details.get("amount", {}).get("value"),
-                    },
-                )
+            # Determine overall success based on Credit Note OR payment history update
+            if credit_note_result["status"] == "success" or payment_history_updated:
+                success_details = {
+                    "refund_id": refund_id,
+                    "payment_id": payment_id,
+                    "refund_amount": refund_details.get("amount", {}).get("value"),
+                    "payment_history_updated": payment_history_updated,
+                }
 
+                if credit_note_result["status"] == "success":
+                    success_details["credit_note"] = credit_note_result["credit_note"]
+                    success_details["method"] = "Credit Note"
+                else:
+                    success_details["method"] = "Payment History Only"
+
+                self.logger.success("Refund processed successfully", success_details)
                 self.performance_monitor.record_success(operation_start, "refund_webhook_processing")
-                return credit_note_result
+
+                return {
+                    "status": "success",
+                    "payment_history_updated": payment_history_updated,
+                    "credit_note": credit_note_result.get("credit_note"),
+                    "method": success_details["method"],
+                }
             elif credit_note_result["status"] == "error":
                 # Credit Note failed - try Payment Entry fallback
                 self.logger.info(

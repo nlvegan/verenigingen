@@ -362,7 +362,7 @@ def execute_bulk_payment_action(action, apply_to="All Visible Records", filters=
 
     valid_actions = [
         "Send Payment Reminders",
-        "Suspend Memberships",
+        # "Suspend Memberships",  # DISABLED: Automated suspension causes duplicate log entries
         "Create Payment Plan",
         "Mark for Collection Agency",
         "Apply Late Fees",
@@ -622,20 +622,10 @@ def create_payment_reminder_log(member_name, reminder_type, payment_info):
 
 
 def suspend_member_for_nonpayment(member_name):
-    """Suspend member for non-payment"""
-    # This would integrate with the suspension system
-    try:
-        from verenigingen.utils.termination_integration import suspend_member_safe
-
-        return suspend_member_safe(
-            member_name=member_name,
-            suspension_reason="Non-payment of membership fees",
-            suspend_user=False,  # Don't suspend user access immediately
-            suspend_teams=True,  # But suspend team memberships
-        )
-    except Exception as e:
-        frappe.logger().error(f"Failed to suspend member {member_name}: {str(e)}")
-        return False
+    """Suspend member for non-payment - DISABLED to prevent duplicate log entries"""
+    # DISABLED: Automated suspension was causing duplicate log entries and lacks idempotency checks
+    frappe.logger().warning(f"Automated suspension disabled for member {member_name}")
+    return {"success": False, "message": "Automated suspension is disabled", "disabled": True}
 
 
 def create_payment_plan(member_name, payment_info):

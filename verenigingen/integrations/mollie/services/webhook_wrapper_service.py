@@ -73,20 +73,15 @@ class WebhookWrapperService:
             self.logger.info("Starting webhook processing", {"payment_id": payment_id})
 
             # Debug: Verify service layer is being used
-            frappe.log_error(f"SERVICE LAYER: Processing webhook for {payment_id}", "Service Layer Debug")
+            # Debug logging disabled
 
             # Get payment from Mollie if not provided (needed for refund checking)
             if not payment_data:
-                frappe.log_error(
-                    f"SERVICE LAYER: About to fetch payment data for {payment_id}", "Service Layer Debug"
-                )
+                # Debug logging disabled
                 log_payment_processing(payment_id, "fetch_payment_data", "started")
                 try:
                     payment_data = self._fetch_payment_from_mollie(payment_id)
-                    frappe.log_error(
-                        f"SERVICE LAYER: Successfully fetched payment data for {payment_id}",
-                        "Service Layer Debug",
-                    )
+                    # Debug logging disabled
                     log_payment_processing(payment_id, "fetch_payment_data", "success")
                 except Exception as e:
                     frappe.log_error(
@@ -97,7 +92,7 @@ class WebhookWrapperService:
 
             # ALWAYS check for refunds first - refunds are new financial events regardless of original payment status
             log_payment_processing(payment_id, "refund_check", "started")
-            frappe.log_error(f"SERVICE LAYER: About to check refunds for {payment_id}", "Refund Debug")
+            # Debug logging disabled
 
             try:
                 refund_result = self._process_payment_refunds(payment_id, payment_data)
@@ -401,7 +396,7 @@ class WebhookWrapperService:
         """
         try:
             self.logger.info(f"Checking for refunds on payment {payment_id}")
-            frappe.log_error(f"REFUND DEBUG: Starting refund check for {payment_id}", "Refund Processing")
+            # Debug logging disabled - using consolidated logging instead
 
             # Get Mollie client to fetch refunds
             mollie_settings = frappe.get_single("Mollie Settings")
@@ -425,10 +420,7 @@ class WebhookWrapperService:
                         if isinstance(rf, dict)
                         else (rf.amount.value if hasattr(rf, "amount") else "unknown")
                     )
-                    frappe.log_error(
-                        f"REFUND DEBUG: Refund {i + 1}: ID={rf_id}, Status={rf_status}, Amount={rf_amount}",
-                        "Refund Processing",
-                    )
+                    # Debug logging disabled - using consolidated logging
 
                 self.logger.info(f"Found {len(refunds)} refunds for payment {payment_id}")
             except Exception as e:
@@ -544,13 +536,30 @@ class WebhookWrapperService:
                         }
                     )
 
+            # Consolidated logging instead of individual refund logs
+            successful_count = len([r for r in processed_refunds if r["status"] in ["success", "skipped"]])
+            failed_count = len(processed_refunds) - successful_count
+
+            # Show failure details if any failed
+            failure_summary = ""
+            if failed_count > 0:
+                failed_refunds = [r for r in processed_refunds if r["status"] == "failed"]
+                error_types = {}
+                for failed in failed_refunds[:3]:  # Show up to 3 examples
+                    error = failed.get("error", "Unknown error")
+                    error_types[error] = error_types.get(error, 0) + 1
+                failure_summary = f" | Failure types: {dict(error_types)}"
+
+            self.logger.info(
+                f"REFUND BULK PROCESSING COMPLETE: Payment {payment_id} - "
+                f"Total: {len(refunds)}, Success: {successful_count}, Failed: {failed_count}{failure_summary}"
+            )
+
             return {
                 "refunds_processed": processed_refunds,
                 "payment_id": payment_id,
                 "total_refunds": len(refunds),
-                "processed_count": len(
-                    [r for r in processed_refunds if r["status"] in ["success", "skipped"]]
-                ),
+                "processed_count": successful_count,
             }
 
         except Exception as e:

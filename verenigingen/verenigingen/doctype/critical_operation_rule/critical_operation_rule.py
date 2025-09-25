@@ -277,8 +277,8 @@ class CriticalOperationRule(Document):
                         },
                     }
 
-                    # Cache for 5 minutes
-                    frappe.cache().set_value(cache_key, config, expires_in_sec=300)
+                    # Cache for 2 hours - CORs are configuration data that rarely changes
+                    frappe.cache().set_value(cache_key, config, expires_in_sec=7200)
                 else:
                     config = None
 
@@ -304,7 +304,7 @@ class CriticalOperationRule(Document):
                 if config:
                     rules[rule_doc.operation_name] = config
 
-            # Cache for 5 minutes
-            frappe.cache().set_value(cache_key, rules, expires_in_sec=300)
+            # Cache for 2 hours - CORs are configuration data that rarely changes
+            frappe.cache().set_value(cache_key, rules, expires_in_sec=7200)
 
         return rules or {}
