@@ -16,6 +16,8 @@
     "section_break_3",
     "payment_reference",
     "column_break_4",
+    "payment_entry",
+    "section_break_status",
     "payment_status",
     "section_break_mollie",
     "mollie_payment_id",
@@ -82,6 +84,17 @@
     {
       "fieldname": "column_break_4",
       "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "payment_entry",
+      "fieldtype": "Link",
+      "label": "Payment Entry",
+      "options": "Payment Entry",
+      "description": "Link to the Payment Entry created for this payment"
+    },
+    {
+      "fieldname": "section_break_status",
+      "fieldtype": "Section Break"
     },
     {
       "default": "Pending",

@@ -15,7 +15,7 @@ from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
-@public_api(operation_type=OperationType.PUBLIC)
+@public_api(operation_type=OperationType.WEBHOOK_PROCESSING)
 def handle_mollie_payment_webhook():
     """
     Handle Mollie webhook for existing donations
@@ -100,18 +100,7 @@ def handle_mollie_payment_webhook():
 
         # Fallback: Original implementation using direct function calls
 
-        # Check for idempotency
-        processing_status = check_payment_processing_status_by_id(payment_id)
-        if processing_status.get("all_complete"):
-            frappe.logger().info(f"⏭️ Payment {payment_id} already fully processed - webhook complete")
-            return {
-                "status": "success",
-                "message": "Payment already processed",
-                "payment_id": payment_id,
-                "components": processing_status,
-            }
-
-        # Get full payment details from Mollie
+        # Get full payment details from Mollie FIRST - needed for refund checking
         mollie_settings = frappe.get_single("Mollie Settings")
         mollie = mollie_settings.get_mollie_client()
 
@@ -121,6 +110,46 @@ def handle_mollie_payment_webhook():
             frappe.log_error(f"Failed to fetch payment {payment_id} from Mollie: {e}", "Mollie API")
             frappe.response.http_status_code = 502
             return {"status": "error", "message": f"Failed to fetch payment from Mollie: {e}"}
+
+        # Check for refunds FIRST - refund webhooks send payment_id but contain refund events
+        # This must happen BEFORE idempotency check because refunds are NEW events even for processed payments
+        frappe.logger().info(f"🔍 Checking for refunds on payment {payment_id} (webhook received)")
+
+        # Also log to Error Log for debugging
+        frappe.log_error(
+            f"Webhook received for payment {payment_id} - checking for refunds",
+            "Webhook Debug - Refund Check",
+        )
+
+        refund_result = _process_payment_refunds(payment_id, payment)
+
+        # Log the refund result for debugging
+        frappe.log_error(
+            f"Refund check result for {payment_id}: {frappe.as_json(refund_result)}",
+            "Webhook Debug - Refund Result",
+        )
+
+        # If we processed any refunds, return early - this was a refund webhook
+        if refund_result.get("refunds_processed"):
+            processed_count = len(refund_result["refunds_processed"])
+            frappe.logger().info(f"✅ Processed {processed_count} refunds for payment {payment_id}")
+            return {
+                "status": "success",
+                "message": f"Processed {processed_count} refunds for payment {payment_id}",
+                "data": refund_result,
+            }
+
+        # Check for idempotency only AFTER refund processing
+        processing_status = check_payment_processing_status_by_id(payment_id)
+        if processing_status.get("all_complete"):
+            frappe.logger().info(f"⏭️ Payment {payment_id} already fully processed - webhook complete")
+            return {
+                "status": "success",
+                "message": "Payment already processed",
+                "payment_id": payment_id,
+                "components": processing_status,
+                "idempotent": True,
+            }
 
         # Handle different payment statuses
         if payment.status == "paid":
@@ -1217,7 +1246,7 @@ def _validate_payment_amount(payment):
 
         # Handle missing amount entirely
         if not amount_obj:
-            frappe.logger().warning(f"⚠️ Payment {getattr(payment, 'id', 'unknown')} has no amount field")
+            frappe.logger().warning("⚠️ Payment %s has no amount field", getattr(payment, "id", "unknown"))
             return 0.0
 
         # Handle dictionary format (API response)
@@ -1225,7 +1254,7 @@ def _validate_payment_amount(payment):
             value = amount_obj.get("value", 0)
             if value in [None, "", "0", "0.00"]:
                 frappe.logger().warning(
-                    f"⚠️ Payment {getattr(payment, 'id', 'unknown')} has zero/empty amount"
+                    "⚠️ Payment %s has zero/empty amount", getattr(payment, "id", "unknown")
                 )
                 return 0.0
             return float(value)
@@ -1235,7 +1264,7 @@ def _validate_payment_amount(payment):
             value = getattr(amount_obj, "value", 0)
             if value in [None, "", "0", "0.00"]:
                 frappe.logger().warning(
-                    f"⚠️ Payment {getattr(payment, 'id', 'unknown')} has zero/empty amount"
+                    "⚠️ Payment %s has zero/empty amount", getattr(payment, "id", "unknown")
                 )
                 return 0.0
             return float(value)
@@ -1244,19 +1273,21 @@ def _validate_payment_amount(payment):
         elif isinstance(amount_obj, (int, float, str)):
             value = float(amount_obj)
             if value == 0.0:
-                frappe.logger().warning(f"⚠️ Payment {getattr(payment, 'id', 'unknown')} has zero amount")
+                frappe.logger().warning("⚠️ Payment %s has zero amount", getattr(payment, "id", "unknown"))
             return value
 
         # Unknown format
         else:
             frappe.logger().error(
-                f"⚠️ Unknown amount format for payment {getattr(payment, 'id', 'unknown')}: {type(amount_obj)}"
+                "⚠️ Unknown amount format for payment %s: %s",
+                getattr(payment, "id", "unknown"),
+                type(amount_obj),
             )
             return 0.0
 
     except (ValueError, AttributeError, TypeError) as e:
         frappe.logger().error(
-            f"❌ Payment amount validation error for payment {getattr(payment, 'id', 'unknown')}: {e}"
+            "❌ Payment amount validation error for payment %s: %s", getattr(payment, "id", "unknown"), e
         )
         return 0.0
 
@@ -1301,7 +1332,7 @@ def _validate_webhook_signature():
 
         # Compare signatures (constant time comparison for security)
         if not hmac.compare_digest(received_signature, expected_signature):
-            frappe.logger().error(f"❌ Webhook signature validation failed")
+            frappe.logger().error("❌ Webhook signature validation failed")
             frappe.logger().error(f"Expected: {expected_signature[:10]}...")
             frappe.logger().error(f"Received: {received_signature[:10]}...")
             frappe.throw("Invalid webhook signature", frappe.PermissionError)
@@ -1313,6 +1344,143 @@ def _validate_webhook_signature():
     except Exception as e:
         frappe.logger().error(f"❌ Webhook signature validation error: {e}")
         frappe.throw(f"Webhook validation failed: {e}", frappe.PermissionError)
+
+
+def _process_payment_refunds(payment_id, payment):
+    """
+    Process any refunds associated with this payment.
+
+    This function is called when a webhook is received for a payment that might contain refund events.
+    It fetches all refunds for the payment and processes any that haven't been handled yet.
+
+    Args:
+        payment_id (str): Mollie payment ID
+        payment: Mollie payment object
+
+    Returns:
+        dict: Processing results including any refunds processed
+    """
+    try:
+        frappe.logger().info(f"🔍 Checking for refunds on payment {payment_id}")
+
+        # Debug log
+        frappe.log_error(
+            f"Starting refund processing for payment {payment_id}", "Refund Debug - Start Processing"
+        )
+
+        # Get Mollie client to fetch refunds
+        mollie_settings = frappe.get_single("Mollie Settings")
+        mollie = mollie_settings.get_mollie_client()
+
+        # Fetch all refunds for this payment
+        try:
+            refunds = mollie.payment_refunds.with_parent_id(payment_id).list()
+            frappe.log_error(
+                f"Successfully fetched refunds for {payment_id}: found {len(refunds)} refunds",
+                "Refund Debug - Fetch Success",
+            )
+        except Exception as e:
+            frappe.logger().warning(f"⚠️ Could not fetch refunds for payment {payment_id}: {e}")
+            frappe.log_error(
+                f"Could not fetch refunds for payment {payment_id}: {e}", "Refund Debug - Fetch Error"
+            )
+            return {"refunds_processed": []}
+
+        if not refunds:
+            frappe.logger().info(f"ℹ️ No refunds found for payment {payment_id}")
+            frappe.log_error(f"No refunds found for payment {payment_id}", "Refund Debug - No Refunds")
+            return {"refunds_processed": []}
+
+        frappe.logger().info(f"🔍 Found {len(refunds)} refunds for payment {payment_id}")
+
+        # Log details of each refund
+        for i, refund in enumerate(refunds):
+            frappe.log_error(
+                f"Refund {i + 1}: ID={refund.id}, status={refund.status}, amount={refund.amount.value}",
+                "Refund Debug - Refund Details",
+            )
+
+        # Import the refund service
+        from verenigingen.integrations.mollie.services.refund_chargeback_service import (
+            RefundChargebackService,
+        )
+
+        refund_service = RefundChargebackService()
+        processed_refunds = []
+
+        # Process each refund
+        for refund in refunds:
+            frappe.logger().info(f"🔄 Processing refund {refund.id} with status {refund.status}")
+
+            # Only process completed refunds
+            if refund.status != "refunded":
+                frappe.logger().info(
+                    f"⏭️ Skipping refund {refund.id} - status is {refund.status}, not 'refunded'"
+                )
+                continue
+
+            # Check if this refund has already been processed (idempotency)
+            existing_pe = frappe.db.exists(
+                "Payment Entry", {"reference_no": refund.id, "payment_type": "Pay"}
+            )
+
+            if existing_pe:
+                frappe.logger().info(
+                    f"⏭️ Refund {refund.id} already processed (Payment Entry: {existing_pe})"
+                )
+                continue
+
+            # Create webhook payload structure that the refund service expects
+            refund_webhook_payload = {
+                "payment_id": payment_id,
+                "refund_id": refund.id,
+                "refund": {
+                    "id": refund.id,
+                    "status": refund.status,
+                    "amount": {"value": refund.amount.value, "currency": refund.amount.currency},
+                    "description": getattr(refund, "description", ""),
+                    "created_at": refund.created_at.isoformat() if refund.created_at else None,
+                },
+                "payment": {"id": payment_id},
+            }
+
+            # Process the refund using the service
+            import json
+
+            result = refund_service.process_refund_webhook(json.dumps(refund_webhook_payload))
+
+            if result.get("status") == "success":
+                processed_refunds.append(
+                    {
+                        "refund_id": refund.id,
+                        "amount": refund.amount.value,
+                        "payment_entry": result.get("payment_entry_id"),
+                        "status": "processed",
+                    }
+                )
+                frappe.logger().info(f"✅ Successfully processed refund {refund.id}")
+            else:
+                frappe.logger().error(f"❌ Failed to process refund {refund.id}: {result.get('message')}")
+                processed_refunds.append(
+                    {
+                        "refund_id": refund.id,
+                        "amount": refund.amount.value,
+                        "status": "failed",
+                        "error": result.get("message"),
+                    }
+                )
+
+        return {
+            "refunds_processed": processed_refunds,
+            "payment_id": payment_id,
+            "total_refunds": len(refunds),
+            "processed_count": len([r for r in processed_refunds if r["status"] == "processed"]),
+        }
+
+    except Exception as e:
+        frappe.logger().error(f"❌ Error processing refunds for payment {payment_id}: {e}")
+        frappe.log_error(f"Refund processing error for payment {payment_id}: {e}", "Refund Processing")
+        return {"refunds_processed": [], "error": str(e)}
 
 
 def _notify_member_of_payment_failure(member, payment, failure_count):
@@ -1341,7 +1509,7 @@ def _notify_member_of_payment_failure(member, payment, failure_count):
 
         # If generic template doesn't exist either, log and continue
         if not frappe.db.exists("Email Template", template_name):
-            frappe.logger().warning(f"⚠️ No payment failure email template found")
+            frappe.logger().warning("⚠️ No payment failure email template found")
             return
 
         # Send notification email

@@ -118,13 +118,16 @@ class RefundChargebackService:
             if not donation_name:
                 return {"status": "error", "message": f"Donation for payment {payment_id} not found"}
 
-            # Create reverse Payment Entry for the refund
-            refund_result = self._create_refund_payment_entry(refund_details, original_payment, donation_name)
+            # Get donation document and create Credit Note for refund
+            donation_doc = frappe.get_doc("Donation", donation_name)
+            refund_amount = flt(refund_details.get("amount", {}).get("value", 0))
 
-            if refund_result["status"] == "success":
+            credit_note_result = self._create_refund_credit_note(refund_details, donation_doc, refund_amount)
+
+            if credit_note_result["status"] == "success":
                 # Update donation payment history
                 self._update_donation_refund_history(
-                    donation_name, refund_details, refund_result["payment_entry_id"]
+                    donation_name, refund_details, credit_note_result["credit_note"]
                 )
 
                 self.logger.success(
@@ -132,16 +135,70 @@ class RefundChargebackService:
                     {
                         "refund_id": refund_id,
                         "payment_id": payment_id,
-                        "refund_payment_entry_id": refund_result["payment_entry_id"],
+                        "credit_note": credit_note_result["credit_note"],
                         "refund_amount": refund_details.get("amount", {}).get("value"),
                     },
                 )
 
                 self.performance_monitor.record_success(operation_start, "refund_webhook_processing")
-                return refund_result
+                return credit_note_result
+            elif credit_note_result["status"] == "error":
+                # Credit Note failed - try Payment Entry fallback
+                self.logger.info(
+                    "Credit Note skipped - trying Payment Entry fallback",
+                    {
+                        "refund_id": refund_id,
+                        "payment_id": payment_id,
+                        "message": credit_note_result["message"],
+                    },
+                )
+
+                # Try Payment Entry approach for donations without Sales Invoices
+                payment_entry_result = self._create_refund_payment_entry(
+                    refund_details, donation_doc, refund_amount, original_payment
+                )
+
+                if payment_entry_result["status"] == "success":
+                    # Update donation payment history with Payment Entry reference
+                    self._update_donation_refund_history_payment_entry(
+                        donation_name, refund_details, payment_entry_result["payment_entry"]
+                    )
+
+                    self.logger.success(
+                        "Refund processed via Payment Entry fallback",
+                        {
+                            "refund_id": refund_id,
+                            "payment_id": payment_id,
+                            "payment_entry": payment_entry_result["payment_entry"],
+                            "refund_amount": refund_details.get("amount", {}).get("value"),
+                        },
+                    )
+
+                    self.performance_monitor.record_success(operation_start, "refund_webhook_processing")
+                    return payment_entry_result
+                else:
+                    # Both methods failed
+                    self.logger.error(
+                        "Both Credit Note and Payment Entry approaches failed",
+                        {
+                            "refund_id": refund_id,
+                            "payment_id": payment_id,
+                            "credit_note_error": credit_note_result["message"],
+                            "payment_entry_error": payment_entry_result.get("message", "Unknown error"),
+                        },
+                    )
+                    self.performance_monitor.record_failure(operation_start, "refund_webhook_processing")
+                    return {
+                        "status": "error",
+                        "message": f"Both refund approaches failed. Credit Note: {credit_note_result['message']}, Payment Entry: {payment_entry_result.get('message', 'Unknown error')}",
+                        "refund_id": refund_id,
+                        "payment_id": payment_id,
+                        "credit_note_error": credit_note_result["message"],
+                        "payment_entry_error": payment_entry_result.get("message", "Unknown error"),
+                    }
             else:
                 self.performance_monitor.record_failure(operation_start, "refund_webhook_processing")
-                return refund_result
+                return credit_note_result
 
         except Exception as e:
             self.logger.error("Refund webhook processing error", error=e)
@@ -277,12 +334,28 @@ class RefundChargebackService:
             # Use the enhanced client to get refund details
             refund = self.client.get_refund(payment_id, refund_id)
 
+            # Handle both dict and object formats for refund data
+            if isinstance(refund, dict):
+                refund_id = refund.get("id")
+                amount_value = refund.get("amount", {}).get("value", "0")
+                amount_currency = refund.get("amount", {}).get("currency", "EUR")
+                status = refund.get("status")
+                description = refund.get("description", "")
+                created_at = refund.get("created_at")
+            else:
+                refund_id = refund.id
+                amount_value = refund.amount.value if hasattr(refund, "amount") else "0"
+                amount_currency = refund.amount.currency if hasattr(refund, "amount") else "EUR"
+                status = refund.status
+                description = refund.description
+                created_at = refund.created_at.isoformat() if refund.created_at else None
+
             return {
-                "id": refund.id,
-                "amount": {"value": refund.amount.value, "currency": refund.amount.currency},
-                "status": refund.status,
-                "description": refund.description,
-                "created_at": refund.created_at.isoformat() if refund.created_at else None,
+                "id": refund_id,
+                "amount": {"value": amount_value, "currency": amount_currency},
+                "status": status,
+                "description": description,
+                "created_at": created_at,
                 "payment_id": payment_id,
             }
         except Exception as e:
@@ -321,7 +394,7 @@ class RefundChargebackService:
             payment_entry = frappe.db.get_value(
                 "Payment Entry",
                 {"reference_no": payment_id, "payment_type": "Receive"},
-                ["name", "paid_amount", "paid_from", "paid_to", "company"],
+                ["name", "paid_amount", "paid_from", "paid_to", "company", "party_type", "party"],
                 as_dict=False,
             )
             return payment_entry
@@ -349,47 +422,231 @@ class RefundChargebackService:
             self.logger.error("Error finding donation for payment", error=e, extra={"payment_id": payment_id})
             return None
 
-    def _create_refund_payment_entry(
-        self, refund_details: Dict[str, Any], original_payment: Tuple, donation_name: str
+    def _create_refund_credit_note(
+        self, refund_details: Dict[str, Any], donation_doc, refund_amount: float
     ) -> Dict[str, Any]:
-        """Create reverse Payment Entry for refund."""
+        """Create Credit Note for refund using ERPNext standard approach."""
         try:
-            # Extract original payment details
-            original_name, original_amount, paid_from, paid_to, company = original_payment
-            refund_amount = flt(refund_details.get("amount", {}).get("value", 0))
+            # Get the original Sales Invoice from the donation
+            original_invoice_name = donation_doc.get("sales_invoice")
+            if not original_invoice_name:
+                return {"status": "error", "message": "No Sales Invoice linked to donation"}
 
-            # Create reverse Payment Entry (Pay type to reverse the Receive)
-            payment_entry_doc = frappe.get_doc(
-                {
-                    "doctype": "Payment Entry",
-                    "payment_type": "Pay",
-                    "party_type": "Customer",
-                    "company": company,
-                    "paid_from": paid_to,  # Reverse of original
-                    "paid_to": paid_from,  # Reverse of original
-                    "paid_amount": refund_amount,
-                    "received_amount": refund_amount,
-                    "reference_no": refund_details.get("id"),
-                    "reference_date": (
-                        getdate(refund_details.get("created_at"))
-                        if refund_details.get("created_at")
-                        else getdate()
-                    ),
-                    "remarks": f"Mollie refund for donation {donation_name}. Description: {refund_details.get('description', 'N/A')}",
-                    "mode_of_payment": "Mollie",
-                    "posting_date": getdate(),
-                    "custom_original_payment_id": refund_details.get("payment_id"),
-                }
+            # Create Credit Note using ERPNext's make_return_doc function
+            from erpnext.controllers.sales_and_purchase_return import make_return_doc
+
+            self.logger.info(
+                f"Creating credit note from invoice {original_invoice_name}",
+                extra={"donation": donation_doc.name, "invoice": original_invoice_name},
             )
 
-            payment_entry_doc.insert()
-            payment_entry_doc.submit()
+            credit_note = make_return_doc("Sales Invoice", original_invoice_name)
 
-            return {"status": "success", "payment_entry_id": payment_entry_doc.name, "amount": refund_amount}
+            # Fix the "Party is mandatory" error by ensuring customer is properly set
+            if not getattr(credit_note, "customer", None):
+                # Get the customer from the original sales invoice
+                original_invoice = frappe.get_doc("Sales Invoice", original_invoice_name)
+                credit_note.customer = original_invoice.customer
+                self.logger.info(f"Fixed missing customer field: set to {original_invoice.customer}")
+
+            # Ensure other required fields are properly set
+            if not getattr(credit_note, "company", None):
+                original_invoice = frappe.get_doc("Sales Invoice", original_invoice_name)
+                credit_note.company = original_invoice.company
+                self.logger.info(f"Fixed missing company field: set to {original_invoice.company}")
+
+            # Log credit note details after fixing
+            self.logger.info(
+                f"Credit note prepared with customer: {getattr(credit_note, 'customer', 'NOT SET')}",
+                extra={
+                    "credit_note_customer": getattr(credit_note, "customer", None),
+                    "credit_note_company": getattr(credit_note, "company", None),
+                    "items_count": len(credit_note.items) if hasattr(credit_note, "items") else 0,
+                    "docstatus": getattr(credit_note, "docstatus", None),
+                },
+            )
+
+            # Adjust the credit note for partial refund amount
+            if credit_note.items:
+                original_item = credit_note.items[0]
+                original_rate = flt(original_item.rate)
+                original_qty = flt(original_item.qty)
+                original_amount = original_rate * abs(original_qty)  # abs() because return qty is negative
+
+                # Calculate proportional quantity for partial refund
+                if original_amount > 0:
+                    refund_proportion = refund_amount / original_amount
+                    adjusted_qty = -abs(original_qty) * refund_proportion  # Negative for credit note
+                    credit_note.items[0].qty = adjusted_qty
+                else:
+                    # Fallback: set qty to achieve the refund amount
+                    if original_rate > 0:
+                        credit_note.items[0].qty = -refund_amount / original_rate
+
+            # Add reference information
+            credit_note.remarks = f"Credit note for Mollie refund {refund_details.get('id', 'N/A')}. Original donation: {donation_doc.name}"
+
+            # Set additional refund details if available
+            if refund_details.get("description"):
+                credit_note.remarks += f". Description: {refund_details.get('description')}"
+
+            # Log details before insert/submit
+            self.logger.info(
+                f"About to insert credit note with customer: {getattr(credit_note, 'customer', 'NOT SET')}",
+                extra={
+                    "customer": getattr(credit_note, "customer", None),
+                    "company": getattr(credit_note, "company", None),
+                    "remarks": getattr(credit_note, "remarks", None),
+                },
+            )
+
+            # Insert and submit the Credit Note
+            credit_note.insert()
+
+            self.logger.info(f"Credit note {credit_note.name} inserted successfully")
+
+            credit_note.submit()
+
+            self.logger.info(f"Credit note {credit_note.name} submitted successfully")
+
+            self.logger.info(
+                "Created refund Credit Note",
+                extra={
+                    "credit_note": credit_note.name,
+                    "refund_amount": refund_amount,
+                    "donation": donation_doc.name,
+                    "original_invoice": original_invoice_name,
+                },
+            )
+
+            return {
+                "status": "success",
+                "credit_note": credit_note.name,
+                "amount": refund_amount,
+            }
 
         except Exception as e:
-            self.logger.error("Error creating refund payment entry", error=e)
-            return {"status": "error", "message": "Failed to create refund payment entry"}
+            # Log detailed error information for debugging
+            self.logger.error(
+                "Failed to create refund Credit Note",
+                error=e,
+                extra={
+                    "donation": donation_doc.name,
+                    "refund_details": refund_details,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "original_invoice": original_invoice_name
+                    if "original_invoice_name" in locals()
+                    else None,
+                },
+            )
+            # Return the actual error message instead of generic one
+            return {"status": "error", "message": f"{type(e).__name__}: {str(e)}"}
+
+    def _create_refund_payment_entry(
+        self, refund_details: Dict[str, Any], donation_doc, refund_amount: float, original_payment: Tuple
+    ) -> Dict[str, Any]:
+        """Create refund Payment Entry for donations without Sales Invoice."""
+        try:
+            # Extract original payment details (7-value tuple)
+            (
+                original_pe_name,
+                original_amount,
+                paid_from,
+                paid_to,
+                company,
+                party_type,
+                party,
+            ) = original_payment
+
+            # Add null safety check
+            if not original_pe_name:
+                return {"status": "error", "message": "Invalid original payment entry"}
+
+            # Get required accounting details from original Payment Entry
+            original_pe = frappe.get_doc("Payment Entry", original_pe_name)
+
+            # Create refund Payment Entry with proper accounting flow
+            refund_pe = frappe.new_doc("Payment Entry")
+            refund_pe.payment_type = "Pay"  # Outgoing payment (refund)
+
+            # For refunds, keep same account flow as original (not reversed)
+            refund_pe.paid_from = paid_from  # Same as original (bank account)
+            refund_pe.paid_to = paid_to  # Same as original (receivable account)
+            refund_pe.company = company
+
+            # Only set party if original payment was party-based AND accounts support party relationships
+            should_set_party = False
+            if party_type and party:
+                # Check if the accounts are Receivable/Payable type (required for party relationships)
+                try:
+                    paid_from_type = frappe.db.get_value("Account", paid_from, "account_type")
+                    paid_to_type = frappe.db.get_value("Account", paid_to, "account_type")
+
+                    # Party relationships require at least one account to be Receivable or Payable
+                    if paid_from_type in ["Receivable", "Payable"] or paid_to_type in [
+                        "Receivable",
+                        "Payable",
+                    ]:
+                        should_set_party = True
+                        self.logger.info(
+                            f"Setting party for refund Payment Entry: {party_type} {party}",
+                            extra={"paid_from_type": paid_from_type, "paid_to_type": paid_to_type},
+                        )
+                    else:
+                        self.logger.info(
+                            f"Skipping party for refund - accounts don't support party relationships",
+                            extra={"paid_from_type": paid_from_type, "paid_to_type": paid_to_type},
+                        )
+                except Exception as e:
+                    self.logger.error(f"Error checking account types for party support: {e}")
+                    should_set_party = False
+
+            if should_set_party:
+                refund_pe.party_type = party_type
+                refund_pe.party = party
+
+            refund_pe.paid_amount = refund_amount
+            refund_pe.received_amount = refund_amount
+            refund_pe.reference_no = refund_details.get("id", "")
+            refund_pe.reference_date = frappe.utils.getdate()
+            refund_pe.mode_of_payment = original_pe.mode_of_payment or "Mollie"
+            refund_pe.cost_center = original_pe.cost_center
+
+            # Set descriptive title and remarks
+            refund_pe.title = f"Refund - {original_pe.title or donation_doc.name}"
+            refund_pe.remarks = f"Mollie refund {refund_details.get('id', 'N/A')} for original donation {donation_doc.name}. Original Payment Entry: {original_pe_name}"
+
+            # Add refund description if available
+            if refund_details.get("description"):
+                refund_pe.remarks += f". Refund reason: {refund_details.get('description')}"
+
+            # Insert and submit the Payment Entry (let Frappe handle transactions)
+            refund_pe.insert()
+            refund_pe.submit()
+
+            self.logger.info(
+                "Created refund Payment Entry",
+                extra={
+                    "payment_entry": refund_pe.name,
+                    "refund_amount": refund_amount,
+                    "donation": donation_doc.name,
+                    "original_payment_entry": original_pe_name,
+                },
+            )
+
+            return {
+                "status": "success",
+                "payment_entry": refund_pe.name,
+                "amount": refund_amount,
+            }
+
+        except Exception as e:
+            self.logger.error(
+                "Error creating refund Payment Entry",
+                extra={"donation": donation_doc.name, "refund_details": refund_details, "error": str(e)},
+            )
+            return {"status": "error", "message": f"Failed to create refund Payment Entry: {str(e)}"}
 
     def _create_chargeback_payment_entry(
         self, chargeback_details: Dict[str, Any], original_payment: Tuple, donation_name: str
@@ -397,17 +654,17 @@ class RefundChargebackService:
         """Create reverse Payment Entry for chargeback."""
         try:
             # Extract original payment details
-            original_name, original_amount, paid_from, paid_to, company = original_payment
+            original_name, original_amount, paid_from, paid_to, company, party_type, party = original_payment
             chargeback_amount = flt(chargeback_details.get("amount", {}).get("value", 0))
             chargeback_reason = chargeback_details.get("reason", {})
             reason_text = f"{chargeback_reason.get('code', 'unknown')} - {chargeback_reason.get('description', 'No description')}"
 
             # Create reverse Payment Entry (Pay type to reverse the Receive)
+            # For chargebacks, we don't need party relationships - it's a simple account transfer
             payment_entry_doc = frappe.get_doc(
                 {
                     "doctype": "Payment Entry",
                     "payment_type": "Pay",
-                    "party_type": "Customer",
                     "company": company,
                     "paid_from": paid_to,  # Reverse of original
                     "paid_to": paid_from,  # Reverse of original
@@ -440,7 +697,7 @@ class RefundChargebackService:
             return {"status": "error", "message": "Failed to create chargeback payment entry"}
 
     def _update_donation_refund_history(
-        self, donation_name: str, refund_details: Dict[str, Any], payment_entry_id: str
+        self, donation_name: str, refund_details: Dict[str, Any], credit_note_id: str
     ) -> None:
         """Update donation payment history with refund information."""
         try:
@@ -450,7 +707,7 @@ class RefundChargebackService:
             refund_amount = flt(refund_details.get("amount", {}).get("value", 0))
 
             donation.append(
-                "payment_history",
+                "payments",
                 {
                     "payment_date": (
                         getdate(refund_details.get("created_at"))
@@ -458,11 +715,10 @@ class RefundChargebackService:
                         else getdate()
                     ),
                     "payment_method": "Mollie",
-                    "status": "Refunded",
+                    "payment_status": "Refunded",
                     "amount": -(refund_amount or 0),  # Negative amount for refund
-                    "payment_entry": payment_entry_id,
                     "mollie_payment_id": refund_details.get("id"),
-                    "notes": f"Refund: {refund_details.get('description', 'N/A')}",
+                    "payment_reference": f"Credit Note {credit_note_id}: {refund_details.get('description', 'N/A')}",
                 },
             )
 
@@ -470,6 +726,33 @@ class RefundChargebackService:
 
         except Exception as e:
             self.logger.error("Error updating donation refund history", error=e)
+
+    def _update_donation_refund_history_payment_entry(
+        self, donation_name: str, refund_details: Dict[str, Any], payment_entry_id: str
+    ) -> None:
+        """Update donation payment history with Payment Entry refund information."""
+        try:
+            donation = frappe.get_doc("Donation", donation_name)
+            # Add refund to payment history
+            refund_amount = flt(refund_details.get("amount", {}).get("value", 0))
+            donation.append(
+                "payments",
+                {
+                    "payment_date": (
+                        getdate(refund_details.get("created_at"))
+                        if refund_details.get("created_at")
+                        else getdate()
+                    ),
+                    "payment_method": "Mollie",
+                    "payment_status": "Refunded",
+                    "amount": -(refund_amount or 0),  # Negative amount for refund
+                    "mollie_payment_id": refund_details.get("id"),
+                    "payment_reference": f"Refund Payment Entry {payment_entry_id}: {refund_details.get('description', 'N/A')}",
+                },
+            )
+            donation.save()
+        except Exception as e:
+            self.logger.error("Error updating donation refund history with payment entry", error=e)
 
     def _update_donation_chargeback_history(
         self, donation_name: str, chargeback_details: Dict[str, Any], payment_entry_id: str
@@ -484,7 +767,7 @@ class RefundChargebackService:
             reason_text = f"{chargeback_reason.get('code', 'unknown')} - {chargeback_reason.get('description', 'No description')}"
 
             donation.append(
-                "payment_history",
+                "payments",
                 {
                     "payment_date": (
                         getdate(chargeback_details.get("created_at"))
@@ -492,11 +775,11 @@ class RefundChargebackService:
                         else getdate()
                     ),
                     "payment_method": "Mollie",
-                    "status": "Chargeback",
+                    "payment_status": "Failed",  # Use "Failed" for chargebacks as "Chargeback" not in options
                     "amount": -(chargeback_amount or 0),  # Negative amount for chargeback
                     "payment_entry": payment_entry_id,
                     "mollie_payment_id": chargeback_details.get("id"),
-                    "notes": f"Chargeback: {reason_text}",
+                    "payment_reference": f"Chargeback: {reason_text}",
                 },
             )
 

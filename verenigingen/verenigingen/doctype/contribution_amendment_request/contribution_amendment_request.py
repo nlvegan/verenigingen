@@ -46,14 +46,15 @@ def format_error_for_logging(error, context=""):
 class ContributionAmendmentRequest(Document):
     def validate(self):
         """Validate amendment request"""
-        self.validate_membership_exists()
-        self.validate_effective_date()
-        self.validate_amount_changes()
-        self.validate_no_conflicting_amendments()
-        self.validate_adjustment_frequency()
-        self.set_current_details()
-        self.set_default_effective_date()
-        self.set_requested_by()
+        # For existing documents, only run essential validations
+        # New documents get full validation in before_insert()
+        if not self.is_new():
+            self.validate_membership_exists()
+            self.validate_effective_date()
+            self.validate_amount_changes()
+            self.set_current_details()
+            self.set_default_effective_date()
+            self.set_requested_by()
 
     def validate_membership_exists(self):
         """Ensure membership exists and is active"""
@@ -168,17 +169,20 @@ class ContributionAmendmentRequest(Document):
         settings = frappe.get_single("Verenigingen Settings")
         max_adjustments = getattr(settings, "max_fee_adjustments_per_year", 2)
 
-        # Count adjustments in past 365 days
+        # Count adjustments in past 365 days (excluding this one if it exists)
         date_365_days_ago = add_days(today(), -365)
-        adjustments_past_year = frappe.db.count(
-            "Contribution Amendment Request",
-            filters={
-                "member": self.member,
-                "amendment_type": "Fee Change",
-                "creation": [">=", date_365_days_ago],
-                "requested_by_member": 1,
-            },
-        )
+        filters = {
+            "member": self.member,
+            "amendment_type": "Fee Change",
+            "creation": [">=", date_365_days_ago],
+            "requested_by_member": 1,
+        }
+
+        # Exclude current amendment if it already exists
+        if not self.is_new():
+            filters["name"] = ["!=", self.name]
+
+        adjustments_past_year = frappe.db.count("Contribution Amendment Request", filters=filters)
 
         if adjustments_past_year >= max_adjustments:
             frappe.throw(
@@ -266,7 +270,26 @@ class ContributionAmendmentRequest(Document):
 
     def before_insert(self):
         """Set approval status for certain cases with enhanced rules"""
-        # Enhanced auto-approval logic
+        # Run all validations first before determining approval status
+        # This prevents auto-approval of invalid requests
+        try:
+            # Run the same validations as validate() but allow them to raise exceptions
+            # that we can handle gracefully for auto-approval decisions
+            self.validate_membership_exists()
+            self.validate_effective_date()
+            self.validate_amount_changes()
+            self.validate_no_conflicting_amendments()
+            self.validate_adjustment_frequency()  # Always validate frequency here
+            self.set_current_details()
+            self.set_default_effective_date()
+            self.set_requested_by()
+        except frappe.ValidationError:
+            # If any validation fails, don't auto-approve
+            self.status = "Pending Approval"
+            self.internal_notes = "Requires manual approval due to validation issues"
+            return
+
+        # Enhanced auto-approval logic - only after all validations pass
         if self.amendment_type == "Fee Change" and self.requested_amount and self.current_amount:
             member = frappe.get_doc("Member", self.member)
 
@@ -522,6 +545,24 @@ class ContributionAmendmentRequest(Document):
             # Update legacy override fields for backward compatibility
             member_doc = frappe.get_doc("Member", self.member)
             member_doc.reload()  # Refresh to avoid timestamp mismatch
+
+            # Record fee change in history before updating
+            dues_schedule_ref = self.new_dues_schedule or (
+                dues_schedule_name if "dues_schedule_name" in locals() else ""
+            )
+            member_doc.record_fee_change(
+                {
+                    "change_date": today(),
+                    "old_amount": self.current_amount,
+                    "new_amount": self.requested_amount,
+                    "reason": f"Amendment {self.name}: {self.reason}",
+                    "changed_by": frappe.session.user,
+                    "dues_schedule_name": dues_schedule_ref,
+                    "dues_schedule_action": f"Applied via {dues_schedule_ref}",
+                    "amendment_request_name": self.name,  # For true idempotency
+                }
+            )
+
             member_doc.dues_rate = self.requested_amount
             member_doc.fee_override_reason = f"Amendment: {self.reason}"
             member_doc.fee_override_date = today()
@@ -735,6 +776,19 @@ class ContributionAmendmentRequest(Document):
             if self.requested_amount:
                 member_doc = frappe.get_doc("Member", self.member)
                 member_doc.reload()
+
+                # Record fee change in history before updating
+                member_doc.record_fee_change(
+                    {
+                        "change_date": today(),
+                        "old_amount": self.current_amount,
+                        "new_amount": self.requested_amount,
+                        "reason": f"Membership type change amendment {self.name}: {self.reason}",
+                        "changed_by": frappe.session.user,
+                        "dues_schedule_action": f"Applied via {dues_schedule_name}",
+                    }
+                )
+
                 member_doc.dues_rate = self.requested_amount
                 member_doc.fee_override_reason = f"Amendment: {self.reason}"
                 member_doc.fee_override_date = today()
@@ -757,11 +811,14 @@ class ContributionAmendmentRequest(Document):
             frappe.throw(_("Error applying membership type change: {0}").format(str(e)))
 
     def cancel_conflicting_amendments(self):
-        """Cancel any other pending or approved amendments for the same member"""
+        """Cancel conflicting amendments - only those that haven't taken effect yet"""
         if not self.member:
             return
 
-        # Find all other amendments for this member that are pending approval or approved but not applied
+        # Find amendments that conflict with this one:
+        # 1. Pending Approval - always conflicts
+        # 2. Approved but with future effective dates - conflicts
+        # 3. Approved with past/today effective dates should already be Applied
         conflicting_amendments = frappe.get_all(
             "Contribution Amendment Request",
             filters={
@@ -775,18 +832,39 @@ class ContributionAmendmentRequest(Document):
         cancelled_count = 0
         for amendment_data in conflicting_amendments:
             try:
-                amendment = frappe.get_doc("Contribution Amendment Request", amendment_data.name)
+                # Only cancel if it hasn't taken effect yet
+                should_cancel = False
 
-                # Add cancellation note
-                cancellation_note = f"Cancelled due to approval of newer amendment {self.name}"
-                amendment.internal_notes = (amendment.internal_notes or "") + f"\n{cancellation_note}"
+                if amendment_data.status == "Pending Approval":
+                    # Always cancel pending amendments
+                    should_cancel = True
+                elif amendment_data.status == "Approved":
+                    # Only cancel approved amendments with future effective dates
+                    if amendment_data.effective_date and DateRangeValidator.is_date_in_future(
+                        amendment_data.effective_date
+                    ):
+                        should_cancel = True
+                    elif not amendment_data.effective_date:
+                        # No effective date set, treat as immediate - should be applied already
+                        # Log this as a potential issue but don't cancel
+                        frappe.logger().warning(
+                            f"Approved amendment {amendment_data.name} has no effective date"
+                        )
+                        should_cancel = False
 
-                # Set status to cancelled
-                amendment.status = "Cancelled"
-                amendment.flags.ignore_validate_update_after_submit = True
-                amendment.save()
+                if should_cancel:
+                    amendment = frappe.get_doc("Contribution Amendment Request", amendment_data.name)
 
-                cancelled_count += 1
+                    # Add cancellation note
+                    cancellation_note = f"Cancelled due to approval of newer amendment {self.name}"
+                    amendment.internal_notes = (amendment.internal_notes or "") + f"\n{cancellation_note}"
+
+                    # Set status to cancelled
+                    amendment.status = "Cancelled"
+                    amendment.flags.ignore_validate_update_after_submit = True
+                    amendment.save()
+
+                    cancelled_count += 1
 
             except Exception as e:
                 frappe.log_error(

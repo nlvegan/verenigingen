@@ -389,13 +389,6 @@
    "read_only": 1
   },
   {
-   "default": "0",
-   "description": "When enabled, BTW exemption codes will be applied according to Dutch tax regulations",
-   "fieldname": "tax_exempt_for_contributions",
-   "fieldtype": "Check",
-   "label": "Tax Exempt for Contributions and Donations"
-  },
-  {
    "description": "This chapter will be treated as the National Board with restricted access",
    "fieldname": "national_board_chapter",
    "fieldtype": "Link",
@@ -725,7 +718,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2025-09-22 11:33:59.140000",
+ "modified": "2025-09-25 08:01:34.030584",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Verenigingen Settings",
@@ -755,8 +748,16 @@
    "email": 1,
    "print": 1,
    "read": 1,
-   "role": "Verenigingen Member",
+   "role": "Verenigingen Manager",
    "share": 1
+  },
+  {
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Verenigingen Financial Manager",
+   "share": 1,
+   "write": 1
   }
  ],
  "quick_entry": 1,

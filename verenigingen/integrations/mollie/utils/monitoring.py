@@ -50,6 +50,48 @@ class MolliePerformanceMonitor:
         self.metrics: List[PerformanceMetric] = []
         self.logger = MollieLogger("performance_monitor")
 
+    def start_operation(self, operation: str):
+        """
+        Start timing an operation.
+
+        Args:
+            operation: Operation name
+
+        Returns:
+            Start time for use with record_success/record_failure
+        """
+        import time
+
+        return time.time()
+
+    def record_success(self, operation_start: float, operation: str, details: Optional[Dict] = None):
+        """
+        Record a successful operation.
+
+        Args:
+            operation_start: Start time from start_operation()
+            operation: Operation name
+            details: Optional operation details
+        """
+        import time
+
+        duration = time.time() - operation_start
+        self.record_operation(operation, duration, True, details)
+
+    def record_failure(self, operation_start: float, operation: str, details: Optional[Dict] = None):
+        """
+        Record a failed operation.
+
+        Args:
+            operation_start: Start time from start_operation()
+            operation: Operation name
+            details: Optional operation details
+        """
+        import time
+
+        duration = time.time() - operation_start
+        self.record_operation(operation, duration, False, details)
+
     def record_operation(
         self, operation: str, duration: float, success: bool, details: Optional[Dict] = None
     ):
@@ -286,7 +328,7 @@ class MollieHealthChecker:
                 latency = time.time() - start_time
                 results.append(
                     HealthCheckResult(
-                        service=f"webhook_endpoint",
+                        service="webhook_endpoint",
                         status="unhealthy",
                         latency=latency,
                         error_message=str(e),
@@ -337,7 +379,7 @@ class MollieHealthChecker:
                 service_class = getattr(module, class_name)
 
                 # Try to instantiate
-                service_instance = service_class()
+                _ = service_class()  # service_instance for potential future use
 
                 latency = time.time() - start_time
                 results.append(

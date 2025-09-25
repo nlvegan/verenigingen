@@ -33,24 +33,6 @@ class RateLimiter:
     Supports both Redis (production) and memory (development) backends
     """
 
-    # Default rate limits by operation type
-    DEFAULT_LIMITS = {
-        "sepa_batch_creation": {"requests": 10, "window_seconds": 3600},  # 10 per hour
-        "sepa_batch_validation": {"requests": 50, "window_seconds": 3600},  # 50 per hour
-        "sepa_invoice_loading": {"requests": 100, "window_seconds": 3600},  # 100 per hour
-        "sepa_xml_preview": {"requests": 20, "window_seconds": 3600},  # 20 per hour
-        "sepa_analytics": {"requests": 30, "window_seconds": 3600},  # 30 per hour
-    }
-
-    # Role-based multipliers
-    ROLE_MULTIPLIERS = {
-        "System Manager": 10.0,
-        "Verenigingen Administrator": 5.0,
-        "Verenigingen Manager": 3.0,
-        "Verenigingen Staff": 2.0,
-        "default": 1.0,
-    }
-
     def __init__(self, backend="auto"):
         """
         Initialize rate limiter
@@ -95,30 +77,6 @@ class RateLimiter:
         # Include IP for additional protection
         ip_part = f":{ip}" if ip else ""
         return f"rate_limit:{operation}:{user}{ip_part}"
-
-    def _get_user_limit(self, operation: str, user: str) -> Tuple[int, int]:
-        """
-        Get rate limit for user based on their roles
-
-        Returns:
-            Tuple of (requests_allowed, window_seconds)
-        """
-        base_limit = self.DEFAULT_LIMITS.get(operation, {"requests": 10, "window_seconds": 3600})
-
-        # Get user roles
-        user_roles = frappe.get_roles(user) if user != "Guest" else []
-
-        # Find highest role multiplier
-        multiplier = self.ROLE_MULTIPLIERS.get("default", 1.0)
-        for role in user_roles:
-            if role in self.ROLE_MULTIPLIERS:
-                multiplier = max(multiplier, self.ROLE_MULTIPLIERS[role])
-
-        # Apply multiplier
-        requests_allowed = int(base_limit["requests"] * multiplier)
-        window_seconds = base_limit["window_seconds"]
-
-        return requests_allowed, window_seconds
 
     def _check_redis_rate_limit(self, key: str, limit: int, window: int) -> Dict[str, Any]:
         """Check rate limit using Redis backend"""
@@ -201,6 +159,46 @@ class RateLimiter:
             "reset_time": current_time + window,
             "retry_after": 0,
         }
+
+    def _get_user_limit(self, operation: str, user: str) -> Tuple[int, int]:
+        """
+        Get rate limit and window for user and operation
+
+        NOTE: SEPA rate limiter is deprecated. Rate limiting is now handled
+        by the COR-based system in api_security_framework. This method provides
+        backward compatibility for existing code.
+
+        Args:
+            operation: Operation type (e.g., "sepa_batch_creation")
+            user: User email
+
+        Returns:
+            Tuple of (limit, window_seconds)
+        """
+        # Default conservative limits for backward compatibility
+        # These are intentionally restrictive since this system is deprecated
+        default_limits = {
+            "sepa_batch_creation": (5, 300),  # 5 requests per 5 minutes
+            "sepa_validation": (20, 60),  # 20 requests per minute
+            "sepa_analytics": (30, 60),  # 30 requests per minute
+            "sepa_loading": (15, 60),  # 15 requests per minute
+        }
+
+        # Get default limit for operation, or use very conservative fallback
+        limit, window = default_limits.get(operation, (10, 300))  # 10 requests per 5 minutes
+
+        # Apply role-based adjustments (more restrictive for regular users)
+        user_roles = frappe.get_roles(user) if user else []
+
+        if "System Manager" in user_roles:
+            # System managers get higher limits
+            limit = int(limit * 2)
+        elif "Accounts Manager" in user_roles:
+            # Accounts managers get moderate increase for financial operations
+            if operation.startswith("sepa_"):
+                limit = int(limit * 1.5)
+
+        return limit, window
 
     def check_rate_limit(self, operation: str, user: str = None, ip: str = None) -> Dict[str, Any]:
         """
@@ -394,27 +392,6 @@ def rate_limit(operation: str):
     return decorator
 
 
-# Specific decorators for SEPA operations
-def rate_limit_sepa_batch_creation(func):
-    """Rate limit decorator for SEPA batch creation"""
-    return rate_limit("sepa_batch_creation")(func)
-
-
-def rate_limit_sepa_validation(func):
-    """Rate limit decorator for SEPA validation operations"""
-    return rate_limit("sepa_batch_validation")(func)
-
-
-def rate_limit_sepa_loading(func):
-    """Rate limit decorator for SEPA invoice loading"""
-    return rate_limit("sepa_invoice_loading")(func)
-
-
-def rate_limit_sepa_analytics(func):
-    """Rate limit decorator for SEPA analytics"""
-    return rate_limit("sepa_analytics")(func)
-
-
 # API endpoints for rate limit management
 @frappe.whitelist(allow_guest=False)
 def get_rate_limit_status(operation: str = None):
@@ -447,24 +424,12 @@ def get_rate_limit_status(operation: str = None):
                 "headers": headers,
             }
         else:
-            # Get status for all operations
-            status = {}
-            for op in limiter.DEFAULT_LIMITS.keys():
-                limit, window = limiter._get_user_limit(op, user)
-                headers = limiter.get_rate_limit_headers(op, user)
-
-                status[op] = {
-                    "limit": limit,
-                    "window_seconds": window,
-                    "remaining": int(headers.get("X-RateLimit-Remaining", 0)),
-                    "reset_time": int(headers.get("X-RateLimit-Reset", 0)),
-                }
-
+            # SEPA rate limiter no longer maintains operation lists
+            # Rate limiting is now handled by COR-based system in api_security_framework
             return {
-                "success": True,
-                "operations": status,
-                "backend": limiter.backend,
-                "user_roles": frappe.get_roles(user),
+                "success": False,
+                "message": "SEPA rate limiter deprecated - use COR-based system via api_security_framework",
+                "migration_note": "Rate limit status for all operations now available via Critical Operation Rules",
             }
 
     except Exception as e:

@@ -36,6 +36,7 @@ class OperationType(Enum):
     REPORTING = "reporting"  # Data export, analytics, dashboards
     UTILITY = "utility"  # Health checks, status endpoints
     PUBLIC = "public"  # Public information, documentation
+    WEBHOOK_PROCESSING = "webhook_processing"  # Webhook endpoints with configurable rate limits
 
 
 class AuditEventType(Enum):

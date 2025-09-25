@@ -2507,10 +2507,12 @@ function display_amendment_status(frm) {
 				}, 500);
 
 				// Clear any existing amendment indicators before adding new one
-				const existing_indicators = frm.dashboard.stats_area_parent.find(
-					'.indicator-pill:contains("Pending Amendments")'
-				);
-				existing_indicators.remove();
+				if (frm.dashboard.stats_area_parent) {
+					const existing_indicators = frm.dashboard.stats_area_parent.find(
+						'.indicator-pill:contains("Pending Amendments")'
+					);
+					existing_indicators.remove();
+				}
 
 				// Add dashboard indicator
 				frm.dashboard.add_indicator(

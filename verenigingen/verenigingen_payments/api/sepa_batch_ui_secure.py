@@ -36,12 +36,6 @@ from verenigingen.utils.security.authorization import (
 
 # Security imports
 from verenigingen.utils.security.csrf_protection import require_csrf_token
-from verenigingen.utils.security.rate_limiting import (
-    rate_limit_sepa_analytics,
-    rate_limit_sepa_batch_creation,
-    rate_limit_sepa_loading,
-    rate_limit_sepa_validation,
-)
 from verenigingen.verenigingen_payments.utils.sepa_input_validation import SEPAInputValidator
 
 

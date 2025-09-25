@@ -208,6 +208,19 @@
                         </div>
                     </div>
 
+                    <div class="mb-6">
+                        <label for="effective-date" class="block text-sm font-medium text-gray-700 mb-2">{{ _("When should this change take effect?") }} <span class="text-red-500">*</span></label>
+                        <input type="date"
+                               id="effective-date"
+                               class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                               value="{{ frappe.utils.getdate(frappe.utils.today()).strftime('%Y-%m-%d') }}"
+                               min="{{ frappe.utils.getdate(frappe.utils.today()).strftime('%Y-%m-%d') }}"
+                               required>
+                        <p class="mt-1 text-sm text-gray-500">
+                            {{ _("Select today's date for immediate application, or a future date to schedule the change") }}
+                        </p>
+                    </div>
+
                     {% if settings.adjustment_reason_required %}
                     <div class="mb-6">
                         <label for="adjustment-reason" class="block text-sm font-medium text-gray-700 mb-2">{{ _("Reason for Adjustment") }} <span class="text-red-500">*</span></label>
@@ -348,6 +361,14 @@ $(document).ready(function() {
         }
     });
 
+    // Update display when effective date changes
+    $('#effective-date').on('change', function() {
+        const currentAmount = parseFloat(feeInput.val());
+        if (!isNaN(currentAmount)) {
+            updateFeeDisplay(currentAmount);
+        }
+    });
+
     function updateFeeDisplay(amount) {
         feeDisplay.text('€' + amount.toFixed(2));
 
@@ -385,17 +406,37 @@ $(document).ready(function() {
                 approvalMessage = '{{ _("No Change") }}';
             }
 
-            // Update button text to indicate approval requirement
+            // Check if effective date is today for immediate application
+            const effectiveDate = $('#effective-date').val();
+            const today = new Date().toISOString().split('T')[0];
+            const isImmediate = effectiveDate === today;
+
+            // Update button text to indicate approval requirement and timing
             if (approvalNeeded) {
-                submitBtn.text('{{ _("Submit for Approval") }}');
+                if (isImmediate) {
+                    submitBtn.text('{{ _("Submit for Immediate Approval") }}');
+                } else {
+                    submitBtn.text('{{ _("Schedule for Approval") }}');
+                }
                 submitBtn.removeClass('bg-secondary-500 hover:bg-secondary-600').addClass('bg-warning-500 hover:bg-warning-600');
             } else {
-                submitBtn.text('{{ _("Submit Fee Adjustment") }}');
+                if (isImmediate) {
+                    submitBtn.text('{{ _("Apply Immediately") }}');
+                } else {
+                    submitBtn.text('{{ _("Schedule Change") }}');
+                }
                 submitBtn.removeClass('bg-warning-500 hover:bg-warning-600').addClass('bg-secondary-500 hover:bg-secondary-600');
             }
 
-            // Show approval status indicator
-            updateApprovalIndicator(approvalNeeded, approvalMessage);
+            // Show approval status indicator with timing
+            let timingMessage = approvalMessage;
+            if (isImmediate && !approvalNeeded) {
+                timingMessage += ' - ' + '{{ _("Applied Immediately") }}';
+            } else if (!isImmediate) {
+                const formattedDate = new Date(effectiveDate).toLocaleDateString();
+                timingMessage += ` - {{ _("Effective") }} ${formattedDate}`;
+            }
+            updateApprovalIndicator(approvalNeeded, timingMessage);
         }
     }
 
@@ -476,9 +517,11 @@ $(document).ready(function() {
 
         const newAmount = parseFloat(feeInput.val());
         const reason = $('#adjustment-reason').val();
+        const effectiveDate = $('#effective-date').val();
 
         console.log('New amount:', newAmount);
         console.log('Reason:', reason);
+        console.log('Effective date:', effectiveDate);
 
         // Validate
         if (isNaN(newAmount) || newAmount < parseFloat(feeSlider.attr('min'))) {
@@ -493,6 +536,12 @@ $(document).ready(function() {
         }
         {% endif %}
 
+        // Validate effective date
+        if (!effectiveDate) {
+            showMessage('{{ _("Please select an effective date") }}', 'danger');
+            return;
+        }
+
         submitBtn.prop('disabled', true);
         submitBtn.text('{{ _("Processing...") }}');
 
@@ -501,7 +550,8 @@ $(document).ready(function() {
             method: 'verenigingen.templates.pages.membership_fee_adjustment.submit_fee_adjustment_request',
             args: {
                 new_amount: newAmount,
-                reason: reason || ''
+                reason: reason || '',
+                effective_date: effectiveDate
             },
             callback: function(r) {
                 console.log('Fee adjustment API response:', r);
@@ -626,6 +676,11 @@ $(document).ready(function() {
 
         dialogHtml += '</div>';
         dialogHtml += '<div class="mt-4">';
+        dialogHtml += '<label for="change-effective-date">Effective Date <span class="text-danger">*</span></label>';
+        dialogHtml += '<input type="date" id="change-effective-date" class="form-control" required>';
+        dialogHtml += '<small class="form-text text-muted">Select when this change should take effect</small>';
+        dialogHtml += '</div>';
+        dialogHtml += '<div class="mt-4">';
         dialogHtml += '<label for="change-reason">Reason for change <span class="text-danger">*</span></label>';
         dialogHtml += '<textarea id="change-reason" class="form-control" rows="3" placeholder="Please explain why you want to change your membership type..." required></textarea>';
         dialogHtml += '</div>';
@@ -665,6 +720,10 @@ $(document).ready(function() {
 
         // Add click handlers for membership type selection
         setTimeout(function() {
+            // Set default and minimum date for the effective date field
+            const today = new Date().toISOString().split('T')[0];
+            $('#change-effective-date').val(today).attr('min', today);
+
             console.log('Setting up click handlers for membership type options');
             const options = $('#membershipTypeModal .membership-type-option');
             console.log('Found', options.length, 'membership type options');
@@ -699,10 +758,12 @@ $(document).ready(function() {
                 const selectedElement = $('#membershipTypeModal .membership-type-option.selected');
                 const selectedType = selectedElement.data('type');
                 const reason = $('#membershipTypeModal #change-reason').val();
+                const effectiveDate = $('#membershipTypeModal #change-effective-date').val();
 
                 console.log('Selected element:', selectedElement.length);
                 console.log('Selected type:', selectedType);
                 console.log('Reason:', reason);
+                console.log('Effective date:', effectiveDate);
 
                 if (!selectedType) {
                     console.log('No membership type selected');
@@ -716,21 +777,28 @@ $(document).ready(function() {
                     return;
                 }
 
+                if (!effectiveDate) {
+                    console.log('No effective date provided');
+                    showMessage('{{ _("Please select an effective date") }}', 'warning');
+                    return;
+                }
+
                 console.log('Submitting membership type change request');
                 $('#membershipTypeModal').modal('hide');
-                submitMembershipTypeChange(selectedType, reason);
+                submitMembershipTypeChange(selectedType, reason, effectiveDate);
             });
         }, 100);
     }
 
-    function submitMembershipTypeChange(newType, reason) {
-        console.log('submitMembershipTypeChange called with:', newType, reason);
+    function submitMembershipTypeChange(newType, reason, effectiveDate) {
+        console.log('submitMembershipTypeChange called with:', newType, reason, effectiveDate);
 
         frappe.call({
             method: 'verenigingen.templates.pages.membership_fee_adjustment.submit_membership_type_change_request',
             args: {
                 new_membership_type: newType,
-                reason: reason
+                reason: reason,
+                effective_date: effectiveDate
             },
             callback: function(r) {
                 console.log('Membership type change response:', r);

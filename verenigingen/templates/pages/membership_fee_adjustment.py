@@ -295,7 +295,7 @@ def can_member_adjust_fee(member, settings):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def submit_fee_adjustment_request(new_amount, reason=""):
+def submit_fee_adjustment_request(new_amount, reason="", effective_date=None):
     """Submit a fee adjustment request from member portal"""
     if frappe.session.user == "Guest":
         frappe.throw(_("Please login"), frappe.PermissionError)
@@ -376,6 +376,14 @@ def submit_fee_adjustment_request(new_amount, reason=""):
     if settings.get("adjustment_reason_required") and not reason.strip():
         frappe.throw(_("Please provide a reason for the fee adjustment"))
 
+    # Parse and validate effective date
+    if effective_date:
+        effective_date = getdate(effective_date)
+        if effective_date < getdate(today()):
+            frappe.throw(_("Effective date cannot be in the past"))
+    else:
+        effective_date = getdate(today())
+
     # Get current active membership
     current_membership = frappe.db.get_value(
         "Membership", {"member": member, "status": "Active", "docstatus": 1}
@@ -396,7 +404,7 @@ def submit_fee_adjustment_request(new_amount, reason=""):
             "reason": reason,
             # Status will be set by the amendment's before_insert method
             "requested_by_member": 1,
-            "effective_date": today(),
+            "effective_date": effective_date,
         }
     )
 
@@ -421,6 +429,21 @@ def submit_fee_adjustment_request(new_amount, reason=""):
             }
 
         amendment = frappe.get_doc("Contribution Amendment Request", result.doc_name)
+
+        # If effective date is today and amendment is approved, apply it immediately
+        if effective_date == getdate(today()) and amendment.status == "Approved":
+            try:
+                amendment._force_apply = True
+                apply_result = amendment.apply_amendment()
+                if apply_result.get("status") == "success":
+                    amendment.reload()  # Reload to get updated status
+            except Exception as e:
+                frappe.log_error(
+                    f"Error applying immediate amendment {amendment.name}: {str(e)}",
+                    "Immediate Amendment Error",
+                )
+                # Continue - the amendment is still created and can be applied later
+
     except frappe.ValidationError as e:
         # Handle validation errors more gracefully
         error_msg = str(e)
@@ -442,13 +465,26 @@ def submit_fee_adjustment_request(new_amount, reason=""):
         frappe.throw(_("An unexpected error occurred. Please try again or contact support."))
 
     # Return response based on the amendment's actual status
-    if amendment.status == "Approved" or amendment.status == "Auto-Approved":
-        message = _("Your fee adjustment has been approved and will take effect on {0}").format(
-            frappe.utils.formatdate(amendment.effective_date)
-        )
+    if amendment.status == "Applied":
+        message = _("Your fee adjustment has been applied immediately and is now active")
+        needs_approval = False
+    elif amendment.status == "Approved" or amendment.status == "Auto-Approved":
+        if effective_date == getdate(today()):
+            message = _("Your fee adjustment has been approved and applied immediately")
+        else:
+            message = _("Your fee adjustment has been approved and will take effect on {0}").format(
+                frappe.utils.formatdate(amendment.effective_date)
+            )
         needs_approval = False
     elif amendment.status == "Pending Approval":
-        message = _("Your fee adjustment request has been submitted for approval")
+        if effective_date == getdate(today()):
+            message = _(
+                "Your fee adjustment request has been submitted for approval. It will be applied immediately once approved."
+            )
+        else:
+            message = _(
+                "Your fee adjustment request has been submitted for approval and will take effect on {0}"
+            ).format(frappe.utils.formatdate(amendment.effective_date))
         needs_approval = True
     else:
         # Unexpected status
@@ -675,7 +711,7 @@ def get_available_membership_types():
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def submit_membership_type_change_request(new_membership_type, reason=""):
+def submit_membership_type_change_request(new_membership_type, reason="", effective_date=None):
     """Submit a membership type change request from member portal"""
     if frappe.session.user == "Guest":
         frappe.throw(_("Please login"), frappe.PermissionError)
@@ -710,6 +746,14 @@ def submit_membership_type_change_request(new_membership_type, reason=""):
     if not reason.strip():
         frappe.throw(_("Please provide a reason for the membership type change"))
 
+    # Parse and validate effective date
+    if effective_date:
+        effective_date = getdate(effective_date)
+        if effective_date < getdate(today()):
+            frappe.throw(_("Effective date cannot be in the past"))
+    else:
+        effective_date = getdate(today())
+
     # Check if there's already a pending membership type change request
     pending_request = frappe.db.exists(
         "Contribution Amendment Request",
@@ -741,7 +785,7 @@ def submit_membership_type_change_request(new_membership_type, reason=""):
             "reason": reason,
             "status": "Pending Approval",  # All membership type changes require approval
             "requested_by_member": 1,
-            "effective_date": today(),
+            "effective_date": effective_date,
         }
     )
 
@@ -750,14 +794,14 @@ def submit_membership_type_change_request(new_membership_type, reason=""):
         result = secure_document_operation(
             operation="insert",
             doc=amendment,
-            justification=f"Member {member_name} contribution reduction request from €{current_amount} to €{new_amount} - financial hardship member portal functionality",
+            justification=f"Member {member} membership type change request from {membership.membership_type} to {new_membership_type} - member portal functionality",
             required_permissions=["Contribution Amendment Request:create"],
         )
 
         if not result.success:
             frappe.log_error(
-                f"Failed to create contribution reduction amendment: {'; '.join(result.errors)}",
-                "Contribution Adjustment Security",
+                f"Failed to create membership type change amendment: {'; '.join(result.errors)}",
+                "Membership Type Change Security",
             )
             return {
                 "success": False,
@@ -770,10 +814,21 @@ def submit_membership_type_change_request(new_membership_type, reason=""):
         # Send notification to membership committee
         send_membership_type_change_notification(member_doc, old_type_doc, new_type_doc, reason)
 
+        # Create message with effective date information
+        if effective_date == getdate(today()):
+            message = _(
+                "Your membership type change request has been submitted for approval and will be applied immediately once approved"
+            )
+        else:
+            message = _(
+                "Your membership type change request has been submitted for approval and will take effect on {0}"
+            ).format(frappe.utils.formatdate(effective_date))
+
         return {
             "success": True,
-            "message": _("Your membership type change request has been submitted for approval"),
+            "message": message,
             "amendment_id": amendment.name,
+            "effective_date": frappe.utils.formatdate(effective_date),
         }
 
     except Exception as e:

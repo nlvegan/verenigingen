@@ -1324,10 +1324,18 @@ class MembershipDuesSchedule(Document):
         if not member_doc.customer:
             frappe.throw(f"Member {self.member} does not have a customer record")
 
-        # Create invoice
+        # Get company from Verenigingen Settings first
+        settings = frappe.get_single("Verenigingen Settings")
+        if not settings.company:
+            frappe.throw("Company not configured in Verenigingen Settings")
+
+        # Create invoice with explicit company
         invoice = frappe.new_doc("Sales Invoice")
+        invoice.company = settings.company
         invoice.customer = member_doc.customer
         invoice.posting_date = today()
+
+        # Company will be validated normally by Frappe
 
         # ✅ NEW: Set coverage period fields for better tracking
         coverage_start, coverage_end = self.calculate_billing_period(invoice.posting_date)
@@ -1363,55 +1371,95 @@ class MembershipDuesSchedule(Document):
                 # Set SEPA-specific fields on invoice if needed
                 invoice.sepa_mandate_id = active_mandate
 
-            # Payment terms template already set above if specified
+        # Get the correct cost center for the company
+        main_cost_center = (
+            f"Main - {settings.company.split()[-1] if len(settings.company.split()) > 1 else 'NVV'}"
+        )
 
-            # Add membership dues item
-            invoice.append(
-                "items",
-                {
-                    "item_code": self.get_membership_dues_item(),
-                    "qty": 1,
-                    "rate": self.dues_rate,
-                    "description": self.get_invoice_description(),
-                },
+        # Verify cost center exists, fallback to company's default
+        if not frappe.db.exists("Cost Center", main_cost_center):
+            cost_centers = frappe.get_all(
+                "Cost Center", filters={"company": settings.company, "cost_center_name": "Main"}, limit=1
             )
+            main_cost_center = cost_centers[0]["name"] if cost_centers else None
 
-            # Add reference to this schedule (as a custom field or in remarks)
-            invoice.remarks = (
-                f"Generated from Membership Dues Schedule: {self.name}\n{self.get_invoice_description()}"
+        # Get correct accounts from configuration with validation
+        # Income account from Verenigingen Settings
+        income_account = settings.dues_payments_receivable_account
+        if income_account and not frappe.db.exists("Account", income_account):
+            frappe.log_error(
+                f"Configured dues_payments_receivable_account '{income_account}' does not exist",
+                "Invoice Generation Error",
             )
+            income_account = None
 
-            # Save and optionally submit
-            # Insert with minimal logging for automated invoices
-            invoice.flags.ignore_version = True
-            invoice.flags.ignore_links = True
-            invoice.insert()
-
-            # Auto-submit if configured (default to True for membership invoices)
-            try:
-                auto_submit = frappe.db.get_single_value(
-                    "Verenigingen Settings", "auto_submit_membership_invoices"
+        # Expense account from Company's default cost of goods sold account
+        expense_account = None
+        try:
+            company_doc = frappe.get_cached_doc("Company", settings.company)
+            expense_account = company_doc.default_expense_account
+            if expense_account and not frappe.db.exists("Account", expense_account):
+                frappe.log_error(
+                    f"Company default_expense_account '{expense_account}' does not exist",
+                    "Invoice Generation Error",
                 )
-                # Default to auto-submit if setting doesn't exist (better UX)
-                if auto_submit is None or auto_submit:
-                    # Keep minimal logging flags for submit operation
-                    invoice.flags.ignore_version = True
-                    invoice.flags.ignore_links = True
-                    invoice.submit()
-            except Exception:
-                # If setting doesn't exist, default to auto-submit for membership invoices
-                try:
-                    # Keep minimal logging flags for submit operation
-                    invoice.flags.ignore_version = True
-                    invoice.flags.ignore_links = True
-                    invoice.submit()
-                except Exception as e:
-                    frappe.log_error(
-                        f"Failed to auto-submit invoice {invoice.name}: {str(e)}", "Invoice Auto-Submit"
-                    )
-                    pass
+                expense_account = None
+        except Exception as e:
+            frappe.log_error(
+                f"Error accessing company '{settings.company}': {str(e)}", "Invoice Generation Error"
+            )
 
-            return invoice.name
+        # Add membership dues item with correct accounts
+        invoice.append(
+            "items",
+            {
+                "item_code": self.get_membership_dues_item(),
+                "qty": 1,
+                "rate": self.dues_rate,
+                "description": self.get_invoice_description(),
+                "cost_center": main_cost_center,
+                "income_account": income_account,
+                "expense_account": expense_account,
+            },
+        )
+
+        # Add reference to this schedule (as a custom field or in remarks)
+        invoice.remarks = (
+            f"Generated from Membership Dues Schedule: {self.name}\n{self.get_invoice_description()}"
+        )
+
+        # Save and optionally submit
+        # Insert with minimal logging for automated invoices
+        invoice.flags.ignore_version = True
+        invoice.flags.ignore_links = True
+
+        invoice.insert()
+
+        # Auto-submit if configured (default to True for membership invoices)
+        try:
+            auto_submit = frappe.db.get_single_value(
+                "Verenigingen Settings", "auto_submit_membership_invoices"
+            )
+            # Default to auto-submit if setting doesn't exist (better UX)
+            if auto_submit is None or auto_submit:
+                # Keep minimal logging flags for submit operation
+                invoice.flags.ignore_version = True
+                invoice.flags.ignore_links = True
+                invoice.submit()
+        except Exception:
+            # If setting doesn't exist, default to auto-submit for membership invoices
+            try:
+                # Keep minimal logging flags for submit operation
+                invoice.flags.ignore_version = True
+                invoice.flags.ignore_links = True
+                invoice.submit()
+            except Exception as e:
+                frappe.log_error(
+                    f"Failed to auto-submit invoice {invoice.name}: {str(e)}", "Invoice Auto-Submit"
+                )
+                pass
+
+        return invoice
 
     def get_membership_dues_item(self):
         """Get the membership dues item name (assumes it exists)"""
@@ -1436,17 +1484,33 @@ class MembershipDuesSchedule(Document):
         item_name = self.get_membership_dues_item()
 
         if not DocumentExistenceValidator.check_document_exists("Item", item_name):
+            # Get correct company settings
+            settings = frappe.get_single("Verenigingen Settings")
+            if not settings.company:
+                frappe.throw("Company not configured in Verenigingen Settings")
+
             # Create item outside of the main transaction to avoid implicit commits
             item = frappe.new_doc("Item")
             item.item_code = item_name
             item.item_name = item_name
             item.item_group = "Services"
             item.is_sales_item = 1
-            # Item service attributes
-            # Note: ERPNext Item doctype doesn't have is_service_item field
-            # Using is_sales_item which is appropriate for membership services
+
+            # Set correct default accounts from configuration
+            # Income account from Verenigingen Settings
+            if settings.dues_payments_receivable_account:
+                item.income_account = settings.dues_payments_receivable_account
+
+            # Expense account from Company's default cost of goods sold account
+            try:
+                company_doc = frappe.get_cached_doc("Company", settings.company)
+                if company_doc.default_cost_of_goods_sold:
+                    item.expense_account = company_doc.default_cost_of_goods_sold
+            except Exception:
+                pass  # Use defaults if not available
+
             item.insert()
-            frappe.db.commit()  # Explicit commit for item creation
+            # Let Frappe handle transaction management automatically
 
         return item_name
 

@@ -80,7 +80,7 @@ class DonationCampaign(Document):
             # Get all paid donations for this campaign
             donations = frappe.get_all(
                 "Donation",
-                filters={"campaign": self.name, "paid": 1, "docstatus": 1},
+                filters={"campaign": self.name, "paid": 1},
                 fields=["name", "amount", "donor"],
             )
 
@@ -370,7 +370,7 @@ def update_campaign_progress(campaign_name):
                     COUNT(DISTINCT CASE WHEN anonymous = 0 THEN donor END) as total_donors,
                     AVG(amount) as average_donation_amount
                 FROM `tabDonation`
-                WHERE campaign = %s AND paid = 1 AND docstatus = 1
+                WHERE campaign = %s AND paid = 1
             """,
                 campaign.name,
                 as_dict=True,

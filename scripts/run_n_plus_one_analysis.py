@@ -13,7 +13,7 @@ from pathlib import Path
 app_path = Path(__file__).parent.parent
 sys.path.append(str(app_path))
 
-from verenigingen.scripts.n_plus_one_scanner import N1CodebaseScanner, run_scan
+from scripts.n_plus_one_scanner import N1CodebaseScanner, run_scan
 
 
 def analyze_high_priority_only(base_path: str):

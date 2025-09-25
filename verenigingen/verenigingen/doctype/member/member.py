@@ -1022,21 +1022,38 @@ class Member(
             return
 
     def record_fee_change(self, change_data):
-        """Record fee change in history"""
-        self.append(
-            "fee_change_history",
-            {
+        """Record fee change in history using the financial history manager"""
+        from verenigingen.utils.member_financial_history_manager import get_fee_change_history_manager
+
+        # Use amendment request name for true idempotency, fallback to date-based ID for other changes
+        amendment_name = change_data.get("amendment_request_name")
+        if amendment_name:
+            entry_id = f"amendment_{amendment_name}"
+        else:
+            # For non-amendment changes (manual, system, etc.)
+            entry_id = f"{change_data['change_date']}_{change_data.get('dues_schedule_action', 'manual')}"
+
+        def build_fee_change_entry():
+            entry_data = {
                 "change_date": change_data["change_date"],
-                "old_amount": change_data["old_amount"],
-                "new_amount": change_data["new_amount"],
+                "old_dues_rate": change_data["old_amount"],
+                "new_dues_rate": change_data["new_amount"],
+                "change_type": "Fee Adjustment",
                 "reason": change_data["reason"],
                 "changed_by": change_data["changed_by"],
-                "dues_schedule_action": change_data.get(
-                    "dues_schedule_action", "Pending dues schedule update"
-                ),
-            },
+                "dues_schedule": change_data.get("dues_schedule_name", ""),
+            }
+            # Add amendment request reference if available
+            if amendment_name:
+                entry_data["amendment_request"] = amendment_name
+            return entry_data
+
+        fee_history_manager = get_fee_change_history_manager(self)
+        return fee_history_manager.add_or_update_entry(
+            entry_id=entry_id,
+            entry_builder=build_fee_change_entry,
+            id_field_name="amendment_request" if amendment_name else "dues_schedule",
         )
-        # Note: Don't save here to avoid recursive save during validation
 
     def get_active_membership(self):
         """Get the currently active membership for this member.
@@ -2165,13 +2182,9 @@ class Member(
                     # Entry was deleted - sync removal
                     self._sync_volunteer_assignment_removal(db_entry, volunteer_doc)
 
-            # Commit transaction if we started it
-            if transaction_started:
-                frappe.db.commit()
+            # Transaction handled automatically by Frappe
 
         except frappe.DoesNotExistError as e:
-            if transaction_started:
-                frappe.db.rollback()
             frappe.log_error(
                 f"Volunteer record not found during sync for member {self.name}: {str(e)}",
                 "Volunteer Assignment Sync Error",
@@ -2205,22 +2218,22 @@ class Member(
             if assignment_type == "Member":
                 # Create or update Chapter Member record
                 existing_member = frappe.db.get_value(
-                    "Chapter Member", {"member": self.name, "chapter": chapter_name}, "name"
+                    "Chapter Member", {"member": self.name, "parent": chapter_name}, "name"
                 )
 
                 if not existing_member:
-                    # Create new Chapter Member record
-                    chapter_member = frappe.get_doc(
+                    # Create new Chapter Member record using proper parent.append() pattern
+                    chapter_doc = frappe.get_doc("Chapter", chapter_name)
+                    chapter_doc.append(
+                        "members",
                         {
-                            "doctype": "Chapter Member",
                             "member": self.name,
-                            "chapter": chapter_name,
                             "status": history_entry.status,
                             "from_date": history_entry.start_date,
                             "to_date": history_entry.end_date,
-                        }
+                        },
                     )
-                    chapter_member.insert()
+                    chapter_doc.save()
                     frappe.logger().info(f"Created Chapter Member record for {self.name} in {chapter_name}")
 
             elif assignment_type == "Board Member":
@@ -2263,7 +2276,7 @@ class Member(
             if assignment_type == "Member":
                 # Update Chapter Member record
                 chapter_member = frappe.db.get_value(
-                    "Chapter Member", {"member": self.name, "chapter": chapter_name}, "name"
+                    "Chapter Member", {"member": self.name, "parent": chapter_name}, "name"
                 )
 
                 if chapter_member:
@@ -2300,7 +2313,7 @@ class Member(
             if assignment_type == "Member":
                 # Remove or deactivate Chapter Member record
                 chapter_member = frappe.db.get_value(
-                    "Chapter Member", {"member": self.name, "chapter": chapter_name}, "name"
+                    "Chapter Member", {"member": self.name, "parent": chapter_name}, "name"
                 )
 
                 if chapter_member:

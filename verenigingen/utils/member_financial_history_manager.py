@@ -374,3 +374,8 @@ def get_payment_history_manager(member_doc) -> MemberFinancialHistoryManager:
 def get_expense_history_manager(member_doc) -> MemberFinancialHistoryManager:
     """Factory function for expense history manager."""
     return MemberFinancialHistoryManager(member_doc, "volunteer_expenses", max_entries=30)
+
+
+def get_fee_change_history_manager(member_doc) -> MemberFinancialHistoryManager:
+    """Factory function for fee change history manager."""
+    return MemberFinancialHistoryManager(member_doc, "fee_change_history", max_entries=50)

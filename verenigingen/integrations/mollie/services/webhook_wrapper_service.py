@@ -6,6 +6,7 @@ mollie_payment_webhook.py without breaking functionality. This provides a clean
 interface while preserving all the tested business logic.
 """
 
+import json
 import time
 from typing import Any, Dict, Optional
 
@@ -69,15 +70,76 @@ class WebhookWrapperService:
             # Log webhook received
             webhook_data = {"payment_id": payment_id, "has_payment_data": payment_data is not None}
             log_webhook_received(payment_id, webhook_data)
-            self.logger.info(f"Starting webhook processing", {"payment_id": payment_id})
+            self.logger.info("Starting webhook processing", {"payment_id": payment_id})
 
-            # Check for idempotency first
+            # Debug: Verify service layer is being used
+            frappe.log_error(f"SERVICE LAYER: Processing webhook for {payment_id}", "Service Layer Debug")
+
+            # Get payment from Mollie if not provided (needed for refund checking)
+            if not payment_data:
+                frappe.log_error(
+                    f"SERVICE LAYER: About to fetch payment data for {payment_id}", "Service Layer Debug"
+                )
+                log_payment_processing(payment_id, "fetch_payment_data", "started")
+                try:
+                    payment_data = self._fetch_payment_from_mollie(payment_id)
+                    frappe.log_error(
+                        f"SERVICE LAYER: Successfully fetched payment data for {payment_id}",
+                        "Service Layer Debug",
+                    )
+                    log_payment_processing(payment_id, "fetch_payment_data", "success")
+                except Exception as e:
+                    frappe.log_error(
+                        f"SERVICE LAYER: FAILED to fetch payment data for {payment_id}: {e}",
+                        "Service Layer ERROR",
+                    )
+                    raise
+
+            # ALWAYS check for refunds first - refunds are new financial events regardless of original payment status
+            log_payment_processing(payment_id, "refund_check", "started")
+            frappe.log_error(f"SERVICE LAYER: About to check refunds for {payment_id}", "Refund Debug")
+
+            try:
+                refund_result = self._process_payment_refunds(payment_id, payment_data)
+                frappe.log_error(
+                    f"SERVICE LAYER: Refund result: {frappe.as_json(refund_result)}", "Refund Debug"
+                )
+            except Exception as e:
+                frappe.log_error(f"SERVICE LAYER: Refund processing FAILED: {e}", "Refund Debug ERROR")
+                refund_result = {"refunds_processed": [], "error": str(e)}
+
+            # If we found and processed any refunds, return immediately
+            if refund_result.get("refunds_processed"):
+                processed_count = len(refund_result["refunds_processed"])
+                duration = time.time() - start_time
+                self.logger.success(
+                    "Processed refunds for payment",
+                    {"payment_id": payment_id, "refunds_processed": processed_count},
+                    duration=duration,
+                )
+                log_payment_processing(
+                    payment_id, "refund_check", "success", {"refunds_processed": processed_count}
+                )
+                record_operation_performance(
+                    "webhook_processing", duration, True, {"refunds_processed": processed_count}
+                )
+                return {
+                    "status": "success",
+                    "message": f"Processed {processed_count} refunds for payment {payment_id}",
+                    "payment_id": payment_id,
+                    "data": refund_result,
+                }
+
+            log_payment_processing(payment_id, "refund_check", "completed", {"refunds_found": 0})
+
+            # Only check payment-level idempotency if no refunds were processed
+            # This handles regular payment webhooks for the original transaction
             log_payment_processing(payment_id, "idempotency_check", "started")
             processing_status = check_payment_processing_status_by_id(payment_id)
             if processing_status.get("all_complete"):
                 duration = time.time() - start_time
                 self.logger.success(
-                    f"Payment already processed (idempotent)",
+                    "Payment already processed (idempotent)",
                     {"payment_id": payment_id, "components": processing_status},
                     duration=duration,
                 )
@@ -91,17 +153,11 @@ class WebhookWrapperService:
                     "components": processing_status,
                 }
 
-            # Get payment from Mollie if not provided
-            if not payment_data:
-                log_payment_processing(payment_id, "fetch_payment_data", "started")
-                payment_data = self._fetch_payment_from_mollie(payment_id)
-                log_payment_processing(payment_id, "fetch_payment_data", "success")
-
             # Validate payment status
             if payment_data.status != "paid":
                 duration = time.time() - start_time
                 self.logger.info(
-                    f"Payment not in paid status",
+                    "Payment not in paid status",
                     {"payment_id": payment_id, "status": payment_data.status},
                     duration=duration,
                 )
@@ -144,7 +200,7 @@ class WebhookWrapperService:
 
             duration = time.time() - start_time
             self.logger.success(
-                f"Webhook processing completed successfully",
+                "Webhook processing completed successfully",
                 {
                     "payment_id": payment_id,
                     "donation_name": donation.name,
@@ -166,7 +222,7 @@ class WebhookWrapperService:
         except MollieWebhookError as e:
             # Log our custom exceptions with performance tracking
             duration = time.time() - start_time
-            self.logger.error(f"Webhook processing failed", error=e, data={"payment_id": payment_id})
+            self.logger.error("Webhook processing failed", error=e, data={"payment_id": payment_id})
             record_operation_performance(
                 "webhook_processing", duration, False, {"error_type": "MollieWebhookError"}
             )
@@ -329,3 +385,280 @@ class WebhookWrapperService:
             error_msg = f"Chargeback webhook processing failed: {str(e)}"
             self.logger.error(error_msg, error=e)
             raise MollieWebhookError(error_msg, original_error=e)
+
+    def _process_payment_refunds(self, payment_id: str, payment_data: Any) -> Dict[str, Any]:
+        """
+        Process any refunds associated with this payment.
+
+        This method fetches all refunds for the payment and processes any that haven't been handled yet.
+
+        Args:
+            payment_id (str): Mollie payment ID
+            payment_data: Mollie payment object
+
+        Returns:
+            dict: Processing results including any refunds processed
+        """
+        try:
+            self.logger.info(f"Checking for refunds on payment {payment_id}")
+            frappe.log_error(f"REFUND DEBUG: Starting refund check for {payment_id}", "Refund Processing")
+
+            # Get Mollie client to fetch refunds
+            mollie_settings = frappe.get_single("Mollie Settings")
+            mollie = mollie_settings.get_mollie_client()
+
+            # Fetch all refunds for this payment
+            try:
+                # Get the payment object first, then access its refunds
+                payment = mollie.payments.get(payment_id)
+                refunds = payment.refunds.list()
+                frappe.log_error(
+                    f"REFUND DEBUG: Found {len(refunds)} refunds for {payment_id}", "Refund Processing"
+                )
+
+                # Log details of each refund found
+                for i, rf in enumerate(refunds):
+                    rf_id = rf.get("id") if isinstance(rf, dict) else rf.id
+                    rf_status = rf.get("status") if isinstance(rf, dict) else rf.status
+                    rf_amount = (
+                        rf.get("amount", {}).get("value")
+                        if isinstance(rf, dict)
+                        else (rf.amount.value if hasattr(rf, "amount") else "unknown")
+                    )
+                    frappe.log_error(
+                        f"REFUND DEBUG: Refund {i + 1}: ID={rf_id}, Status={rf_status}, Amount={rf_amount}",
+                        "Refund Processing",
+                    )
+
+                self.logger.info(f"Found {len(refunds)} refunds for payment {payment_id}")
+            except Exception as e:
+                frappe.log_error(
+                    f"REFUND DEBUG: Could not fetch refunds for {payment_id}: {e}", "Refund Processing"
+                )
+                self.logger.warning(f"Could not fetch refunds for payment {payment_id}: {e}")
+                return {"refunds_processed": []}
+
+            if not refunds:
+                frappe.log_error(
+                    f"REFUND DEBUG: No refunds found for payment {payment_id}", "Refund Processing"
+                )
+                self.logger.info(f"No refunds found for payment {payment_id}")
+                return {"refunds_processed": []}
+
+            processed_refunds = []
+
+            # Process each refund
+            for refund in refunds:
+                # Handle both object and dict formats for refund data
+                refund_id = refund.get("id") if isinstance(refund, dict) else refund.id
+                refund_status = refund.get("status") if isinstance(refund, dict) else refund.status
+
+                self.logger.info(f"Processing refund {refund_id} with status {refund_status}")
+
+                # Only process completed refunds
+                if refund_status != "refunded":
+                    self.logger.info(
+                        f"Skipping refund {refund_id} - status is {refund_status}, not 'refunded'"
+                    )
+                    continue
+
+                # Check if this refund has already been processed (idempotency)
+                # Look for either Payment Entries (old approach) or Credit Notes (new approach)
+                existing_pe = frappe.db.exists(
+                    "Payment Entry", {"reference_no": refund_id, "payment_type": "Pay"}
+                )
+                existing_credit_note = frappe.db.exists(
+                    "Sales Invoice", {"return_against": ["!=", ""], "remarks": ["like", f"%{refund_id}%"]}
+                )
+
+                if existing_pe or existing_credit_note:
+                    existing_ref = existing_pe or existing_credit_note
+                    self.logger.info(f"Refund {refund_id} already processed (Reference: {existing_ref})")
+                    continue
+
+                # Extract amount info (handle both object and dict formats)
+                if isinstance(refund, dict):
+                    amount_value = refund.get("amount", {}).get("value", "0")
+                    amount_currency = refund.get("amount", {}).get("currency", "EUR")
+                    refund_description = refund.get("description", "")
+                    created_at = refund.get("created_at")
+                else:
+                    amount_value = refund.amount.value if hasattr(refund, "amount") else "0"
+                    amount_currency = refund.amount.currency if hasattr(refund, "amount") else "EUR"
+                    refund_description = getattr(refund, "description", "")
+                    created_at = (
+                        refund.created_at.isoformat()
+                        if hasattr(refund, "created_at") and refund.created_at
+                        else None
+                    )
+
+                # Create webhook payload structure that the refund service expects
+                refund_webhook_payload = {
+                    "payment_id": payment_id,
+                    "refund_id": refund_id,
+                    "refund": {
+                        "id": refund_id,
+                        "status": refund_status,
+                        "amount": {"value": amount_value, "currency": amount_currency},
+                        "description": refund_description,
+                        "created_at": created_at,
+                    },
+                    "payment": {"id": payment_id},
+                }
+
+                # Process the refund using the complete hybrid RefundChargebackService
+                result = self.refund_chargeback_service.process_refund_webhook(
+                    json.dumps(refund_webhook_payload)
+                )
+
+                if result.get("status") == "success":
+                    processed_refunds.append(
+                        {
+                            "refund_id": refund_id,
+                            "amount": amount_value,
+                            "credit_note": result.get("credit_note"),
+                            "status": "success",
+                        }
+                    )
+                    self.logger.info(
+                        f"Successfully processed refund {refund_id} with Credit Note {result.get('credit_note')}"
+                    )
+                elif result.get("status") == "skipped":
+                    processed_refunds.append(
+                        {
+                            "refund_id": refund_id,
+                            "amount": amount_value,
+                            "status": "skipped",
+                            "message": result.get("message"),
+                        }
+                    )
+                    self.logger.info(f"Skipped refund {refund_id}: {result.get('message')}")
+                else:
+                    self.logger.error(f"Failed to process refund {refund_id}: {result.get('message')}")
+                    processed_refunds.append(
+                        {
+                            "refund_id": refund_id,
+                            "amount": amount_value,
+                            "status": "failed",
+                            "error": result.get("message"),
+                        }
+                    )
+
+            return {
+                "refunds_processed": processed_refunds,
+                "payment_id": payment_id,
+                "total_refunds": len(refunds),
+                "processed_count": len(
+                    [r for r in processed_refunds if r["status"] in ["success", "skipped"]]
+                ),
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error processing refunds for payment {payment_id}: {e}")
+            return {"refunds_processed": [], "error": str(e)}
+
+    def _process_refund_with_credit_note(
+        self, refund_data: Dict[str, Any], payment_id: str
+    ) -> Dict[str, Any]:
+        """
+        Process refund using Credit Note approach via RefundChargebackService.
+
+        Args:
+            refund_data: Refund data from webhook payload
+            payment_id: Original payment ID
+
+        Returns:
+            Dict with processing result
+        """
+        try:
+            refund_info = refund_data["refund"]
+            _ = refund_info["id"]  # refund_id used for debugging only
+
+            # Find donation for this payment
+            donation_name = self._find_donation_for_payment(payment_id)
+            if not donation_name:
+                return {"status": "error", "message": f"Donation for payment {payment_id} not found"}
+
+            # Get donation document
+            donation_doc = frappe.get_doc("Donation", donation_name)
+            refund_amount = float(refund_info["amount"]["value"])
+
+            # Use the RefundChargebackService Credit Note approach
+            credit_note_result = self.refund_chargeback_service._create_refund_credit_note(
+                refund_info, donation_doc, refund_amount
+            )
+
+            if credit_note_result["status"] == "success":
+                # Update donation payment history with Credit Note reference
+                self.refund_chargeback_service._update_donation_refund_history(
+                    donation_name, refund_info, credit_note_result["credit_note"]
+                )
+
+                return {
+                    "status": "success",
+                    "credit_note": credit_note_result["credit_note"],
+                    "amount": refund_amount,
+                }
+            elif credit_note_result["status"] == "skipped":
+                return {
+                    "status": "skipped",
+                    "message": credit_note_result["message"],
+                    "amount": refund_amount,
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": credit_note_result.get("error", "Unknown error creating Credit Note"),
+                }
+
+        except Exception as e:
+            self.logger.error(f"Error processing refund with credit note: {e}")
+            return {"status": "error", "message": str(e)}
+
+    def _find_donation_for_payment(self, payment_id: str) -> Optional[str]:
+        """Find donation associated with the payment."""
+        try:
+            # Try to find donation by payment_id
+            donation = frappe.db.get_value("Donation", {"payment_id": payment_id}, "name")
+            if donation:
+                return donation
+
+            # If not found, try to find via Payment Entry reference
+            payment_entry = frappe.db.get_value("Payment Entry", {"reference_no": payment_id}, "name")
+            if payment_entry:
+                # Look for donation referencing this payment entry
+                donation = frappe.db.get_value("Donation", {"payment_entry": payment_entry}, "name")
+                return donation
+
+            return None
+        except Exception as e:
+            self.logger.error(f"Error finding donation for payment {payment_id}: {e}")
+            return None
+
+    def _update_donation_refund_history(
+        self, donation_name: str, refund_info: Dict[str, Any], payment_entry_id: str, refund_amount: float
+    ) -> None:
+        """Update donation payment history with refund information."""
+        try:
+            donation = frappe.get_doc("Donation", donation_name)
+
+            # Add refund to payment history
+            donation.append(
+                "payment_history",
+                {
+                    "payment_date": frappe.utils.getdate(refund_info.get("created_at"))
+                    if refund_info.get("created_at")
+                    else frappe.utils.getdate(),
+                    "payment_method": "Mollie",
+                    "status": "Refunded",
+                    "amount": -refund_amount,  # Negative amount for refund
+                    "payment_entry": payment_entry_id,
+                    "mollie_payment_id": refund_info["id"],
+                    "notes": f"Refund: {refund_info.get('description', 'N/A')}",
+                },
+            )
+
+            donation.save()
+
+        except Exception as e:
+            self.logger.error(f"Error updating donation refund history: {e}")

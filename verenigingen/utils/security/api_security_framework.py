@@ -29,7 +29,8 @@ from verenigingen.utils.error_handling import log_error
 
 # Lazy import to avoid circular dependency - get_auth_manager imported when needed
 from verenigingen.utils.security.csrf_protection import CSRFProtection
-from verenigingen.utils.security.rate_limiting import get_rate_limiter
+
+# Note: Removed SEPA rate limiter import - now using COR-based rate limiting
 from verenigingen.utils.security.types import (
     AuditEventType,
     AuditSeverity,
@@ -48,7 +49,6 @@ class SecurityProfile:
         level: SecurityLevel,
         required_roles: List[str] = None,
         required_permissions: List[str] = None,
-        rate_limit_config: Dict[str, int] = None,
         requires_csrf: bool = True,
         requires_audit: bool = True,
         input_validation: bool = True,
@@ -61,7 +61,7 @@ class SecurityProfile:
         self.level = level
         self.required_roles = required_roles or []
         self.required_permissions = required_permissions or []
-        self.rate_limit_config = rate_limit_config or {"requests": 100, "window_seconds": 3600}
+        # Note: Rate limiting now handled entirely by COR records
         self.requires_csrf = requires_csrf
         self.requires_audit = requires_audit
         self.input_validation = input_validation
@@ -89,7 +89,6 @@ class APISecurityFramework:
         SecurityLevel.CRITICAL: SecurityProfile(
             level=SecurityLevel.CRITICAL,
             required_roles=["System Manager", "Verenigingen Administrator"],
-            rate_limit_config={"requests": 10, "window_seconds": 3600},
             requires_csrf=True,
             requires_audit=True,
             input_validation=True,
@@ -101,7 +100,6 @@ class APISecurityFramework:
         SecurityLevel.HIGH: SecurityProfile(
             level=SecurityLevel.HIGH,
             required_roles=["System Manager", "Verenigingen Administrator", "Verenigingen Manager"],
-            rate_limit_config={"requests": 50, "window_seconds": 3600},
             requires_csrf=True,
             requires_audit=True,
             input_validation=True,
@@ -118,7 +116,6 @@ class APISecurityFramework:
                 "Verenigingen Manager",
                 "Verenigingen Staff",
             ],
-            rate_limit_config={"requests": 200, "window_seconds": 3600},
             requires_csrf=False,  # Most read operations
             requires_audit=False,  # Reduce audit volume - only audit critical/high operations
             input_validation=True,
@@ -130,7 +127,6 @@ class APISecurityFramework:
         SecurityLevel.LOW: SecurityProfile(
             level=SecurityLevel.LOW,
             required_roles=[],  # Any authenticated user
-            rate_limit_config={"requests": 500, "window_seconds": 3600},
             requires_csrf=False,
             requires_audit=False,  # No audit logging for low security operations
             input_validation=True,
@@ -142,7 +138,6 @@ class APISecurityFramework:
         SecurityLevel.PUBLIC: SecurityProfile(
             level=SecurityLevel.PUBLIC,
             required_roles=[],
-            rate_limit_config={"requests": 1000, "window_seconds": 3600},
             requires_csrf=False,
             requires_audit=False,
             input_validation=True,
@@ -161,6 +156,7 @@ class APISecurityFramework:
         OperationType.REPORTING: SecurityLevel.MEDIUM,
         OperationType.UTILITY: SecurityLevel.LOW,
         OperationType.PUBLIC: SecurityLevel.PUBLIC,
+        OperationType.WEBHOOK_PROCESSING: SecurityLevel.PUBLIC,  # Special handling for configurable rate limits
     }
 
     # Role Profile to Security Level mapping
@@ -211,7 +207,7 @@ class APISecurityFramework:
         # It will be lazily initialized when first needed
         self.audit_logger = None
         self.auth_manager = None  # Lazy loading to avoid circular import
-        self.rate_limiter = get_rate_limiter()
+        # Note: Removed SEPA rate limiter - now using COR-based rate limiting directly
         self.csrf_protection = CSRFProtection()
 
         # Validate role profile configuration on initialization
@@ -698,17 +694,135 @@ class APISecurityFramework:
             raise VPermissionError(_("CSRF validation failed: {0}").format(str(e)))
 
     def validate_rate_limits(self, profile: SecurityProfile, operation_key: str) -> bool:
-        """Validate rate limits"""
+        """Validate rate limits using COR records"""
         try:
-            self.rate_limiter.check_rate_limit(operation_key)
+            # Extract operation name from operation key
+            # e.g., "verenigingen.integrations.mollie.api.payment_webhook.handle_mollie_payment_webhook"
+            # -> "handle_mollie_payment_webhook"
+            operation_name = operation_key.split(".")[-1] if "." in operation_key else operation_key
+
+            # Try to find specific COR record for this operation
+            cor_record = frappe.db.get_value(
+                "Critical Operation Rule",
+                {"operation_name": operation_name, "enabled": 1},
+                ["rate_limit_calls", "rate_limit_period_seconds", "rate_limit_scope"],
+                as_dict=True,
+            )
+
+            # If no specific COR found, use generic fallback
+            if not cor_record:
+                cor_record = frappe.db.get_value(
+                    "Critical Operation Rule",
+                    {"operation_name": "_generic_api_fallback", "enabled": 1},
+                    ["rate_limit_calls", "rate_limit_period_seconds", "rate_limit_scope"],
+                    as_dict=True,
+                )
+
+            # If still no COR found, refuse to proceed (no hardcoded fallback)
+            if not cor_record:
+                raise VPermissionError(
+                    _("No rate limiting configuration found for operation: {0}").format(operation_name)
+                )
+
+            # Apply COR-based rate limiting
+            max_calls = cor_record.rate_limit_calls
+            period_seconds = cor_record.rate_limit_period_seconds
+            scope = cor_record.rate_limit_scope or "per_user"
+
+            # Build cache key based on scope
+            if scope == "global":
+                cache_key = f"cor_rate_limit:{operation_name}"
+            elif scope == "per_ip":
+                client_ip = frappe.local.request.environ.get("REMOTE_ADDR", "unknown")
+                cache_key = f"cor_rate_limit:{operation_name}:{client_ip}"
+            else:  # per_user (default)
+                cache_key = f"cor_rate_limit:{operation_name}:{frappe.session.user}"
+
+            # Check current usage (ensure it's an integer)
+            current_count = int(frappe.cache().get(cache_key) or 0)
+
+            if current_count >= max_calls:
+                raise VPermissionError(
+                    _("Rate limit exceeded: {0}/{1} requests per {2} seconds for {3}").format(
+                        current_count, max_calls, period_seconds, operation_name
+                    )
+                )
+
+            # Increment counter with appropriate expiry
+            frappe.cache().setex(cache_key, period_seconds, current_count + 1)
             return True
+
         except Exception as e:
             self._get_audit_logger().log_event(
                 AuditEventType.RATE_LIMIT_EXCEEDED,
                 AuditSeverity.WARNING,
                 details={"operation": operation_key, "error": str(e)},
             )
-            raise VPermissionError(_("Rate limit exceeded"))
+            if isinstance(e, VPermissionError):
+                raise  # Re-raise rate limit errors as-is
+            else:
+                raise VPermissionError(_("Rate limit validation failed: {0}").format(str(e)))
+
+    def get_cor_rate_limit_headers(self, operation_key: str) -> Dict[str, str]:
+        """Get COR-based rate limit headers for HTTP responses"""
+        try:
+            # Extract operation name from operation key
+            operation_name = operation_key.split(".")[-1] if "." in operation_key else operation_key
+
+            # Try to find specific COR record for this operation
+            cor_record = frappe.db.get_value(
+                "Critical Operation Rule",
+                {"operation_name": operation_name, "enabled": 1},
+                ["rate_limit_calls", "rate_limit_period_seconds", "rate_limit_scope"],
+                as_dict=True,
+            )
+
+            # If no specific COR found, use generic fallback
+            if not cor_record:
+                cor_record = frappe.db.get_value(
+                    "Critical Operation Rule",
+                    {"operation_name": "_generic_api_fallback", "enabled": 1},
+                    ["rate_limit_calls", "rate_limit_period_seconds", "rate_limit_scope"],
+                    as_dict=True,
+                )
+
+            # If still no COR found, return empty headers
+            if not cor_record:
+                return {}
+
+            max_calls = cor_record.rate_limit_calls
+            period_seconds = cor_record.rate_limit_period_seconds
+            scope = cor_record.rate_limit_scope or "per_user"
+
+            # Build cache key based on scope (same logic as validate_rate_limits)
+            if scope == "global":
+                cache_key = f"cor_rate_limit:{operation_name}"
+            elif scope == "per_ip":
+                client_ip = frappe.local.request.environ.get("REMOTE_ADDR", "unknown")
+                cache_key = f"cor_rate_limit:{operation_name}:{client_ip}"
+            else:  # per_user (default)
+                cache_key = f"cor_rate_limit:{operation_name}:{frappe.session.user}"
+
+            # Get current usage without modifying it
+            current_count = int(frappe.cache().get(cache_key) or 0)
+            remaining = max(0, max_calls - current_count)
+
+            # Calculate reset time (current time + period)
+            import time
+
+            reset_time = int(time.time() + period_seconds)
+
+            return {
+                "X-RateLimit-Limit": str(max_calls),
+                "X-RateLimit-Remaining": str(remaining),
+                "X-RateLimit-Reset": str(reset_time),
+                "X-RateLimit-Window": str(period_seconds),
+            }
+
+        except Exception as e:
+            # Log the error but don't fail the request
+            frappe.log_error(f"Failed to get COR rate limit headers: {str(e)}", "Rate Limiting Headers")
+            return {}
 
     def validate_input_data(
         self, profile: SecurityProfile, operation_type: OperationType = None, **kwargs
@@ -1073,13 +1187,15 @@ class APISecurityFramework:
 
         self._get_audit_logger().log_event(event_type, severity, details=details)
 
-    def create_security_response_headers(self, profile: SecurityProfile) -> Dict[str, str]:
+    def create_security_response_headers(
+        self, profile: SecurityProfile, operation_key: str = None
+    ) -> Dict[str, str]:
         """Create security-related response headers"""
         headers = {}
 
-        # Rate limit headers
-        if hasattr(frappe.local, "response"):
-            rate_headers = self.rate_limiter.get_rate_limit_headers("api_call")
+        # Rate limit headers - COR-based implementation
+        if hasattr(frappe.local, "response") and operation_key:
+            rate_headers = self.get_cor_rate_limit_headers(operation_key)
             headers.update(rate_headers)
 
         # Security headers
@@ -1120,7 +1236,6 @@ def api_security_framework(
     operation_type: OperationType = None,
     roles: List[str] = None,
     permissions: List[str] = None,
-    rate_limit: Dict[str, int] = None,
     validation_schema: Dict[str, Any] = None,
     audit_level: str = "standard",
     custom_validators: List[Callable] = None,
@@ -1169,8 +1284,6 @@ def api_security_framework(
             # Override profile settings if specified
             if roles:
                 profile.required_roles.extend(roles)
-            if rate_limit:
-                profile.rate_limit_config.update(rate_limit)
             if allowed_environments:
                 profile.allowed_environments = allowed_environments
 
@@ -1256,7 +1369,7 @@ def api_security_framework(
 
                 # Add security headers to response
                 if hasattr(frappe.local, "response"):
-                    headers = framework.create_security_response_headers(profile)
+                    headers = framework.create_security_response_headers(profile, operation_key)
                     frappe.local.response.setdefault("headers", {}).update(headers)
 
                 return result
@@ -1640,7 +1753,6 @@ def get_security_framework_status():
             "default_profiles": {
                 level.value: {
                     "required_roles": profile.required_roles,
-                    "rate_limit": profile.rate_limit_config,
                     "requires_csrf": profile.requires_csrf,
                     "requires_audit": profile.requires_audit,
                     "max_request_size": profile.max_request_size,
@@ -1650,7 +1762,7 @@ def get_security_framework_status():
             "components_status": {
                 "audit_logger": framework.audit_logger is not None,
                 "auth_manager": framework.auth_manager is not None,
-                "rate_limiter": framework.rate_limiter is not None,
+                "cor_rate_limiting": True,  # Now using COR-based rate limiting
                 "csrf_protection": framework.csrf_protection is not None,
             },
         }

@@ -21,6 +21,7 @@
     "column_break_webhook_security",
     "live_webhook_url",
     "live_webhook_secret_key",
+    "webhook_rate_limit",
     "backend_api_section",
     "enable_backend_api",
     "organization_access_token",
@@ -148,6 +149,13 @@
       "fieldname": "live_webhook_secret_key",
       "fieldtype": "Password",
       "label": "Live Webhook Secret Key"
+    },
+    {
+      "default": "100",
+      "description": "Maximum number of webhook requests per hour (3600 seconds) to prevent abuse",
+      "fieldname": "webhook_rate_limit",
+      "fieldtype": "Int",
+      "label": "Webhook Rate Limit (per hour)"
     },
     {
       "fieldname": "backend_api_section",

@@ -189,14 +189,14 @@ def handle_invoice_cancelled(event_name=None, event_data=None, **kwargs):
             # FIXED: Use batching system for removal as well
             from verenigingen.utils.financial_history_batch_processor import queue_payment_removal
 
-            queue_payment_removal(member.name, invoice)
+            queue_payment_removal(member["name"], invoice)
 
             frappe.logger("payment_history").info(
-                f"Queued removal of cancelled invoice {invoice} from payment history for member {member.name} (batching system)"
+                f"Queued removal of cancelled invoice {invoice} from payment history for member {member['name']} (batching system)"
             )
         except Exception as e:
             frappe.log_error(
-                f"Failed to remove cancelled invoice {invoice} from payment history for member {member.name}: {str(e)}",
+                f"Failed to remove cancelled invoice {invoice} from payment history for member {member['name']}: {str(e)}",
                 "Invoice Cancellation Payment History Update Error",
             )
 
