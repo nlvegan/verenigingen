@@ -37,10 +37,15 @@ def handle_payment_webhook():
         Dict with processing results
     """
     try:
-        # Get payment ID from form data
+        # Get payment ID from form data BEFORE authentication to avoid losing context
         payment_id = frappe.form_dict.get("id")
         if not payment_id:
             frappe.throw(_("Payment ID is required"))
+
+        # Set webhook user context for proper permissions
+        from ..utils.webhook_security import authenticate_mollie_webhook
+
+        authenticate_mollie_webhook()
 
         frappe.logger().info(f"🔔 Webhook received for payment: {payment_id}")
 
@@ -304,6 +309,11 @@ def handle_refund_webhook():
         Dict with refund processing results
     """
     try:
+        # Set webhook user context for proper permissions
+        from ..utils.webhook_security import authenticate_mollie_webhook
+
+        authenticate_mollie_webhook()
+
         # Get the raw request body for webhook processing
         webhook_payload = frappe.request.get_data(as_text=True)
         if not webhook_payload:
@@ -345,6 +355,11 @@ def handle_chargeback_webhook():
         Dict with chargeback processing results
     """
     try:
+        # Set webhook user context for proper permissions
+        from ..utils.webhook_security import authenticate_mollie_webhook
+
+        authenticate_mollie_webhook()
+
         # Get the raw request body for webhook processing
         webhook_payload = frappe.request.get_data(as_text=True)
         if not webhook_payload:

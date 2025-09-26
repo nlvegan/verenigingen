@@ -288,7 +288,7 @@ class MollieHealthChecker:
 
         # Check if webhook endpoints are properly registered
         webhook_endpoints = [
-            "vereinigingen.integrations.mollie.api.payment_webhook.handle_mollie_payment_webhook",
+            # Legacy endpoint disabled: "vereinigingen.integrations.mollie.api.payment_webhook.handle_mollie_payment_webhook",
             "verenigingen.integrations.mollie.api.unified_payment_api.handle_payment_webhook",
         ]
 

@@ -14,9 +14,63 @@ from verenigingen.utils.security.api_security_framework import OperationType, pu
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
-@frappe.whitelist(allow_guest=True, methods=["POST"])
-@public_api(operation_type=OperationType.WEBHOOK_PROCESSING)
-def handle_mollie_payment_webhook():
+def get_appropriate_cost_center(donation, company):
+    """
+    Get appropriate cost center based on donation purpose instead of random selection.
+
+    Args:
+        donation: Donation document
+        company: Company name
+
+    Returns:
+        str: Cost center name
+    """
+    # Default fallback cost center
+    default_cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+
+    if not donation:
+        return default_cost_center
+
+    # Check donation purpose type
+    purpose_type = getattr(donation, "donation_purpose_type", None)
+
+    if purpose_type == "Chapter" and hasattr(donation, "chapter_reference"):
+        # Try to get chapter-specific cost center
+        chapter_cost_center = frappe.db.get_value(
+            "Cost Center",
+            {
+                "company": company,
+                "cost_center_name": ["like", f"%{donation.chapter_reference}%"],
+                "is_group": 0,
+            },
+            "name",
+        )
+        if chapter_cost_center:
+            return chapter_cost_center
+
+    # For General Fund or any other purpose, use a general cost center
+    # Look for a cost center with "General" or "Main" in the name first
+    general_cost_center = frappe.db.get_value(
+        "Cost Center",
+        {
+            "company": company,
+            "is_group": 0,
+            "cost_center_name": ["in", ["General", "Main", "General Fund", "Operations"]],
+        },
+        "name",
+    )
+
+    if general_cost_center:
+        return general_cost_center
+
+    # If no specific general cost center found, return the default
+    return default_cost_center
+
+
+# LEGACY ENDPOINT DISABLED - Use unified_payment_api.handle_payment_webhook instead
+# @frappe.whitelist(allow_guest=True, methods=["POST"])
+# @public_api(operation_type=OperationType.WEBHOOK_PROCESSING)
+def handle_mollie_payment_webhook_DISABLED():
     """
     Handle Mollie webhook for any payment type (donations, memberships, etc.)
 
@@ -697,7 +751,8 @@ def update_donation_with_mollie_data(donation, mollie_data):
         updates["mollie_subscription_id"] = mollie_data["subscription_id"]
 
     if mollie_data.get("method"):
-        updates["mode_of_payment"] = "Mollie"  # Use standard Mollie payment mode
+        # updates["mode_of_payment"] = "Mollie"  # Temporarily commented out to fix cancel button issue
+        pass
 
     # Skip payment_date - field doesn't exist on Donation DocType
     # paid_at info is stored in Payment Entry instead
@@ -782,8 +837,11 @@ def create_payment_entry_for_donation(donation, mollie_data):
         customer_doc = frappe.get_doc("Customer", customer)
         display_name = customer_doc.customer_name or donor_doc.donor_name or "Unknown"
 
-        # Set cost center for the company to satisfy P&L account requirements
-        cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+        # Set cost center based on donation purpose to satisfy P&L account requirements
+        cost_center = get_appropriate_cost_center(donation, company)
+
+        # Ensure amount is properly formatted as Decimal/float
+        amount = float(donation.amount) if donation.amount else 0.0
 
         # Create Payment Entry for donation (Receive type with party tracking)
         pe = frappe.get_doc(
@@ -792,14 +850,14 @@ def create_payment_entry_for_donation(donation, mollie_data):
                 "payment_type": "Receive",
                 "party_type": "Customer",
                 "party": customer,
-                "paid_amount": donation.amount,
-                "received_amount": donation.amount,
+                "paid_amount": amount,
+                "received_amount": amount,
                 "reference_no": mollie_data["payment_id"],
                 "reference_date": frappe.utils.getdate(),
                 "company": company,
                 "paid_from": donation_account,  # Money comes FROM receivable account (party account)
                 "paid_to": bank_account,  # Money goes TO Mollie bank account
-                "mode_of_payment": "Mollie",
+                # "mode_of_payment": "Mollie",  # Temporarily commented out to fix cancel button issue
                 "cost_center": cost_center,  # Required for P&L accounts
                 "title": f"{display_name} - {record_reference}",
                 "remarks": f"Payment for {record_reference} via Mollie ({mollie_data.get('method', 'Unknown method')}) - {donor_doc.donor_name}",

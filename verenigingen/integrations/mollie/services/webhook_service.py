@@ -576,7 +576,7 @@ class WebhookService:
                     "received_amount": mollie_data["amount"],
                     "reference_no": mollie_data["payment_id"],
                     "reference_date": frappe.utils.getdate(),
-                    "mode_of_payment": "Mollie",
+                    # "mode_of_payment": "Mollie",  # Temporarily commented out to fix cancel button issue
                     "remarks": f"Donation payment {donation.name} via Mollie ({mollie_data.get('method', 'Unknown method')}) - {donor_doc.donor_name}",
                 }
             )

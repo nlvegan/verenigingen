@@ -12,6 +12,71 @@ from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 from .payment_context_resolver import PaymentContext
 
+
+def get_appropriate_cost_center_for_context(context: PaymentContext, company: str) -> str:
+    """
+    Get appropriate cost center based on payment context instead of random selection.
+
+    Args:
+        context: PaymentContext with payment details
+        company: Company name
+
+    Returns:
+        str: Cost center name
+    """
+    # Default fallback cost center
+    default_cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+
+    # Try to get donation from context if available
+    donation = None
+    if hasattr(context, "source_doc") and context.source_doc:
+        if getattr(context.source_doc, "doctype", None) == "Donation":
+            donation = context.source_doc
+
+    if not donation:
+        # Look for a general cost center for non-donation payments
+        general_cost_center = frappe.db.get_value(
+            "Cost Center",
+            {
+                "company": company,
+                "is_group": 0,
+                "cost_center_name": ["in", ["General", "Main", "General Fund", "Operations"]],
+            },
+            "name",
+        )
+        return general_cost_center or default_cost_center
+
+    # Check donation purpose type
+    purpose_type = getattr(donation, "donation_purpose_type", None)
+
+    if purpose_type == "Chapter" and hasattr(donation, "chapter_reference"):
+        # Try to get chapter-specific cost center
+        chapter_cost_center = frappe.db.get_value(
+            "Cost Center",
+            {
+                "company": company,
+                "cost_center_name": ["like", f"%{donation.chapter_reference}%"],
+                "is_group": 0,
+            },
+            "name",
+        )
+        if chapter_cost_center:
+            return chapter_cost_center
+
+    # For General Fund or any other purpose, use a general cost center
+    general_cost_center = frappe.db.get_value(
+        "Cost Center",
+        {
+            "company": company,
+            "is_group": 0,
+            "cost_center_name": ["in", ["General", "Main", "General Fund", "Operations"]],
+        },
+        "name",
+    )
+
+    return general_cost_center or default_cost_center
+
+
 if TYPE_CHECKING:
     from frappe import Document
 
@@ -67,8 +132,8 @@ class PaymentEntryFactory:
             if not title:
                 title = self._generate_payment_title(context, mollie_data, customer)
 
-            # Get cost center for P&L account requirements
-            cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+            # Get appropriate cost center based on payment context
+            cost_center = get_appropriate_cost_center_for_context(context, company)
 
             # Create Payment Entry
             pe = frappe.get_doc(
@@ -84,7 +149,7 @@ class PaymentEntryFactory:
                     "company": company,
                     "paid_from": accounts["receivable_account"],
                     "paid_to": accounts["bank_account"],
-                    "mode_of_payment": "Mollie",
+                    # "mode_of_payment": "Mollie",  # Temporarily commented out to fix cancel button issue
                     "cost_center": cost_center,
                     "title": title,
                     "remarks": self._generate_remarks(context, mollie_data),

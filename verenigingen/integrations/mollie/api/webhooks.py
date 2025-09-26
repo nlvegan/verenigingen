@@ -17,13 +17,14 @@ from ..services.webhook_service import WebhookService
 @public_api(operation_type=OperationType.WEBHOOK_PROCESSING)
 def handle_mollie_payment_webhook():
     """
-    Main webhook endpoint that uses the complete webhook service.
-    This replaces the original handle_mollie_payment_webhook function.
+    Redirect to unified API endpoint for better architecture.
+    This maintains backward compatibility while using the modern service layer.
     """
     try:
-        webhook_service = WebhookService()
-        result = webhook_service.handle_mollie_payment_webhook()
-        return result
+        # Import and delegate to unified API
+        from .unified_payment_api import handle_payment_webhook
+
+        return handle_payment_webhook()
 
     except Exception as e:
         frappe.log_error(f"Webhook endpoint error: {e}", "Mollie Webhook API")
@@ -48,9 +49,10 @@ def handle_unified_webhook():
                 "timestamp": frappe.utils.now_datetime(),
             }
 
-        # Process webhook using complete service
-        webhook_service = WebhookService()
-        result = webhook_service.handle_mollie_payment_webhook()
+        # Process webhook using unified API
+        from .unified_payment_api import handle_payment_webhook
+
+        result = handle_payment_webhook()
         return result
 
     except MollieSecurityError as e:

@@ -102,25 +102,21 @@ def mollie_payment_webhook():
     if headers.get("Content-Type") == "application/x-www-form-urlencoded":
         # This is a payment webhook (form data, no signature expected)
         frappe.logger().info("🔧 Processing form data payment webhook (no signature required)")
-        from verenigingen.integrations.mollie.api.payment_webhook import (
-            handle_mollie_payment_webhook as working_handler,
-        )
+        from verenigingen.integrations.mollie.api.unified_payment_api import handle_payment_webhook
 
-        return working_handler()
+        return handle_payment_webhook()
     else:
         # This is a JSON webhook (event/ping, signature required)
         frappe.logger().info("🔧 Processing JSON event webhook (signature required)")
-        from verenigingen.integrations.mollie.api.payment_webhook import (
-            handle_mollie_payment_webhook as working_handler,
-        )
+        from verenigingen.integrations.mollie.api.unified_payment_api import handle_payment_webhook
 
-        return working_handler()
+        return handle_payment_webhook()
 
 
 @frappe.whitelist(allow_guest=True)
 def mollie_webhook():
     """Simplified Mollie webhook handler for existing donations"""
-    frappe.logger().info("🔄 Main Mollie webhook redirecting to service handler")
-    from verenigingen.api.mollie_donation_webhook import handle_mollie_payment_webhook
+    frappe.logger().info("🔄 Main Mollie webhook redirecting to unified API")
+    from verenigingen.integrations.mollie.api.unified_payment_api import handle_payment_webhook
 
-    return handle_mollie_payment_webhook()
+    return handle_payment_webhook()

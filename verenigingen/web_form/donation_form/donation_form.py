@@ -55,6 +55,24 @@ def process_donation_form(data):
         # Parse the data
         donation_data = frappe.parse_json(data) if isinstance(data, str) else data
 
+        # Import validation utilities
+        from verenigingen.utils.validation.api_validators import APIValidator
+
+        # Pre-validate critical fields to provide better error messages
+        if not donation_data.get("donor_email"):
+            frappe.throw(_("Email address is required"))
+
+        try:
+            APIValidator.validate_email(donation_data.get("donor_email"), required=True)
+        except Exception as e:
+            frappe.throw(_("Invalid email address: {0}").format(str(e)))
+
+        if donation_data.get("donor_phone"):
+            try:
+                APIValidator.validate_phone(donation_data.get("donor_phone"), required=False)
+            except Exception as e:
+                frappe.throw(_("Invalid phone number: {0}").format(str(e)))
+
         # Get or create donor
         donor = get_or_create_donor(donation_data)
 
@@ -80,20 +98,31 @@ def process_donation_form(data):
 
 def get_or_create_donor(data):
     """Get existing donor or create new one"""
+    # Import validation utilities
+    from verenigingen.utils.validation.api_validators import APIValidator
+
+    # Validate email address
+    validated_email = APIValidator.validate_email(data.get("donor_email"), required=True)
+
+    # Validate phone number if provided
+    validated_phone = None
+    if data.get("donor_phone"):
+        validated_phone = APIValidator.validate_phone(data.get("donor_phone"), required=False)
+
     # Check if donor exists by email
-    existing_donor = frappe.db.get_value("Donor", {"donor_email": data.get("donor_email")}, "name")
+    existing_donor = frappe.db.get_value("Donor", {"donor_email": validated_email}, "name")
 
     if existing_donor:
-        # Update phone if provided
-        if data.get("donor_phone"):
-            frappe.db.set_value("Donor", existing_donor, "phone", data.get("donor_phone"))
+        # Update phone if provided and validated
+        if validated_phone:
+            frappe.db.set_value("Donor", existing_donor, "phone", validated_phone)
         return existing_donor
 
     # Create new donor
     donor = frappe.new_doc("Donor")
     donor.donor_name = data.get("donor_name")
-    donor.donor_email = data.get("donor_email")
-    donor.phone = data.get("donor_phone") or ""
+    donor.donor_email = validated_email
+    donor.phone = validated_phone or ""
     donor.donor_type = data.get("donor_type", "Individual")
 
     # CORRECTED SECURE VERSION: Use proper secure operations for public form submissions
