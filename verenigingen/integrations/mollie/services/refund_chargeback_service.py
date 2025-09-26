@@ -144,7 +144,7 @@ class RefundChargebackService:
                 # Try Payment Entry fallback AND update payment history independently
                 try:
                     payment_entry_result = self._create_refund_payment_entry(
-                        refund_details, donation_doc, refund_amount
+                        refund_details, donation_doc, refund_amount, original_payment
                     )
                     if payment_entry_result.get("status") == "success":
                         # Payment Entry succeeded, try to update payment history

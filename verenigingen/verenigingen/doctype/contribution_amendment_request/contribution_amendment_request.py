@@ -648,7 +648,7 @@ class ContributionAmendmentRequest(Document):
             dues_schedule.custom_amount_reason = f"Amendment Request: {self.reason}"
 
             # Handle zero amounts specially
-            if self.requested_amount == 0:
+            if not self.requested_amount:
                 dues_schedule.custom_amount_reason = f"Free membership via amendment: {self.reason}"
 
             # Get billing frequency from membership type's template
@@ -1086,7 +1086,7 @@ def process_pending_amendments():
 
                 if result.get("status") == "success":
                     processed_count += 1
-                    frappe.logger().info(f"Applied amendment {amendment.name} for member {amendment.member}")
+                    frappe.logger().info("Applied amendment %s for member %s", amendment.name, amendment.member)
                 else:
                     error_count += 1
                     # CRITICAL FIX: Mark failed amendments properly to prevent reprocessing
