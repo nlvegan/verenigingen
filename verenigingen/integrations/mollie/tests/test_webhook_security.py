@@ -30,9 +30,9 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import flt, now_datetime
 
+from verenigingen.integrations.mollie.services.generic_webhook_service import GenericWebhookService
 from verenigingen.tests.fixtures.enhanced_test_factory import EnhancedTestCase
 from verenigingen.utils.payment_services.logging_utils import PaymentLogger
-from verenigingen.utils.payment_services.mollie_webhook_processor import MollieWebhookProcessor
 
 
 class TestMollieWebhookSecurity(EnhancedTestCase):
@@ -51,8 +51,8 @@ class TestMollieWebhookSecurity(EnhancedTestCase):
     def setUp(self):
         super().setUp()
 
-        # Initialize webhook processor for testing
-        self.processor = MollieWebhookProcessor("test")
+        # Initialize webhook service for testing
+        self.processor = GenericWebhookService()
 
         # Create test data using Enhanced Test Factory
         self.test_payment_id = "test_webhook_security_123"

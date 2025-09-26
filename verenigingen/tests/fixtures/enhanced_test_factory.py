@@ -441,6 +441,10 @@ class EnhancedTestDataFactory:
         
     def create_member(self, **kwargs):
         """Create member with business rule and field validation"""
+        # Ensure test flag is set to bypass rate limiting
+        if not hasattr(frappe, 'flags'):
+            frappe.flags = frappe._dict()
+        frappe.flags.in_test = True
         # Fields that might be custom or runtime fields
         skip_validation_fields = {
             'chapter', 'suspension_reason', 'termination_reason', 
@@ -2281,6 +2285,26 @@ class EnhancedTestCase(FrappeTestCase):
     def ensure_test_admin_user(self):
         """Convenience method for ensuring test admin user exists"""
         return self.factory.ensure_test_admin_user()
+
+    def _create_mock_payment_data(self, payment_id, metadata=None, description=None, subscription_id=None):
+        """
+        Helper to create realistic payment data structure.
+        Mimics actual Mollie payment object structure for payment processor tests.
+        """
+        class MockPayment:
+            def __init__(self):
+                self.id = payment_id
+                self.amount = {"value": "50.00", "currency": "EUR"}
+                self.status = "paid"
+                self.method = "creditcard"
+                self.metadata = metadata or {}
+                self.description = description or "Test payment"
+                self.subscription_id = subscription_id
+                self.customer_id = None
+                self.mandate_id = None
+                self.created_at = frappe.utils.now_datetime()
+
+        return MockPayment()
     
     def create_test_membership(self, member_name, membership_type_name, **kwargs):
         """Create a membership record for testing"""

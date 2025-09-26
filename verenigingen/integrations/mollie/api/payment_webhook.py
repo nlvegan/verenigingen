@@ -18,15 +18,15 @@ from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 @public_api(operation_type=OperationType.WEBHOOK_PROCESSING)
 def handle_mollie_payment_webhook():
     """
-    Handle Mollie webhook for existing donations
+    Handle Mollie webhook for any payment type (donations, memberships, etc.)
 
     Flow:
     1. Get payment ID from webhook
-    2. Find corresponding donation by payment_id (or customer+time)
+    2. Determine payment context (donation, membership, etc.)
     3. Retrieve full payment details from Mollie API
-    4. Create Payment Entry if payment is successful
-    5. Update Member Payment History
-    6. Enrich donation/customer records with Mollie metadata
+    4. Route to appropriate payment processor
+    5. Create Payment Entry if payment is successful
+    6. Update payment history and enrich records with Mollie metadata
     """
 
     # Initialize payment_id early to avoid UnboundLocalError in exception handler
@@ -81,7 +81,26 @@ def handle_mollie_payment_webhook():
 
         frappe.logger().info(f"🔔 Webhook received for payment: {payment_id}")
 
-        # Optional: Try service layer first (graceful fallback if not available)
+        # Try new generic service layer first (graceful fallback if not available)
+        try:
+            from verenigingen.integrations.mollie.services.generic_webhook_service import (
+                GenericWebhookService,
+            )
+
+            service = GenericWebhookService()
+            result = service.process_webhook(payment_id)
+            frappe.logger().info(f"✅ Generic service layer processing complete for {payment_id}")
+            return result
+        except ImportError:
+            frappe.logger().info(
+                f"🔄 Generic service layer not available, trying legacy service for {payment_id}"
+            )
+        except Exception as service_error:
+            frappe.logger().warning(
+                f"⚠️ Generic service layer failed, trying legacy service: {service_error}"
+            )
+
+        # Fallback to old donation-specific service layer
         try:
             from verenigingen.integrations.mollie.services.webhook_wrapper_service import (
                 WebhookWrapperService,
@@ -89,13 +108,15 @@ def handle_mollie_payment_webhook():
 
             service = WebhookWrapperService()
             result = service.process_webhook(payment_id)
-            frappe.logger().info(f"✅ Service layer processing complete for {payment_id}")
+            frappe.logger().info(f"✅ Legacy service layer processing complete for {payment_id}")
             return result
         except ImportError:
-            frappe.logger().info(f"🔄 Service layer not available, using direct functions for {payment_id}")
+            frappe.logger().info(
+                f"🔄 Legacy service layer not available, using direct functions for {payment_id}"
+            )
         except Exception as service_error:
             frappe.logger().warning(
-                f"⚠️ Service layer failed, falling back to direct functions: {service_error}"
+                f"⚠️ Legacy service layer failed, falling back to direct functions: {service_error}"
             )
 
         # Fallback: Original implementation using direct function calls
