@@ -148,11 +148,9 @@ class Chapter(WebsiteGenerator):
             )
 
     def after_insert(self):
-        """After insert hook - create cost center for new chapter"""
-        self._safe_manager_operation(
-            "cost_center_creation",
-            lambda: self._create_chapter_cost_center(),
-        )
+        """After insert hook"""
+        # Cost center creation removed - will be re-implemented later
+        pass
 
     def after_save(self):
         """After save hook - streamlined with safe operations"""
@@ -836,7 +834,16 @@ class Chapter(WebsiteGenerator):
 
     def _create_chapter_cost_center(self):
         """Create a cost center for this chapter with proper security validation"""
-        from verenigingen.utils.secure_operations import secure_document_operation
+        frappe.logger().error(f"DEBUG: *** ENTERING _create_chapter_cost_center for chapter {self.name}")
+
+        try:
+            frappe.logger().error("DEBUG: About to import secure_document_operation...")
+            from verenigingen.utils.secure_operations import secure_document_operation
+
+            frappe.logger().error("DEBUG: Successfully imported secure_document_operation")
+        except Exception as import_error:
+            frappe.logger().error(f"DEBUG: IMPORT ERROR: {import_error}")
+            raise
 
         try:
             # Skip if cost center already exists
@@ -883,11 +890,18 @@ class Chapter(WebsiteGenerator):
                 cost_center_doc.is_group = 0  # Individual cost center, not a group
 
                 # Find appropriate parent cost center
+                frappe.logger().info("DEBUG: About to call _get_appropriate_parent_cost_center...")
                 parent_cost_center = self._get_appropriate_parent_cost_center(company)
+                frappe.logger().info(
+                    f"DEBUG: _get_appropriate_parent_cost_center returned: {parent_cost_center}"
+                )
+
                 if parent_cost_center:
                     cost_center_doc.parent_cost_center = parent_cost_center
+                    frappe.logger().info(f"DEBUG: Set parent_cost_center to: {parent_cost_center}")
 
                 # Use secure operation instead of ignore_permissions
+                frappe.logger().info("DEBUG: About to call secure_document_operation...")
                 result = secure_document_operation(
                     operation="insert",
                     doc=cost_center_doc,
@@ -955,36 +969,59 @@ class Chapter(WebsiteGenerator):
             return None
 
     def _get_appropriate_parent_cost_center(self, company):
-        """Get appropriate parent cost center for the given company"""
-        # First try to find the company's root cost center (should be the company name itself)
-        root_cost_center = frappe.db.get_value(
-            "Cost Center",
-            {"company": company, "is_group": 1, "disabled": 0, "cost_center_name": company},
-            "name",
-        )
+        """Get appropriate parent cost center for the given company using ORM methods"""
+        frappe.logger().info(f"DEBUG: Starting parent cost center lookup for company: {company}")
 
-        if root_cost_center:
-            return root_cost_center
-
-        # Fallback: find any active group cost center, preferring one with minimal hierarchy depth
-        parent_cost_center = frappe.db.get_value(
-            "Cost Center",
-            {"company": company, "is_group": 1, "disabled": 0},
-            "name",
-            order_by="lft asc",  # Use nested set ordering for proper hierarchy
-        )
-
-        if parent_cost_center:
-            frappe.log_error(
-                f"Using fallback parent cost center {parent_cost_center} for chapter {self.name}",
-                "Chapter Cost Center",
+        try:
+            # First try to find the company's root cost center (should be the company name itself)
+            frappe.logger().info("DEBUG: Attempting root cost center query...")
+            root_cost_centers = frappe.get_all(
+                "Cost Center",
+                filters={"company": company, "is_group": 1, "is_disabled": 0, "cost_center_name": company},
+                fields=["name"],
+                limit=1,
             )
-            return parent_cost_center
-        else:
-            frappe.log_error(
-                f"No suitable parent cost center found for company {company}", "Chapter Cost Center"
+            frappe.logger().info(f"DEBUG: Root cost center query succeeded. Results: {root_cost_centers}")
+
+            if root_cost_centers:
+                frappe.logger().info(f"DEBUG: Found root cost center: {root_cost_centers[0].name}")
+                return root_cost_centers[0].name
+
+            # Fallback: find any active group cost center, preferring one with minimal hierarchy depth
+            frappe.logger().info("DEBUG: Attempting fallback cost center query...")
+            fallback_cost_centers = frappe.get_all(
+                "Cost Center",
+                filters={"company": company, "is_group": 1, "is_disabled": 0},
+                fields=["name", "cost_center_name"],
+                order_by="lft asc",  # Use nested set ordering for proper hierarchy
+                limit=1,
             )
-            return None
+            frappe.logger().info(
+                f"DEBUG: Fallback cost center query succeeded. Results: {fallback_cost_centers}"
+            )
+
+            if fallback_cost_centers:
+                parent_cost_center = fallback_cost_centers[0].name
+                frappe.log_error(
+                    f"Using fallback parent cost center {parent_cost_center} for chapter {self.name}",
+                    "Chapter Cost Center",
+                )
+                frappe.logger().info(f"DEBUG: Using fallback parent: {parent_cost_center}")
+                return parent_cost_center
+            else:
+                frappe.log_error(
+                    f"No suitable parent cost center found for company {company}", "Chapter Cost Center"
+                )
+                frappe.logger().info("DEBUG: No cost centers found")
+                return None
+
+        except Exception as e:
+            frappe.logger().error(f"DEBUG: ERROR in _get_appropriate_parent_cost_center: {e}")
+            frappe.logger().error(f"DEBUG: Exception type: {type(e)}")
+            import traceback
+
+            frappe.logger().error(f"DEBUG: Traceback: {traceback.format_exc()}")
+            raise
 
     def _update_chapter_cost_center_name(self):
         """Update cost center name when chapter name changes with recreation logic"""

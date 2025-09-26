@@ -97,7 +97,9 @@ class AccountGroupProjectFramework:
         mapping_doc = frappe.get_doc("Account Group Project Mapping", account_group)
         if not mapping_doc.valid_cost_centers:
             # Return all active cost centers if no restriction
-            return frappe.get_all("Cost Center", filters={"disabled": 0}, fields=["name", "cost_center_name"])
+            return frappe.get_all(
+                "Cost Center", filters={"is_disabled": 0}, fields=["name", "cost_center_name"]
+            )
 
         return [
             {"name": cc.cost_center, "cost_center_name": cc.cost_center_name}

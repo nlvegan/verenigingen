@@ -400,7 +400,7 @@ class ContributionAmendmentRequest(Document):
         frappe.msgprint(_("Amendment rejected"))
 
     @frappe.whitelist()
-    @critical_api(operation_type=OperationType.FINANCIAL)
+    @high_security_api(operation_type=OperationType.FINANCIAL, self_service_only=True)
     def apply_amendment(self):
         """
         Apply the approved amendment to the membership and dues schedule.
@@ -552,7 +552,7 @@ class ContributionAmendmentRequest(Document):
             )
             member_doc.record_fee_change(
                 {
-                    "change_date": today(),
+                    "change_date": now_datetime(),
                     "old_amount": self.current_amount,
                     "new_amount": self.requested_amount,
                     "reason": f"Amendment {self.name}: {self.reason}",
@@ -780,7 +780,7 @@ class ContributionAmendmentRequest(Document):
                 # Record fee change in history before updating
                 member_doc.record_fee_change(
                     {
-                        "change_date": today(),
+                        "change_date": now_datetime(),
                         "old_amount": self.current_amount,
                         "new_amount": self.requested_amount,
                         "reason": f"Membership type change amendment {self.name}: {self.reason}",
@@ -1059,41 +1059,19 @@ class ContributionAmendmentRequest(Document):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def process_pending_amendments():
-    """Process all approved amendments that are ready to be applied"""
-    amendments = frappe.get_all(
-        "Contribution Amendment Request",
-        filters={"status": "Approved", "effective_date": ["<=", today()]},
-        fields=["name"],
-    )
-
-    processed_count = 0
-    error_count = 0
-
-    for amendment_data in amendments:
-        try:
-            amendment = frappe.get_doc("Contribution Amendment Request", amendment_data.name)
-            amendment.apply_amendment()
-            processed_count += 1
-        except Exception as e:
-            error_count += 1
-            frappe.log_error(f"Error processing amendment {amendment_data.name}: {str(e)}")
-
-    if processed_count > 0 or error_count > 0:
-        frappe.logger().info(f"Processed {processed_count} amendments, {error_count} errors")
-
-    return {"processed": processed_count, "errors": error_count}
-
-
-@frappe.whitelist()
-@critical_api(operation_type=OperationType.FINANCIAL)
-def process_pending_amendments_daily():
-    """Daily scheduled task to process approved amendments that are ready to be applied"""
+    """Hourly scheduled task to process approved amendments that are ready to be applied"""
     try:
         # Get all approved amendments with effective date today or earlier
+        # CRITICAL FIX: Only process amendments that haven't been applied yet
         amendments_to_process = frappe.get_all(
             "Contribution Amendment Request",
-            filters={"status": "Approved", "effective_date": ["<=", today()]},
+            filters={
+                "status": "Approved",
+                "effective_date": ["<=", today()],
+                "applied_date": ["is", "not set"],  # Only process unapplied amendments
+            },
             fields=["name", "effective_date", "member", "requested_amount"],
+            order_by="creation asc",  # CRITICAL: Process amendments in chronological order
         )
 
         processed_count = 0
@@ -1111,6 +1089,13 @@ def process_pending_amendments_daily():
                     frappe.logger().info(f"Applied amendment {amendment.name} for member {amendment.member}")
                 else:
                     error_count += 1
+                    # CRITICAL FIX: Mark failed amendments properly to prevent reprocessing
+                    amendment.status = "Failed"
+                    amendment.internal_notes = (
+                        amendment.internal_notes or ""
+                    ) + f"\nScheduled processing failed: {result.get('message', 'Unknown error')}"
+                    amendment.save()
+
                     # Use structured error logging for failed amendments
                     result_message = result.get("message", "Unknown error")
                     error_info = format_error_for_logging(
@@ -1121,6 +1106,19 @@ def process_pending_amendments_daily():
 
             except Exception as e:
                 error_count += 1
+                # CRITICAL FIX: Mark failed amendments properly to prevent reprocessing
+                try:
+                    amendment = frappe.get_doc("Contribution Amendment Request", amendment_data.name)
+                    amendment.status = "Failed"
+                    amendment.internal_notes = (
+                        amendment.internal_notes or ""
+                    ) + f"\nScheduled processing exception: {str(e)[:200]}"
+                    amendment.save()
+                except Exception as save_error:
+                    frappe.logger().error(
+                        f"Could not update failed amendment {amendment_data.name}: {save_error}"
+                    )
+
                 # Use structured error logging for processing exceptions
                 error_info = format_error_for_logging(
                     e, f"Daily processing of amendment {amendment_data.name}"

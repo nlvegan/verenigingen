@@ -123,7 +123,7 @@ def get_valid_cost_centers_for_account_group(account_group):
     mapping = frappe.get_doc("Account Group Project Mapping", account_group)
     if not mapping or not mapping.valid_cost_centers:
         # If no specific cost centers configured, return all active cost centers
-        return frappe.get_all("Cost Center", filters={"disabled": 0}, fields=["name", "cost_center_name"])
+        return frappe.get_all("Cost Center", filters={"is_disabled": 0}, fields=["name", "cost_center_name"])
 
     return [
         {"name": cc.cost_center, "cost_center_name": cc.cost_center_name} for cc in mapping.valid_cost_centers

@@ -470,7 +470,7 @@ doc_events = {
     "Member": {
         "before_save": "verenigingen.verenigingen.doctype.member.member_utils.update_termination_status_display",
         "after_save": [
-            "verenigingen.verenigingen.doctype.member.member.handle_fee_override_after_save",
+            # "verenigingen.verenigingen.doctype.member.member.handle_fee_override_after_save",  # DISABLED: Legacy hook causing duplicate fee history entries
             "verenigingen.email.email_group_sync.sync_member_on_change",
             "verenigingen.utils.cache_invalidation.on_document_update",  # Cache invalidation
             "verenigingen.utils.performance_cache.on_member_update",  # Performance cache invalidation
@@ -557,8 +557,7 @@ scheduler_events = {
         # Updated to use dues schedule system instead
         "verenigingen.verenigingen.doctype.membership.scheduler.notify_about_orphaned_records",
         "verenigingen.api.membership_application_review.send_overdue_notifications",
-        # Amendment system processing
-        "verenigingen.verenigingen.doctype.contribution_amendment_request.contribution_amendment_request.process_pending_amendments",
+        # Amendment system processing moved to hourly for faster processing
         # Auto-create missing dues schedules
         "verenigingen.utils.dues_schedule_auto_creator.auto_create_missing_dues_schedules_scheduled",
         # Donation agreement processing
@@ -623,6 +622,8 @@ scheduler_events = {
         "verenigingen.utils.payment_history_validator.validate_payment_history_integrity",
         # Bulk account creation retry processing
         "verenigingen.utils.bulk_retry_processor.process_retry_queues",
+        # Amendment system processing - moved from daily for faster same-day processing
+        "verenigingen.verenigingen.doctype.contribution_amendment_request.contribution_amendment_request.process_pending_amendments",
     ],
     "weekly": [
         # Termination reports and reviews

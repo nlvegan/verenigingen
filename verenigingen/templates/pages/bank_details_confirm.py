@@ -82,7 +82,7 @@ def has_website_permission(doc, ptype, user, verbose=False):
 
 
 @frappe.whitelist(allow_guest=False, methods=["POST"])
-@critical_api(operation_type=OperationType.FINANCIAL)
+@high_security_api(operation_type=OperationType.FINANCIAL, self_service_only=True)
 def process_bank_details_update():
     """Process the confirmed bank details update"""
 

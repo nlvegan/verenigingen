@@ -27,6 +27,7 @@ from frappe.utils import flt, getdate, now_datetime
 
 from ..core.client import MollieClient
 from ..exceptions import MolliePaymentError, MollieWebhookError
+from ..utils.date_parser import parse_mollie_date, parse_mollie_datetime
 from ..utils.logging import MollieLogger
 from ..utils.monitoring import MolliePerformanceMonitor
 
@@ -410,7 +411,7 @@ class RefundChargebackService:
                 amount_currency = refund.amount.currency if hasattr(refund, "amount") else "EUR"
                 status = refund.status
                 description = refund.description
-                created_at = refund.created_at.isoformat() if refund.created_at else None
+                created_at = parse_mollie_datetime(refund.created_at)
 
             return {
                 "id": refund_id,
@@ -438,7 +439,7 @@ class RefundChargebackService:
                 "id": chargeback.id,
                 "amount": {"value": chargeback.amount.value, "currency": chargeback.amount.currency},
                 "reason": getattr(chargeback, "reason", {}),
-                "created_at": chargeback.created_at.isoformat() if chargeback.created_at else None,
+                "created_at": parse_mollie_datetime(chargeback.created_at),
                 "reversed_at": getattr(chargeback, "reversed_at", None),
                 "payment_id": payment_id,
             }
@@ -571,6 +572,11 @@ class RefundChargebackService:
 
             self.logger.info(f"Credit note {credit_note.name} submitted successfully")
 
+            # Fix the Payment Entry title created by the Credit Note
+            self._fix_credit_note_payment_entry_title(
+                credit_note, donation_doc, refund_amount, refund_details
+            )
+
             self.logger.info(
                 "Created refund Credit Note",
                 extra={
@@ -675,8 +681,27 @@ class RefundChargebackService:
             refund_pe.mode_of_payment = original_pe.mode_of_payment or "Mollie"
             refund_pe.cost_center = original_pe.cost_center
 
-            # Set descriptive title and remarks
-            refund_pe.title = f"Refund - {original_pe.title or donation_doc.name}"
+            # Set descriptive title using customer name and amount
+            customer_name = "Unknown Customer"
+
+            # Try to get customer name from Payment Entry party first
+            if party_type == "Customer" and party:
+                try:
+                    customer_name = frappe.db.get_value("Customer", party, "customer_name") or party
+                except Exception:
+                    customer_name = party
+
+            # If no party or fallback needed, try donation's donor
+            if customer_name == "Unknown Customer" and donation_doc.donor:
+                try:
+                    customer_name = (
+                        frappe.db.get_value("Customer", donation_doc.donor, "customer_name")
+                        or donation_doc.donor
+                    )
+                except Exception:
+                    customer_name = donation_doc.donor
+
+            refund_pe.title = f"Refund - {customer_name} - €{refund_amount}"
             refund_pe.remarks = f"Mollie refund {refund_details.get('id', 'N/A')} for original donation {donation_doc.name}. Original Payment Entry: {original_pe_name}"
 
             # Add refund description if available
@@ -733,11 +758,7 @@ class RefundChargebackService:
                     "paid_amount": chargeback_amount,
                     "received_amount": chargeback_amount,
                     "reference_no": chargeback_details.get("id"),
-                    "reference_date": (
-                        getdate(chargeback_details.get("created_at"))
-                        if chargeback_details.get("created_at")
-                        else getdate()
-                    ),
+                    "reference_date": parse_mollie_date(chargeback_details.get("created_at")),
                     "remarks": f"Mollie chargeback for donation {donation_name}. Reason: {reason_text}",
                     "mode_of_payment": "Mollie",
                     "posting_date": getdate(),
@@ -771,11 +792,7 @@ class RefundChargebackService:
             donation.append(
                 "payments",
                 {
-                    "payment_date": (
-                        getdate(refund_details.get("created_at"))
-                        if refund_details.get("created_at")
-                        else getdate()
-                    ),
+                    "payment_date": parse_mollie_date(refund_details.get("created_at")),
                     "payment_method": "Mollie",
                     "payment_status": "Refunded",
                     "amount": -(refund_amount or 0),  # Negative amount for refund
@@ -800,11 +817,7 @@ class RefundChargebackService:
             donation.append(
                 "payments",
                 {
-                    "payment_date": (
-                        getdate(refund_details.get("created_at"))
-                        if refund_details.get("created_at")
-                        else getdate()
-                    ),
+                    "payment_date": parse_mollie_date(refund_details.get("created_at")),
                     "payment_method": "Mollie",
                     "payment_status": "Refunded",
                     "amount": -(refund_amount or 0),  # Negative amount for refund
@@ -831,11 +844,7 @@ class RefundChargebackService:
             donation.append(
                 "payments",
                 {
-                    "payment_date": (
-                        getdate(chargeback_details.get("created_at"))
-                        if chargeback_details.get("created_at")
-                        else getdate()
-                    ),
+                    "payment_date": parse_mollie_date(chargeback_details.get("created_at")),
                     "payment_method": "Mollie",
                     "payment_status": "Failed",  # Use "Failed" for chargebacks as "Chargeback" not in options
                     "amount": -(chargeback_amount or 0),  # Negative amount for chargeback

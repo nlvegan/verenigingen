@@ -761,20 +761,6 @@ def create_payment_entry_for_donation(donation, mollie_data):
         customer_doc = frappe.get_doc("Customer", customer)
         display_name = customer_doc.customer_name or donor_doc.donor_name or "Unknown"
 
-        # Generate meaningful Payment Entry name using display name + record reference
-        donor_name_clean = frappe.scrub(display_name)  # Clean name for naming
-        record_number = record_reference.split("-")[-1] if "-" in record_reference else record_reference
-
-        # Create custom naming series: PE-[DonorName]-[RecordNumber]-
-        custom_naming_series = f"PE-{donor_name_clean}-{record_number}-"
-
-        frappe.logger().info(
-            "🏷️ Custom PE naming: %s for donor '%s' donation %s",
-            custom_naming_series,
-            donor_doc.donor_name,
-            donation.name,
-        )
-
         # Set cost center for the company to satisfy P&L account requirements
         cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
 
@@ -782,7 +768,6 @@ def create_payment_entry_for_donation(donation, mollie_data):
         pe = frappe.get_doc(
             {
                 "doctype": "Payment Entry",
-                "naming_series": custom_naming_series,
                 "payment_type": "Receive",
                 "party_type": "Customer",
                 "party": customer,

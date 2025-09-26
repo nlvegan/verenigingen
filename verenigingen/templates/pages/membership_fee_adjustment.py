@@ -438,9 +438,13 @@ def submit_fee_adjustment_request(new_amount, reason="", effective_date=None):
                 if apply_result.get("status") == "success":
                     amendment.reload()  # Reload to get updated status
             except Exception as e:
+                # Use shorter title to avoid truncation issues
+                error_msg = str(e)
+                if len(error_msg) > 100:
+                    error_msg = error_msg[:100] + "..."
                 frappe.log_error(
-                    f"Error applying immediate amendment {amendment.name}: {str(e)}",
-                    "Immediate Amendment Error",
+                    f"Amendment {amendment.name}: {error_msg}",
+                    "Amendment Apply Error",
                 )
                 # Continue - the amendment is still created and can be applied later
 

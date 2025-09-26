@@ -18,6 +18,7 @@
     "cost_center",
     "postal_codes",
     "contact_email",
+    "published",
     "board_section",
     "board_members",
     "board_role_profile_section",
@@ -28,7 +29,6 @@
     "meetup_embed_html",
     "address",
     "route",
-    "published",
     "chapter_members",
     "members"
   ],
@@ -148,7 +148,8 @@
       "default": "0",
       "fieldname": "published",
       "fieldtype": "Check",
-      "label": "Published"
+      "label": "Published",
+      "description": "Make this chapter visible on the public website"
     },
     {
       "collapsible": 1,

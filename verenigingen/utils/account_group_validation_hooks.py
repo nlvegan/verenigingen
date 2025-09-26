@@ -158,7 +158,7 @@ def get_filtered_cost_centers_for_account(account):
     """Get filtered cost centers for an account based on account group mapping"""
     account_group = get_account_group_for_account(account)
     if not account_group:
-        return frappe.get_all("Cost Center", filters={"disabled": 0}, fields=["name", "cost_center_name"])
+        return frappe.get_all("Cost Center", filters={"is_disabled": 0}, fields=["name", "cost_center_name"])
 
     return account_group_framework.get_valid_cost_centers(account_group)
 
