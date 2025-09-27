@@ -82,6 +82,15 @@ class MollieClient:
             client = self._get_mollie_client()
             return client.payments.get(payment_id)
         except Exception as e:
+            # Check if this is a JSON parsing error
+            if "Expecting value: line 1 column 1" in str(e):
+                frappe.logger().error(f"🔍 JSON parsing error for payment {payment_id}: {e}")
+                frappe.logger().error(f"🔍 Exception type: {type(e)}")
+                # Try to get more details about the error
+                if hasattr(e, "response"):
+                    frappe.logger().error(f"🔍 Response status: {getattr(e.response, 'status_code', 'N/A')}")
+                    frappe.logger().error(f"🔍 Response text: {getattr(e.response, 'text', 'N/A')}")
+
             error_msg = f"Failed to get payment {payment_id} from Mollie: {e}"
             frappe.log_error(error_msg, "Mollie Client")
             raise MolliePaymentError(error_msg, payment_id=payment_id, original_error=e)

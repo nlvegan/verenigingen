@@ -857,7 +857,7 @@ def create_payment_entry_for_donation(donation, mollie_data):
                 "company": company,
                 "paid_from": donation_account,  # Money comes FROM receivable account (party account)
                 "paid_to": bank_account,  # Money goes TO Mollie bank account
-                # "mode_of_payment": "Mollie",  # Temporarily commented out to fix cancel button issue
+                "mode_of_payment": "Mollie",  # Re-enabled after fixing HRMS override issue
                 "cost_center": cost_center,  # Required for P&L accounts
                 "title": f"{display_name} - {record_reference}",
                 "remarks": f"Payment for {record_reference} via Mollie ({mollie_data.get('method', 'Unknown method')}) - {donor_doc.donor_name}",

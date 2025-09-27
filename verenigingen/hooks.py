@@ -1087,10 +1087,8 @@ commands = [
 # -----------------------
 # Override core ERPNext doctypes with custom functionality
 
-# override_doctype_class = {
-# 	"Payment Entry": "verenigingen.overrides.payment_entry.PaymentEntry"
-# }
-# Note: Payment Entry override removed - now using standard Sales Invoice flow for donations
+override_doctype_class = {"Payment Entry": "verenigingen.overrides.payment_entry.PaymentEntry"}
+# Note: Payment Entry override re-enabled to fix HRMS cancellation issue for Customer payments
 
 # User Data Protection
 # --------------------

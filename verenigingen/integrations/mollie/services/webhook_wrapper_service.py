@@ -90,48 +90,57 @@ class WebhookWrapperService:
                     )
                     raise
 
-            # ALWAYS check for refunds first - refunds are new financial events regardless of original payment status
-            log_payment_processing(payment_id, "refund_check", "started")
-            # Debug logging disabled
+            # Process payment first (with idempotency protection), then refunds sequentially
+            # This ensures refunds can always find the original payment
 
-            try:
-                refund_result = self._process_payment_refunds(payment_id, payment_data)
-                frappe.log_error(
-                    f"SERVICE LAYER: Refund result: {frappe.as_json(refund_result)}", "Refund Debug"
-                )
-            except Exception as e:
-                frappe.log_error(f"SERVICE LAYER: Refund processing FAILED: {e}", "Refund Debug ERROR")
-                refund_result = {"refunds_processed": [], "error": str(e)}
-
-            # If we found and processed any refunds, return immediately
-            if refund_result.get("refunds_processed"):
-                processed_count = len(refund_result["refunds_processed"])
-                duration = time.time() - start_time
-                self.logger.success(
-                    "Processed refunds for payment",
-                    {"payment_id": payment_id, "refunds_processed": processed_count},
-                    duration=duration,
-                )
-                log_payment_processing(
-                    payment_id, "refund_check", "success", {"refunds_processed": processed_count}
-                )
-                record_operation_performance(
-                    "webhook_processing", duration, True, {"refunds_processed": processed_count}
-                )
-                return {
-                    "status": "success",
-                    "message": f"Processed {processed_count} refunds for payment {payment_id}",
-                    "payment_id": payment_id,
-                    "data": refund_result,
-                }
-
-            log_payment_processing(payment_id, "refund_check", "completed", {"refunds_found": 0})
-
-            # Only check payment-level idempotency if no refunds were processed
+            # Check payment-level idempotency
             # This handles regular payment webhooks for the original transaction
             log_payment_processing(payment_id, "idempotency_check", "started")
             processing_status = check_payment_processing_status_by_id(payment_id)
+            # Idempotency check complete
+
             if processing_status.get("all_complete"):
+                frappe.log_error(f"Payment complete, checking refunds", "Refund Debug")
+                # Even if payment is processed, check if there are new refunds to handle
+                try:
+                    # Get Mollie client to check for refunds
+                    frappe.log_error(f"Checking for refunds on {payment_id}", "Refund Debug")
+                    mollie_settings = frappe.get_single("Mollie Settings")
+                    mollie = mollie_settings.get_mollie_client()
+                    payment = mollie.payments.get(payment_id)
+                    refunds = payment.refunds.list()
+
+                    # Found refunds for existing payment
+
+                    if len(refunds) > 0:
+                        self.logger.info(
+                            f"Payment {payment_id} already processed, but found {len(refunds)} refunds to process"
+                        )
+                        # Processing refunds for existing payment
+                        # Process refunds using already-fetched data (single-fetch approach)
+                        refund_result = self.refund_chargeback_service.process_refunds_with_data(
+                            payment_id, refunds
+                        )
+
+                        duration = time.time() - start_time
+                        return {
+                            "status": "success",
+                            "message": f"Payment already processed, processed {len(refund_result.get('refunds_processed', []))} refunds",
+                            "payment_id": payment_id,
+                            "idempotent": True,
+                            "components": processing_status,
+                            "refund_processing": refund_result,
+                        }
+                    else:
+                        # No refunds found for existing payment
+                        pass
+                except Exception as e:
+                    frappe.log_error(
+                        f"❌ DEBUG: Error checking for refunds on existing payment {payment_id}: {e}",
+                        "Refund Debug",
+                    )
+                    self.logger.warning(f"Could not check for refunds on existing payment {payment_id}: {e}")
+
                 duration = time.time() - start_time
                 self.logger.success(
                     "Payment already processed (idempotent)",
@@ -147,6 +156,9 @@ class WebhookWrapperService:
                     "idempotent": True,
                     "components": processing_status,
                 }
+            else:
+                # Payment not complete, proceeding with new payment flow
+                pass
 
             # Validate payment status
             if payment_data.status != "paid":
@@ -192,6 +204,50 @@ class WebhookWrapperService:
             log_payment_processing(payment_id, "payment_processing", "started")
             result = process_successful_payment_with_idempotency(donation, payment_data, idempotency_status)
             log_payment_processing(payment_id, "payment_processing", "success")
+
+            # Now that payment is created, process any refunds sequentially (single-fetch approach)
+            log_payment_processing(payment_id, "refund_check", "started")
+            try:
+                # Fetch payment + refunds data once
+                mollie_settings = frappe.get_single("Mollie Settings")
+                mollie = mollie_settings.get_mollie_client()
+                payment = mollie.payments.get(payment_id)
+                refunds = payment.refunds.list()
+
+                # Fetched refunds for new payment processing
+
+                # Process refunds using already-fetched data
+                refund_result = self.refund_chargeback_service.process_refunds_with_data(payment_id, refunds)
+                frappe.log_error(
+                    f"SERVICE LAYER: Refund result (AFTER payment): {frappe.as_json(refund_result)}",
+                    "Refund Debug",
+                )
+
+                # Add refund results to the main result
+                if refund_result.get("refunds_processed"):
+                    result["refund_processing"] = refund_result
+                    successful_refunds = [
+                        r
+                        for r in refund_result.get("refunds_processed", [])
+                        if r.get("status") in ["success", "skipped"]
+                    ]
+                    if successful_refunds:
+                        self.logger.info(
+                            f"Successfully processed {len(successful_refunds)} refunds after payment creation"
+                        )
+
+                log_payment_processing(
+                    payment_id,
+                    "refund_check",
+                    "success",
+                    {"refunds_processed": len(refund_result.get("refunds_processed", []))},
+                )
+            except Exception as e:
+                frappe.log_error(
+                    f"SERVICE LAYER: Refund processing FAILED (after payment): {e}", "Refund Debug ERROR"
+                )
+                log_payment_processing(payment_id, "refund_check", "failed", {"error": str(e)})
+                # Don't fail the whole webhook if refund processing fails - payment was successful
 
             duration = time.time() - start_time
             self.logger.success(

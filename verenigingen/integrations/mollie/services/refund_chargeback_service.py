@@ -40,13 +40,370 @@ class RefundChargebackService:
     full accounting integration and business rule compliance.
     """
 
-    def __init__(self, client: Optional[MollieClient] = None):
+    def __init__(self, client: Optional[MollieClient] = None, target_doctype: str = "Donation"):
         """Initialize refund/chargeback service."""
         self.client = client or MollieClient()
         self.logger = MollieLogger("refund_chargeback")
         self.performance_monitor = MolliePerformanceMonitor()
+        self.target_doctype = target_doctype
 
-    def process_refund_webhook(self, webhook_payload: str) -> Dict[str, Any]:
+    def process_refund_webhook(self, webhook_payload_or_payment_id: str) -> Dict[str, Any]:
+        """
+        Process refund webhook - handles both webhook JSON payload and direct payment ID.
+
+        Args:
+            webhook_payload_or_payment_id: Either JSON webhook payload or payment ID string
+        """
+        # Check if this is a payment ID (starts with tr_) or JSON payload
+        if webhook_payload_or_payment_id.startswith("tr_"):
+            return self.process_refunds_for_payment(webhook_payload_or_payment_id)
+        else:
+            return self._process_refund_webhook_json(webhook_payload_or_payment_id)
+
+    def process_refunds_with_data(self, payment_id: str, refunds_data) -> Dict[str, Any]:
+        """
+        Process refunds using already-fetched Mollie refund data (single-fetch approach).
+        This preserves the original dates from the API response.
+
+        Args:
+            payment_id: The Mollie payment ID
+            refunds_data: Already-fetched refunds list from Mollie API
+        """
+        self.logger.info(
+            f"🔄 Processing {len(refunds_data)} refunds for payment {payment_id} using pre-fetched data"
+        )
+
+        try:
+            # Find payment once for all refunds (we know it exists from idempotency check)
+            original_payment = self._find_original_payment(payment_id)
+            if not original_payment:
+                return {
+                    "status": "error",
+                    "message": f"Original payment {payment_id} not found despite idempotency check",
+                    "payment_id": payment_id,
+                }
+
+            # Early exit if no refunds to process
+            if len(refunds_data) == 0:
+                self.logger.info(f"⏭️ No refunds found for payment {payment_id}, skipping processing")
+                return {
+                    "status": "success",
+                    "payment_id": payment_id,
+                    "total_refunds": 0,
+                    "processed_count": 0,
+                    "refunds_processed": [],
+                    "message": "No refunds to process",
+                }
+
+            # Process each refund using the pre-fetched data
+            processed_refunds = []
+            for refund in refunds_data:
+                refund_result = self._process_single_refund_with_data(payment_id, refund, original_payment)
+                processed_refunds.append(refund_result)
+
+            successful_count = sum(1 for r in processed_refunds if r.get("status") == "success")
+
+            return {
+                "status": "success",
+                "payment_id": payment_id,
+                "total_refunds": len(refunds_data),
+                "processed_count": successful_count,
+                "refunds_processed": processed_refunds,
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error processing refunds for payment {payment_id}: {e}")
+            return {"status": "error", "message": f"Failed to process refunds: {str(e)}"}
+
+    def process_refunds_for_payment(self, payment_id: str) -> Dict[str, Any]:
+        """
+        Process all refunds for a payment using the working debug service pattern.
+        SIMPLIFIED: Assumes original payment exists - if not, that's a separate issue.
+
+        Args:
+            payment_id: The Mollie payment ID
+        """
+        self.logger.info(f"🔄 Processing all refunds for payment {payment_id}")
+
+        try:
+            # SIMPLIFIED: Check if original payment exists, but don't try to create it
+            original_payment = self._find_original_payment(payment_id)
+
+            if not original_payment:
+                self.logger.error(f"❌ Original payment {payment_id} not found in system")
+                # Payment not found
+                return {
+                    "status": "error",
+                    "message": f"Original payment {payment_id} not found. Process the payment first through the payment webhook.",
+                    "suggested_action": "Call the payment webhook endpoint to process the original payment",
+                }
+
+            # Get all refunds using the working pattern from debug service
+            client = self.client._get_mollie_client()
+            payment = client.payments.get(payment_id)
+            refunds = payment.refunds.list()
+
+            self.logger.info(f"📊 Found {len(refunds)} refunds for payment {payment_id}")
+
+            # Early exit if no refunds to process
+            if len(refunds) == 0:
+                self.logger.info(f"⏭️ No refunds found for payment {payment_id}, skipping processing")
+                return {
+                    "status": "success",
+                    "payment_id": payment_id,
+                    "total_refunds": 0,
+                    "processed_count": 0,
+                    "refunds_processed": [],
+                    "message": "No refunds to process",
+                }
+
+            # Process each refund
+            processed_refunds = []
+            for refund in refunds:
+                refund_result = self._process_single_refund(payment_id, refund, original_payment)
+                processed_refunds.append(refund_result)
+
+            successful_count = sum(1 for r in processed_refunds if r.get("status") == "success")
+
+            return {
+                "status": "success",
+                "payment_id": payment_id,
+                "total_refunds": len(refunds),
+                "processed_count": successful_count,
+                "refunds_processed": processed_refunds,
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error processing refunds for payment {payment_id}: {e}")
+            return {"status": "error", "message": f"Failed to process refunds: {str(e)}"}
+
+    def _process_single_refund_with_data(
+        self, payment_id: str, refund, original_payment: str
+    ) -> Dict[str, Any]:
+        """
+        Process a single refund using pre-fetched data with preserved dates.
+
+        Args:
+            payment_id: The payment ID
+            refund: Mollie refund object (not dict) with original dates
+            original_payment: Payment Entry name
+        """
+        try:
+            # Handle both dict and object formats for refund data
+            refund_id = refund.id if hasattr(refund, "id") else refund.get("id")
+
+            if hasattr(refund, "amount") and hasattr(refund.amount, "value"):
+                refund_amount = float(refund.amount.value)
+            elif isinstance(refund, dict) and "amount" in refund and "value" in refund["amount"]:
+                refund_amount = float(refund["amount"]["value"])
+            else:
+                refund_amount = 0.0
+
+            refund_status = refund.status if hasattr(refund, "status") else refund.get("status")
+            refund_created_at = (
+                refund.created_at if hasattr(refund, "created_at") else refund.get("created_at")
+            )  # Preserve original API date
+
+            self.logger.info(f"💰 Processing refund {refund_id}: €{refund_amount} (status: {refund_status})")
+            # Processing refund with preserved original date
+
+            # Only process completed refunds
+            if refund_status not in ["refunded", "processed"]:
+                self.logger.info(f"⏸️ Skipping refund {refund_id} with status: {refund_status}")
+                return {
+                    "refund_id": refund_id,
+                    "amount": str(refund_amount),
+                    "status": "skipped",
+                    "reason": f"Status {refund_status} not processable",
+                }
+
+            # Handle both dict and object formats for currency
+            if hasattr(refund, "amount") and hasattr(refund.amount, "currency"):
+                currency = refund.amount.currency
+            elif isinstance(refund, dict) and "amount" in refund and "currency" in refund["amount"]:
+                currency = refund["amount"]["currency"]
+            else:
+                currency = "EUR"  # Default fallback
+
+            # Create refund details structure with preserved date
+            refund_details = {
+                "id": refund_id,
+                "amount": {"value": str(refund_amount), "currency": currency},
+                "status": refund_status,
+                "description": getattr(refund, "description", "")
+                if hasattr(refund, "description")
+                else refund.get("description", ""),
+                "created_at": refund_created_at,  # This preserves the original API date
+                "payment_id": payment_id,
+            }
+
+            # Find donation for this refund
+            donation_name = self._find_donation_for_payment(payment_id)
+            if not donation_name:
+                return {
+                    "refund_id": refund_id,
+                    "amount": str(refund_amount),
+                    "status": "failed",
+                    "error": f"Donation not found for payment {payment_id}",
+                }
+
+            donation_doc = frappe.get_doc(self.target_doctype, donation_name)
+
+            # Process the refund (create Payment Entry + update payment history)
+            result = self._create_refund_payment_entry(
+                refund_details, donation_doc, refund_amount, original_payment
+            )
+
+            if result.get("status") == "success":
+                # Validate payment entry was created
+                payment_entry_id = result.get("payment_entry_id")
+                if not payment_entry_id:
+                    self.logger.error(f"❌ Payment Entry creation failed for refund {refund_id}")
+                    return {
+                        "refund_id": refund_id,
+                        "amount": str(refund_amount),
+                        "status": "failed",
+                        "error": "Payment Entry not created",
+                    }
+
+                # Update donation payment history with refund entry
+                try:
+                    self._update_donation_refund_history_payment_entry(
+                        donation_name, refund_details, payment_entry_id
+                    )
+                    self.logger.info(f"✅ Updated payment history for refund {refund_id}")
+                except Exception as history_error:
+                    self.logger.error(
+                        f"⚠️ Failed to update payment history for refund {refund_id}: {history_error}"
+                    )
+
+                return {
+                    "refund_id": refund_id,
+                    "amount": str(refund_amount),
+                    "status": "success",
+                    "payment_entry": result.get("payment_entry"),
+                    "created_at": refund_created_at,
+                }
+            else:
+                return {
+                    "refund_id": refund_id,
+                    "amount": str(refund_amount),
+                    "status": "failed",
+                    "error": result.get("message", "Unknown error"),
+                }
+
+        except Exception as e:
+            self.logger.error(f"Error processing single refund {refund_id}: {e}")
+            return {"refund_id": refund_id, "amount": "0", "status": "failed", "error": str(e)}
+
+    def _process_single_refund(self, payment_id: str, refund, original_payment: str) -> Dict[str, Any]:
+        """
+        Process a single refund object from Mollie API.
+
+        Args:
+            payment_id: The payment ID
+            refund: Mollie refund object (not dict)
+            original_payment: Payment Entry name
+        """
+        try:
+            refund_id = refund.id
+            refund_amount = float(refund.amount["value"]) if refund.amount else 0.0
+            refund_status = refund.status
+
+            self.logger.info(f"💰 Processing refund {refund_id}: €{refund_amount} (status: {refund_status})")
+
+            # Idempotency handled by main payment handler - proceed with processing
+            frappe.log_error(
+                f"🔍 DEBUG: Processing refund {refund_id}, created_at: {refund.created_at}", "Date Debug"
+            )
+
+            # Only process completed refunds
+            if refund_status not in ["refunded", "processed"]:
+                self.logger.info(f"⏸️ Skipping refund {refund_id} with status: {refund_status}")
+                return {
+                    "refund_id": refund_id,
+                    "amount": str(refund_amount),
+                    "status": "skipped",
+                    "reason": f"Status {refund_status} not processable",
+                }
+
+            # Find donation for this payment
+            donation_name = self._find_donation_for_payment(payment_id)
+            if not donation_name:
+                self.logger.error(f"❌ Donation not found for payment {payment_id}")
+                return {
+                    "refund_id": refund_id,
+                    "amount": str(refund_amount),
+                    "status": "failed",
+                    "error": f"Donation for payment {payment_id} not found",
+                }
+
+            donation_doc = frappe.get_doc("Donation", donation_name)
+
+            # Create refund data in expected format
+            refund_data = {
+                "id": refund_id,
+                "amount": {"value": str(refund_amount), "currency": refund.amount["currency"]},
+                "status": refund_status,
+                "created_at": str(refund.created_at),
+                "description": getattr(refund, "description", ""),
+                "payment_id": payment_id,
+            }
+
+            # Use correct method signature: (refund_details, donation_doc, refund_amount, original_payment)
+            result = self._create_refund_payment_entry(
+                refund_data, donation_doc, refund_amount, original_payment
+            )
+
+            if result.get("status") == "success":
+                # Validate payment entry was created
+                payment_entry_id = result.get("payment_entry_id")
+                if not payment_entry_id:
+                    self.logger.error(f"❌ Payment Entry creation failed for refund {refund_id}")
+                    return {
+                        "refund_id": refund_id,
+                        "amount": str(refund_amount),
+                        "status": "failed",
+                        "error": "Payment Entry not created",
+                    }
+
+                # Update donation payment history with refund entry
+                try:
+                    self._update_donation_refund_history_payment_entry(
+                        donation_name, refund_data, payment_entry_id
+                    )
+                    self.logger.info(f"✅ Updated payment history for refund {refund_id}")
+                except Exception as history_error:
+                    self.logger.error(
+                        f"⚠️ Failed to update payment history for refund {refund_id}: {history_error}"
+                    )
+
+                self.logger.info(f"✅ Successfully processed refund {refund_id}")
+                return {
+                    "refund_id": refund_id,
+                    "amount": str(refund_amount),
+                    "status": "success",
+                    "payment_entry": payment_entry_id,
+                }
+            else:
+                self.logger.error(f"❌ Failed to process refund {refund_id}: {result.get('message')}")
+                return {
+                    "refund_id": refund_id,
+                    "amount": str(refund_amount),
+                    "status": "failed",
+                    "error": result.get("message", "Unknown error"),
+                }
+
+        except Exception as e:
+            self.logger.error(f"Error processing single refund {refund.id}: {e}")
+            return {
+                "refund_id": getattr(refund, "id", "unknown"),
+                "amount": "unknown",
+                "status": "failed",
+                "error": str(e),
+            }
+
+    def _process_refund_webhook_json(self, webhook_payload: str) -> Dict[str, Any]:
         """
         Process Mollie refund webhook to create reverse Payment Entry and update donation history.
 
@@ -76,37 +433,56 @@ class RefundChargebackService:
             payment_id = webhook_data.get("payment_id") or webhook_data.get("payment", {}).get("id")
             refund_id = webhook_data.get("refund_id") or webhook_data.get("refund", {}).get("id")
 
-            if not payment_id or not refund_id:
-                return {"status": "error", "message": "Missing payment_id or refund_id in refund webhook"}
-
-            # Check for duplicate refund processing (idempotency protection)
-            existing_refund = frappe.db.exists(
-                "Payment Entry", {"reference_no": refund_id, "payment_type": "Pay"}
+            self.logger.info(
+                f"🚀 STEP 1: Starting refund processing", {"payment_id": payment_id, "refund_id": refund_id}
             )
 
-            if existing_refund:
-                self.logger.info(
-                    "Refund already processed",
-                    {"refund_id": refund_id, "existing_payment_entry": existing_refund},
+            if not payment_id or not refund_id:
+                self.logger.error(
+                    f"❌ STEP 1 FAILED: Missing IDs in webhook",
+                    {"payment_id": payment_id, "refund_id": refund_id, "webhook_data": webhook_data},
                 )
-                return {
-                    "status": "already_processed",
-                    "refund_id": refund_id,
-                    "payment_entry_id": existing_refund,
-                    "message": "Refund already processed",
-                }
+                return {"status": "error", "message": "Missing payment_id or refund_id in refund webhook"}
+
+            # Skip individual refund idempotency - let main payment handler control flow
+            # This allows reprocessing when needed (e.g., fixing dates, updating records)
+            self.logger.info(
+                f"🔍 STEP 2: Proceeding with refund processing (idempotency handled by main handler)",
+                {"refund_id": refund_id},
+            )
 
             # Fetch refund details from Mollie API
+            self.logger.info(
+                f"🔍 STEP 3: Fetching refund details from Mollie API",
+                {"payment_id": payment_id, "refund_id": refund_id},
+            )
             refund_details = self._fetch_refund_details(payment_id, refund_id)
             if not refund_details:
+                self.logger.error(
+                    f"❌ STEP 3 FAILED: Cannot fetch refund details from Mollie",
+                    {"payment_id": payment_id, "refund_id": refund_id},
+                )
                 return {"status": "error", "message": "Failed to fetch refund details from Mollie"}
 
-            # Log refund status for debugging (consolidated logging will be done at bulk level)
+            # Log refund status for debugging
             refund_status = refund_details.get("status")
+            refund_amount = refund_details.get("amount", {}).get("value", 0)
+            self.logger.info(
+                f"✅ STEP 3 SUCCESS: Refund details fetched",
+                {"refund_id": refund_id, "status": refund_status, "amount": refund_amount},
+            )
 
             # Process refunds in completed states (refunded, processed, etc.)
             valid_refund_statuses = ["refunded", "processed", "pending"]
             if refund_status not in valid_refund_statuses:
+                self.logger.info(
+                    f"⏭️ SKIPPING: Refund not in processable state",
+                    {
+                        "refund_id": refund_id,
+                        "status": refund_status,
+                        "valid_statuses": valid_refund_statuses,
+                    },
+                )
                 return {
                     "status": "refund_not_completed",
                     "refund_id": refund_id,
@@ -115,19 +491,55 @@ class RefundChargebackService:
                 }
 
             # Find original payment and donation
+            self.logger.info(f"🔍 STEP 4: Finding original payment and donation", {"payment_id": payment_id})
             original_payment = self._find_original_payment(payment_id)
             if not original_payment:
-                return {"status": "error", "message": f"Original payment {payment_id} not found"}
+                self.logger.error(f"❌ STEP 4A FAILED: Original payment not found", {"payment_id": payment_id})
+                return {
+                    "status": "error",
+                    "message": f"Original payment {payment_id} not found. Process the payment first through the payment webhook.",
+                }
+
+            self.logger.info(
+                f"✅ STEP 4A SUCCESS: Original payment found",
+                {
+                    "payment_id": payment_id,
+                    "original_payment_entry": original_payment[0] if original_payment else None,
+                },
+            )
 
             donation_name = self._find_donation_for_payment(payment_id)
             if not donation_name:
+                self.logger.error(f"❌ STEP 4B FAILED: Donation not found", {"payment_id": payment_id})
                 return {"status": "error", "message": f"Donation for payment {payment_id} not found"}
+
+            self.logger.info(
+                f"✅ STEP 4B SUCCESS: Donation found",
+                {"payment_id": payment_id, "donation_name": donation_name},
+            )
 
             # Get donation document and create Credit Note for refund
             donation_doc = frappe.get_doc("Donation", donation_name)
             refund_amount = flt(refund_details.get("amount", {}).get("value", 0))
 
+            self.logger.info(
+                f"🔍 STEP 5: Attempting Credit Note creation",
+                {
+                    "refund_id": refund_id,
+                    "donation": donation_name,
+                    "amount": refund_amount,
+                    "sales_invoice": donation_doc.get("sales_invoice"),
+                },
+            )
             credit_note_result = self._create_refund_credit_note(refund_details, donation_doc, refund_amount)
+            self.logger.info(
+                f"📊 STEP 5 RESULT: Credit Note attempt completed",
+                {
+                    "refund_id": refund_id,
+                    "status": credit_note_result.get("status"),
+                    "message": credit_note_result.get("message", "No message")[:100],
+                },
+            )
 
             # Always try to update payment history, regardless of Credit Note success
             payment_history_updated = False
@@ -142,10 +554,27 @@ class RefundChargebackService:
                     self.logger.error(f"Failed to update payment history for Credit Note: {e}")
             else:
                 # Try Payment Entry fallback AND update payment history independently
+                self.logger.info(
+                    f"🔍 STEP 6: Credit Note failed, trying Payment Entry fallback",
+                    {
+                        "refund_id": refund_id,
+                        "credit_note_error": credit_note_result.get("message", "No message")[:100],
+                    },
+                )
                 try:
                     payment_entry_result = self._create_refund_payment_entry(
                         refund_details, donation_doc, refund_amount, original_payment
                     )
+                    self.logger.info(
+                        f"📊 STEP 6 RESULT: Payment Entry fallback completed",
+                        {
+                            "refund_id": refund_id,
+                            "status": payment_entry_result.get("status"),
+                            "message": payment_entry_result.get("message", "No message")[:100],
+                            "payment_entry": payment_entry_result.get("payment_entry", "No PE created"),
+                        },
+                    )
+
                     if payment_entry_result.get("status") == "success":
                         # Payment Entry succeeded, try to update payment history
                         try:
@@ -404,14 +833,14 @@ class RefundChargebackService:
                 amount_currency = refund.get("amount", {}).get("currency", "EUR")
                 status = refund.get("status")
                 description = refund.get("description", "")
-                created_at = refund.get("created_at")
+                created_at = refund.get("created_at")  # Keep as raw Mollie timestamp string
             else:
                 refund_id = refund.id
                 amount_value = refund.amount.value if hasattr(refund, "amount") else "0"
                 amount_currency = refund.amount.currency if hasattr(refund, "amount") else "EUR"
                 status = refund.status
                 description = refund.description
-                created_at = parse_mollie_datetime(refund.created_at)
+                created_at = refund.created_at  # Keep as raw Mollie timestamp string, don't parse here
 
             return {
                 "id": refund_id,
@@ -454,12 +883,41 @@ class RefundChargebackService:
     def _find_original_payment(self, payment_id: str) -> Optional[Tuple]:
         """Find original Payment Entry for the given Mollie payment ID."""
         try:
+            # Debug: Check what Payment Entries exist for this reference_no
+            all_payments = frappe.db.get_all(
+                "Payment Entry",
+                filters={"reference_no": payment_id},
+                fields=["name", "payment_type", "docstatus", "paid_amount"],
+            )
+            self.logger.info(f"🔍 DEBUG: Found {len(all_payments)} Payment Entries for {payment_id}")
+            for p in all_payments:
+                self.logger.info(
+                    f"  - {p.name}: type={p.payment_type}, status={p.docstatus}, amount={p.paid_amount}"
+                )
+
+            # Try the original search (payment_type = "Receive")
             payment_entry = frappe.db.get_value(
                 "Payment Entry",
                 {"reference_no": payment_id, "payment_type": "Receive"},
                 ["name", "paid_amount", "paid_from", "paid_to", "company", "party_type", "party"],
                 as_dict=False,
             )
+
+            if payment_entry:
+                self.logger.info(f"✅ Found Receive payment: {payment_entry[0] if payment_entry else None}")
+            else:
+                self.logger.info(f"❌ No 'Receive' payment found, checking other types...")
+                # Check if there are any submitted Payment Entries with different type
+                any_payment = frappe.db.get_value(
+                    "Payment Entry",
+                    {"reference_no": payment_id, "docstatus": 1},
+                    ["name", "paid_amount", "paid_from", "paid_to", "company", "party_type", "party"],
+                    as_dict=False,
+                )
+                if any_payment:
+                    self.logger.info(f"⚠️ Found submitted payment with different type: {any_payment[0]}")
+                    return any_payment
+
             return payment_entry
         except Exception as e:
             self.logger.error("Error finding original payment", error=e, extra={"payment_id": payment_id})
@@ -469,7 +927,7 @@ class RefundChargebackService:
         """Find donation associated with the payment."""
         try:
             # Try to find donation by payment_id
-            donation = frappe.db.get_value("Donation", {"payment_id": payment_id}, "name")
+            donation = frappe.db.get_value(self.target_doctype, {"payment_id": payment_id}, "name")
             if donation:
                 return donation
 
@@ -638,37 +1096,30 @@ class RefundChargebackService:
             refund_pe = frappe.new_doc("Payment Entry")
             refund_pe.payment_type = "Pay"  # Outgoing payment (refund)
 
-            # For refunds, keep same account flow as original (not reversed)
-            refund_pe.paid_from = paid_from  # Same as original (bank account)
-            refund_pe.paid_to = paid_to  # Same as original (receivable account)
+            # For refunds, use Payable account approach: Bank -> Payable (customer debt)
+            refund_pe.paid_from = paid_to  # Bank account (money comes from here)
+
+            # Get default Payable account from company settings
+            payable_account = frappe.db.get_value("Company", company, "default_payable_account")
+            if not payable_account:
+                # Fallback: find any Payable account for the company
+                payable_account = frappe.db.get_value(
+                    "Account", {"account_type": "Payable", "company": company, "is_group": 0}, "name"
+                )
+            if not payable_account:
+                return {"status": "error", "message": f"No Payable account found for company {company}"}
+
+            refund_pe.paid_to = payable_account  # Payable account (customer debt)
             refund_pe.company = company
 
-            # Only set party if original payment was party-based AND accounts support party relationships
-            should_set_party = False
-            if party_type and party:
-                # Check if the accounts are Receivable/Payable type (required for party relationships)
-                try:
-                    paid_from_type = frappe.db.get_value("Account", paid_from, "account_type")
-                    paid_to_type = frappe.db.get_value("Account", paid_to, "account_type")
+            # Set party relationship (Payable accounts support Customer parties)
+            should_set_party = bool(party_type and party)
 
-                    # Party relationships require at least one account to be Receivable or Payable
-                    if paid_from_type in ["Receivable", "Payable"] or paid_to_type in [
-                        "Receivable",
-                        "Payable",
-                    ]:
-                        should_set_party = True
-                        self.logger.info(
-                            f"Setting party for refund Payment Entry: {party_type} {party}",
-                            extra={"paid_from_type": paid_from_type, "paid_to_type": paid_to_type},
-                        )
-                    else:
-                        self.logger.info(
-                            f"Skipping party for refund - accounts don't support party relationships",
-                            extra={"paid_from_type": paid_from_type, "paid_to_type": paid_to_type},
-                        )
-                except Exception as e:
-                    self.logger.error(f"Error checking account types for party support: {e}")
-                    should_set_party = False
+            if should_set_party:
+                self.logger.info(
+                    f"Setting party for refund Payment Entry: {party_type} {party}",
+                    extra={"payable_account": payable_account},
+                )
 
             if should_set_party:
                 refund_pe.party_type = party_type
@@ -677,7 +1128,27 @@ class RefundChargebackService:
             refund_pe.paid_amount = refund_amount
             refund_pe.received_amount = refund_amount
             refund_pe.reference_no = refund_details.get("id", "")
-            refund_pe.reference_date = frappe.utils.getdate()
+
+            # Use actual refund creation date from Mollie, not today's date
+            refund_created_at = refund_details.get("created_at")
+            frappe.log_error(
+                f"🔍 DEBUG: Refund {refund_details.get('id')} created_at raw: {refund_created_at}",
+                "Date Debug",
+            )
+
+            if refund_created_at:
+                from ..utils.date_parser import parse_mollie_date
+
+                parsed_date = parse_mollie_date(refund_created_at)
+                frappe.log_error(f"🔍 DEBUG: Parsed date: {parsed_date}", "Date Debug")
+
+                refund_pe.reference_date = parsed_date
+                refund_pe.posting_date = parsed_date
+            else:
+                frappe.log_error("⚠️ DEBUG: No created_at found, using today's date", "Date Debug")
+                refund_pe.reference_date = frappe.utils.getdate()
+                refund_pe.posting_date = frappe.utils.getdate()
+
             refund_pe.mode_of_payment = original_pe.mode_of_payment or "Mollie"
             refund_pe.cost_center = original_pe.cost_center
 
@@ -709,8 +1180,35 @@ class RefundChargebackService:
                 refund_pe.remarks += f". Refund reason: {refund_details.get('description')}"
 
             # Insert and submit the Payment Entry (let Frappe handle transactions)
-            refund_pe.insert()
-            refund_pe.submit()
+            self.logger.info(
+                f"💾 ATTEMPTING: Payment Entry insert/submit",
+                {
+                    "refund_id": refund_details.get("id"),
+                    "paid_from": refund_pe.paid_from,
+                    "paid_to": refund_pe.paid_to,
+                    "party": f"{refund_pe.party_type} - {refund_pe.party}"
+                    if hasattr(refund_pe, "party")
+                    else "No party",
+                    "amount": refund_pe.paid_amount,
+                },
+            )
+
+            try:
+                refund_pe.insert()
+                self.logger.info(f"✅ Payment Entry inserted: {refund_pe.name}")
+
+                refund_pe.submit()
+                self.logger.info(f"✅ Payment Entry submitted: {refund_pe.name}")
+            except Exception as pe_error:
+                self.logger.error(
+                    f"❌ Payment Entry insert/submit failed",
+                    {
+                        "refund_id": refund_details.get("id"),
+                        "error": str(pe_error)[:200],
+                        "error_type": type(pe_error).__name__,
+                    },
+                )
+                raise  # Re-raise to be caught by outer try-catch
 
             self.logger.info(
                 "Created refund Payment Entry",
@@ -725,6 +1223,7 @@ class RefundChargebackService:
             return {
                 "status": "success",
                 "payment_entry": refund_pe.name,
+                "payment_entry_id": refund_pe.name,
                 "amount": refund_amount,
             }
 
@@ -788,11 +1287,15 @@ class RefundChargebackService:
 
             # Add refund to payment history
             refund_amount = flt(refund_details.get("amount", {}).get("value", 0))
+            payment_date = parse_mollie_date(refund_details.get("created_at"))
+            frappe.log_error(
+                f"🔍 DEBUG: Payment history date for {refund_details.get('id')}: {payment_date}", "Date Debug"
+            )
 
             donation.append(
                 "payments",
                 {
-                    "payment_date": parse_mollie_date(refund_details.get("created_at")),
+                    "payment_date": payment_date,
                     "payment_method": "Mollie",
                     "payment_status": "Refunded",
                     "amount": -(refund_amount or 0),  # Negative amount for refund
@@ -812,6 +1315,15 @@ class RefundChargebackService:
         """Update donation payment history with Payment Entry refund information."""
         try:
             donation = frappe.get_doc("Donation", donation_name)
+            refund_id = refund_details.get("id")
+
+            # Check if this refund is already in payment history
+            existing_entry = next((p for p in donation.payments if p.mollie_payment_id == refund_id), None)
+
+            if existing_entry:
+                self.logger.info(f"Refund {refund_id} already exists in payment history, skipping")
+                return
+
             # Add refund to payment history
             refund_amount = flt(refund_details.get("amount", {}).get("value", 0))
             donation.append(
@@ -826,6 +1338,7 @@ class RefundChargebackService:
                 },
             )
             donation.save()
+            self.logger.info(f"Added refund {refund_id} to payment history")
         except Exception as e:
             self.logger.error("Error updating donation refund history with payment entry", error=e)
 
@@ -835,6 +1348,16 @@ class RefundChargebackService:
         """Update donation payment history with chargeback information."""
         try:
             donation = frappe.get_doc("Donation", donation_name)
+            chargeback_id = chargeback_details.get("id")
+
+            # Check if this chargeback is already in payment history
+            existing_entry = next(
+                (p for p in donation.payments if p.mollie_payment_id == chargeback_id), None
+            )
+
+            if existing_entry:
+                self.logger.info(f"Chargeback {chargeback_id} already exists in payment history, skipping")
+                return
 
             # Add chargeback to payment history
             chargeback_amount = flt(chargeback_details.get("amount", {}).get("value", 0))
@@ -855,6 +1378,12 @@ class RefundChargebackService:
             )
 
             donation.save()
+            self.logger.info(f"Added chargeback {chargeback_id} to payment history")
 
         except Exception as e:
             self.logger.error("Error updating donation chargeback history", error=e)
+
+    # REMOVED: _create_missing_original_payment method
+    # This was causing infinite loops by delegating to CompletePaymentService
+    # SIMPLIFIED ARCHITECTURE: Refund service only handles refunds
+    # Missing payments should be handled separately via payment webhook
