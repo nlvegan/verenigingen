@@ -400,7 +400,7 @@ class TestDonorSecurityComprehensive(EnhancedTestCase):
         admin_roles_to_test = [
             'System Manager',
             'Verenigingen Administrator', 
-            'Verenigingen Manager'
+            'Verenigingen Staff'
         ]
         
         for role in admin_roles_to_test:

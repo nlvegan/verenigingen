@@ -339,8 +339,8 @@ def send_organization_newsletter(subject: str, content: str, filters: Dict = Non
     Returns:
         Dict with success status and details
     """
-    # Check permissions - only System Manager or Verenigingen Manager
-    if not ("System Manager" in frappe.get_roles() or "Verenigingen Manager" in frappe.get_roles()):
+    # Check permissions - only System Manager or Verenigingen Staff
+    if not ("System Manager" in frappe.get_roles() or "Verenigingen Staff" in frappe.get_roles()):
         frappe.throw(_("You don't have permission to send organization-wide emails"))
 
     # Use a dummy chapter doc for initialization using standardized query

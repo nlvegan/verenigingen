@@ -36,21 +36,20 @@ class TestANBISecurity(FrappeTestCase):
     def test_bsn_encryption_decryption(self):
         """Test BSN encryption and decryption"""
         # Test encryption
-        from verenigingen.utils.encryption import encrypt_sensitive_data, decrypt_sensitive_data
+        from verenigingen.verenigingen_payments.core.security.encryption_handler import get_encryption_handler
         
-        # Generate test key
-        key = Fernet.generate_key()
-        cipher_suite = Fernet(key)
-        
+        # Get encryption handler
+        encryption_handler = get_encryption_handler()
+
         # Encrypt BSN
-        encrypted_bsn = cipher_suite.encrypt(self.test_bsn.encode())
-        
+        encrypted_bsn = encryption_handler.encrypt_data(self.test_bsn)
+
         # Verify encryption
-        self.assertNotEqual(encrypted_bsn.decode(), self.test_bsn)
+        self.assertNotEqual(encrypted_bsn, self.test_bsn)
         self.assertTrue(len(encrypted_bsn) > len(self.test_bsn))
-        
+
         # Decrypt BSN
-        decrypted_bsn = cipher_suite.decrypt(encrypted_bsn).decode()
+        decrypted_bsn = encryption_handler.decrypt_data(encrypted_bsn)
         
         # Verify decryption
         self.assertEqual(decrypted_bsn, self.test_bsn)
@@ -72,7 +71,7 @@ class TestANBISecurity(FrappeTestCase):
                 "can_see_email": False
             },
             {
-                "role": "Verenigingen Manager",
+                "role": "Verenigingen Staff",
                 "can_see_bsn": False,
                 "can_see_full_name": True,
                 "can_see_email": True
@@ -123,7 +122,7 @@ class TestANBISecurity(FrappeTestCase):
             masked["bsn"] = getattr(member, "bsn", None)
             masked["full_name"] = member.full_name
             masked["email"] = member.email
-        elif role == "Verenigingen Manager":
+        elif role == "Verenigingen Staff":
             masked["full_name"] = member.full_name
             masked["email"] = member.email
         elif role == "Verenigingen Member":
@@ -321,13 +320,13 @@ class TestANBISecurity(FrappeTestCase):
         # Test permission matrix
         field_permissions = {
             "bsn": ["ANBI Administrator", "System Manager"],
-            "rsin": ["ANBI Administrator", "System Manager", "Verenigingen Manager"],
+            "rsin": ["ANBI Administrator", "System Manager", "Verenigingen Staff"],
             "bank_account": ["Finance Manager", "System Manager"],
             "salary_data": ["HR Manager", "System Manager"]
         }
         
         # Test access for different roles
-        test_role = "Verenigingen Manager"
+        test_role = "Verenigingen Staff"
         accessible_fields = []
         
         for field, allowed_roles in field_permissions.items():

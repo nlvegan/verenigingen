@@ -360,7 +360,6 @@ frappe.verenigingen.email = {
 // Organization-wide newsletter functionality (for System Managers)
 if (
 	frappe.boot.user.roles.includes('System Manager')
-  || frappe.boot.user.roles.includes('Verenigingen Manager')
 ) {
 	// Add to navbar
 	$(document).ready(() => {

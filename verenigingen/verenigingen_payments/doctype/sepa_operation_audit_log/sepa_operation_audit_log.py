@@ -61,12 +61,12 @@ def has_permission(doc, user=None, ptype=None):
     if not user:
         user = frappe.session.user
 
-    # System Manager and Verenigingen Manager have full read access
+    # System Manager and Verenigingen Staff have full read access
     if frappe.db.get_value(
         "Has Role",
         {
             "parent": user,
-            "role": ["in", ["System Manager", "Verenigingen Manager", "Verenigingen Auditor"]],
+            "role": ["in", ["System Manager", "Verenigingen Staff", "Verenigingen Auditor"]],
         },
         "name",
     ):
@@ -87,7 +87,7 @@ def get_permission_query_conditions(user=None):
         "Has Role",
         {
             "parent": user,
-            "role": ["in", ["System Manager", "Verenigingen Manager", "Verenigingen Auditor"]],
+            "role": ["in", ["System Manager", "Verenigingen Staff", "Verenigingen Auditor"]],
         },
         "name",
     ):

@@ -1,5 +1,5 @@
 """
-Centralized Chapter Verenigingen Manager
+Centralized Chapter Verenigingen Staff
 Provides a unified interface for all chapter membership operations with proper history tracking
 """
 

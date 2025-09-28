@@ -50,7 +50,7 @@ def create_simple_dd_batch_workflow():
 
         # State 1: Draft (Initial creation)
         workflow_doc.append(
-            "states", {"state": "Draft", "doc_status": "0", "allow_edit": "Verenigingen Manager"}
+            "states", {"state": "Draft", "doc_status": "0", "allow_edit": "Verenigingen Staff"}
         )
 
         # State 2: Pending (Awaiting approval)
@@ -65,7 +65,7 @@ def create_simple_dd_batch_workflow():
 
         # State 4: Rejected (Needs correction)
         workflow_doc.append(
-            "states", {"state": "Rejected", "doc_status": "0", "allow_edit": "Verenigingen Manager"}
+            "states", {"state": "Rejected", "doc_status": "0", "allow_edit": "Verenigingen Staff"}
         )
 
         # State 5: Submitted (Sent to bank)
@@ -87,7 +87,7 @@ def create_simple_dd_batch_workflow():
                 "state": "Draft",
                 "action": "Submit",
                 "next_state": "Pending",
-                "allowed": "Verenigingen Manager",
+                "allowed": "Verenigingen Staff",
             },
         )
 
@@ -110,7 +110,7 @@ def create_simple_dd_batch_workflow():
                 "state": "Rejected",
                 "action": "Submit",
                 "next_state": "Pending",
-                "allowed": "Verenigingen Manager",
+                "allowed": "Verenigingen Staff",
             },
         )
 

@@ -202,44 +202,6 @@
   {
     "doctype": "Role Profile",
     "docstatus": 0,
-    "name": "Verenigingen Manager",
-    "role_profile": "Verenigingen Manager",
-    "roles": [
-      {
-        "role": "Verenigingen Manager"
-      },
-      {
-        "role": "Verenigingen Member"
-      },
-      {
-        "role": "Employee"
-      },
-      {
-        "role": "Employee Self Service"
-      },
-      {
-        "role": "Projects Manager"
-      },
-      {
-        "role": "Accounts Manager"
-      },
-      {
-        "role": "Sales Manager"
-      },
-      {
-        "role": "Expense Approver"
-      },
-      {
-        "role": "Website Manager"
-      },
-      {
-        "role": "Support Team"
-      }
-    ]
-  },
-  {
-    "doctype": "Role Profile",
-    "docstatus": 0,
     "name": "Verenigingen Team Leader",
     "role_profile": "Verenigingen Team Leader",
     "roles": [
@@ -260,29 +222,6 @@
       },
       {
         "role": "Expense Approver"
-      }
-    ]
-  },
-  {
-    "doctype": "Role Profile",
-    "docstatus": 0,
-    "name": "Verenigingen Kascommissie",
-    "role_profile": "Verenigingen Kascommissie",
-    "roles": [
-      {
-        "role": "Verenigingen Member"
-      },
-      {
-        "role": "Employee"
-      },
-      {
-        "role": "Auditor"
-      },
-      {
-        "role": "Accounts User"
-      },
-      {
-        "role": "Verenigingen Kascommissie"
       }
     ]
   },

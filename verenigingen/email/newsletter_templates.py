@@ -581,7 +581,7 @@ def send_templated_email(
             )
         else:
             # Organization-wide email
-            if not ("System Manager" in frappe.get_roles() or "Verenigingen Manager" in frappe.get_roles()):
+            if not ("System Manager" in frappe.get_roles() or "Verenigingen Staff" in frappe.get_roles()):
                 frappe.throw(_("You don't have permission to send organization-wide emails"))
 
             # CIRCULAR IMPORT FIX: Import at function level to avoid circular import

@@ -156,7 +156,7 @@ class TestPaymentSystemFunctionality(VereningingenTestCase):
         # Create test user with appropriate permissions
         test_user = self.create_test_user(
             "functional.test@example.com",
-            roles=["Verenigingen Staff", "Verenigingen Manager"]
+            roles=["Verenigingen Staff", "Verenigingen Staff"]
         )
         
         # Test function execution with proper user context

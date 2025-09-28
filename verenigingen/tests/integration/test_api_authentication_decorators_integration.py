@@ -86,7 +86,7 @@ class TestAPIAuthenticationDecoratorsIntegration(EnhancedTestCase):
         # Association manager
         users['manager'] = self.create_test_user_with_roles(
             email="manager.api@test.verenigingen.invalid",
-            roles=["Verenigingen Manager", "Verenigingen Staff"],
+            roles=["Verenigingen Staff", "Verenigingen Staff"],
             first_name="API",
             last_name="Manager"
         )

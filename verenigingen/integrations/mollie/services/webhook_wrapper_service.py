@@ -100,11 +100,11 @@ class WebhookWrapperService:
             # Idempotency check complete
 
             if processing_status.get("all_complete"):
-                frappe.log_error(f"Payment complete, checking refunds", "Refund Debug")
+                # Payment already processed, checking for new refunds
                 # Even if payment is processed, check if there are new refunds to handle
                 try:
                     # Get Mollie client to check for refunds
-                    frappe.log_error(f"Checking for refunds on {payment_id}", "Refund Debug")
+                    # Checking for refunds
                     mollie_settings = frappe.get_single("Mollie Settings")
                     mollie = mollie_settings.get_mollie_client()
                     payment = mollie.payments.get(payment_id)
@@ -463,26 +463,13 @@ class WebhookWrapperService:
                 # Get the payment object first, then access its refunds
                 payment = mollie.payments.get(payment_id)
                 refunds = payment.refunds.list()
-                frappe.log_error(
-                    f"REFUND DEBUG: Found {len(refunds)} refunds for {payment_id}", "Refund Processing"
-                )
+                # Found refunds, will process them
 
-                # Log details of each refund found
-                for i, rf in enumerate(refunds):
-                    rf_id = rf.get("id") if isinstance(rf, dict) else rf.id
-                    rf_status = rf.get("status") if isinstance(rf, dict) else rf.status
-                    rf_amount = (
-                        rf.get("amount", {}).get("value")
-                        if isinstance(rf, dict)
-                        else (rf.amount.value if hasattr(rf, "amount") else "unknown")
-                    )
-                    # Debug logging disabled - using consolidated logging
+                # Debug logging disabled - using consolidated logging
 
                 self.logger.info(f"Found {len(refunds)} refunds for payment {payment_id}")
             except Exception as e:
-                frappe.log_error(
-                    f"REFUND DEBUG: Could not fetch refunds for {payment_id}: {e}", "Refund Processing"
-                )
+                self.logger.error(f"Could not fetch refunds for {payment_id}: {e}")
                 self.logger.warning(f"Could not fetch refunds for payment {payment_id}: {e}")
                 return {"refunds_processed": []}
 

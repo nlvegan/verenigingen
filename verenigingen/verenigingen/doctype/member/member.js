@@ -283,7 +283,6 @@ frappe.ui.form.on('Member', {
 		const admin_roles = [
 			'System Manager',
 			'Verenigingen Administrator',
-			'Verenigingen Manager',
 			'Verenigingen Staff'
 		];
 		const has_admin_role = frappe.user_roles.some((role) =>
@@ -930,7 +929,6 @@ function add_consolidated_view_buttons(frm) {
 function add_administrative_buttons(frm) {
 	const hasAdminRole = frappe.user.has_role([
 		'System Manager',
-		'Verenigingen Manager',
 		'Verenigingen Administrator'
 	]);
 	const isSystemManager = frappe.user.has_role(['System Manager']);
@@ -1077,8 +1075,7 @@ function add_membership_review_button(frm) {
 		// Check if user has appropriate permissions
 		if (
 			frappe.user.has_role([
-				'Verenigingen Administrator',
-				'Verenigingen Manager'
+				'Verenigingen Administrator'
 			])
       || is_chapter_board_member_with_permissions(frm)
 		) {
@@ -1237,7 +1234,6 @@ function add_member_status_actions(frm) {
 	const admin_roles = [
 		'System Manager',
 		'Verenigingen Administrator',
-		'Verenigingen Manager',
 		'Verenigingen Staff'
 	];
 	const has_admin_role = frappe.user_roles.some((role) =>
@@ -1362,7 +1358,7 @@ function add_member_id_management_buttons(frm) {
 	const user_roles = frappe.user_roles || [];
 	const can_manage_member_ids
     = user_roles.includes('System Manager')
-    || user_roles.includes('Verenigingen Manager');
+;
 
 	if (!can_manage_member_ids) {
 		return;
@@ -1515,7 +1511,7 @@ function add_member_id_buttons(_frm) {
 	const user_roles = frappe.user_roles || [];
 	const can_manage_member_ids
     = user_roles.includes('System Manager')
-    || user_roles.includes('Verenigingen Manager');
+;
 
 	if (!can_manage_member_ids) {
 		return; // User doesn't have permission
@@ -1612,7 +1608,6 @@ function add_fee_management_buttons(frm) {
 		if (
 			frappe.user.has_role([
 				'System Manager',
-				'Verenigingen Manager',
 				'Verenigingen Administrator'
 			])
 		) {
@@ -1647,7 +1642,6 @@ function ensure_fee_management_section_visibility(frm) {
 	// Ensure fee management section is visible for authorized users
 	const hasRequiredRole = frappe.user.has_role([
 		'System Manager',
-		'Verenigingen Manager',
 		'Verenigingen Administrator'
 	]);
 	const shouldShow = !frm.doc.__islocal && hasRequiredRole;
@@ -1844,9 +1838,9 @@ function refresh_dues_schedule_history(frm) {
 									{
 										message,
 										indicator:
-                      payment_r.message && payment_r.message.success
-                      	? 'green'
-                      	: 'orange'
+										payment_r.message && payment_r.message.success
+											? 'green'
+											: 'orange'
 									},
 									5
 								);
@@ -1877,9 +1871,9 @@ function refresh_dues_schedule_history(frm) {
 							{
 								message,
 								indicator:
-                  payment_r.message && payment_r.message.success
-                  	? 'green'
-                  	: 'orange'
+								payment_r.message && payment_r.message.success
+									? 'green'
+									: 'orange'
 							},
 							5
 						);
@@ -3352,11 +3346,11 @@ function show_manual_invoice_dialog(frm) {
 					recent_invoices_html = '<h5>Recent Invoices:</h5><ul>';
 					info.recent_invoices.forEach((invoice) => {
 						const status_color
-              = invoice.status === 'Paid'
-              	? 'green'
-              	: invoice.status === 'Overdue'
-              		? 'red'
-              		: 'orange';
+							= invoice.status === 'Paid'
+								? 'green'
+								: invoice.status === 'Overdue'
+									? 'red'
+									: 'orange';
 						recent_invoices_html += `<li><strong>${invoice.name}</strong> - ${invoice.posting_date} - €${invoice.grand_total} <span style="color: ${status_color};">(${invoice.status})</span></li>`;
 					});
 					recent_invoices_html += '</ul>';
@@ -3524,9 +3518,9 @@ function incremental_update_history_tables(frm) {
 						frappe.msgprint({
 							title: __('Update Failed'),
 							message:
-                error_parts.length > 0
-                	? error_parts.join('<br><br>')
-                	: error_message,
+							error_parts.length > 0
+								? error_parts.join('<br><br>')
+								: error_message,
 							indicator: 'red'
 						});
 					}
@@ -3677,9 +3671,9 @@ function create_member_request_card(request) {
 	introSmall.appendChild(introLabel);
 
 	const truncated_intro
-    = safe_introduction.length > 100
-    	? `${safe_introduction.substring(0, 100)}...`
-    	: safe_introduction;
+		= safe_introduction.length > 100
+			? `${safe_introduction.substring(0, 100)}...`
+			: safe_introduction;
 	introSmall.appendChild(document.createTextNode(` ${truncated_intro}`));
 	introduction.appendChild(introSmall);
 	leftCol.appendChild(introduction);

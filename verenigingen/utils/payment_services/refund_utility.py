@@ -441,5 +441,5 @@ def validate_refund_permissions(user: Optional[str] = None) -> bool:
 
     # Check if user has required roles or permissions
     return frappe.has_permission("Payment Entry", "write", user=user) and (
-        "Accounts Manager" in frappe.get_roles(user) or "Verenigingen Admin" in frappe.get_roles(user)
+        "Accounts Manager" in frappe.get_roles(user) or "Verenigingen Administrator" in frappe.get_roles(user)
     )

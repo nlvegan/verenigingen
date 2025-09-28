@@ -192,7 +192,7 @@ class TestAuthorization(EnhancedTestCase):
         """Test user permissions based on roles"""
         # Create users with different roles
         admin_user = self.create_test_user("admin@example.com", ["System Manager"])
-        manager_user = self.create_test_user("manager@example.com", ["Verenigingen Manager"])
+        manager_user = self.create_test_user("manager@example.com", ["Verenigingen Staff"])
         staff_user = self.create_test_user("staff@example.com", ["Verenigingen Staff"])
         
         # Test permissions for each role
@@ -236,7 +236,7 @@ class TestAuthorization(EnhancedTestCase):
     
     def test_contextual_permissions(self):
         """Test context-based permission checks"""
-        manager_user = self.create_test_user("manager@example.com", ["Verenigingen Manager"])
+        manager_user = self.create_test_user("manager@example.com", ["Verenigingen Staff"])
         
         # Create a test batch
         batch = self.create_test_batch(owner=manager_user.email)
@@ -367,7 +367,7 @@ class TestSecurityIntegration(EnhancedTestCase):
     def test_secure_api_endpoint_full_stack(self):
         """Test secure API endpoint with all security measures"""
         # Create test user with appropriate permissions
-        user = self.create_test_user("manager@example.com", ["Verenigingen Manager"])
+        user = self.create_test_user("manager@example.com", ["Verenigingen Staff"])
         
         with self.set_user(user.email):
             # Test that secure endpoints require proper setup

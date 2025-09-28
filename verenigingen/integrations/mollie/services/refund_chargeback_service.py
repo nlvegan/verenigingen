@@ -313,9 +313,6 @@ class RefundChargebackService:
             self.logger.info(f"💰 Processing refund {refund_id}: €{refund_amount} (status: {refund_status})")
 
             # Idempotency handled by main payment handler - proceed with processing
-            frappe.log_error(
-                f"🔍 DEBUG: Processing refund {refund_id}, created_at: {refund.created_at}", "Date Debug"
-            )
 
             # Only process completed refunds
             if refund_status not in ["refunded", "processed"]:
@@ -447,13 +444,13 @@ class RefundChargebackService:
             # Skip individual refund idempotency - let main payment handler control flow
             # This allows reprocessing when needed (e.g., fixing dates, updating records)
             self.logger.info(
-                f"🔍 STEP 2: Proceeding with refund processing (idempotency handled by main handler)",
+                "🔍 STEP 2: Proceeding with refund processing (idempotency handled by main handler)",
                 {"refund_id": refund_id},
             )
 
             # Fetch refund details from Mollie API
             self.logger.info(
-                f"🔍 STEP 3: Fetching refund details from Mollie API",
+                "🔍 STEP 3: Fetching refund details from Mollie API",
                 {"payment_id": payment_id, "refund_id": refund_id},
             )
             refund_details = self._fetch_refund_details(payment_id, refund_id)
@@ -491,7 +488,7 @@ class RefundChargebackService:
                 }
 
             # Find original payment and donation
-            self.logger.info(f"🔍 STEP 4: Finding original payment and donation", {"payment_id": payment_id})
+            self.logger.info("🔍 STEP 4: Finding original payment and donation", {"payment_id": payment_id})
             original_payment = self._find_original_payment(payment_id)
             if not original_payment:
                 self.logger.error(f"❌ STEP 4A FAILED: Original payment not found", {"payment_id": payment_id})
@@ -523,7 +520,7 @@ class RefundChargebackService:
             refund_amount = flt(refund_details.get("amount", {}).get("value", 0))
 
             self.logger.info(
-                f"🔍 STEP 5: Attempting Credit Note creation",
+                "🔍 STEP 5: Attempting Credit Note creation",
                 {
                     "refund_id": refund_id,
                     "donation": donation_name,
@@ -555,7 +552,7 @@ class RefundChargebackService:
             else:
                 # Try Payment Entry fallback AND update payment history independently
                 self.logger.info(
-                    f"🔍 STEP 6: Credit Note failed, trying Payment Entry fallback",
+                    "🔍 STEP 6: Credit Note failed, trying Payment Entry fallback",
                     {
                         "refund_id": refund_id,
                         "credit_note_error": credit_note_result.get("message", "No message")[:100],
@@ -1131,21 +1128,15 @@ class RefundChargebackService:
 
             # Use actual refund creation date from Mollie, not today's date
             refund_created_at = refund_details.get("created_at")
-            frappe.log_error(
-                f"🔍 DEBUG: Refund {refund_details.get('id')} created_at raw: {refund_created_at}",
-                "Date Debug",
-            )
 
             if refund_created_at:
                 from ..utils.date_parser import parse_mollie_date
 
                 parsed_date = parse_mollie_date(refund_created_at)
-                frappe.log_error(f"🔍 DEBUG: Parsed date: {parsed_date}", "Date Debug")
-
                 refund_pe.reference_date = parsed_date
                 refund_pe.posting_date = parsed_date
             else:
-                frappe.log_error("⚠️ DEBUG: No created_at found, using today's date", "Date Debug")
+                # No created_at found, using today's date
                 refund_pe.reference_date = frappe.utils.getdate()
                 refund_pe.posting_date = frappe.utils.getdate()
 
@@ -1288,9 +1279,6 @@ class RefundChargebackService:
             # Add refund to payment history
             refund_amount = flt(refund_details.get("amount", {}).get("value", 0))
             payment_date = parse_mollie_date(refund_details.get("created_at"))
-            frappe.log_error(
-                f"🔍 DEBUG: Payment history date for {refund_details.get('id')}: {payment_date}", "Date Debug"
-            )
 
             donation.append(
                 "payments",

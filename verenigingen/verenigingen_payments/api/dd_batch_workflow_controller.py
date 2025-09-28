@@ -311,9 +311,9 @@ def can_user_approve_batch(batch):
     if risk_level == "High":
         return "Finance Manager" in user_roles
     elif risk_level == "Medium":
-        return "Verenigingen Manager" in user_roles or "Finance Manager" in user_roles
+        return "Verenigingen Staff" in user_roles or "Finance Manager" in user_roles
     else:  # Low risk
-        return "Verenigingen Manager" in user_roles or "Finance Manager" in user_roles
+        return "Verenigingen Staff" in user_roles or "Finance Manager" in user_roles
 
     return False
 
@@ -424,8 +424,8 @@ def get_batches_pending_approval():
         elif "Finance Manager" in user_roles:
             # Finance Manager can see all draft batches
             filters["status"] = ["in", ["Draft", "Generated"]]
-        elif "Verenigingen Manager" in user_roles:
-            # Verenigingen Manager can only see draft batches
+        elif "Verenigingen Staff" in user_roles:
+            # Verenigingen Staff can only see draft batches
             filters["status"] = "Draft"
         else:
             # No approval permissions

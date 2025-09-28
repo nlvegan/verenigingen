@@ -29,7 +29,7 @@ def execute():
         # Add roles
         for role in [
             "Verenigingen Administrator",
-            "Verenigingen Manager",
+            "Verenigingen Staff",
             "Verenigingen National Board Member",
         ]:
             page.append("roles", {"role": role})

@@ -101,7 +101,7 @@ def sync_email_groups_manually():
     Synchronizes member data with email groups
     """
     # Check permissions
-    if not ("System Manager" in frappe.get_roles() or "Verenigingen Manager" in frappe.get_roles()):
+    if not ("System Manager" in frappe.get_roles() or "Verenigingen Staff" in frappe.get_roles()):
         frappe.throw(_("You don't have permission to sync email groups"))
 
     sync_stats = {"added": 0, "removed": 0, "errors": []}

@@ -1280,7 +1280,7 @@ class MijnroodCSVImport(Document):
         """Check if current user has permission to perform CSV imports."""
         user_roles = frappe.get_roles(frappe.session.user)
         # Define roles that can perform CSV imports
-        authorized_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Manager"]
+        authorized_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
 
         return any(role in user_roles for role in authorized_roles)
 

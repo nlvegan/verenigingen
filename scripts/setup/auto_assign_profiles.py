@@ -89,11 +89,11 @@ def determine_user_profile(user_email):
         return "Verenigingen System Administrator"
 
     # 2. Manager roles
-    if "Verenigingen Manager" in user_roles:
+    if "Verenigingen Staff" in user_roles:
         # Check for finance focus
         if "Accounts Manager" in user_roles:
             return "Verenigingen Finance Manager"
-        return "Verenigingen Manager"
+        return "Verenigingen Staff"
 
     # 3. Audit roles
     if "Verenigingen Governance Auditor" in user_roles or "Auditor" in user_roles:

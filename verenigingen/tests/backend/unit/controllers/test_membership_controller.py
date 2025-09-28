@@ -300,7 +300,7 @@ class TestMembershipController(EnhancedTestCase):
 
             # Try to cancel before minimum period as non-admin user
             # Create a test user with limited permissions
-            test_user = self.create_test_user("test.cancel@example.com", ["Verenigingen Manager"])
+            test_user = self.create_test_user("test.cancel@example.com", ["Verenigingen Staff"])
 
             with self.as_user(test_user.name):
                 # Try to cancel before minimum period

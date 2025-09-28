@@ -491,7 +491,7 @@ class TestAPISecurityAndValidation(EnhancedTestCase):
         # Test with different user roles
         test_roles = [
             ("Verenigingen Member", ["read"], ["write", "delete"]),
-            ("Verenigingen Manager", ["read", "write"], ["delete"]),
+            ("Verenigingen Staff", ["read", "write"], ["delete"]),
             ("System Manager", ["read", "write", "delete"], [])
         ]
 

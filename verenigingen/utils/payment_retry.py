@@ -196,9 +196,7 @@ class PaymentRetryManager:
         member = frappe.get_doc("Member", retry_record.member)
 
         # Get admin users
-        admins = frappe.get_all(
-            "Has Role", filters={"role": "Verenigingen Manager"}, fields=["parent as user"]
-        )
+        admins = frappe.get_all("Has Role", filters={"role": "Verenigingen Staff"}, fields=["parent as user"])
 
         recipients = [admin.user for admin in admins]
 
@@ -209,7 +207,7 @@ class PaymentRetryManager:
             email_service = get_email_service()
 
             context = {
-                "member_name": "Verenigingen Manager",
+                "member_name": "Verenigingen Staff",
                 "notification_message": f"Payment collection has failed after {retry_record.retry_count} attempts for member {member.full_name}.",
                 "payment_reference": retry_record.invoice,
                 "amount": f"€{retry_record.original_amount}",

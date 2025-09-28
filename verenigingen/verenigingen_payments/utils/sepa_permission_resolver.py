@@ -38,7 +38,7 @@ class SEPAPermissionResolverClean:
         if "System Manager" in roles:
             return UserPermissionContext(user=self.user, roles=roles, permission_level="admin")
 
-        if "Verenigingen Manager" in roles:
+        if "Verenigingen Staff" in roles:
             return UserPermissionContext(user=self.user, roles=roles, permission_level="manager")
 
         if "Verenigingen Member" in roles:

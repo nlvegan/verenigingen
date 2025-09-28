@@ -319,9 +319,11 @@ class AutomatedCampaignManager:
     def _update_next_run_date(self, campaign_id: str):
         """Update the next run date for a campaign"""
         campaign_doc = frappe.get_doc("Email Campaign", campaign_id)
-        campaign_def = self.campaign_types.get(campaign_doc.campaign_type, {})
+        campaign_type = getattr(campaign_doc, 'campaign_type', 'general')
+        campaign_def = self.campaign_types.get(campaign_type, {})
 
-        schedule_config = json.loads(campaign_doc.schedule_config or "{}")
+        schedule_config_raw = getattr(campaign_doc, 'schedule_config', '{}')
+        schedule_config = json.loads(schedule_config_raw or "{}")
         next_run = self._calculate_next_run(campaign_def, schedule_config)
 
         if next_run:
@@ -447,7 +449,7 @@ def create_automated_campaign(
         frappe.throw(_("You don't have permission to create campaigns for this chapter"))
 
     if not chapter_name and not (
-        "System Manager" in frappe.get_roles() or "Verenigingen Manager" in frappe.get_roles()
+        "System Manager" in frappe.get_roles() or "Verenigingen Staff" in frappe.get_roles()
     ):
         frappe.throw(_("You don't have permission to create organization-wide campaigns"))
 
@@ -511,11 +513,12 @@ def trigger_campaign_test(campaign_id: str) -> Dict:
     # Check permissions
     campaign_doc = frappe.get_doc("Email Campaign", campaign_id)
 
-    if campaign_doc.chapter and not frappe.has_permission("Chapter", "write", doc=campaign_doc.chapter):
+    chapter = getattr(campaign_doc, 'chapter', None)
+    if chapter and not frappe.has_permission("Chapter", "write", doc=chapter):
         frappe.throw(_("You don't have permission to test this campaign"))
 
-    if not campaign_doc.chapter and not (
-        "System Manager" in frappe.get_roles() or "Verenigingen Manager" in frappe.get_roles()
+    if not chapter and not (
+        "System Manager" in frappe.get_roles() or "Verenigingen Staff" in frappe.get_roles()
     ):
         frappe.throw(_("You don't have permission to test organization-wide campaigns"))
 
@@ -524,11 +527,11 @@ def trigger_campaign_test(campaign_id: str) -> Dict:
         campaign_data = {
             "name": campaign_doc.name,
             "campaign_name": campaign_doc.campaign_name,
-            "campaign_type": campaign_doc.campaign_type,
-            "chapter": campaign_doc.chapter,
-            "template_id": campaign_doc.template_id,
-            "segment": campaign_doc.segment,
-            "content_config": campaign_doc.content_config,
+            "campaign_type": getattr(campaign_doc, 'campaign_type', 'general'),
+            "chapter": getattr(campaign_doc, 'chapter', None),
+            "template_id": getattr(campaign_doc, 'template_id', None),
+            "segment": getattr(campaign_doc, 'segment', 'all'),
+            "content_config": getattr(campaign_doc, 'content_config', {}),
         }
 
         return manager._execute_campaign(campaign_data)

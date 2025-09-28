@@ -173,7 +173,7 @@ def link_module_profiles():
         "Verenigingen Chapter Administrator": "Verenigingen Management Access",
         "Verenigingen Communications Officer": "Verenigingen Communications Access",
         "Verenigingen Event Coordinator": "Verenigingen Volunteer Access",
-        "Verenigingen Manager": "Verenigingen Management Access",
+        "Verenigingen Staff": "Verenigingen Management Access",
         "Verenigingen Finance Manager": "Verenigingen Finance Management Access",
         "Verenigingen System Administrator": None,  # Full access
         "Verenigingen Auditor": "Verenigingen Audit Access",

@@ -106,7 +106,7 @@ class TestAuthenticationFlowsComprehensive(EnhancedTestCase):
         # Staff user with administrative access
         users['staff'] = self.create_test_user_with_roles(
             email="staff@test.verenigingen.invalid",
-            roles=["Verenigingen Staff", "Verenigingen Manager"],
+            roles=["Verenigingen Staff", "Verenigingen Staff"],
             first_name="Test",
             last_name="Staff"
         )

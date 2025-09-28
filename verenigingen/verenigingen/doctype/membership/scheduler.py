@@ -53,7 +53,7 @@ def notify_about_orphaned_records():
 
         # Add appropriate roles or specific users as recipients
         membership_managers = frappe.get_all(
-            "Has Role", filters={"role": "Verenigingen Manager", "parenttype": "User"}, fields=["parent"]
+            "Has Role", filters={"role": "Verenigingen Staff", "parenttype": "User"}, fields=["parent"]
         )
 
         for manager in membership_managers:
@@ -243,7 +243,7 @@ def generate_direct_debit_batch():
                 "membership": membership.name,
                 "member": member.name,
                 "member_name": member.full_name,
-                "bank_account": member.bank_account,
+                "bank_account": member.bank_account_name,
                 "amount": 0,  # Would be fetched from dues schedule
             }
         )

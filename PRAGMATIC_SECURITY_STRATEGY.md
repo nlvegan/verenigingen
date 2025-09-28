@@ -237,7 +237,7 @@ class CriticalOperation(Enum):
 OPERATION_CONFIG: Dict[CriticalOperation, Dict] = {
     CriticalOperation.CREATE_INVOICE: {
         "rate_limit": {"calls": 10, "period": 3600},
-        "required_roles": ["Accounts Manager", "Verenigingen Admin"],
+        "required_roles": ["Accounts Manager", "Verenigingen Administrator"],
         "audit_level": "CRITICAL",
         "doctypes": ["Sales Invoice", "Purchase Invoice"]
     },

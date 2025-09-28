@@ -51,7 +51,7 @@ class TestAPISecurityDecorators(EnhancedTestCase):
             ),
             'manager': self.create_test_user(
                 "manager.test@example.com",
-                roles=["Verenigingen Manager", "Verenigingen Staff"]
+                roles=["Verenigingen Staff", "Verenigingen Staff"]
             ),
             'staff': self.create_test_user(
                 "staff.test@example.com",

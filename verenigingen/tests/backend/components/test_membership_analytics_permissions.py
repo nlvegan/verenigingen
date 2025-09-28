@@ -20,7 +20,7 @@ class TestMembershipAnalyticsPermissions(BaseTestCase):
         ])
         
         cls.manager_user = cls.create_test_user("manager@test.com", [
-            "Verenigingen Manager"
+            "Verenigingen Staff"
         ])
         
         cls.board_member_user = cls.create_test_user("board@test.com", [
@@ -561,9 +561,9 @@ class TestMembershipAnalyticsDataSecurity(BaseTestCase):
             })
             user.insert()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
         
-        # Add Verenigingen Manager role
+        # Add Verenigingen Staff role
         user.roles = []
-        user.append("roles", {"role": "Verenigingen Manager"})
+        user.append("roles", {"role": "Verenigingen Staff"})
         user.save()  # VereningingenTestCase (via BaseTestCase) handles permissions appropriately
         
         # Link to chapter

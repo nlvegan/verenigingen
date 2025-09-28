@@ -99,7 +99,7 @@ class APISecurityFramework:
         ),
         SecurityLevel.HIGH: SecurityProfile(
             level=SecurityLevel.HIGH,
-            required_roles=["System Manager", "Verenigingen Administrator", "Verenigingen Manager"],
+            required_roles=["System Manager", "Verenigingen Administrator", "Verenigingen Staff"],
             requires_csrf=True,
             requires_audit=True,
             input_validation=True,
@@ -113,7 +113,7 @@ class APISecurityFramework:
             required_roles=[
                 "System Manager",
                 "Verenigingen Administrator",
-                "Verenigingen Manager",
+                "Verenigingen Staff",
                 "Verenigingen Staff",
             ],
             requires_csrf=False,  # Most read operations
@@ -184,15 +184,13 @@ class APISecurityFramework:
             SecurityLevel.HIGH,
             SecurityLevel.MEDIUM,
         ],  # National oversight
-        "Verenigingen Manager": [SecurityLevel.HIGH, SecurityLevel.MEDIUM, SecurityLevel.LOW],
+        "Verenigingen Staff": [SecurityLevel.HIGH, SecurityLevel.MEDIUM, SecurityLevel.LOW],
         "Verenigingen Board Member": [
             SecurityLevel.MEDIUM,
             SecurityLevel.LOW,
         ],  # + contextual for their chapter
-        "Verenigingen Kascommissie": [SecurityLevel.MEDIUM, SecurityLevel.LOW],  # Audit/compliance access
-        "Verenigingen Staff": [SecurityLevel.MEDIUM, SecurityLevel.LOW],
+        "Verenigingen Auditor": [SecurityLevel.MEDIUM, SecurityLevel.LOW],  # Audit/compliance access
         "Verenigingen Team Leader": [SecurityLevel.LOW],  # + contextual for their team
-        "Verenigingen Auditor": [SecurityLevel.LOW],  # Read-only audit access
         "Verenigingen Member": [SecurityLevel.LOW],
         "Verenigingen Volunteer": [
             SecurityLevel.MEDIUM,

@@ -214,7 +214,7 @@
     },
     {
       "read": 1,
-      "role": "Verenigingen Manager"
+      "role": "Verenigingen Staff"
     }
   ],
   "search_fields": "operation_type,source_import,status",

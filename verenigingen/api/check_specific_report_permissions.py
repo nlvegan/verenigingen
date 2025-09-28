@@ -104,7 +104,7 @@ def analyze_report_security(report_name, roles, ref_doctype):
             not in [
                 "System Manager",
                 "Verenigingen Administrator",
-                "Verenigingen Manager",
+                "Verenigingen Staff",
                 "Accounts Manager",
             ]
         ]

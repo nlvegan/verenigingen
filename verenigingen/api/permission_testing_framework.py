@@ -22,7 +22,7 @@ def validate_membership_dues_schedule_permissions():
         "current_roles": current_roles,
         "is_system_manager": "System Manager" in current_roles,
         "is_admin_role": any(
-            role in current_roles for role in ["Verenigingen Administrator", "Verenigingen Manager"]
+            role in current_roles for role in ["Verenigingen Administrator", "Verenigingen Staff"]
         ),
         "test_results": [],
         "permission_debug": [],
@@ -76,7 +76,7 @@ def validate_membership_dues_schedule_permissions():
                 "system_manager_check": "System Manager" in frappe.get_roles(current_user),
                 "admin_roles_check": any(
                     role in frappe.get_roles(current_user)
-                    for role in ["Verenigingen Administrator", "Verenigingen Manager"]
+                    for role in ["Verenigingen Administrator", "Verenigingen Staff"]
                 ),
                 "template_check": getattr(doc, "is_template", False),
                 "member_user_lookup": None,

@@ -24,7 +24,7 @@ def setup_role_profiles():
         "Verenigingen Chapter Board": "Verenigingen Volunteer Access",
         "Verenigingen Treasurer": "Verenigingen Financial Access",
         "Verenigingen Chapter Administrator": "Verenigingen Management Access",
-        "Verenigingen Manager": "Verenigingen Management Access",
+        "Verenigingen Staff": "Verenigingen Management Access",
         "Verenigingen Financial Manager": "Verenigingen Financial Access",  # Consolidates Bank Reconciliation User
         "Verenigingen System Administrator": None,  # Full access
         "Verenigingen Auditor": "Verenigingen Audit Access",  # Uses ERPNext Auditor role
@@ -100,8 +100,8 @@ def get_recommended_role_profile(user: str) -> str | None:
         return "Verenigingen System Administrator"
 
     # 2. Manager roles
-    if "Verenigingen Manager" in user_roles:
-        return "Verenigingen Manager"
+    if "Verenigingen Staff" in user_roles:
+        return "Verenigingen Staff"
 
     # 3. Staff roles
     if "Verenigingen Staff" in user_roles:
@@ -222,7 +222,7 @@ def setup_role_profiles_cli():
             "Verenigingen Chapter Board": "Verenigingen Volunteer Access",
             "Verenigingen Treasurer": "Verenigingen Financial Access",
             "Verenigingen Chapter Administrator": "Verenigingen Management Access",
-            "Verenigingen Manager": "Verenigingen Management Access",
+            "Verenigingen Staff": "Verenigingen Management Access",
             "Verenigingen System Administrator": None,  # Full access
             "Verenigingen Auditor": "Verenigingen Audit Access",
         }
@@ -279,8 +279,8 @@ def setup_role_profiles_cli():
                 if "System Manager" in user_roles or "Administrator" in user_roles:
                     recommended_profile = "Verenigingen System Administrator"
                 # Manager roles
-                elif "Verenigingen Manager" in user_roles:
-                    recommended_profile = "Verenigingen Manager"
+                elif "Verenigingen Staff" in user_roles:
+                    recommended_profile = "Verenigingen Staff"
                 # Staff roles
                 elif "Verenigingen Staff" in user_roles:
                     if "Accounts User" in user_roles:

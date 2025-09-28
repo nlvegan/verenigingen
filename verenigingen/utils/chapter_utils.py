@@ -71,7 +71,7 @@ def get_user_accessible_chapters(
 
     try:
         # Check for admin roles - these users see all chapters
-        admin_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Manager"]
+        admin_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
         user_roles = frappe.get_roles(user_email)
 
         if any(role in user_roles for role in admin_roles):

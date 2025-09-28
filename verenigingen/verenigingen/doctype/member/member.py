@@ -298,7 +298,7 @@ class Member(
 
         # Check user permissions for fee override
         user_roles = frappe.get_roles(frappe.session.user)
-        authorized_roles = ["System Manager", "Verenigingen Manager", "Verenigingen Administrator"]
+        authorized_roles = ["System Manager", "Verenigingen Staff", "Verenigingen Administrator"]
 
         if not any(role in user_roles for role in authorized_roles):
             frappe.throw(
@@ -2593,11 +2593,11 @@ def assign_member_id(member_name):
     if not frappe.has_permission("Member", "write"):
         frappe.throw(_("Insufficient permissions to assign member ID"))
 
-    # Only allow System Manager and Verenigingen Manager roles to manually assign member IDs
-    allowed_roles = ["System Manager", "Verenigingen Manager"]
+    # Only allow System Manager and Verenigingen Staff roles to manually assign member IDs
+    allowed_roles = ["System Manager", "Verenigingen Staff"]
     user_roles = frappe.get_roles(frappe.session.user)
     if not any(role in user_roles for role in allowed_roles):
-        frappe.throw(_("Only System Managers and Verenigingen Managers can manually assign member IDs"))
+        frappe.throw(_("Only System Managers and Verenigingen Staffs can manually assign member IDs"))
 
     try:
         member = frappe.get_doc("Member", member_name)

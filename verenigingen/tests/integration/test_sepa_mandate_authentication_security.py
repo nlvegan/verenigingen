@@ -87,7 +87,7 @@ class TestSEPAMandateAuthenticationSecurity(EnhancedTestCase):
         # Financial manager with SEPA authority
         users['financial_manager'] = self.create_test_user_with_roles(
             email="financial.manager@test.verenigingen.invalid",
-            roles=["Verenigingen Manager", "Verenigingen Staff"],
+            roles=["Verenigingen Staff", "Verenigingen Staff"],
             first_name="Financial",
             last_name="Manager"
         )

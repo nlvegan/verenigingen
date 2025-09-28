@@ -219,7 +219,7 @@ def analyze_verenigingen_report(report_info):
             non_admin_roles = [
                 r
                 for r in roles
-                if r not in ["System Manager", "Verenigingen Administrator", "Verenigingen Manager"]
+                if r not in ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
             ]
             if len(non_admin_roles) > 3:
                 analysis["issues"].append(

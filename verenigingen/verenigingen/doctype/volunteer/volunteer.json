@@ -266,7 +266,7 @@
       "print": 1,
       "read": 1,
       "report": 1,
-      "role": "Verenigingen Manager",
+      "role": "Verenigingen Staff",
       "share": 1,
       "write": 1
     },
@@ -276,7 +276,7 @@
       "print": 1,
       "read": 1,
       "report": 1,
-      "role": "Verenigingen Volunteer Manager",
+      "role": "Verenigingen Staff",
       "share": 1
     },
     {

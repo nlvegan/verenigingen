@@ -607,7 +607,7 @@ class TestSecurityAndAccessControlValidation(EnhancedTestCase):
                 ]
             },
             {
-                "role": "Verenigingen Manager",
+                "role": "Verenigingen Staff",
                 "email": "manager@test.nl",
                 "allowed_endpoints": [
                     "verenigingen.api.member_management.create_member",

@@ -215,7 +215,7 @@ class TestDonorPermissionsSecurity(VereningingenTestCase):
         
         admin_roles = [
             "System Manager",
-            "Verenigingen Manager", 
+            "Verenigingen Staff", 
             "Verenigingen Administrator"
         ]
         

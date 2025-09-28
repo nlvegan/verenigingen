@@ -15,7 +15,7 @@ def get_context(context):
         "Has Role",
         {
             "parent": frappe.session.user,
-            "role": ["in", ["System Manager", "Verenigingen Manager", "Verenigingen Administrator"]],
+            "role": ["in", ["System Manager", "Verenigingen Staff", "Verenigingen Administrator"]],
         },
     )
 

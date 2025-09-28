@@ -11,8 +11,8 @@ def get_context(context):
     """
     Context for the email group administration page
     """
-    # Check permissions - only allow System Manager or Verenigingen Manager
-    if not ("System Manager" in frappe.get_roles() or "Verenigingen Manager" in frappe.get_roles()):
+    # Check permissions - only allow System Manager or Verenigingen Staff
+    if not ("System Manager" in frappe.get_roles() or "Verenigingen Staff" in frappe.get_roles()):
         frappe.throw(_("You don't have permission to access this page"), frappe.PermissionError)
 
     # Basic context

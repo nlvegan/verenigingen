@@ -157,7 +157,7 @@ def has_permission(doc, user=None, ptype=None):
         "Has Role",
         {
             "parent": user,
-            "role": ["in", ["System Manager", "Verenigingen Manager", "Verenigingen Administrator"]],
+            "role": ["in", ["System Manager", "Verenigingen Staff", "Verenigingen Administrator"]],
         },
         "name",
     ):
@@ -187,7 +187,7 @@ def get_permission_query_conditions(user=None):
         "Has Role",
         {
             "parent": user,
-            "role": ["in", ["System Manager", "Verenigingen Manager", "Verenigingen Administrator"]],
+            "role": ["in", ["System Manager", "Verenigingen Staff", "Verenigingen Administrator"]],
         },
         "name",
     ):

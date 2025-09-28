@@ -25,7 +25,7 @@ def remove_redundant_admin_roles():
                     "Has Role",
                     filters={
                         "parent": user,
-                        "role": ["in", ["Verenigingen Administrator", "Verenigingen Manager"]],
+                        "role": ["in", ["Verenigingen Administrator", "Verenigingen Staff"]],
                     },
                     fields=["name", "role"],
                 )
@@ -116,7 +116,7 @@ def validate_role_cleanup():
                 "Has Role",
                 filters={
                     "parent": user,
-                    "role": ["in", ["Verenigingen Administrator", "Verenigingen Manager"]],
+                    "role": ["in", ["Verenigingen Administrator", "Verenigingen Staff"]],
                 },
             )
             validation["redundant_roles_remaining"] += len(redundant_roles)
@@ -157,7 +157,7 @@ def create_role_hierarchy_documentation():
             "permissions": "Create, read, update, delete all Verenigingen documents",
         },
         "verenigingen_staff_tier": {
-            "roles": ["Verenigingen Staff", "Verenigingen Manager"],
+            "roles": ["Verenigingen Staff", "Verenigingen Staff"],
             "description": "Daily operational access to Verenigingen functions",
             "permissions": "Read/write access to most Verenigingen documents, limited admin functions",
         },

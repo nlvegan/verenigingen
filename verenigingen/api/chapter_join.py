@@ -218,7 +218,7 @@ def get_user_chapter_requests():
 
     # For administrators and managers, include all chapters
     user_roles = frappe.get_roles(user)
-    if "Verenigingen Administrator" in user_roles or "Verenigingen Manager" in user_roles:
+    if "Verenigingen Administrator" in user_roles or "Verenigingen Staff" in user_roles:
         all_chapters = frappe.get_all("Chapter", fields=["name"])
         chapter_names.extend([ch.name for ch in all_chapters])
         chapter_names = list(set(chapter_names))  # Remove duplicates

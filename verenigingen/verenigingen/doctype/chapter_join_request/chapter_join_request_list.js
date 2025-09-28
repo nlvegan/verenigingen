@@ -28,7 +28,6 @@ frappe.listview_settings['Chapter Join Request'] = {
 		// Add quick approval actions
 		if (
 			frappe.user.has_role([
-				'Verenigingen Manager',
 				'Verenigingen Chapter Board Member'
 			])
 		) {

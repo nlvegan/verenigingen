@@ -303,8 +303,8 @@ class MembershipDuesSchedule(Document):
         if member_user == user:
             return self.validate_member_edit()
 
-        # Check if user has Verenigingen Manager role
-        if "Verenigingen Manager" in frappe.get_roles(user):
+        # Check if user has Verenigingen Staff role
+        if "Verenigingen Staff" in frappe.get_roles(user):
             return True
 
         # Check if user is a chapter board member with finance permissions
@@ -443,7 +443,7 @@ class MembershipDuesSchedule(Document):
             if float(self.dues_rate) > maximum_dues:
                 # Allow with warning for administrators
                 user_roles = frappe.get_roles(frappe.session.user)
-                admin_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Manager"]
+                admin_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
 
                 if any(role in user_roles for role in admin_roles):
                     frappe.msgprint(
@@ -547,12 +547,12 @@ class MembershipDuesSchedule(Document):
                 user_roles = frappe.get_roles(frappe.session.user)
                 can_override = any(
                     role in user_roles
-                    for role in ["System Manager", "Verenigingen Administrator", "Verenigingen Manager"]
+                    for role in ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
                 )
 
                 if not can_override and (not self.uses_custom_amount or not self.custom_amount_approved):
                     frappe.throw(
-                        f"Dues rate cannot exceed maximum: €{max_dues_rate:.2f} ({settings.maximum_fee_multiplier}x base fee - requires custom dues rate approval or Verenigingen Manager permissions)"
+                        f"Dues rate cannot exceed maximum: €{max_dues_rate:.2f} ({settings.maximum_fee_multiplier}x base fee - requires custom dues rate approval or Verenigingen Staff permissions)"
                     )
                 elif can_override:
                     # Auto-approve for managers
@@ -2411,7 +2411,7 @@ def get_member_dues_schedule(member=None):
         # Check if user has permission to view this member's schedule
         roles = frappe.get_roles(user)
         if not any(
-            role in roles for role in ["Verenigingen Manager", "Verenigingen Administrator", "System Manager"]
+            role in roles for role in ["Verenigingen Staff", "Verenigingen Administrator", "System Manager"]
         ):
             # Check if user is chapter board with finance permissions
             schedule_doc = frappe.new_doc("Membership Dues Schedule")
@@ -2698,7 +2698,7 @@ def has_permission(doc, user=None, permission_type="read"):
 
     # Verenigingen Administrator and Manager have full access
     user_roles = frappe.get_roles(user)
-    if any(role in user_roles for role in ["Verenigingen Administrator", "Verenigingen Manager"]):
+    if any(role in user_roles for role in ["Verenigingen Administrator", "Verenigingen Staff"]):
         frappe.logger().info(f"PERMISSION GRANTED: Admin role access for {user}")
         return True
 
@@ -2769,7 +2769,7 @@ def get_permission_query_conditions(user=None):
         frappe.logger().info(f"QUERY PERMISSION: System Manager full access for {user}")
         return ""  # No restrictions
 
-    if any(role in user_roles for role in ["Verenigingen Administrator", "Verenigingen Manager"]):
+    if any(role in user_roles for role in ["Verenigingen Administrator", "Verenigingen Staff"]):
         frappe.logger().info(f"QUERY PERMISSION: Admin role full access for {user}")
         return ""  # No restrictions
 

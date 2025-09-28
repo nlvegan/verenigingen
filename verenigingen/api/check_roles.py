@@ -50,7 +50,7 @@ def get_verenigingen_roles():
             "roles_used_in_validation": [
                 "System Manager",
                 "Verenigingen Administrator",
-                "Verenigingen Manager",
+                "Verenigingen Staff",
             ],
         }
 
@@ -69,7 +69,7 @@ def validate_role_names_in_code():
         )
 
         # Roles used in the validation logic
-        code_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Manager"]
+        code_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
 
         existing_roles = frappe.get_all("Role", pluck="name")
 

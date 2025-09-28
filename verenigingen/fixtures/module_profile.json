@@ -4,22 +4,48 @@
     "docstatus": 0,
     "name": "Verenigingen Member",
     "module_profile_name": "Verenigingen Member",
-    "modules": [
-      {
-        "module": "Verenigingen"
-      },
-      {
-        "module": "Portal"
-      },
-      {
-        "module": "Communication"
-      },
-      {
-        "module": "Selling"
-      },
-      {
-        "module": "Desk"
-      }
+    "block_modules": [
+      {"module": "Accounts"},
+      {"module": "Assets"},
+      {"module": "Automation"},
+      {"module": "Bulk Transaction"},
+      {"module": "Buying"},
+      {"module": "Communication"},
+      {"module": "Contacts"},
+      {"module": "CRM"},
+      {"module": "Custom"},
+      {"module": "Desk"},
+      {"module": "E Boekhouden"},
+      {"module": "E-Boekhouden"},
+      {"module": "EBICS"},
+      {"module": "EDI"},
+      {"module": "Email"},
+      {"module": "ERPNext Integrations"},
+      {"module": "Geo"},
+      {"module": "HR"},
+      {"module": "Integrations"},
+      {"module": "Klarna Kosma Integration"},
+      {"module": "Maintenance"},
+      {"module": "Manufacturing"},
+      {"module": "Owl Theme"},
+      {"module": "Payment Gateways"},
+      {"module": "Payments"},
+      {"module": "Payroll"},
+      {"module": "Printing"},
+      {"module": "Projects"},
+      {"module": "Quality Management"},
+      {"module": "Regional"},
+      {"module": "Selling"},
+      {"module": "Setup"},
+      {"module": "Social"},
+      {"module": "Stock"},
+      {"module": "Subcontracting"},
+      {"module": "Support"},
+      {"module": "Telephony"},
+      {"module": "Utilities"},
+      {"module": "Verenigingen Payments"},
+      {"module": "Website"},
+      {"module": "Workflow"}
     ]
   },
   {
@@ -27,34 +53,43 @@
     "docstatus": 0,
     "name": "Verenigingen Volunteer",
     "module_profile_name": "Verenigingen Volunteer",
-    "modules": [
-      {
-        "module": "Verenigingen"
-      },
-      {
-        "module": "Portal"
-      },
-      {
-        "module": "Communication"
-      },
-      {
-        "module": "Selling"
-      },
-      {
-        "module": "Buying"
-      },
-      {
-        "module": "Projects"
-      },
-      {
-        "module": "HR"
-      },
-      {
-        "module": "Support"
-      },
-      {
-        "module": "Desk"
-      }
+    "block_modules": [
+      {"module": "Accounts"},
+      {"module": "Assets"},
+      {"module": "Automation"},
+      {"module": "Bulk Transaction"},
+      {"module": "Communication"},
+      {"module": "Contacts"},
+      {"module": "CRM"},
+      {"module": "Custom"},
+      {"module": "E Boekhouden"},
+      {"module": "E-Boekhouden"},
+      {"module": "EBICS"},
+      {"module": "EDI"},
+      {"module": "Email"},
+      {"module": "ERPNext Integrations"},
+      {"module": "Geo"},
+      {"module": "Integrations"},
+      {"module": "Klarna Kosma Integration"},
+      {"module": "Maintenance"},
+      {"module": "Manufacturing"},
+      {"module": "Owl Theme"},
+      {"module": "Payment Gateways"},
+      {"module": "Payments"},
+      {"module": "Payroll"},
+      {"module": "Printing"},
+      {"module": "Quality Management"},
+      {"module": "Regional"},
+      {"module": "Setup"},
+      {"module": "Social"},
+      {"module": "Stock"},
+      {"module": "Subcontracting"},
+      {"module": "Support"},
+      {"module": "Telephony"},
+      {"module": "Utilities"},
+      {"module": "Verenigingen Payments"},
+      {"module": "Website"},
+      {"module": "Workflow"}
     ]
   },
   {
@@ -62,37 +97,41 @@
     "docstatus": 0,
     "name": "Verenigingen Board Member",
     "module_profile_name": "Verenigingen Board Member",
-    "modules": [
-      {
-        "module": "Verenigingen"
-      },
-      {
-        "module": "Portal"
-      },
-      {
-        "module": "Communication"
-      },
-      {
-        "module": "Selling"
-      },
-      {
-        "module": "Buying"
-      },
-      {
-        "module": "Projects"
-      },
-      {
-        "module": "HR"
-      },
-      {
-        "module": "Support"
-      },
-      {
-        "module": "Reports"
-      },
-      {
-        "module": "Desk"
-      }
+    "block_modules": [
+      {"module": "Assets"},
+      {"module": "Automation"},
+      {"module": "Bulk Transaction"},
+      {"module": "Contacts"},
+      {"module": "CRM"},
+      {"module": "Custom"},
+      {"module": "E Boekhouden"},
+      {"module": "E-Boekhouden"},
+      {"module": "EBICS"},
+      {"module": "EDI"},
+      {"module": "Email"},
+      {"module": "ERPNext Integrations"},
+      {"module": "Geo"},
+      {"module": "Integrations"},
+      {"module": "Klarna Kosma Integration"},
+      {"module": "Maintenance"},
+      {"module": "Manufacturing"},
+      {"module": "Owl Theme"},
+      {"module": "Payment Gateways"},
+      {"module": "Payments"},
+      {"module": "Payroll"},
+      {"module": "Printing"},
+      {"module": "Quality Management"},
+      {"module": "Regional"},
+      {"module": "Setup"},
+      {"module": "Social"},
+      {"module": "Stock"},
+      {"module": "Subcontracting"},
+      {"module": "Support"},
+      {"module": "Telephony"},
+      {"module": "Utilities"},
+      {"module": "Verenigingen Payments"},
+      {"module": "Website"},
+      {"module": "Workflow"}
     ]
   },
   {
@@ -100,43 +139,44 @@
     "docstatus": 0,
     "name": "Verenigingen Auditor",
     "module_profile_name": "Verenigingen Auditor",
-    "modules": [
-      {
-        "module": "Verenigingen"
-      },
-      {
-        "module": "Portal"
-      },
-      {
-        "module": "Communication"
-      },
-      {
-        "module": "Selling"
-      },
-      {
-        "module": "Buying"
-      },
-      {
-        "module": "Projects"
-      },
-      {
-        "module": "HR"
-      },
-      {
-        "module": "Support"
-      },
-      {
-        "module": "Accounts"
-      },
-      {
-        "module": "Banking"
-      },
-      {
-        "module": "Reports"
-      },
-      {
-        "module": "Desk"
-      }
+    "block_modules": [
+      {"module": "Assets"},
+      {"module": "Automation"},
+      {"module": "Bulk Transaction"},
+      {"module": "Communication"},
+      {"module": "Contacts"},
+      {"module": "CRM"},
+      {"module": "Custom"},
+      {"module": "E Boekhouden"},
+      {"module": "E-Boekhouden"},
+      {"module": "EBICS"},
+      {"module": "EDI"},
+      {"module": "Email"},
+      {"module": "ERPNext Integrations"},
+      {"module": "Geo"},
+      {"module": "HR"},
+      {"module": "Integrations"},
+      {"module": "Klarna Kosma Integration"},
+      {"module": "Maintenance"},
+      {"module": "Manufacturing"},
+      {"module": "Owl Theme"},
+      {"module": "Payment Gateways"},
+      {"module": "Payments"},
+      {"module": "Payroll"},
+      {"module": "Printing"},
+      {"module": "Projects"},
+      {"module": "Quality Management"},
+      {"module": "Regional"},
+      {"module": "Setup"},
+      {"module": "Social"},
+      {"module": "Stock"},
+      {"module": "Subcontracting"},
+      {"module": "Support"},
+      {"module": "Telephony"},
+      {"module": "Utilities"},
+      {"module": "Verenigingen Payments"},
+      {"module": "Website"},
+      {"module": "Workflow"}
     ]
   },
   {
@@ -144,46 +184,40 @@
     "docstatus": 0,
     "name": "Verenigingen National Board Member",
     "module_profile_name": "Verenigingen National Board Member",
-    "modules": [
-      {
-        "module": "Verenigingen"
-      },
-      {
-        "module": "Portal"
-      },
-      {
-        "module": "Communication"
-      },
-      {
-        "module": "Selling"
-      },
-      {
-        "module": "Buying"
-      },
-      {
-        "module": "Projects"
-      },
-      {
-        "module": "HR"
-      },
-      {
-        "module": "Support"
-      },
-      {
-        "module": "Accounts"
-      },
-      {
-        "module": "Banking"
-      },
-      {
-        "module": "Reports"
-      },
-      {
-        "module": "Website"
-      },
-      {
-        "module": "Desk"
-      }
+    "block_modules": [
+      {"module": "Assets"},
+      {"module": "Automation"},
+      {"module": "Bulk Transaction"},
+      {"module": "Contacts"},
+      {"module": "CRM"},
+      {"module": "Custom"},
+      {"module": "E Boekhouden"},
+      {"module": "E-Boekhouden"},
+      {"module": "EBICS"},
+      {"module": "EDI"},
+      {"module": "Email"},
+      {"module": "ERPNext Integrations"},
+      {"module": "Geo"},
+      {"module": "Integrations"},
+      {"module": "Klarna Kosma Integration"},
+      {"module": "Maintenance"},
+      {"module": "Manufacturing"},
+      {"module": "Owl Theme"},
+      {"module": "Payment Gateways"},
+      {"module": "Payments"},
+      {"module": "Payroll"},
+      {"module": "Printing"},
+      {"module": "Quality Management"},
+      {"module": "Regional"},
+      {"module": "Setup"},
+      {"module": "Social"},
+      {"module": "Stock"},
+      {"module": "Subcontracting"},
+      {"module": "Support"},
+      {"module": "Telephony"},
+      {"module": "Utilities"},
+      {"module": "Verenigingen Payments"},
+      {"module": "Workflow"}
     ]
   },
   {
@@ -191,43 +225,43 @@
     "docstatus": 0,
     "name": "Verenigingen Treasurer",
     "module_profile_name": "Verenigingen Treasurer",
-    "modules": [
-      {
-        "module": "Verenigingen"
-      },
-      {
-        "module": "Portal"
-      },
-      {
-        "module": "Communication"
-      },
-      {
-        "module": "Accounts"
-      },
-      {
-        "module": "Banking"
-      },
-      {
-        "module": "Selling"
-      },
-      {
-        "module": "Buying"
-      },
-      {
-        "module": "Stock"
-      },
-      {
-        "module": "Payroll"
-      },
-      {
-        "module": "Assets"
-      },
-      {
-        "module": "Reports"
-      },
-      {
-        "module": "Desk"
-      }
+    "block_modules": [
+      {"module": "Assets"},
+      {"module": "Automation"},
+      {"module": "Bulk Transaction"},
+      {"module": "Contacts"},
+      {"module": "CRM"},
+      {"module": "Custom"},
+      {"module": "E Boekhouden"},
+      {"module": "E-Boekhouden"},
+      {"module": "EBICS"},
+      {"module": "EDI"},
+      {"module": "Email"},
+      {"module": "ERPNext Integrations"},
+      {"module": "Geo"},
+      {"module": "HR"},
+      {"module": "Integrations"},
+      {"module": "Klarna Kosma Integration"},
+      {"module": "Maintenance"},
+      {"module": "Manufacturing"},
+      {"module": "Owl Theme"},
+      {"module": "Payment Gateways"},
+      {"module": "Payments"},
+      {"module": "Payroll"},
+      {"module": "Printing"},
+      {"module": "Projects"},
+      {"module": "Quality Management"},
+      {"module": "Regional"},
+      {"module": "Setup"},
+      {"module": "Social"},
+      {"module": "Stock"},
+      {"module": "Subcontracting"},
+      {"module": "Support"},
+      {"module": "Telephony"},
+      {"module": "Utilities"},
+      {"module": "Verenigingen Payments"},
+      {"module": "Website"},
+      {"module": "Workflow"}
     ]
   },
   {
@@ -235,6 +269,46 @@
     "docstatus": 0,
     "name": "Verenigingen Webhook User",
     "module_profile_name": "Verenigingen Webhook User",
-    "modules": []
+    "block_modules": [
+      {"module": "Assets"},
+      {"module": "Automation"},
+      {"module": "Bulk Transaction"},
+      {"module": "Communication"},
+      {"module": "Contacts"},
+      {"module": "CRM"},
+      {"module": "Custom"},
+      {"module": "Desk"},
+      {"module": "E Boekhouden"},
+      {"module": "E-Boekhouden"},
+      {"module": "EBICS"},
+      {"module": "EDI"},
+      {"module": "Email"},
+      {"module": "ERPNext Integrations"},
+      {"module": "Geo"},
+      {"module": "HR"},
+      {"module": "Integrations"},
+      {"module": "Klarna Kosma Integration"},
+      {"module": "Maintenance"},
+      {"module": "Manufacturing"},
+      {"module": "Owl Theme"},
+      {"module": "Payment Gateways"},
+      {"module": "Payments"},
+      {"module": "Payroll"},
+      {"module": "Portal"},
+      {"module": "Printing"},
+      {"module": "Projects"},
+      {"module": "Quality Management"},
+      {"module": "Regional"},
+      {"module": "Setup"},
+      {"module": "Social"},
+      {"module": "Stock"},
+      {"module": "Subcontracting"},
+      {"module": "Support"},
+      {"module": "Telephony"},
+      {"module": "Utilities"},
+      {"module": "Verenigingen Payments"},
+      {"module": "Website"},
+      {"module": "Workflow"}
+    ]
   }
 ]

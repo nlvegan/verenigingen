@@ -83,9 +83,9 @@ def set_all_members_home_page(home_page="/member_portal"):
             try:
                 user_doc = frappe.get_doc("User", user.name)
 
-                # Only update if home page is not already set to member portal
-                if user_doc.home_page != home_page:
-                    user_doc.home_page = home_page
+                # Only update if home settings is not already set to member portal
+                if user_doc.home_settings != home_page:
+                    user_doc.home_settings = home_page
 
                     # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
                     result = secure_document_operation(
@@ -248,7 +248,7 @@ def get_user_appropriate_home_page():
         return "/member_portal"  # Could be a volunteer-specific portal later
 
     # System users get the app
-    system_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Manager"]
+    system_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
     if any(role in user_roles for role in system_roles):
         return "/app"
 

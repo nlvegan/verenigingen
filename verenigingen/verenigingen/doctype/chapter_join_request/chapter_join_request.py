@@ -281,7 +281,7 @@ def has_chapter_approval_permission(chapter_name=None, user=None):
 
     # Administrators and Managers can approve for any chapter
     user_roles = frappe.get_roles(user)
-    if "Verenigingen Administrator" in user_roles or "Verenigingen Manager" in user_roles:
+    if "Verenigingen Administrator" in user_roles or "Verenigingen Staff" in user_roles:
         return True
 
     # Check if user is a board member of this specific chapter

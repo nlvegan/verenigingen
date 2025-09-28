@@ -363,7 +363,7 @@ class APIService(BaseService):
         user_roles = frappe.get_roles(frappe.session.user)
         if "System Manager" in user_roles:
             permission_level = "system_manager"
-        elif "Verenigingen Manager" in user_roles:
+        elif "Verenigingen Staff" in user_roles:
             permission_level = "manager"
         elif "Verenigingen Member" in user_roles:
             permission_level = "member"

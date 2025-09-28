@@ -50,7 +50,7 @@ def analyze_current_role_structure():
     admin_role_patterns = [
         "System Manager",
         "Verenigingen Administrator",
-        "Verenigingen Manager",
+        "Verenigingen Staff",
         "Administrator",
         "Verenigingen Chapter Board Member",
     ]
@@ -149,8 +149,8 @@ def identify_role_problems():
 
             if "Verenigingen Administrator" in user_roles:
                 redundant_roles.append("Verenigingen Administrator")
-            if "Verenigingen Manager" in user_roles:
-                redundant_roles.append("Verenigingen Manager")
+            if "Verenigingen Staff" in user_roles:
+                redundant_roles.append("Verenigingen Staff")
 
             if redundant_roles:
                 problems.append(

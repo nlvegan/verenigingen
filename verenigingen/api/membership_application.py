@@ -517,7 +517,7 @@ def submit_application(**kwargs):
 @high_security_api()  # Member application approval
 @handle_api_error
 @performance_monitor(threshold_ms=2000)
-@require_roles(["System Manager", "Verenigingen Administrator", "Verenigingen Manager"])
+@require_roles(["System Manager", "Verenigingen Administrator", "Verenigingen Staff"])
 def approve_membership_application(member_name, notes=None):
     """Approve a membership application"""
 

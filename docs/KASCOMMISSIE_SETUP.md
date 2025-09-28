@@ -10,7 +10,7 @@ The kascommissie (audit committee) fixtures provide a complete solution for esta
 
 **File:** `verenigingen/fixtures/team_role.json`
 
-- **Role Name:** Kascommissie Auditor
+- **Role Name:** Verenigingen Auditor
 - **Description:** Audit committee member with read-only access to all financial records, accounting transactions, and compliance reports
 - **Permissions Level:** Coordinator
 - **Unique:** No (multiple auditors allowed)
@@ -101,8 +101,8 @@ The kascommissie role profile provides read-only access to:
 
 3. **Verify Installation:**
    - Check that "Kascommissie" team exists
-   - Verify "Kascommissie Auditor" team role is available
-   - Confirm "Verenigingen Kascommissie" role profile is created
+   - Verify "Verenigingen Auditor" team role is available
+   - Confirm "Verenigingen Auditor" role is available
 
 ## Usage
 
@@ -114,8 +114,8 @@ The kascommissie role profile provides read-only access to:
    - Set team lead and members
 
 2. **Assign Users:**
-   - Add team members with "Kascommissie Auditor" role
-   - Assign "Verenigingen Kascommissie" role profile to users
+   - Add team members with "Verenigingen Auditor" role
+   - Assign "Verenigingen Auditor" role to users
 
 3. **Access Verification:**
    - Users should have read access to financial data
@@ -164,7 +164,7 @@ The kascommissie team has defined responsibilities:
 
 ### Common Issues
 
-1. **Missing Access:** Ensure user has "Verenigingen Kascommissie" role profile assigned
+1. **Missing Access:** Ensure user has "Verenigingen Auditor" role assigned
 2. **Workspace Visibility:** Check that workspaces are public and not restricted
 3. **Permission Errors:** Verify fixtures are properly installed and migrated
 

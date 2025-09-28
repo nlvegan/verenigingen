@@ -54,7 +54,7 @@ def has_mollie_debug_access():
         "System Manager",
         "Administrator",
         "Verenigingen Administrator",
-        "Verenigingen Manager",
+        "Verenigingen Staff",
         "Treasurer",
     ]
 

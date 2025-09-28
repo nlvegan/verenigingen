@@ -363,7 +363,7 @@ def has_system_access(user):
         system_roles = [
             "System Manager",
             "Verenigingen Administrator",
-            "Verenigingen Manager",
+            "Verenigingen Staff",
             "Verenigingen Governance Auditor",
         ]
         return any(role in user_roles for role in system_roles)

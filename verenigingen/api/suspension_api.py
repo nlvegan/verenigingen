@@ -185,7 +185,7 @@ def can_suspend_member(member_name=None):
             admin_roles = [
                 "System Manager",
                 "Verenigingen Administrator",
-                "Verenigingen Manager",
+                "Verenigingen Staff",
                 "Verenigingen Staff",
             ]
             return any(role in user_roles for role in admin_roles)
@@ -502,7 +502,7 @@ def get_suspension_status_safe(member_name=None):
         admin_roles = [
             "System Manager",
             "Verenigingen Administrator",
-            "Verenigingen Manager",
+            "Verenigingen Staff",
             "Verenigingen Staff",
         ]
 

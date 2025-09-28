@@ -85,16 +85,11 @@ class SEPAAuthorizationManager:
             SEPAPermissionLevel.PROCESS,
             SEPAPermissionLevel.AUDIT,
         ],
-        "Verenigingen Manager": [
-            SEPAPermissionLevel.READ,
-            SEPAPermissionLevel.VALIDATE,
-            SEPAPermissionLevel.CREATE,
-            SEPAPermissionLevel.PROCESS,
-        ],
         "Verenigingen Staff": [
             SEPAPermissionLevel.READ,
             SEPAPermissionLevel.VALIDATE,
             SEPAPermissionLevel.CREATE,
+            SEPAPermissionLevel.PROCESS,
         ],
         "Verenigingen Treasurer": [
             SEPAPermissionLevel.READ,
