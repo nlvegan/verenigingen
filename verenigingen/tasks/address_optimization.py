@@ -111,38 +111,47 @@ def refresh_member_address_displays():
     """
     Weekly task to refresh the HTML display fields for member addresses.
 
-    This ensures that the 'other_members_at_address' HTML field stays up to date
-    with any changes in member status, names, or other display information.
+    Optimized to only process members whose addresses have changed recently
+    or who need initial address display setup. This dramatically reduces
+    the number of API calls needed and avoids rate limiting issues.
 
     Scheduled to run weekly on Sunday at 3:00 AM.
     """
     try:
-        frappe.logger().info("Starting weekly address display refresh task")
+        frappe.logger().info("Starting optimized address display refresh task")
 
-        # Get all active members with primary addresses
+        # Get members who need address display updates:
+        # 1. Members whose addresses changed in the last 7 days
+        # 2. Members who don't have any address display content yet
         members_with_addresses = frappe.db.sql(
             """
-            SELECT name, primary_address, full_name
+            SELECT name, primary_address, full_name, address_last_updated
             FROM `tabMember`
             WHERE primary_address IS NOT NULL
             AND primary_address != ''
             AND status IN ('Active', 'Pending')
-            ORDER BY modified DESC
+            AND (
+                address_last_updated >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                OR other_members_at_address IS NULL
+                OR other_members_at_address = ''
+            )
+            ORDER BY address_last_updated DESC, modified DESC
         """,
             as_dict=True,
         )
 
         if not members_with_addresses:
-            frappe.logger().info("No members with addresses found")
+            frappe.logger().info("No members need address display updates")
             return {"status": "success", "refreshed_count": 0}
 
-        frappe.logger().info(f"Refreshing address displays for {len(members_with_addresses)} members")
+        frappe.logger().info(f"Found {len(members_with_addresses)} members needing address display updates")
 
         refreshed_count = 0
         error_count = 0
+        rate_limit_count = 0
 
-        # Process in batches
-        batch_size = 25
+        # Process in smaller batches with rate limiting awareness
+        batch_size = 15  # Reduced batch size to avoid rate limits
         for i in range(0, len(members_with_addresses), batch_size):
             batch = members_with_addresses[i : i + batch_size]
 
@@ -156,21 +165,45 @@ def refresh_member_address_displays():
 
                     refreshed_count += 1
 
-                    if refreshed_count % 25 == 0:
+                    if refreshed_count % 10 == 0:
                         frappe.logger().info(f"Refreshed {refreshed_count} member displays so far...")
 
                 except Exception as e:
-                    error_count += 1
-                    frappe.log_error(
-                        f"Error refreshing address display for member {member_data['name']}: {str(e)}",
-                        "Address Display Refresh",
-                    )
+                    error_str = str(e)
+
+                    # Check for rate limiting errors
+                    if "Rate limit exceeded" in error_str:
+                        rate_limit_count += 1
+                        frappe.logger().warning(
+                            f"Rate limit hit for member {member_data['name']}, will retry in next run"
+                        )
+
+                        # If we hit rate limits frequently, add a delay
+                        if rate_limit_count > 3:
+                            frappe.logger().info("Multiple rate limits hit, adding delay between requests")
+                            import time
+
+                            time.sleep(2)  # 2 second delay
+                    else:
+                        error_count += 1
+                        frappe.log_error(
+                            f"Error refreshing address display for member {member_data['name']}: {error_str}",
+                            "Address Display Refresh",
+                        )
+
+            # Add small delay between batches to respect rate limits
+            if i + batch_size < len(members_with_addresses):
+                import time
+
+                time.sleep(0.5)  # Half second delay between batches
 
         result = {
             "status": "success",
             "refreshed_count": refreshed_count,
             "error_count": error_count,
+            "rate_limit_count": rate_limit_count,
             "total_processed": len(members_with_addresses),
+            "optimization_note": f"Processed only changed addresses (last 7 days) or missing displays instead of all {frappe.db.count('Member', {'primary_address': ['!=', ''], 'status': ['in', ['Active', 'Pending']]})} members",
             "completion_time": now(),
         }
 

@@ -57,6 +57,13 @@ class AuditEventType(Enum):
     BANK_SUBMISSION = "bank_submission"
     PAYMENT_PROCESSING = "payment_processing"
 
+    # Dues Invoice Workflow Events
+    DUES_ANALYSIS_STARTED = "dues_analysis_started"
+    DUES_ANALYSIS_COMPLETED = "dues_analysis_completed"
+    INVOICE_GENERATION_STARTED = "invoice_generation_started"
+    INVOICE_GENERATION_COMPLETED = "invoice_generation_completed"
+    SEPA_BATCH_CREATION_STARTED = "sepa_batch_creation_started"
+
     # API and Security Events (stored in API Audit Log)
     API_CALL_SUCCESS = "api_call_success"
     API_CALL_FAILED = "api_call_failed"

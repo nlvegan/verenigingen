@@ -319,10 +319,10 @@ class AutomatedCampaignManager:
     def _update_next_run_date(self, campaign_id: str):
         """Update the next run date for a campaign"""
         campaign_doc = frappe.get_doc("Email Campaign", campaign_id)
-        campaign_type = getattr(campaign_doc, 'campaign_type', 'general')
+        campaign_type = getattr(campaign_doc, "campaign_type", "general")
         campaign_def = self.campaign_types.get(campaign_type, {})
 
-        schedule_config_raw = getattr(campaign_doc, 'schedule_config', '{}')
+        schedule_config_raw = getattr(campaign_doc, "schedule_config", "{}")
         schedule_config = json.loads(schedule_config_raw or "{}")
         next_run = self._calculate_next_run(campaign_def, schedule_config)
 
@@ -513,7 +513,7 @@ def trigger_campaign_test(campaign_id: str) -> Dict:
     # Check permissions
     campaign_doc = frappe.get_doc("Email Campaign", campaign_id)
 
-    chapter = getattr(campaign_doc, 'chapter', None)
+    chapter = getattr(campaign_doc, "chapter", None)
     if chapter and not frappe.has_permission("Chapter", "write", doc=chapter):
         frappe.throw(_("You don't have permission to test this campaign"))
 
@@ -527,11 +527,11 @@ def trigger_campaign_test(campaign_id: str) -> Dict:
         campaign_data = {
             "name": campaign_doc.name,
             "campaign_name": campaign_doc.campaign_name,
-            "campaign_type": getattr(campaign_doc, 'campaign_type', 'general'),
-            "chapter": getattr(campaign_doc, 'chapter', None),
-            "template_id": getattr(campaign_doc, 'template_id', None),
-            "segment": getattr(campaign_doc, 'segment', 'all'),
-            "content_config": getattr(campaign_doc, 'content_config', {}),
+            "campaign_type": getattr(campaign_doc, "campaign_type", "general"),
+            "chapter": getattr(campaign_doc, "chapter", None),
+            "template_id": getattr(campaign_doc, "template_id", None),
+            "segment": getattr(campaign_doc, "segment", "all"),
+            "content_config": getattr(campaign_doc, "content_config", {}),
         }
 
         return manager._execute_campaign(campaign_data)

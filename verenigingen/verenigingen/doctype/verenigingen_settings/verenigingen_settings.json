@@ -38,6 +38,7 @@
   "column_break_financial",
   "membership_payment_account",
   "dues_payments_receivable_account",
+  "dues_income_account",
   "donation_receivable_account",
   "default_cash_account",
   "automate_membership_payment_entries",
@@ -87,6 +88,14 @@
   "minimum_student_age",
   "minimum_youth_age",
   "minimum_senior_age",
+  "billing_periods_section",
+  "billing_cutoff_frequency",
+  "book_year_start_month",
+  "book_year_start_day",
+  "column_break_billing_periods",
+  "book_year_end_month",
+  "book_year_end_day",
+  "enable_sequential_coverage",
   "invoicing_section",
   "send_email",
   "send_invoice",
@@ -327,6 +336,13 @@
    "fieldname": "dues_payments_receivable_account",
    "fieldtype": "Link",
    "label": "Dues Payments Receivable Account",
+   "options": "Account"
+  },
+  {
+   "description": "Income/Revenue account for membership dues. This should be a Profit & Loss account with type 'Income Account'.",
+   "fieldname": "dues_income_account",
+   "fieldtype": "Link",
+   "label": "Dues Income Account",
    "options": "Account"
   },
   {
@@ -713,6 +729,58 @@
    "fieldname": "minimum_senior_age",
    "fieldtype": "Int",
    "label": "Minimum Senior Age"
+  },
+  {
+   "fieldname": "billing_periods_section",
+   "fieldtype": "Section Break",
+   "label": "Billing Periods & Coverage"
+  },
+  {
+   "default": "Monthly",
+   "description": "Frequency for determining invoice generation cutoff periods",
+   "fieldname": "billing_cutoff_frequency",
+   "fieldtype": "Select",
+   "label": "Billing Cutoff Frequency",
+   "options": "\nMonthly\nQuarterly\nYearly"
+  },
+  {
+   "default": "1",
+   "description": "Month when the organization's book year begins (1=January, 4=April, etc.)",
+   "fieldname": "book_year_start_month",
+   "fieldtype": "Int",
+   "label": "Book Year Start Month"
+  },
+  {
+   "default": "1",
+   "description": "Day of month when the organization's book year begins",
+   "fieldname": "book_year_start_day",
+   "fieldtype": "Int",
+   "label": "Book Year Start Day"
+  },
+  {
+   "fieldname": "column_break_billing_periods",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "12",
+   "description": "Month when the organization's book year ends (12=December)",
+   "fieldname": "book_year_end_month",
+   "fieldtype": "Int",
+   "label": "Book Year End Month"
+  },
+  {
+   "default": "31",
+   "description": "Day of month when the organization's book year ends",
+   "fieldname": "book_year_end_day",
+   "fieldtype": "Int",
+   "label": "Book Year End Day"
+  },
+  {
+   "default": "1",
+   "description": "Use sequential coverage periods (recommended) instead of calendar-based periods",
+   "fieldname": "enable_sequential_coverage",
+   "fieldtype": "Check",
+   "label": "Enable Sequential Coverage"
   }
  ],
  "index_web_pages_for_search": 1,

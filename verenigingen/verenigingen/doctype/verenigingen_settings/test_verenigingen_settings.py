@@ -30,6 +30,22 @@ class TestVerenigingenSettings(EnhancedTestCase):
         settings.reload()
         self.assertEqual(settings.dues_payments_receivable_account, test_account)
 
+    def test_dues_income_account_field_exists(self):
+        """Test that the dues_income_account field exists and is accessible"""
+        settings = frappe.get_single("Verenigingen Settings")
+
+        # Test that field exists and is accessible
+        self.assertTrue(hasattr(settings, "dues_income_account"))
+
+        # Test that we can set and get the value
+        test_account = "8000 - Test Income Account - TC"
+        settings.dues_income_account = test_account
+        settings.save()
+
+        # Reload and verify
+        settings.reload()
+        self.assertEqual(settings.dues_income_account, test_account)
+
     def test_sales_invoice_account_handler_integration(self):
         """Test that the account handler correctly uses the dues_payments_receivable_account field"""
         from verenigingen.utils.sales_invoice_account_handler import set_membership_receivable_account

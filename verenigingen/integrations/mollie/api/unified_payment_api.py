@@ -62,7 +62,12 @@ def handle_payment_webhook():
         return {"status": "error", "message": str(e)}
 
     except Exception as e:
-        frappe.log_error(f"Unexpected webhook error: {e}", "Webhook Processing Error")
+        # Avoid logging during potential database connection issues
+        try:
+            frappe.log_error(f"Unexpected webhook error: {e}", "Webhook Processing Error")
+        except:
+            # Database connection may be lost, skip logging
+            pass
         frappe.response.http_status_code = 500
         return {"status": "error", "message": "Internal processing error"}
 
