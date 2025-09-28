@@ -45,10 +45,10 @@ class WebhookWrapperService:
 
     def __init__(self):
         self.logger = MollieLogger("webhook_wrapper")
-        # Import the refund/chargeback service for financial reversals
-        from .refund_chargeback_service import RefundChargebackService
+        # Import the unified idempotency manager - single source of truth
+        from .unified_idempotency_manager import get_unified_idempotency_manager
 
-        self.refund_chargeback_service = RefundChargebackService()
+        self.idempotency_manager = get_unified_idempotency_manager()
 
     def process_webhook(self, payment_id: str, payment_data: Any = None) -> Dict[str, Any]:
         """
@@ -93,13 +93,15 @@ class WebhookWrapperService:
             # Process payment first (with idempotency protection), then refunds sequentially
             # This ensures refunds can always find the original payment
 
-            # Check payment-level idempotency
+            # Check payment-level idempotency using unified system
             # This handles regular payment webhooks for the original transaction
             log_payment_processing(payment_id, "idempotency_check", "started")
-            processing_status = check_payment_processing_status_by_id(payment_id)
+            processing_state = self.idempotency_manager.check_payment_processing_state(
+                payment_id, include_mollie_api=True
+            )
             # Idempotency check complete
 
-            if processing_status.get("all_complete"):
+            if processing_state.is_fully_processed():
                 # Payment already processed, checking for new refunds
                 # Even if payment is processed, check if there are new refunds to handle
                 try:
@@ -118,9 +120,7 @@ class WebhookWrapperService:
                         )
                         # Processing refunds for existing payment
                         # Process refunds using already-fetched data (single-fetch approach)
-                        refund_result = self.refund_chargeback_service.process_refunds_with_data(
-                            payment_id, refunds
-                        )
+                        refund_result = self._process_refunds_for_existing_payment(payment_id, refunds)
 
                         duration = time.time() - start_time
                         return {
@@ -128,7 +128,13 @@ class WebhookWrapperService:
                             "message": f"Payment already processed, processed {len(refund_result.get('refunds_processed', []))} refunds",
                             "payment_id": payment_id,
                             "idempotent": True,
-                            "components": processing_status,
+                            "unified_state": {
+                                "payment_entry_exists": processing_state.payment_entry_exists,
+                                "payment_history_updated": processing_state.payment_history_updated,
+                                "donation_status_updated": processing_state.donation_status_updated,
+                                "refunds_processed": len(processing_state.refunds_processed),
+                                "pending_operations_handled": len(refund_result.get("refunds_processed", [])),
+                            },
                             "refund_processing": refund_result,
                         }
                     else:
@@ -154,7 +160,12 @@ class WebhookWrapperService:
                     "message": "Payment already processed",
                     "payment_id": payment_id,
                     "idempotent": True,
-                    "components": processing_status,
+                    "unified_state": {
+                        "payment_entry_exists": processing_state.payment_entry_exists,
+                        "payment_history_updated": processing_state.payment_history_updated,
+                        "donation_status_updated": processing_state.donation_status_updated,
+                        "fully_processed": processing_state.is_fully_processed(),
+                    },
                 }
             else:
                 # Payment not complete, proceeding with new payment flow
@@ -196,13 +207,15 @@ class WebhookWrapperService:
 
             log_payment_processing(payment_id, "find_donation", "success", {"donation_name": donation.name})
 
-            # Check idempotency for specific donation
+            # Check idempotency for specific donation using unified system
             log_payment_processing(payment_id, "donation_idempotency_check", "started")
-            idempotency_status = check_payment_processing_status(donation, payment_id)
+            idempotency_state = self.idempotency_manager.check_payment_processing_state(
+                payment_id, include_mollie_api=False
+            )
 
             # Process payment with idempotency protection
             log_payment_processing(payment_id, "payment_processing", "started")
-            result = process_successful_payment_with_idempotency(donation, payment_data, idempotency_status)
+            result = process_successful_payment_with_idempotency(donation, payment_data, idempotency_state)
             log_payment_processing(payment_id, "payment_processing", "success")
 
             # Now that payment is created, process any refunds sequentially (single-fetch approach)
@@ -217,7 +230,7 @@ class WebhookWrapperService:
                 # Fetched refunds for new payment processing
 
                 # Process refunds using already-fetched data
-                refund_result = self.refund_chargeback_service.process_refunds_with_data(payment_id, refunds)
+                refund_result = self._process_refunds_for_new_payment(payment_id, refunds)
                 frappe.log_error(
                     f"SERVICE LAYER: Refund result (AFTER payment): {frappe.as_json(refund_result)}",
                     "Refund Debug",
@@ -498,17 +511,10 @@ class WebhookWrapperService:
                     continue
 
                 # Check if this refund has already been processed (idempotency)
-                # Look for either Payment Entries (old approach) or Credit Notes (new approach)
-                existing_pe = frappe.db.exists(
-                    "Payment Entry", {"reference_no": refund_id, "payment_type": "Pay"}
-                )
-                existing_credit_note = frappe.db.exists(
-                    "Sales Invoice", {"return_against": ["!=", ""], "remarks": ["like", f"%{refund_id}%"]}
-                )
-
-                if existing_pe or existing_credit_note:
-                    existing_ref = existing_pe or existing_credit_note
-                    self.logger.info(f"Refund {refund_id} already processed (Reference: {existing_ref})")
+                # Use unified idempotency check for consistency across all code paths
+                existing_refund = self.idempotency_manager.check_refund_idempotency(refund_id)
+                if existing_refund:
+                    self.logger.info(f"Refund {refund_id} already processed (Reference: {existing_refund})")
                     continue
 
                 # Extract amount info (handle both object and dict formats)
@@ -714,3 +720,68 @@ class WebhookWrapperService:
 
         except Exception as e:
             self.logger.error(f"Error updating donation refund history: {e}")
+
+    def _process_refunds_for_existing_payment(self, payment_id: str, refunds) -> Dict[str, Any]:
+        """Process refunds for an already-processed payment using unified idempotency."""
+        processed_refunds = []
+
+        for refund in refunds:
+            refund_id = refund.get("id") if isinstance(refund, dict) else refund.id
+            refund_status = refund.get("status") if isinstance(refund, dict) else refund.status
+
+            # Only process completed refunds
+            if refund_status != "refunded":
+                continue
+
+            # Check unified idempotency
+            existing_refund = self.idempotency_manager.check_refund_idempotency(refund_id)
+            if existing_refund:
+                self.logger.info(f"Refund {refund_id} already processed (Reference: {existing_refund})")
+                continue
+
+            # Process the refund
+            try:
+                amount_value = (
+                    refund.get("amount", {}).get("value", "0")
+                    if isinstance(refund, dict)
+                    else refund.amount.value
+                )
+                refund_webhook_payload = {
+                    "payment_id": payment_id,
+                    "refund_id": refund_id,
+                    "refund": {
+                        "id": refund_id,
+                        "status": refund_status,
+                        "amount": {"value": amount_value, "currency": "EUR"},
+                    },
+                }
+
+                # Use the existing refund processing logic
+                from ..services.refund_chargeback_service import RefundChargebackService
+
+                refund_service = RefundChargebackService()
+                result = refund_service.process_refund_webhook(json.dumps(refund_webhook_payload))
+
+                processed_refunds.append(
+                    {
+                        "refund_id": refund_id,
+                        "amount": amount_value,
+                        "status": result.get("status", "unknown"),
+                    }
+                )
+
+            except Exception as e:
+                self.logger.error(f"Failed to process refund {refund_id}: {e}")
+                processed_refunds.append({"refund_id": refund_id, "status": "failed", "error": str(e)})
+
+        return {
+            "refunds_processed": processed_refunds,
+            "payment_id": payment_id,
+            "total_refunds": len(refunds),
+            "processed_count": len([r for r in processed_refunds if r["status"] in ["success", "skipped"]]),
+        }
+
+    def _process_refunds_for_new_payment(self, payment_id: str, refunds) -> Dict[str, Any]:
+        """Process refunds for a newly-processed payment using unified idempotency."""
+        # Same logic as existing payment since idempotency is unified
+        return self._process_refunds_for_existing_payment(payment_id, refunds)

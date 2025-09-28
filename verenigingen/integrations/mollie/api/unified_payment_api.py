@@ -19,7 +19,7 @@ from verenigingen.utils.security.api_security_framework import (
 )
 
 from ..exceptions import MolliePaymentError, MollieValidationError, MollieWebhookError
-from ..services.complete_payment_service import CompletePaymentService
+from ..services.webhook_wrapper_service_unified import get_unified_webhook_service
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
@@ -49,9 +49,11 @@ def handle_payment_webhook():
 
         frappe.logger().info(f"🔔 Webhook received for payment: {payment_id}")
 
-        # Process webhook using service layer
-        service = CompletePaymentService()
-        result = service.process_webhook(payment_id)
+        # Process webhook using UNIFIED service layer - eliminates fragmented idempotency
+        service = get_unified_webhook_service()
+        # Extract webhook data for processing
+        webhook_data = frappe.form_dict or {}
+        result = service.process_payment_webhook(payment_id, webhook_data)
 
         frappe.logger().info(f"✅ Webhook processed successfully: {payment_id}")
         return result

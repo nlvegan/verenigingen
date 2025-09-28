@@ -870,6 +870,21 @@ class MembershipDuesSchedule(Document):
                         "Coverage Derivation Warning",
                     )
                     coverage_start = posting_date
+
+                # Gap detection: if coverage would start too far in the past, reset forward to posting date
+                # This handles stuck schedules that haven't been invoiced for a long time
+                gap_days = (posting_date - coverage_start).days
+                max_gap_days = 30  # Configurable threshold - gaps larger than this trigger reset-forward
+
+                if gap_days > max_gap_days:
+                    frappe.log_error(
+                        f"Large coverage gap detected: {gap_days} days between last invoice coverage "
+                        f"({last_invoice_date}) and posting date ({posting_date}). "
+                        f"Resetting forward - coverage will start from posting date. "
+                        f"Historical gap handling should be done via remediation system.",
+                        "Coverage Gap Reset",
+                    )
+                    coverage_start = posting_date
             except Exception as e:
                 frappe.log_error(
                     f"Failed to parse last_invoice_date '{last_invoice_date}': {str(e)}. Using posting date.",
@@ -885,7 +900,7 @@ class MembershipDuesSchedule(Document):
 
         try:
             if billing_frequency == "Daily":
-                coverage_end = coverage_start  # Same day
+                coverage_end = coverage_start  # For daily, end equals start (same day coverage)
             elif billing_frequency == "Weekly":
                 coverage_end = add_days(coverage_start, 6)
             elif billing_frequency == "Monthly":
@@ -1021,9 +1036,14 @@ class MembershipDuesSchedule(Document):
         if not coverage_start or not coverage_end:
             frappe.throw(f"Coverage calculation failed: start={coverage_start}, end={coverage_end}")
 
-        if getdate(coverage_start) >= getdate(coverage_end):
+        # For daily billing, start and end can be the same day; otherwise start must be before end
+        if getdate(coverage_start) > getdate(coverage_end):
             frappe.throw(
-                f"Invalid coverage period: start date {coverage_start} must be before end date {coverage_end}"
+                f"Invalid coverage period: start date {coverage_start} must not be after end date {coverage_end}"
+            )
+        elif getdate(coverage_start) == getdate(coverage_end) and billing_frequency != "Daily":
+            frappe.throw(
+                f"Invalid coverage period: start date {coverage_start} must be before end date {coverage_end} for {billing_frequency} billing"
             )
 
         return coverage_start, coverage_end

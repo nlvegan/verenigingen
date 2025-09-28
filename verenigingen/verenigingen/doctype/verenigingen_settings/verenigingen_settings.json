@@ -107,7 +107,9 @@
   "monitoring_section",
   "stuck_schedule_notification_emails",
   "column_break_ybid",
-  "payment_history_failure_threshold"
+  "payment_history_failure_threshold",
+  "bulk_generation_timeout",
+  "invoice_generation_timeout"
  ],
  "fields": [
   {
@@ -649,6 +651,20 @@
    "fieldname": "payment_history_failure_threshold",
    "fieldtype": "Int",
    "label": "Payment History Failure Threshold"
+  },
+  {
+   "default": "3600",
+   "description": "Timeout in seconds for bulk invoice generation operations (default: 1 hour)",
+   "fieldname": "bulk_generation_timeout",
+   "fieldtype": "Int",
+   "label": "Bulk Generation Timeout (seconds)"
+  },
+  {
+   "default": "300",
+   "description": "Timeout in seconds for individual invoice generation operations (default: 5 minutes)",
+   "fieldname": "invoice_generation_timeout",
+   "fieldtype": "Int",
+   "label": "Invoice Generation Timeout (seconds)"
   },
   {
    "default": "0",

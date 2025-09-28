@@ -355,78 +355,50 @@ def validate_sepa_eligibility(invoice_list: List[str] = None) -> Dict:
 @frappe.whitelist()
 @handle_api_error
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def prepare_sepa_batch(eligible_invoices: List[Dict], batch_description: str = None) -> Dict:
+def prepare_sepa_batch(eligible_invoices: List[Dict] = None, batch_description: str = None) -> Dict:
     """
-    Prepare a SEPA Direct Debit batch from eligible invoices
+    Prepare a SEPA Direct Debit batch from eligible invoices using existing batch infrastructure
 
     Args:
-        eligible_invoices: List of eligible invoice dictionaries
+        eligible_invoices: List of eligible invoice dictionaries (optional - will auto-fetch if not provided)
         batch_description: Optional description for the batch
 
     Returns:
         Dict with batch creation results
     """
-    if isinstance(eligible_invoices, str):
-        eligible_invoices = frappe.parse_json(eligible_invoices)
+    # Use the existing SEPA processor infrastructure
+    from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
 
-    if not eligible_invoices:
-        raise SEPAError(_("No eligible invoices provided for batch creation"))
+    try:
+        sepa_processor = SEPAProcessor()
 
-    # Operation logged via secure operations framework
-
-    # Create Direct Debit Batch
-    batch_doc = frappe.new_doc("Direct Debit Batch")
-    batch_doc.batch_date = today()
-    batch_doc.batch_description = batch_description or f"Dues Collection {today()}"
-    batch_doc.batch_type = "RCUR"  # Recurring payments
-    batch_doc.currency = "EUR"
-
-    total_amount = 0
-
-    # Add invoices to batch
-    for invoice_data in eligible_invoices:
-        batch_doc.append(
-            "invoices",
-            {
-                "invoice": invoice_data["invoice"],
-                "customer": invoice_data["customer"],
-                "amount": invoice_data["amount"],
-                "currency": invoice_data["currency"],
-                "mandate_reference": invoice_data["mandate"]["mandate_id"],
-                "iban": invoice_data["mandate"]["iban"],
-                "bic": invoice_data["mandate"]["bic"],
-            },
+        # Create batch using existing infrastructure
+        batch_doc = sepa_processor.create_dues_collection_batch(
+            collection_date=today(), verify_invoicing=False  # We're creating from existing eligible invoices
         )
-        total_amount += flt(invoice_data["amount"])
 
-    batch_doc.total_amount = total_amount
-    batch_doc.entry_count = len(eligible_invoices)
+        if batch_doc:
+            return {
+                "success": True,
+                "batch_name": batch_doc.name,
+                "total_amount": getattr(batch_doc, "total_amount", 0),
+                "entry_count": getattr(batch_doc, "entry_count", 0),
+                "message": _("SEPA batch created successfully using existing infrastructure"),
+            }
+        else:
+            return {
+                "success": False,
+                "message": _("No SEPA-eligible invoices found for batch creation"),
+                "batch_name": None,
+            }
 
-    # Save the batch
-    batch_doc.insert()
-
-    # Determine risk level and approval requirements
-    risk_level = "Low"
-    if total_amount > 5000 or len(eligible_invoices) > 50:
-        risk_level = "High"
-    elif total_amount > 2000 or len(eligible_invoices) > 20:
-        risk_level = "Medium"
-
-    batch_doc.risk_level = risk_level
-    batch_doc.save()
-
-    result = {
-        "success": True,
-        "batch_name": batch_doc.name,
-        "total_amount": total_amount,
-        "entry_count": len(eligible_invoices),
-        "risk_level": risk_level,
-        "requires_approval": risk_level in ["Medium", "High"],
-    }
-
-    # Completion logged via secure operations framework
-
-    return result
+    except Exception as e:
+        frappe.log_error(f"SEPA batch creation failed: {str(e)}", "SEPA Batch Creation Error")
+        return {
+            "success": False,
+            "message": _("Failed to create SEPA batch: {0}").format(str(e)),
+            "batch_name": None,
+        }
 
 
 @frappe.whitelist()
