@@ -4,9 +4,9 @@
 try:
     from .complete_payment_service import CompletePaymentService
     from .payment_service import PaymentService
-    from .webhook_wrapper_service import WebhookWrapperService
-except ImportError as e:
-    WebhookWrapperService = None
+    from .webhook_wrapper_service_unified import WebhookWrapperServiceUnified
+except ImportError:
+    WebhookWrapperServiceUnified = None
     PaymentService = None
     CompletePaymentService = None
 
@@ -15,4 +15,4 @@ except ImportError as e:
 # from .webhook_service import WebhookService
 # from .reconciliation_service import ReconciliationService
 
-__all__ = ["WebhookWrapperService", "PaymentService", "CompletePaymentService"]
+__all__ = ["WebhookWrapperServiceUnified", "PaymentService", "CompletePaymentService"]

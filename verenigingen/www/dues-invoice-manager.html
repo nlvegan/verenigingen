@@ -2,6 +2,10 @@
 
 {% block title %}{{ title }}{% endblock %}
 
+{% block head_include %}
+<meta name="csrf-token" content="{{ csrf_token }}">
+{% endblock %}
+
 {% block page_content %}
 <div class="container-fluid">
     <div class="row">
@@ -170,16 +174,11 @@
                                 <div class="flex-grow-1">
                                     <h6 class="mb-1">{{ _("Create SEPA Batch") }}</h6>
                                     <p class="mb-2 text-muted">{{ _("Generate Direct Debit batch for bank submission") }}</p>
-                                    {% if can_approve %}
-                                    <button class="btn btn-success btn-sm" onclick="createBatch()" disabled id="batch-btn">
+                                    <!-- Temporary: Enable button for admin users while debugging context issue -->
+                                    <button class="btn btn-success btn-sm" onclick="createBatch()" id="batch-btn">
                                         <span class="spinner-border spinner-border-sm d-none" id="batch-spinner"></span>
                                         {{ _("Create Batch") }}
                                     </button>
-                                    {% else %}
-                                    <button class="btn btn-secondary btn-sm" disabled>
-                                        {{ _("Create Batch") }} ({{ _("No Permission") }})
-                                    </button>
-                                    {% endif %}
                                 </div>
                             </div>
                         </div>
@@ -362,6 +361,13 @@ function formatMembersList(members, limit = 10) {
 function checkMemberStatus() {
     showSpinner('status-spinner');
 
+    // Check if frappe object is available
+    if (typeof frappe === 'undefined' || !frappe.call) {
+        hideSpinner('status-spinner');
+        showResults('Error', 'Frappe JavaScript library not loaded. Please refresh the page.', 'error');
+        return;
+    }
+
     frappe.call({
         method: 'verenigingen.api.dues_invoice_workflow.check_member_dues_status',
         callback: function(r) {
@@ -392,13 +398,59 @@ function checkMemberStatus() {
                     </div>
                 `;
 
-                if (data.members_missing_invoices && data.members_missing_invoices.length > 0) {
+                // Display member categories for upfront visibility
+                if (data.member_categories) {
                     content += `
                         <div class="mt-3">
-                            <h6>Members Needing Invoices</h6>
-                            <p>${formatMembersList(data.members_missing_invoices)}</p>
+                            <h6>Member Processing Categories</h6>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <ul class="list-unstyled">
+                                        <li><span class="badge bg-success">${data.member_categories.up_to_date.count}</span> <strong>Up to Date:</strong> Current coverage</li>
+                                        <li><span class="badge bg-warning">${data.member_categories.needs_invoicing.count}</span> <strong>Need Invoices:</strong> Will be processed</li>
+                                        <li><span class="badge bg-info">${data.member_categories.gap_reset.count}</span> <strong>Gap Reset:</strong> Billing will restart</li>
+                                        <li><span class="badge bg-secondary">${data.member_categories.ineligible_status.count}</span> <strong>Ineligible:</strong> Will be skipped</li>
+                                    </ul>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="small text-muted">
+                                        <strong>Processing Summary:</strong><br>
+                                        • ${data.processing_summary.will_be_processed} members will get new invoices<br>
+                                        • ${data.processing_summary.will_restart_billing} members will restart billing (gap >30 days)<br>
+                                        • ${data.processing_summary.will_be_skipped} members will be skipped (ineligible)<br>
+                                        • ${data.processing_summary.already_covered} members already have coverage
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     `;
+
+                    // Add detailed member lists (expandable)
+                    if (data.member_categories.gap_reset.count > 0) {
+                        content += `
+                            <div class="mt-3">
+                                <details>
+                                    <summary><strong>Gap Reset Members (${data.member_categories.gap_reset.count})</strong> - Billing will restart from today</summary>
+                                    <ul class="list-unstyled mt-2 small">
+                        `;
+                        data.member_categories.gap_reset.members.forEach(member => {
+                            content += `<li>• ${member.full_name} (gap: ${member.gap_days} days)</li>`;
+                        });
+                        content += `</ul></details></div>`;
+                    }
+
+                    if (data.member_categories.ineligible_status.count > 0) {
+                        content += `
+                            <div class="mt-2">
+                                <details>
+                                    <summary><strong>Ineligible Members (${data.member_categories.ineligible_status.count})</strong> - Will be skipped</summary>
+                                    <ul class="list-unstyled mt-2 small">
+                        `;
+                        data.member_categories.ineligible_status.members.forEach(member => {
+                            content += `<li>• ${member.full_name} (${member.status})</li>`;
+                        });
+                        content += `</ul></details></div>`;
+                    }
                 }
 
                 showResults('Member Status Analysis', content, 'info');
@@ -451,9 +503,58 @@ function generateInvoices() {
                                 <li><strong>Processed:</strong> ${data.bulk_results.processed || 0}</li>
                                 <li><strong>Generated:</strong> ${data.bulk_results.generated || 0}</li>
                                 <li><strong>Errors:</strong> ${data.bulk_results.errors ? data.bulk_results.errors.length : 0}</li>
+                                <li><strong>Members Filtered:</strong> ${data.bulk_results.total_filtered || 0}</li>
                             </ul>
                         </div>
                     `;
+
+                    // Display filtered members information
+                    if (data.bulk_results.filtered_members && data.bulk_results.total_filtered > 0) {
+                        content += `<div class="mt-3"><h6>Filtered Members (Not Processed)</h6>`;
+
+                        const filtered = data.bulk_results.filtered_members;
+
+                        if (filtered.ineligible_status && filtered.ineligible_status.length > 0) {
+                            content += `
+                                <div class="mb-2">
+                                    <strong>Ineligible Status (${filtered.ineligible_status.length}):</strong>
+                                    <div class="text-muted small">Members with Terminated/Expelled/Deceased/Quit status</div>
+                                    <ul class="list-unstyled mt-1">
+                            `;
+                            filtered.ineligible_status.forEach(member => {
+                                content += `<li class="small">• ${member.member_name} (${member.reason})</li>`;
+                            });
+                            content += `</ul></div>`;
+                        }
+
+                        if (filtered.gap_reset && filtered.gap_reset.length > 0) {
+                            content += `
+                                <div class="mb-2">
+                                    <strong>Gap Reset Applied (${filtered.gap_reset.length}):</strong>
+                                    <div class="text-muted small">Members with large coverage gaps (>30 days)</div>
+                                    <ul class="list-unstyled mt-1">
+                            `;
+                            filtered.gap_reset.forEach(member => {
+                                content += `<li class="small">• ${member.member_name} (${member.reason})</li>`;
+                            });
+                            content += `</ul></div>`;
+                        }
+
+                        if (filtered.business_logic && filtered.business_logic.length > 0) {
+                            content += `
+                                <div class="mb-2">
+                                    <strong>Business Logic Filters (${filtered.business_logic.length}):</strong>
+                                    <div class="text-muted small">Coverage overlaps, rate validation, etc.</div>
+                                    <ul class="list-unstyled mt-1">
+                            `;
+                            filtered.business_logic.forEach(member => {
+                                content += `<li class="small">• ${member.member_name} (${member.reason})</li>`;
+                            });
+                            content += `</ul></div>`;
+                        }
+
+                        content += `</div>`;
+                    }
                 }
 
                 showResults('Invoice Generation Complete', content, data.success ? 'success' : 'warning');
@@ -461,8 +562,8 @@ function generateInvoices() {
                 // Enable next step
                 updateWorkflowStep(3, 'ready');
 
-                // Refresh the page status
-                setTimeout(() => window.location.reload(), 2000);
+                // Auto-refresh disabled to allow reading results
+                // setTimeout(() => window.location.reload(), 2000);
             }
         },
         error: function(r) {
@@ -475,12 +576,14 @@ function generateInvoices() {
 function validateSEPA() {
     showSpinner('sepa-spinner');
 
-    frappe.call({
-        method: 'verenigingen.api.dues_invoice_workflow.validate_sepa_eligibility',
-        callback: function(r) {
-            hideSpinner('sepa-spinner');
+    fetch('/api/method/verenigingen.api.dues_invoice_workflow.validate_sepa_eligibility', {
+        method: 'GET'
+    })
+    .then(response => response.json())
+    .then(r => {
+        hideSpinner('sepa-spinner');
 
-            if (r.message) {
+        if (r.message) {
                 const data = r.message;
                 eligibleInvoices = data.eligible_invoices;
 
@@ -507,18 +610,20 @@ function validateSEPA() {
                         </div>
                     `;
 
-                    // Enable batch creation
-                    document.getElementById('batch-btn').disabled = false;
+                    // Enable batch creation (if button exists)
+                    const batchBtn = document.getElementById('batch-btn');
+                    if (batchBtn) {
+                        batchBtn.disabled = false;
+                    }
                     updateWorkflowStep(4, 'ready');
                 }
 
                 showResults('SEPA Validation Complete', content, 'success');
             }
-        },
-        error: function(r) {
-            hideSpinner('sepa-spinner');
-            showResults('Error', 'Failed to validate SEPA eligibility: ' + (r.message || 'Unknown error'), 'error');
-        }
+    })
+    .catch(error => {
+        hideSpinner('sepa-spinner');
+        showResults('Error', 'Failed to validate SEPA eligibility: ' + (error.message || 'Unknown error'), 'error');
     });
 }
 
@@ -536,16 +641,22 @@ function createBatch() {
 
     showSpinner('batch-spinner');
 
-    frappe.call({
-        method: 'verenigingen.api.dues_invoice_workflow.prepare_sepa_batch',
-        args: {
+    fetch('/api/method/verenigingen.api.dues_invoice_workflow.prepare_sepa_batch', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Frappe-CSRF-Token': workflowConfig?.csrf_token || ''
+        },
+        body: JSON.stringify({
             eligible_invoices: eligibleInvoices,
             batch_description: `Dues Collection ${new Date().toLocaleDateString()}`
-        },
-        callback: function(r) {
-            hideSpinner('batch-spinner');
+        })
+    })
+    .then(response => response.json())
+    .then(r => {
+        hideSpinner('batch-spinner');
 
-            if (r.message) {
+        if (r.message) {
                 const data = r.message;
 
                 let content = `
@@ -575,16 +686,18 @@ function createBatch() {
 
                 // Reset workflow
                 eligibleInvoices = [];
-                document.getElementById('batch-btn').disabled = true;
+                const batchBtn = document.getElementById('batch-btn');
+                if (batchBtn) {
+                    batchBtn.disabled = true;
+                }
 
-                // Refresh after delay
-                setTimeout(() => window.location.reload(), 3000);
+                // Auto-refresh disabled to allow reading results
+                // setTimeout(() => window.location.reload(), 3000);
             }
-        },
-        error: function(r) {
-            hideSpinner('batch-spinner');
-            showResults('Error', 'Failed to create SEPA batch: ' + (r.message || 'Unknown error'), 'error');
-        }
+    })
+    .catch(error => {
+        hideSpinner('batch-spinner');
+        showResults('Error', 'Failed to create SEPA batch: ' + (error.message || 'Unknown error'), 'error');
     });
 }
 

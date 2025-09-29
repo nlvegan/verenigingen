@@ -18,7 +18,7 @@ import frappe
 
 from ..core.client import MollieClient
 from ..exceptions import MolliePaymentError, MollieValidationError, MollieWebhookError
-from .webhook_wrapper_service import WebhookWrapperService
+from .webhook_wrapper_service_unified import UnifiedWebhookWrapperService
 
 
 class CompletePaymentService:
@@ -40,7 +40,7 @@ class CompletePaymentService:
             client: Optional MollieClient (for dependency injection in tests)
         """
         self.client = client or MollieClient()
-        self.webhook_service = WebhookWrapperService()
+        self.webhook_service = UnifiedWebhookWrapperService()
 
     def create_donation_payment(self, donation_doc: Any, form_data: Dict[str, Any]) -> Dict[str, Any]:
         """

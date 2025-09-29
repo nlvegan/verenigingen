@@ -297,7 +297,7 @@ class MollieErrorRecovery:
         for item in pending_items:
             try:
                 self.logger.info(
-                    f"Processing recovery workflow",
+                    "Processing recovery workflow",
                     {"workflow_id": item["workflow_id"], "strategy": item["strategy"]},
                 )
 
@@ -307,7 +307,7 @@ class MollieErrorRecovery:
                     item["status"] = "completed"
                     item["completed_at"] = now_datetime()
                     results["succeeded"] += 1
-                    self.logger.success(f"Recovery workflow completed", {"workflow_id": item["workflow_id"]})
+                    self.logger.success("Recovery workflow completed", {"workflow_id": item["workflow_id"]})
                 else:
                     item["retry_count"] += 1
                     if item["retry_count"] >= item["max_retries"]:
@@ -315,7 +315,7 @@ class MollieErrorRecovery:
                         item["failed_at"] = now_datetime()
                         results["failed"] += 1
                         self.logger.error(
-                            f"Recovery workflow failed permanently", {"workflow_id": item["workflow_id"]}
+                            "Recovery workflow failed permanently", {"workflow_id": item["workflow_id"]}
                         )
                     else:
                         # Schedule for retry
@@ -326,7 +326,7 @@ class MollieErrorRecovery:
 
             except Exception as e:
                 self.logger.error(
-                    f"Error processing recovery workflow", error=e, data={"workflow_id": item["workflow_id"]}
+                    "Error processing recovery workflow", error=e, data={"workflow_id": item["workflow_id"]}
                 )
                 results["failed"] += 1
 
@@ -564,9 +564,9 @@ class MollieErrorRecovery:
             # Retry webhook processing with fresh data
             payment_id = operation_data.get("payment_id")
             if payment_id:
-                from ..services.webhook_wrapper_service import WebhookWrapperService
+                from ..services.webhook_wrapper_service_unified import WebhookWrapperServiceUnified
 
-                service = WebhookWrapperService()
+                service = WebhookWrapperServiceUnified()
                 result = service.process_webhook(payment_id)
                 return result.get("status") == "success"
 

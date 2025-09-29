@@ -7,7 +7,7 @@ The old complex webhook handler has been archived due to broken donation creatio
 
 import frappe
 
-from verenigingen.integrations.mollie.api.simple_donation_webhook import handle_payment_first_donation
+from verenigingen.integrations.mollie.api.unified_payment_api import handle_payment_webhook
 
 
 @frappe.whitelist(allow_guest=True)
@@ -28,8 +28,8 @@ def mollie_subscription_webhook():
     payload = frappe.request.get_data(as_text=True) if frappe.request else ""
     frappe.logger().info(f"🔄 Payload preview: {payload[:200]}...")
 
-    # Redirect to the working simple webhook handler
-    return handle_payment_first_donation()
+    # Redirect to the unified webhook handler
+    return handle_payment_webhook()
 
 
 @frappe.whitelist(allow_guest=True)
@@ -40,77 +40,47 @@ def mollie_payment_webhook():
     Alternative webhook URL for Mollie dashboard configuration.
     Handles ping events directly, forwards others to unified handler.
     """
-    frappe.logger().info("🔄 Payment webhook endpoint called")
-
-    # CRITICAL: Log ALL raw webhook data BEFORE any processing
     try:
-        headers = dict(frappe.request.headers) if frappe.request else {}
-        payload = frappe.request.get_data(as_text=True) if frappe.request else ""
+        frappe.logger().info("🔄 Payment webhook endpoint called")
+
+        # STEP 1: Normalize webhook data - handle text/plain webhooks from Mollie
+        # Get content type and payload safely
+        content_type = str(frappe.request.content_type) if frappe.request else "None"
+
+        # If text/plain, extract payment ID from raw body and normalize to form_dict
+        if content_type == "text/plain":
+            payload = frappe.request.get_data(as_text=True) if frappe.request else ""
+            if payload and payload.strip().startswith("tr_"):
+                frappe.logger().info(f"🔧 Normalizing text/plain webhook: {payload.strip()}")
+                if not frappe.local.form_dict:
+                    frappe.local.form_dict = {}
+                frappe.local.form_dict["id"] = payload.strip()
+
+        # STEP 2: Get normalized payment ID
         form_data = frappe.local.form_dict or {}
+        payment_id = form_data.get("id")
 
-        # Create comprehensive raw webhook log
-        raw_webhook_data = {
-            "timestamp": frappe.utils.now(),
-            "headers": headers,
-            "raw_payload": payload,
-            "form_data": form_data,
-            "method": frappe.request.method if frappe.request else None,
-            "url": frappe.request.url if frappe.request else None,
-            "content_type": frappe.request.content_type if frappe.request else None,
-        }
+        frappe.logger().info(f"🔄 Content-Type: {content_type}, Payment ID: {payment_id}")
 
-        # Log to both frappe.log AND create a debug file
-        frappe.logger().error(f"🔍 RAW WEBHOOK DATA: {frappe.as_json(raw_webhook_data)}")
+        # Handle ping events
+        if form_data.get("type") == "hook.ping":
+            frappe.logger().info("✅ Webhook ping event received")
+            return {"status": "success", "message": "Webhook ping received"}
 
-        # Also save to Error Log for persistence
-        frappe.log_error(
-            title=f"Raw Webhook Debug - {frappe.utils.now()}",
-            message=f"Raw webhook data:\n{frappe.as_json(raw_webhook_data, indent=2)}",
-        )
+        # Validate payment ID
+        if not payment_id:
+            frappe.logger().error("❌ No payment ID found in webhook")
+            return {"status": "error", "message": "Payment ID is required"}
 
-        frappe.logger().info(f"🔄 Request headers: {headers}")
-        frappe.logger().info(f"🔄 Payment webhook payload preview: {payload[:200]}...")
+        # STEP 3: Forward to unified handler with clean parameter
+        frappe.logger().info(f"🔧 Forwarding payment {payment_id} to unified handler")
+        from verenigingen.integrations.mollie.api.unified_payment_api import handle_payment_webhook
+
+        return handle_payment_webhook(payment_id=payment_id)
 
     except Exception as e:
-        frappe.logger().error(f"❌ Failed to log raw webhook data: {e}")
-
-    # Check for ping events AFTER logging raw data
-    # Handle JSON ping events
-    if payload:
-        try:
-            webhook_data = frappe.parse_json(payload)
-            if webhook_data.get("resource") == "event" and webhook_data.get("type") == "hook.ping":
-                frappe.logger().info("✅ Webhook ping event received - responding with success")
-                # Log ping-specific data
-                frappe.logger().error(f"🏓 PING EVENT RAW DATA: {frappe.as_json(raw_webhook_data)}")
-                return {"status": "success", "message": "Webhook ping received"}
-        except:
-            pass  # Not JSON, continue to regular processing
-
-    # Handle form data ping events
-    form_data = frappe.local.form_dict or {}
-    if form_data.get("type") == "hook.ping":
-        frappe.logger().info("✅ Webhook ping event received (form data) - responding with success")
-        # Log ping-specific data
-        frappe.logger().error(f"🏓 PING EVENT RAW DATA: {frappe.as_json(raw_webhook_data)}")
-        return {"status": "success", "message": "Webhook ping received"}
-
-    # Handle different webhook formats from Mollie
-    # Payment webhooks: form data without signatures
-    # Event webhooks: JSON with signatures
-
-    if headers.get("Content-Type") == "application/x-www-form-urlencoded":
-        # This is a payment webhook (form data, no signature expected)
-        frappe.logger().info("🔧 Processing form data payment webhook (no signature required)")
-        from verenigingen.integrations.mollie.api.unified_payment_api import handle_payment_webhook
-
-        return handle_payment_webhook()
-    else:
-        # This is a JSON webhook (event/ping, signature required)
-        frappe.logger().info("🔧 Processing JSON event webhook (signature required)")
-        from verenigingen.integrations.mollie.api.unified_payment_api import handle_payment_webhook
-
-        return handle_payment_webhook()
+        frappe.logger().error(f"❌ Webhook error: {e}")
+        return {"status": "error", "message": str(e)}
 
 
 @frappe.whitelist(allow_guest=True)

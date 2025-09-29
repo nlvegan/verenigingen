@@ -91,9 +91,9 @@ def process_payment_refund(payment_id, refund_amount_total, debug_context="webho
 
         is_full_refund = abs(flt(refund_amount_total) - flt(donation.amount)) < 0.01
 
-        # Handle Payment Entry accounting for refunds
-        payment_entry_result = _handle_refund_payment_entries(
-            donation, payment_id, refund_amount_total, is_full_refund, debug_context
+        # Handle Payment Entry accounting for refunds using unified logic
+        payment_entry_result = _handle_refund_payment_entries_unified(
+            donation, payment_id, incremental_refund, is_full_refund, debug_context
         )
 
         frappe.logger().info(
@@ -299,117 +299,68 @@ def process_payment_chargeback(payment_id, chargeback_amount_total, debug_contex
         return {"status": "error", "message": error_msg}
 
 
-def _handle_refund_payment_entries(donation, payment_id, refund_amount_total, is_full_refund, debug_context):
+def _handle_refund_payment_entries_unified(
+    donation,
+    payment_id,
+    incremental_refund_amount,
+    is_full_refund,
+    debug_context,
+    refund_date=None,
+    refund_id=None,
+):
     """
-    Handle Payment Entry accounting for refunds
+    Handle refund Payment Entry creation using unified logic.
 
-    For full refunds:
-    - Cancel original Payment Entry
-    - Create refund Payment Entry (money going back out)
-
-    Args:
-        donation: Donation document
-        payment_id: Mollie payment ID
-        refund_amount_total: Total refund amount
-        is_full_refund: Whether this is a full refund
-        debug_context: Context for logging
-
-    Returns:
-        dict: Processing result
+    This replaces the complex separate logic with the unified Payment Entry creator
+    that ensures proper idempotency and consistency with regular payment processing.
     """
     try:
-        # Find Payment Entry linked to this donation
-        payment_entries = frappe.get_all(
-            "Payment Entry",
-            filters={"reference_no": payment_id, "docstatus": 1},
-            fields=["name", "paid_amount", "docstatus"],
+        # Import the unified Payment Entry creator
+        from verenigingen.integrations.mollie.utils.unified_payment_entry_creator import (
+            create_refund_payment_entry,
         )
 
-        if not payment_entries:
-            frappe.logger().warning(f"⚠️ [{debug_context}] No Payment Entry found for payment {payment_id}")
-            return {"status": "ignored", "message": "No Payment Entry to process"}
-
-        original_pe = frappe.get_doc("Payment Entry", payment_entries[0]["name"])
         frappe.logger().info(
-            f"🔍 [{debug_context}] Found Payment Entry: {original_pe.name} (€{original_pe.paid_amount})"
+            f"🔄 [{debug_context}] Creating refund Payment Entry for €{incremental_refund_amount}"
         )
 
-        if is_full_refund:
-            # Full refund: Cancel original Payment Entry and create refund entry
-            frappe.logger().info(
-                f"🔄 [{debug_context}] Processing full refund - cancelling {original_pe.name}"
-            )
+        # Use provided refund_id or fall back to amount-based ID
+        actual_refund_id = refund_id or f"incr_{int(incremental_refund_amount * 100)}"
 
-            # Cancel original Payment Entry
-            original_pe.cancel()
-            frappe.logger().info(f"❌ [{debug_context}] Cancelled original Payment Entry: {original_pe.name}")
+        frappe.logger().info(f"📝 [{debug_context}] Using refund ID: {actual_refund_id}")
 
-            # Create refund Payment Entry (money going back out)
-            refund_pe = frappe.new_doc("Payment Entry")
-            refund_pe.payment_type = "Pay"  # Money going OUT
-            refund_pe.company = original_pe.company
-            refund_pe.party_type = original_pe.party_type
-            refund_pe.party = original_pe.party
-            refund_pe.paid_amount = refund_amount_total
-            refund_pe.received_amount = refund_amount_total
-            refund_pe.reference_no = f"REFUND-{payment_id}"
-            refund_pe.reference_date = frappe.utils.nowdate()
-            refund_pe.remarks = f"Full refund for donation {donation.name} - Mollie payment {payment_id}"
+        # Create refund Payment Entry using unified logic
+        refund_pe = create_refund_payment_entry(
+            donation_doc=donation,
+            mollie_payment_id=payment_id,
+            refund_id=actual_refund_id,
+            refund_amount=incremental_refund_amount,
+            refund_date=refund_date,
+        )
 
-            # Reverse the accounts (money going back out)
-            refund_pe.paid_from = original_pe.paid_to  # From cash account
-            refund_pe.paid_to = original_pe.paid_from  # To receivable account
-
-            refund_pe.insert()
-
-            # Rename with donor name format (same as original)
-            try:
-                if donation.donor:
-                    donor_doc = frappe.get_doc("Donor", donation.donor)
-                    donor_name = "Anonymous"
-                    if hasattr(donor_doc, "full_name") and donor_doc.full_name:
-                        donor_name = donor_doc.full_name
-                    elif hasattr(donor_doc, "first_name") and donor_doc.first_name:
-                        last_name = getattr(donor_doc, "last_name", "")
-                        donor_name = f"{donor_doc.first_name} {last_name}".strip()
-                    elif hasattr(donor_doc, "donor_name") and donor_doc.donor_name:
-                        donor_name = donor_doc.donor_name
-
-                    new_name = f"REFUND {donor_name} - {donation.name}"
-                    counter = 1
-                    original_new_name = new_name
-                    while frappe.db.exists("Payment Entry", new_name):
-                        new_name = f"{original_new_name} ({counter})"
-                        counter += 1
-
-                    frappe.rename_doc("Payment Entry", refund_pe.name, new_name)
-                    refund_pe.name = new_name
-            except Exception as e:
-                frappe.logger().warning(f"⚠️ Could not rename refund Payment Entry: {str(e)}")
-
-            refund_pe.submit()
-
+        if refund_pe:
             frappe.logger().info(f"✅ [{debug_context}] Created refund Payment Entry: {refund_pe.name}")
-
             return {
                 "status": "success",
-                "message": f"Full refund processed - cancelled {original_pe.name}, created {refund_pe.name}",
-                "original_pe_cancelled": original_pe.name,
-                "refund_pe_created": refund_pe.name,
+                "message": f"Refund Payment Entry created: {refund_pe.name}",
+                "payment_entry_name": refund_pe.name,
+                "refund_amount": incremental_refund_amount,
+                "is_full_refund": is_full_refund,
             }
-
         else:
-            # Partial refunds - for now just log, could implement later if needed
-            frappe.logger().info(
-                f"ℹ️ [{debug_context}] Partial refund detected but Payment Entry not modified (€{refund_amount_total} of €{original_pe.paid_amount})"
-            )
+            frappe.logger().warning(f"⚠️ [{debug_context}] Failed to create refund Payment Entry")
             return {
-                "status": "partial_refund_logged",
-                "message": "Partial refund logged but Payment Entry unchanged",
+                "status": "warning",
+                "message": "Failed to create refund Payment Entry",
             }
 
     except Exception as e:
-        error_msg = f"Payment Entry refund processing failed: {str(e)}"
-        frappe.log_error(error_msg, f"Payment Entry Refund Error [{debug_context}]")
+        error_msg = f"Unified refund Payment Entry creation failed: {str(e)}"
+        frappe.log_error(error_msg, f"Unified Refund PE Error [{debug_context}]")
         frappe.logger().error(f"❌ [{debug_context}] {error_msg}")
         return {"status": "error", "message": error_msg}
+
+
+# ARCHIVED: _handle_refund_payment_entries_old function moved to:
+# archived/refund_chargeback_service/_handle_refund_payment_entries_old.py
+# Reason: Replaced by unified payment processing architecture

@@ -47,7 +47,10 @@ def check_member_dues_status(period_start: str = None, period_end: str = None) -
 
     # Operation logged via secure operations framework
 
-    # Get all active members (excluding banned/quit)
+    # Get comprehensive member analysis including categorization
+    # This provides upfront visibility into member buckets before processing
+
+    # All active members (candidates for billing)
     active_members = frappe.db.sql(
         """
             SELECT
@@ -58,6 +61,51 @@ def check_member_dues_status(period_start: str = None, period_end: str = None) -
             FROM `tabMember`
             WHERE status IN ('Active', 'Pending', 'Suspended')
             ORDER BY full_name
+        """,
+        as_dict=True,
+    )
+
+    # Members filtered by ineligible status (will be skipped)
+    ineligible_members = frappe.db.sql(
+        """
+            SELECT
+                m.name,
+                m.full_name,
+                m.status,
+                mds.name as schedule_name
+            FROM `tabMember` m
+            JOIN `tabMembership Dues Schedule` mds ON mds.member = m.name
+            WHERE mds.status = 'Active'
+            AND mds.auto_generate = 1
+            AND mds.is_template = 0
+            AND m.status IN ('Terminated', 'Expelled', 'Deceased', 'Quit')
+            ORDER BY m.full_name
+        """,
+        as_dict=True,
+    )
+
+    # Members with large coverage gaps (will trigger gap reset logic)
+    # Find members whose latest coverage is >30 days old
+    gap_reset_members = frappe.db.sql(
+        """
+            SELECT DISTINCT
+                m.name,
+                m.full_name,
+                m.status,
+                mds.name as schedule_name,
+                MAX(si.custom_coverage_end_date) as latest_coverage,
+                DATEDIFF(CURDATE(), MAX(si.custom_coverage_end_date)) as gap_days
+            FROM `tabMember` m
+            JOIN `tabMembership Dues Schedule` mds ON mds.member = m.name
+            JOIN `tabSales Invoice` si ON si.membership_dues_schedule_display = mds.name
+            WHERE mds.status = 'Active'
+            AND mds.auto_generate = 1
+            AND m.status IN ('Active', 'Pending', 'Suspended')
+            AND si.custom_coverage_end_date IS NOT NULL
+            AND si.docstatus != 2
+            GROUP BY m.name, m.full_name, m.status, mds.name
+            HAVING gap_days > 30
+            ORDER BY m.full_name
         """,
         as_dict=True,
     )
@@ -166,6 +214,35 @@ def check_member_dues_status(period_start: str = None, period_end: str = None) -
         },
         "members_missing_invoices": members_missing_invoices,
         "members_with_invoices": members_with_valid_invoices,
+        # New member categorization for upfront visibility
+        "member_categories": {
+            "ineligible_status": {
+                "count": len(ineligible_members),
+                "members": ineligible_members,
+                "description": "Members with Terminated/Expelled/Deceased/Quit status (will be skipped)",
+            },
+            "gap_reset": {
+                "count": len(gap_reset_members),
+                "members": gap_reset_members,
+                "description": "Members with large coverage gaps >30 days (billing will restart from today)",
+            },
+            "up_to_date": {
+                "count": len(members_with_valid_invoices),
+                "members": members_with_valid_invoices,
+                "description": "Members with current invoice coverage (no action needed)",
+            },
+            "needs_invoicing": {
+                "count": len(members_missing_invoices),
+                "members": members_missing_invoices,
+                "description": "Members who need new invoices generated",
+            },
+        },
+        "processing_summary": {
+            "will_be_processed": len(members_missing_invoices),
+            "will_be_skipped": len(ineligible_members),
+            "will_restart_billing": len(gap_reset_members),
+            "already_covered": len(members_with_valid_invoices),
+        },
     }
 
     # Completion logged via secure operations framework
@@ -225,7 +302,7 @@ def generate_missing_invoices(member_list: List[str] = None, force: bool = False
     return result
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=False, methods=["GET", "POST"])
 @handle_api_error
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def validate_sepa_eligibility(invoice_list: List[str] = None) -> Dict:

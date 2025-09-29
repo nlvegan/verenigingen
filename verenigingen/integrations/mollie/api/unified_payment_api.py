@@ -19,12 +19,13 @@ from verenigingen.utils.security.api_security_framework import (
 )
 
 from ..exceptions import MolliePaymentError, MollieValidationError, MollieWebhookError
+from ..services.complete_payment_service import CompletePaymentService
 from ..services.webhook_wrapper_service_unified import get_unified_webhook_service
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 @public_api(operation_type=OperationType.PUBLIC)
-def handle_payment_webhook():
+def handle_payment_webhook(payment_id: Optional[str] = None):
     """
     Unified webhook handler for all Mollie payment notifications.
 
@@ -33,43 +34,55 @@ def handle_payment_webhook():
     - Subscription payments
     - Refunds and chargebacks
 
+    Args:
+        payment_id: The Mollie payment/transaction ID (can be passed as parameter or in form_dict)
+
     Returns:
         Dict with processing results
     """
     try:
-        # Get payment ID from form data BEFORE authentication to avoid losing context
-        payment_id = frappe.form_dict.get("id")
+        # Get payment ID from parameter or fallback to form_dict (for direct API calls)
+        if not payment_id:
+            payment_id = frappe.form_dict.get("id") or (frappe.local.form_dict or {}).get("id")
+
         if not payment_id:
             frappe.throw(_("Payment ID is required"))
 
-        # Set webhook user context for proper permissions
-        from ..utils.webhook_security import authenticate_mollie_webhook
+        # PHASE 2: Authentication
+        from verenigingen.integrations.mollie.utils.webhook_security import authenticate_mollie_webhook
 
         authenticate_mollie_webhook()
 
         frappe.logger().info(f"🔔 Webhook received for payment: {payment_id}")
 
-        # Process webhook using UNIFIED service layer - eliminates fragmented idempotency
+        # PHASE 3: Service processing
         service = get_unified_webhook_service()
-        # Extract webhook data for processing
+
+        # Extract webhook data for processing (if available)
         webhook_data = frappe.form_dict or {}
+
         result = service.process_payment_webhook(payment_id, webhook_data)
 
-        frappe.logger().info(f"✅ Webhook processed successfully: {payment_id}")
+        # CRITICAL FIX: Set appropriate HTTP status based on service result
+        if result.get("status") == "error":
+            frappe.logger().error(f"❌ Webhook processing failed: {payment_id} - {result.get('message')}")
+            frappe.response.http_status_code = 500  # Trigger Mollie retry
+            return result
+        else:
+            frappe.logger().info(f"✅ Webhook processed successfully: {payment_id}")
+
         return result
 
     except (MollieWebhookError, MolliePaymentError) as e:
-        frappe.log_error(f"Mollie webhook error: {e}", "Mollie Webhook Error")
+        frappe.log_error(f"Mollie webhook error for {payment_id}: {e}", "Mollie Webhook Error")
         frappe.response.http_status_code = 400
         return {"status": "error", "message": str(e)}
 
     except Exception as e:
-        # Avoid logging during potential database connection issues
-        try:
-            frappe.log_error(f"Unexpected webhook error: {e}", "Webhook Processing Error")
-        except:
-            # Database connection may be lost, skip logging
-            pass
+        frappe.log_error(
+            f"Unexpected webhook error for {payment_id}: {e}\n{frappe.get_traceback()}",
+            "Webhook Processing Error",
+        )
         frappe.response.http_status_code = 500
         return {"status": "error", "message": "Internal processing error"}
 
@@ -317,7 +330,7 @@ def handle_refund_webhook():
     """
     try:
         # Set webhook user context for proper permissions
-        from ..utils.webhook_security import authenticate_mollie_webhook
+        from verenigingen.integrations.mollie.utils.webhook_security import authenticate_mollie_webhook
 
         authenticate_mollie_webhook()
 
@@ -328,14 +341,60 @@ def handle_refund_webhook():
 
         frappe.logger().info(f"🔔 Refund webhook received, payload length: {len(webhook_payload)}")
 
-        # Import the webhook wrapper service
-        from ..services.webhook_wrapper_service import WebhookWrapperService
+        # Parse webhook payload and extract data using utilities
+        import json
 
-        # Process refund webhook using service layer
-        service = WebhookWrapperService()
-        result = service.process_refund_webhook(webhook_payload)
+        from ..utils.unified_payment_entry_creator import create_refund_payment_entry
+        from ..utils.webhook_utilities import (
+            extract_webhook_ids,
+            get_donation_by_payment_id,
+            safe_extract_amount,
+            safe_extract_date,
+            standardized_webhook_response,
+        )
 
-        frappe.logger().info(f"✅ Refund webhook processed successfully")
+        webhook_data = json.loads(webhook_payload)
+        ids = extract_webhook_ids(webhook_data)
+
+        if not ids["payment_id"] or not ids["refund_id"]:
+            return standardized_webhook_response(
+                "error", "Missing payment_id or refund_id in webhook payload", webhook_data=webhook_data
+            )
+
+        # Find donation using utility
+        donation_doc = get_donation_by_payment_id(ids["payment_id"])
+        if not donation_doc:
+            return standardized_webhook_response(
+                "ignored",
+                f"Original donation not found for payment {ids['payment_id']}",
+                payment_id=ids["payment_id"],
+            )
+
+        # Extract refund details using utilities
+        refund_amount = safe_extract_amount(webhook_data)
+        refund_date = safe_extract_date(webhook_data)
+
+        # Create refund Payment Entry
+        refund_pe = create_refund_payment_entry(
+            donation_doc=donation_doc,
+            mollie_payment_id=ids["payment_id"],
+            refund_id=ids["refund_id"],
+            refund_amount=refund_amount,
+            refund_date=refund_date,
+        )
+
+        # Return standardized response
+        result = standardized_webhook_response(
+            "success" if refund_pe else "error",
+            f"Refund Payment Entry created: {refund_pe.name}"
+            if refund_pe
+            else "Failed to create refund Payment Entry",
+            payment_entry_id=refund_pe.name if refund_pe else None,
+            refund_id=ids["refund_id"],
+            payment_id=ids["payment_id"],
+        )
+
+        frappe.logger().info("✅ Refund webhook processed successfully")
         return result
 
     except (MollieWebhookError, MolliePaymentError) as e:
@@ -363,7 +422,7 @@ def handle_chargeback_webhook():
     """
     try:
         # Set webhook user context for proper permissions
-        from ..utils.webhook_security import authenticate_mollie_webhook
+        from verenigingen.integrations.mollie.utils.webhook_security import authenticate_mollie_webhook
 
         authenticate_mollie_webhook()
 
@@ -374,14 +433,14 @@ def handle_chargeback_webhook():
 
         frappe.logger().info(f"🔔 Chargeback webhook received, payload length: {len(webhook_payload)}")
 
-        # Import the webhook wrapper service
-        from ..services.webhook_wrapper_service import WebhookWrapperService
+        # Import the unified webhook wrapper service
+        from ..services.webhook_wrapper_service_unified import WebhookWrapperServiceUnified
 
-        # Process chargeback webhook using service layer
-        service = WebhookWrapperService()
+        # Process chargeback webhook using unified service layer
+        service = WebhookWrapperServiceUnified()
         result = service.process_chargeback_webhook(webhook_payload)
 
-        frappe.logger().info(f"✅ Chargeback webhook processed successfully")
+        frappe.logger().info("✅ Chargeback webhook processed successfully")
         return result
 
     except (MollieWebhookError, MolliePaymentError) as e:
@@ -417,17 +476,17 @@ def initiate_refund():
         if not payment_id:
             frappe.throw(_("Payment ID is required"))
 
-        # Import the refund service
-        from ..services.refund_chargeback_service import RefundChargebackService
+        # Use unified system for refund creation
+        from ..core.client import MollieClient
 
         # Prepare refund data
         refund_data = {"description": description}
         if amount:
             refund_data["amount"] = {"currency": "EUR", "value": f"{float(amount):.2f}"}
 
-        # Create refund using service layer
-        service = RefundChargebackService()
-        refund = service.client.create_refund(payment_id, refund_data)
+        # Create refund using unified client
+        client = MollieClient()
+        refund = client.create_refund(payment_id, refund_data)
 
         return {
             "status": "success",

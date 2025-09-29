@@ -29,6 +29,12 @@ def authenticate_mollie_webhook():
     # Set user context
     frappe.set_user(webhook_user)
 
+    # Validate permissions (log but don't block - webhook user may have different role structure)
+    if not validate_webhook_user_permissions():
+        frappe.logger().warning(
+            f"Webhook user {webhook_user} may have insufficient permissions, proceeding anyway"
+        )
+
     frappe.logger().info(f"Mollie webhook authenticated with user: {webhook_user}")
 
 

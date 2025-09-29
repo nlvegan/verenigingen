@@ -67,218 +67,10 @@ def get_appropriate_cost_center(donation, company):
     return default_cost_center
 
 
-# LEGACY ENDPOINT DISABLED - Use unified_payment_api.handle_payment_webhook instead
-# @frappe.whitelist(allow_guest=True, methods=["POST"])
-# @public_api(operation_type=OperationType.WEBHOOK_PROCESSING)
-def handle_mollie_payment_webhook_DISABLED():
-    """
-    Handle Mollie webhook for any payment type (donations, memberships, etc.)
-
-    Flow:
-    1. Get payment ID from webhook
-    2. Determine payment context (donation, membership, etc.)
-    3. Retrieve full payment details from Mollie API
-    4. Route to appropriate payment processor
-    5. Create Payment Entry if payment is successful
-    6. Update payment history and enrich records with Mollie metadata
-    """
-
-    # Initialize payment_id early to avoid UnboundLocalError in exception handler
-    payment_id = "unknown"
-
-    try:
-        # Get webhook data first
-        data = frappe.local.form_dict
-        payment_id = data.get("id") or "unknown"
-
-        # Validate webhook signature for security (conditional based on content type)
-        content_type = frappe.request.content_type if frappe.request else ""
-        if content_type == "application/x-www-form-urlencoded":
-            frappe.logger().info("🔓 Skipping signature validation for form data webhook")
-        else:
-            frappe.logger().info("🔐 Validating signature for JSON webhook")
-            _validate_webhook_signature()
-
-        if not payment_id:
-            frappe.response.http_status_code = 400
-            return {"status": "error", "message": "No payment ID provided"}
-
-        # Set proper user context for webhook processing
-        def get_webhook_user():
-            """Get the configured webhook user or fallback to a user with proper permissions"""
-            try:
-                # Try to get webhook user from Verenigingen Payments Settings
-                settings = frappe.get_single("Verenigingen Payments Settings")
-                webhook_user = settings.get("webhook_user")
-
-                if webhook_user and frappe.db.exists("User", webhook_user):
-                    return webhook_user
-            except:
-                pass
-
-            # Fallback: Look for a user with Verenigingen Webhook User role
-            webhook_users = frappe.get_all(
-                "Has Role", filters={"role": "Verenigingen Webhook User"}, fields=["parent"], limit=1
-            )
-
-            if webhook_users:
-                user_email = webhook_users[0].parent
-                if frappe.db.get_value("User", user_email, "enabled"):
-                    return user_email
-
-            # Final fallback: Use Administrator (not ideal but ensures webhook works)
-            return "Administrator"
-
-        webhook_user = get_webhook_user()
-        frappe.set_user(webhook_user)
-        frappe.logger().info(f"🔐 Set webhook user context: {webhook_user}")
-
-        frappe.logger().info(f"🔔 Webhook received for payment: {payment_id}")
-
-        # Try new generic service layer first (graceful fallback if not available)
-        try:
-            from verenigingen.integrations.mollie.services.generic_webhook_service import (
-                GenericWebhookService,
-            )
-
-            service = GenericWebhookService()
-            result = service.process_webhook(payment_id)
-            frappe.logger().info(f"✅ Generic service layer processing complete for {payment_id}")
-            return result
-        except ImportError:
-            frappe.logger().info(
-                f"🔄 Generic service layer not available, trying legacy service for {payment_id}"
-            )
-        except Exception as service_error:
-            frappe.logger().warning(
-                f"⚠️ Generic service layer failed, trying legacy service: {service_error}"
-            )
-
-        # Fallback to old donation-specific service layer
-        try:
-            from verenigingen.integrations.mollie.services.webhook_wrapper_service import (
-                WebhookWrapperService,
-            )
-
-            service = WebhookWrapperService()
-            result = service.process_webhook(payment_id)
-            frappe.logger().info(f"✅ Legacy service layer processing complete for {payment_id}")
-            return result
-        except ImportError:
-            frappe.logger().info(
-                f"🔄 Legacy service layer not available, using direct functions for {payment_id}"
-            )
-        except Exception as service_error:
-            frappe.logger().warning(
-                f"⚠️ Legacy service layer failed, falling back to direct functions: {service_error}"
-            )
-
-        # Fallback: Original implementation using direct function calls
-
-        # Get full payment details from Mollie FIRST - needed for refund checking
-        mollie_settings = frappe.get_single("Mollie Settings")
-        mollie = mollie_settings.get_mollie_client()
-
-        try:
-            payment = mollie.payments.get(payment_id)
-        except Exception as e:
-            frappe.log_error(f"Failed to fetch payment {payment_id} from Mollie: {e}", "Mollie API")
-            frappe.response.http_status_code = 502
-            return {"status": "error", "message": f"Failed to fetch payment from Mollie: {e}"}
-
-        # Check for refunds FIRST - refund webhooks send payment_id but contain refund events
-        # This must happen BEFORE idempotency check because refunds are NEW events even for processed payments
-        frappe.logger().info(f"🔍 Checking for refunds on payment {payment_id} (webhook received)")
-
-        # Also log to Error Log for debugging
-        frappe.log_error(
-            f"Webhook received for payment {payment_id} - checking for refunds",
-            "Webhook Debug - Refund Check",
-        )
-
-        refund_result = _process_payment_refunds(payment_id, payment)
-
-        # Log the refund result for debugging
-        frappe.log_error(
-            f"Refund check result for {payment_id}: {frappe.as_json(refund_result)}",
-            "Webhook Debug - Refund Result",
-        )
-
-        # If we processed any refunds, return early - this was a refund webhook
-        if refund_result.get("refunds_processed"):
-            processed_count = len(refund_result["refunds_processed"])
-            frappe.logger().info(f"✅ Processed {processed_count} refunds for payment {payment_id}")
-            return {
-                "status": "success",
-                "message": f"Processed {processed_count} refunds for payment {payment_id}",
-                "data": refund_result,
-            }
-
-        # Check for idempotency only AFTER refund processing
-        processing_status = check_payment_processing_status_by_id(payment_id)
-        if processing_status.get("all_complete"):
-            frappe.logger().info(f"⏭️ Payment {payment_id} already fully processed - webhook complete")
-            return {
-                "status": "success",
-                "message": "Payment already processed",
-                "payment_id": payment_id,
-                "components": processing_status,
-                "idempotent": True,
-            }
-
-        # Handle different payment statuses
-        if payment.status == "paid":
-            # Find related donation for successful payments
-            donation = find_donation_for_payment(payment_id, payment)
-            if not donation:
-                # Try to find member for subscription payments
-                member = find_member_for_payment(payment_id, payment)
-                if member:
-                    frappe.logger().info(f"✅ Processing successful member subscription payment {payment_id}")
-                    result = process_successful_member_payment(member, payment)
-                    return {
-                        "status": "success",
-                        "message": "Member subscription payment processed",
-                        "data": result,
-                    }
-
-                frappe.logger().error(f"❌ No donation or member found for payment {payment_id}")
-                frappe.response.http_status_code = 404
-                return {"status": "error", "message": "No donation or member found for payment"}
-
-            # Process donation payment with idempotency protection
-            idempotency_status = check_payment_processing_status(donation, payment_id)
-            result = process_successful_payment_with_idempotency(donation, payment, idempotency_status)
-
-        elif payment.status in ["failed", "expired", "canceled"]:
-            # Handle failed payments
-            frappe.logger().info(f"❌ Processing failed payment {payment_id} with status: {payment.status}")
-            result = process_failed_payment(payment_id, payment)
-            return {
-                "status": "success",
-                "message": f"Failed payment processed: {payment.status}",
-                "data": result,
-            }
-
-        else:
-            # Handle other statuses (open, pending, authorized)
-            frappe.logger().info(
-                f"⏭️ Payment {payment_id} status: {payment.status} - acknowledged but not processed"
-            )
-            return {"status": "success", "message": f"Payment status: {payment.status}"}
-
-        frappe.logger().info(f"✅ Webhook processing complete for {payment_id}")
-        return {"status": "success", "message": "Payment processed successfully", "data": result}
-
-    except Exception as e:
-        frappe.log_error(f"Webhook processing failed: {e}", "Mollie Webhook")
-        frappe.logger().error(f"❌ Critical webhook error - returning success to prevent retries: {e}")
-        # Return HTTP 200 to prevent Mollie webhook retries that could overwhelm system
-        return {
-            "status": "error_logged",
-            "message": "Processing failed - logged for manual review",
-            "payment_id": payment_id,
-        }
+# ARCHIVED: handle_mollie_payment_webhook_DISABLED function moved to:
+# archived/refund_chargeback_service/handle_mollie_payment_webhook_DISABLED.py
+# Reason: Replaced by unified payment processing architecture
+# Use unified_payment_api.handle_payment_webhook instead
 
 
 # ==================================================================================
@@ -577,10 +369,11 @@ def process_successful_payment_with_idempotency(donation, payment, idempotency_s
         else:
             donation.status = "One-time"
             frappe.logger().info("✅ Set status to One-time")
-            # Also set paid flag for one-time donations
-            if donation.paid != 1:
-                donation.paid = 1
-                results["components_processed"].append("paid_flag_set")
+
+        # Set paid flag for both one-time and recurring donations when payment is received
+        if donation.paid != 1:
+            donation.paid = 1
+            results["components_processed"].append("paid_flag_set")
 
         # Single save operation with all changes
         donation.save()
@@ -1464,12 +1257,6 @@ def _process_payment_refunds(payment_id, payment):
                 "Refund Debug - Refund Details",
             )
 
-        # Import the refund service
-        from verenigingen.integrations.mollie.services.refund_chargeback_service import (
-            RefundChargebackService,
-        )
-
-        refund_service = RefundChargebackService()
         processed_refunds = []
 
         # Process each refund
@@ -1494,24 +1281,35 @@ def _process_payment_refunds(payment_id, payment):
                 )
                 continue
 
-            # Create webhook payload structure that the refund service expects
-            refund_webhook_payload = {
-                "payment_id": payment_id,
-                "refund_id": refund.id,
-                "refund": {
-                    "id": refund.id,
-                    "status": refund.status,
-                    "amount": {"value": refund.amount.value, "currency": refund.amount.currency},
-                    "description": getattr(refund, "description", ""),
-                    "created_at": refund.created_at.isoformat() if refund.created_at else None,
-                },
-                "payment": {"id": payment_id},
+            # Process the refund using unified payment entry creator and utilities
+            from verenigingen.integrations.mollie.utils.unified_payment_entry_creator import (
+                create_refund_payment_entry,
+            )
+            from verenigingen.integrations.mollie.utils.webhook_utilities import get_donation_by_payment_id
+
+            # Find the original donation using utility
+            donation_doc = get_donation_by_payment_id(payment_id)
+            if not donation_doc:
+                frappe.logger().warning(f"❌ Original donation not found for payment {payment_id}")
+                continue
+
+            # Use the unified creator with the actual refund ID
+            refund_pe = create_refund_payment_entry(
+                donation_doc=donation_doc,
+                mollie_payment_id=payment_id,
+                refund_id=refund.id,  # Use actual Mollie refund ID
+                refund_amount=float(refund.amount.value),
+                refund_date=refund.created_at.date().isoformat() if refund.created_at else None,
+            )
+
+            # Format result for compatibility
+            result = {
+                "status": "success" if refund_pe else "error",
+                "payment_entry_id": refund_pe.name if refund_pe else None,
+                "message": f"Refund Payment Entry created: {refund_pe.name}"
+                if refund_pe
+                else "Failed to create refund Payment Entry",
             }
-
-            # Process the refund using the service
-            import json
-
-            result = refund_service.process_refund_webhook(json.dumps(refund_webhook_payload))
 
             if result.get("status") == "success":
                 processed_refunds.append(

@@ -29,9 +29,10 @@ class PaymentIdempotencyCheckResult:
         self.donation_name = None
         self.all_processing_complete = False
 
-        # Refund-specific state
-        self.refunds_processed = []
-        self.pending_refunds = []
+        # Refund-specific state (ID-based validation against Mollie SSOT)
+        self.refunds_processed = []  # List of refund_ids that have BOTH PE and payment history
+        self.pending_refunds = []  # List of refund_ids from Mollie that need PE creation
+        self.payment_history_missing = []  # List of refund_ids that have PE but missing payment history
 
         # Chargeback-specific state
         self.chargebacks_processed = []
@@ -152,18 +153,38 @@ class UnifiedIdempotencyManager:
                 )
 
     def _check_donation_state(self, payment_id: str, result: PaymentIdempotencyCheckResult):
-        """Check donation existence, status, and payment history."""
+        """Check donation existence and payment history."""
         # Find donation by payment_id
         donation = frappe.db.get_value(
-            self.target_doctype, {"payment_id": payment_id}, ["name", "status"], as_dict=True
+            self.target_doctype, {"payment_id": payment_id}, ["name"], as_dict=True
         )
 
         if donation:
             result.donation_name = donation.name
-            result.donation_status_updated = donation.status in ["Paid", "Completed"]
+            # FIXED: Check if payment entry exists and is submitted instead of non-existent status field
+            # Donation.status contains donation TYPE (One-time/Promised/Recurring), not payment status
+            result.donation_status_updated = result.payment_entry_exists
 
             # Check payment history for this payment_id
             donation_doc = frappe.get_doc(self.target_doctype, donation.name)
+
+            # ENHANCED DEBUG: Log child table details
+            self.logger.info(f"🔬 PAYMENT HISTORY DEBUG for {payment_id}:")
+            self.logger.info(f"  - Donation doc loaded: {donation_doc.name}")
+            self.logger.info(f"  - Payments attribute exists: {hasattr(donation_doc, 'payments')}")
+            if hasattr(donation_doc, "payments"):
+                payments_list = donation_doc.payments or []
+                self.logger.info(f"  - Payment records count: {len(payments_list)}")
+                for i, ph in enumerate(payments_list):
+                    mollie_id = getattr(ph, "mollie_payment_id", "N/A")
+                    amount = getattr(ph, "amount", "N/A")
+                    date = getattr(ph, "payment_date", "N/A")
+                    self.logger.info(
+                        f"    Payment {i+1}: mollie_id={mollie_id}, amount={amount}, date={date}"
+                    )
+            else:
+                self.logger.error(f"❌ Donation {donation_doc.name} has no payments attribute!")
+
             payment_history_entry = next(
                 (
                     ph
@@ -175,6 +196,10 @@ class UnifiedIdempotencyManager:
             result.payment_history_updated = payment_history_entry is not None
 
             self.logger.info(
+                f"🔍 IDEMPOTENCY RESULT: payment_history_updated = {result.payment_history_updated}"
+            )
+
+            self.logger.info(
                 f"✅ Donation {donation.name}: status={donation.status}, "
                 f"history_updated={result.payment_history_updated}"
             )
@@ -184,7 +209,7 @@ class UnifiedIdempotencyManager:
                 # Search for donations that reference this payment entry in their payments table
                 donations_with_payment = frappe.db.sql(
                     """
-                    SELECT d.name, d.status
+                    SELECT d.name
                     FROM `tabDonation` d
                     INNER JOIN `tabDonation Payment` dp ON dp.parent = d.name
                     WHERE dp.payment_entry = %s
@@ -197,49 +222,117 @@ class UnifiedIdempotencyManager:
                 if donations_with_payment:
                     donation = donations_with_payment[0]
                     result.donation_name = donation.name
-                    result.donation_status_updated = donation.status in ["Paid", "Completed"]
+                    # FIXED: Use payment entry existence instead of non-existent status
+                    result.donation_status_updated = result.payment_entry_exists
 
     def _check_refund_processing_state(
         self, payment_id: str, result: PaymentIdempotencyCheckResult, include_mollie_api: bool
     ):
-        """Check refund processing completeness."""
-        # Find all processed refunds (Payment Entries with Pay type)
-        processed_refunds = frappe.db.get_all(
+        """
+        Check refund processing completeness using Mollie as SSOT.
+
+        Validates each refund ID from Mollie against:
+        1. Payment Entry existence (with correct refund_id in reference_no)
+        2. Payment history child table entry (with matching mollie_payment_id)
+
+        Returns granular state:
+        - refunds_processed: Refund IDs with both PE and payment history
+        - pending_refunds: Refund IDs needing PE creation
+        - payment_history_missing: Refund IDs with PE but no payment history
+        """
+        if not include_mollie_api:
+            # Without Mollie API, we can't determine SSOT - skip refund validation
+            self.logger.warning("⚠️ Skipping refund validation - Mollie API access required for SSOT")
+            return
+
+        # STEP 1: Get refunds from Mollie (SSOT)
+        mollie_refunds = []
+        try:
+            from ..core.client import MollieClient
+
+            client = MollieClient()
+            mollie_client = client._get_mollie_client()
+            payment = mollie_client.payments.get(payment_id)
+            refunds_response = payment.refunds.list()
+
+            mollie_refunds = refunds_response.get("_embedded", {}).get("refunds", [])
+            self.logger.info(f"📋 Mollie SSOT: {len(mollie_refunds)} refunds for payment {payment_id}")
+        except Exception as e:
+            self.logger.error(f"❌ [unified_idempotency] Failed to fetch Mollie refunds for {payment_id}: {e}")
+            return
+
+        if not mollie_refunds:
+            # No refunds in Mollie - nothing to validate
+            return
+
+        # STEP 2: Get all Payment Entries for this payment (refunds only)
+        payment_entries_map = {}
+        processed_refunds_db = frappe.db.get_all(
             "Payment Entry",
             filters={
-                "reference_no": ["like", f"re_%"],
+                "reference_no": ["like", f"%{payment_id}_refund_%"],
                 "payment_type": "Pay",
                 "docstatus": 1,
-                "remarks": ["like", f"%{payment_id}%"],
             },
             fields=["name", "reference_no", "paid_amount"],
         )
 
-        result.refunds_processed = [
-            {"refund_id": pe.reference_no, "payment_entry": pe.name, "amount": pe.paid_amount}
-            for pe in processed_refunds
-        ]
+        # Map refund_id -> Payment Entry name
+        for pe in processed_refunds_db:
+            if "_refund_" in pe.reference_no:
+                refund_id = pe.reference_no.split("_refund_")[-1]
+                payment_entries_map[refund_id] = pe.name
 
-        if include_mollie_api:
-            # Fetch current refunds from Mollie to find unprocessed ones
-            try:
-                from ..core.client import MollieClient
+        # STEP 3: Get donation and check payment history child table
+        donation = None
+        payment_history_map = {}
+        if result.donation_name:
+            donation = frappe.get_doc("Donation", result.donation_name)
+            # Map refund IDs in payment history
+            if hasattr(donation, "payments") and donation.payments:
+                for payment_row in donation.payments:
+                    # Payment history might have mollie_payment_id as refund ID or payment ID
+                    mollie_id = payment_row.get("mollie_payment_id")
+                    if mollie_id and mollie_id.startswith("re_"):
+                        payment_history_map[mollie_id] = True
 
-                client = MollieClient()
-                mollie_client = client._get_mollie_client()
-                payment = mollie_client.payments.get(payment_id)
-                mollie_refunds = payment.refunds.list()
+        # STEP 4: Validate each Mollie refund against Frappe state
+        for mollie_refund in mollie_refunds:
+            refund_id = mollie_refund.get("id")
+            refund_amount = float(mollie_refund.get("amount", {}).get("value", 0))
 
-                processed_refund_ids = {r["refund_id"] for r in result.refunds_processed}
+            has_payment_entry = refund_id in payment_entries_map
+            has_payment_history = refund_id in payment_history_map
 
-                result.pending_refunds = [
-                    {"refund_id": refund.id, "amount": float(refund.amount.value), "status": refund.status}
-                    for refund in mollie_refunds
-                    if refund.id not in processed_refund_ids and refund.status in ["refunded", "processed"]
-                ]
+            if has_payment_entry and has_payment_history:
+                # Fully processed
+                result.refunds_processed.append(refund_id)
+            elif has_payment_entry and not has_payment_history:
+                # PE exists but payment history missing
+                result.payment_history_missing.append(
+                    {
+                        "refund_id": refund_id,
+                        "payment_entry": payment_entries_map[refund_id],
+                        "amount": refund_amount,
+                    }
+                )
+            elif not has_payment_entry:
+                # Need to create PE (and payment history)
+                created_at = mollie_refund.get("createdAt") or mollie_refund.get("created_at")
+                result.pending_refunds.append(
+                    {
+                        "refund_id": refund_id,
+                        "amount": refund_amount,
+                        "refund_date": created_at,
+                    }
+                )
 
-            except Exception as e:
-                self.logger.error(f"Failed to fetch Mollie refunds for {payment_id}: {e}")
+        self.logger.info(
+            f"✅ Refund validation complete: "
+            f"{len(result.refunds_processed)} fully processed, "
+            f"{len(result.pending_refunds)} need PE, "
+            f"{len(result.payment_history_missing)} need payment history"
+        )
 
     def _check_chargeback_processing_state(
         self, payment_id: str, result: PaymentIdempotencyCheckResult, include_mollie_api: bool
@@ -249,7 +342,7 @@ class UnifiedIdempotencyManager:
         processed_chargebacks = frappe.db.get_all(
             "Payment Entry",
             filters={
-                "reference_no": ["like", f"chb_%"],
+                "reference_no": ["like", "chb_%"],
                 "payment_type": "Pay",
                 "docstatus": 1,
                 "remarks": ["like", f"%{payment_id}%"],
@@ -274,15 +367,32 @@ class UnifiedIdempotencyManager:
 
                 processed_chargeback_ids = {c["chargeback_id"] for c in result.chargebacks_processed}
 
-                result.pending_chargebacks = [
-                    {
-                        "chargeback_id": chargeback.id,
-                        "amount": float(chargeback.amount.value),
-                        "reason": getattr(chargeback, "reason", {}),
-                    }
-                    for chargeback in mollie_chargebacks
-                    if chargeback.id not in processed_chargeback_ids
-                ]
+                def safe_extract_chargeback_data(chargeback):
+                    """Safely extract chargeback data from either dict or object format."""
+                    if isinstance(chargeback, dict):
+                        # Handle dictionary format
+                        chargeback_id = chargeback.get("id")
+                        amount = float(chargeback.get("amount", {}).get("value", 0))
+                        reason = chargeback.get("reason", {})
+                    else:
+                        # Handle object format
+                        chargeback_id = getattr(chargeback, "id", None)
+                        amount_obj = getattr(chargeback, "amount", None)
+                        amount = float(getattr(amount_obj, "value", 0)) if amount_obj else 0
+                        reason = getattr(chargeback, "reason", {})
+
+                    return chargeback_id, amount, reason
+
+                result.pending_chargebacks = []
+                for chargeback in mollie_chargebacks:
+                    try:
+                        chargeback_id, amount, reason = safe_extract_chargeback_data(chargeback)
+                        if chargeback_id and chargeback_id not in processed_chargeback_ids:
+                            result.pending_chargebacks.append(
+                                {"chargeback_id": chargeback_id, "amount": amount, "reason": reason}
+                            )
+                    except Exception as e:
+                        self.logger.error(f"Failed to process chargeback data: {e}, chargeback: {chargeback}")
 
             except Exception as e:
                 self.logger.error(f"Failed to fetch Mollie chargebacks for {payment_id}: {e}")

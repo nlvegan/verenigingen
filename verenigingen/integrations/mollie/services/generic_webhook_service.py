@@ -30,10 +30,8 @@ class GenericWebhookService:
         self.context_resolver = PaymentContextResolver()
         self.processor_factory = PaymentProcessorFactory()
 
-        # Import refund service for financial reversals
-        from .refund_chargeback_service import RefundChargebackService
-
-        self.refund_service = RefundChargebackService()
+        # Use unified webhook service for refund processing
+        self.unified_webhook_service = None
 
     def process_webhook(self, payment_id: str, payment_data: Any = None) -> Dict[str, Any]:
         """
@@ -132,7 +130,7 @@ class GenericWebhookService:
                 # Handle other statuses (open, pending, authorized)
                 duration = time.time() - start_time
                 self.logger.info(
-                    f"Payment status acknowledged but not processed",
+                    "Payment status acknowledged but not processed",
                     {"payment_id": payment_id, "status": payment_data.status},
                     duration=duration,
                 )
@@ -303,7 +301,15 @@ class GenericWebhookService:
                 # Process the refund using the service
                 import json
 
-                result = self.refund_service.process_refund_webhook(json.dumps(refund_webhook_payload))
+                # Use unified webhook service for refund processing
+                from .webhook_wrapper_service_unified import get_unified_webhook_service
+
+                if not self.unified_webhook_service:
+                    self.unified_webhook_service = get_unified_webhook_service()
+
+                result = self.unified_webhook_service.process_refund_webhook(
+                    json.dumps(refund_webhook_payload)
+                )
 
                 if result.get("status") == "success":
                     processed_refunds.append(
@@ -478,12 +484,16 @@ class GenericWebhookService:
             if not self._validate_webhook_signature(webhook_payload, signature):
                 return {"status": "error", "message": "Invalid webhook signature"}
 
-            # Parse payload and delegate to refund service
+            # Delegate to refund service
             import json
 
-            payload = json.loads(webhook_payload)
+            # Use unified webhook service for refund processing
+            from .webhook_wrapper_service_unified import get_unified_webhook_service
 
-            return self.refund_service.process_refund_webhook(webhook_payload)
+            if not self.unified_webhook_service:
+                self.unified_webhook_service = get_unified_webhook_service()
+
+            return self.unified_webhook_service.process_refund_webhook(webhook_payload)
 
         except Exception as e:
             self.logger.error(f"Error processing refund webhook: {e}")

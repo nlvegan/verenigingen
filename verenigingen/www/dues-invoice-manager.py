@@ -40,12 +40,18 @@ def get_context(context):
     # System Manager is included for admin access, plus specific verenigingen roles
     financial_roles = [
         "System Manager",
+        "Administrator",  # Standard Frappe admin role
         "Verenigingen Administrator",
         "Verenigingen Treasurer",
         "Verenigingen System Administrator",
     ]
     can_generate_invoices = any(role in user_roles for role in financial_roles)
     can_approve = any(role in user_roles for role in financial_roles)
+
+    # Debug: Log user roles for troubleshooting
+    frappe.logger().info(
+        f"Dues Invoice Manager - User: {current_user}, Roles: {user_roles}, Can Approve: {can_approve}"
+    )
 
     # Set defaults for workflow components
     context.sepa_settings = {"billing_cutoff_frequency": "Monthly", "enable_sequential_coverage": True}
@@ -54,9 +60,21 @@ def get_context(context):
         "pending_invoices": 0,
         "members_analysis": {"total_active_members": 0, "members_missing_invoices": 0, "sepa_eligible": 0},
     }
+    # Get CSRF token for API calls
+    csrf_token = ""
+    try:
+        csrf_token = frappe.sessions.get_csrf_token()
+    except Exception:
+        # Fallback to generate new token
+        try:
+            csrf_token = frappe.generate_hash()
+        except Exception:
+            pass
+
     context.user_roles = user_roles
     context.can_approve = can_approve
     context.can_generate_invoices = can_generate_invoices
+    context.csrf_token = csrf_token
 
     # Create JavaScript config with actual values
     import json
@@ -67,6 +85,7 @@ def get_context(context):
         "user_roles": user_roles,
         "can_approve": can_approve,
         "can_generate_invoices": can_generate_invoices,
+        "csrf_token": csrf_token,
     }
     context.js_config = json.dumps(js_config)
 
