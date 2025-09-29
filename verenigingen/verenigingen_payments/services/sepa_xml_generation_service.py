@@ -151,7 +151,8 @@ class SEPAXMLGenerationService:
         ET.SubElement(pmt_tp_inf, "SeqTp").text = "RCUR"  # Default to recurring
 
         # Collection Date
-        ET.SubElement(pmt_inf, "ReqdColltnDt").text = str(batch_doc.collection_date)
+        # Use batch_date as the requested collection date
+        ET.SubElement(pmt_inf, "ReqdColltnDt").text = str(batch_doc.batch_date)
 
         # Creditor information
         self._create_creditor_information(pmt_inf, settings)
@@ -230,7 +231,8 @@ class SEPAXMLGenerationService:
         dbtr = ET.SubElement(parent_element, "Dbtr")
 
         # Try to get structured address information
-        member_address = self._get_member_structured_address(invoice_item.customer)
+        # invoice_item.member contains the Member DocType name
+        member_address = self._get_member_structured_address(invoice_item.member)
 
         if member_address and member_address.get("name"):
             ET.SubElement(dbtr, "Nm").text = member_address["name"]
@@ -246,8 +248,8 @@ class SEPAXMLGenerationService:
                 for i, line in enumerate(member_address["address"][:2], 1):
                     ET.SubElement(pstl_adr, "AdrLine").text = line
         else:
-            # Fallback to customer name
-            ET.SubElement(dbtr, "Nm").text = invoice_item.customer or "UNKNOWN"
+            # Fallback to member name
+            ET.SubElement(dbtr, "Nm").text = invoice_item.member_name or "UNKNOWN"
 
     def _get_member_structured_address(self, member_name: str) -> Optional[Dict[str, Any]]:
         """

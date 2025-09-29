@@ -53,7 +53,9 @@ class SEPAConfigurationService:
             "organization_address": self._format_company_address(company),
             "country_code": "NL",  # Dutch organizations
             # SEPA credentials
-            "creditor_id": verenigingen_settings.get("sepa_creditor_id"),
+            "creditor_id": verenigingen_settings.get(
+                "creditor_id"
+            ),  # Field name is creditor_id, not sepa_creditor_id
             "bic": verenigingen_settings.get("company_bic"),
             "iban": verenigingen_settings.get("company_iban"),
             # Processing settings
@@ -149,10 +151,12 @@ class SEPAConfigurationService:
         if not creditor_id:
             return False
 
-        # Dutch creditor ID format: NL + 2 digits + ZZZ + 9 alphanumeric
+        # Dutch creditor ID format: NL + 2 check digits + ZZZ + variable length alphanumeric
+        # Standard allows up to 11, but some banks issue longer IDs (up to 15)
+        # Example: NL69ZZZ123456780000 (12 digits after ZZZ)
         import re
 
-        pattern = r"^NL\d{2}ZZZ[A-Z0-9]{9}$"
+        pattern = r"^NL\d{2}ZZZ[A-Z0-9]{1,15}$"
         return bool(re.match(pattern, creditor_id.upper()))
 
     def get_collection_date_settings(self) -> Dict[str, int]:

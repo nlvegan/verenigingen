@@ -367,20 +367,9 @@ function add_batch_summary(frm) {
         </div>
     `;
 
-	// Add or update summary section
-	if (!frm.fields_dict.batch_summary_html) {
-		frm.set_df_property('section_break_1', 'label', __('Batch Summary'));
-		frm.add_field(
-			{
-				fieldname: 'batch_summary_html',
-				fieldtype: 'HTML',
-				options: summary_html
-			},
-			'section_break_1'
-		);
-	} else {
-		$(frm.fields_dict.batch_summary_html.wrapper).html(summary_html);
-	}
+	// Display summary as a dashboard using set_intro
+	// This is the proper way to display dynamic HTML in Frappe forms
+	frm.dashboard.set_headline_alert(summary_html, 'blue');
 }
 
 function calculate_batch_summary(frm) {
@@ -466,8 +455,18 @@ function update_filter_counts(frm) {
 function apply_invoice_filter(frm, filter) {
 	const rows = $(frm.fields_dict.invoices.wrapper).find('.grid-row');
 
-	rows.each(function (idx) {
-		const row_data = frm.doc.invoices[idx];
+	rows.each(function () {
+		// Get the actual row index from the data attribute
+		const row_idx = $(this).attr('data-idx');
+		if (!row_idx) {
+			return; // Skip if no index found
+		}
+
+		const row_data = frm.doc.invoices[parseInt(row_idx) - 1]; // Frappe uses 1-based indexing
+		if (!row_data) {
+			return; // Skip if row data not found
+		}
+
 		let show = true;
 
 		if (filter === 'ready') {

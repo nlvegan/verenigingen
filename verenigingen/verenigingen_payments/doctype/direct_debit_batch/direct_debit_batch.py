@@ -93,6 +93,8 @@ from verenigingen.verenigingen_payments.utils.sepa_utilities import (
 
 class DirectDebitBatch(Document):
     def validate(self):
+        """Validation logic - runs on save"""
+        # All document-modifying logic runs here during save
         self.validate_invoices()
         self.validate_sequence_types()
         self.calculate_totals()
