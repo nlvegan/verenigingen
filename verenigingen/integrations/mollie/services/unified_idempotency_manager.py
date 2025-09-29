@@ -33,10 +33,12 @@ class PaymentIdempotencyCheckResult:
         self.refunds_processed = []  # List of refund_ids that have BOTH PE and payment history
         self.pending_refunds = []  # List of refund_ids from Mollie that need PE creation
         self.payment_history_missing = []  # List of refund_ids that have PE but missing payment history
+        self.refund_check_failed = False  # True if Mollie API call failed
 
         # Chargeback-specific state
         self.chargebacks_processed = []
         self.pending_chargebacks = []
+        self.chargeback_check_failed = False  # True if Mollie API call failed
 
     def is_fully_processed(self) -> bool:
         """Check if payment is completely processed (all components updated)."""
@@ -180,7 +182,7 @@ class UnifiedIdempotencyManager:
                     amount = getattr(ph, "amount", "N/A")
                     date = getattr(ph, "payment_date", "N/A")
                     self.logger.info(
-                        f"    Payment {i+1}: mollie_id={mollie_id}, amount={amount}, date={date}"
+                        f"    Payment {i + 1}: mollie_id={mollie_id}, amount={amount}, date={date}"
                     )
             else:
                 self.logger.error(f"❌ Donation {donation_doc.name} has no payments attribute!")
@@ -259,6 +261,8 @@ class UnifiedIdempotencyManager:
             self.logger.info(f"📋 Mollie SSOT: {len(mollie_refunds)} refunds for payment {payment_id}")
         except Exception as e:
             self.logger.error(f"❌ [unified_idempotency] Failed to fetch Mollie refunds for {payment_id}: {e}")
+            # CRITICAL FIX: Mark check as failed instead of silent return
+            result.refund_check_failed = True
             return
 
         if not mollie_refunds:
@@ -283,18 +287,26 @@ class UnifiedIdempotencyManager:
                 refund_id = pe.reference_no.split("_refund_")[-1]
                 payment_entries_map[refund_id] = pe.name
 
-        # STEP 3: Get donation and check payment history child table
-        donation = None
+        # STEP 3: Check payment history child table using optimized SQL query
         payment_history_map = {}
         if result.donation_name:
-            donation = frappe.get_doc("Donation", result.donation_name)
-            # Map refund IDs in payment history
-            if hasattr(donation, "payments") and donation.payments:
-                for payment_row in donation.payments:
-                    # Payment history might have mollie_payment_id as refund ID or payment ID
-                    mollie_id = payment_row.get("mollie_payment_id")
-                    if mollie_id and mollie_id.startswith("re_"):
-                        payment_history_map[mollie_id] = True
+            # PERFORMANCE FIX: Use direct SQL query instead of loading full donation doc
+            payment_history_rows = frappe.db.sql(
+                """
+                SELECT mollie_payment_id
+                FROM `tabDonation Payment`
+                WHERE parent = %s
+                AND mollie_payment_id IS NOT NULL
+            """,
+                (result.donation_name,),
+                as_dict=True,
+            )
+
+            # Map both refund IDs and main payment ID
+            for row in payment_history_rows:
+                mollie_id = row.mollie_payment_id
+                if mollie_id:
+                    payment_history_map[mollie_id] = True
 
         # STEP 4: Validate each Mollie refund against Frappe state
         for mollie_refund in mollie_refunds:
@@ -396,6 +408,8 @@ class UnifiedIdempotencyManager:
 
             except Exception as e:
                 self.logger.error(f"Failed to fetch Mollie chargebacks for {payment_id}: {e}")
+                # CRITICAL FIX: Mark check as failed instead of silent return
+                result.chargeback_check_failed = True
 
     def mark_refund_processed(self, payment_id: str, refund_id: str, payment_entry_name: str):
         """Mark a specific refund as processed in the unified state tracking."""

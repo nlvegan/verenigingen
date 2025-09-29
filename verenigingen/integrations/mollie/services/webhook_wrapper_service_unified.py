@@ -232,6 +232,20 @@ class UnifiedWebhookWrapperService:
             )
             self.logger.info(f"  - refunds_processed count: {len(processing_state.refunds_processed)}")
 
+            # CRITICAL FIX: Check if refund/chargeback validation failed due to Mollie API errors
+            if processing_state.refund_check_failed or processing_state.chargeback_check_failed:
+                self.logger.error("❌ Cannot process webhook - Mollie API validation failed")
+                duration = time.time() - start_time
+                record_operation_performance("unified_webhook_processing", duration, False)
+                return {
+                    "status": "error",
+                    "message": "Mollie API unavailable - cannot verify refund/chargeback state",
+                    "payment_id": payment_id,
+                    "refund_check_failed": processing_state.refund_check_failed,
+                    "chargeback_check_failed": processing_state.chargeback_check_failed,
+                    "duration_seconds": duration,
+                }
+
             # STEP 2: Handle based on unified state
             if processing_state.is_fully_processed():
                 self.logger.info(f"🎯 ROUTING: {payment_id} → _handle_fully_processed_payment")
@@ -288,9 +302,8 @@ class UnifiedWebhookWrapperService:
                 )
 
         # Handle refunds with missing payment history
-        history_updated_count = 0
         if donation and processing_state.payment_history_missing:
-            history_updated_count = self._update_missing_payment_history(
+            self._update_missing_payment_history(
                 donation, payment_id, processing_state.payment_history_missing
             )
 
