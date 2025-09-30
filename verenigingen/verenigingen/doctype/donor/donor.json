@@ -480,6 +480,12 @@
       "role": "Verenigingen Member"
     },
     {
+      "create": 1,
+      "read": 1,
+      "role": "Verenigingen Webhook User",
+      "write": 1
+    },
+    {
       "permlevel": 1,
       "read": 1,
       "write": 1,

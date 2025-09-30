@@ -231,7 +231,7 @@
    "label": "Company BIC/SWIFT (Optional)"
   },
   {
-   "description": "SEPA Creditor Identifier (Incassant ID) issued by your bank for direct debit authorization. Format: NL##ZZZ############ Example: NL13ZZZ123456780000",
+   "description": "SEPA Creditor Identifier (Incassant ID) issued by your bank for direct debit authorization. Format: NL + 2 check digits + ZZZ + up to 11 alphanumeric characters (18 chars total). Example: NL60ZZZ12345678002",
    "fieldname": "creditor_id",
    "fieldtype": "Data",
    "label": "SEPA Creditor ID (Incassant ID)"
@@ -860,6 +860,10 @@
    "role": "Verenigingen Financial Manager",
    "share": 1,
    "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Verenigingen Webhook User"
   }
  ],
  "quick_entry": 1,
