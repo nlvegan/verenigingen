@@ -22,7 +22,7 @@ Comprehensive role structure with 13 defined role profiles:
 **Governance Roles:**
 
 - **Verenigingen National Board Member**: National oversight
-- **Verenigingen Board Member**: Chapter board leadership
+- **Verenigingen Chapter Board Member**: Chapter board leadership
 - **Verenigingen Treasurer**: Financial management
 - **Verenigingen Kascommissie**: Financial audit/compliance
 

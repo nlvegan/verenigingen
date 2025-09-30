@@ -114,7 +114,7 @@ def determine_user_profile(user_email):
         # Check if also treasurer
         if "Accounts User" in user_roles:
             return "Verenigingen Treasurer"
-        return "Verenigingen Chapter Board"
+        return "Verenigingen Chapter Board Member"
 
     # 6. Volunteer-based assignment
     if member:

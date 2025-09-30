@@ -95,8 +95,8 @@
   {
     "doctype": "Module Profile",
     "docstatus": 0,
-    "name": "Verenigingen Board Member",
-    "module_profile_name": "Verenigingen Board Member",
+    "name": "Verenigingen Chapter Board Member",
+    "module_profile_name": "Verenigingen Chapter Board Member",
     "block_modules": [
       {"module": "Assets"},
       {"module": "Automation"},

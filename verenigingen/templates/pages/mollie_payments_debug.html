@@ -415,6 +415,41 @@
 
         <!-- Webhook Debug Tab -->
         <div id="webhooks-tab" class="tab-content">
+            <!-- Test Webhook Processing Section -->
+            <div class="debug-card mb-6">
+                <div class="p-4 border border-gray-300 rounded-lg bg-green-50">
+                    <h3 class="text-lg font-semibold text-green-800 mb-2">
+                        <i class="fa fa-play mr-2"></i>{{ _("Test Webhook Processing") }}
+                    </h3>
+                    <p class="text-green-700 mb-4">{{ _("Manually trigger webhook processing for any payment ID - useful for testing failed webhooks") }}</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Payment/Transaction ID") }}</label>
+                            <input type="text" id="test-webhook-payment-id" class="debug-input"
+                                   placeholder="tr_xxxxxxxxxx">
+                        </div>
+                    </div>
+
+                    <button onclick="testWebhookProcessing()" class="success-button">
+                        <i class="fa fa-play mr-1"></i>{{ _("Process Webhook") }}
+                    </button>
+
+                    <div id="test-webhook-result" class="result-area" style="display: none;"></div>
+
+                    <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <div class="text-sm text-blue-700">
+                            <p class="mb-2"><strong>{{ _("What this does:") }}</strong></p>
+                            <p class="mb-1">{{ _("• Calls the unified webhook handler directly") }}</p>
+                            <p class="mb-1">{{ _("• Fetches payment data from Mollie API") }}</p>
+                            <p class="mb-1">{{ _("• Processes refunds, chargebacks, and payment history") }}</p>
+                            <p>{{ _("• Updates database records just like a real webhook") }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Debug Webhook Delivery Section -->
             <div class="debug-card">
                 <h2 class="text-xl font-semibold mb-4">{{ _("Webhook Debug") }}</h2>
                 <p class="text-gray-600 mb-4">{{ _("Debug webhook delivery and payment status changes") }}</p>
@@ -1137,6 +1172,36 @@ function listChargebacks() {
 }
 
 // Webhook Debug Functions
+function testWebhookProcessing() {
+    const paymentId = document.getElementById('test-webhook-payment-id').value.trim();
+    if (!paymentId) {
+        alert('{{ _("Please enter a payment ID") }}');
+        return;
+    }
+
+    showLoading('test-webhook-result', '{{ _("Processing webhook...") }}');
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.test_webhook_processing', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: `payment_id=${encodeURIComponent(paymentId)}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            displayResult('test-webhook-result', formatWebhookTestResult(data.message), data.message.status === 'error' ? 'error' : 'success');
+        } else {
+            displayResult('test-webhook-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('test-webhook-result', `Error: ${error.message}`, 'error');
+    });
+}
+
 function debugWebhookDelivery() {
     const paymentId = document.getElementById('webhook-payment-id-input').value.trim();
     if (!paymentId) {
@@ -1667,6 +1732,49 @@ function formatChargebackListResult(data) {
     } else {
         html += `<p><strong>No chargebacks found</strong></p>`;
     }
+
+    return html;
+}
+
+function formatWebhookTestResult(data) {
+    let html = `<h3>Webhook Test Results</h3>`;
+    html += `<p><strong>Payment ID:</strong> ${data.payment_id}</p>`;
+    html += `<p><strong>Test Mode:</strong> ${data.test_mode}</p>`;
+    html += `<p><strong>Timestamp:</strong> ${data.timestamp}</p>`;
+
+    if (data.error) {
+        html += `<div style="color: #dc2626; background: #fef2f2; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+        html += `<strong>Error:</strong> ${data.error}`;
+        html += `</div>`;
+        return html;
+    }
+
+    // Status badge
+    let statusClass = 'status-active';
+    if (data.status === 'error') statusClass = 'status-error';
+    else if (data.status === 'pending') statusClass = 'status-pending';
+
+    html += `<div style="background: ${data.status === 'success' ? '#f0fdf4' : '#fef2f2'}; padding: 1rem; border-radius: 4px; margin: 1rem 0;">`;
+    html += `<h4>Processing Result</h4>`;
+    html += `<p><strong>Status:</strong> <span class="status-badge ${statusClass}">${data.status.toUpperCase()}</span></p>`;
+    html += `<p><strong>Message:</strong> ${data.message}</p>`;
+    html += `<p><strong>Webhook Called:</strong> ${data.webhook_called ? 'Yes' : 'No'}</p>`;
+
+    if (data.http_status) {
+        html += `<p><strong>HTTP Status:</strong> ${data.http_status}</p>`;
+    }
+
+    if (data.webhook_status) {
+        html += `<p><strong>Webhook Status:</strong> ${data.webhook_status}</p>`;
+    }
+
+    // Show webhook result if available
+    if (data.webhook_result && typeof data.webhook_result === 'object') {
+        html += `<h5 style="margin-top: 1rem;">Webhook Response:</h5>`;
+        html += `<pre style="background: white; padding: 0.5rem; border-radius: 4px; max-height: 300px; overflow-y: auto; font-size: 0.875rem;">${JSON.stringify(data.webhook_result, null, 2)}</pre>`;
+    }
+
+    html += `</div>`;
 
     return html;
 }

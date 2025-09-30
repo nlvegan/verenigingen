@@ -390,7 +390,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-09-26 19:30:28.862636",
+ "modified": "2025-09-30 08:49:05.210948",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Donation",
@@ -424,6 +424,7 @@
    "write": 1
   },
   {
+   "create": 1,
    "read": 1,
    "role": "Verenigingen Webhook User",
    "write": 1

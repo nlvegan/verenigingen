@@ -54,9 +54,11 @@ def validate_webhook_user_permissions():
             missing_permissions.append(f"{doctype} (write)")
 
     if missing_permissions:
+        # Use shorter title to avoid exceeding Error Log title length (140 chars)
+        error_msg = f"Webhook user {current_user} missing permissions:\n\n{chr(10).join(missing_permissions)}"
         frappe.log_error(
-            f"Webhook user {current_user} missing permissions: {missing_permissions}",
-            "Mollie Webhook Permissions Error",
+            error_msg,
+            "Webhook Permissions Error",
         )
         return False
 

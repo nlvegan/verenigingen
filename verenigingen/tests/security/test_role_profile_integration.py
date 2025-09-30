@@ -30,7 +30,7 @@ class TestRoleProfileIntegration(EnhancedTestCase):
         # Verify key role profiles are mapped
         expected_profiles = [
             "Verenigingen Treasurer",
-            "Verenigingen Board Member",
+            "Verenigingen Chapter Board Member",
             "Verenigingen Volunteer",
             "Verenigingen Administrator"
         ]
@@ -91,7 +91,7 @@ class TestRoleProfileIntegration(EnhancedTestCase):
         # Test that higher levels include lower levels
         mapping = self.framework.ROLE_PROFILE_SECURITY_MAPPING
         treasurer_levels = mapping.get("Verenigingen Treasurer", [])
-        board_levels = mapping.get("Verenigingen Board Member", [])
+        board_levels = mapping.get("Verenigingen Chapter Board Member", [])
         volunteer_levels = mapping.get("Verenigingen Volunteer", [])
 
         # Treasurer should have more access levels than board member

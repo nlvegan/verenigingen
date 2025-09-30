@@ -539,8 +539,13 @@ class WebhookService:
             donor_doc = frappe.get_doc("Donor", donation.donor)
             customer = donor_doc.customer
             if not customer:
-                frappe.logger().error(f"❌ No customer linked to donor {donation.donor}")
-                return None
+                frappe.logger().info(f"🔄 No customer linked to donor {donation.donor}, creating one...")
+                # Auto-create customer from donor
+                customer = donor_doc.get_or_create_customer()
+                if not customer:
+                    frappe.logger().error(f"❌ Failed to create customer for donor {donation.donor}")
+                    return None
+                frappe.logger().info(f"✅ Created customer {customer} for donor {donation.donor}")
 
             # Check if Payment Entry already exists (idempotency)
             existing_pe = frappe.db.get_value(

@@ -101,7 +101,7 @@ def migrate_chapter_configurations():
     
     # Since hardcoded mappings were removed in the refactoring,
     # use a sensible default for chapter board role profiles
-    default_profile = "Verenigingen Board Member"
+    default_profile = "Verenigingen Chapter Board Member"
     
     if not frappe.db.exists("Role Profile", default_profile):
         print(f"Default role profile '{default_profile}' does not exist, skipping chapter migration")
@@ -280,7 +280,7 @@ def setup_example_chapter():
         chapter_doc = frappe.get_doc("Chapter", example_chapter_name)
         
         # Set default profile
-        chapter_doc.default_board_role_profile = "Verenigingen Board Member"
+        chapter_doc.default_board_role_profile = "Verenigingen Chapter Board Member"
         
         # Enable role-specific profiles
         chapter_doc.enable_board_role_specific_profiles = 1

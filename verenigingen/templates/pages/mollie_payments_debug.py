@@ -280,6 +280,27 @@ def debug_webhook_delivery(payment_id):
 
 @frappe.whitelist(allow_guest=False)
 @high_security_api(operation_type=OperationType.FINANCIAL)
+def test_webhook_processing(payment_id):
+    """
+    Test webhook processing for a specific payment ID.
+
+    Simulates webhook delivery by calling the unified webhook handler directly.
+    Useful for testing older failed webhooks or manually triggering webhook processing.
+    """
+    try:
+        if not has_mollie_debug_access():
+            frappe.throw(_("Access denied"))
+
+        service = MollieDebugService()
+        return service.test_webhook_processing(payment_id)
+
+    except Exception as e:
+        frappe.log_error(f"Webhook test error: {str(e)}")
+        return {"error": str(e), "payment_id": payment_id, "status": "error", "timestamp": frappe.utils.now()}
+
+
+@frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def admin_cancel_payment(payment_id, reason="Administrative cancellation"):
     """Admin function to cancel any payment (if cancellable)"""
     try:

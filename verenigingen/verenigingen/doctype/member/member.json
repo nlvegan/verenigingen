@@ -1010,7 +1010,7 @@
    "link_fieldname": "volunteer"
   }
  ],
- "modified": "2025-09-25 22:41:28.320068",
+ "modified": "2025-09-30 17:44:01.163829",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Member",
@@ -1030,22 +1030,10 @@
    "write": 1
   },
   {
-   "create": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
+   "permlevel": 1,
    "read": 1,
-   "report": 1,
-   "role": "Verenigingen Staff",
-   "share": 1,
+   "role": "System Manager",
    "write": 1
-  },
-  {
-   "email": 1,
-   "print": 1,
-   "read": 1,
-   "role": "Verenigingen Staff",
-   "share": 1
   },
   {
    "create": 1,
@@ -1060,15 +1048,20 @@
    "write": 1
   },
   {
-   "create": 1,
+   "permlevel": 1,
    "read": 1,
-   "role": "Verenigingen Webhook User",
+   "role": "Verenigingen Administrator",
    "write": 1
   },
   {
-   "permlevel": 1,
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
    "read": 1,
-   "role": "System Manager",
+   "report": 1,
+   "role": "Verenigingen Staff",
+   "share": 1,
    "write": 1
   },
   {
@@ -1078,9 +1071,9 @@
    "write": 1
   },
   {
-   "permlevel": 1,
+   "create": 1,
    "read": 1,
-   "role": "Verenigingen Administrator",
+   "role": "Verenigingen Webhook User",
    "write": 1
   },
   {

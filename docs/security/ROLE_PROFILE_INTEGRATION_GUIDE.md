@@ -26,7 +26,7 @@ SecurityLevel.CRITICAL: SecurityProfile(
 # New system - role profiles properly mapped to security levels
 ROLE_PROFILE_SECURITY_MAPPING = {
     "Verenigingen Treasurer": [SecurityLevel.CRITICAL, SecurityLevel.HIGH, SecurityLevel.MEDIUM],
-    "Verenigingen Board Member": [SecurityLevel.MEDIUM, SecurityLevel.LOW],
+    "Verenigingen Chapter Board Member": [SecurityLevel.MEDIUM, SecurityLevel.LOW],
     "Verenigingen Volunteer": [SecurityLevel.LOW],  # + self_service_only
     # ... all 13 role profiles mapped
 }
@@ -59,7 +59,7 @@ ROLE_PROFILE_SECURITY_MAPPING = {
 **Role Profiles with MEDIUM access:**
 
 - All HIGH level profiles +
-- `Verenigingen Board Member` - Chapter operations (+ contextual validation)
+- `Verenigingen Chapter Board Member` - Chapter operations (+ contextual validation)
 - `Verenigingen Kascommissie` - Audit and compliance access
 - `Verenigingen Staff` - Administrative support
 
@@ -330,7 +330,7 @@ print(result)
 
 - **Responsibility**: "Can this role profile perform this TYPE of operation?"
 - **Handles**: Role profile → security level mapping, authentication, rate limiting
-- **Example**: "Verenigingen Board Member can perform MEDIUM security level operations"
+- **Example**: "Verenigingen Chapter Board Member can perform MEDIUM security level operations"
 
 **Business Logic Layer:**
 

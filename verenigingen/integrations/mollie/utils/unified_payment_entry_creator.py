@@ -44,8 +44,13 @@ def create_unified_payment_entry(
         customer = donor_doc.customer
 
         if not customer:
-            frappe.logger().error(f"❌ No customer linked to donor {donation_doc.donor}")
-            return None
+            frappe.logger().info(f"🔄 No customer linked to donor {donation_doc.donor}, creating one...")
+            # Auto-create customer from donor
+            customer = donor_doc.get_or_create_customer()
+            if not customer:
+                frappe.logger().error(f"❌ Failed to create customer for donor {donation_doc.donor}")
+                return None
+            frappe.logger().info(f"✅ Created customer {customer} for donor {donation_doc.donor}")
 
         # Build reference number with suffix for refunds
         reference_no = mollie_payment_id + reference_suffix

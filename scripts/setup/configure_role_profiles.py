@@ -43,7 +43,7 @@ def check_system_requirements() -> Tuple[bool, List[str]]:
     # Check common role profiles exist
     common_profiles = [
         "Verenigingen Volunteer",
-        "Verenigingen Board Member", 
+        "Verenigingen Chapter Board Member",
         "Verenigingen Treasurer",
         "Verenigingen Team Leader"
     ]
@@ -121,7 +121,7 @@ def suggest_team_role_profile(team_name: str) -> str:
     if any(keyword in name_lower for keyword in ["kas", "treasury", "finance", "treasurer"]):
         return "Verenigingen Treasurer"
     elif any(keyword in name_lower for keyword in ["board", "bestuur", "governance"]):
-        return "Verenigingen Board Member"
+        return "Verenigingen Chapter Board Member"
     elif any(keyword in name_lower for keyword in ["lead", "manager", "head", "coordinator"]):
         return "Verenigingen Team Leader"
     else:
@@ -131,7 +131,7 @@ def suggest_team_role_profile(team_name: str) -> str:
 def suggest_chapter_role_profile(chapter_name: str) -> str:
     """Suggest a role profile for chapter board members"""
     # Most chapter board members should have board permissions
-    return "Verenigingen Board Member"
+    return "Verenigingen Chapter Board Member"
 
 
 def configure_team(team_name: str, role_profile: str, enable_role_specific: bool = False) -> bool:

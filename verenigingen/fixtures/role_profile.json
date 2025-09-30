@@ -2,8 +2,8 @@
   {
     "doctype": "Role Profile",
     "docstatus": 0,
-    "name": "Verenigingen Board Member",
-    "role_profile": "Verenigingen Board Member",
+    "name": "Verenigingen Chapter Board Member",
+    "role_profile": "Verenigingen Chapter Board Member",
     "roles": [
       {
         "role": "Verenigingen Member"
@@ -284,7 +284,10 @@
         "role": "Verenigingen Webhook User"
       },
       {
-        "role": "Webhook Payment Processor"
+        "role": "Accounts User"
+      },
+      {
+        "role": "Sales User"
       }
     ]
   }

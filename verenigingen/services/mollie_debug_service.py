@@ -954,3 +954,47 @@ class MollieDebugService:
             frappe.log_error(f"Mollie search customers error: {str(e)}")
 
         return result
+
+    def test_webhook_processing(self, payment_id):
+        """
+        Test webhook processing for a specific payment ID.
+
+        Calls the unified webhook handler directly to simulate webhook delivery.
+        """
+        if not payment_id:
+            raise ValueError(_("Payment ID is required"))
+
+        from verenigingen.integrations.mollie.api.unified_payment_api import handle_payment_webhook
+
+        result = {
+            "payment_id": payment_id,
+            "test_mode": self.mollie_client.is_test_mode(),
+            "timestamp": frappe.utils.now(),
+            "webhook_called": False,
+            "webhook_result": None,
+            "error": None,
+            "status": "pending",
+        }
+
+        try:
+            # Call the unified webhook handler
+            webhook_result = handle_payment_webhook(payment_id=payment_id)
+
+            result["webhook_called"] = True
+            result["webhook_result"] = webhook_result
+            result["status"] = "success"
+            result["message"] = f"Webhook processed successfully for payment {payment_id}"
+
+            # Extract useful info from result if available
+            if isinstance(webhook_result, dict):
+                result["http_status"] = frappe.local.response.get("http_status_code", 200)
+                result["webhook_status"] = webhook_result.get("status", "unknown")
+
+        except Exception as e:
+            result["error"] = str(e)
+            result["status"] = "error"
+            result["message"] = f"Webhook processing failed: {str(e)}"
+            result["http_status"] = frappe.local.response.get("http_status_code", 500)
+            frappe.log_error(f"Webhook test processing error: {str(e)}")
+
+        return result

@@ -21,7 +21,7 @@ def setup_role_profiles():
         "Verenigingen Member": "Verenigingen Basic Access",
         "Verenigingen Volunteer": "Verenigingen Volunteer Access",
         "Verenigingen Team Leader": "Verenigingen Volunteer Access",
-        "Verenigingen Chapter Board": "Verenigingen Volunteer Access",
+        "Verenigingen Chapter Board Member": "Verenigingen Volunteer Access",
         "Verenigingen Treasurer": "Verenigingen Financial Access",
         "Verenigingen Chapter Administrator": "Verenigingen Management Access",
         "Verenigingen Staff": "Verenigingen Management Access",
@@ -117,7 +117,7 @@ def get_recommended_role_profile(user: str) -> str | None:
 
     # 5. Chapter Board roles
     if "Verenigingen Chapter Board Member" in user_roles:
-        return "Verenigingen Chapter Board"
+        return "Verenigingen Chapter Board Member"
 
     # 6. Volunteer roles
     volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
@@ -219,7 +219,7 @@ def setup_role_profiles_cli():
             "Verenigingen Member": "Verenigingen Basic Access",
             "Verenigingen Volunteer": "Verenigingen Volunteer Access",
             "Verenigingen Team Leader": "Verenigingen Volunteer Access",
-            "Verenigingen Chapter Board": "Verenigingen Volunteer Access",
+            "Verenigingen Chapter Board Member": "Verenigingen Volunteer Access",
             "Verenigingen Treasurer": "Verenigingen Financial Access",
             "Verenigingen Chapter Administrator": "Verenigingen Management Access",
             "Verenigingen Staff": "Verenigingen Management Access",
@@ -292,7 +292,7 @@ def setup_role_profiles_cli():
                     recommended_profile = "Verenigingen Auditor"
                 # Chapter Board roles
                 elif "Verenigingen Chapter Board Member" in user_roles:
-                    recommended_profile = "Verenigingen Chapter Board"
+                    recommended_profile = "Verenigingen Chapter Board Member"
                 # Volunteer roles
                 elif frappe.db.get_value("Volunteer", {"member": member.name}, "name"):
                     # Check if team leader

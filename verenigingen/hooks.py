@@ -874,7 +874,7 @@ fixtures = [
                     "Verenigingen Member",
                     "Verenigingen Volunteer",
                     "Verenigingen Team Leader",
-                    "Verenigingen Chapter Board",
+                    "Verenigingen Chapter Board Member",
                     "Verenigingen Treasurer",
                     "Verenigingen Chapter Administrator",
                     "Verenigingen Staff",
@@ -894,7 +894,7 @@ fixtures = [
                 [
                     "Verenigingen Member",
                     "Verenigingen Volunteer",
-                    "Verenigingen Board Member",
+                    "Verenigingen Chapter Board Member",
                     "Verenigingen Auditor",
                     "Verenigingen National Board Member",
                     "Verenigingen Treasurer",

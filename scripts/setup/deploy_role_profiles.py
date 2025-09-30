@@ -168,7 +168,7 @@ def link_module_profiles():
         "Verenigingen Member": "Verenigingen Basic Access",
         "Verenigingen Volunteer": "Verenigingen Volunteer Access",
         "Verenigingen Team Leader": "Verenigingen Team Management Access",
-        "Verenigingen Chapter Board": "Verenigingen Volunteer Access",
+        "Verenigingen Chapter Board Member": "Verenigingen Volunteer Access",
         "Verenigingen Treasurer": "Verenigingen Financial Access",
         "Verenigingen Chapter Administrator": "Verenigingen Management Access",
         "Verenigingen Communications Officer": "Verenigingen Communications Access",

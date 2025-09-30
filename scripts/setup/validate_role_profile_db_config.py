@@ -37,7 +37,7 @@ def validate_system_requirements() -> Tuple[bool, List[str]]:
     # Check common role profiles exist  
     common_profiles = [
         "Verenigingen Volunteer",
-        "Verenigingen Board Member", 
+        "Verenigingen Chapter Board Member",
         "Verenigingen Treasurer"
     ]
     
@@ -103,7 +103,7 @@ def get_chapter_configuration_status() -> Dict:
             status["unconfigured_chapters"].append({
                 "name": chapter.name,
                 "chapter_name": chapter.chapter_name,
-                "suggested_profile": "Verenigingen Board Member"  # Default for chapters
+                "suggested_profile": "Verenigingen Chapter Board Member"  # Default for chapters
             })
     
     return status
@@ -117,7 +117,7 @@ def suggest_team_profile(team_name: str) -> str:
     if any(keyword in name_lower for keyword in ["kas", "treasury", "finance", "treasurer"]):
         return "Verenigingen Treasurer"
     elif any(keyword in name_lower for keyword in ["board", "bestuur", "governance"]):
-        return "Verenigingen Board Member"
+        return "Verenigingen Chapter Board Member"
     else:
         return "Verenigingen Volunteer"  # Default for most teams
 

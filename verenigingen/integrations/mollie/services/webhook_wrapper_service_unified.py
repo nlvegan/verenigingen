@@ -237,14 +237,26 @@ class UnifiedWebhookWrapperService:
                 self.logger.error("❌ Cannot process webhook - Mollie API validation failed")
                 duration = time.time() - start_time
                 record_operation_performance("unified_webhook_processing", duration, False)
-                return {
-                    "status": "error",
+
+                # Set HTTP 503 status for service unavailability
+                frappe.local.response.http_status_code = 503
+                frappe.local.response["Retry-After"] = "60"  # Mollie should retry after 60 seconds
+
+                response = {
+                    "status": "service_unavailable",
                     "message": "Mollie API unavailable - cannot verify refund/chargeback state",
                     "payment_id": payment_id,
-                    "refund_check_failed": processing_state.refund_check_failed,
-                    "chargeback_check_failed": processing_state.chargeback_check_failed,
                     "duration_seconds": duration,
                 }
+
+                # Include debug info only in developer mode
+                if frappe.conf.get("developer_mode"):
+                    response["debug"] = {
+                        "refund_check_failed": processing_state.refund_check_failed,
+                        "chargeback_check_failed": processing_state.chargeback_check_failed,
+                    }
+
+                return response
 
             # STEP 2: Handle based on unified state
             if processing_state.is_fully_processed():
@@ -797,7 +809,7 @@ class UnifiedWebhookWrapperService:
                     "payment_entry": payment_entry_name,
                     "amount": payment_amount,
                     "payment_date": paid_date,
-                    "payment_method": payment_data.get("method", ""),
+                    "payment_method": "Mollie",  # Use standard Mode of Payment, not Mollie's method
                     "payment_status": "Paid",
                 },
             )
