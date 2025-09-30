@@ -313,3 +313,52 @@ def admin_cancel_payment(payment_id, reason="Administrative cancellation"):
     except Exception as e:
         frappe.log_error(f"Mollie admin payment cancellation error: {str(e)}")
         return {"error": str(e), "payment_id": payment_id}
+
+
+@frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def create_subscription(customer_id, amount, interval, description, mandate_id=None, start_date=None):
+    """Create a new Mollie subscription for testing purposes (Verenigingen Administrator only)"""
+    try:
+        # Restrict to Verenigingen Administrator only
+        user_roles = frappe.get_roles(frappe.session.user)
+        if "Verenigingen Administrator" not in user_roles:
+            frappe.throw(_("Access denied - Verenigingen Administrator role required"))
+
+        service = MollieDebugService()
+        return service.create_subscription(customer_id, amount, interval, description, mandate_id, start_date)
+
+    except Exception as e:
+        frappe.log_error(f"Mollie subscription creation error: {str(e)}")
+        return {"error": str(e), "customer_id": customer_id, "status": "error"}
+
+
+@frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def list_subscriptions(customer_id, limit=50, active_only=True):
+    """List subscriptions for a specific customer with optional filtering"""
+    try:
+        if not has_mollie_debug_access():
+            frappe.throw(_("Access denied"))
+
+        if not customer_id:
+            frappe.throw(_("Customer ID is required"))
+
+        # Validate and sanitize limit
+        try:
+            limit = int(limit)
+            if not 1 <= limit <= 250:
+                limit = 50
+        except (ValueError, TypeError):
+            limit = 50
+
+        # Convert string boolean from form data
+        if isinstance(active_only, str):
+            active_only = active_only.lower() in ("true", "1", "yes")
+
+        service = MollieDebugService()
+        return service.list_subscriptions(customer_id, limit, active_only)
+
+    except Exception as e:
+        frappe.log_error(f"Mollie list subscriptions error: {str(e)}")
+        return {"error": str(e), "customer_id": customer_id}

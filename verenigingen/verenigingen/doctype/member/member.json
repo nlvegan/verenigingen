@@ -31,15 +31,17 @@
   "notes_section",
   "notes",
   "membership_tab",
+  "membership_and_dues_section",
+  "current_membership_type",
   "current_membership_plan",
   "current_dues_schedule",
+  "dues_schedule",
+  "dues_rate",
+  "column_break_incg",
   "next_invoice_date",
-  "current_membership_type",
   "current_membership_start",
   "current_membership_end",
-  "fee_management_section",
-  "dues_rate",
-  "column_break_fee",
+  "amendment_status_html",
   "fee_change_history_section",
   "fee_change_history",
   "payments_tab",
@@ -47,6 +49,7 @@
   "payment_method",
   "mollie_subscription_section",
   "mollie_customer_id",
+  "mollie_mandate_id",
   "mollie_subscription_id",
   "column_break_mollie",
   "subscription_status",
@@ -54,15 +57,14 @@
   "subscription_cancelled_date",
   "bank_details_section",
   "iban",
-  "bic",
   "bank_account_name",
+  "bic",
+  "column_break_optn",
   "payment_reference",
   "credit_card_number",
-  "column_break_31",
   "iban_history_section",
   "iban_history",
   "membership_status",
-  "dues_schedule",
   "sepa_mandates_section",
   "sepa_mandates",
   "payment_history_tab",
@@ -98,8 +100,6 @@
   "accepts_optional_communications",
   "termination_status_section",
   "termination_status_html",
-  "amendment_status_section",
-  "amendment_status_html",
   "erpnext_integration_section",
   "customer",
   "contact",
@@ -123,11 +123,6 @@
   "health_check_section",
   "custom_needs_health_check",
   "financial_details_section",
-  "employer",
-  "occupation",
-  "column_break_financial",
-  "annual_income",
-  "tax_residence",
   "student_status",
   "donation_interest",
   "address_optimization_section",
@@ -227,15 +222,13 @@
    "depends_on": "eval:doc.payment_method == 'Mollie'",
    "fieldname": "mollie_customer_id",
    "fieldtype": "Data",
-   "label": "Mollie Customer ID",
-   "read_only": 1
+   "label": "Mollie Customer ID"
   },
   {
    "depends_on": "eval:doc.payment_method == 'Mollie'",
    "fieldname": "mollie_subscription_id",
    "fieldtype": "Data",
-   "label": "Mollie Subscription ID",
-   "read_only": 1
+   "label": "Mollie Subscription ID"
   },
   {
    "fieldname": "column_break_mollie",
@@ -298,7 +291,9 @@
    "description": "Set this to reset the member ID counter to a specific number",
    "fieldname": "reset_counter_to",
    "fieldtype": "Int",
-   "label": "Reset Counter To"
+   "hidden": 1,
+   "label": "Reset Counter To",
+   "read_only": 1
   },
   {
    "depends_on": "eval:doc.reset_counter_to && frappe.user.has_role('System Manager')",
@@ -540,13 +535,6 @@
    "read_only": 1
   },
   {
-   "collapsible": 1,
-   "depends_on": "eval:doc.name",
-   "fieldname": "amendment_status_section",
-   "fieldtype": "Section Break",
-   "label": "Fee Amendment Status"
-  },
-  {
    "description": "Shows pending membership fee amendment requests",
    "fieldname": "amendment_status_html",
    "fieldtype": "HTML",
@@ -655,10 +643,6 @@
    "fieldtype": "Date",
    "label": "End Date",
    "read_only": 1
-  },
-  {
-   "fieldname": "column_break_31",
-   "fieldtype": "Column Break"
   },
   {
    "fetch_from": "current_membership.plan.status",
@@ -782,31 +766,6 @@
    "label": "Financial Details"
   },
   {
-   "fieldname": "employer",
-   "fieldtype": "Data",
-   "label": "Employer"
-  },
-  {
-   "fieldname": "occupation",
-   "fieldtype": "Data",
-   "label": "Occupation"
-  },
-  {
-   "fieldname": "column_break_financial",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "annual_income",
-   "fieldtype": "Select",
-   "label": "Annual Income Range",
-   "options": "\nUnder \u20ac25,000\n\u20ac25,000 - \u20ac40,000\n\u20ac40,000 - \u20ac60,000\n\u20ac60,000 - \u20ac80,000\n\u20ac80,000 - \u20ac100,000\nOver \u20ac100,000\nPrefer not to say"
-  },
-  {
-   "fieldname": "tax_residence",
-   "fieldtype": "Data",
-   "label": "Tax Residence Country"
-  },
-  {
    "default": "0",
    "fieldname": "student_status",
    "fieldtype": "Check",
@@ -852,21 +811,11 @@
    "options": "Volunteer Assignment"
   },
   {
-   "depends_on": "eval:!doc.__islocal",
-   "fieldname": "fee_management_section",
-   "fieldtype": "Section Break",
-   "label": "Membership & Dues"
-  },
-  {
    "description": "Current dues rate for this member (from standard amount, tier, calculator, or custom)",
    "fieldname": "dues_rate",
    "fieldtype": "Currency",
    "label": "Dues Rate",
    "read_only": 1
-  },
-  {
-   "fieldname": "column_break_fee",
-   "fieldtype": "Column Break"
   },
   {
    "depends_on": "eval:doc.fee_change_history && doc.fee_change_history.length > 0",
@@ -950,6 +899,24 @@
    "fieldtype": "Link",
    "label": "Contact",
    "options": "Contact"
+  },
+  {
+   "fieldname": "membership_and_dues_section",
+   "fieldtype": "Section Break",
+   "label": "Membership and Dues"
+  },
+  {
+   "fieldname": "column_break_incg",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "mollie_mandate_id",
+   "fieldtype": "Data",
+   "label": "Mollie Mandate ID"
+  },
+  {
+   "fieldname": "column_break_optn",
+   "fieldtype": "Column Break"
   }
  ],
  "links": [
@@ -1010,7 +977,7 @@
    "link_fieldname": "volunteer"
   }
  ],
- "modified": "2025-09-30 17:44:01.163829",
+ "modified": "2025-09-30 23:22:44.946430",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Member",

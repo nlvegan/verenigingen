@@ -44,7 +44,9 @@
     "dues_schedule",
     "notes_section",
     "internal_notes",
-    "processing_notes"
+    "processing_notes",
+    "mollie_sync_status",
+    "mollie_sync_completed"
   ],
   "fields": [
     {
@@ -289,6 +291,30 @@
       "fieldtype": "Text Editor",
       "label": "Processing Notes",
       "read_only": 1
+    },
+    {
+      "default": "Not Started",
+      "fieldname": "mollie_sync_status",
+      "fieldtype": "Select",
+      "label": "Mollie Sync Status",
+      "options": "Not Started\nQueued\nIn Progress\nCompleted\nFailed",
+      "read_only": 1,
+      "hidden": 0,
+      "no_copy": 1,
+      "print_hide": 1,
+      "depends_on": "eval:doc.status=='Applied'",
+      "description": "Status of Mollie subscription sync for this amendment"
+    },
+    {
+      "default": "0",
+      "fieldname": "mollie_sync_completed",
+      "fieldtype": "Check",
+      "label": "Mollie Sync Completed",
+      "read_only": 1,
+      "hidden": 1,
+      "no_copy": 1,
+      "print_hide": 1,
+      "description": "Internal flag: Set to 1 after successful Mollie subscription sync to prevent duplicate processing"
     }
   ],
   "links": [],

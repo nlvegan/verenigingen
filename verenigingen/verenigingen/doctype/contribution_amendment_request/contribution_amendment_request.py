@@ -348,6 +348,150 @@ class ContributionAmendmentRequest(Document):
             self.cancel_conflicting_amendments()
             self.save()
 
+    def on_update(self):
+        """Handle status changes and trigger Mollie sync when applicable.
+
+        When amendment status becomes 'Applied', queues a background job to sync
+        the subscription update to Mollie. This ensures the database transaction
+        commits before making external API calls, preventing partial state issues.
+
+        The job is deduplicated to prevent multiple sync attempts if the document
+        is updated multiple times before the job executes.
+        """
+        # Check if status just changed to "Applied"
+        if self.has_value_changed("status") and self.status == "Applied":
+            # Emit event for Mollie subscription sync
+            frappe.publish_realtime(
+                event="amendment_applied",
+                message={
+                    "amendment_id": self.name,
+                    "membership_id": self.membership,
+                    "amendment_type": self.amendment_type,
+                    "effective_date": self.effective_date,
+                },
+                user=frappe.session.user,
+            )
+
+            # Only queue job if not already completed or queued
+            if not self.mollie_sync_completed and self.mollie_sync_status in ["Not Started", "Failed"]:
+                # Check if job already queued/running
+                existing_job = frappe.get_all(
+                    "RQ Job",
+                    filters={"job_name": f"mollie_sync_{self.name}", "status": ["in", ["queued", "started"]]},
+                    limit=1,
+                )
+
+                if existing_job:
+                    frappe.logger().info(f"Mollie sync job already queued for {self.name}")
+                    return
+
+                # Update status to Queued before queuing job
+                frappe.db.set_value(
+                    "Contribution Amendment Request",
+                    self.name,
+                    "mollie_sync_status",
+                    "Queued",
+                    update_modified=False,
+                )
+                frappe.db.commit()
+
+                # Queue background job for Mollie sync
+                # This ensures database transaction commits before external API calls
+                frappe.enqueue(
+                    "verenigingen.integrations.mollie.events.amendment_events.sync_mollie_subscription_on_amendment_applied",
+                    queue="default",
+                    timeout=60,
+                    doc=self,
+                    is_async=True,
+                    job_name=f"mollie_sync_{self.name}",
+                    deduplicate=True,
+                    enqueue_after_commit=True,
+                )
+
+    def handle_mollie_sync_failure(self, error_message):
+        """Handle Mollie sync failure notification.
+
+        Called when background sync job fails. Updates status and notifies administrators.
+
+        Args:
+            error_message: Error message from failed sync operation
+        """
+        frappe.logger().error(f"Mollie sync failed for amendment {self.name}: {error_message}")
+
+        # Update status to Failed
+        frappe.db.set_value(
+            "Contribution Amendment Request", self.name, "mollie_sync_status", "Failed", update_modified=False
+        )
+        frappe.db.commit()
+
+        # Log error for tracking
+        frappe.log_error(
+            title=f"Mollie Sync Failed: {self.name}",
+            message=f"Failed to sync amendment {self.name} to Mollie.\n\nError: {error_message}",
+        )
+
+        # Notify administrators
+        try:
+            from verenigingen.services.communication.email_service import get_email_service
+
+            email_service = get_email_service()
+
+            # Get administrator emails
+            admin_roles = ["System Manager", "Verenigingen Administrator"]
+            admin_emails = frappe.get_all(
+                "Has Role",
+                filters={"role": ["in", admin_roles], "parenttype": "User"},
+                fields=["parent"],
+                distinct=True,
+            )
+
+            recipients = [admin["parent"] for admin in admin_emails]
+
+            if recipients:
+                # Get member details for notification
+                membership = frappe.get_doc("Membership", self.membership)
+                member = frappe.get_doc("Member", membership.member)
+
+                message = f"""
+                <h3>Mollie Subscription Sync Failed</h3>
+
+                <p>A Mollie subscription sync operation failed and requires administrator attention.</p>
+
+                <h4>Amendment Details:</h4>
+                <ul>
+                    <li><strong>Amendment:</strong> {frappe.utils.escape_html(self.name)}</li>
+                    <li><strong>Type:</strong> {frappe.utils.escape_html(self.amendment_type)}</li>
+                    <li><strong>Member:</strong> {frappe.utils.escape_html(member.full_name)} ({frappe.utils.escape_html(member.name)})</li>
+                </ul>
+
+                <h4>Error:</h4>
+                <p>{frappe.utils.escape_html(error_message)}</p>
+
+                <p>
+                    <strong>Action Required:</strong> Please review and manually sync the subscription if needed.
+                </p>
+
+                <p>
+                    <a href="{frappe.utils.get_url()}/app/contribution-amendment-request/{self.name}">View Amendment</a>
+                </p>
+                """
+
+                email_service.send_email(
+                    recipients=recipients,
+                    subject=f"Mollie Sync Failed: {member.full_name}",
+                    message=message,
+                    reference_doctype="Contribution Amendment Request",
+                    reference_name=self.name,
+                )
+
+                frappe.logger().info(f"Sent failure notification to {len(recipients)} administrators")
+
+        except Exception as email_error:
+            frappe.log_error(
+                f"Failed to send Mollie sync failure notification: {str(email_error)}",
+                "Mollie Sync Notification Error",
+            )
+
     @frappe.whitelist()
     @critical_api(operation_type=OperationType.FINANCIAL)
     def approve_amendment(self, approval_notes=None):
@@ -1086,7 +1230,9 @@ def process_pending_amendments():
 
                 if result.get("status") == "success":
                     processed_count += 1
-                    frappe.logger().info("Applied amendment %s for member %s", amendment.name, amendment.member)
+                    frappe.logger().info(
+                        "Applied amendment %s for member %s", amendment.name, amendment.member
+                    )
                 else:
                     error_count += 1
                     # CRITICAL FIX: Mark failed amendments properly to prevent reprocessing

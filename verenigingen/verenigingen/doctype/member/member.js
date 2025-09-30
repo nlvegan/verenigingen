@@ -1270,6 +1270,9 @@ function add_member_status_actions(frm) {
 			}
 		}
 	});
+
+	// Add Mollie mandate cancellation button if member has mandate
+	add_mollie_mandate_actions(frm);
 }
 
 function add_termination_action_button(frm) {
@@ -3772,6 +3775,151 @@ function inject_member_requests_safely(frm, container) {
 		console.error('Form layout injection failed:', e);
 		frappe.msgprint(
 			__('Unable to display chapter join requests. Please refresh the page.')
+		);
+	}
+}
+
+// ==================== MOLLIE MANDATE MANAGEMENT ====================
+
+/**
+ * Add Mollie mandate management actions
+ * Allows authorized users to cancel member's Mollie mandates
+ */
+function add_mollie_mandate_actions(frm) {
+	// Only show if member has Mollie mandate details
+	if (!frm.doc.mollie_customer_id || !frm.doc.mollie_mandate_id) {
+		return;
+	}
+
+	// Check if user has permissions (board members, staff, administrators)
+	const authorized_roles = [
+		'System Manager',
+		'Verenigingen Administrator',
+		'Verenigingen Staff',
+		'Verenigingen Chapter Board Member',
+		'Verenigingen National Board Member'
+	];
+
+	const has_permission = frappe.user_roles.some((role) =>
+		authorized_roles.includes(role)
+	);
+
+	if (!has_permission) {
+		return;
+	}
+
+	// Add Cancel Mandate button (cancels mandate + all subscriptions)
+	frm.add_custom_button(
+		__('Cancel Mollie Mandate'),
+		() => {
+			// Confirm cancellation
+			frappe.confirm(
+				__('Are you sure you want to cancel the Mollie mandate for {0}?<br><br><strong>This will also cancel ALL active subscriptions.</strong>', [frm.doc.full_name]),
+				() => {
+					// Prompt for cancellation reason
+					frappe.prompt(
+						{
+							label: __('Cancellation Reason'),
+							fieldname: 'reason',
+							fieldtype: 'Small Text',
+							reqd: 1,
+							default: 'Administrative cancellation'
+						},
+						(values) => {
+							// Call the Mollie debug page API endpoint
+							frappe.call({
+								method: 'verenigingen.templates.pages.mollie_payments_debug.admin_revoke_mandate',
+								args: {
+									customer_id: frm.doc.mollie_customer_id,
+									mandate_id: frm.doc.mollie_mandate_id,
+									reason: values.reason
+								},
+								freeze: true,
+								freeze_message: __('Cancelling Mollie mandate and subscriptions...'),
+								callback: (r) => {
+									if (r.message && !r.message.error) {
+										const count = r.message.cancelled_subscriptions?.length || 0;
+										frappe.msgprint({
+											title: __('Success'),
+											indicator: 'green',
+											message: __('Mollie mandate cancelled and {0} subscription(s) cancelled successfully', [count])
+										});
+										// Refresh the form to update mandate status
+										frm.reload_doc();
+									} else {
+										frappe.msgprint({
+											title: __('Error'),
+											indicator: 'red',
+											message: r.message?.error || __('Failed to cancel mandate')
+										});
+									}
+								}
+							});
+						},
+						__('Cancel Mollie Mandate'),
+						__('Cancel Mandate')
+					);
+				}
+			);
+		},
+		__('Member Actions')
+	);
+
+	// Add Cancel Subscription Only button (if member has subscription)
+	if (frm.doc.mollie_subscription_id) {
+		frm.add_custom_button(
+			__('Cancel Subscription Only'),
+			() => {
+				// Confirm cancellation
+				frappe.confirm(
+					__('Are you sure you want to cancel the subscription for {0}?<br><br>Subscription ID: {1}<br><br><strong>The mandate will remain active.</strong>', [frm.doc.full_name, frm.doc.mollie_subscription_id]),
+					() => {
+						// Prompt for cancellation reason
+						frappe.prompt(
+							{
+								label: __('Cancellation Reason'),
+								fieldname: 'reason',
+								fieldtype: 'Small Text',
+								reqd: 1,
+								default: 'Administrative cancellation'
+							},
+							(values) => {
+								// Call the Mollie debug page API endpoint
+								frappe.call({
+									method: 'verenigingen.templates.pages.mollie_payments_debug.admin_cancel_subscription',
+									args: {
+										customer_id: frm.doc.mollie_customer_id,
+										subscription_id: frm.doc.mollie_subscription_id,
+										reason: values.reason
+									},
+									freeze: true,
+									freeze_message: __('Cancelling subscription...'),
+									callback: (r) => {
+										if (r.message && !r.message.error) {
+											frappe.msgprint({
+												title: __('Success'),
+												indicator: 'green',
+												message: __('Subscription cancelled successfully. Mandate remains active.')
+											});
+											// Refresh the form to update subscription status
+											frm.reload_doc();
+										} else {
+											frappe.msgprint({
+												title: __('Error'),
+												indicator: 'red',
+												message: r.message?.error || __('Failed to cancel subscription')
+											});
+										}
+									}
+								});
+							},
+							__('Cancel Subscription Only'),
+							__('Cancel Subscription')
+						);
+					}
+				);
+			},
+			__('Member Actions')
 		);
 	}
 }

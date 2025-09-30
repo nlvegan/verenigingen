@@ -270,29 +270,68 @@ class MollieDebugService:
                 raise api_error
 
     def admin_revoke_mandate(self, customer_id, mandate_id, reason="Administrative revocation"):
-        """Admin function to revoke any mandate"""
+        """
+        Admin function to revoke a mandate and cancel all associated subscriptions.
+
+        This function performs a two-step process:
+        1. Cancel all active subscriptions for the customer
+        2. Revoke the mandate
+
+        This prevents subscriptions from going into 'pending' state waiting for a new mandate.
+        """
         if not customer_id or not mandate_id:
             raise ValueError(_("Customer ID and Mandate ID are required"))
 
         if not reason:
             raise ValueError(_("Revocation reason is required"))
 
+        cancelled_subscriptions = []
+
         try:
-            # Use direct Mollie API call to avoid retry/circuit breaker issues
+            # Use direct Mollie API call
             client = self.mollie_client._get_mollie_client()
             customer_obj = client.customers.get(customer_id)
+
+            # STEP 1: Cancel all active subscriptions first to prevent pending state
+            try:
+                subscriptions = customer_obj.subscriptions.list()
+                for sub in subscriptions:
+                    if sub.status in ["active", "pending"]:
+                        try:
+                            customer_obj.subscriptions.delete(sub.id)
+                            cancelled_subscriptions.append(sub.id)
+                            frappe.logger().info(
+                                f"ADMIN MANDATE REVOCATION: Cancelled subscription {sub.id} "
+                                f"before revoking mandate {mandate_id} for customer {customer_id}"
+                            )
+                        except Exception as sub_error:
+                            # Log but don't fail if subscription is already cancelled
+                            frappe.logger().warning(
+                                f"Could not cancel subscription {sub.id} during mandate revocation: {str(sub_error)}"
+                            )
+            except Exception as list_error:
+                frappe.logger().warning(
+                    f"Could not list subscriptions during mandate revocation for customer {customer_id}: {str(list_error)}"
+                )
+
+            # STEP 2: Revoke the mandate
             revoked_mandate = customer_obj.mandates.delete(mandate_id)
 
             # Log admin action
             frappe.logger().info(
-                f"ADMIN REVOCATION: User {frappe.session.user} revoked mandate {mandate_id} for customer {customer_id}. Reason: {reason}"
+                f"ADMIN REVOCATION: User {frappe.session.user} revoked mandate {mandate_id} "
+                f"for customer {customer_id}. Cancelled {len(cancelled_subscriptions)} subscriptions. "
+                f"Reason: {reason}"
             )
 
             return {
                 "status": "success",
-                "message": _("Mandate revoked successfully"),
+                "message": _("Mandate revoked and {0} subscription(s) cancelled successfully").format(
+                    len(cancelled_subscriptions)
+                ),
                 "mandate_id": mandate_id,
                 "customer_id": customer_id,
+                "cancelled_subscriptions": cancelled_subscriptions,
                 "revoked_by": frappe.session.user,
                 "reason": reason,
                 "timestamp": frappe.utils.now(),
@@ -996,5 +1035,275 @@ class MollieDebugService:
             result["message"] = f"Webhook processing failed: {str(e)}"
             result["http_status"] = frappe.local.response.get("http_status_code", 500)
             frappe.log_error(f"Webhook test processing error: {str(e)}")
+
+        return result
+
+    def _format_mollie_amount(self, amount_obj):
+        """
+        Format Mollie amount object to human-readable string.
+
+        Args:
+            amount_obj: Mollie amount object (dict or other)
+
+        Returns:
+            str: Formatted amount string (e.g., "EUR 25.00")
+        """
+        try:
+            if not amount_obj:
+                return "Unknown"
+            if isinstance(amount_obj, dict):
+                return f"{amount_obj.get('currency', 'EUR')} {amount_obj.get('value', '0')}"
+            return str(amount_obj)
+        except Exception:
+            return "Error parsing amount"
+
+    def _sanitize_error_message(self, error_msg: str) -> str:
+        """
+        Sanitize error messages to prevent information disclosure.
+
+        Args:
+            error_msg: Raw error message
+
+        Returns:
+            str: Sanitized error message safe for client display
+        """
+        error_lower = error_msg.lower()
+
+        # Check for API key exposure
+        if "test_" in error_msg or "live_" in error_msg:
+            return "API authentication error - check configuration"
+
+        # Check for internal system information
+        if any(keyword in error_lower for keyword in ["internal", "traceback", "file", "line"]):
+            return "Internal system error - contact administrator"
+
+        # Check for database information
+        if any(keyword in error_lower for keyword in ["database", "sql", "query"]):
+            return "Data access error - contact administrator"
+
+        return error_msg
+
+    def create_subscription(
+        self,
+        customer_id: str,
+        amount: float,
+        interval: str,
+        description: str,
+        mandate_id: str = None,
+        start_date: str = None,
+    ):
+        """
+        Create a new Mollie subscription for testing purposes.
+
+        Args:
+            customer_id: Mollie customer ID (e.g., "cst_xxxxxxxxxx")
+            amount: Subscription amount in EUR
+            interval: Payment interval (e.g., "1 month", "3 months")
+            description: Human-readable subscription description
+            mandate_id: Optional specific mandate ID to use
+            start_date: Optional start date (YYYY-MM-DD format)
+
+        Returns:
+            Dict containing subscription details including:
+                - status: "success" or "error"
+                - subscription_id: Created subscription ID (if successful)
+                - error: Error message (if failed)
+
+        Raises:
+            ValueError: If validation fails for any input parameter
+
+        Note:
+            This operation is restricted to Verenigingen Administrator role
+            and creates comprehensive audit trail entries.
+        """
+        if not customer_id:
+            raise ValueError(_("Customer ID is required"))
+
+        # Validate amount
+        try:
+            amount_float = float(amount)
+        except (ValueError, TypeError):
+            raise ValueError(_("Invalid amount format - must be a number"))
+
+        if amount_float <= 0:
+            raise ValueError(_("Amount must be positive"))
+
+        # Add reasonable maximum for test subscriptions (€1,000)
+        if amount_float > 1000.00:
+            raise ValueError(_("Test subscription amount cannot exceed €1,000"))
+
+        # Validate interval format
+        valid_intervals = ["1 month", "2 months", "3 months", "6 months", "12 months"]
+        if interval not in valid_intervals:
+            raise ValueError(_("Invalid interval - must be one of: {0}").format(", ".join(valid_intervals)))
+
+        result = {
+            "customer_id": customer_id,
+            "test_mode": self.mollie_client.is_test_mode(),
+            "timestamp": frappe.utils.now(),
+            "status": "pending",
+            "error": None,
+        }
+
+        try:
+            # Get the raw Mollie client
+            client = self.mollie_client._get_mollie_client()
+
+            # Build subscription data
+            subscription_data = {
+                "amount": {"value": f"{amount_float:.2f}", "currency": "EUR"},
+                "interval": interval,
+                "description": description,
+                "webhookUrl": f"{frappe.utils.get_url()}/api/method/verenigingen.integrations.mollie.api.unified_payment_api.handle_payment_webhook",
+                "metadata": {
+                    "test_type": "debug_page_creation",
+                    "created_by": frappe.session.user,
+                    "created_at": frappe.utils.now(),
+                    "auto_cleanup": True,
+                    "expires_after": "30 days",
+                },
+            }
+
+            # Add optional parameters
+            if mandate_id:
+                subscription_data["mandateId"] = mandate_id
+            if start_date:
+                subscription_data["startDate"] = start_date
+
+            # Create subscription
+            customer = client.customers.get(customer_id)
+            subscription = customer.subscriptions.create(subscription_data)
+
+            result["status"] = "success"
+            result["subscription_id"] = subscription.id
+            result["subscription_status"] = subscription.status
+            result["amount"] = self._format_mollie_amount(subscription.amount)
+            result["interval"] = subscription.interval
+            result["description"] = subscription.description
+            result["webhook_url"] = subscription_data["webhookUrl"]
+
+            # Add optional fields if present
+            if hasattr(subscription, "start_date") and subscription.start_date:
+                result["start_date"] = str(subscription.start_date)
+            if hasattr(subscription, "next_payment_date") and subscription.next_payment_date:
+                result["next_payment_date"] = str(subscription.next_payment_date)
+
+            # Enhanced audit logging
+            frappe.logger().info(
+                f"DEBUG SUBSCRIPTION CREATION: User {frappe.session.user} "
+                f"created subscription {subscription.id} for customer {customer_id} "
+                f"(amount: €{amount_float:.2f}, interval: {interval}, description: {description}, "
+                f"mandate: {mandate_id or 'auto'}, start: {start_date or 'immediate'})"
+            )
+
+        except Exception as e:
+            # Sanitize error message before returning to client
+            sanitized_error = self._sanitize_error_message(str(e))
+            result["error"] = sanitized_error
+            result["status"] = "error"
+
+            # Log full error internally with user context
+            frappe.log_error(
+                f"Mollie subscription creation error for user {frappe.session.user}, "
+                f"customer {customer_id}: {str(e)}"
+            )
+
+        return result
+
+    def list_subscriptions(self, customer_id: str, limit: int = 50, active_only: bool = True):
+        """
+        List subscriptions for a specific customer with optional status filtering.
+
+        Args:
+            customer_id: Mollie customer ID (required)
+            limit: Maximum number of subscriptions to return (1-250, default 50)
+            active_only: If True, only return active subscriptions (default True)
+
+        Returns:
+            Dict containing:
+                - subscriptions: List of subscription details
+                - total_found: Number of subscriptions returned
+                - customer_id: Customer ID queried
+                - error: Error message if failed
+
+        Raises:
+            ValueError: If customer_id is empty or limit is out of range
+
+        Note:
+            Filtering by active_only happens client-side after fetching from Mollie API,
+            as the Mollie subscriptions.list() endpoint doesn't support status filtering.
+        """
+        if not customer_id:
+            raise ValueError(_("Customer ID is required"))
+
+        # Validate and sanitize limit
+        try:
+            limit = int(limit)
+            if not 1 <= limit <= 250:
+                limit = 50
+        except (ValueError, TypeError):
+            limit = 50
+
+        result = {
+            "test_mode": self.mollie_client.is_test_mode(),
+            "timestamp": frappe.utils.now(),
+            "customer_id": customer_id,
+            "active_only": active_only,
+            "limit": limit,
+            "subscriptions": [],
+            "total_found": 0,
+            "error": None,
+        }
+
+        try:
+            client = self.mollie_client._get_mollie_client()
+
+            # List subscriptions for specific customer
+            customer = client.customers.get(customer_id)
+            subscriptions = customer.subscriptions.list(limit=limit)
+
+            # Process and filter subscriptions
+            for sub in subscriptions:
+                # Filter by status if active_only
+                if active_only and sub.status != "active":
+                    continue
+
+                # Use helper method for consistent amount formatting
+                amount_str = self._format_mollie_amount(sub.amount)
+
+                result["subscriptions"].append(
+                    {
+                        "id": sub.id,
+                        "customer_id": getattr(sub, "_links", {})
+                        .get("customer", {})
+                        .get("href", "")
+                        .split("/")[-1]
+                        if hasattr(sub, "_links")
+                        else customer_id,
+                        "status": sub.status,
+                        "amount": amount_str,
+                        "interval": sub.interval,
+                        "description": sub.description,
+                        "created_at": str(sub.created_at),
+                        "next_payment_date": str(getattr(sub, "next_payment_date", None))
+                        if getattr(sub, "next_payment_date", None)
+                        else None,
+                        "canceled_at": str(getattr(sub, "canceled_at", None))
+                        if getattr(sub, "canceled_at", None)
+                        else None,
+                    }
+                )
+
+                # Respect limit
+                if len(result["subscriptions"]) >= limit:
+                    break
+
+            result["total_found"] = len(result["subscriptions"])
+
+        except Exception as e:
+            # Sanitize error message
+            sanitized_error = self._sanitize_error_message(str(e))
+            result["error"] = sanitized_error
+            frappe.log_error(f"Mollie list subscriptions error for customer {customer_id}: {str(e)}")
 
         return result

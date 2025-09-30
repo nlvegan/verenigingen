@@ -264,6 +264,83 @@
 
                 <div id="subscription-result" class="result-area" style="display: none;"></div>
             </div>
+
+            <div class="debug-card mt-6">
+                <h2 class="text-xl font-semibold mb-4">{{ _("Create New Subscription") }}</h2>
+                <p class="text-gray-600 mb-4">{{ _("Create a new subscription for testing") }}</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID") }}</label>
+                        <input type="text" id="create-sub-customer-id" class="debug-input"
+                               placeholder="cst_xxxxxxxxxx">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Mandate ID (optional)") }}</label>
+                        <input type="text" id="create-sub-mandate-id" class="debug-input"
+                               placeholder="mdt_xxxxxxxxxx">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Amount (EUR)") }}</label>
+                        <input type="number" id="create-sub-amount" class="debug-input"
+                               placeholder="25.00" step="0.01" min="0.01" value="25.00">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Interval") }}</label>
+                        <select id="create-sub-interval" class="debug-input">
+                            <option value="1 month">Monthly</option>
+                            <option value="3 months">Quarterly</option>
+                            <option value="6 months">Semi-Annually</option>
+                            <option value="12 months">Yearly</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Start Date (YYYY-MM-DD)") }}</label>
+                        <input type="date" id="create-sub-start-date" class="debug-input">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Description") }}</label>
+                        <input type="text" id="create-sub-description" class="debug-input"
+                               placeholder="Test subscription" value="Test subscription">
+                    </div>
+                </div>
+
+                <button onclick="createSubscription()" class="debug-button">
+                    <i class="fa fa-plus mr-1"></i>{{ _("Create Subscription") }}
+                </button>
+
+                <div id="create-subscription-result" class="result-area" style="display: none;"></div>
+            </div>
+
+            <div class="debug-card mt-6">
+                <h2 class="text-xl font-semibold mb-4">{{ _("List Customer Subscriptions") }}</h2>
+                <p class="text-gray-600 mb-4">{{ _("List all subscriptions for a specific customer") }}</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Customer ID") }}</label>
+                        <input type="text" id="list-sub-customer-id" class="debug-input"
+                               placeholder="cst_xxxxxxxxxx">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ _("Limit") }}</label>
+                        <input type="number" id="list-sub-limit" class="debug-input"
+                               value="50" min="1" max="250">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="flex items-center">
+                            <input type="checkbox" id="list-sub-active-only" class="mr-2" checked>
+                            <span class="text-sm font-medium text-gray-700">{{ _("Show active subscriptions only (hide canceled)") }}</span>
+                        </label>
+                    </div>
+                </div>
+
+                <button onclick="listSubscriptions()" class="debug-button">
+                    <i class="fa fa-list mr-1"></i>{{ _("List Subscriptions") }}
+                </button>
+
+                <div id="list-subscriptions-result" class="result-area" style="display: none;"></div>
+            </div>
         </div>
 
         <!-- Mandate Debug Tab -->
@@ -1909,6 +1986,195 @@ function useCustomerId(customerId) {
     }, 2000);
 
     alert(`{{ _("Customer ID filled in debug field:") }} ${customerId}`);
+}
+
+// Create Subscription
+function createSubscription() {
+    const customerId = document.getElementById('create-sub-customer-id').value.trim();
+    const mandateId = document.getElementById('create-sub-mandate-id').value.trim();
+    const amount = document.getElementById('create-sub-amount').value.trim();
+    const interval = document.getElementById('create-sub-interval').value;
+    const startDate = document.getElementById('create-sub-start-date').value;
+    const description = document.getElementById('create-sub-description').value.trim();
+
+    if (!customerId) {
+        alert('{{ _("Please enter a customer ID") }}');
+        return;
+    }
+
+    if (!amount || parseFloat(amount) <= 0) {
+        alert('{{ _("Please enter a valid amount") }}');
+        return;
+    }
+
+    if (!description) {
+        alert('{{ _("Please enter a description") }}');
+        return;
+    }
+
+    const confirmMessage = `{{ _("CREATE NEW SUBSCRIPTION") }}\\n\\n` +
+                          `{{ _("Customer ID:") }} ${customerId}\\n` +
+                          `{{ _("Amount:") }} €${amount}\\n` +
+                          `{{ _("Interval:") }} ${interval}\\n` +
+                          `{{ _("Start Date:") }} ${startDate || '{{ _("Immediately") }}'}\\n` +
+                          `{{ _("Description:") }} ${description}\\n` +
+                          (mandateId ? `{{ _("Mandate ID:") }} ${mandateId}\\n` : '') +
+                          `\\n{{ _("Continue?") }}`;
+
+    if (!confirm(confirmMessage)) {
+        return;
+    }
+
+    showLoading('create-subscription-result', '{{ _("Creating subscription...") }}');
+
+    const formData = new FormData();
+    formData.append('customer_id', customerId);
+    formData.append('amount', amount);
+    formData.append('interval', interval);
+    formData.append('description', description);
+    if (mandateId) formData.append('mandate_id', mandateId);
+    if (startDate) formData.append('start_date', startDate);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.create_subscription', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Handle Frappe exception responses
+        if (data.exc_type || data.exception) {
+            const errorMsg = data.exception || data._server_messages || 'Unknown error occurred';
+            displayResult('create-subscription-result', `<div class="error">Error: ${errorMsg}</div>`, 'error');
+            return;
+        }
+
+        // Frappe API responses can be wrapped in 'message' or be direct
+        const result = data.message || data;
+        if (result && (result.status || result.error)) {
+            const status = result.status;
+            const displayType = status === 'success' ? 'success' : 'error';
+            displayResult('create-subscription-result', formatSubscriptionCreationResult(result), displayType);
+
+            // Clear all form fields on success
+            if (status === 'success') {
+                document.getElementById('create-sub-customer-id').value = '';
+                document.getElementById('create-sub-mandate-id').value = '';
+                document.getElementById('create-sub-amount').value = '25.00';
+                document.getElementById('create-sub-interval').value = '1 month';
+                document.getElementById('create-sub-start-date').value = '';
+                document.getElementById('create-sub-description').value = 'Test subscription';
+            }
+        } else {
+            displayResult('create-subscription-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('create-subscription-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+function formatSubscriptionCreationResult(data) {
+    if (data.error) {
+        return `<strong>Error:</strong> ${data.error}`;
+    }
+
+    let html = `<h3>✅ Subscription Created Successfully</h3>`;
+    html += `<p><strong>Subscription ID:</strong> ${data.subscription_id}</p>`;
+    html += `<p><strong>Customer ID:</strong> ${data.customer_id}</p>`;
+    html += `<p><strong>Status:</strong> <span class="status-badge status-active">${data.status}</span></p>`;
+    html += `<p><strong>Amount:</strong> ${data.amount}</p>`;
+    html += `<p><strong>Interval:</strong> ${data.interval}</p>`;
+    html += `<p><strong>Description:</strong> ${data.description}</p>`;
+    if (data.start_date) html += `<p><strong>Start Date:</strong> ${data.start_date}</p>`;
+    if (data.next_payment_date) html += `<p><strong>Next Payment:</strong> ${data.next_payment_date}</p>`;
+    if (data.webhook_url) html += `<p><strong>Webhook URL:</strong> ${data.webhook_url}</p>`;
+
+    return html;
+}
+
+// List Subscriptions
+function listSubscriptions() {
+    const customerId = document.getElementById('list-sub-customer-id').value.trim();
+    const limit = document.getElementById('list-sub-limit').value;
+    const activeOnly = document.getElementById('list-sub-active-only').checked;
+
+    if (!customerId) {
+        alert('{{ _("Please enter a customer ID") }}');
+        return;
+    }
+
+    showLoading('list-subscriptions-result', '{{ _("Loading subscriptions...") }}');
+
+    const formData = new FormData();
+    if (customerId) formData.append('customer_id', customerId);
+    formData.append('limit', limit);
+    formData.append('active_only', activeOnly);
+
+    fetch('/api/method/verenigingen.templates.pages.mollie_payments_debug.list_subscriptions', {
+        method: 'POST',
+        headers: {
+            'X-Frappe-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.exc_type || data.exception) {
+            const errorMsg = data.exception || data._server_messages || 'Unknown error occurred';
+            displayResult('list-subscriptions-result', `<div class="error">Error: ${errorMsg}</div>`, 'error');
+            return;
+        }
+
+        const result = data.message || data;
+        if (result && (result.subscriptions !== undefined || result.error)) {
+            const displayType = result.error ? 'error' : 'success';
+            displayResult('list-subscriptions-result', formatSubscriptionListResult(result), displayType);
+        } else {
+            displayResult('list-subscriptions-result', 'Error: Invalid response format', 'error');
+        }
+    })
+    .catch(error => {
+        displayResult('list-subscriptions-result', `Error: ${error.message}`, 'error');
+    });
+}
+
+function formatSubscriptionListResult(data) {
+    if (data.error) {
+        return `<strong>Error:</strong> ${data.error}`;
+    }
+
+    let html = `<h3>Subscription List</h3>`;
+    html += `<p><strong>Total Found:</strong> ${data.total_found}</p>`;
+    html += `<p><strong>Filter:</strong> ${data.active_only ? 'Active only' : 'All statuses'}</p>`;
+    if (data.customer_id) html += `<p><strong>Customer ID:</strong> ${data.customer_id}</p>`;
+
+    if (data.subscriptions && data.subscriptions.length > 0) {
+        html += `<div class="mt-4">`;
+        data.subscriptions.forEach(sub => {
+            const statusClass = sub.status === 'active' ? 'status-active' : 'status-canceled';
+            html += `<div class="p-4 border border-gray-300 rounded-lg mb-3 bg-white">`;
+            html += `<div class="flex justify-between items-start mb-2">`;
+            html += `<div><strong>ID:</strong> ${sub.id}</div>`;
+            html += `<span class="status-badge ${statusClass}">${sub.status}</span>`;
+            html += `</div>`;
+            html += `<p><strong>Customer:</strong> ${sub.customer_id}</p>`;
+            html += `<p><strong>Amount:</strong> ${sub.amount}</p>`;
+            html += `<p><strong>Interval:</strong> ${sub.interval}</p>`;
+            html += `<p><strong>Description:</strong> ${sub.description}</p>`;
+            html += `<p><strong>Created:</strong> ${sub.created_at}</p>`;
+            if (sub.next_payment_date) html += `<p><strong>Next Payment:</strong> ${sub.next_payment_date}</p>`;
+            if (sub.canceled_at) html += `<p><strong>Canceled:</strong> ${sub.canceled_at}</p>`;
+            html += `</div>`;
+        });
+        html += `</div>`;
+    } else {
+        html += `<p class="mt-4 text-gray-600">No subscriptions found</p>`;
+    }
+
+    return html;
 }
 </script>
 {% endblock %}
