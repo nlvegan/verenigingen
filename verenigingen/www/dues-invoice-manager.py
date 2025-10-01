@@ -53,13 +53,29 @@ def get_context(context):
         f"Dues Invoice Manager - User: {current_user}, Roles: {user_roles}, Can Approve: {can_approve}"
     )
 
-    # Set defaults for workflow components
-    context.sepa_settings = {"billing_cutoff_frequency": "Monthly", "enable_sequential_coverage": True}
-    context.workflow_status = {
-        "recent_batches": [],
-        "pending_invoices": 0,
-        "members_analysis": {"total_active_members": 0, "members_missing_invoices": 0, "sepa_eligible": 0},
-    }
+    # Load real workflow status data
+    try:
+        from verenigingen.api.dues_invoice_workflow import get_workflow_status
+
+        workflow_status = get_workflow_status()
+        context.workflow_status = workflow_status
+    except Exception as e:
+        frappe.log_error(f"Failed to load workflow status: {str(e)}", "Dues Invoice Manager Context")
+        context.workflow_status = {
+            "recent_batches": [],
+            "pending_invoices": 0,
+            "members_analysis": {
+                "total_active_members": 0,
+                "members_missing_invoices": 0,
+                "sepa_eligible": 0,
+            },
+        }
+
+    # Load SEPA settings
+    try:
+        context.sepa_settings = frappe.get_single("Verenigingen Settings").as_dict()
+    except Exception:
+        context.sepa_settings = {"billing_cutoff_frequency": "Monthly", "enable_sequential_coverage": True}
     # Get CSRF token for API calls
     csrf_token = ""
     try:

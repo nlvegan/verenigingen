@@ -708,6 +708,52 @@ class MembershipDuesSchedule(Document):
             # For other frequencies, use the existing sequential logic
             proposed_coverage_start, proposed_coverage_end = self.calculate_next_coverage_period()
 
+        # ✅ IDEMPOTENCY: Check for exact duplicate coverage (critical for Daily billing)
+        # This catches same-day regeneration attempts where coverage is identical
+        exact_duplicate_count = frappe.db.sql(
+            """
+            SELECT COUNT(*) as exact_count
+            FROM `tabSales Invoice` si
+            WHERE si.customer = %(customer)s
+            AND si.docstatus != 2
+            AND si.custom_coverage_start_date = %(proposed_start)s
+            AND si.custom_coverage_end_date = %(proposed_end)s
+            LIMIT 1
+        """,
+            {
+                "customer": member_doc.customer,
+                "proposed_start": proposed_coverage_start,
+                "proposed_end": proposed_coverage_end,
+            },
+        )[0][0]
+
+        if exact_duplicate_count > 0:
+            # Get the specific duplicate invoice(s) for detailed error message
+            duplicate_invoices = frappe.db.sql(
+                """
+                SELECT si.name, si.posting_date
+                FROM `tabSales Invoice` si
+                WHERE si.customer = %(customer)s
+                AND si.docstatus != 2
+                AND si.custom_coverage_start_date = %(proposed_start)s
+                AND si.custom_coverage_end_date = %(proposed_end)s
+            """,
+                {
+                    "customer": member_doc.customer,
+                    "proposed_start": proposed_coverage_start,
+                    "proposed_end": proposed_coverage_end,
+                },
+                as_dict=True,
+            )
+
+            invoice_details = ", ".join(
+                [f"{inv.name} (posted {inv.posting_date})" for inv in duplicate_invoices]
+            )
+            return {
+                "can_generate": False,
+                "reason": f"Duplicate coverage prevented: Invoice(s) {invoice_details} already cover exact period {proposed_coverage_start} to {proposed_coverage_end}",
+            }
+
         # First check: SQL-level overlap detection for invoices with explicit coverage dates
         # This is the fast path that handles the majority of cases efficiently
         explicit_overlap_count = frappe.db.sql(
@@ -876,8 +922,6 @@ class MembershipDuesSchedule(Document):
         Returns:
             tuple: (billing_start, billing_end) dates for the current period
         """
-        from frappe.utils import add_days, add_months, add_years, getdate
-
         today_date = getdate(frappe.utils.today())
 
         if self.billing_frequency == "Daily":
@@ -942,8 +986,6 @@ class MembershipDuesSchedule(Document):
         Raises:
             ValueError: If unable to derive valid coverage dates
         """
-        from frappe.utils import add_days, add_months, getdate
-
         # Input validation
         if not posting_date:
             raise ValueError("posting_date is required for coverage derivation")
@@ -1072,18 +1114,32 @@ class MembershipDuesSchedule(Document):
         return coverage_start, coverage_end
 
     def get_latest_coverage_end_date(self):
-        """Get the latest coverage end date from existing invoices for this schedule"""
+        """
+        Get the latest coverage end date from existing invoices for this schedule.
+
+        CRITICAL: Always queries the database to find the TRUE latest invoice,
+        since the tracked field may be stale if invoices were created outside
+        the normal flow.
+        """
+        if not self.member:
+            return None
+
+        member_doc = frappe.get_doc("Member", self.member)
+        if not member_doc.customer:
+            return None
+
+        # Query for the absolute latest submitted invoice with coverage dates
         latest_invoice = frappe.db.sql(
             """
             SELECT custom_coverage_end_date
             FROM `tabSales Invoice`
-            WHERE membership_dues_schedule_display = %s
+            WHERE customer = %s
             AND docstatus = 1
             AND custom_coverage_end_date IS NOT NULL
             ORDER BY custom_coverage_end_date DESC
             LIMIT 1
         """,
-            self.name,
+            member_doc.customer,
             as_dict=True,
         )
 
@@ -1102,8 +1158,6 @@ class MembershipDuesSchedule(Document):
         Returns:
             tuple: (coverage_start, coverage_end) dates
         """
-        from frappe.utils import add_days, add_months, getdate
-
         # Check if sequential coverage is enabled
         settings = frappe.get_single("Verenigingen Settings")
         use_sequential = getattr(settings, "enable_sequential_coverage", True)
@@ -1553,8 +1607,8 @@ class MembershipDuesSchedule(Document):
             # ✅ ENHANCED: Calculate coverage period using sequential logic
             coverage_start, coverage_end = self.calculate_next_coverage_period()
 
-            # Create actual invoice
-            invoice = self.create_sales_invoice()
+            # Create actual invoice with the calculated coverage period
+            invoice = self.create_sales_invoice(coverage_start, coverage_end)
             invoice_name = invoice.name
 
             # ✅ SAFETY CHECK: Ensure we're not trying to edit a cancelled invoice
@@ -1575,7 +1629,19 @@ class MembershipDuesSchedule(Document):
             self.last_invoice_coverage_end = coverage_end
 
             # ✅ CRITICAL FIX: Update schedule with actual invoice posting date
+            # This also saves the coverage tracking fields above
             self.update_schedule_dates(actual_invoice_date=invoice.posting_date)
+
+            # ✅ DEFENSIVE: Verify coverage tracking was actually saved
+            saved_coverage_end = frappe.db.get_value(
+                "Membership Dues Schedule", self.name, "last_invoice_coverage_end"
+            )
+            if saved_coverage_end != coverage_end:
+                frappe.log_error(
+                    f"Coverage tracking save verification failed for {self.name}. "
+                    f"Expected end: {coverage_end}, Got: {saved_coverage_end}",
+                    "Coverage Tracking Save Failure",
+                )
 
         except Exception as e:
             # Log full error details first
@@ -1701,10 +1767,9 @@ class MembershipDuesSchedule(Document):
             secure_document_operation(
                 operation="save",
                 doc=self,
-                justification=f"Reset invoice error tracking for {self.name}",
+                justification=f"Successful invoice generation for {self.name} - resetting error tracking",
                 required_permissions=["Membership Dues Schedule:write"],
-                business_context=f"Successful invoice generation for {self.name} - resetting error tracking",
-                bypass_validation=True,
+                validate_business_rules=False,
             )
         except Exception as e:
             # Don't let retry tracking cleanup break invoice generation success
@@ -1891,8 +1956,14 @@ class MembershipDuesSchedule(Document):
                 f"Failed to advance dates for schedule {self.name}: {str(e)}", "Date Advancement Error"
             )
 
-    def create_sales_invoice(self):
-        """Create a sales invoice for membership dues"""
+    def create_sales_invoice(self, coverage_start=None, coverage_end=None):
+        """
+        Create a sales invoice for membership dues
+
+        Args:
+            coverage_start: Start date for invoice coverage period (if None, calculates from posting date)
+            coverage_end: End date for invoice coverage period (if None, calculates from posting date)
+        """
         # Get member's customer record
         member_doc = frappe.get_doc("Member", self.member)
         if not member_doc.customer:
@@ -1911,8 +1982,10 @@ class MembershipDuesSchedule(Document):
 
         # Company will be validated normally by Frappe
 
-        # ✅ NEW: Set coverage period fields for better tracking
-        coverage_start, coverage_end = self.calculate_billing_period(invoice.posting_date)
+        # ✅ CRITICAL: Use provided coverage dates (for sequential billing) or calculate from posting date (fallback)
+        if coverage_start is None or coverage_end is None:
+            coverage_start, coverage_end = self.calculate_billing_period(invoice.posting_date)
+
         invoice.custom_coverage_start_date = coverage_start
         invoice.custom_coverage_end_date = coverage_end
 
@@ -2135,11 +2208,6 @@ class MembershipDuesSchedule(Document):
             # Fallback to old behavior (for test mode)
             self.last_invoice_date = self.next_invoice_date
             self.next_invoice_date = self.calculate_next_invoice_date(self.next_invoice_date)
-
-        # Update the billing period dates to reflect the period the NEXT invoice will cover
-        next_period_start, next_period_end = self.calculate_billing_period(self.next_invoice_date)
-        self.next_billing_period_start_date = next_period_start
-        self.next_billing_period_end_date = next_period_end
 
         self.save()
 
@@ -2718,8 +2786,6 @@ def calculate_cutoff_date_for_period():
     Returns:
         date: The cutoff date through which invoices should provide coverage
     """
-    from frappe.utils import add_days, add_months, getdate, today
-
     settings = frappe.get_single("Verenigingen Settings")
     cutoff_frequency = getattr(settings, "billing_cutoff_frequency", "Monthly")
 
@@ -2796,6 +2862,201 @@ def calculate_cutoff_date_for_period():
     else:
         next_month = today_date.replace(month=today_date.month + 1, day=1)
     return add_days(next_month, -1)
+
+
+def get_eligible_schedules_for_period(cutoff_date=None, test_mode=False, include_details=False):
+    """
+    Unified eligibility logic for identifying schedules that need invoice generation.
+
+    This function centralizes all business rules for determining which schedules should
+    generate invoices, ensuring consistency between preview (check_member_status) and
+    execution (generate_dues_invoices).
+
+    Args:
+        cutoff_date: Target date that invoices should cover through (defaults to calculated cutoff)
+        test_mode: Whether to filter for test mode schedules only
+        include_details: Whether to return detailed filtering information
+
+    Returns:
+        If include_details=False: List of eligible schedule names
+        If include_details=True: Dict with:
+            - eligible_schedules: List of eligible schedule names
+            - filtered_members: Dict categorizing filtered members with reasons
+            - total_filtered: Count of filtered schedules
+            - summary: High-level statistics
+    """
+    # Calculate cutoff date if not provided
+    if not cutoff_date:
+        cutoff_date = calculate_cutoff_date_for_period()
+
+    # Initialize tracking structures
+    eligible_schedules = []
+    filtered_members = {
+        "ineligible_status": [],  # Terminated/Expelled/Deceased/Quit
+        "test_mode_mismatch": [],  # Test mode doesn't match request
+        "gap_reset": [],  # Large coverage gaps (>30 days)
+        "business_logic": [],  # Coverage overlap, rate validation, etc.
+        "no_customer": [],  # Missing customer record
+        "duplicate_coverage": [],  # Overlapping coverage periods
+        "too_early": [],  # Before invoice_days_before threshold
+        "already_covered": [],  # Already has coverage through cutoff
+    }
+
+    # Get all active schedules with member status filtering at SQL level
+    all_schedules = frappe.db.sql(
+        """
+        SELECT
+            mds.name,
+            mds.next_invoice_date,
+            mds.test_mode,
+            m.name as member_id,
+            m.first_name,
+            m.last_name,
+            m.status as member_status,
+            m.customer
+        FROM `tabMembership Dues Schedule` mds
+        INNER JOIN `tabMember` m ON m.name = mds.member
+        WHERE mds.status = 'Active'
+        AND mds.auto_generate = 1
+        AND mds.is_template = 0
+        AND mds.member IS NOT NULL
+        AND m.name IS NOT NULL
+        ORDER BY m.last_name, m.first_name
+    """,
+        as_dict=True,
+    )
+
+    # First pass: Filter by member status (ineligible members)
+    ineligible_statuses = ["Terminated", "Expelled", "Deceased", "Quit"]
+    eligible_for_processing = []
+
+    for schedule_data in all_schedules:
+        member_name = f"{schedule_data.first_name} {schedule_data.last_name}"
+
+        if schedule_data.member_status in ineligible_statuses:
+            filtered_members["ineligible_status"].append(
+                {
+                    "member_id": schedule_data.member_id,
+                    "member_name": member_name,
+                    "reason": f"Member status: {schedule_data.member_status}",
+                    "schedule": schedule_data.name,
+                }
+            )
+        else:
+            eligible_for_processing.append(schedule_data)
+
+    # Second pass: Test mode filtering
+    test_mode_eligible = []
+    for schedule_data in eligible_for_processing:
+        if test_mode and not schedule_data.test_mode:
+            filtered_members["test_mode_mismatch"].append(
+                {
+                    "member_id": schedule_data.member_id,
+                    "member_name": f"{schedule_data.first_name} {schedule_data.last_name}",
+                    "reason": "Test mode requested but schedule is not in test mode",
+                    "schedule": schedule_data.name,
+                }
+            )
+        elif not test_mode and schedule_data.test_mode:
+            filtered_members["test_mode_mismatch"].append(
+                {
+                    "member_id": schedule_data.member_id,
+                    "member_name": f"{schedule_data.first_name} {schedule_data.last_name}",
+                    "reason": "Production mode requested but schedule is in test mode",
+                    "schedule": schedule_data.name,
+                }
+            )
+        else:
+            test_mode_eligible.append(schedule_data)
+
+    # Third pass: Business logic validation for each schedule
+    for schedule_data in test_mode_eligible:
+        try:
+            schedule = frappe.get_doc("Membership Dues Schedule", schedule_data.name)
+            member_name = f"{schedule_data.first_name} {schedule_data.last_name}"
+
+            # Check if schedule needs invoice for cutoff period
+            if not schedule.should_generate_for_cutoff_period(cutoff_date):
+                # This member already has coverage through cutoff
+                filtered_members["already_covered"].append(
+                    {
+                        "member_id": schedule_data.member_id,
+                        "member_name": member_name,
+                        "reason": f"Already has coverage through {cutoff_date}",
+                        "schedule": schedule_data.name,
+                    }
+                )
+                continue
+
+            # Run comprehensive eligibility checks
+            can_generate_result = schedule.can_generate_invoice()
+
+            # Handle both old tuple format and new dict format
+            if isinstance(can_generate_result, tuple):
+                can_generate, reason = can_generate_result
+                gap_reset = False
+            else:
+                can_generate = can_generate_result.get("can_generate", False)
+                reason = can_generate_result.get("reason", "Unknown")
+                gap_reset = can_generate_result.get("gap_reset", False)
+
+            if can_generate:
+                eligible_schedules.append(schedule_data.name)
+            else:
+                # Categorize the rejection reason
+                member_info = {
+                    "member_id": schedule_data.member_id,
+                    "member_name": member_name,
+                    "reason": reason,
+                    "schedule": schedule_data.name,
+                }
+
+                # Smart categorization based on reason text
+                if gap_reset or "gap reset" in reason.lower():
+                    filtered_members["gap_reset"].append(member_info)
+                elif "customer" in reason.lower():
+                    filtered_members["no_customer"].append(member_info)
+                elif "overlap" in reason.lower() or "duplicate" in reason.lower():
+                    filtered_members["duplicate_coverage"].append(member_info)
+                elif "too early" in reason.lower():
+                    filtered_members["too_early"].append(member_info)
+                else:
+                    filtered_members["business_logic"].append(member_info)
+
+        except Exception as e:
+            # Handle unexpected errors gracefully
+            filtered_members["business_logic"].append(
+                {
+                    "member_id": schedule_data.member_id,
+                    "member_name": f"{schedule_data.first_name} {schedule_data.last_name}",
+                    "reason": f"Error during validation: {str(e)}",
+                    "schedule": schedule_data.name,
+                }
+            )
+            frappe.log_error(
+                f"Error validating schedule {schedule_data.name}: {str(e)}",
+                "Schedule Eligibility Check Error",
+            )
+
+    # Calculate summary statistics
+    total_filtered = sum(len(filtered_members[cat]) for cat in filtered_members)
+
+    if include_details:
+        return {
+            "eligible_schedules": eligible_schedules,
+            "filtered_members": filtered_members,
+            "total_filtered": total_filtered,
+            "summary": {
+                "total_schedules_checked": len(all_schedules),
+                "eligible_count": len(eligible_schedules),
+                "filtered_count": total_filtered,
+                "filter_breakdown": {
+                    category: len(members) for category, members in filtered_members.items()
+                },
+            },
+        }
+    else:
+        return eligible_schedules
 
 
 def generate_dues_invoices(test_mode=False):
@@ -2880,90 +3141,35 @@ def generate_dues_invoices(test_mode=False):
 
         # Set bulk processing flag to prevent duplicate event handling
         frappe.flags.bulk_invoice_generation = True
+
         # Calculate cutoff date for this generation run
         cutoff_date = calculate_cutoff_date_for_period()
 
-        # Initialize results dictionary early to avoid UnboundLocalError
+        # Use unified eligibility logic to get eligible schedules and filtering details
+        eligibility_result = get_eligible_schedules_for_period(
+            cutoff_date=cutoff_date, test_mode=test_mode, include_details=True
+        )
+
+        schedules = eligibility_result["eligible_schedules"]
+
+        # Initialize results dictionary with comprehensive filtering information
         results = {
             "processed": 0,
             "generated": 0,
             "errors": [],
             "invoices": [],
             "payment_history_updates": 0,
-            "filtered_members": {
-                "ineligible_status": [],  # Terminated/Expelled/Deceased/Quit
-                "gap_reset": [],  # Large coverage gaps (>30 days)
-                "business_logic": [],  # Coverage overlap, rate validation, etc.
-            },
-            "total_filtered": 0,
+            "filtered_members": eligibility_result["filtered_members"],
+            "total_filtered": eligibility_result["total_filtered"],
+            "cutoff_date": cutoff_date,  # Include for downstream transparency
         }
 
-        # Enhanced selection: Get schedules that need coverage through cutoff_date
-        # This includes both time-based (next_invoice_date) and coverage-based criteria
-        eligible_schedules = []
-
-        # Get schedules with valid member records only (prevents orphaned schedule errors)
-        # Filter out ineligible members at SQL level to prevent error logs
-        all_schedules = frappe.db.sql(
-            """
-            SELECT mds.name, mds.next_invoice_date
-            FROM `tabMembership Dues Schedule` mds
-            INNER JOIN `tabMember` m ON m.name = mds.member
-            WHERE mds.status = 'Active'
-            AND mds.auto_generate = 1
-            AND mds.is_template = 0
-            AND mds.member IS NOT NULL
-            AND m.name IS NOT NULL
-            AND m.status NOT IN ('Terminated', 'Expelled', 'Deceased', 'Quit')
-        """,
-            as_dict=True,
+        # Log filtering summary for transparency
+        frappe.logger().info(
+            f"Dues invoice generation: Checked {eligibility_result['summary']['total_schedules_checked']} schedules, "
+            f"found {len(schedules)} eligible, filtered {eligibility_result['total_filtered']} "
+            f"(breakdown: {eligibility_result['summary']['filter_breakdown']})"
         )
-
-        # Collect information about filtered members for reporting
-        if not test_mode:
-            # Get members filtered by ineligible status
-            ineligible_members = frappe.db.sql(
-                """
-                SELECT m.name, m.first_name, m.last_name, m.status, mds.name as schedule_name
-                FROM `tabMembership Dues Schedule` mds
-                INNER JOIN `tabMember` m ON m.name = mds.member
-                WHERE mds.status = 'Active'
-                AND mds.auto_generate = 1
-                AND mds.is_template = 0
-                AND mds.member IS NOT NULL
-                AND m.name IS NOT NULL
-                AND m.status IN ('Terminated', 'Expelled', 'Deceased', 'Quit')
-            """,
-                as_dict=True,
-            )
-
-            for member in ineligible_members:
-                results["filtered_members"]["ineligible_status"].append(
-                    {
-                        "member_id": member.name,
-                        "member_name": f"{member.first_name} {member.last_name}",
-                        "reason": f"Member status: {member.status}",
-                        "schedule": member.schedule_name,
-                    }
-                )
-
-            results["total_filtered"] += len(ineligible_members)
-
-            if len(ineligible_members) > 0:
-                frappe.logger().info(
-                    f"Dues invoice generation: Filtered out {len(ineligible_members)} schedules for ineligible members "
-                    f"(Terminated/Expelled/Deceased/Quit) - this is expected behavior"
-                )
-
-        # Filter schedules using new coverage-aware logic
-        for schedule_data in all_schedules:
-            schedule = frappe.get_doc("Membership Dues Schedule", schedule_data.name)
-
-            # Check if this schedule needs invoice generation for cutoff period
-            if schedule.should_generate_for_cutoff_period(cutoff_date):
-                eligible_schedules.append(schedule_data.name)
-
-        schedules = eligible_schedules
 
         # Track which members need payment history updates
         members_to_update = set()
@@ -2973,123 +3179,76 @@ def generate_dues_invoices(test_mode=False):
             try:
                 schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
 
-                # Skip if test_mode flag doesn't match
-                if test_mode and not schedule.test_mode:
-                    continue
-                elif not test_mode and schedule.test_mode:
-                    continue
-
-                can_generate_result = schedule.can_generate_invoice()
-                if isinstance(can_generate_result, tuple):
-                    can_generate, reason = can_generate_result
-                    gap_reset = False
-                else:
-                    # Handle enhanced response with gap_reset flag
-                    can_generate = can_generate_result.get("can_generate", False)
-                    reason = can_generate_result.get("reason", "Unknown")
-                    gap_reset = can_generate_result.get("gap_reset", False)
-
-                # ✅ DEBUG: Track rejection reasons for analysis
-                if not can_generate:
-                    if not hasattr(frappe.local, "generation_rejections"):
-                        frappe.local.generation_rejections = {}
-                    if reason not in frappe.local.generation_rejections:
-                        frappe.local.generation_rejections[reason] = 0
-                    frappe.local.generation_rejections[reason] += 1
-
-                    # ✅ NEW: Collect filtered member details for reporting
-                    member_info = {
-                        "member_id": schedule.member,
-                        "member_name": schedule.member_name or schedule.member,
-                        "reason": reason,
-                        "schedule": schedule_name,
-                    }
-
-                    if gap_reset or "gap reset applied" in reason.lower():
-                        results["filtered_members"]["gap_reset"].append(member_info)
-                    else:
-                        results["filtered_members"]["business_logic"].append(member_info)
-
-                    results["total_filtered"] += 1
-
-                if can_generate:
-                    # ✅ ENHANCED: Try invoice generation with comprehensive error recovery
-                    try:
-                        invoice = schedule.generate_invoice()
-                        if invoice:
-                            results["generated"] += 1
-                            invoice_data = {
-                                "schedule": schedule_name,
-                                "member": schedule.member_name,
-                                "member_id": schedule.member,
-                                "invoice": invoice,
-                            }
-                            results["invoices"].append(invoice_data)
-                            successful_invoices.append(invoice_data)
-
-                            # Track member for payment history update
-                            if schedule.member:
-                                members_to_update.add(schedule.member)
-
-                            # ✅ NEW: Clear any retry tracking on success
-                            schedule._clear_retry_tracking()
-                        else:
-                            # Check can_generate again to see if status changed during processing
-                            recheck_can_generate, recheck_reason = schedule.can_generate_invoice()
-                            if not recheck_can_generate:
-                                # Status changed during processing - this is expected business logic
-                                frappe.logger().info(
-                                    f"Schedule {schedule_name} became ineligible during processing: {recheck_reason}"
-                                )
-                                results["errors"].append(f"Schedule became ineligible: {recheck_reason}")
-                            else:
-                                # Actual failure that needs investigation
-                                error_msg = f"Schedule {schedule_name} passed can_generate check but failed to generate invoice"
-                                frappe.log_error(error_msg, "Invoice Generation Failed")
-                                results["errors"].append(error_msg)
-
-                    except frappe.ValidationError as ve:
-                        # ✅ NEW: Handle validation errors with smart recovery
-                        recovery_result = schedule._handle_invoice_generation_failure(str(ve))
-
-                        if recovery_result["action_taken"] == "date_advanced":
-                            # Schedule was advanced to prevent infinite loops
-                            error_msg = (
-                                f"Schedule {schedule_name} validation failed, dates advanced: {str(ve)[:100]}. "
-                                f"Retry count: {recovery_result['retry_count']}"
-                            )
-                            frappe.log_error(error_msg, "Schedule Auto-Advanced Due to Validation Failure")
-                            results["errors"].append(f"ADVANCED: {error_msg}")
-
-                        elif recovery_result["action_taken"] == "retry_tracked":
-                            # Failure logged, will retry next time
-                            error_msg = (
-                                f"Schedule {schedule_name} validation failed (retry {recovery_result['retry_count']}/3): "
-                                f"{str(ve)[:100]}"
-                            )
-                            frappe.log_error(error_msg, "Invoice Generation Validation Error")
-                            results["errors"].append(f"RETRY {recovery_result['retry_count']}: {error_msg}")
-
-                        elif recovery_result["action_taken"] == "skipped":
-                            # Schedule flagged for manual review
-                            error_msg = (
-                                f"Schedule {schedule_name} flagged for manual review after {recovery_result['retry_count']} failures: "
-                                f"{str(ve)[:100]}"
-                            )
-                            frappe.log_error(error_msg, "Schedule Requires Manual Review")
-                            results["errors"].append(f"MANUAL REVIEW: {error_msg}")
-
-                    except Exception as ge:
-                        # ✅ ENHANCED: Handle unexpected errors with recovery tracking
-                        recovery_result = schedule._handle_invoice_generation_failure(str(ge))
-                        error_msg = (
-                            f"Schedule {schedule_name} unexpected error (retry {recovery_result['retry_count']}/3): "
-                            f"{str(ge)[:100]}"
-                        )
-                        frappe.log_error(error_msg, "Invoice Generation Unexpected Error")
-                        results["errors"].append(f"ERROR: {error_msg}")
-
+                # Schedules returned by get_eligible_schedules_for_period() are already validated
+                # No need for redundant can_generate checks
                 results["processed"] += 1
+
+                # ✅ ENHANCED: Try invoice generation with comprehensive error recovery
+                try:
+                    invoice = schedule.generate_invoice()
+                    if invoice:
+                        results["generated"] += 1
+                        invoice_data = {
+                            "schedule": schedule_name,
+                            "member": schedule.member_name,
+                            "member_id": schedule.member,
+                            "invoice": invoice,
+                        }
+                        results["invoices"].append(invoice_data)
+                        successful_invoices.append(invoice_data)
+
+                        # Track member for payment history update
+                        if schedule.member:
+                            members_to_update.add(schedule.member)
+
+                        # ✅ NEW: Clear any retry tracking on success
+                        schedule._clear_retry_tracking()
+                    else:
+                        # Invoice generation returned None - log for investigation
+                        error_msg = f"Schedule {schedule_name} returned None from generate_invoice()"
+                        frappe.log_error(error_msg, "Invoice Generation Failed")
+                        results["errors"].append(error_msg)
+
+                except frappe.ValidationError as ve:
+                    # ✅ NEW: Handle validation errors with smart recovery
+                    recovery_result = schedule._handle_invoice_generation_failure(str(ve))
+
+                    if recovery_result["action_taken"] == "date_advanced":
+                        # Schedule was advanced to prevent infinite loops
+                        error_msg = (
+                            f"Schedule {schedule_name} validation failed, dates advanced: {str(ve)[:100]}. "
+                            f"Retry count: {recovery_result['retry_count']}"
+                        )
+                        frappe.log_error(error_msg, "Schedule Auto-Advanced Due to Validation Failure")
+                        results["errors"].append(f"ADVANCED: {error_msg}")
+
+                    elif recovery_result["action_taken"] == "retry_tracked":
+                        # Failure logged, will retry next time
+                        error_msg = (
+                            f"Schedule {schedule_name} validation failed (retry {recovery_result['retry_count']}/3): "
+                            f"{str(ve)[:100]}"
+                        )
+                        frappe.log_error(error_msg, "Invoice Generation Validation Error")
+                        results["errors"].append(f"RETRY {recovery_result['retry_count']}: {error_msg}")
+
+                    elif recovery_result["action_taken"] == "skipped":
+                        # Schedule flagged for manual review
+                        error_msg = (
+                            f"Schedule {schedule_name} flagged for manual review after {recovery_result['retry_count']} failures: "
+                            f"{str(ve)[:100]}"
+                        )
+                        frappe.log_error(error_msg, "Schedule Requires Manual Review")
+                        results["errors"].append(f"MANUAL REVIEW: {error_msg}")
+
+                except Exception as ge:
+                    # ✅ ENHANCED: Handle unexpected errors with recovery tracking
+                    recovery_result = schedule._handle_invoice_generation_failure(str(ge))
+                    error_msg = (
+                        f"Schedule {schedule_name} unexpected error (retry {recovery_result['retry_count']}/3): "
+                        f"{str(ge)[:100]}"
+                    )
+                    frappe.log_error(error_msg, "Invoice Generation Unexpected Error")
+                    results["errors"].append(f"ERROR: {error_msg}")
 
             except Exception as e:
                 # Clean error message to prevent HTML formatting cascade and shorten to avoid database limits
@@ -3185,9 +3344,6 @@ def generate_dues_invoices(test_mode=False):
         else:
             results["coverage_gaps"] = []
             results["coverage_gap_count"] = 0
-
-        # Add cutoff date to results for transparency
-        results["cutoff_date"] = cutoff_date
 
         # ✅ DEBUG: Add rejection reasons to results
         if hasattr(frappe.local, "generation_rejections"):

@@ -52,11 +52,11 @@ def test_fixed_queries():
     # Test 3: Membership Dues Schedule fields
     try:
         frappe.db.sql(
-            "SELECT next_invoice_date, next_billing_period_start_date FROM `tabMembership Dues Schedule` LIMIT 1"
+            "SELECT next_invoice_date, last_invoice_coverage_end FROM `tabMembership Dues Schedule` LIMIT 1"
         )
         results["tests"].append(
             {
-                "test": "Membership Dues Schedule period fields",
+                "test": "Membership Dues Schedule coverage tracking fields",
                 "status": "✅ PASS",
                 "message": "Fields exist in database",
             }

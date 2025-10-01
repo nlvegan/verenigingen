@@ -43,7 +43,7 @@ def create_sepa_indexes():
         {
             "table": "tabMembership Dues Schedule",
             "name": "idx_membership_dues_schedule_member_freq",
-            "columns": ["member", "status", "billing_frequency", "next_billing_period_start_date", "next_billing_period_end_date"],
+            "columns": ["member", "status", "billing_frequency"],
             "description": "Optimizes billing frequency transition queries"
         },
         

@@ -6,7 +6,7 @@ Implements event-driven architecture for loose coupling between amendment system
 """
 
 from decimal import Decimal
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 import frappe
 from frappe import _
@@ -14,6 +14,14 @@ from frappe import _
 from ..core.client import MollieClient
 from ..core.mollie_exceptions import MollieIntegrationError
 from .subscription_service import SubscriptionService
+
+# Billing interval mapping to Mollie format
+BILLING_INTERVAL_TO_MOLLIE_FORMAT = {
+    "Monthly": "1 month",
+    "Quarterly": "3 months",
+    "Semi-Annually": "6 months",
+    "Annually": "12 months",
+}
 
 
 class MollieSubscriptionSyncService:
@@ -322,44 +330,83 @@ class MollieSubscriptionSyncService:
                 "requires_admin_review": True,
             }
 
-    def _get_subscription_parameters(self, amendment_doc, membership) -> tuple:
+    def _get_subscription_parameters(
+        self, amendment_doc: "frappe.model.document.Document", membership: "frappe.model.document.Document"
+    ) -> Tuple[float, str]:
         """
-        Extract subscription parameters from amendment.
+        Extract subscription parameters from amendment based on amendment type.
+
+        Handles three amendment types with different parameter sources:
+        1. Fee Change: New amount from amendment, interval from current dues schedule
+        2. Membership Type Change: Amount and interval from requested membership type's template
+        3. Billing Interval Change: Interval from amendment, amount from current dues schedule
+
+        Args:
+            amendment_doc: Contribution Amendment Request document containing:
+                - amendment_type: Type of change being made
+                - requested_amount: New billing amount (Fee Change, Type Change)
+                - new_billing_interval: New billing frequency (Billing Interval Change)
+                - requested_membership_type: Target membership type (Type Change)
+            membership: Active Membership document for the member
 
         Returns:
-            Tuple of (amount, interval)
+            Tuple of (amount, interval) where:
+                - amount (float): Monthly/quarterly/annual amount in EUR
+                - interval (str): Mollie format ("1 month", "3 months", etc.)
+
+        Raises:
+            frappe.DoesNotExistError: If referenced membership type or template doesn't exist
         """
-        # Get amount (either from amendment or current dues schedule)
-        if amendment_doc.amendment_type in ["Fee Change", "Membership Type Change"]:
+        # Handle different amendment types
+        if amendment_doc.amendment_type == "Fee Change":
+            # Fee Change: Keep interval same, only change amount
             amount = amendment_doc.requested_amount
-        else:
-            # Get from membership dues schedule
+
+            # Get interval from current dues schedule
+            dues_schedule = self._get_membership_dues_schedule(membership.member)
+            if dues_schedule:
+                interval = BILLING_INTERVAL_TO_MOLLIE_FORMAT.get(dues_schedule.billing_frequency, "1 month")
+            else:
+                interval = "1 month"
+
+        elif amendment_doc.amendment_type == "Membership Type Change":
+            # Membership Type Change: Get interval from new membership type, use requested_amount
+            amount = amendment_doc.requested_amount
+
+            # Get interval from the requested membership type's dues schedule template
+            if amendment_doc.requested_membership_type:
+                new_type_doc = frappe.get_doc("Membership Type", amendment_doc.requested_membership_type)
+
+                if new_type_doc.dues_schedule_template:
+                    template = frappe.get_doc("Membership Dues Schedule", new_type_doc.dues_schedule_template)
+                    interval = BILLING_INTERVAL_TO_MOLLIE_FORMAT.get(template.billing_frequency, "1 month")
+                else:
+                    # Fallback to monthly if no template
+                    frappe.logger().warning(
+                        f"⚠️ Membership Type {amendment_doc.requested_membership_type} has no dues schedule template, defaulting to monthly"
+                    )
+                    interval = "1 month"
+            else:
+                # Shouldn't happen, but fallback
+                interval = "1 month"
+
+        elif amendment_doc.amendment_type == "Billing Interval Change":
+            # Billing Interval Change: Use requested interval
+            interval = BILLING_INTERVAL_TO_MOLLIE_FORMAT.get(amendment_doc.new_billing_interval, "1 month")
+
+            # Get amount from current dues schedule
             dues_schedule = self._get_membership_dues_schedule(membership.member)
             amount = dues_schedule.dues_rate if dues_schedule else 0
 
-        # Get interval (either from amendment or current dues schedule)
-        if amendment_doc.amendment_type == "Billing Interval Change":
-            # Map billing frequency to Mollie interval
-            interval_map = {
-                "Monthly": "1 month",
-                "Quarterly": "3 months",
-                "Semi-Annually": "6 months",
-                "Annually": "12 months",
-            }
-            interval = interval_map.get(amendment_doc.requested_billing_interval, "1 month")
         else:
-            # Get from membership dues schedule
+            # Fallback for other amendment types
             dues_schedule = self._get_membership_dues_schedule(membership.member)
-            if dues_schedule:
-                interval_map = {
-                    "Monthly": "1 month",
-                    "Quarterly": "3 months",
-                    "Semi-Annually": "6 months",
-                    "Annually": "12 months",
-                }
-                interval = interval_map.get(dues_schedule.billing_frequency, "1 month")
-            else:
-                interval = "1 month"
+            amount = dues_schedule.dues_rate if dues_schedule else 0
+            interval = (
+                BILLING_INTERVAL_TO_MOLLIE_FORMAT.get(dues_schedule.billing_frequency, "1 month")
+                if dues_schedule
+                else "1 month"
+            )
 
         return amount, interval
 

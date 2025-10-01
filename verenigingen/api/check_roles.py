@@ -698,15 +698,11 @@ def test_enhanced_coverage_architecture():
         # Test coverage tracking fields
         architecture_status = {
             "schedule_fields": {
-                "next_billing_period_start_date": hasattr(schedule, "next_billing_period_start_date"),
-                "next_billing_period_end_date": hasattr(schedule, "next_billing_period_end_date"),
                 "last_generated_invoice": hasattr(schedule, "last_generated_invoice"),
                 "last_invoice_coverage_start": hasattr(schedule, "last_invoice_coverage_start"),
                 "last_invoice_coverage_end": hasattr(schedule, "last_invoice_coverage_end"),
             },
             "schedule_values": {
-                "next_billing_period_start_date": getattr(schedule, "next_billing_period_start_date", None),
-                "next_billing_period_end_date": getattr(schedule, "next_billing_period_end_date", None),
                 "last_generated_invoice": getattr(schedule, "last_generated_invoice", None),
                 "last_invoice_coverage_start": getattr(schedule, "last_invoice_coverage_start", None),
                 "last_invoice_coverage_end": getattr(schedule, "last_invoice_coverage_end", None),
@@ -777,8 +773,6 @@ def test_new_invoice_generation():
 
         # Get current state before invoice generation
         before_state = {
-            "next_billing_period_start_date": getattr(schedule, "next_billing_period_start_date", None),
-            "next_billing_period_end_date": getattr(schedule, "next_billing_period_end_date", None),
             "last_generated_invoice": getattr(schedule, "last_generated_invoice", None),
             "last_invoice_coverage_start": getattr(schedule, "last_invoice_coverage_start", None),
             "last_invoice_coverage_end": getattr(schedule, "last_invoice_coverage_end", None),
@@ -799,8 +793,6 @@ def test_new_invoice_generation():
 
         # Get state after invoice generation
         after_state = {
-            "next_billing_period_start_date": getattr(schedule, "next_billing_period_start_date", None),
-            "next_billing_period_end_date": getattr(schedule, "next_billing_period_end_date", None),
             "last_generated_invoice": getattr(schedule, "last_generated_invoice", None),
             "last_invoice_coverage_start": getattr(schedule, "last_invoice_coverage_start", None),
             "last_invoice_coverage_end": getattr(schedule, "last_invoice_coverage_end", None),

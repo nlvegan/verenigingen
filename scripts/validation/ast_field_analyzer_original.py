@@ -68,6 +68,7 @@ class ValidationContext:
     variable_types: Dict[str, str] = field(default_factory=dict)
     imported_modules: Set[str] = field(default_factory=set)
     function_scope_vars: Set[str] = field(default_factory=set)
+    parameter_doctype_map: Dict[str, str] = field(default_factory=dict)  # NEW: param_name -> DocType
     
 @dataclass
 class ValidationIssue:
@@ -502,8 +503,12 @@ class ASTFieldAnalyzer:
                 # Check if it's a test class
                 if node.name.startswith('Test'):
                     context.is_test_file = True
-                    
+
             elif isinstance(node, ast.FunctionDef):
+                # Parse docstring for ALL functions to build parameter-to-DocType map
+                _, param_map = self._parse_docstring_parameter_types(node)
+                context.parameter_doctype_map.update(param_map)
+
                 # Check for validation hooks
                 if node.name in ['validate', 'before_save', 'after_insert', 'on_update']:
                     context.is_validation_hook = True
@@ -511,15 +516,15 @@ class ASTFieldAnalyzer:
                     if len(node.args.args) > 0:
                         first_arg = node.args.args[0].arg
                         if first_arg in ['doc', 'self']:
-                            # Look for doctype hints in function body
-                            context.doctype_hints.update(self._extract_doctype_hints(node))
-        
+                            # Look for doctype hints in function body (without context to avoid recursion)
+                            context.doctype_hints.update(self._extract_doctype_hints_simple(node))
+
         return context
     
-    def _extract_doctype_hints(self, node: ast.FunctionDef) -> Set[str]:
-        """Extract DocType hints from function body"""
+    def _extract_doctype_hints_simple(self, node: ast.FunctionDef) -> Set[str]:
+        """Extract DocType hints from function body (used during context building to avoid recursion)"""
         hints = set()
-        
+
         for child in ast.walk(node):
             if isinstance(child, ast.Constant):
                 # Look for DocType names in string constants
@@ -532,8 +537,63 @@ class ASTFieldAnalyzer:
                         doctype = child.args[0].value
                         if doctype in self.doctypes:
                             hints.add(doctype)
-        
+
         return hints
+
+    def _parse_docstring_parameter_types(self, node: ast.FunctionDef) -> Tuple[Set[str], Dict[str, str]]:
+        """
+        Parse function docstring to extract DocType information from parameter descriptions.
+
+        Handles various docstring formats:
+        - Google style: Args: section
+        - NumPy style: Parameters section
+        - Inline descriptions mentioning DocTypes
+
+        Returns:
+            Tuple of (set of DocTypes found, dict mapping parameter_name -> DocType)
+
+        Example:
+            Args:
+                amendment_doc: Contribution Amendment Request document containing...
+                membership: Active Membership document for the member
+        """
+        docstring = ast.get_docstring(node)
+        if not docstring:
+            return set(), {}
+
+        doctypes_found = set()
+        param_to_doctype = {}
+
+        # Pattern 1: "parameter_name: DocType Name document" or "parameter_name (DocType Name):"
+        # Matches: "amendment_doc: Contribution Amendment Request document"
+        # Matches: "member (Member): The member document"
+        patterns = [
+            # Google/Sphinx style: param_name: DocType document
+            r'^\s*(\w+)\s*:\s*([A-Z][A-Za-z\s]+?)\s+(?:document|doc\b)',
+            # Alternate: param_name (DocType):
+            r'^\s*(\w+)\s*\(([A-Z][A-Za-z\s]+?)\)\s*:',
+            # NumPy style: param_name : DocType
+            r'^\s*(\w+)\s*:\s*([A-Z][A-Za-z\s]+?)(?:\n|$)',
+        ]
+
+        for line in docstring.split('\n'):
+            for pattern in patterns:
+                match = re.match(pattern, line.strip())
+                if match:
+                    param_name = match.group(1)
+                    potential_doctype = match.group(2).strip()
+                    # Clean up common suffixes
+                    potential_doctype = re.sub(r'\s+document$', '', potential_doctype, flags=re.IGNORECASE)
+                    potential_doctype = re.sub(r'\s+doc$', '', potential_doctype, flags=re.IGNORECASE)
+
+                    # Verify it's a real DocType
+                    if potential_doctype in self.doctypes:
+                        doctypes_found.add(potential_doctype)
+                        param_to_doctype[param_name] = potential_doctype
+                        if self.verbose:
+                            print(f"  📖 Mapped parameter '{param_name}' -> '{potential_doctype}' from docstring")
+
+        return doctypes_found, param_to_doctype
     
     def _is_likely_legacy_or_dynamic_field(self, field_name: str, doctype: str) -> bool:
         """Check if field might be legacy, dynamic, or computed property"""
@@ -568,7 +628,8 @@ class ASTFieldAnalyzer:
         # Adjust base score based on inference method
         inference_confidence = {
             "explicit_type_check": 95,
-            "hooks_registry": 90, 
+            "docstring_parameter_type": 92,  # NEW: High confidence from docstring
+            "hooks_registry": 90,
             "field_usage_pattern": 80,
             "variable_assignment": 60,
             "child_table_iteration": 70,
@@ -748,7 +809,14 @@ class ASTFieldAnalyzer:
             explicit_doctype = self._find_explicit_type_check(obj_name, source_lines, line_num)
             if explicit_doctype:
                 return explicit_doctype, "explicit_type_check"
-        
+
+        # Strategy 1.5: Docstring parameter type mapping (very high confidence)
+        if obj_name in file_context.parameter_doctype_map:
+            docstring_doctype = file_context.parameter_doctype_map[obj_name]
+            if self.verbose:
+                print(f"    📖 Found {obj_name} -> {docstring_doctype} via docstring parameter mapping")
+            return docstring_doctype, "docstring_parameter_type"
+
         # Strategy 2: Event handler hooks registry (very high confidence)
         if obj_name in ['doc', 'self']:
             if self.verbose and obj_name == 'doc':
@@ -1287,7 +1355,8 @@ class ASTFieldAnalyzer:
         for func_params in self.function_parameters.values():
             if obj_name in func_params:
                 # Check if we have specific DocType context for this parameter
-                if obj_name not in self.dynamic_variables:
+                # Either from dynamic variables OR from docstring parameter mapping
+                if obj_name not in self.dynamic_variables and obj_name not in file_context.parameter_doctype_map:
                     if self.verbose:
                         print(f"  ✓ Skipped function parameter: {obj_name}.{field_name}")
                     return True

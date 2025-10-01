@@ -715,7 +715,9 @@ def get_available_membership_types():
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def submit_membership_type_change_request(new_membership_type, reason="", effective_date=None):
+def submit_membership_type_change_request(
+    new_membership_type, reason="", effective_date=None, requested_amount=None
+):
     """Submit a membership type change request from member portal"""
     if frappe.session.user == "Guest":
         frappe.throw(_("Please login"), frappe.PermissionError)
@@ -775,6 +777,20 @@ def submit_membership_type_change_request(new_membership_type, reason="", effect
     new_type_doc = frappe.get_doc("Membership Type", new_membership_type)
     old_type_doc = frappe.get_doc("Membership Type", membership.membership_type)
 
+    # Determine the requested amount
+    # If member provided a custom amount, validate it's at least the minimum
+    if requested_amount:
+        requested_amount = flt(requested_amount)
+        if requested_amount < new_type_doc.minimum_amount:
+            frappe.throw(
+                _("Requested amount (€{0}) cannot be less than the minimum rate (€{1}) for {2}").format(
+                    requested_amount, new_type_doc.minimum_amount, new_type_doc.membership_type_name
+                )
+            )
+    else:
+        # Use the minimum amount if no custom amount provided
+        requested_amount = new_type_doc.minimum_amount
+
     # Create amendment request
     amendment = frappe.get_doc(
         {
@@ -785,7 +801,7 @@ def submit_membership_type_change_request(new_membership_type, reason="", effect
             "current_membership_type": membership.membership_type,
             "requested_membership_type": new_membership_type,
             "current_amount": old_type_doc.minimum_amount,
-            "requested_amount": new_type_doc.minimum_amount,
+            "requested_amount": requested_amount,
             "reason": reason,
             "status": "Pending Approval",  # All membership type changes require approval
             "requested_by_member": 1,

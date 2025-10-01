@@ -42,8 +42,6 @@ def check_sepa_indexes():
                 "member",
                 "status",
                 "billing_frequency",
-                "next_billing_period_start_date",
-                "next_billing_period_end_date",
             ],
         },
         {

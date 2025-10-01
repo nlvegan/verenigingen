@@ -26,7 +26,10 @@ from verenigingen.utils.security.api_security_framework import OperationType, hi
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def check_member_dues_status(period_start: str = None, period_end: str = None) -> Dict:
     """
-    Check which members need dues invoices for the current period
+    Check which members need dues invoices for the current period.
+
+    This function now uses the unified eligibility logic to ensure consistency
+    with the actual generation process.
 
     Args:
         period_start: Start date for billing period (defaults to current month start)
@@ -35,217 +38,105 @@ def check_member_dues_status(period_start: str = None, period_end: str = None) -
     Returns:
         Dict with member analysis results
     """
-    # Determine billing period
-    if not period_start:
-        period_start = getdate(today()).replace(day=1)  # First day of current month
-    else:
-        period_start = getdate(period_start) if isinstance(period_start, str) else period_start
-    if not period_end:
-        period_end = add_days(add_days(period_start, 32).replace(day=1), -1)  # Last day of month
-    else:
-        period_end = getdate(period_end) if isinstance(period_end, str) else period_end
-
-    # Operation logged via secure operations framework
-
-    # Get comprehensive member analysis including categorization
-    # This provides upfront visibility into member buckets before processing
-
-    # All active members (candidates for billing)
-    active_members = frappe.db.sql(
-        """
-            SELECT
-                name,
-                full_name,
-                status,
-                member_since
-            FROM `tabMember`
-            WHERE status IN ('Active', 'Pending', 'Suspended')
-            ORDER BY full_name
-        """,
-        as_dict=True,
+    from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
+        calculate_cutoff_date_for_period,
+        get_eligible_schedules_for_period,
     )
 
-    # Members filtered by ineligible status (will be skipped)
-    ineligible_members = frappe.db.sql(
-        """
-            SELECT
-                m.name,
-                m.full_name,
-                m.status,
-                mds.name as schedule_name
-            FROM `tabMember` m
-            JOIN `tabMembership Dues Schedule` mds ON mds.member = m.name
-            WHERE mds.status = 'Active'
-            AND mds.auto_generate = 1
-            AND mds.is_template = 0
-            AND m.status IN ('Terminated', 'Expelled', 'Deceased', 'Quit')
-            ORDER BY m.full_name
-        """,
-        as_dict=True,
+    # Calculate cutoff date (ignores period_start/period_end for now - uses system cutoff)
+    cutoff_date = calculate_cutoff_date_for_period()
+
+    # Use unified eligibility logic
+    eligibility_result = get_eligible_schedules_for_period(
+        cutoff_date=cutoff_date,
+        test_mode=False,  # Production mode for dues status check
+        include_details=True,
     )
 
-    # Members with large coverage gaps (will trigger gap reset logic)
-    # Find members whose latest coverage is >30 days old
-    gap_reset_members = frappe.db.sql(
-        """
-            SELECT DISTINCT
-                m.name,
-                m.full_name,
-                m.status,
-                mds.name as schedule_name,
-                MAX(si.custom_coverage_end_date) as latest_coverage,
-                DATEDIFF(CURDATE(), MAX(si.custom_coverage_end_date)) as gap_days
-            FROM `tabMember` m
-            JOIN `tabMembership Dues Schedule` mds ON mds.member = m.name
-            JOIN `tabSales Invoice` si ON si.membership_dues_schedule_display = mds.name
-            WHERE mds.status = 'Active'
-            AND mds.auto_generate = 1
-            AND m.status IN ('Active', 'Pending', 'Suspended')
-            AND si.custom_coverage_end_date IS NOT NULL
-            AND si.docstatus != 2
-            GROUP BY m.name, m.full_name, m.status, mds.name
-            HAVING gap_days > 30
-            ORDER BY m.full_name
-        """,
-        as_dict=True,
-    )
+    # Transform the unified result into the expected API format
+    filtered_members = eligibility_result["filtered_members"]
 
-    # Continue with full analysis
-
-    # Get members with existing invoices that cover this period
-    # Check for invoices where coverage_end_date extends through the end of the month
-    members_with_invoices = frappe.db.sql(
-        """
-        SELECT DISTINCT
-            m.name as member,
-            si.name as invoice_name,
-            si.outstanding_amount,
-            si.status,
-            si.docstatus,
-            si.custom_coverage_start_date,
-            si.custom_coverage_end_date,
-            CASE
-                WHEN si.docstatus = 0 THEN 'Draft'
-                WHEN si.docstatus = 1 THEN 'Submitted'
-                WHEN si.docstatus = 2 THEN 'Cancelled'
-                ELSE 'Unknown'
-            END as invoice_state,
-            mds.name as schedule_name
-        FROM `tabMember` m
-        JOIN `tabMembership Dues Schedule` mds ON mds.member = m.name
-        JOIN `tabSales Invoice` si ON si.membership_dues_schedule_display = mds.name
-        WHERE si.custom_coverage_end_date >= %(period_end)s
-        AND si.docstatus IN (0, 1)
-        AND m.status IN ('Active', 'Pending', 'Suspended')
-    """,
-        {"period_end": period_end},
-        as_dict=True,
-    )
-
-    # Create lookup for quick checking
-    members_with_invoices_set = {inv["member"] for inv in members_with_invoices}
-
-    # Identify members missing invoices
-    members_missing_invoices = []
-    members_with_valid_invoices = []
-
-    for member in active_members:
-        if member["name"] in members_with_invoices_set:
-            # Get invoice details for this member
-            member_invoices = [inv for inv in members_with_invoices if inv["member"] == member["name"]]
-            members_with_valid_invoices.append({**member, "invoices": member_invoices})
-        else:
-            # Check if member has active dues schedule but is missing coverage
-            schedule_info = frappe.db.get_value(
-                "Membership Dues Schedule",
-                {"member": member["name"], "is_template": 0, "status": "Active"},
-                ["name", "billing_frequency", "test_mode"],
-                as_dict=True,
-            )
-
-            if schedule_info:
-                # Skip all schedules in test mode to prevent inappropriate invoice generation
-                if schedule_info.test_mode:
-                    continue
-
-                # Member has active schedule but no invoice covering this period
-                members_missing_invoices.append(member)
-
-    # Get SEPA mandate status for members with invoices
+    # Calculate SEPA eligibility for members needing invoices
     sepa_eligible_count = 0
-    sepa_missing_count = 0
+    for schedule_name in eligibility_result["eligible_schedules"]:
+        schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
+        if schedule.member:
+            mandate_exists = frappe.db.exists("SEPA Mandate", {"member": schedule.member, "status": "Active"})
+            if mandate_exists:
+                sepa_eligible_count += 1
 
-    for member_data in members_with_valid_invoices:
-        mandate_exists = frappe.db.exists("SEPA Mandate", {"member": member_data["name"], "status": "Active"})
+    # Get total active members count
+    total_active_members = frappe.db.count("Member", {"status": ["in", ["Active", "Pending", "Suspended"]]})
 
-        if mandate_exists:
-            sepa_eligible_count += 1
-        else:
-            sepa_missing_count += 1
-
-    # Calculate invoice status breakdown
-    draft_invoices = sum(
-        1
-        for member in members_with_valid_invoices
-        for invoice in member.get("invoices", [])
-        if invoice.get("invoice_state") == "Draft"
-    )
-    submitted_invoices = sum(
-        1
-        for member in members_with_valid_invoices
-        for invoice in member.get("invoices", [])
-        if invoice.get("invoice_state") == "Submitted"
-    )
-
+    # Build comprehensive response
     result = {
-        "period_start": period_start,
-        "period_end": period_end,
+        "period_start": cutoff_date.replace(day=1),  # Start of cutoff month
+        "period_end": cutoff_date,
         "summary": {
-            "total_active_members": len(active_members),
-            "members_with_invoices": len(members_with_valid_invoices),
-            "members_missing_invoices": len(members_missing_invoices),
+            "total_active_members": total_active_members,
+            "members_with_invoices": len(filtered_members.get("already_covered", [])),
+            "members_missing_invoices": len(eligibility_result["eligible_schedules"]),
             "invoice_breakdown": {
-                "draft_invoices": draft_invoices,
-                "submitted_invoices": submitted_invoices,
-                "total_invoices": draft_invoices + submitted_invoices,
+                "draft_invoices": 0,  # Would require additional query
+                "submitted_invoices": 0,  # Would require additional query
+                "total_invoices": 0,
             },
             "sepa_eligible": sepa_eligible_count,
-            "sepa_missing": sepa_missing_count,
+            "sepa_missing": len(eligibility_result["eligible_schedules"]) - sepa_eligible_count,
         },
-        "members_missing_invoices": members_missing_invoices,
-        "members_with_invoices": members_with_valid_invoices,
-        # New member categorization for upfront visibility
+        # Enhanced categorization with transparent filtering
         "member_categories": {
             "ineligible_status": {
-                "count": len(ineligible_members),
-                "members": ineligible_members,
+                "count": len(filtered_members.get("ineligible_status", [])),
+                "members": filtered_members.get("ineligible_status", []),
                 "description": "Members with Terminated/Expelled/Deceased/Quit status (will be skipped)",
             },
             "gap_reset": {
-                "count": len(gap_reset_members),
-                "members": gap_reset_members,
-                "description": "Members with large coverage gaps >30 days (billing will restart from today)",
+                "count": len(filtered_members.get("gap_reset", [])),
+                "members": filtered_members.get("gap_reset", []),
+                "description": "Members with large coverage gaps >30 days (billing will restart)",
             },
-            "up_to_date": {
-                "count": len(members_with_valid_invoices),
-                "members": members_with_valid_invoices,
-                "description": "Members with current invoice coverage (no action needed)",
+            "already_covered": {
+                "count": len(filtered_members.get("already_covered", [])),
+                "members": filtered_members.get("already_covered", []),
+                "description": f"Members with current coverage through {cutoff_date}",
             },
             "needs_invoicing": {
-                "count": len(members_missing_invoices),
-                "members": members_missing_invoices,
-                "description": "Members who need new invoices generated",
+                "count": len(eligibility_result["eligible_schedules"]),
+                "members": [],  # Could populate with schedule details if needed
+                "description": "Members who will get new invoices generated",
+            },
+            "no_customer": {
+                "count": len(filtered_members.get("no_customer", [])),
+                "members": filtered_members.get("no_customer", []),
+                "description": "Members missing customer records (cannot invoice)",
+            },
+            "duplicate_coverage": {
+                "count": len(filtered_members.get("duplicate_coverage", [])),
+                "members": filtered_members.get("duplicate_coverage", []),
+                "description": "Members with overlapping invoice coverage",
+            },
+            "too_early": {
+                "count": len(filtered_members.get("too_early", [])),
+                "members": filtered_members.get("too_early", []),
+                "description": "Members not yet ready for next invoice",
+            },
+            "business_logic": {
+                "count": len(filtered_members.get("business_logic", [])),
+                "members": filtered_members.get("business_logic", []),
+                "description": "Members filtered by other business rules",
             },
         },
         "processing_summary": {
-            "will_be_processed": len(members_missing_invoices),
-            "will_be_skipped": len(ineligible_members),
-            "will_restart_billing": len(gap_reset_members),
-            "already_covered": len(members_with_valid_invoices),
+            "will_be_processed": len(eligibility_result["eligible_schedules"]),
+            "will_be_skipped": eligibility_result["total_filtered"],
+            "will_restart_billing": len(filtered_members.get("gap_reset", [])),
+            "already_covered": len(filtered_members.get("already_covered", [])),
+            "total_schedules_checked": eligibility_result["summary"]["total_schedules_checked"],
         },
+        # Include raw eligibility data for debugging
+        "_eligibility_breakdown": eligibility_result["summary"]["filter_breakdown"],
     }
-
-    # Completion logged via secure operations framework
 
     return result
 

@@ -75,27 +75,19 @@ def get_dashboard_data(member=None):
         active_schedules = frappe.get_all(
             "Membership Dues Schedule",
             filters={"member": member, "status": Membership.STATUS_ACTIVE},
-            fields=["next_billing_period_start_date", "next_billing_period_end_date"],
+            fields=["name"],
             limit=1,  # Usually only one active schedule per member
             order_by="creation DESC",  # Get most recent if multiple exist
         )
 
         if active_schedules:
-            schedule = active_schedules[0]
-            # Build filters for overdue invoices within dues schedule period
+            # Simply check for any overdue invoices for this customer
+            # No need to filter by billing period - overdue is overdue
             invoice_filters = {
                 "customer": member_doc.customer,
                 "status": PaymentStatus.INVOICE_OVERDUE,
                 "docstatus": 1,
-                "posting_date": [">=", schedule.next_billing_period_start_date],
             }
-
-            # Add end date filter if schedule has one
-            if schedule.next_billing_period_end_date:
-                invoice_filters["posting_date"] = [
-                    "between",
-                    [schedule.next_billing_period_start_date, schedule.next_billing_period_end_date],
-                ]
 
             # Use count() for efficiency - indexed query
             failed_count = frappe.db.count("Sales Invoice", invoice_filters)
@@ -215,8 +207,6 @@ def get_payment_history(member=None, year=None, status=None, **kwargs):
         LEFT JOIN `tabMembership Dues Schedule` mds ON mds.member = %(member)s
         LEFT JOIN `tabMembership` m ON m.member = %(member)s
         WHERE {conditions}
-        AND (mds.next_billing_period_start_date IS NULL OR si.posting_date >= mds.next_billing_period_start_date)
-        AND (mds.next_billing_period_end_date IS NULL OR si.posting_date <= mds.next_billing_period_end_date)
         ORDER BY si.posting_date DESC
         LIMIT %(limit)s OFFSET %(offset)s
     """.format(

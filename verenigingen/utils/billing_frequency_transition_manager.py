@@ -62,8 +62,6 @@ class BillingFrequencyTransitionManager:
                 fields=[
                     "name",
                     "dues_rate",
-                    "next_billing_period_start_date",
-                    "next_billing_period_end_date",
                     "billing_frequency",
                     "next_invoice_date",
                 ],
@@ -75,20 +73,17 @@ class BillingFrequencyTransitionManager:
                 return validation_result
 
             # Check for overlapping schedules with new frequency
+            # Simply check if there's already an active schedule with the new frequency
             overlapping_schedules = frappe.get_all(
                 "Membership Dues Schedule",
                 filters={
                     "member": member,
                     "status": "Active",
                     "billing_frequency": new_frequency,
-                    "next_billing_period_start_date": ["<=", effective_date],
-                    "next_billing_period_end_date": [">=", effective_date],
                 },
                 fields=[
                     "name",
                     "billing_frequency",
-                    "next_billing_period_start_date",
-                    "next_billing_period_end_date",
                 ],
             )
 
@@ -233,8 +228,6 @@ class BillingFrequencyTransitionManager:
                 fields=[
                     "name",
                     "dues_rate",
-                    "next_billing_period_start_date",
-                    "next_billing_period_end_date",
                     "next_invoice_date",
                 ],
             )
@@ -456,8 +449,6 @@ class BillingFrequencyTransitionManager:
                     "name",
                     "billing_frequency",
                     "dues_rate",
-                    "next_billing_period_start_date",
-                    "next_billing_period_end_date",
                     "next_invoice_date",
                 ],
             )

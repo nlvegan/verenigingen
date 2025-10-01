@@ -155,10 +155,11 @@ function add_amendment_buttons(frm) {
 function set_field_visibility(frm) {
 	// Show/hide fields based on amendment type
 	const is_fee_change = frm.doc.amendment_type === 'Fee Change';
+	const is_type_change = frm.doc.amendment_type === 'Membership Type Change';
 	const is_billing_change
     = frm.doc.amendment_type === 'Billing Interval Change';
 
-	frm.toggle_display('requested_amount', is_fee_change);
+	frm.toggle_display('requested_amount', is_fee_change || is_type_change);
 	frm.toggle_display('new_billing_interval', is_billing_change);
 	frm.toggle_display('impact_preview', is_fee_change);
 }

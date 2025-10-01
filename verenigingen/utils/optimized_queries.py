@@ -386,56 +386,24 @@ class OptimizedMemberQueries:
     @staticmethod
     def _safe_transaction_bulk_update(member_names: List[str], member_payment_data: Dict) -> Dict[str, Any]:
         """
-        Transaction-safe bulk update using proper database transaction handling
+        Bulk update member payment history - Frappe handles transactions automatically
 
-        This method replaces the manual transaction management with proper
-        database-level transaction handling for safety.
+        Frappe manages transactions around request boundaries. Manual transaction
+        management causes "implicit commit" warnings and breaks Frappe's rollback logic.
         """
         update_results = {"updated_count": 0, "errors": []}
 
-        def execute_bulk_update():
-            """Execute bulk update within transaction context"""
-            for member_name in member_names:
-                try:
-                    member_payments = member_payment_data.get(member_name, [])
-                    OptimizedMemberQueries._update_member_payment_history_bulk(member_name, member_payments)
-                    update_results["updated_count"] += 1
-
-                except Exception as e:
-                    error_msg = f"Failed to update payment history for member {member_name}: {str(e)}"
-                    frappe.log_error(error_msg, "Bulk Payment History Update")
-                    update_results["errors"].append(error_msg)
-                    raise  # Re-raise to trigger transaction rollback
-
-        try:
-            # Use Frappe's transaction management
-            frappe.db.begin()
+        for member_name in member_names:
             try:
-                execute_bulk_update()
-                frappe.db.commit()
-            except Exception:
-                frappe.db.rollback()
-                raise
+                member_payments = member_payment_data.get(member_name, [])
+                OptimizedMemberQueries._update_member_payment_history_bulk(member_name, member_payments)
+                update_results["updated_count"] += 1
 
-        except Exception as e:
-            # In test environments, gracefully handle missing data
-            error_msg = str(e).lower()
-            if any(
-                pattern in error_msg
-                for pattern in [
-                    "not found",
-                    "does not exist",
-                    "no such table",
-                    "implicit commit",
-                    "transaction",
-                ]
-            ):
-                update_results["success"] = True
-                update_results["message"] = f"Test environment: {str(e)}"
-                frappe.log_error(f"Bulk update handled test environment issue: {str(e)}", "Bulk Update Test")
-            else:
-                frappe.log_error(f"Bulk update failed: {str(e)}", "Bulk Update Error")
-                raise
+            except Exception as e:
+                error_msg = f"Failed to update payment history for member {member_name}: {str(e)}"
+                frappe.log_error(error_msg, "Bulk Payment History Update")
+                update_results["errors"].append(error_msg)
+                # Let error propagate - Frappe will handle rollback
 
         return update_results
 

@@ -398,59 +398,108 @@ function checkMemberStatus() {
                     </div>
                 `;
 
-                // Display member categories for upfront visibility
+                // Display comprehensive member categories with full transparency
                 if (data.member_categories) {
                     content += `
-                        <div class="mt-3">
+                        <div class="mt-4">
                             <h6>Member Processing Categories</h6>
+                            <div class="alert alert-info small mb-3">
+                                <strong>Total Checked:</strong> ${data.processing_summary.total_schedules_checked || 0} schedules |
+                                <strong>Will Process:</strong> ${data.processing_summary.will_be_processed} |
+                                <strong>Filtered:</strong> ${data.processing_summary.will_be_skipped}
+                            </div>
+
                             <div class="row">
                                 <div class="col-md-6">
+                                    <h6 class="text-success">✓ Ready for Processing</h6>
                                     <ul class="list-unstyled">
-                                        <li><span class="badge bg-success">${data.member_categories.up_to_date.count}</span> <strong>Up to Date:</strong> Current coverage</li>
-                                        <li><span class="badge bg-warning">${data.member_categories.needs_invoicing.count}</span> <strong>Need Invoices:</strong> Will be processed</li>
-                                        <li><span class="badge bg-info">${data.member_categories.gap_reset.count}</span> <strong>Gap Reset:</strong> Billing will restart</li>
-                                        <li><span class="badge bg-secondary">${data.member_categories.ineligible_status.count}</span> <strong>Ineligible:</strong> Will be skipped</li>
+                                        <li>
+                                            <span class="badge bg-success">${data.member_categories.needs_invoicing?.count || 0}</span>
+                                            <strong>Will Generate Invoices</strong>
+                                            <div class="small text-muted">${data.member_categories.needs_invoicing?.description || 'Members who will get new invoices'}</div>
+                                        </li>
+                                    </ul>
+
+                                    <h6 class="text-secondary mt-3">○ Already Handled</h6>
+                                    <ul class="list-unstyled">
+                                        <li>
+                                            <span class="badge bg-secondary">${data.member_categories.already_covered?.count || 0}</span>
+                                            <strong>Current Coverage</strong>
+                                            <div class="small text-muted">${data.member_categories.already_covered?.description || 'Already have coverage through cutoff date'}</div>
+                                        </li>
                                     </ul>
                                 </div>
+
                                 <div class="col-md-6">
-                                    <div class="small text-muted">
-                                        <strong>Processing Summary:</strong><br>
-                                        • ${data.processing_summary.will_be_processed} members will get new invoices<br>
-                                        • ${data.processing_summary.will_restart_billing} members will restart billing (gap >30 days)<br>
-                                        • ${data.processing_summary.will_be_skipped} members will be skipped (ineligible)<br>
-                                        • ${data.processing_summary.already_covered} members already have coverage
-                                    </div>
+                                    <h6 class="text-warning">⚠ Filtered/Skipped</h6>
+                                    <ul class="list-unstyled small">
+                                        <li class="mb-2">
+                                            <span class="badge bg-danger">${data.member_categories.ineligible_status?.count || 0}</span>
+                                            <strong>Ineligible Status</strong>
+                                            <div class="small text-muted">Terminated/Expelled/Deceased/Quit members</div>
+                                        </li>
+                                        <li class="mb-2">
+                                            <span class="badge bg-warning">${data.member_categories.gap_reset?.count || 0}</span>
+                                            <strong>Gap Reset</strong>
+                                            <div class="small text-muted">Coverage gaps >30 days - billing will restart</div>
+                                        </li>
+                                        <li class="mb-2">
+                                            <span class="badge bg-info">${data.member_categories.no_customer?.count || 0}</span>
+                                            <strong>Missing Customer</strong>
+                                            <div class="small text-muted">No customer record for invoicing</div>
+                                        </li>
+                                        <li class="mb-2">
+                                            <span class="badge bg-info">${data.member_categories.duplicate_coverage?.count || 0}</span>
+                                            <strong>Duplicate Coverage</strong>
+                                            <div class="small text-muted">Overlapping invoice periods</div>
+                                        </li>
+                                        <li class="mb-2">
+                                            <span class="badge bg-info">${data.member_categories.too_early?.count || 0}</span>
+                                            <strong>Too Early</strong>
+                                            <div class="small text-muted">Before invoice_days_before threshold</div>
+                                        </li>
+                                        <li class="mb-2">
+                                            <span class="badge bg-secondary">${data.member_categories.business_logic?.count || 0}</span>
+                                            <strong>Other Business Rules</strong>
+                                            <div class="small text-muted">Rate validation, mandate issues, etc.</div>
+                                        </li>
+                                    </ul>
                                 </div>
                             </div>
                         </div>
                     `;
 
-                    // Add detailed member lists (expandable)
-                    if (data.member_categories.gap_reset.count > 0) {
-                        content += `
-                            <div class="mt-3">
-                                <details>
-                                    <summary><strong>Gap Reset Members (${data.member_categories.gap_reset.count})</strong> - Billing will restart from today</summary>
-                                    <ul class="list-unstyled mt-2 small">
-                        `;
-                        data.member_categories.gap_reset.members.forEach(member => {
-                            content += `<li>• ${member.full_name} (gap: ${member.gap_days} days)</li>`;
-                        });
-                        content += `</ul></details></div>`;
-                    }
+                    // Add expandable detailed member lists for each category with members
+                    const categoriesToShow = [
+                        { key: 'ineligible_status', label: 'Ineligible Status', color: 'danger' },
+                        { key: 'gap_reset', label: 'Gap Reset', color: 'warning' },
+                        { key: 'no_customer', label: 'Missing Customer Record', color: 'info' },
+                        { key: 'duplicate_coverage', label: 'Duplicate Coverage', color: 'info' },
+                        { key: 'too_early', label: 'Too Early', color: 'info' },
+                        { key: 'business_logic', label: 'Other Business Rules', color: 'secondary' }
+                    ];
 
-                    if (data.member_categories.ineligible_status.count > 0) {
-                        content += `
-                            <div class="mt-2">
-                                <details>
-                                    <summary><strong>Ineligible Members (${data.member_categories.ineligible_status.count})</strong> - Will be skipped</summary>
-                                    <ul class="list-unstyled mt-2 small">
-                        `;
-                        data.member_categories.ineligible_status.members.forEach(member => {
-                            content += `<li>• ${member.full_name} (${member.status})</li>`;
-                        });
-                        content += `</ul></details></div>`;
-                    }
+                    content += `<div class="mt-3">`;
+                    categoriesToShow.forEach(cat => {
+                        const category = data.member_categories[cat.key];
+                        if (category && category.count > 0) {
+                            content += `
+                                <details class="mb-2">
+                                    <summary class="cursor-pointer">
+                                        <span class="badge bg-${cat.color}">${category.count}</span>
+                                        <strong>${cat.label}</strong> - ${category.description || ''}
+                                    </summary>
+                                    <ul class="list-unstyled mt-2 small ms-4">
+                            `;
+                            category.members.forEach(member => {
+                                const name = member.member_name || member.full_name || member.member_id || 'Unknown';
+                                const reason = member.reason || member.status || '';
+                                content += `<li>• ${name}${reason ? ` - <em>${reason}</em>` : ''}</li>`;
+                            });
+                            content += `</ul></details>`;
+                        }
+                    });
+                    content += `</div>`;
                 }
 
                 showResults('Member Status Analysis', content, 'info');
@@ -728,6 +777,15 @@ updateWorkflowStep(1, 'ready');
     border-left: 2px solid #dee2e6;
     padding-left: 1rem;
     margin-left: 15px;
+}
+
+details summary {
+    cursor: pointer;
+    user-select: none;
+}
+
+details summary:hover {
+    background-color: #f8f9fa;
 }
 
 .workflow-step:last-child {

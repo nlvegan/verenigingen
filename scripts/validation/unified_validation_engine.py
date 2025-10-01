@@ -60,8 +60,7 @@ class SpecializedPatternValidator:
                 'anbi_consent_given': 'anbi_consent',
             },
             'Membership Dues Schedule': {
-                'start_date': 'next_billing_period_start_date',
-                'end_date': 'next_billing_period_end_date',
+                # No deprecated field mappings needed
             }
         }
         
