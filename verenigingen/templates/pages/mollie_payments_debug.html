@@ -1459,6 +1459,8 @@ function formatSubscriptionResult(data) {
         html += `<p><strong>Created:</strong> ${sub.created_at}</p>`;
         if (sub.next_payment_date) html += `<p><strong>Next Payment:</strong> ${sub.next_payment_date}</p>`;
         if (sub.canceled_at) html += `<p><strong>Cancelled:</strong> ${sub.canceled_at}</p>`;
+        html += `<p><strong>Webhook URL:</strong> ${sub.webhook_url || '<em>Using dashboard webhook</em>'}</p>`;
+        html += `<p><strong>Mandate ID:</strong> ${sub.mandate_id || 'N/A'}</p>`;
         if (sub.metadata && Object.keys(sub.metadata).length > 0) {
             html += `<p><strong>Metadata:</strong> <pre>${JSON.stringify(sub.metadata, null, 2)}</pre></p>`;
         }
