@@ -309,14 +309,34 @@ def parse_and_validate_csv(
             current_status = subscription.get("status")
             current_interval = subscription.get("interval")
             current_description = sanitize_description(subscription.get("description"))
+            current_mandate_id = subscription.get("mandate_id")
 
             # Determine planned amount: use custom amount if provided, otherwise current amount
             planned_amount = row.get("custom_amount", current_amount)
             amount_changed = "custom_amount" in row and row["custom_amount"] != current_amount
 
+            # Validate mandate - check if customer has valid mandate
+            mandate_status = None
+            mandate_valid = False
+
+            if current_mandate_id:
+                mandate_result = service.debug_mandate(current_mandate_id, row["customer_id"])
+                if not mandate_result.get("error"):
+                    mandate_data = mandate_result.get("mandate_data", {})
+                    mandate_status = mandate_data.get("status")
+                    mandate_valid = mandate_status == "valid"
+
             # Validation checks
             status = "valid"
             warnings = []
+
+            # Check mandate validity
+            if not current_mandate_id:
+                warnings.append("No mandate ID found on subscription")
+                status = "warning"
+            elif not mandate_valid:
+                warnings.append(f"Mandate status is {mandate_status or 'unknown'} (not valid)")
+                status = "warning"
 
             # Check if current next invoice date is in the past (unless validation skipped)
             if not skip_date_validation and current_next_date:
@@ -341,6 +361,9 @@ def parse_and_validate_csv(
                     "current_status": current_status,
                     "current_interval": current_interval,
                     "current_description": current_description,
+                    "current_mandate_id": current_mandate_id,
+                    "mandate_status": mandate_status,
+                    "mandate_valid": mandate_valid,
                     "planned_amount": planned_amount,
                     "planned_next_invoice_date": planned_next_invoice_date,
                     "amount_match": not amount_changed,
@@ -392,7 +415,10 @@ def recreate_subscriptions(subscriptions_data: str, description_suffix: str = ""
             start_date = sub_data["planned_next_invoice_date"]
             interval = sub_data.get("current_interval")
             description = sanitize_description(sub_data.get("current_description"))
+            mandate_id = sub_data.get("current_mandate_id")
+            mandate_valid = sub_data.get("mandate_valid", False)
 
+            # Check for required data
             if not interval:
                 results.append(
                     {
@@ -401,6 +427,31 @@ def recreate_subscriptions(subscriptions_data: str, description_suffix: str = ""
                         "status": "error",
                         "error": "Missing interval data - cannot recreate subscription",
                         "details": "The subscription data does not include interval information. This is required to recreate the subscription.",
+                    }
+                )
+                continue
+
+            # Validate mandate before proceeding
+            if not mandate_id:
+                results.append(
+                    {
+                        "customer_id": customer_id,
+                        "old_subscription_id": old_subscription_id,
+                        "status": "error",
+                        "error": "No valid mandate found - cannot recreate subscription",
+                        "details": "The customer does not have a mandate ID. A valid SEPA mandate is required to create subscriptions.",
+                    }
+                )
+                continue
+
+            if not mandate_valid:
+                results.append(
+                    {
+                        "customer_id": customer_id,
+                        "old_subscription_id": old_subscription_id,
+                        "status": "error",
+                        "error": "Mandate is not valid - cannot recreate subscription",
+                        "details": f"The mandate {mandate_id} is not in 'valid' status. Please ensure the customer has a valid SEPA mandate before recreating the subscription.",
                     }
                 )
                 continue
@@ -458,7 +509,7 @@ def recreate_subscriptions(subscriptions_data: str, description_suffix: str = ""
                         amount=amount,
                         interval=interval,
                         description=unique_description,
-                        mandate_id=None,  # Will use customer's default mandate
+                        mandate_id=mandate_id,  # Use the validated mandate from the subscription
                         start_date=start_date,
                     )
                     if result.get("error"):

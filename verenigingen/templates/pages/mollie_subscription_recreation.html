@@ -329,12 +329,13 @@
                         <th>Customer ID</th>
                         <th>Subscription ID</th>
                         <th>Status</th>
+                        <th>Mandate</th>
                         <th>Interval</th>
                         <th>Current Amount</th>
                         <th>Planned Amount</th>
                         <th>Current Next Date</th>
                         <th>Planned Next Date</th>
-                        <th>Error Details</th>
+                        <th>Warnings</th>
                     </tr>
                 </thead>
                 <tbody id="validation_table_body">
@@ -534,11 +535,19 @@ function displayValidationResults(data) {
         }
         row.appendChild(checkboxCell);
 
+        // Mandate status indicator
+        const mandateIndicator = result.mandate_valid
+            ? '<span style="color: #059669;">✓</span>'
+            : (result.mandate_status
+                ? `<span style="color: #dc2626;" title="Status: ${result.mandate_status}">✗</span>`
+                : '<span style="color: #94a3b8;">-</span>');
+
         // Create other cells
         row.innerHTML += `
             <td>${result.customer_id}</td>
             <td>${result.subscription_id}</td>
             <td><span class="status-badge status-${result.status}">${result.status}</span></td>
+            <td title="Mandate: ${result.current_mandate_id || 'None'}">${mandateIndicator}</td>
             <td>${result.current_interval || 'N/A'}</td>
             <td>€${result.current_amount ? result.current_amount.toFixed(2) : 'N/A'}</td>
             <td class="${result.amount_match ? 'amount-match' : 'amount-mismatch'}">

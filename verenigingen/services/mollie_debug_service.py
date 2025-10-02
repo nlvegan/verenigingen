@@ -75,6 +75,8 @@ class MollieDebugService:
                         "canceled_at": str(getattr(sub, "canceled_at", None))
                         if getattr(sub, "canceled_at", None)
                         else None,
+                        "webhook_url": getattr(sub, "webhookUrl", None),
+                        "mandate_id": getattr(sub, "mandateId", None),
                     }
                 )
 
@@ -161,6 +163,8 @@ class MollieDebugService:
                 "canceled_at": str(getattr(subscription, "canceled_at", None))
                 if getattr(subscription, "canceled_at", None)
                 else None,
+                "webhook_url": getattr(subscription, "webhookUrl", None),
+                "mandate_id": getattr(subscription, "mandateId", None),
                 "metadata": getattr(subscription, "metadata", {}),
             }
 
@@ -1150,17 +1154,16 @@ class MollieDebugService:
             client = self.mollie_client._get_mollie_client()
 
             # Build subscription data
+            # Note: webhookUrl intentionally omitted to use Mollie dashboard webhook settings
+            # This ensures webhooks go to the correct environment (production/test)
             subscription_data = {
                 "amount": {"value": f"{amount_float:.2f}", "currency": "EUR"},
                 "interval": interval,
                 "description": description,
-                "webhookUrl": f"{frappe.utils.get_url()}/api/method/verenigingen.integrations.mollie.api.unified_payment_api.handle_payment_webhook",
                 "metadata": {
-                    "test_type": "debug_page_creation",
+                    "created_via": "debug_page",
                     "created_by": frappe.session.user,
                     "created_at": frappe.utils.now(),
-                    "auto_cleanup": True,
-                    "expires_after": "30 days",
                 },
             }
 
@@ -1180,7 +1183,7 @@ class MollieDebugService:
             result["amount"] = self._format_mollie_amount(subscription.amount)
             result["interval"] = subscription.interval
             result["description"] = subscription.description
-            result["webhook_url"] = subscription_data["webhookUrl"]
+            result["webhook_url"] = getattr(subscription, "webhookUrl", "Using dashboard webhook")
 
             # Add optional fields if present
             if hasattr(subscription, "start_date") and subscription.start_date:
