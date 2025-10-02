@@ -666,6 +666,7 @@ after_migrate = [
     "verenigingen.verenigingen.doctype.brand_settings.brand_settings.create_default_brand_settings",
     "verenigingen.setup.membership_application_workflow_setup.setup_membership_application_workflow",
     "verenigingen.utils.security.setup_all_security",
+    "verenigingen.patches.v1_0.add_coverage_duplicate_check_indexes.execute",
 ]
 
 # Permission Query Methods

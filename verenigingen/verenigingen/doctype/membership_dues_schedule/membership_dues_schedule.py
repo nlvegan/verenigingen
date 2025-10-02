@@ -708,109 +708,67 @@ class MembershipDuesSchedule(Document):
             # For other frequencies, use the existing sequential logic
             proposed_coverage_start, proposed_coverage_end = self.calculate_next_coverage_period()
 
-        # ✅ IDEMPOTENCY: Check for exact duplicate coverage (critical for Daily billing)
-        # This catches same-day regeneration attempts where coverage is identical
-        exact_duplicate_count = frappe.db.sql(
+        # ✅ IDEMPOTENCY: Check for duplicate/overlapping coverage in single query
+        # Only check SUBMITTED invoices (docstatus=1) - drafts are abandoned/incomplete data
+        # Optimized: Single query detects both exact duplicates and partial overlaps
+        overlapping_invoices = frappe.db.sql(
             """
-            SELECT COUNT(*) as exact_count
+            SELECT si.name, si.posting_date,
+                   si.custom_coverage_start_date, si.custom_coverage_end_date
             FROM `tabSales Invoice` si
             WHERE si.customer = %(customer)s
-            AND si.docstatus != 2
-            AND si.custom_coverage_start_date = %(proposed_start)s
-            AND si.custom_coverage_end_date = %(proposed_end)s
-            LIMIT 1
-        """,
-            {
-                "customer": member_doc.customer,
-                "proposed_start": proposed_coverage_start,
-                "proposed_end": proposed_coverage_end,
-            },
-        )[0][0]
-
-        if exact_duplicate_count > 0:
-            # Get the specific duplicate invoice(s) for detailed error message
-            duplicate_invoices = frappe.db.sql(
-                """
-                SELECT si.name, si.posting_date
-                FROM `tabSales Invoice` si
-                WHERE si.customer = %(customer)s
-                AND si.docstatus != 2
-                AND si.custom_coverage_start_date = %(proposed_start)s
-                AND si.custom_coverage_end_date = %(proposed_end)s
-            """,
-                {
-                    "customer": member_doc.customer,
-                    "proposed_start": proposed_coverage_start,
-                    "proposed_end": proposed_coverage_end,
-                },
-                as_dict=True,
-            )
-
-            invoice_details = ", ".join(
-                [f"{inv.name} (posted {inv.posting_date})" for inv in duplicate_invoices]
-            )
-            return {
-                "can_generate": False,
-                "reason": f"Duplicate coverage prevented: Invoice(s) {invoice_details} already cover exact period {proposed_coverage_start} to {proposed_coverage_end}",
-            }
-
-        # First check: SQL-level overlap detection for invoices with explicit coverage dates
-        # This is the fast path that handles the majority of cases efficiently
-        explicit_overlap_count = frappe.db.sql(
-            """
-            SELECT COUNT(*) as overlap_count
-            FROM `tabSales Invoice` si
-            WHERE si.customer = %(customer)s
-            AND si.docstatus != 2
+            AND si.docstatus = 1
             AND si.custom_coverage_start_date IS NOT NULL
             AND si.custom_coverage_end_date IS NOT NULL
             AND %(proposed_start)s <= si.custom_coverage_end_date
             AND %(proposed_end)s >= si.custom_coverage_start_date
-            LIMIT 1
+            LIMIT 10
         """,
             {
                 "customer": member_doc.customer,
                 "proposed_start": proposed_coverage_start,
                 "proposed_end": proposed_coverage_end,
             },
-        )[0][0]
+            as_dict=True,
+        )
 
-        if explicit_overlap_count > 0:
-            # Get the specific overlapping invoices for detailed error message
-            overlapping_invoices = frappe.db.sql(
-                """
-                SELECT si.name
-                FROM `tabSales Invoice` si
-                WHERE si.customer = %(customer)s
-                AND si.docstatus != 2
-                AND si.custom_coverage_start_date IS NOT NULL
-                AND si.custom_coverage_end_date IS NOT NULL
-                AND %(proposed_start)s <= si.custom_coverage_end_date
-                AND %(proposed_end)s >= si.custom_coverage_start_date
-            """,
-                {
-                    "customer": member_doc.customer,
-                    "proposed_start": proposed_coverage_start,
-                    "proposed_end": proposed_coverage_end,
-                },
-                pluck="name",
-            )
+        if overlapping_invoices:
+            # Check if any are exact duplicates vs partial overlaps
+            exact_duplicates = [
+                inv
+                for inv in overlapping_invoices
+                if getdate(inv.custom_coverage_start_date) == getdate(proposed_coverage_start)
+                and getdate(inv.custom_coverage_end_date) == getdate(proposed_coverage_end)
+            ]
 
-            return {
-                "can_generate": False,
-                "reason": f"Coverage overlap prevented: Invoice(s) {', '.join(overlapping_invoices)} already cover period {proposed_coverage_start} to {proposed_coverage_end}",
-            }
+            if exact_duplicates:
+                # Exact duplicate - same coverage period
+                invoice_details = ", ".join(
+                    [f"{inv.name} (posted {inv.posting_date})" for inv in exact_duplicates]
+                )
+                return {
+                    "can_generate": False,
+                    "reason": f"Duplicate coverage prevented: Invoice(s) {invoice_details} already cover exact period {proposed_coverage_start} to {proposed_coverage_end}",
+                }
+            else:
+                # Partial overlap - different but overlapping periods
+                invoice_list = ", ".join([inv.name for inv in overlapping_invoices])
+                return {
+                    "can_generate": False,
+                    "reason": f"Coverage overlap prevented: Invoice(s) {invoice_list} already cover overlapping period with {proposed_coverage_start} to {proposed_coverage_end}",
+                }
 
         # Second check: Handle invoices with missing coverage dates using fallback logic
         # Only process invoices newer than the most recent coverage to prevent processing ancient invoices
 
         # First, find the most recent invoice with coverage dates
+        # Only check SUBMITTED invoices (docstatus=1)
         latest_coverage_invoice = frappe.db.sql(
             """
             SELECT custom_coverage_end_date
             FROM `tabSales Invoice` si
             WHERE si.customer = %(customer)s
-            AND si.docstatus != 2
+            AND si.docstatus = 1
             AND si.custom_coverage_end_date IS NOT NULL
             ORDER BY si.custom_coverage_end_date DESC
             LIMIT 1
@@ -853,7 +811,7 @@ class MembershipDuesSchedule(Document):
             FROM `tabSales Invoice` si
             LEFT JOIN `tabMembership Dues Schedule` mds ON mds.name = si.membership_dues_schedule_display
             WHERE si.customer = %(customer)s
-            AND si.docstatus != 2
+            AND si.docstatus = 1
             AND (si.custom_coverage_start_date IS NULL OR si.custom_coverage_end_date IS NULL)
             AND si.posting_date > %(cutoff_date)s
         """,
@@ -1212,6 +1170,10 @@ class MembershipDuesSchedule(Document):
     def should_generate_for_cutoff_period(self, cutoff_date):
         """
         Determine if this schedule needs invoice generation to cover through cutoff_date
+
+        The duplicate coverage check is the real safeguard - this just determines if we
+        should attempt generation. Generating ahead of time is fine as long as we don't
+        duplicate coverage.
 
         Args:
             cutoff_date: Target date that should be covered by invoices
@@ -1969,7 +1931,7 @@ class MembershipDuesSchedule(Document):
         if not member_doc.customer:
             frappe.throw(f"Member {self.member} does not have a customer record")
 
-        # Get company from Verenigingen Settings first
+        # Get company from Vereiningen Settings first
         settings = frappe.get_single("Verenigingen Settings")
         if not settings.company:
             frappe.throw("Company not configured in Verenigingen Settings")

@@ -1,0 +1,686 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Mollie Subscription Recreation") }}{% endblock %}
+
+{% block head_include %}
+<style>
+.recreation-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.card-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    color: #1e293b;
+}
+
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-label {
+    display: block;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+    color: #475569;
+}
+
+.form-input {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 0.875rem;
+}
+
+.form-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.file-upload-area {
+    border: 2px dashed #cbd5e1;
+    border-radius: 8px;
+    padding: 2rem;
+    text-align: center;
+    background: #f8fafc;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.file-upload-area:hover {
+    border-color: #3b82f6;
+    background: #eff6ff;
+}
+
+.file-upload-area.dragover {
+    border-color: #2563eb;
+    background: #dbeafe;
+}
+
+.btn {
+    padding: 0.625rem 1.25rem;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+    font-size: 0.875rem;
+    transition: all 0.2s;
+}
+
+.btn-primary {
+    background: #3b82f6;
+    color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: #2563eb;
+}
+
+.btn-success {
+    background: #059669;
+    color: white;
+}
+
+.btn-success:hover:not(:disabled) {
+    background: #047857;
+}
+
+.btn-danger {
+    background: #dc2626;
+    color: white;
+}
+
+.btn-danger:hover:not(:disabled) {
+    background: #b91c1c;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.validation-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+    font-size: 0.875rem;
+}
+
+.validation-table th {
+    background: #f1f5f9;
+    padding: 0.75rem;
+    text-align: left;
+    font-weight: 600;
+    color: #475569;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.validation-table td {
+    padding: 0.75rem;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.validation-table tbody tr:hover {
+    background: #f8fafc;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.status-valid {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.status-warning {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.status-error {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.amount-match {
+    color: #059669;
+}
+
+.amount-mismatch {
+    color: #dc2626;
+    font-weight: 600;
+}
+
+.date-past {
+    color: #dc2626;
+}
+
+.date-future {
+    color: #d97706;
+}
+
+.result-summary {
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    border-radius: 6px;
+    padding: 1rem;
+    margin-top: 1rem;
+}
+
+.result-summary h4 {
+    margin: 0 0 0.5rem 0;
+    color: #0c4a6e;
+}
+
+.loading-spinner {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
+    border: 2px solid #f3f4f6;
+    border-top-color: #3b82f6;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-right: 0.5rem;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.hidden {
+    display: none;
+}
+
+.checkbox-group {
+    margin-top: 0.5rem;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: #475569;
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: 1rem;
+    height: 1rem;
+    cursor: pointer;
+}
+
+.warning-message {
+    background: #fef3c7;
+    border: 1px solid #fde68a;
+    border-radius: 6px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    color: #92400e;
+}
+
+.error-message {
+    background: #fee2e2;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    color: #991b1b;
+}
+
+.info-box {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+    color: #1e40af;
+}
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="container">
+    <h1 style="margin-bottom: 2rem;">{{ _("Mollie Subscription Recreation Tool") }}</h1>
+
+    {% if not mollie_configured %}
+    <div class="error-message">
+        <strong>⚠️ Mollie not configured</strong><br>
+        Please configure Mollie Settings before using this tool.
+    </div>
+    {% endif %}
+
+    <div class="info-box">
+        <strong>📋 Instructions:</strong>
+        <ol style="margin: 0.5rem 0 0 1.5rem; padding: 0;">
+            <li>Upload a CSV file with columns: <code>customer_id</code>, <code>subscription_id</code></li>
+            <li>Specify the planned next invoice date for all subscriptions</li>
+            <li>Review the validation results (current vs. planned)</li>
+            <li>Select subscriptions to recreate and confirm</li>
+        </ol>
+        <p style="margin-top: 0.5rem; margin-bottom: 0;"><strong>Environment:</strong> {{ api_key_type|upper }} mode</p>
+    </div>
+
+    <!-- Step 1: Upload & Validate -->
+    <div class="recreation-card">
+        <h2 class="card-title">Step 1: Upload CSV & Validate</h2>
+
+        <div class="form-group">
+            <label class="form-label" for="planned_date">Planned Next Invoice Date (for all subscriptions)</label>
+            <input type="date" id="planned_date" class="form-input" required>
+        </div>
+
+        <div class="checkbox-group">
+            <label class="checkbox-label">
+                <input type="checkbox" id="skip_date_validation">
+                Skip date validation (allow recreation even if current date is not overdue)
+            </label>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">CSV File</label>
+            <div class="file-upload-area" id="dropzone">
+                <input type="file" id="csv_file" accept=".csv" style="display: none;">
+                <div id="drop-text">
+                    <p style="margin: 0 0 0.5rem 0; font-weight: 500;">📁 Drop CSV file here or click to browse</p>
+                    <p style="margin: 0; font-size: 0.75rem; color: #64748b;">CSV format: customer_id, subscription_id, [amount]</p>
+                    <p style="margin: 0; font-size: 0.7rem; color: #94a3b8;">The 'amount' column is optional. Add it to change subscription amounts.</p>
+                </div>
+                <div id="file-name" class="hidden" style="color: #059669; font-weight: 500;"></div>
+            </div>
+        </div>
+
+        <button id="validate_btn" class="btn btn-primary" disabled>
+            <span id="validate_spinner" class="loading-spinner hidden"></span>
+            Validate Subscriptions
+        </button>
+    </div>
+
+    <!-- Step 2: Review Validation Results -->
+    <div id="validation_results_card" class="recreation-card hidden">
+        <h2 class="card-title">Step 2: Review Validation Results</h2>
+
+        <div id="validation_summary" class="result-summary"></div>
+
+        <div style="overflow-x: auto; margin-top: 1rem;">
+            <table class="validation-table">
+                <thead>
+                    <tr>
+                        <th><input type="checkbox" id="select_all"> Select</th>
+                        <th>Customer ID</th>
+                        <th>Subscription ID</th>
+                        <th>Status</th>
+                        <th>Interval</th>
+                        <th>Current Amount</th>
+                        <th>Planned Amount</th>
+                        <th>Current Next Date</th>
+                        <th>Planned Next Date</th>
+                        <th>Error Details</th>
+                    </tr>
+                </thead>
+                <tbody id="validation_table_body">
+                </tbody>
+            </table>
+        </div>
+
+        <div style="margin-top: 1.5rem;">
+            <button id="recreate_btn" class="btn btn-success" disabled>
+                <span id="recreate_spinner" class="loading-spinner hidden"></span>
+                Recreate Selected Subscriptions
+            </button>
+        </div>
+    </div>
+
+    <!-- Step 3: Recreation Results -->
+    <div id="recreation_results_card" class="recreation-card hidden">
+        <h2 class="card-title">Step 3: Recreation Results</h2>
+
+        <div id="recreation_summary" class="result-summary"></div>
+
+        <div style="overflow-x: auto; margin-top: 1rem;">
+            <table class="validation-table">
+                <thead>
+                    <tr>
+                        <th>Status</th>
+                        <th>Customer ID</th>
+                        <th>Old Subscription</th>
+                        <th>New Subscription</th>
+                        <th>Interval</th>
+                        <th>Amount</th>
+                        <th>Next Date</th>
+                        <th>Error</th>
+                    </tr>
+                </thead>
+                <tbody id="recreation_table_body">
+                </tbody>
+            </table>
+        </div>
+
+        <div style="margin-top: 1rem;">
+            <button class="btn btn-primary" onclick="location.reload()">Start New Recreation</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const csrfToken = '{{ csrf_token }}';
+let csvContent = null;
+let validationResults = [];
+
+// File upload handling
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('csv_file');
+const dropText = document.getElementById('drop-text');
+const fileName = document.getElementById('file-name');
+const validateBtn = document.getElementById('validate_btn');
+const plannedDateInput = document.getElementById('planned_date');
+
+dropzone.addEventListener('click', () => fileInput.click());
+
+dropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropzone.classList.add('dragover');
+});
+
+dropzone.addEventListener('dragleave', () => {
+    dropzone.classList.remove('dragover');
+});
+
+dropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        handleFile(files[0]);
+    }
+});
+
+fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+        handleFile(e.target.files[0]);
+    }
+});
+
+function handleFile(file) {
+    if (!file.name.endsWith('.csv')) {
+        frappe.msgprint({
+            title: 'Invalid File',
+            message: 'Please upload a CSV file',
+            indicator: 'red'
+        });
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        csvContent = e.target.result;
+        dropText.classList.add('hidden');
+        fileName.classList.remove('hidden');
+        fileName.textContent = `✓ ${file.name}`;
+        checkValidateButton();
+    };
+    reader.readAsText(file);
+}
+
+plannedDateInput.addEventListener('change', checkValidateButton);
+
+function checkValidateButton() {
+    validateBtn.disabled = !(csvContent && plannedDateInput.value);
+}
+
+// Validate subscriptions
+validateBtn.addEventListener('click', async () => {
+    if (!csvContent || !plannedDateInput.value) return;
+
+    validateBtn.disabled = true;
+    document.getElementById('validate_spinner').classList.remove('hidden');
+
+    try {
+        const response = await frappe.call({
+            method: 'verenigingen.templates.pages.mollie_subscription_recreation.parse_and_validate_csv',
+            args: {
+                csv_content: csvContent,
+                planned_next_invoice_date: plannedDateInput.value,
+                skip_date_validation: document.getElementById('skip_date_validation').checked
+            }
+        });
+
+        console.log('Validation response:', response.message);
+
+        if (response.message.status === 'error') {
+            frappe.msgprint({
+                title: 'Validation Error',
+                message: response.message.error,
+                indicator: 'red'
+            });
+            return;
+        }
+
+        validationResults = response.message.results;
+        console.log('Validation results:', validationResults);
+        displayValidationResults(response.message);
+
+    } catch (error) {
+        frappe.msgprint({
+            title: 'Error',
+            message: error.message || 'Failed to validate CSV',
+            indicator: 'red'
+        });
+    } finally {
+        validateBtn.disabled = false;
+        document.getElementById('validate_spinner').classList.add('hidden');
+    }
+});
+
+function displayValidationResults(data) {
+    const card = document.getElementById('validation_results_card');
+    const summary = document.getElementById('validation_summary');
+    const tbody = document.getElementById('validation_table_body');
+
+    // Calculate summary stats
+    const validCount = data.results.filter(r => r.status === 'valid').length;
+    const warningCount = data.results.filter(r => r.status === 'warning').length;
+    const errorCount = data.results.filter(r => r.status === 'error').length;
+
+    summary.innerHTML = `
+        <h4>Validation Summary</h4>
+        <p style="margin: 0;">
+            Total: ${data.total_rows} |
+            <span style="color: #059669;">✓ Valid: ${validCount}</span> |
+            <span style="color: #d97706;">⚠ Warnings: ${warningCount}</span> |
+            <span style="color: #dc2626;">✗ Errors: ${errorCount}</span>
+        </p>
+    `;
+
+    // Populate table
+    tbody.innerHTML = '';
+    data.results.forEach((result, index) => {
+        const row = document.createElement('tr');
+
+        const isDateInPast = result.current_next_invoice_date &&
+            new Date(result.current_next_invoice_date) < new Date();
+
+        // Create checkbox cell
+        const checkboxCell = document.createElement('td');
+        if (result.status !== 'error') {
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'sub-checkbox';
+            checkbox.setAttribute('data-index', index);
+            checkboxCell.appendChild(checkbox);
+        }
+        row.appendChild(checkboxCell);
+
+        // Create other cells
+        row.innerHTML += `
+            <td>${result.customer_id}</td>
+            <td>${result.subscription_id}</td>
+            <td><span class="status-badge status-${result.status}">${result.status}</span></td>
+            <td>${result.current_interval || 'N/A'}</td>
+            <td>€${result.current_amount ? result.current_amount.toFixed(2) : 'N/A'}</td>
+            <td class="${result.amount_match ? 'amount-match' : 'amount-mismatch'}">
+                €${result.planned_amount ? result.planned_amount.toFixed(2) : 'N/A'}
+                ${result.amount_changed ? ' 🔄' : ''}
+            </td>
+            <td class="${isDateInPast ? 'date-past' : 'date-future'}">
+                ${result.current_next_invoice_date || 'N/A'}
+                ${!isDateInPast && result.current_next_invoice_date ? ' ⚠️' : ''}
+            </td>
+            <td>${result.planned_next_invoice_date}</td>
+            <td style="color: #dc2626; font-size: 0.75rem;">
+                ${result.error || (result.warnings && result.warnings.length > 0 ? result.warnings.join('; ') : '')}
+            </td>
+        `;
+
+        tbody.appendChild(row);
+    });
+
+    card.classList.remove('hidden');
+
+    // Setup select all checkbox
+    document.getElementById('select_all').addEventListener('change', function() {
+        document.querySelectorAll('.sub-checkbox').forEach(cb => {
+            cb.checked = this.checked;
+        });
+        updateRecreateButton();
+    });
+
+    // Setup individual checkboxes
+    document.querySelectorAll('.sub-checkbox').forEach(cb => {
+        cb.addEventListener('change', updateRecreateButton);
+    });
+}
+
+function updateRecreateButton() {
+    const checked = document.querySelectorAll('.sub-checkbox:checked').length;
+    document.getElementById('recreate_btn').disabled = checked === 0;
+}
+
+// Recreate subscriptions
+document.getElementById('recreate_btn').addEventListener('click', async () => {
+    const selectedIndexes = Array.from(document.querySelectorAll('.sub-checkbox:checked'))
+        .map(cb => parseInt(cb.dataset.index));
+
+    console.log('Selected indexes:', selectedIndexes);
+    console.log('Validation results:', validationResults);
+
+    const selectedSubs = selectedIndexes.map(i => validationResults[i]).filter(s => s !== undefined && s !== null);
+
+    console.log('Selected subscriptions:', selectedSubs);
+
+    if (selectedSubs.length === 0) {
+        frappe.msgprint({
+            title: 'No Subscriptions Selected',
+            message: 'Please select at least one subscription to recreate',
+            indicator: 'red'
+        });
+        return;
+    }
+
+    const confirmed = await frappe.confirm(
+        `You are about to recreate ${selectedSubs.length} subscription(s). This will cancel the old subscriptions and create new ones. Continue?`,
+        () => executeRecreation(selectedSubs)
+    );
+});
+
+async function executeRecreation(subscriptions) {
+    const btn = document.getElementById('recreate_btn');
+    btn.disabled = true;
+    document.getElementById('recreate_spinner').classList.remove('hidden');
+
+    try {
+        // Base64 encode to bypass text length validation
+        const jsonData = JSON.stringify(subscriptions);
+        const encoded = btoa(unescape(encodeURIComponent(jsonData)));
+
+        const response = await frappe.call({
+            method: 'verenigingen.templates.pages.mollie_subscription_recreation.recreate_subscriptions',
+            args: {
+                subscriptions_data: encoded
+            }
+        });
+
+        if (response.message.status === 'error') {
+            frappe.msgprint({
+                title: 'Recreation Error',
+                message: response.message.error,
+                indicator: 'red'
+            });
+            return;
+        }
+
+        displayRecreationResults(response.message);
+
+    } catch (error) {
+        frappe.msgprint({
+            title: 'Error',
+            message: error.message || 'Failed to recreate subscriptions',
+            indicator: 'red'
+        });
+    } finally {
+        btn.disabled = false;
+        document.getElementById('recreate_spinner').classList.add('hidden');
+    }
+}
+
+function displayRecreationResults(data) {
+    const card = document.getElementById('recreation_results_card');
+    const summary = document.getElementById('recreation_summary');
+    const tbody = document.getElementById('recreation_table_body');
+
+    summary.innerHTML = `
+        <h4>Recreation Complete</h4>
+        <p style="margin: 0;">
+            Total: ${data.summary.total} |
+            <span style="color: #059669;">✓ Success: ${data.summary.success}</span> |
+            <span style="color: #dc2626;">✗ Errors: ${data.summary.errors}</span>
+        </p>
+    `;
+
+    tbody.innerHTML = '';
+    data.results.forEach(result => {
+        const row = document.createElement('tr');
+        const errorDisplay = result.error
+            ? (result.details
+                ? `<strong>${result.error}</strong><br><small style="color: #64748b;">${result.details}</small>`
+                : result.error)
+            : '';
+
+        row.innerHTML = `
+            <td><span class="status-badge status-${result.status}">${result.status}</span></td>
+            <td>${result.customer_id}</td>
+            <td>${result.old_subscription_id}</td>
+            <td>${result.new_subscription_id || 'N/A'}</td>
+            <td>${result.interval || 'N/A'}</td>
+            <td>${result.amount ? '€' + result.amount.toFixed(2) : 'N/A'}</td>
+            <td>${result.next_invoice_date || 'N/A'}</td>
+            <td style="color: #dc2626;">${errorDisplay}</td>
+        `;
+        tbody.appendChild(row);
+    });
+
+    card.classList.remove('hidden');
+    card.scrollIntoView({ behavior: 'smooth' });
+
+    if (data.summary.success > 0) {
+        frappe.show_alert({
+            message: `Successfully recreated ${data.summary.success} subscription(s)`,
+            indicator: 'green'
+        });
+    }
+}
+</script>
+{% endblock %}

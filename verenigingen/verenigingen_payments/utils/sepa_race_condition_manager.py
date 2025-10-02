@@ -713,7 +713,7 @@ class SEPABatchRaceConditionManager:
         Link validated invoices to the batch document
 
         Args:
-            batch_doc: Batch document
+            batch_doc: Direct Debit Batch document
             validated_invoices: List of validated invoices
         """
         for invoice_data in validated_invoices:

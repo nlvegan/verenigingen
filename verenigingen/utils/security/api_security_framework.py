@@ -837,6 +837,8 @@ class APISecurityFramework:
             max_length = 5000  # Allow larger data for membership applications and member data
         elif operation_type == OperationType.REPORTING:
             max_length = 2000  # Allow larger data for reports
+        elif operation_type == OperationType.FINANCIAL:
+            max_length = 100000  # Allow large JSON payloads for batch financial operations
 
         for key, value in kwargs.items():
             # Skip None values

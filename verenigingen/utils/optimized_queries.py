@@ -340,6 +340,7 @@ class OptimizedMemberQueries:
                 si.grand_total,
                 si.outstanding_amount,
                 si.status as invoice_status,
+                si.membership as membership_id,
                 pe.name as payment_name,
                 pe.posting_date as payment_date,
                 pe.paid_amount,
@@ -409,49 +410,86 @@ class OptimizedMemberQueries:
 
     @staticmethod
     def _update_member_payment_history_bulk(member_name: str, payment_data: List[Dict]):
-        """Update a single member's payment history using bulk data"""
+        """
+        Update a single member's payment history using bulk data.
+
+        Uses atomic transaction and true bulk insert for performance and data consistency.
+        """
+        from verenigingen.utils.payment_history_builder import build_payment_history_entry_from_query
+
+        history_records = []
+        processed_invoices = set()
+        validation_failures = []
 
         try:
-            # Delete existing payment history records for this member
-            frappe.db.delete("Member Payment History", {"parent": member_name})
-
-            # Prepare bulk insert data
-            history_records = []
-
-            # Process payment data and create history records
-            processed_invoices = set()
-
+            # ✅ FIX: Build all records first, collecting validation failures
             for row in payment_data:
                 if not row.get("invoice_name") or row["invoice_name"] in processed_invoices:
                     continue
 
                 processed_invoices.add(row["invoice_name"])
 
+                # Use shared builder with validation
+                entry = build_payment_history_entry_from_query(row, validate=True)
+
+                if entry is None:
+                    # ✅ FIX: Track validation failures for reporting
+                    validation_failures.append(
+                        {
+                            "invoice": row.get("invoice_name"),
+                            "member": member_name,
+                            "reason": "Validation failed",
+                        }
+                    )
+                    continue
+
+                # Add parent fields for child table
                 history_record = {
                     "doctype": "Member Payment History",
                     "parent": member_name,
                     "parenttype": "Member",
                     "parentfield": "payment_history",
-                    "reference_doctype": "Sales Invoice",
-                    "reference_name": row["invoice_name"],
-                    "posting_date": row["posting_date"],
-                    "due_date": row["due_date"],
-                    "invoice_amount": flt(row["grand_total"]),
-                    "outstanding_amount": flt(row["outstanding_amount"]),
-                    "payment_status": row["payment_status"],
-                    "payment_date": row.get("payment_date"),
-                    "amount_paid": flt(row.get("allocated_amount", 0)),
+                    **entry,  # Merge validated entry data
                 }
 
                 history_records.append(history_record)
 
-            # Bulk insert payment history records
+            # ✅ FIX: Atomic delete and insert
+            frappe.db.delete("Member Payment History", {"parent": member_name})
+
+            # ✅ FIX: Use true bulk insert for performance (not loop)
             if history_records:
-                for record in history_records:
-                    frappe.get_doc(record).insert(ignore_permissions=True)
+                fields = list(history_records[0].keys())
+                values = [list(record.values()) for record in history_records]
+
+                frappe.db.bulk_insert("Member Payment History", fields=fields, values=values)
+
+            # ✅ FIX: Report validation failures to administrators
+            if validation_failures:
+                error_msg = f"Member {member_name}: {len(validation_failures)} invoices failed validation"
+                frappe.log_error(
+                    frappe.as_json(validation_failures, indent=2), "Payment History Validation Failures"
+                )
+
+                # Publish realtime notification for admin awareness
+                frappe.publish_realtime(
+                    event="payment_history_validation_error",
+                    message={
+                        "member": member_name,
+                        "failure_count": len(validation_failures),
+                        "details": validation_failures,
+                    },
+                    user="Administrator",
+                )
 
         except Exception as e:
-            frappe.log_error(f"Failed to update payment history for member {member_name}: {str(e)}")
+            # ✅ FIX: Explicit rollback to prevent partial data
+            frappe.db.rollback()
+            frappe.log_error(
+                f"Failed to update payment history for member {member_name}: {str(e)}\n"
+                f"Traceback: {frappe.get_traceback()}",
+                "Payment History Bulk Update Error",
+            )
             raise
 
     @staticmethod

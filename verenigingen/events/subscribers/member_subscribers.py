@@ -206,7 +206,7 @@ def _send_approval_notification(member):
         result = send_member_notification(
             member_name=member.name,
             notification_type="approval",
-            context={"member_name": member.get_full_name(), "membership_number": member.name},
+            context={"member_name": member.full_name, "membership_number": member.name},
         )
 
         if result.get("success"):
@@ -230,7 +230,7 @@ def _send_lifecycle_notification(member, old_status, new_status):
 
     email_service = get_email_service()
     context = {
-        "member_name": member.get_full_name(),
+        "member_name": member.full_name,
         "old_status": old_status,
         "new_status": new_status,
         "membership_number": member.name,
@@ -259,7 +259,7 @@ def _send_suspension_notification(member):
         result = send_member_notification(
             member_name=member.name,
             notification_type="suspension",
-            context={"member_name": member.get_full_name(), "membership_number": member.name},
+            context={"member_name": member.full_name, "membership_number": member.name},
         )
 
         if result.get("success"):
@@ -285,7 +285,7 @@ def _send_termination_notification(member):
         result = send_member_notification(
             member_name=member.name,
             notification_type="termination",
-            context={"member_name": member.get_full_name(), "membership_number": member.name},
+            context={"member_name": member.full_name, "membership_number": member.name},
         )
 
         if result.get("success"):
@@ -311,7 +311,7 @@ def _send_reactivation_notification(member):
         result = send_member_notification(
             member_name=member.name,
             notification_type="reactivation",
-            context={"member_name": member.get_full_name(), "membership_number": member.name},
+            context={"member_name": member.full_name, "membership_number": member.name},
         )
 
         if result.get("success"):

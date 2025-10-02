@@ -267,7 +267,7 @@ class BatchProcessingService:
         try:
             # Get all mandate information in bulk for performance
             customer_list = [invoice.customer for invoice in batch_doc.invoices if invoice.customer]
-            mandate_data = self._get_mandate_sequence_types_bulk(customer_list, batch_doc.collection_date)
+            mandate_data = self._get_mandate_sequence_types_bulk(customer_list, batch_doc.batch_date)
 
             for invoice_item in batch_doc.invoices:
                 customer = invoice_item.customer

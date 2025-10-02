@@ -1212,118 +1212,48 @@ class PaymentMixin:
         return self.add_invoice_to_payment_history(invoice_name)
 
     def _build_payment_history_entry(self, invoice):
-        """Build a payment history entry from an invoice document"""
+        """
+        Build a payment history entry from an invoice document.
+
+        Uses the shared PaymentHistoryEntryBuilder for consistency with bulk updates,
+        but overrides coverage dates with schedule-specific logic.
+        """
+        from verenigingen.utils.payment_history_builder import build_payment_history_entry
+
         try:
-            # Extract all the invoice details as in the original method
-            reference_doctype = None
-            reference_name = None
-            transaction_type = "Regular Invoice"
+            # Use shared builder for consistent structure
+            entry = build_payment_history_entry(invoice, member_doc=self, validate=True)
 
-            # Check if invoice is linked to a membership
-            if hasattr(invoice, "membership") and invoice.membership:
-                transaction_type = "Membership Invoice"
-                reference_doctype = "Membership"
-                reference_name = invoice.membership
+            if entry is None:
+                # Validation failed in shared builder, return minimal entry
+                return {
+                    "invoice": invoice.name,
+                    "posting_date": invoice.posting_date,
+                    "amount": invoice.grand_total,
+                    "outstanding_amount": invoice.outstanding_amount,
+                    "payment_status": "Draft",
+                }
 
-            # Find linked payment entries
-            payment_entries = frappe.get_all(
-                "Payment Entry Reference",
-                filters={"reference_doctype": "Sales Invoice", "reference_name": invoice.name},
-                fields=["parent", "allocated_amount"],
-            )
-
-            payment_status = "Unpaid"
-            payment_date = None
-            payment_entry = None
-            payment_method = None
-            paid_amount = 0
-            reconciled = 0
-
-            if payment_entries:
-                for pe in payment_entries:
-                    paid_amount += float(pe.allocated_amount or 0)
-
-                most_recent_payment = frappe.get_all(
-                    "Payment Entry",
-                    filters={
-                        "name": ["in", [pe.parent for pe in payment_entries]],
-                        "docstatus": ["!=", 2],  # Exclude cancelled payment entries
-                    },
-                    fields=["name", "posting_date", "mode_of_payment", "paid_amount"],
-                    order_by="posting_date desc",
-                )
-
-                if most_recent_payment:
-                    payment_entry = most_recent_payment[0].name
-                    payment_date = most_recent_payment[0].posting_date
-                    payment_method = most_recent_payment[0].mode_of_payment
-                    reconciled = 1
-
-            # Set payment status
-            if invoice.docstatus == 0:
-                payment_status = "Draft"
-            elif invoice.status == "Paid":
-                payment_status = "Paid"
-            elif invoice.status == "Overdue":
-                payment_status = "Overdue"
-            elif invoice.status == "Cancelled":
-                payment_status = "Cancelled"
-            elif paid_amount > 0 and paid_amount < invoice.grand_total:
-                payment_status = "Partially Paid"
-
-            # Get coverage dates
-            coverage_start_date = None
-            coverage_end_date = None
-
+            # Override with schedule-specific coverage dates
+            # This is the only Member-specific logic that differs from the shared builder
             try:
                 schedule_coverage = self._get_coverage_from_schedule(invoice.name)
                 invoice_coverage = self._get_coverage_from_invoice(invoice)
 
                 coverage_start_date = schedule_coverage[0] or invoice_coverage[0]
                 coverage_end_date = schedule_coverage[1] or invoice_coverage[1]
+
+                if coverage_start_date:
+                    entry["coverage_start_date"] = coverage_start_date
+                if coverage_end_date:
+                    entry["coverage_end_date"] = coverage_end_date
             except (AttributeError, IndexError, TypeError) as e:
                 frappe.log_error(
                     f"Error getting coverage dates for invoice {invoice.name}: {e}", "CoverageExtraction"
                 )
-                coverage_start_date = None
-                coverage_end_date = None
+                # Keep coverage dates from shared builder if schedule extraction fails
 
-            # Check for SEPA mandate
-            has_mandate = 0
-            sepa_mandate = None
-            mandate_status = None
-            mandate_reference = None
-
-            default_mandate = self.get_default_sepa_mandate()
-            if default_mandate:
-                has_mandate = 1
-                sepa_mandate = default_mandate.name
-                mandate_status = default_mandate.status
-                mandate_reference = default_mandate.mandate_id
-
-            return {
-                "invoice": invoice.name,
-                "posting_date": invoice.posting_date,
-                "due_date": invoice.due_date,
-                "coverage_start_date": coverage_start_date,
-                "coverage_end_date": coverage_end_date,
-                "transaction_type": transaction_type,
-                "reference_doctype": reference_doctype,
-                "reference_name": reference_name,
-                "amount": invoice.grand_total,
-                "outstanding_amount": invoice.outstanding_amount,
-                "status": invoice.status,
-                "payment_status": payment_status,
-                "payment_date": payment_date,
-                "payment_entry": payment_entry,
-                "payment_method": payment_method,
-                "paid_amount": paid_amount,
-                "reconciled": reconciled,
-                "has_mandate": has_mandate,
-                "sepa_mandate": sepa_mandate,
-                "mandate_status": mandate_status,
-                "mandate_reference": mandate_reference,
-            }
+            return entry
 
         except Exception as e:
             frappe.log_error(
@@ -1335,6 +1265,6 @@ class PaymentMixin:
                 "invoice": invoice.name,
                 "posting_date": invoice.posting_date,
                 "amount": invoice.grand_total,
-                "status": invoice.status,
-                "payment_status": "Draft",  # FIXED: Use valid payment status instead of "Unknown"
+                "outstanding_amount": invoice.outstanding_amount,
+                "payment_status": "Draft",
             }

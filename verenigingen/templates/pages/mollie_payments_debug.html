@@ -834,20 +834,23 @@ function adminCancelSubscription() {
     const reason = document.getElementById('cancel-reason').value.trim();
 
     if (!customerId || !subscriptionId) {
-        alert('{{ _("Please enter customer ID and subscription ID") }}');
+        frappe.msgprint('{{ _("Please enter customer ID and subscription ID") }}');
         return;
     }
 
-    const confirmMessage = `{{ _("ADMINISTRATIVE CANCELLATION") }}\\n\\n` +
-                          `{{ _("Customer ID:") }} ${customerId}\\n` +
-                          `{{ _("Subscription ID:") }} ${subscriptionId}\\n` +
-                          `{{ _("Reason:") }} ${reason}\\n\\n` +
+    const confirmMessage = `<strong>{{ _("ADMINISTRATIVE CANCELLATION") }}</strong><br><br>` +
+                          `{{ _("Customer ID:") }} ${customerId}<br>` +
+                          `{{ _("Subscription ID:") }} ${subscriptionId}<br>` +
+                          `{{ _("Reason:") }} ${reason}<br><br>` +
                           `{{ _("This action cannot be undone. Continue?") }}`;
 
-    if (!confirm(confirmMessage)) {
-        return;
-    }
+    frappe.confirm(
+        confirmMessage,
+        () => executeCancelSubscription(customerId, subscriptionId, reason)
+    );
+}
 
+function executeCancelSubscription(customerId, subscriptionId, reason) {
     showLoading('cancel-subscription-result', '{{ _("Cancelling subscription...") }}');
 
     const formData = new FormData();
@@ -892,20 +895,23 @@ function adminRevokeMandate() {
     const reason = document.getElementById('revoke-reason').value.trim();
 
     if (!customerId || !mandateId) {
-        alert('{{ _("Please enter customer ID and mandate ID") }}');
+        frappe.msgprint('{{ _("Please enter customer ID and mandate ID") }}');
         return;
     }
 
-    const confirmMessage = `{{ _("ADMINISTRATIVE MANDATE REVOCATION") }}\\n\\n` +
-                          `{{ _("Customer ID:") }} ${customerId}\\n` +
-                          `{{ _("Mandate ID:") }} ${mandateId}\\n` +
-                          `{{ _("Reason:") }} ${reason}\\n\\n` +
+    const confirmMessage = `<strong>{{ _("ADMINISTRATIVE MANDATE REVOCATION") }}</strong><br><br>` +
+                          `{{ _("Customer ID:") }} ${customerId}<br>` +
+                          `{{ _("Mandate ID:") }} ${mandateId}<br>` +
+                          `{{ _("Reason:") }} ${reason}<br><br>` +
                           `{{ _("This action cannot be undone. Continue?") }}`;
 
-    if (!confirm(confirmMessage)) {
-        return;
-    }
+    frappe.confirm(
+        confirmMessage,
+        () => executeRevokeMandate(customerId, mandateId, reason)
+    );
+}
 
+function executeRevokeMandate(customerId, mandateId, reason) {
     showLoading('revoke-mandate-result', '{{ _("Revoking mandate...") }}');
 
     const formData = new FormData();
@@ -1042,36 +1048,45 @@ function adminDeleteCustomer() {
     const confirmationText = document.getElementById('delete-confirmation').value.trim();
 
     if (!customerId || !reason || !confirmationText) {
-        alert('{{ _("Please fill in all fields") }}');
+        frappe.msgprint('{{ _("Please fill in all fields") }}');
         return;
     }
 
     if (confirmationText !== 'DELETE CUSTOMER') {
-        alert('{{ _("Confirmation text must be exactly: DELETE CUSTOMER") }}');
+        frappe.msgprint('{{ _("Confirmation text must be exactly: DELETE CUSTOMER") }}');
         return;
     }
 
-    const warningMessage = `{{ _("🚨 CRITICAL WARNING 🚨") }}\\n\\n` +
-                          `{{ _("YOU ARE ABOUT TO PERMANENTLY DELETE:") }}\\n` +
-                          `{{ _("Customer ID:") }} ${customerId}\\n\\n` +
-                          `{{ _("THIS WILL CASCADE DELETE:") }}\\n` +
-                          `{{ _("• ALL subscriptions (canceled immediately)") }}\\n` +
-                          `{{ _("• ALL mandates (revoked immediately)") }}\\n` +
-                          `{{ _("• Customer record (deleted permanently)") }}\\n\\n` +
-                          `{{ _("Reason:") }} ${reason}\\n\\n` +
-                          `{{ _("⚠️ THIS ACTION CANNOT BE UNDONE ⚠️") }}\\n\\n` +
+    const warningMessage = `<strong style="color: red;">🚨 CRITICAL WARNING 🚨</strong><br><br>` +
+                          `<strong>{{ _("YOU ARE ABOUT TO PERMANENTLY DELETE:") }}</strong><br>` +
+                          `{{ _("Customer ID:") }} ${customerId}<br><br>` +
+                          `<strong>{{ _("THIS WILL CASCADE DELETE:") }}</strong><br>` +
+                          `• {{ _("ALL subscriptions (canceled immediately)") }}<br>` +
+                          `• {{ _("ALL mandates (revoked immediately)") }}<br>` +
+                          `• {{ _("Customer record (deleted permanently)") }}<br><br>` +
+                          `{{ _("Reason:") }} ${reason}<br><br>` +
+                          `<strong style="color: red;">⚠️ {{ _("THIS ACTION CANNOT BE UNDONE") }} ⚠️</strong><br><br>` +
                           `{{ _("Are you absolutely certain you want to proceed?") }}`;
 
-    if (!confirm(warningMessage)) {
-        return;
-    }
+    frappe.confirm(
+        warningMessage,
+        () => {
+            // Second confirmation for nuclear option
+            const finalMessage = `<strong>{{ _("FINAL CONFIRMATION") }}</strong><br><br>` +
+                               `{{ _("This is your last chance to stop.") }}<br><br>` +
+                               `{{ _("Click Yes to PERMANENTLY DELETE customer") }} <strong>${customerId}</strong> ` +
+                               `{{ _("and ALL associated data.") }}<br><br>` +
+                               `{{ _("Click No to abort.") }}`;
 
-    // Second confirmation for nuclear option
-    const finalConfirm = confirm(`{{ _("FINAL CONFIRMATION\\n\\nThis is your last chance to stop.\\n\\nClick OK to PERMANENTLY DELETE customer") }} ${customerId} {{ _("and ALL associated data.\\n\\nClick Cancel to abort.") }}`);
-    if (!finalConfirm) {
-        return;
-    }
+            frappe.confirm(
+                finalMessage,
+                () => executeDeleteCustomer(customerId, reason, confirmationText)
+            );
+        }
+    );
+}
 
+function executeDeleteCustomer(customerId, reason, confirmationText) {
     showLoading('delete-customer-result', '{{ _("🚨 DELETING CUSTOMER AND ALL DATA...") }}');
 
     const formData = new FormData();
@@ -1925,20 +1940,23 @@ function adminCancelPayment() {
     const reason = document.getElementById('cancel-payment-reason').value.trim();
 
     if (!paymentId) {
-        alert('{{ _("Please enter a payment ID") }}');
+        frappe.msgprint('{{ _("Please enter a payment ID") }}');
         return;
     }
 
-    const confirmMessage = `{{ _("ADMINISTRATIVE PAYMENT CANCELLATION") }}\\n\\n` +
-                          `{{ _("Payment ID:") }} ${paymentId}\\n` +
-                          `{{ _("Reason:") }} ${reason}\\n\\n` +
-                          `{{ _("Only open, pending, or authorized payments can be cancelled.") }}\\n` +
+    const confirmMessage = `<strong>{{ _("ADMINISTRATIVE PAYMENT CANCELLATION") }}</strong><br><br>` +
+                          `{{ _("Payment ID:") }} ${paymentId}<br>` +
+                          `{{ _("Reason:") }} ${reason}<br><br>` +
+                          `{{ _("Only open, pending, or authorized payments can be cancelled.") }}<br>` +
                           `{{ _("This action cannot be undone. Continue?") }}`;
 
-    if (!confirm(confirmMessage)) {
-        return;
-    }
+    frappe.confirm(
+        confirmMessage,
+        () => executeCancelPayment(paymentId, reason)
+    );
+}
 
+function executeCancelPayment(paymentId, reason) {
     showLoading('cancel-payment-result', '{{ _("Cancelling payment...") }}');
 
     const formData = new FormData();
@@ -1998,33 +2016,36 @@ function createSubscription() {
     const description = document.getElementById('create-sub-description').value.trim();
 
     if (!customerId) {
-        alert('{{ _("Please enter a customer ID") }}');
+        frappe.msgprint('{{ _("Please enter a customer ID") }}');
         return;
     }
 
     if (!amount || parseFloat(amount) <= 0) {
-        alert('{{ _("Please enter a valid amount") }}');
+        frappe.msgprint('{{ _("Please enter a valid amount") }}');
         return;
     }
 
     if (!description) {
-        alert('{{ _("Please enter a description") }}');
+        frappe.msgprint('{{ _("Please enter a description") }}');
         return;
     }
 
-    const confirmMessage = `{{ _("CREATE NEW SUBSCRIPTION") }}\\n\\n` +
-                          `{{ _("Customer ID:") }} ${customerId}\\n` +
-                          `{{ _("Amount:") }} €${amount}\\n` +
-                          `{{ _("Interval:") }} ${interval}\\n` +
-                          `{{ _("Start Date:") }} ${startDate || '{{ _("Immediately") }}'}\\n` +
-                          `{{ _("Description:") }} ${description}\\n` +
-                          (mandateId ? `{{ _("Mandate ID:") }} ${mandateId}\\n` : '') +
-                          `\\n{{ _("Continue?") }}`;
+    const confirmMessage = `<strong>{{ _("CREATE NEW SUBSCRIPTION") }}</strong><br><br>` +
+                          `{{ _("Customer ID:") }} ${customerId}<br>` +
+                          `{{ _("Amount:") }} €${amount}<br>` +
+                          `{{ _("Interval:") }} ${interval}<br>` +
+                          `{{ _("Start Date:") }} ${startDate || '{{ _("Immediately") }}'}<br>` +
+                          `{{ _("Description:") }} ${description}<br>` +
+                          (mandateId ? `{{ _("Mandate ID:") }} ${mandateId}<br>` : '') +
+                          `<br>{{ _("Continue?") }}`;
 
-    if (!confirm(confirmMessage)) {
-        return;
-    }
+    frappe.confirm(
+        confirmMessage,
+        () => executeCreateSubscription(customerId, mandateId, amount, interval, startDate, description)
+    );
+}
 
+function executeCreateSubscription(customerId, mandateId, amount, interval, startDate, description) {
     showLoading('create-subscription-result', '{{ _("Creating subscription...") }}');
 
     const formData = new FormData();
