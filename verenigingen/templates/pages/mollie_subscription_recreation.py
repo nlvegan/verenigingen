@@ -348,6 +348,10 @@ def parse_and_validate_csv(
         if not rows:
             return {"error": "No valid rows found in CSV", "status": "error"}
 
+        # Normalize empty string to None
+        if planned_next_invoice_date == "":
+            planned_next_invoice_date = None
+
         # Validate global planned date format if provided
         if planned_next_invoice_date:
             try:
@@ -422,11 +426,8 @@ def parse_and_validate_csv(
             status = "valid"
             warnings = []
 
-            # Check mandate validity
-            if not current_mandate_id:
-                warnings.append("No mandate ID found on subscription")
-                status = "warning"
-            elif not mandate_valid:
+            # Check mandate validity (skip warning if mandate_id is null - we'll fetch it during recreation)
+            if current_mandate_id and not mandate_valid:
                 warnings.append(f"Mandate status is {mandate_status or 'unknown'} (not valid)")
                 status = "warning"
 
@@ -514,7 +515,9 @@ def recreate_subscriptions(subscriptions_data: str, description_suffix: str = ""
             amount = sub_data["planned_amount"]
             start_date = sub_data["planned_next_invoice_date"]
             interval = sub_data.get("current_interval")
-            description = sanitize_description(sub_data.get("current_description"))
+            # Use planned description (which includes CSV override if provided)
+            description = sanitize_description(sub_data.get("planned_description") or sub_data.get("current_description"))
+            description_changed = sub_data.get("description_changed", False)
             mandate_id = sub_data.get("current_mandate_id")
             mandate_valid = sub_data.get("mandate_valid", False)
 
@@ -530,6 +533,22 @@ def recreate_subscriptions(subscriptions_data: str, description_suffix: str = ""
                     }
                 )
                 continue
+
+            # If mandate_id is missing from subscription data, fetch customer's valid mandate
+            if not mandate_id or not mandate_valid:
+                # Fetch customer's mandates to find a valid one
+                customer_data = service.debug_customer(customer_id)
+                if not customer_data.get("error"):
+                    mandates = customer_data.get("mandates", [])
+                    # Find first valid mandate
+                    for m in mandates:
+                        if m.get("status") == "valid":
+                            mandate_id = m.get("id")
+                            mandate_valid = True
+                            frappe.logger().info(
+                                f"Using valid mandate {mandate_id} for customer {customer_id}"
+                            )
+                            break
 
             # Validate mandate before proceeding
             if not mandate_id:
@@ -583,7 +602,7 @@ def recreate_subscriptions(subscriptions_data: str, description_suffix: str = ""
 
             # Poll Mollie API to confirm cancellation before proceeding
             cancellation_confirmed = poll_subscription_cancellation(
-                service, customer_id, old_subscription_id, max_attempts=10, delay=0.5
+                service, customer_id, old_subscription_id
             )
 
             if not cancellation_confirmed:
@@ -598,8 +617,13 @@ def recreate_subscriptions(subscriptions_data: str, description_suffix: str = ""
                 )
                 continue
 
-            # Create new subscription with unique description
-            unique_description = generate_unique_description(description, description_suffix)
+            # Only apply suffix if description wasn't overridden via CSV
+            if description_changed:
+                # CSV provided a new description, use it as-is
+                unique_description = description
+            else:
+                # No CSV override, apply suffix to current description
+                unique_description = generate_unique_description(description, description_suffix)
 
             try:
 

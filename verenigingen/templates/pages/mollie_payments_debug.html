@@ -2112,7 +2112,6 @@ function formatSubscriptionCreationResult(data) {
     html += `<p><strong>Description:</strong> ${data.description}</p>`;
     if (data.start_date) html += `<p><strong>Start Date:</strong> ${data.start_date}</p>`;
     if (data.next_payment_date) html += `<p><strong>Next Payment:</strong> ${data.next_payment_date}</p>`;
-    if (data.webhook_url) html += `<p><strong>Webhook URL:</strong> ${data.webhook_url}</p>`;
 
     return html;
 }
