@@ -255,17 +255,24 @@ def retry_api_call(func, max_attempts: int = 3, backoff_factor: float = 2.0):
 @frappe.whitelist(allow_guest=False)
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def parse_and_validate_csv(
-    csv_content: str, planned_next_invoice_date: str, skip_date_validation: bool = False
+    csv_content: str, planned_next_invoice_date: str = "", skip_date_validation: bool = False
 ) -> Dict:
     """
     Parse CSV file and validate subscription data against Mollie API.
 
     Expected CSV format:
-    customer_id,subscription_id[,amount]
-    cst_xxx,sub_yyy[,25.00]
+    customer_id,subscription_id[,amount][,description][,next_payment_date]
+    cst_xxx,sub_yyy[,25.00][,New description][,2026-01-01]
 
-    The 'amount' column is optional. If provided, the new subscription will use that amount.
-    If not provided, the current subscription amount will be preserved.
+    Optional columns:
+    - amount: Override subscription amount
+    - description: Override subscription description
+    - next_payment_date: Override next invoice date (takes precedence over global planned_next_invoice_date)
+
+    Args:
+        csv_content: CSV file content
+        planned_next_invoice_date: Global next invoice date (optional if dates in CSV)
+        skip_date_validation: Skip validation that current date is overdue
 
     Returns validation results with current vs planned comparison.
     """
@@ -289,12 +296,14 @@ def parse_and_validate_csv(
             col in reader.fieldnames for col in ["customer_id", "subscription_id"]
         ):
             return {
-                "error": "Invalid CSV format. Required columns: customer_id, subscription_id (optional: amount)",
+                "error": "Invalid CSV format. Required columns: customer_id, subscription_id (optional: amount, description, next_payment_date)",
                 "status": "error",
             }
 
-        # Check if amount column is present
+        # Check which optional columns are present
         has_amount_column = "amount" in reader.fieldnames
+        has_description_column = "description" in reader.fieldnames
+        has_date_column = "next_payment_date" in reader.fieldnames
 
         # Convert to list and validate row count
         all_rows = list(reader)
@@ -317,19 +326,37 @@ def parse_and_validate_csv(
                     except (ValueError, AttributeError):
                         pass  # Ignore invalid amounts, will use current amount
 
+                # Parse optional description column if present
+                if has_description_column and row.get("description"):
+                    description = row["description"].strip()
+                    if description:
+                        row_data["custom_description"] = description
+
+                # Parse optional next_payment_date column if present
+                if has_date_column and row.get("next_payment_date"):
+                    date_str = row["next_payment_date"].strip()
+                    if date_str:
+                        try:
+                            # Validate date format
+                            datetime.strptime(date_str, "%Y-%m-%d").date()
+                            row_data["custom_next_payment_date"] = date_str
+                        except ValueError:
+                            pass  # Ignore invalid dates, will use global or current
+
                 rows.append(row_data)
 
         if not rows:
             return {"error": "No valid rows found in CSV", "status": "error"}
 
-        # Validate planned date format
-        try:
-            datetime.strptime(planned_next_invoice_date, "%Y-%m-%d").date()
-        except ValueError:
-            return {
-                "error": "Invalid date format. Use YYYY-MM-DD format.",
-                "status": "error",
-            }
+        # Validate global planned date format if provided
+        if planned_next_invoice_date:
+            try:
+                datetime.strptime(planned_next_invoice_date, "%Y-%m-%d").date()
+            except ValueError:
+                return {
+                    "error": "Invalid date format. Use YYYY-MM-DD format.",
+                    "status": "error",
+                }
 
         # Fetch current subscription data from Mollie
         service = MollieDebugService()
@@ -364,9 +391,21 @@ def parse_and_validate_csv(
             current_description = sanitize_description(subscription.get("description"))
             current_mandate_id = subscription.get("mandate_id")
 
-            # Determine planned amount: use custom amount if provided, otherwise current amount
-            planned_amount = row.get("custom_amount", current_amount)
-            amount_changed = "custom_amount" in row and row["custom_amount"] != current_amount
+            # Determine planned values: use CSV overrides if provided, otherwise current values
+            # Amount is always preserved from current subscription (ignore CSV amount column)
+            planned_amount = current_amount
+            amount_changed = False
+
+            planned_description = row.get("custom_description", current_description)
+            description_changed = (
+                "custom_description" in row and row["custom_description"] != current_description
+            )
+
+            # Determine planned date: Global date > CSV date > current date
+            planned_date = (
+                planned_next_invoice_date or row.get("custom_next_payment_date") or current_next_date
+            )
+            date_changed = planned_date != current_next_date
 
             # Validate mandate - check if customer has valid mandate
             mandate_status = None
@@ -391,8 +430,8 @@ def parse_and_validate_csv(
                 warnings.append(f"Mandate status is {mandate_status or 'unknown'} (not valid)")
                 status = "warning"
 
-            # Check if current next invoice date is in the past (unless validation skipped)
-            if not skip_date_validation and current_next_date:
+            # Check if current next invoice date is in the past (only if date is changing and validation not skipped)
+            if not skip_date_validation and date_changed and current_next_date:
                 current_date_obj = datetime.strptime(current_next_date, "%Y-%m-%d").date()
                 if current_date_obj >= datetime.now().date():
                     warnings.append("Current next invoice date is NOT in the past")
@@ -418,9 +457,12 @@ def parse_and_validate_csv(
                     "mandate_status": mandate_status,
                     "mandate_valid": mandate_valid,
                     "planned_amount": planned_amount,
-                    "planned_next_invoice_date": planned_next_invoice_date,
+                    "planned_next_invoice_date": planned_date,
+                    "planned_description": planned_description,
                     "amount_match": not amount_changed,
                     "amount_changed": amount_changed,
+                    "description_changed": description_changed,
+                    "date_changed": date_changed,
                 }
             )
 

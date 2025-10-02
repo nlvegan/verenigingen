@@ -313,8 +313,9 @@
         <h2 class="card-title">Step 1: Upload CSV & Validate</h2>
 
         <div class="form-group">
-            <label class="form-label" for="planned_date">Planned Next Invoice Date (for all subscriptions)</label>
-            <input type="date" id="planned_date" class="form-input" required>
+            <label class="form-label" for="planned_date">Planned Next Invoice Date (optional - can also be in CSV)</label>
+            <input type="date" id="planned_date" class="form-input">
+            <small style="color: #64748b; font-size: 0.75rem;">Leave empty if dates are in CSV or you're only updating descriptions/amounts</small>
         </div>
 
         <div class="checkbox-group">
@@ -336,8 +337,8 @@
                 <input type="file" id="csv_file" accept=".csv" style="display: none;">
                 <div id="drop-text">
                     <p style="margin: 0 0 0.5rem 0; font-weight: 500;">📁 Drop CSV file here or click to browse</p>
-                    <p style="margin: 0; font-size: 0.75rem; color: #64748b;">CSV format: customer_id, subscription_id, [amount]</p>
-                    <p style="margin: 0; font-size: 0.7rem; color: #94a3b8;">The 'amount' column is optional. Add it to change subscription amounts.</p>
+                    <p style="margin: 0; font-size: 0.75rem; color: #64748b;">Required: customer_id, subscription_id</p>
+                    <p style="margin: 0; font-size: 0.7rem; color: #94a3b8;">Optional: amount, description, next_payment_date</p>
                 </div>
                 <div id="file-name" class="hidden" style="color: #059669; font-weight: 500;"></div>
             </div>
@@ -594,12 +595,13 @@ function handleFile(file) {
 plannedDateInput.addEventListener('change', checkValidateButton);
 
 function checkValidateButton() {
-    validateBtn.disabled = !(csvContent && plannedDateInput.value);
+    // Only require CSV file, date is now optional
+    validateBtn.disabled = !csvContent;
 }
 
 // Validate subscriptions
 validateBtn.addEventListener('click', async () => {
-    if (!csvContent || !plannedDateInput.value) return;
+    if (!csvContent) return;
 
     // Store description suffix for later use
     descriptionSuffix = document.getElementById('description_suffix').value.trim();
