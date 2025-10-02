@@ -274,6 +274,40 @@
         <p style="margin-top: 0.5rem; margin-bottom: 0;"><strong>Environment:</strong> {{ api_key_type|upper }} mode</p>
     </div>
 
+    <!-- Export Tool: Get Subscriptions from Customer IDs -->
+    <div class="recreation-card">
+        <h2 class="card-title">🔄 Export Subscriptions from Customer IDs</h2>
+        <p style="color: #64748b; margin-bottom: 1rem;">Upload a CSV with customer_id column to retrieve active subscriptions in recreation format.</p>
+
+        <div class="form-group">
+            <label class="form-label">Customer IDs CSV</label>
+            <div class="file-upload-area" id="export-dropzone">
+                <input type="file" id="export_csv_file" accept=".csv" style="display: none;">
+                <div id="export-drop-text">
+                    <p style="margin: 0 0 0.5rem 0; font-weight: 500;">📁 Drop CSV file here or click to browse</p>
+                    <p style="margin: 0; font-size: 0.75rem; color: #64748b;">CSV format: customer_id</p>
+                </div>
+                <div id="export-file-name" class="hidden" style="color: #059669; font-weight: 500;"></div>
+            </div>
+        </div>
+
+        <button id="export_btn" class="btn btn-primary" disabled>
+            <span id="export_spinner" class="loading-spinner hidden"></span>
+            Export Subscriptions
+        </button>
+
+        <div id="export_results" class="hidden" style="margin-top: 1rem;">
+            <div id="export_summary" style="padding: 1rem; background: #f0fdf4; border-radius: 4px; margin-bottom: 1rem;"></div>
+            <div class="form-group">
+                <label class="form-label">Exported CSV (copy to use in recreation tool below)</label>
+                <textarea id="export_csv_output" class="form-input" readonly style="font-family: monospace; min-height: 200px;"></textarea>
+            </div>
+            <button id="copy_export_btn" class="btn btn-success">
+                📋 Copy to Clipboard
+            </button>
+        </div>
+    </div>
+
     <!-- Step 1: Upload & Validate -->
     <div class="recreation-card">
         <h2 class="card-title">Step 1: Upload CSV & Validate</h2>
@@ -388,7 +422,121 @@ let csvContent = null;
 let validationResults = [];
 let descriptionSuffix = '';
 
-// File upload handling
+// Export functionality
+const exportDropzone = document.getElementById('export-dropzone');
+const exportFileInput = document.getElementById('export_csv_file');
+const exportDropText = document.getElementById('export-drop-text');
+const exportFileName = document.getElementById('export-file-name');
+const exportBtn = document.getElementById('export_btn');
+const exportResults = document.getElementById('export_results');
+const exportSummary = document.getElementById('export_summary');
+const exportCsvOutput = document.getElementById('export_csv_output');
+const copyExportBtn = document.getElementById('copy_export_btn');
+let exportCsvContent = null;
+
+// Export file upload handling
+exportDropzone.addEventListener('click', () => exportFileInput.click());
+
+exportDropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    exportDropzone.classList.add('dragover');
+});
+
+exportDropzone.addEventListener('dragleave', () => {
+    exportDropzone.classList.remove('dragover');
+});
+
+exportDropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    exportDropzone.classList.remove('dragover');
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        handleExportFile(files[0]);
+    }
+});
+
+exportFileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+        handleExportFile(e.target.files[0]);
+    }
+});
+
+function handleExportFile(file) {
+    if (!file.name.endsWith('.csv')) {
+        frappe.msgprint({
+            title: 'Invalid File',
+            message: 'Please upload a CSV file',
+            indicator: 'red'
+        });
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        exportCsvContent = e.target.result;
+        exportDropText.classList.add('hidden');
+        exportFileName.classList.remove('hidden');
+        exportFileName.textContent = `✓ ${file.name}`;
+        exportBtn.disabled = false;
+    };
+    reader.readAsText(file);
+}
+
+// Export subscriptions
+exportBtn.addEventListener('click', async () => {
+    if (!exportCsvContent) return;
+
+    exportBtn.disabled = true;
+    document.getElementById('export_spinner').classList.remove('hidden');
+
+    try {
+        const response = await frappe.call({
+            method: 'verenigingen.templates.pages.mollie_subscription_recreation.export_subscriptions_from_customers',
+            args: {
+                customer_ids_csv: exportCsvContent
+            }
+        });
+
+        if (response.message.status === 'error') {
+            frappe.msgprint({
+                title: 'Export Error',
+                message: response.message.error,
+                indicator: 'red'
+            });
+            return;
+        }
+
+        // Show results
+        exportResults.classList.remove('hidden');
+        exportSummary.innerHTML = `
+            <strong>✓ Export Complete</strong><br>
+            Found ${response.message.subscription_count} active subscriptions from ${response.message.customer_count} customers
+        `;
+        exportCsvOutput.value = response.message.csv_content;
+
+    } catch (error) {
+        frappe.msgprint({
+            title: 'Export Failed',
+            message: error.message || 'An error occurred',
+            indicator: 'red'
+        });
+    } finally {
+        exportBtn.disabled = false;
+        document.getElementById('export_spinner').classList.remove('hidden');
+    }
+});
+
+// Copy export to clipboard
+copyExportBtn.addEventListener('click', () => {
+    exportCsvOutput.select();
+    document.execCommand('copy');
+    frappe.show_alert({
+        message: 'CSV copied to clipboard!',
+        indicator: 'green'
+    });
+});
+
+// File upload handling (recreation tool)
 const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('csv_file');
 const dropText = document.getElementById('drop-text');
@@ -560,7 +708,7 @@ function displayValidationResults(data) {
             </td>
             <td>${result.planned_next_invoice_date}</td>
             <td style="color: #dc2626; font-size: 0.75rem;">
-                ${result.error || (result.warnings && result.warnings.length > 0 ? result.warnings.join('; ') : '')}
+                ${frappe.utils.escape_html(result.error || (result.warnings && result.warnings.length > 0 ? result.warnings.join('; ') : ''))}
             </td>
         `;
 
@@ -675,8 +823,8 @@ function displayRecreationResults(data) {
         const row = document.createElement('tr');
         const errorDisplay = result.error
             ? (result.details
-                ? `<strong>${result.error}</strong><br><small style="color: #64748b;">${result.details}</small>`
-                : result.error)
+                ? `<strong>${frappe.utils.escape_html(result.error)}</strong><br><small style="color: #64748b;">${frappe.utils.escape_html(result.details)}</small>`
+                : frappe.utils.escape_html(result.error))
             : '';
 
         row.innerHTML = `

@@ -22,6 +22,14 @@ from verenigingen.utils.security.api_security_framework import (
     high_security_api,
 )
 
+# Configuration constants
+MAX_CSV_SIZE = 1024 * 1024  # 1MB limit for CSV uploads
+MAX_CSV_ROWS = 1000  # Maximum rows to process
+MAX_SUBSCRIPTIONS_PAYLOAD_SIZE = 100 * 1024  # 100KB for base64 payload
+CANCELLATION_POLL_MAX_ATTEMPTS = 20  # Increased from 10 for reliability
+CANCELLATION_POLL_INITIAL_DELAY = 0.3  # Initial delay in seconds
+CANCELLATION_POLL_MAX_DELAY = 3.0  # Maximum delay for exponential backoff
+
 
 def get_context(context):
     """Get context for Mollie subscription recreation page"""
@@ -75,22 +83,24 @@ def poll_subscription_cancellation(
     service: MollieDebugService,
     customer_id: str,
     subscription_id: str,
-    max_attempts: int = 10,
-    delay: float = 0.5,
+    max_attempts: int = CANCELLATION_POLL_MAX_ATTEMPTS,
+    initial_delay: float = CANCELLATION_POLL_INITIAL_DELAY,
 ) -> bool:
     """
-    Poll Mollie API to verify subscription cancellation.
+    Poll Mollie API to verify subscription cancellation with exponential backoff.
 
     Args:
         service: MollieDebugService instance
         customer_id: Mollie customer ID
         subscription_id: Mollie subscription ID
-        max_attempts: Maximum number of polling attempts (default 10)
-        delay: Delay between attempts in seconds (default 0.5)
+        max_attempts: Maximum number of polling attempts
+        initial_delay: Initial delay in seconds before exponential backoff
 
     Returns:
         bool: True if subscription is cancelled, False if still active after max attempts
     """
+    delay = initial_delay
+
     for attempt in range(max_attempts):
         try:
             result = service.debug_subscription(subscription_id, customer_id)
@@ -98,9 +108,11 @@ def poll_subscription_cancellation(
             if result.get("error"):
                 # If subscription not found, it's been deleted/cancelled
                 if "not found" in str(result.get("error")).lower():
+                    frappe.logger().info(f"Subscription {subscription_id} confirmed cancelled (not found)")
                     return True
-                # Other errors, wait and retry
+                # Other errors, wait and retry with exponential backoff
                 time.sleep(delay)
+                delay = min(delay * 1.5, CANCELLATION_POLL_MAX_DELAY)
                 continue
 
             subscription_data = result.get("subscription_data", {})
@@ -108,16 +120,22 @@ def poll_subscription_cancellation(
 
             # Check if cancelled
             if status in ["cancelled", "canceled"]:
+                frappe.logger().info(f"Subscription {subscription_id} confirmed cancelled (status: {status})")
                 return True
 
-            # Still active, wait and retry
+            # Still active, wait and retry with exponential backoff
             time.sleep(delay)
+            delay = min(delay * 1.5, CANCELLATION_POLL_MAX_DELAY)
 
         except Exception as e:
             frappe.log_error(f"Error polling subscription status: {str(e)}")
             time.sleep(delay)
+            delay = min(delay * 1.5, CANCELLATION_POLL_MAX_DELAY)
 
     # Max attempts reached without confirmation
+    frappe.logger().warning(
+        f"Subscription {subscription_id} cancellation not confirmed after {max_attempts} attempts"
+    )
     return False
 
 
@@ -141,6 +159,29 @@ def parse_amount_string(amount_str) -> float:
         return float(amount_str)
     except (ValueError, IndexError, AttributeError):
         return 0.0
+
+
+def sanitize_csv_field(value: str) -> str:
+    """
+    Sanitize CSV field to prevent CSV injection attacks.
+
+    Args:
+        value: Field value to sanitize
+
+    Returns:
+        str: Sanitized value safe for CSV output
+    """
+    if not value:
+        return value
+
+    value_str = str(value)
+
+    # Prevent CSV injection by escaping formula indicators
+    dangerous_chars = ("=", "+", "-", "@", "\t", "\r")
+    if value_str.startswith(dangerous_chars):
+        return "'" + value_str  # Prefix with single quote to force text interpretation
+
+    return value_str
 
 
 def sanitize_description(description: Optional[str]) -> str:
@@ -232,6 +273,13 @@ def parse_and_validate_csv(
         if not has_admin_access():
             frappe.throw(_("Access denied - Verenigingen Administrator role required"))
 
+        # Validate CSV size to prevent DoS
+        if len(csv_content) > MAX_CSV_SIZE:
+            return {
+                "status": "error",
+                "error": f"CSV file too large. Maximum size: {MAX_CSV_SIZE / 1024:.0f}KB",
+            }
+
         # Parse CSV
         rows = []
         reader = csv.DictReader(io.StringIO(csv_content))
@@ -248,7 +296,12 @@ def parse_and_validate_csv(
         # Check if amount column is present
         has_amount_column = "amount" in reader.fieldnames
 
-        for row in reader:
+        # Convert to list and validate row count
+        all_rows = list(reader)
+        if len(all_rows) > MAX_CSV_ROWS:
+            return {"status": "error", "error": f"Too many rows. Maximum: {MAX_CSV_ROWS}"}
+
+        for row in all_rows:
             if row.get("customer_id") and row.get("subscription_id"):
                 row_data = {
                     "customer_id": row["customer_id"].strip(),
@@ -395,12 +448,17 @@ def recreate_subscriptions(subscriptions_data: str, description_suffix: str = ""
         if not subscriptions_data:
             return {"error": "Subscriptions data is required", "status": "error"}
 
+        # Validate encoded size first (base64 is ~133% of original)
+        max_encoded_size = int(MAX_SUBSCRIPTIONS_PAYLOAD_SIZE * 1.4)
+        if len(subscriptions_data) > max_encoded_size:
+            return {"error": "Request payload too large", "status": "error"}
+
         try:
             decoded_data = base64.b64decode(subscriptions_data).decode("utf-8")
         except Exception as e:
             return {"error": f"Failed to decode data: {str(e)}", "status": "error"}
 
-        if len(decoded_data) > 100000:  # 100KB limit
+        if len(decoded_data) > MAX_SUBSCRIPTIONS_PAYLOAD_SIZE:
             return {"error": "Subscriptions data too large", "status": "error"}
 
         subscriptions = json.loads(decoded_data)
@@ -559,4 +617,123 @@ def recreate_subscriptions(subscriptions_data: str, description_suffix: str = ""
 
     except Exception as e:
         frappe.log_error(f"Subscription recreation error: {str(e)}")
+        return {"error": str(e), "status": "error"}
+
+
+@frappe.whitelist(allow_guest=False)
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def export_subscriptions_from_customers(customer_ids_csv: str) -> Dict:
+    """
+    Export active subscriptions for a list of customer IDs in recreation CSV format.
+
+    Args:
+        customer_ids_csv: CSV content with customer_id column
+
+    Returns:
+        Dict with CSV content ready for recreation tool
+    """
+    if not has_admin_access():
+        frappe.throw(_("You don't have permission to access this function"), frappe.PermissionError)
+
+    try:
+        # Validate CSV size to prevent DoS
+        if len(customer_ids_csv) > MAX_CSV_SIZE:
+            return {
+                "error": f"CSV file too large. Maximum size: {MAX_CSV_SIZE / 1024:.0f}KB",
+                "status": "error",
+            }
+
+        # Parse customer IDs from CSV
+        csv_file = io.StringIO(customer_ids_csv)
+        reader = csv.DictReader(csv_file)
+
+        # Validate required column
+        if "customer_id" not in reader.fieldnames:
+            return {"error": "CSV must contain 'customer_id' column", "status": "error"}
+
+        # Convert to list and validate row count
+        rows = list(reader)
+        if len(rows) > MAX_CSV_ROWS:
+            return {"error": f"Too many rows. Maximum: {MAX_CSV_ROWS}", "status": "error"}
+
+        service = MollieDebugService()
+        output_rows = []
+        failed_customers = []
+
+        for idx, row in enumerate(rows):
+            customer_id = row.get("customer_id", "").strip()
+            if not customer_id:
+                continue
+
+            # Add rate limiting pause every 10 requests to avoid overwhelming API
+            if idx > 0 and idx % 10 == 0:
+                time.sleep(0.5)
+
+            # Get customer data including subscriptions
+            customer_data = service.debug_customer(customer_id)
+
+            if customer_data.get("error"):
+                failed_customers.append({"customer_id": customer_id, "error": customer_data["error"]})
+                continue
+
+            # Process each active subscription
+            for sub in customer_data.get("subscriptions", []):
+                if sub["status"] != "active":
+                    continue
+
+                # Use helper to parse amount safely
+                amount = parse_amount_string(sub.get("amount"))
+
+                # Build output row matching recreation CSV format with CSV injection protection
+                output_rows.append(
+                    {
+                        "customer_id": customer_id,
+                        "subscription_id": sub["id"],
+                        "amount": f"{amount:.2f}",
+                        "interval": sanitize_csv_field(sub["interval"]),
+                        "description": sanitize_csv_field(sub["description"]),
+                        "next_payment_date": sub.get("next_payment_date", ""),
+                        "mandate_id": sub.get("mandate_id", ""),
+                    }
+                )
+
+        if not output_rows:
+            return {
+                "error": "No active subscriptions found for provided customer IDs",
+                "status": "warning",
+                "failed_customers": failed_customers,
+            }
+
+        # Generate CSV output
+        output = io.StringIO()
+        fieldnames = [
+            "customer_id",
+            "subscription_id",
+            "amount",
+            "interval",
+            "description",
+            "next_payment_date",
+            "mandate_id",
+        ]
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(output_rows)
+
+        csv_content = output.getvalue()
+
+        result = {
+            "status": "success" if not failed_customers else "partial",
+            "csv_content": csv_content,
+            "subscription_count": len(output_rows),
+            "customer_count": len(set(row["customer_id"] for row in output_rows)),
+            "failed_customers": failed_customers,
+            "warnings": f"{len(failed_customers)} customers could not be processed"
+            if failed_customers
+            else None,
+        }
+
+        return result
+
+    except Exception as e:
+        frappe.log_error(f"Export subscriptions error: {str(e)}")
         return {"error": str(e), "status": "error"}

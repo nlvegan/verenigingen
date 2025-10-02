@@ -91,6 +91,13 @@ class CriticalOperationRule(Document):
     def validate_notification_settings(self):
         """Validate notification configuration"""
         if self.alert_on_execution and not self.notification_recipients:
+            # Skip validation during fixture import to avoid circular dependency
+            if frappe.flags.in_import:
+                frappe.logger().info(
+                    f"Skipping notification validation for COR {self.name} during fixture import"
+                )
+                return
+
             # Auto-populate from Verenigingen Settings if available
             try:
                 settings = frappe.get_single("Verenigingen Settings")

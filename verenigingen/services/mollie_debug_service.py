@@ -75,7 +75,6 @@ class MollieDebugService:
                         "canceled_at": str(getattr(sub, "canceled_at", None))
                         if getattr(sub, "canceled_at", None)
                         else None,
-                        "webhook_url": getattr(sub, "webhookUrl", None),
                         "mandate_id": getattr(sub, "mandateId", None),
                     }
                 )
@@ -163,7 +162,6 @@ class MollieDebugService:
                 "canceled_at": str(getattr(subscription, "canceled_at", None))
                 if getattr(subscription, "canceled_at", None)
                 else None,
-                "webhook_url": getattr(subscription, "webhookUrl", None),
                 "mandate_id": getattr(subscription, "mandateId", None),
                 "metadata": getattr(subscription, "metadata", {}),
             }
