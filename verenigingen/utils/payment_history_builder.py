@@ -168,6 +168,7 @@ class PaymentHistoryEntryBuilder:
         # Build the entry dictionary
         entry = {
             "invoice": invoice_doc.name,
+            "invoice_doctype": "Sales Invoice",  # Required for Dynamic Link
             "posting_date": invoice_doc.posting_date,
             "due_date": invoice_doc.due_date,
             "coverage_start_date": coverage_start_date,
@@ -181,11 +182,13 @@ class PaymentHistoryEntryBuilder:
             "payment_status": payment_status,
             "payment_date": payment_date,
             "payment_entry": payment_entry,
+            "payment_entry_doctype": "Payment Entry" if payment_entry else None,  # Required for Dynamic Link
             "payment_method": payment_method,
             "paid_amount": paid_amount,
             "reconciled": reconciled,
             "has_mandate": has_mandate,
             "sepa_mandate": sepa_mandate,
+            "sepa_mandate_doctype": "SEPA Mandate" if sepa_mandate else None,  # Required for Dynamic Link
             "mandate_status": mandate_status,
             "mandate_reference": mandate_reference,
         }

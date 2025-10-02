@@ -7,6 +7,7 @@
   "field_order": [
     "change_date",
     "dues_schedule",
+    "dues_schedule_doctype",
     "billing_frequency",
     "old_dues_rate",
     "new_dues_rate",
@@ -14,6 +15,7 @@
     "change_type",
     "reason",
     "amendment_request",
+    "amendment_request_doctype",
     "changed_by"
   ],
   "fields": [
@@ -26,10 +28,18 @@
     },
     {
       "fieldname": "dues_schedule",
-      "fieldtype": "Link",
+      "fieldtype": "Dynamic Link",
       "in_list_view": 1,
       "label": "Dues Schedule",
-      "options": "Membership Dues Schedule"
+      "options": "dues_schedule_doctype"
+    },
+    {
+      "fieldname": "dues_schedule_doctype",
+      "fieldtype": "Data",
+      "default": "Membership Dues Schedule",
+      "hidden": 1,
+      "label": "Dues Schedule DocType",
+      "read_only": 1
     },
     {
       "fieldname": "billing_frequency",
@@ -70,9 +80,17 @@
     },
     {
       "fieldname": "amendment_request",
-      "fieldtype": "Link",
+      "fieldtype": "Dynamic Link",
       "label": "Amendment Request",
-      "options": "Contribution Amendment Request"
+      "options": "amendment_request_doctype"
+    },
+    {
+      "fieldname": "amendment_request_doctype",
+      "fieldtype": "Data",
+      "default": "Contribution Amendment Request",
+      "hidden": 1,
+      "label": "Amendment Request DocType",
+      "read_only": 1
     },
     {
       "fieldname": "changed_by",

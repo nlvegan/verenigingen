@@ -443,9 +443,8 @@ class OptimizedMemberQueries:
                     )
                     continue
 
-                # Add parent fields for child table
+                # Add parent fields for child table (doctype excluded - bulk_insert adds it)
                 history_record = {
-                    "doctype": "Member Payment History",
                     "parent": member_name,
                     "parenttype": "Member",
                     "parentfield": "payment_history",
@@ -483,13 +482,21 @@ class OptimizedMemberQueries:
                 )
 
         except Exception as e:
-            # ✅ FIX: Explicit rollback to prevent partial data
+            # ✅ FIX: Log error in separate transaction BEFORE rollback
+            error_msg = f"Failed to update payment history for member {member_name}: {str(e)}\n"
+            error_msg += f"Traceback: {frappe.get_traceback()}"
+
+            try:
+                # Commit error log before rolling back main transaction
+                frappe.log_error(error_msg, "Payment History Bulk Update Error")
+                frappe.db.commit()  # Commit the error log
+            except Exception as log_error:
+                # If error logging fails, at least print to console
+                frappe.logger().error(f"Could not log error: {log_error}")
+                frappe.logger().error(error_msg)
+
+            # Now rollback the main transaction
             frappe.db.rollback()
-            frappe.log_error(
-                f"Failed to update payment history for member {member_name}: {str(e)}\n"
-                f"Traceback: {frappe.get_traceback()}",
-                "Payment History Bulk Update Error",
-            )
             raise
 
     @staticmethod

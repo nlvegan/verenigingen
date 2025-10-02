@@ -169,7 +169,7 @@
   {
    "fieldname": "sepa_mandates",
    "fieldtype": "Table",
-   "label": "SEPA Mandates",
+   "label": "SEPA Mandate History",
    "options": "Member SEPA Mandate Link"
   },
   {
@@ -821,12 +821,12 @@
    "depends_on": "eval:doc.fee_change_history && doc.fee_change_history.length > 0",
    "fieldname": "fee_change_history_section",
    "fieldtype": "Section Break",
-   "label": "Fee Change History"
+   "label": "Dues Rate History"
   },
   {
    "fieldname": "fee_change_history",
    "fieldtype": "Table",
-   "label": "Fee Change History",
+   "label": "Dues Rate History",
    "options": "Member Fee Change History",
    "read_only": 1
   },
@@ -977,7 +977,7 @@
    "link_fieldname": "volunteer"
   }
  ],
- "modified": "2025-09-30 23:22:44.946430",
+ "modified": "2025-10-02 09:02:49.743324",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Member",

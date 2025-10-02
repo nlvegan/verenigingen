@@ -158,16 +158,21 @@ def sanitize_description(description: Optional[str]) -> str:
     return description.strip()
 
 
-def generate_unique_description(base_description: str) -> str:
+def generate_unique_description(base_description: str, custom_suffix: str = "") -> str:
     """
-    Generate unique description with UTC timestamp.
+    Generate unique description with custom suffix or UTC timestamp.
 
     Args:
         base_description: Original subscription description
+        custom_suffix: Optional custom suffix (uses timestamp if empty)
 
     Returns:
-        str: Description with timestamp suffix for uniqueness
+        str: Description with suffix for uniqueness
     """
+    if custom_suffix:
+        return f"{base_description} ({custom_suffix})"
+
+    # Default to timestamp if no custom suffix provided
     timestamp = frappe.utils.now()
     return f"{base_description} (updated {timestamp})"
 
@@ -351,11 +356,13 @@ def parse_and_validate_csv(
 
 @frappe.whitelist(allow_guest=False)
 @high_security_api(operation_type=OperationType.FINANCIAL)
-def recreate_subscriptions(subscriptions_data) -> Dict:
+def recreate_subscriptions(subscriptions_data: str, description_suffix: str = "") -> Dict:
     """
     Recreate subscriptions with new next invoice dates.
 
-    subscriptions_data: JSON string of validated subscriptions to recreate
+    Args:
+        subscriptions_data: Base64-encoded JSON string of validated subscriptions to recreate
+        description_suffix: Optional custom suffix to append to descriptions (defaults to timestamp if empty)
     """
     try:
         if not has_admin_access():
@@ -441,7 +448,7 @@ def recreate_subscriptions(subscriptions_data) -> Dict:
                 continue
 
             # Create new subscription with unique description
-            unique_description = generate_unique_description(description)
+            unique_description = generate_unique_description(description, description_suffix)
 
             try:
 

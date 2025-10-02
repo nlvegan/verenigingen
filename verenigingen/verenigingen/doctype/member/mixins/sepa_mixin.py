@@ -86,24 +86,9 @@ class SEPAMandateMixin:
                     },
                 )
 
-            # Save the updated member document
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            member_result = secure_document_operation(
-                operation="save",
-                doc=self,
-                justification=f"Refresh SEPA mandate history for member {self.name} with {len(mandates)} mandates",
-                required_permissions=["Member:write"],
-            )
-
-            if not member_result.success:
-                frappe.log_error(
-                    f"Failed to save SEPA mandate refresh: {'; '.join(member_result.errors)}",
-                    "Member SEPA Mandate Security",
-                )
-                return {
-                    "success": False,
-                    "error": f"Security error during mandate refresh: {'; '.join(member_result.errors)}",
-                }
+            # Save using native update_child_table to avoid timestamp conflicts
+            self.update_child_table("sepa_mandates")
+            frappe.db.commit()
 
             return {
                 "success": True,

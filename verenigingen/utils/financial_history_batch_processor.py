@@ -164,9 +164,7 @@ class FinancialHistoryBatchProcessor:
         for a member in one transaction.
         """
         try:
-            # Single lock for the entire member batch
-            frappe.db.sql("SELECT name FROM `tabMember` WHERE name = %s FOR UPDATE", (member_name,))
-
+            # Load member fresh from database to avoid timestamp conflicts
             member = frappe.get_doc("Member", member_name)
             if not member.customer:
                 return  # Skip members without customer records
@@ -204,8 +202,7 @@ class FinancialHistoryBatchProcessor:
         Process all expense operations for a single member atomically.
         """
         try:
-            # Single lock for the entire member batch
-            frappe.db.sql("SELECT name FROM `tabMember` WHERE name = %s FOR UPDATE", (member_name,))
+            # Load member fresh from database to avoid timestamp conflicts
 
             member = frappe.get_doc("Member", member_name)
             if not hasattr(member, "volunteer_expenses"):

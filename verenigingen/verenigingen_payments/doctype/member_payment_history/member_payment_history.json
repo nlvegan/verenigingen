@@ -9,6 +9,7 @@
   "field_order": [
     "invoice_section",
     "invoice",
+    "invoice_doctype",
     "posting_date",
     "due_date",
     "coverage_start_date",
@@ -26,6 +27,7 @@
     "payment_date",
     "column_break_p1",
     "payment_entry",
+    "payment_entry_doctype",
     "payment_method",
     "column_break_p2",
     "paid_amount",
@@ -33,6 +35,7 @@
     "sepa_section",
     "has_mandate",
     "sepa_mandate",
+    "sepa_mandate_doctype",
     "column_break_s1",
     "mandate_status",
     "mandate_reference",
@@ -47,10 +50,18 @@
     },
     {
       "fieldname": "invoice",
-      "fieldtype": "Link",
+      "fieldtype": "Dynamic Link",
       "in_list_view": 1,
       "label": "Invoice",
-      "options": "Sales Invoice",
+      "options": "invoice_doctype",
+      "read_only": 1
+    },
+    {
+      "fieldname": "invoice_doctype",
+      "fieldtype": "Data",
+      "default": "Sales Invoice",
+      "hidden": 1,
+      "label": "Invoice DocType",
       "read_only": 1
     },
     {
@@ -153,9 +164,17 @@
     },
     {
       "fieldname": "payment_entry",
-      "fieldtype": "Link",
+      "fieldtype": "Dynamic Link",
       "label": "Payment Entry",
-      "options": "Payment Entry",
+      "options": "payment_entry_doctype",
+      "read_only": 1
+    },
+    {
+      "fieldname": "payment_entry_doctype",
+      "fieldtype": "Data",
+      "default": "Payment Entry",
+      "hidden": 1,
+      "label": "Payment Entry DocType",
       "read_only": 1
     },
     {
@@ -196,9 +215,17 @@
     },
     {
       "fieldname": "sepa_mandate",
-      "fieldtype": "Link",
+      "fieldtype": "Dynamic Link",
       "label": "SEPA Mandate",
-      "options": "SEPA Mandate",
+      "options": "sepa_mandate_doctype",
+      "read_only": 1
+    },
+    {
+      "fieldname": "sepa_mandate_doctype",
+      "fieldtype": "Data",
+      "default": "SEPA Mandate",
+      "hidden": 1,
+      "label": "SEPA Mandate DocType",
       "read_only": 1
     },
     {

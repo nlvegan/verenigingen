@@ -254,147 +254,74 @@ def fix_specific_member_sepa_mandate(member_name):
 @high_security_api(operation_type=OperationType.ADMIN)
 def periodic_sepa_mandate_child_table_sync():
     """
-    Periodic cleanup to sync SEPA mandate child tables for all members.
-    This catches cases where hooks didn't trigger properly.
+    Periodic monitoring check for SEPA mandate synchronization issues.
+
+    Does NOT auto-fix issues - instead alerts administrators when problems are detected.
+    Admins should use the SEPA Mandate Diagnostics page to review and fix issues selectively.
     """
     try:
-        # Get all members who have SEPA mandates but potentially incomplete child tables
-        members_with_mandates = frappe.db.sql(
-            """
-            SELECT DISTINCT m.name, m.full_name,
-                   COUNT(sm.name) as mandate_count,
-                   COUNT(sml.name) as child_table_count
-            FROM `tabMember` m
-            LEFT JOIN `tabSEPA Mandate` sm ON sm.member = m.name
-            LEFT JOIN `tabMember SEPA Mandate Link` sml ON sml.parent = m.name
-            WHERE sm.name IS NOT NULL
-            GROUP BY m.name, m.full_name
-            HAVING mandate_count != child_table_count
-               OR mandate_count = 0
-               OR child_table_count = 0
-        """,
-            as_dict=True,
+        from verenigingen.verenigingen_payments.page.sepa_mandate_diagnostics.sepa_mandate_diagnostics import (
+            get_mandate_issues,
         )
+
+        # Get current issues without fixing
+        diagnostic_data = get_mandate_issues()
+        issues = diagnostic_data["issues"]
+        summary = diagnostic_data["summary"]
+
+        # Check if there are any issues that need attention
+        high_severity_count = sum(issue["count"] for issue in issues.values() if issue["severity"] == "high")
 
         results = {
-            "total_members_checked": 0,
-            "members_needing_sync": len(members_with_mandates),
-            "successfully_synced": 0,
-            "sync_errors": [],
-            "details": [],
+            "total_issues": summary["total_issues"],
+            "unique_members": summary["unique_members"],
+            "high_severity_issues": high_severity_count,
+            "issue_breakdown": {
+                key: {"count": issue["count"], "severity": issue["severity"]} for key, issue in issues.items()
+            },
         }
 
-        # Also check all members with SEPA mandates for data consistency
-        all_members_with_mandates = frappe.db.sql(
-            """
-            SELECT DISTINCT member as name
-            FROM `tabSEPA Mandate`
-            WHERE member IS NOT NULL AND member != ''
-        """,
-            as_dict=True,
-        )
+        # Alert if there are high-severity issues
+        if high_severity_count > 0:
+            alert_message = f"Found {high_severity_count} high-severity SEPA mandate sync issues affecting {summary['unique_members']} member(s).\n\n"
+            alert_message += "Issue breakdown:\n"
+            for key, issue in issues.items():
+                if issue["count"] > 0:
+                    alert_message += f"- {issue['title']}: {issue['count']} ({issue['severity']} severity)\n"
 
-        results["total_members_checked"] = len(all_members_with_mandates)
+            alert_message += f"\nPlease review and fix these issues at: sepa_mandate_diagnostics"
 
-        for member_data in all_members_with_mandates:
-            try:
-                member_name = member_data.name
+            # Create notification for administrators
+            frappe.log_error(alert_message, "SEPA Mandate Sync - Issues Detected")
 
-                # Get all mandates for this member
-                mandates = frappe.get_all(
-                    "SEPA Mandate",
-                    filters={"member": member_name},
-                    fields=["name", "mandate_id", "status", "is_active", "sign_date", "expiry_date"],
-                )
+            # Send realtime notification to System Managers
+            frappe.publish_realtime(
+                event="sepa_mandate_issues_detected",
+                message={
+                    "title": "SEPA Mandate Sync Issues Detected",
+                    "message": f"{high_severity_count} high-severity issues found. Check SEPA Mandate Diagnostics.",
+                    "indicator": "orange",
+                    "issue_count": high_severity_count,
+                },
+                user="Administrator",
+            )
 
-                if not mandates:
-                    continue
-
-                # Get member document
-                member = frappe.get_doc("Member", member_name)
-
-                # Check if child table needs sync
-                needs_sync = False
-                existing_links = {link.sepa_mandate: link for link in member.sepa_mandates}
-
-                # Check for missing or outdated links
-                for mandate in mandates:
-                    if mandate.name not in existing_links:
-                        needs_sync = True
-                        break
-
-                    # Check if existing link data is outdated
-                    link = existing_links[mandate.name]
-                    if (
-                        link.mandate_reference != mandate.mandate_id
-                        or link.status != mandate.status
-                        or link.valid_from != mandate.sign_date
-                        or link.valid_until != mandate.expiry_date
-                    ):
-                        needs_sync = True
-                        break
-
-                # Check for orphaned links (mandate deleted but link remains)
-                mandate_names = {m.name for m in mandates}
-                for link in member.sepa_mandates:
-                    if link.sepa_mandate not in mandate_names:
-                        needs_sync = True
-                        break
-
-                if needs_sync:
-                    # Rebuild child table completely
-                    member.sepa_mandates = []
-
-                    for mandate in mandates:
-                        member.append(
-                            "sepa_mandates",
-                            {
-                                "sepa_mandate": mandate.name,
-                                "mandate_reference": mandate.mandate_id,
-                                "status": mandate.status,
-                                "is_current": 1 if (mandate.status == "Active" and mandate.is_active) else 0,
-                                "valid_from": mandate.sign_date,
-                                "valid_until": mandate.expiry_date,
-                            },
-                        )
-
-                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                    sync_result = secure_document_operation(
-                        operation="save",
-                        doc=member,
-                        justification=f"Periodic sync of SEPA mandate child table for member {member_name} - {len(mandates)} mandates",
-                        required_permissions=["Member:write"],
-                    )
-                    if not sync_result.success:
-                        raise Exception(
-                            f"Failed to sync SEPA mandates for {member_name}: {'; '.join(sync_result.errors)}"
-                        )
-                    results["successfully_synced"] += 1
-
-                    results["details"].append(
-                        {
-                            "member": member_name,
-                            "member_name": member.full_name,
-                            "mandates_count": len(mandates),
-                            "action": "synced",
-                        }
-                    )
-
-            except Exception as e:
-                results["sync_errors"].append({"member": member_name, "error": str(e)})
-                frappe.log_error(
-                    f"Error syncing SEPA mandates for {member_name}: {str(e)}", "SEPA Periodic Sync"
-                )
-
-        # Summary
-        results[
-            "message"
-        ] = f"Checked {results['total_members_checked']} members, synced {results['successfully_synced']}, {len(results['sync_errors'])} errors"
+            results["alert_sent"] = True
+            results[
+                "message"
+            ] = f"Detected {high_severity_count} high-severity issues. Alert sent to administrators."
+        else:
+            results["alert_sent"] = False
+            results[
+                "message"
+            ] = f"All clear. Checked {summary['total_issues']} total issues, none require immediate attention."
 
         return {"success": True, "results": results}
 
     except Exception as e:
-        frappe.log_error(f"Error in periodic SEPA mandate sync: {str(e)}", "SEPA Periodic Sync Error")
+        frappe.log_error(
+            f"Error in periodic SEPA mandate monitoring: {str(e)}", "SEPA Periodic Monitoring Error"
+        )
         return {"success": False, "error": str(e)}
 
 

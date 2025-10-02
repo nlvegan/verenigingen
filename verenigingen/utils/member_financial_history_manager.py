@@ -269,54 +269,10 @@ class MemberFinancialHistoryManager:
         """
         for retry in range(max_retries):
             try:
-                # For background operations, use service account context
-                from verenigingen.utils.secure_service_account import background_service_context
-
-                # Check if we're in a background context (no proper user)
-                current_user = frappe.session.user
-                is_background_operation = current_user in ["Guest", "Administrator", None]
-
-                if is_background_operation:
-                    # Use secure service account for background operations
-                    with background_service_context(
-                        f"Update {self.history_field} for member {self.member.name}"
-                    ) as ctx:
-                        result = secure_document_operation(
-                            operation="update_child_table",
-                            doc=self.member,
-                            justification=f"Background update {self.history_field} for member {self.member.name}",
-                            required_permissions=["Member:write"],
-                            allow_system_user=True,  # Allow system user for background operations
-                            bypass_validations=["link_validation"],
-                        )
-                        if result.success:
-                            ctx.log_operation("member_financial_history", self.member.name)
-                else:
-                    # Use current user permissions for interactive operations
-                    result = secure_document_operation(
-                        operation="update_child_table",
-                        doc=self.member,
-                        justification=f"Update {self.history_field} for member {self.member.name}",
-                        required_permissions=["Member:write"],
-                        allow_system_user=True,  # Allow system user for interactive operations with proper permissions
-                        bypass_validations=["link_validation"],
-                    )
-
-                if result.success:
-                    # ✅ FIX: Let Frappe handle transaction commit automatically
-                    return True
-                else:
-                    # Log concise permission errors to prevent title truncation
-                    error_details = "; ".join(result.errors)
-                    # Truncate error message to prevent cascading truncation errors
-                    truncated_error = (
-                        (error_details[:50] + "...") if len(error_details) > 50 else error_details
-                    )
-                    frappe.log_error(
-                        f"Financial history save failed for {self.member.name}: {truncated_error}",
-                        "Financial History Permission Error",
-                    )
-                    return False
+                # Use Frappe's native update_child_table() - no timestamp conflicts!
+                self.member.update_child_table(self.history_field)
+                frappe.db.commit()
+                return True
 
             except Exception as e:
                 # Check for chapter validation errors specifically

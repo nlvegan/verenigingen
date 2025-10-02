@@ -1037,24 +1037,8 @@ class PaymentMixin:
             if hasattr(self, "get_current_dues_schedule_details"):
                 self.get_current_dues_schedule_details()
 
-            # Save once with reduced logging
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            member_result = secure_document_operation(
-                operation="save",
-                doc=self,
-                justification=f"Atomic financial history refresh for member {self.name} with {added_count} new entries",
-                required_permissions=["Member:write"],
-            )
-
-            if not member_result.success:
-                frappe.log_error(
-                    f"Failed to save atomic payment refresh: {'; '.join(member_result.errors)}",
-                    "Member Payment History Security",
-                )
-                return {
-                    "success": False,
-                    "message": f"Security error during atomic refresh: {'; '.join(member_result.errors)}",
-                }
+            # No need to save - add_invoice_to_payment_history() already saves each entry
+            # via the MemberFinancialHistoryManager
 
             return {
                 "success": True,
@@ -1085,7 +1069,7 @@ class PaymentMixin:
                     "docstatus": ["in", [0, 1]],  # Include both draft and submitted
                 },
                 fields=["name", "posting_date", "creation"],
-                order_by="creation desc",
+                order_by="posting_date desc",
             )
 
             # Get existing payment history invoice names for quick lookup
@@ -1094,14 +1078,28 @@ class PaymentMixin:
                 if row.invoice:
                     existing_invoices.add(row.invoice)
 
-            # Add missing invoices only
+            # Add missing invoices only - build entries directly for synchronous refresh
             added_count = 0
             for invoice_data in invoices:
                 invoice_name = invoice_data.name
                 if invoice_name not in existing_invoices:
-                    # Add this invoice using the existing atomic method
-                    self.add_invoice_to_payment_history(invoice_name)
-                    added_count += 1
+                    # Build entry directly instead of queuing to batch processor
+                    try:
+                        invoice = frappe.get_doc("Sales Invoice", invoice_name)
+                        entry = self._build_payment_history_entry(invoice)
+                        if entry:
+                            self.append("payment_history", entry)
+                            added_count += 1
+                    except Exception as e:
+                        frappe.logger().error(f"Error adding invoice {invoice_name} to history: {e}")
+                        continue
+
+            # Save all new entries at once using child table update
+            if added_count > 0:
+                from verenigingen.utils.member_financial_history_manager import MemberFinancialHistoryManager
+
+                manager = MemberFinancialHistoryManager(self, "payment_history")
+                manager._save_with_retry(max_retries=3)
 
             return added_count
 
