@@ -40173,5 +40173,21 @@
     "audit_level": "comprehensive",
     "alert_on_execution": 1,
     "notification_recipients": "beheerder@veganisme.org"
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "check_coverage_scheduling_mismatches",
+    "operation_name": "check_coverage_scheduling_mismatches",
+    "operation_type": "reporting",
+    "description": "Check for mismatches between invoice coverage periods and next_invoice_date scheduling",
+    "enabled": 1,
+    "security_level": "low",
+    "business_context": "Data integrity check for membership dues scheduling",
+    "required_roles": "System Manager\nVerenigingen Admin\nVerenigingen Manager\nAccounts Manager",
+    "rate_limit_calls": 100,
+    "rate_limit_period_seconds": 3600,
+    "rate_limit_scope": "per_user",
+    "audit_level": "minimal",
+    "alert_on_execution": 0
   }
 ]

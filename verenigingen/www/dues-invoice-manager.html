@@ -4,310 +4,239 @@
 
 {% block head_include %}
 <meta name="csrf-token" content="{{ csrf_token }}">
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
 {% endblock %}
 
 {% block page_content %}
-<div class="container-fluid">
-    <div class="row">
-        <div class="col-12">
-            <h1 class="mb-4">{{ title }}</h1>
-        </div>
-    </div>
+<div class="min-h-screen bg-gray-50 py-8">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
-    <!-- Status Dashboard -->
-    <div class="row mb-4">
-        <div class="col-md-3">
-            <div class="card bg-primary text-white">
-                <div class="card-body">
-                    <h5 class="card-title">{{ _("Active Members") }}</h5>
-                    <h2 class="mb-0">
-                        {% if workflow_status and workflow_status.members_analysis %}
-                            {{ workflow_status.members_analysis.total_active_members }}
-                        {% else %}
-                            0
-                        {% endif %}
-                    </h2>
-                    <small>{{ _("Total active memberships") }}</small>
-                </div>
-            </div>
+        <!-- Header -->
+        <div class="mb-8">
+            <h1 class="text-3xl font-bold text-gray-900">{{ title }}</h1>
+            <p class="mt-2 text-sm text-gray-600">Current Period: {{ current_period_start }} to {{ current_period_end }}</p>
         </div>
-        <div class="col-md-3">
-            <div class="card bg-warning text-white">
-                <div class="card-body">
-                    <h5 class="card-title">{{ _("Missing Invoices") }}</h5>
-                    <h2 class="mb-0">
-                        {% if workflow_status and workflow_status.members_analysis %}
-                            {{ workflow_status.members_analysis.members_missing_invoices }}
-                        {% else %}
-                            0
-                        {% endif %}
-                    </h2>
-                    <small>{{ _("Members needing invoices") }}</small>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card bg-success text-white">
-                <div class="card-body">
-                    <h5 class="card-title">{{ _("SEPA Ready") }}</h5>
-                    <h2 class="mb-0">
-                        {% if workflow_status and workflow_status.members_analysis %}
-                            {{ workflow_status.members_analysis.sepa_eligible }}
-                        {% else %}
-                            0
-                        {% endif %}
-                    </h2>
-                    <small>{{ _("With active mandates") }}</small>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card bg-info text-white">
-                <div class="card-body">
-                    <h5 class="card-title">{{ _("Pending Invoices") }}</h5>
-                    <h2 class="mb-0">
-                        {% if workflow_status %}
-                            {{ workflow_status.pending_invoices }}
-                        {% else %}
-                            0
-                        {% endif %}
-                    </h2>
-                    <small>{{ _("Unpaid invoices") }}</small>
-                </div>
-            </div>
-        </div>
-    </div>
 
-    <!-- Billing Period Info -->
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0">{{ _("Current Billing Period") }}</h5>
-                </div>
-                <div class="card-body">
-                    <div class="row">
-                        <div class="col-md-4">
-                            <strong>{{ _("Period:") }}</strong> {{ current_period_start or "2025-09-01" }} to {{ current_period_end or "2025-09-30" }}
-                        </div>
-                        <div class="col-md-4">
-                            <strong>{{ _("Cutoff Frequency:") }}</strong>
-                            {% if sepa_settings %}
-                                {{ sepa_settings.billing_cutoff_frequency }}
+        <!-- Action Buttons -->
+        <div class="mb-8 flex flex-wrap gap-3">
+            <button onclick="checkMemberStatus()" class="inline-flex items-center px-4 py-2 bg-gray-600 text-white font-medium rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors">
+                <span class="inline-flex items-center justify-center w-6 h-6 mr-2 text-sm font-bold bg-gray-700 rounded-full">1</span>
+                <i class="fa fa-sync mr-2"></i>
+                {{ _("Check Status") }}
+            </button>
+            <button onclick="generateMissingInvoices()" class="inline-flex items-center px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors">
+                <span class="inline-flex items-center justify-center w-6 h-6 mr-2 text-sm font-bold bg-blue-700 rounded-full">2</span>
+                <i class="fa fa-file-invoice mr-2"></i>
+                {{ _("Generate Missing Invoices") }}
+            </button>
+            <button onclick="validateSepaEligibility()" class="inline-flex items-center px-4 py-2 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors">
+                <span class="inline-flex items-center justify-center w-6 h-6 mr-2 text-sm font-bold bg-green-700 rounded-full">3</span>
+                <i class="fa fa-check-circle mr-2"></i>
+                {{ _("Validate SEPA Eligibility") }}
+            </button>
+        </div>
+
+        <!-- Dashboard Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <!-- Active Members -->
+            <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-blue-500">
+                <div class="flex items-center mb-4">
+                    <div class="flex-shrink-0 bg-blue-100 rounded-lg p-3">
+                        <i class="fa fa-users text-2xl text-blue-600"></i>
+                    </div>
+                    <div class="ml-4">
+                        <h3 class="text-sm font-medium text-gray-600">{{ _("Active Members") }}</h3>
+                        <p class="text-3xl font-bold text-gray-900" id="card-active-members">
+                            {% if workflow_status and workflow_status.members_analysis %}
+                                {{ workflow_status.members_analysis.total_active_members }}
                             {% else %}
-                                Monthly
+                                --
                             {% endif %}
-                        </div>
-                        <div class="col-md-4">
-                            <strong>{{ _("Coverage Mode:") }}</strong>
-                            {% if sepa_settings and sepa_settings.enable_sequential_coverage %}
-                                <span class="badge badge-success">{{ _("Sequential") }}</span>
+                        </p>
+                    </div>
+                </div>
+                <p class="text-sm text-gray-500">{{ _("Total active memberships") }}</p>
+            </div>
+
+            <!-- Missing Invoices -->
+            <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-amber-500">
+                <div class="flex items-center mb-4">
+                    <div class="flex-shrink-0 bg-amber-100 rounded-lg p-3">
+                        <i class="fa fa-exclamation-triangle text-2xl text-amber-600"></i>
+                    </div>
+                    <div class="ml-4">
+                        <h3 class="text-sm font-medium text-gray-600">{{ _("Missing Invoices") }}</h3>
+                        <p class="text-3xl font-bold text-gray-900" id="card-missing-invoices">
+                            {% if workflow_status and workflow_status.members_analysis %}
+                                {{ workflow_status.members_analysis.members_missing_invoices }}
                             {% else %}
-                                <span class="badge badge-warning">{{ _("Calendar-based") }}</span>
+                                --
                             {% endif %}
-                        </div>
+                        </p>
                     </div>
                 </div>
+                <p class="text-sm text-gray-500">{{ _("Members needing invoices") }}</p>
             </div>
-        </div>
-    </div>
 
-    <!-- Main Workflow Actions -->
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0">{{ _("Dues Processing Workflow") }}</h5>
-                </div>
-                <div class="card-body">
-                    <div class="workflow-steps">
-                        <!-- Step 1: Analysis -->
-                        <div class="workflow-step mb-3">
-                            <div class="d-flex align-items-center">
-                                <div class="step-number bg-primary text-white rounded-circle me-3" style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">1</div>
-                                <div class="flex-grow-1">
-                                    <h6 class="mb-1">{{ _("Analyze Member Status") }}</h6>
-                                    <p class="mb-2 text-muted">{{ _("Check which members need dues invoices for the current period") }}</p>
-                                    <button class="btn btn-outline-primary btn-sm" onclick="checkMemberStatus()">
-                                        <span class="spinner-border spinner-border-sm d-none" id="status-spinner"></span>
-                                        {{ _("Check Status") }}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Step 2: Generation -->
-                        <div class="workflow-step mb-3">
-                            <div class="d-flex align-items-center">
-                                <div class="step-number bg-secondary text-white rounded-circle me-3" style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">2</div>
-                                <div class="flex-grow-1">
-                                    <h6 class="mb-1">{{ _("Generate Missing Invoices") }}</h6>
-                                    <p class="mb-2 text-muted">{{ _("Create invoices for members who need coverage") }}</p>
-                                    <!-- Temporary: Enable button for admin users while debugging context issue -->
-                                    <button class="btn btn-warning btn-sm" onclick="generateInvoices()">
-                                        <span class="spinner-border spinner-border-sm d-none" id="generate-spinner"></span>
-                                        Generate Invoices
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Step 3: SEPA Validation -->
-                        <div class="workflow-step mb-3">
-                            <div class="d-flex align-items-center">
-                                <div class="step-number bg-secondary text-white rounded-circle me-3" style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">3</div>
-                                <div class="flex-grow-1">
-                                    <h6 class="mb-1">{{ _("Validate SEPA Eligibility") }}</h6>
-                                    <p class="mb-2 text-muted">{{ _("Check which invoices can be included in SEPA batch") }}</p>
-                                    <button class="btn btn-outline-info btn-sm" onclick="validateSEPA()">
-                                        <span class="spinner-border spinner-border-sm d-none" id="sepa-spinner"></span>
-                                        {{ _("Validate SEPA") }}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Step 4: Batch Creation -->
-                        <div class="workflow-step">
-                            <div class="d-flex align-items-center">
-                                <div class="step-number bg-secondary text-white rounded-circle me-3" style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">4</div>
-                                <div class="flex-grow-1">
-                                    <h6 class="mb-1">{{ _("Create SEPA Batch") }}</h6>
-                                    <p class="mb-2 text-muted">{{ _("Generate Direct Debit batch for bank submission") }}</p>
-                                    <!-- Temporary: Enable button for admin users while debugging context issue -->
-                                    <button class="btn btn-success btn-sm" onclick="createBatch()" id="batch-btn">
-                                        <span class="spinner-border spinner-border-sm d-none" id="batch-spinner"></span>
-                                        {{ _("Create Batch") }}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
+            <!-- SEPA Ready -->
+            <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-green-500">
+                <div class="flex items-center mb-4">
+                    <div class="flex-shrink-0 bg-green-100 rounded-lg p-3">
+                        <i class="fa fa-check-circle text-2xl text-green-600"></i>
+                    </div>
+                    <div class="ml-4">
+                        <h3 class="text-sm font-medium text-gray-600">{{ _("SEPA Ready") }}</h3>
+                        <p class="text-3xl font-bold text-gray-900" id="card-sepa-ready">
+                            {% if workflow_status and workflow_status.members_analysis %}
+                                {{ workflow_status.members_analysis.sepa_eligible }}
+                            {% else %}
+                                --
+                            {% endif %}
+                        </p>
                     </div>
                 </div>
+                <p class="text-sm text-gray-500">{{ _("With active mandates") }}</p>
             </div>
         </div>
-    </div>
 
-    <!-- Results Panel -->
-    <div class="row" id="results-panel" style="display: none;">
-        <div class="col-12">
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0">{{ _("Results") }}</h5>
-                    <button type="button" class="btn-close float-end" onclick="hideResults()"></button>
-                </div>
-                <div class="card-body">
-                    <div id="results-content"></div>
-                </div>
+        <!-- Analysis Results (hidden by default, shown after Check Status) -->
+        <div id="analysis-results" class="hidden mb-8">
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">{{ _("Member Analysis") }}</h3>
+                <div id="analysis-content"></div>
             </div>
         </div>
-    </div>
 
-    <!-- Recent Batches -->
-    {% if workflow_status and workflow_status.recent_batches %}
-    <div class="row mt-4">
-        <div class="col-12">
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0">{{ _("Recent SEPA Batches") }}</h5>
+        <!-- Coverage Mismatches -->
+        {% if workflow_status and workflow_status.coverage_mismatches and workflow_status.coverage_mismatches.total_mismatches > 0 %}
+        <div class="bg-yellow-50 border-l-4 border-yellow-400 rounded-lg p-6 mb-8">
+            <div class="flex items-start">
+                <div class="flex-shrink-0">
+                    <i class="fa fa-exclamation-triangle text-2xl text-yellow-600"></i>
                 </div>
-                <div class="card-body">
-                    <div class="table-responsive">
-                        <table class="table table-sm">
-                            <thead>
-                                <tr>
-                                    <th>{{ _("Batch") }}</th>
-                                    <th>{{ _("Date") }}</th>
-                                    <th>{{ _("Status") }}</th>
-                                    <th>{{ _("Amount") }}</th>
-                                    <th>{{ _("Entries") }}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for batch in workflow_status.recent_batches %}
-                                <tr>
-                                    <td>{{ batch.name }}</td>
-                                    <td>{{ batch.batch_date }}</td>
-                                    <td>
-                                        <span class="badge {% if batch.status == 'Submitted' %}badge-success{% elif batch.status == 'Draft' %}badge-warning{% else %}badge-secondary{% endif %}">
-                                            {{ batch.status }}
-                                        </span>
-                                    </td>
-                                    <td>€{{ batch.total_amount }}</td>
-                                    <td>{{ batch.entry_count }}</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    {% endif %}
+                <div class="ml-4 flex-1">
+                    <h3 class="text-lg font-semibold text-yellow-900 mb-4">
+                        {{ _("Data Integrity Issues") }} ({{ workflow_status.coverage_mismatches.total_mismatches }})
+                    </h3>
 
-    <!-- Quick Access -->
-    <div class="row mt-4">
-        <div class="col-12">
-            <div class="card">
-                <div class="card-body">
-                    <h6>{{ _("Quick Access") }}</h6>
-                    <a href="/app/direct-debit-batch" class="btn btn-outline-primary btn-sm me-2">{{ _("SEPA Batches") }}</a>
-                    <a href="/app/sales-invoice" class="btn btn-outline-primary btn-sm me-2">{{ _("Invoices") }}</a>
-                    <a href="/app/membership-dues-schedule" class="btn btn-outline-primary btn-sm me-2">{{ _("Dues Schedules") }}</a>
-                    <a href="/dues-invoice-debugger" class="btn btn-outline-secondary btn-sm">{{ _("Debug Interface") }}</a>
+                    {% if workflow_status.coverage_mismatches.extending_past.count > 0 %}
+                    <details class="mb-4">
+                        <summary class="cursor-pointer font-medium text-yellow-800 hover:text-yellow-900">
+                            {{ _("Coverage Extending Past Schedule") }} ({{ workflow_status.coverage_mismatches.extending_past.count }})
+                        </summary>
+                        <div class="mt-3 overflow-x-auto">
+                            <table class="min-w-full divide-y divide-yellow-200">
+                                <thead>
+                                    <tr class="bg-yellow-100">
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-yellow-800">Member</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-yellow-800">Schedule</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-yellow-800">Coverage Ends</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-yellow-800">Next Invoice</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-yellow-800">Gap</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-yellow-200">
+                                    {% for item in workflow_status.coverage_mismatches.extending_past['items'] %}
+                                    <tr class="hover:bg-yellow-50">
+                                        <td class="px-4 py-2 text-sm">{{ item.member_name }}</td>
+                                        <td class="px-4 py-2 text-sm">
+                                            <a href="/app/membership-dues-schedule/{{ item.schedule }}" class="text-blue-600 hover:text-blue-800">{{ item.schedule }}</a>
+                                        </td>
+                                        <td class="px-4 py-2 text-sm">{{ item.coverage_end }}</td>
+                                        <td class="px-4 py-2 text-sm">{{ item.next_invoice_date }}</td>
+                                        <td class="px-4 py-2 text-sm text-red-600 font-semibold">{{ item.gap_days }} days</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </details>
+                    {% endif %}
+
+                    {% if workflow_status.coverage_mismatches.ending_early.count > 0 %}
+                    <details>
+                        <summary class="cursor-pointer font-medium text-yellow-800 hover:text-yellow-900">
+                            {{ _("Coverage Ending Too Early") }} ({{ workflow_status.coverage_mismatches.ending_early.count }})
+                        </summary>
+                        <div class="mt-3 overflow-x-auto">
+                            <table class="min-w-full divide-y divide-yellow-200">
+                                <thead>
+                                    <tr class="bg-yellow-100">
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-yellow-800">Member</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-yellow-800">Schedule</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-yellow-800">Coverage Ends</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-yellow-800">Next Invoice</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-yellow-800">Gap</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-yellow-200">
+                                    {% for item in workflow_status.coverage_mismatches.ending_early['items'] %}
+                                    <tr class="hover:bg-yellow-50">
+                                        <td class="px-4 py-2 text-sm">{{ item.member_name }}</td>
+                                        <td class="px-4 py-2 text-sm">
+                                            <a href="/app/membership-dues-schedule/{{ item.schedule }}" class="text-blue-600 hover:text-blue-800">{{ item.schedule }}</a>
+                                        </td>
+                                        <td class="px-4 py-2 text-sm">{{ item.coverage_end }}</td>
+                                        <td class="px-4 py-2 text-sm">{{ item.next_invoice_date }}</td>
+                                        <td class="px-4 py-2 text-sm text-orange-600 font-semibold">{{ item.gap_days }} days</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </details>
+                    {% endif %}
                 </div>
             </div>
         </div>
+        {% endif %}
+
+        <!-- Results Panel (for operation feedback) -->
+        <div id="results-panel" class="hidden mb-8">
+            <div id="results-content"></div>
+        </div>
+
+        <!-- Spinners -->
+        <div id="generation-spinner" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white rounded-lg p-8 max-w-sm mx-4">
+                <div class="flex items-center justify-center mb-4">
+                    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                </div>
+                <p class="text-center text-gray-700 font-medium">{{ _("Generating invoices...") }}</p>
+            </div>
+        </div>
+
+        <div id="sepa-spinner" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white rounded-lg p-8 max-w-sm mx-4">
+                <div class="flex items-center justify-center mb-4">
+                    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
+                </div>
+                <p class="text-center text-gray-700 font-medium">{{ _("Validating SEPA eligibility...") }}</p>
+            </div>
+        </div>
+
+        <div id="status-spinner" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white rounded-lg p-8 max-w-sm mx-4">
+                <div class="flex items-center justify-center mb-4">
+                    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-600"></div>
+                </div>
+                <p class="text-center text-gray-700 font-medium">{{ _("Checking member status...") }}</p>
+            </div>
+        </div>
+
     </div>
 </div>
 
 <script>
-// Ensure frappe is available for API calls
-if (typeof frappe === 'undefined') {
-    window.frappe = {
-        csrf_token: '{{ frappe.session.csrf_token }}',
-        call: function(opts) {
-            let url = '/api/method/' + opts.method;
-            let headers = {
-                'Content-Type': 'application/json',
-                'X-Frappe-CSRF-Token': frappe.csrf_token || '{{ frappe.session.csrf_token }}'
-            };
-
-            fetch(url, {
-                method: 'POST',
-                headers: headers,
-                credentials: 'include',
-                body: JSON.stringify(opts.args || {})
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                return response.json();
-            })
-            .then(data => {
-                if (opts.callback) {
-                    opts.callback({message: data.message});
-                }
-            })
-            .catch(error => {
-                if (opts.error) {
-                    opts.error({message: error.message});
-                }
-            });
-        }
-    };
-}
-
+// Configuration from server
 let eligibleInvoices = [];
 let workflowConfig;
 try {
     workflowConfig = JSON.parse('{{ js_config|safe }}' || '{}');
 } catch (e) {
     workflowConfig = {
-        period_start: '2025-09-01',
-        period_end: '2025-09-30',
+        period_start: '{{ current_period_start }}',
+        period_end: '{{ current_period_end }}',
         user_roles: [],
         can_approve: false,
         can_generate_invoices: false
@@ -315,53 +244,77 @@ try {
 }
 
 function showSpinner(spinnerId) {
-    document.getElementById(spinnerId).classList.remove('d-none');
+    document.getElementById(spinnerId).classList.remove('hidden');
 }
 
 function hideSpinner(spinnerId) {
-    document.getElementById(spinnerId).classList.add('d-none');
+    document.getElementById(spinnerId).classList.add('hidden');
 }
 
 function showResults(title, content, type = 'info') {
     const panel = document.getElementById('results-panel');
     const resultsContent = document.getElementById('results-content');
 
-    let alertClass = 'alert-info';
-    if (type === 'success') alertClass = 'alert-success';
-    if (type === 'warning') alertClass = 'alert-warning';
-    if (type === 'error') alertClass = 'alert-danger';
+    let alertClasses = 'bg-blue-50 border-l-4 border-blue-400';
+    let iconColor = 'text-blue-600';
+    let icon = '<i class="fa fa-info-circle text-2xl"></i>';
+
+    if (type === 'success') {
+        alertClasses = 'bg-green-50 border-l-4 border-green-400';
+        iconColor = 'text-green-600';
+        icon = '<i class="fa fa-check-circle text-2xl"></i>';
+    } else if (type === 'warning') {
+        alertClasses = 'bg-yellow-50 border-l-4 border-yellow-400';
+        iconColor = 'text-yellow-600';
+        icon = '<i class="fa fa-exclamation-triangle text-2xl"></i>';
+    } else if (type === 'error') {
+        alertClasses = 'bg-red-50 border-l-4 border-red-400';
+        iconColor = 'text-red-600';
+        icon = '<i class="fa fa-times-circle text-2xl"></i>';
+    }
 
     resultsContent.innerHTML = `
-        <div class="alert ${alertClass}">
-            <h6>${title}</h6>
-            ${content}
+        <div class="${alertClasses} rounded-lg p-6">
+            <div class="flex items-start">
+                <div class="flex-shrink-0 ${iconColor}">
+                    ${icon}
+                </div>
+                <div class="ml-4">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-2">${title}</h3>
+                    <div class="text-sm text-gray-700">${content}</div>
+                </div>
+            </div>
         </div>
     `;
 
-    panel.style.display = 'block';
+    panel.classList.remove('hidden');
     panel.scrollIntoView({ behavior: 'smooth' });
 }
 
 function hideResults() {
-    document.getElementById('results-panel').style.display = 'none';
+    document.getElementById('results-panel').classList.add('hidden');
 }
 
-function formatMembersList(members, limit = 10) {
-    if (!members || members.length === 0) return '<em>None</em>';
-
-    const displayMembers = members.slice(0, limit);
-    const names = displayMembers.map(m => m.name || m.full_name || m).join(', ');
-
-    if (members.length > limit) {
-        return `${names} <em>(and ${members.length - limit} more)</em>`;
+function updateDashboardCards(summary) {
+    const activeCard = document.getElementById('card-active-members');
+    if (activeCard) {
+        activeCard.textContent = summary.total_active_members || 0;
     }
-    return names;
+
+    const missingCard = document.getElementById('card-missing-invoices');
+    if (missingCard) {
+        missingCard.textContent = summary.members_missing_invoices || 0;
+    }
+
+    const sepaCard = document.getElementById('card-sepa-ready');
+    if (sepaCard) {
+        sepaCard.textContent = summary.sepa_eligible || 0;
+    }
 }
 
 function checkMemberStatus() {
     showSpinner('status-spinner');
 
-    // Check if frappe object is available
     if (typeof frappe === 'undefined' || !frappe.call) {
         hideSpinner('status-spinner');
         showResults('Error', 'Frappe JavaScript library not loaded. Please refresh the page.', 'error');
@@ -370,446 +323,234 @@ function checkMemberStatus() {
 
     frappe.call({
         method: 'verenigingen.api.dues_invoice_workflow.check_member_dues_status',
+        args: {
+            period_start: workflowConfig.period_start,
+            period_end: workflowConfig.period_end
+        },
         callback: function(r) {
             hideSpinner('status-spinner');
 
-            if (r.message) {
-                const data = r.message;
-                const summary = data.summary;
+            if (r.message && r.message.summary) {
+                updateDashboardCards(r.message.summary);
 
-                let content = `
-                    <div class="row">
-                        <div class="col-md-6">
-                            <h6>Member Analysis</h6>
-                            <ul class="list-unstyled">
-                                <li><strong>Total Active Members:</strong> ${summary.total_active_members}</li>
-                                <li><strong>Members with Invoices:</strong> ${summary.members_with_invoices}</li>
-                                <li><strong>Members Missing Invoices:</strong> ${summary.members_missing_invoices}</li>
-                            </ul>
-                        </div>
-                        <div class="col-md-6">
-                            <h6>Invoice Status</h6>
-                            <ul class="list-unstyled">
-                                <li><strong>Draft Invoices:</strong> ${summary.invoice_breakdown.draft_invoices}</li>
-                                <li><strong>Submitted Invoices:</strong> ${summary.invoice_breakdown.submitted_invoices}</li>
-                                <li><strong>SEPA Eligible:</strong> ${summary.sepa_eligible}</li>
-                            </ul>
-                        </div>
-                    </div>
-                `;
+                // Show detailed analysis
+                const analysisDiv = document.getElementById('analysis-results');
+                const contentDiv = document.getElementById('analysis-content');
 
-                // Display comprehensive member categories with full transparency
-                if (data.member_categories) {
-                    content += `
-                        <div class="mt-4">
-                            <h6>Member Processing Categories</h6>
-                            <div class="alert alert-info small mb-3">
-                                <strong>Total Checked:</strong> ${data.processing_summary.total_schedules_checked || 0} schedules |
-                                <strong>Will Process:</strong> ${data.processing_summary.will_be_processed} |
-                                <strong>Filtered:</strong> ${data.processing_summary.will_be_skipped}
-                            </div>
+                let html = '<div class="space-y-3">';
 
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <h6 class="text-success">✓ Ready for Processing</h6>
-                                    <ul class="list-unstyled">
-                                        <li>
-                                            <span class="badge bg-success">${data.member_categories.needs_invoicing?.count || 0}</span>
-                                            <strong>Will Generate Invoices</strong>
-                                            <div class="small text-muted">${data.member_categories.needs_invoicing?.description || 'Members who will get new invoices'}</div>
-                                        </li>
-                                    </ul>
+                const categories = r.message.member_categories || {};
 
-                                    <h6 class="text-secondary mt-3">○ Already Handled</h6>
-                                    <ul class="list-unstyled">
-                                        <li>
-                                            <span class="badge bg-secondary">${data.member_categories.already_covered?.count || 0}</span>
-                                            <strong>Current Coverage</strong>
-                                            <div class="small text-muted">${data.member_categories.already_covered?.description || 'Already have coverage through cutoff date'}</div>
-                                        </li>
-                                    </ul>
-                                </div>
-
-                                <div class="col-md-6">
-                                    <h6 class="text-warning">⚠ Filtered/Skipped</h6>
-                                    <ul class="list-unstyled small">
-                                        <li class="mb-2">
-                                            <span class="badge bg-danger">${data.member_categories.ineligible_status?.count || 0}</span>
-                                            <strong>Ineligible Status</strong>
-                                            <div class="small text-muted">Terminated/Expelled/Deceased/Quit members</div>
-                                        </li>
-                                        <li class="mb-2">
-                                            <span class="badge bg-warning">${data.member_categories.gap_reset?.count || 0}</span>
-                                            <strong>Gap Reset</strong>
-                                            <div class="small text-muted">Coverage gaps >30 days - billing will restart</div>
-                                        </li>
-                                        <li class="mb-2">
-                                            <span class="badge bg-info">${data.member_categories.no_customer?.count || 0}</span>
-                                            <strong>Missing Customer</strong>
-                                            <div class="small text-muted">No customer record for invoicing</div>
-                                        </li>
-                                        <li class="mb-2">
-                                            <span class="badge bg-info">${data.member_categories.duplicate_coverage?.count || 0}</span>
-                                            <strong>Duplicate Coverage</strong>
-                                            <div class="small text-muted">Overlapping invoice periods</div>
-                                        </li>
-                                        <li class="mb-2">
-                                            <span class="badge bg-info">${data.member_categories.too_early?.count || 0}</span>
-                                            <strong>Too Early</strong>
-                                            <div class="small text-muted">Before invoice_days_before threshold</div>
-                                        </li>
-                                        <li class="mb-2">
-                                            <span class="badge bg-secondary">${data.member_categories.business_logic?.count || 0}</span>
-                                            <strong>Other Business Rules</strong>
-                                            <div class="small text-muted">Rate validation, mandate issues, etc.</div>
-                                        </li>
-                                    </ul>
-                                </div>
-                            </div>
+                // Members with coverage (green)
+                if (categories.already_covered && categories.already_covered.count > 0) {
+                    html += `
+                        <div class="border-l-4 border-green-500 bg-green-50 p-4 rounded">
+                            <div class="font-semibold text-green-800">✓ Members with Coverage (${categories.already_covered.count})</div>
+                            <div class="text-sm text-green-700 mt-1">${categories.already_covered.description}</div>
                         </div>
                     `;
-
-                    // Add expandable detailed member lists for each category with members
-                    const categoriesToShow = [
-                        { key: 'ineligible_status', label: 'Ineligible Status', color: 'danger' },
-                        { key: 'gap_reset', label: 'Gap Reset', color: 'warning' },
-                        { key: 'no_customer', label: 'Missing Customer Record', color: 'info' },
-                        { key: 'duplicate_coverage', label: 'Duplicate Coverage', color: 'info' },
-                        { key: 'too_early', label: 'Too Early', color: 'info' },
-                        { key: 'business_logic', label: 'Other Business Rules', color: 'secondary' }
-                    ];
-
-                    content += `<div class="mt-3">`;
-                    categoriesToShow.forEach(cat => {
-                        const category = data.member_categories[cat.key];
-                        if (category && category.count > 0) {
-                            content += `
-                                <details class="mb-2">
-                                    <summary class="cursor-pointer">
-                                        <span class="badge bg-${cat.color}">${category.count}</span>
-                                        <strong>${cat.label}</strong> - ${category.description || ''}
-                                    </summary>
-                                    <ul class="list-unstyled mt-2 small ms-4">
-                            `;
-                            category.members.forEach(member => {
-                                const name = member.member_name || member.full_name || member.member_id || 'Unknown';
-                                const reason = member.reason || member.status || '';
-                                content += `<li>• ${name}${reason ? ` - <em>${reason}</em>` : ''}</li>`;
-                            });
-                            content += `</ul></details>`;
-                        }
-                    });
-                    content += `</div>`;
                 }
 
-                showResults('Member Status Analysis', content, 'info');
-
-                // Enable next step if there are missing invoices
-                if (summary.members_missing_invoices > 0) {
-                    updateWorkflowStep(2, 'ready');
+                // Members needing invoices (amber)
+                if (categories.needs_invoicing && categories.needs_invoicing.count > 0) {
+                    html += `
+                        <div class="border-l-4 border-amber-500 bg-amber-50 p-4 rounded">
+                            <div class="font-semibold text-amber-800">⚠ Needs Invoicing (${categories.needs_invoicing.count})</div>
+                            <div class="text-sm text-amber-700 mt-1">${categories.needs_invoicing.description}</div>
+                        </div>
+                    `;
                 }
+
+                // Members with coverage gaps (blue)
+                if (categories.gap_reset && categories.gap_reset.count > 0) {
+                    html += `
+                        <details class="border-l-4 border-blue-500 bg-blue-50 p-4 rounded">
+                            <summary class="cursor-pointer font-semibold text-blue-800">
+                                🔄 Coverage Gap Reset (${categories.gap_reset.count})
+                            </summary>
+                            <div class="text-sm text-blue-700 mt-2">${categories.gap_reset.description}</div>
+                            ${categories.gap_reset.members && categories.gap_reset.members.length > 0 ? `
+                                <ul class="mt-2 space-y-1 text-sm">
+                                    ${categories.gap_reset.members.slice(0, 10).map(m => `<li class="text-blue-600">${m}</li>`).join('')}
+                                    ${categories.gap_reset.members.length > 10 ? `<li class="text-blue-500 italic">...and ${categories.gap_reset.members.length - 10} more</li>` : ''}
+                                </ul>
+                            ` : ''}
+                        </details>
+                    `;
+                }
+
+                // Ineligible status (gray)
+                if (categories.ineligible_status && categories.ineligible_status.count > 0) {
+                    html += `
+                        <details class="border-l-4 border-gray-400 bg-gray-50 p-4 rounded">
+                            <summary class="cursor-pointer font-semibold text-gray-700">
+                                ⊘ Ineligible Status (${categories.ineligible_status.count})
+                            </summary>
+                            <div class="text-sm text-gray-600 mt-2">${categories.ineligible_status.description}</div>
+                        </details>
+                    `;
+                }
+
+                // Members without membership (red)
+                if (r.message.summary && r.message.summary.members_without_membership > 0) {
+                    html += `
+                        <div class="border-l-4 border-red-500 bg-red-50 p-4 rounded">
+                            <div class="font-semibold text-red-800">⚠ No Active Membership (${r.message.summary.members_without_membership})</div>
+                            <div class="text-sm text-red-700 mt-1">Members without any dues schedule</div>
+                        </div>
+                    `;
+                }
+
+                // Missing customer records (orange)
+                if (categories.no_customer && categories.no_customer.count > 0) {
+                    html += `
+                        <details class="border-l-4 border-orange-500 bg-orange-50 p-4 rounded">
+                            <summary class="cursor-pointer font-semibold text-orange-800">
+                                ⚠ Missing Customer Records (${categories.no_customer.count})
+                            </summary>
+                            <div class="text-sm text-orange-700 mt-2">${categories.no_customer.description}</div>
+                        </details>
+                    `;
+                }
+
+                // Duplicate coverage (purple)
+                if (categories.duplicate_coverage && categories.duplicate_coverage.count > 0) {
+                    html += `
+                        <details class="border-l-4 border-purple-500 bg-purple-50 p-4 rounded">
+                            <summary class="cursor-pointer font-semibold text-purple-800">
+                                ⚠ Duplicate Coverage (${categories.duplicate_coverage.count})
+                            </summary>
+                            <div class="text-sm text-purple-700 mt-2">${categories.duplicate_coverage.description}</div>
+                        </details>
+                    `;
+                }
+
+                html += '</div>';
+
+                contentDiv.innerHTML = html;
+                analysisDiv.classList.remove('hidden');
+                analysisDiv.scrollIntoView({ behavior: 'smooth' });
+
+                showResults('Status Check Complete', 'Member analysis updated successfully.', 'success');
+            } else {
+                showResults('Error', 'Failed to retrieve member status data.', 'error');
             }
         },
         error: function(r) {
             hideSpinner('status-spinner');
-            showResults('Error', 'Failed to check member status: ' + (r.message || 'Unknown error'), 'error');
+            showResults('Error', r.message || 'Failed to check member status.', 'error');
         }
     });
 }
 
-function generateInvoices() {
-    if (!confirm('Generate invoices for all eligible members? This will process potentially hundreds of invoices.')) {
+function generateMissingInvoices() {
+    if (!workflowConfig.can_generate_invoices) {
+        showResults('Permission Denied', 'You do not have permission to generate invoices.', 'error');
         return;
     }
 
-    showSpinner('generate-spinner');
+    if (!confirm('Generate missing invoices for all eligible members?')) {
+        return;
+    }
+
+    showSpinner('generation-spinner');
 
     frappe.call({
         method: 'verenigingen.api.dues_invoice_workflow.generate_missing_invoices',
+        type: 'POST',
         callback: function(r) {
-            hideSpinner('generate-spinner');
+            hideSpinner('generation-spinner');
 
-            if (r.message) {
-                const data = r.message;
-
+            if (r.message && r.message.success) {
+                const results = r.message.bulk_results || {};
                 let content = `
-                    <div class="row">
-                        <div class="col-md-6">
-                            <h6>Generation Results</h6>
-                            <ul class="list-unstyled">
-                                <li><strong>Success:</strong> ${data.success ? 'Yes' : 'No'}</li>
-                                <li><strong>Message:</strong> ${data.message}</li>
-                            </ul>
+                    <div class="space-y-3">
+                        <p class="font-medium">${r.message.message}</p>
+                        <div class="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                                <span class="text-gray-600">Generated:</span>
+                                <span class="font-semibold text-green-600">${results.generated || 0}</span>
+                            </div>
+                            <div>
+                                <span class="text-gray-600">Processed:</span>
+                                <span class="font-semibold">${results.processed || 0}</span>
+                            </div>
+                            <div>
+                                <span class="text-gray-600">Skipped:</span>
+                                <span class="font-semibold">${results.skipped || 0}</span>
+                            </div>
+                            <div>
+                                <span class="text-gray-600">Errors:</span>
+                                <span class="font-semibold text-red-600">${results.errors?.length || 0}</span>
+                            </div>
                         </div>
-                    </div>
                 `;
 
-                if (data.bulk_results) {
+                if (results.errors && results.errors.length > 0) {
                     content += `
-                        <div class="mt-3">
-                            <h6>Bulk Processing Details</h6>
-                            <ul class="list-unstyled">
-                                <li><strong>Processed:</strong> ${data.bulk_results.processed || 0}</li>
-                                <li><strong>Generated:</strong> ${data.bulk_results.generated || 0}</li>
-                                <li><strong>Errors:</strong> ${data.bulk_results.errors ? data.bulk_results.errors.length : 0}</li>
-                                <li><strong>Members Filtered:</strong> ${data.bulk_results.total_filtered || 0}</li>
+                        <details class="mt-3">
+                            <summary class="cursor-pointer text-sm font-medium text-gray-700 hover:text-gray-900">
+                                Show errors (${results.errors.length})
+                            </summary>
+                            <ul class="mt-2 space-y-1 text-sm text-gray-600">
+                                ${results.errors.slice(0, 10).map(e => `<li class="border-l-2 border-red-300 pl-2">${e}</li>`).join('')}
+                                ${results.errors.length > 10 ? `<li class="text-gray-500 italic">...and ${results.errors.length - 10} more</li>` : ''}
                             </ul>
-                        </div>
+                        </details>
                     `;
-
-                    // Display filtered members information
-                    if (data.bulk_results.filtered_members && data.bulk_results.total_filtered > 0) {
-                        content += `<div class="mt-3"><h6>Filtered Members (Not Processed)</h6>`;
-
-                        const filtered = data.bulk_results.filtered_members;
-
-                        if (filtered.ineligible_status && filtered.ineligible_status.length > 0) {
-                            content += `
-                                <div class="mb-2">
-                                    <strong>Ineligible Status (${filtered.ineligible_status.length}):</strong>
-                                    <div class="text-muted small">Members with Terminated/Expelled/Deceased/Quit status</div>
-                                    <ul class="list-unstyled mt-1">
-                            `;
-                            filtered.ineligible_status.forEach(member => {
-                                content += `<li class="small">• ${member.member_name} (${member.reason})</li>`;
-                            });
-                            content += `</ul></div>`;
-                        }
-
-                        if (filtered.gap_reset && filtered.gap_reset.length > 0) {
-                            content += `
-                                <div class="mb-2">
-                                    <strong>Gap Reset Applied (${filtered.gap_reset.length}):</strong>
-                                    <div class="text-muted small">Members with large coverage gaps (>30 days)</div>
-                                    <ul class="list-unstyled mt-1">
-                            `;
-                            filtered.gap_reset.forEach(member => {
-                                content += `<li class="small">• ${member.member_name} (${member.reason})</li>`;
-                            });
-                            content += `</ul></div>`;
-                        }
-
-                        if (filtered.business_logic && filtered.business_logic.length > 0) {
-                            content += `
-                                <div class="mb-2">
-                                    <strong>Business Logic Filters (${filtered.business_logic.length}):</strong>
-                                    <div class="text-muted small">Coverage overlaps, rate validation, etc.</div>
-                                    <ul class="list-unstyled mt-1">
-                            `;
-                            filtered.business_logic.forEach(member => {
-                                content += `<li class="small">• ${member.member_name} (${member.reason})</li>`;
-                            });
-                            content += `</ul></div>`;
-                        }
-
-                        content += `</div>`;
-                    }
                 }
 
-                showResults('Invoice Generation Complete', content, data.success ? 'success' : 'warning');
+                content += '</div>';
 
-                // Enable next step
-                updateWorkflowStep(3, 'ready');
-
-                // Auto-refresh disabled to allow reading results
-                // setTimeout(() => window.location.reload(), 2000);
+                showResults('Generation Complete', content, 'success');
+                // Update cards without hiding the results
+                updateDashboardCards({
+                    total_active_members: results.total_active_members || 0,
+                    members_missing_invoices: Math.max(0, (results.members_missing_invoices || 0) - (results.generated || 0)),
+                    sepa_eligible: results.sepa_eligible || 0
+                });
+            } else {
+                const errors = r.message?.errors || [];
+                const errorList = errors.length > 0
+                    ? `<ul class="list-disc list-inside mt-2">${errors.slice(0, 5).map(e => `<li class="text-sm">${e}</li>`).join('')}</ul>`
+                    : '';
+                showResults('Generation Failed', r.message?.message || 'Failed to generate invoices.' + errorList, 'error');
             }
         },
         error: function(r) {
-            hideSpinner('generate-spinner');
-            showResults('Error', 'Failed to generate invoices: ' + (r.message || 'Unknown error'), 'error');
+            hideSpinner('generation-spinner');
+            showResults('Error', r.message || 'Failed to generate invoices.', 'error');
         }
     });
 }
 
-function validateSEPA() {
+function validateSepaEligibility() {
     showSpinner('sepa-spinner');
 
-    fetch('/api/method/verenigingen.api.dues_invoice_workflow.validate_sepa_eligibility', {
-        method: 'GET'
-    })
-    .then(response => response.json())
-    .then(r => {
-        hideSpinner('sepa-spinner');
+    frappe.call({
+        method: 'verenigingen.api.dues_invoice_workflow.validate_sepa_eligibility',
+        type: 'POST',
+        callback: function(r) {
+            hideSpinner('sepa-spinner');
 
-        if (r.message) {
-                const data = r.message;
-                eligibleInvoices = data.eligible_invoices;
-
-                let content = `
-                    <div class="row">
-                        <div class="col-md-6">
-                            <h6>SEPA Validation Results</h6>
-                            <ul class="list-unstyled">
-                                <li><strong>Total Checked:</strong> ${data.summary.total_checked}</li>
-                                <li><strong>SEPA Eligible:</strong> ${data.summary.sepa_eligible}</li>
-                                <li><strong>Missing Mandate:</strong> ${data.summary.missing_mandate}</li>
-                            </ul>
-                        </div>
-                    </div>
-                `;
-
-                if (data.eligible_invoices && data.eligible_invoices.length > 0) {
-                    const totalAmount = data.eligible_invoices.reduce((sum, inv) => sum + (inv.amount || 0), 0);
-                    content += `
-                        <div class="mt-3">
-                            <h6>Eligible for SEPA Batch</h6>
-                            <p><strong>Total Amount:</strong> €${totalAmount.toFixed(2)}</p>
-                            <p><strong>Invoice Count:</strong> ${data.eligible_invoices.length}</p>
-                        </div>
-                    `;
-
-                    // Enable batch creation (if button exists)
-                    const batchBtn = document.getElementById('batch-btn');
-                    if (batchBtn) {
-                        batchBtn.disabled = false;
-                    }
-                    updateWorkflowStep(4, 'ready');
-                }
-
-                showResults('SEPA Validation Complete', content, 'success');
+            if (r.message) {
+                const summary = r.message.summary || {};
+                showResults(
+                    'SEPA Validation Complete',
+                    `<div class="space-y-2">
+                        <p>Eligible: <span class="font-semibold text-green-600">${summary.eligible || 0}</span></p>
+                        <p>Ineligible: <span class="font-semibold text-red-600">${summary.ineligible || 0}</span></p>
+                        <p>Total Checked: ${summary.total_checked || 0}</p>
+                    </div>`,
+                    'success'
+                );
             }
-    })
-    .catch(error => {
-        hideSpinner('sepa-spinner');
-        showResults('Error', 'Failed to validate SEPA eligibility: ' + (error.message || 'Unknown error'), 'error');
-    });
-}
-
-function createBatch() {
-    if (eligibleInvoices.length === 0) {
-        showResults('No Eligible Invoices', 'Please run SEPA validation first to identify eligible invoices.', 'warning');
-        return;
-    }
-
-    const totalAmount = eligibleInvoices.reduce((sum, inv) => sum + (inv.amount || 0), 0);
-
-    if (!confirm(`Create SEPA batch with ${eligibleInvoices.length} invoices totaling €${totalAmount.toFixed(2)}?`)) {
-        return;
-    }
-
-    showSpinner('batch-spinner');
-
-    fetch('/api/method/verenigingen.api.dues_invoice_workflow.prepare_sepa_batch', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-Frappe-CSRF-Token': workflowConfig?.csrf_token || ''
         },
-        body: JSON.stringify({
-            eligible_invoices: eligibleInvoices,
-            batch_description: `Dues Collection ${new Date().toLocaleDateString()}`
-        })
-    })
-    .then(response => response.json())
-    .then(r => {
-        hideSpinner('batch-spinner');
-
-        if (r.message) {
-                const data = r.message;
-
-                let content = `
-                    <div class="row">
-                        <div class="col-md-6">
-                            <h6>Batch Creation Results</h6>
-                            <ul class="list-unstyled">
-                                <li><strong>Success:</strong> ${data.success ? 'Yes' : 'No'}</li>
-                                <li><strong>Batch Name:</strong> <a href="/app/direct-debit-batch/${data.batch_name}" target="_blank">${data.batch_name}</a></li>
-                                <li><strong>Total Amount:</strong> €${data.total_amount}</li>
-                                <li><strong>Entry Count:</strong> ${data.entry_count}</li>
-                                <li><strong>Risk Level:</strong> <span class="badge ${data.risk_level === 'High' ? 'badge-danger' : data.risk_level === 'Medium' ? 'badge-warning' : 'badge-success'}">${data.risk_level}</span></li>
-                            </ul>
-                        </div>
-                    </div>
-                `;
-
-                if (data.requires_approval) {
-                    content += `
-                        <div class="alert alert-info mt-3">
-                            <strong>Approval Required:</strong> This batch requires approval before processing due to its ${data.risk_level.toLowerCase()} risk level.
-                        </div>
-                    `;
-                }
-
-                showResults('SEPA Batch Created', content, 'success');
-
-                // Reset workflow
-                eligibleInvoices = [];
-                const batchBtn = document.getElementById('batch-btn');
-                if (batchBtn) {
-                    batchBtn.disabled = true;
-                }
-
-                // Auto-refresh disabled to allow reading results
-                // setTimeout(() => window.location.reload(), 3000);
-            }
-    })
-    .catch(error => {
-        hideSpinner('batch-spinner');
-        showResults('Error', 'Failed to create SEPA batch: ' + (error.message || 'Unknown error'), 'error');
+        error: function(r) {
+            hideSpinner('sepa-spinner');
+            showResults('Error', r.message || 'Failed to validate SEPA eligibility.', 'error');
+        }
     });
 }
-
-function updateWorkflowStep(stepNumber, status) {
-    const stepElement = document.querySelector(`.workflow-step:nth-child(${stepNumber}) .step-number`);
-    if (stepElement) {
-        stepElement.classList.remove('bg-primary', 'bg-secondary', 'bg-success');
-        if (status === 'ready') {
-            stepElement.classList.add('bg-success');
-        } else if (status === 'active') {
-            stepElement.classList.add('bg-primary');
-        } else {
-            stepElement.classList.add('bg-secondary');
-        }
-    }
-}
-
-// Initialize workflow state
-updateWorkflowStep(1, 'ready');
 </script>
-
-<style>
-.workflow-steps {
-    position: relative;
-}
-
-.workflow-step {
-    border-left: 2px solid #dee2e6;
-    padding-left: 1rem;
-    margin-left: 15px;
-}
-
-details summary {
-    cursor: pointer;
-    user-select: none;
-}
-
-details summary:hover {
-    background-color: #f8f9fa;
-}
-
-.workflow-step:last-child {
-    border-left: none;
-}
-
-.step-number {
-    margin-left: -1.5rem;
-    font-weight: bold;
-    font-size: 0.875rem;
-}
-
-.card {
-    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
-}
-
-.workflow-step:not(:last-child)::after {
-    content: '';
-    position: absolute;
-    left: 15px;
-    top: 50px;
-    bottom: -20px;
-    width: 2px;
-    background-color: #dee2e6;
-}
-</style>
 {% endblock %}

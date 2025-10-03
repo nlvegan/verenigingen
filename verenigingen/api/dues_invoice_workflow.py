@@ -21,9 +21,9 @@ from verenigingen.utils.secure_operations import secure_batch_operation, secure_
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=False, methods=["GET", "POST"])
 @handle_api_error
-@high_security_api(operation_type=OperationType.FINANCIAL)
+@standard_api(operation_type=OperationType.REPORTING)
 def check_member_dues_status(period_start: str = None, period_end: str = None) -> Dict:
     """
     Check which members need dues invoices for the current period.
@@ -68,6 +68,18 @@ def check_member_dues_status(period_start: str = None, period_end: str = None) -
     # Get total active members count
     total_active_members = frappe.db.count("Member", {"status": ["in", ["Active", "Pending", "Suspended"]]})
 
+    # Get members without any membership dues schedule (no active membership)
+    members_with_schedules = frappe.db.sql_list(
+        """
+        SELECT DISTINCT member
+        FROM `tabMembership Dues Schedule`
+        WHERE member IS NOT NULL
+    """
+    )
+    members_without_membership = (
+        total_active_members - len(members_with_schedules) if members_with_schedules else total_active_members
+    )
+
     # Build comprehensive response
     result = {
         "period_start": cutoff_date.replace(day=1),  # Start of cutoff month
@@ -76,6 +88,7 @@ def check_member_dues_status(period_start: str = None, period_end: str = None) -
             "total_active_members": total_active_members,
             "members_with_invoices": len(filtered_members.get("already_covered", [])),
             "members_missing_invoices": len(eligibility_result["eligible_schedules"]),
+            "members_without_membership": members_without_membership,
             "invoice_breakdown": {
                 "draft_invoices": 0,  # Would require additional query
                 "submitted_invoices": 0,  # Would require additional query
@@ -393,11 +406,136 @@ def get_workflow_status() -> Dict:
         "Sales Invoice", {"status": ["in", ["Unpaid", "Overdue"]], "docstatus": 1}
     )
 
-    # Get members without recent invoices
-    members_analysis = check_member_dues_status()
+    # Get members analysis - returns the full result with summary
+    members_status = check_member_dues_status()
 
+    # Check for coverage/scheduling mismatches
+    mismatches = check_coverage_scheduling_mismatches()
+
+    # Handle error responses from check_member_dues_status
+    if not isinstance(members_status, dict) or "summary" not in members_status:
+        members_status = {
+            "summary": {
+                "total_active_members": 0,
+                "members_with_invoices": 0,
+                "members_missing_invoices": 0,
+                "sepa_eligible": 0,
+            }
+        }
+
+    # Map to expected format for template
     return {
         "recent_batches": recent_batches,
         "pending_invoices": pending_invoices,
-        "members_analysis": members_analysis["summary"],
+        "members_analysis": {
+            "total_active_members": members_status["summary"]["total_active_members"],
+            "members_with_coverage": members_status["summary"]["members_with_invoices"],
+            "members_missing_invoices": members_status["summary"]["members_missing_invoices"],
+            "sepa_eligible": members_status["summary"]["sepa_eligible"],
+        },
+        "coverage_mismatches": mismatches,
+    }
+
+
+@frappe.whitelist()
+@handle_api_error
+@standard_api(operation_type=OperationType.REPORTING)
+def check_coverage_scheduling_mismatches() -> Dict:
+    """
+    Check for mismatches between next_invoice_date and actual invoice coverage.
+    Detects data integrity issues where scheduling doesn't align with coverage periods.
+
+    Returns:
+        Dict with mismatch analysis
+    """
+    # Get all active schedules
+    schedules = frappe.get_all(
+        "Membership Dues Schedule",
+        filters={"status": "Active", "auto_generate": 1},
+        fields=["name", "member", "next_invoice_date", "billing_frequency"],
+    )
+
+    mismatches_extending_past = []  # Coverage extends past next_invoice_date
+    mismatches_ending_early = []  # Coverage ends too early before next_invoice_date
+    tolerance_days = 5
+
+    for sched in schedules:
+        if not sched.member or not sched.next_invoice_date:
+            continue
+
+        # Check if member exists first (avoid logging errors for deleted members)
+        if not frappe.db.exists("Member", sched.member):
+            continue
+
+        # Get member's customer
+        try:
+            member = frappe.get_doc("Member", sched.member)
+            if not member.customer:
+                continue
+        except Exception:
+            continue
+
+        # Get their latest invoice coverage
+        latest_invoice = frappe.db.sql(
+            """
+            SELECT name, posting_date,
+                   custom_coverage_start_date, custom_coverage_end_date
+            FROM `tabSales Invoice`
+            WHERE customer = %(customer)s
+            AND docstatus = 1
+            AND custom_coverage_end_date IS NOT NULL
+            ORDER BY custom_coverage_end_date DESC
+            LIMIT 1
+        """,
+            {"customer": member.customer},
+            as_dict=True,
+        )
+
+        if not latest_invoice:
+            continue
+
+        latest_coverage_end = getdate(latest_invoice[0].custom_coverage_end_date)
+        next_invoice_date = getdate(sched.next_invoice_date)
+
+        # Calculate gap between coverage end and next invoice date
+        gap_days = (next_invoice_date - latest_coverage_end).days
+
+        # Categorize mismatches
+        if gap_days < -tolerance_days:
+            # Coverage extends PAST next invoice date
+            mismatches_extending_past.append(
+                {
+                    "member_name": f"{member.first_name} {member.last_name}",
+                    "schedule": sched.name,
+                    "billing_frequency": sched.billing_frequency,
+                    "latest_invoice": latest_invoice[0].name,
+                    "coverage_end": str(latest_coverage_end),
+                    "next_invoice_date": str(next_invoice_date),
+                    "gap_days": gap_days,
+                }
+            )
+        elif gap_days > tolerance_days:
+            # Coverage ends TOO EARLY
+            mismatches_ending_early.append(
+                {
+                    "member_name": f"{member.first_name} {member.last_name}",
+                    "schedule": sched.name,
+                    "billing_frequency": sched.billing_frequency,
+                    "latest_invoice": latest_invoice[0].name,
+                    "coverage_end": str(latest_coverage_end),
+                    "next_invoice_date": str(next_invoice_date),
+                    "gap_days": gap_days,
+                }
+            )
+
+    return {
+        "total_mismatches": len(mismatches_extending_past) + len(mismatches_ending_early),
+        "extending_past": {
+            "count": len(mismatches_extending_past),
+            "items": mismatches_extending_past[:10],  # Limit to 10 for performance
+        },
+        "ending_early": {
+            "count": len(mismatches_ending_early),
+            "items": mismatches_ending_early[:10],
+        },
     }

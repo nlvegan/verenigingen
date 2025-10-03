@@ -10,31 +10,34 @@ from frappe.utils import add_days, getdate, today
 
 def get_context(context):
     """Set up context for production dues invoice manager page"""
+    context.no_cache = 1  # Disable caching to always show current billing period
 
     # Start with absolute basics that shouldn't fail
     context.title = _("Dues Invoice Manager") if frappe.db else "Dues Invoice Manager"
     context.parents = [{"title": "Financial Management", "name": "financial-management"}]
 
-    # Calculate actual current dates - ensure proper month coverage
-    try:
-        today_date = getdate(today())
-        # Start of current month
-        period_start = today_date.replace(day=1)
-        # End of current month - go to next month, then back one day
-        next_month = add_days(period_start, 32)  # This gets us into next month
-        next_month_start = next_month.replace(day=1)  # First day of next month
-        period_end = add_days(next_month_start, -1)  # Last day of current month
+    # Calculate billing period - simplified to always use current month
+    today_date = getdate(today())
+    period_start = today_date.replace(day=1)
 
-        context.current_period_start = period_start.strftime("%Y-%m-%d")
-        context.current_period_end = period_end.strftime("%Y-%m-%d")
-    except Exception:
-        # Fallback to proper monthly range
-        context.current_period_start = "2025-09-01"
-        context.current_period_end = "2025-09-30"
+    # Get last day of current month
+    if today_date.month == 12:
+        next_month = today_date.replace(year=today_date.year + 1, month=1, day=1)
+    else:
+        next_month = today_date.replace(month=today_date.month + 1, day=1)
+    period_end = add_days(next_month, -1)
+
+    context.current_period_start = period_start.strftime("%Y-%m-%d")
+    context.current_period_end = period_end.strftime("%Y-%m-%d")
 
     # Check user permissions for financial operations
     current_user = frappe.session.user if frappe.session else "Guest"
-    user_roles = frappe.get_roles(current_user) if current_user != "Guest" else ["Guest"]
+
+    # Require authentication for this financial management page
+    if current_user == "Guest":
+        frappe.throw(_("Please login to access the Dues Invoice Manager"), frappe.PermissionError)
+
+    user_roles = frappe.get_roles(current_user)
 
     # For financial operations (CRITICAL security level), check for specific roles
     # System Manager is included for admin access, plus specific verenigingen roles
@@ -53,23 +56,22 @@ def get_context(context):
         f"Dues Invoice Manager - User: {current_user}, Roles: {user_roles}, Can Approve: {can_approve}"
     )
 
-    # Load real workflow status data
-    try:
-        from verenigingen.api.dues_invoice_workflow import get_workflow_status
-
-        workflow_status = get_workflow_status()
-        context.workflow_status = workflow_status
-    except Exception as e:
-        frappe.log_error(f"Failed to load workflow status: {str(e)}", "Dues Invoice Manager Context")
-        context.workflow_status = {
-            "recent_batches": [],
-            "pending_invoices": 0,
-            "members_analysis": {
-                "total_active_members": 0,
-                "members_missing_invoices": 0,
-                "sepa_eligible": 0,
-            },
-        }
+    # Don't load workflow status during page render - too expensive and causes permission issues
+    # Cards will be populated when user clicks "Check Status" button
+    context.workflow_status = {
+        "recent_batches": [],
+        "pending_invoices": 0,
+        "members_analysis": {
+            "total_active_members": 0,
+            "members_missing_invoices": 0,
+            "sepa_eligible": 0,
+        },
+        "coverage_mismatches": {
+            "total_mismatches": 0,
+            "extending_past": {"count": 0, "items": []},
+            "ending_early": {"count": 0, "items": []},
+        },
+    }
 
     # Load SEPA settings
     try:

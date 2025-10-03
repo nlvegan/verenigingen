@@ -20,7 +20,9 @@ def get_mandate_issues():
     issues = {
         "sepa_selected_no_mandate": {
             "title": _("SEPA Payment Method Without Mandate"),
-            "description": _("Members have SEPA selected as payment method but no active mandate exists"),
+            "description": _(
+                "Members have SEPA Direct Debit selected but lack active mandate or required banking data (IBAN, account holder name)"
+            ),
             "severity": "critical",
             "count": 0,
             "members": [],
@@ -62,12 +64,19 @@ def get_mandate_issues():
             m.name as member_id,
             m.full_name,
             m.payment_method,
+            m.iban,
+            m.bank_account_name,
             COUNT(sm.name) as total_mandates,
-            COUNT(CASE WHEN sm.status = 'Active' AND sm.is_active = 1 THEN 1 END) as active_mandates
+            COUNT(CASE WHEN sm.status = 'Active' AND sm.is_active = 1 THEN 1 END) as active_mandates,
+            CASE
+                WHEN m.iban IS NULL OR m.iban = '' THEN 'missing_iban'
+                WHEN m.bank_account_name IS NULL OR m.bank_account_name = '' THEN 'missing_account_name'
+                ELSE 'has_banking_data'
+            END as banking_status
         FROM `tabMember` m
         LEFT JOIN `tabSEPA Mandate` sm ON sm.member = m.name
         WHERE m.payment_method = 'SEPA Direct Debit'
-        GROUP BY m.name, m.full_name, m.payment_method
+        GROUP BY m.name, m.full_name, m.payment_method, m.iban, m.bank_account_name
         HAVING active_mandates = 0
         """,
         as_dict=True,

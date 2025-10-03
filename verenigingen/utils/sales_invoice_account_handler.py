@@ -104,10 +104,7 @@ def set_membership_receivable_account(doc, method=None):
     # Set the correct account if this is a membership invoice
     if is_membership_invoice:
         doc.debit_to = settings.dues_payments_receivable_account
-        frappe.msgprint(
-            _("Using membership dues receivable account: {0}").format(
-                settings.dues_payments_receivable_account
-            ),
-            indicator="blue",
-            alert=True,
+        # Log for debugging but don't show popup during bulk operations
+        frappe.logger().info(
+            f"Using membership dues receivable account: {settings.dues_payments_receivable_account}"
         )

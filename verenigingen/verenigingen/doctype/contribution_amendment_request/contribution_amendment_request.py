@@ -616,6 +616,21 @@ class ContributionAmendmentRequest(Document):
     def apply_fee_change(self, membership):
         """Apply fee change to membership"""
         try:
+            # IDEMPOTENCY CHECK: Skip if member's current dues_rate already matches requested amount
+            member_doc = frappe.get_doc("Member", self.member)
+            current_rate = getattr(member_doc, "dues_rate", 0) or 0
+
+            if current_rate == self.requested_amount:
+                frappe.logger().info(
+                    f"Amendment {self.name} already applied - member {self.member} dues_rate "
+                    f"already matches requested amount €{self.requested_amount}"
+                )
+                self.processing_notes = (
+                    f"Skipped: Member dues_rate already set to €{self.requested_amount} "
+                    f"(amendment appears to have been applied previously)"
+                )
+                return  # Skip re-application
+
             # Check if this is a pure fee change (no membership type change)
             is_pure_fee_change = self.amendment_type == "Fee Change" and (
                 not self.requested_membership_type
@@ -687,17 +702,20 @@ class ContributionAmendmentRequest(Document):
                 self.processing_notes = f"Dues schedule {dues_schedule_name} created for amendment."
 
             # Update legacy override fields for backward compatibility
-            member_doc = frappe.get_doc("Member", self.member)
+            # Re-use member_doc from idempotency check above
             member_doc.reload()  # Refresh to avoid timestamp mismatch
 
             # Record fee change in history before updating
+            # CRITICAL FIX: Use actual current member dues_rate, not amendment's stored current_amount
+            actual_current_rate = getattr(member_doc, "dues_rate", 0) or 0
+
             dues_schedule_ref = self.new_dues_schedule or (
                 dues_schedule_name if "dues_schedule_name" in locals() else ""
             )
             member_doc.record_fee_change(
                 {
                     "change_date": now_datetime(),
-                    "old_amount": self.current_amount,
+                    "old_amount": actual_current_rate,  # Use actual current rate, not stored value
                     "new_amount": self.requested_amount,
                     "reason": f"Amendment {self.name}: {self.reason}",
                     "changed_by": frappe.session.user,
@@ -921,15 +939,19 @@ class ContributionAmendmentRequest(Document):
                 member_doc = frappe.get_doc("Member", self.member)
                 member_doc.reload()
 
+                # CRITICAL FIX: Use actual current member dues_rate, not amendment's stored current_amount
+                actual_current_rate = getattr(member_doc, "dues_rate", 0) or 0
+
                 # Record fee change in history before updating
                 member_doc.record_fee_change(
                     {
                         "change_date": now_datetime(),
-                        "old_amount": self.current_amount,
+                        "old_amount": actual_current_rate,  # Use actual current rate, not stored value
                         "new_amount": self.requested_amount,
                         "reason": f"Membership type change amendment {self.name}: {self.reason}",
                         "changed_by": frappe.session.user,
                         "dues_schedule_action": f"Applied via {dues_schedule_name}",
+                        "amendment_request_name": self.name,  # For true idempotency
                     }
                 )
 
@@ -1224,6 +1246,15 @@ def process_pending_amendments():
         for amendment_data in amendments_to_process:
             try:
                 amendment = frappe.get_doc("Contribution Amendment Request", amendment_data.name)
+
+                # SAFETY CHECK: Skip if already applied (in case filter didn't catch it)
+                if amendment.status == "Applied" or amendment.applied_date:
+                    frappe.logger().info(
+                        f"Skipping amendment {amendment.name} - already applied "
+                        f"(status: {amendment.status}, applied_date: {amendment.applied_date})"
+                    )
+                    continue
+
                 # Force apply even if effective date is future (since we filtered for ready ones)
                 amendment._force_apply = True
                 result = amendment.apply_amendment()

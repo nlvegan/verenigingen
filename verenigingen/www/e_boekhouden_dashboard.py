@@ -3,31 +3,34 @@ import json
 import frappe
 from frappe import _
 
-from verenigingen.utils.security.api_security_framework import OperationType, public_api
-
 
 def get_context(context):
     """Get context for dashboard page"""
+    context.no_cache = 1  # Disable caching for this page
     context.title = _("E-Boekhouden Migration Dashboard")
+
+    # Initialize with fallback data FIRST to ensure all variables exist
+    context.migration_stats = {"total": 0, "completed": 0, "in_progress": 0, "failed": 0, "draft": 0}
+    context.connection_status = "Unknown"
+    context.available_data = {"accounts": 0, "cost_centers": 0, "customers": 0, "suppliers": 0}
+    context.recent_migrations = []
+    context.system_health = {"status": "unknown", "issues": []}
 
     # Check permissions - use a more permissive check
     if frappe.session.user == "Guest":
         frappe.throw(_("Please login to view dashboard"))
 
     try:
-        # Get dashboard data
+        # Get dashboard data and override fallback values
         dashboard_data = get_dashboard_data()
         context.update(dashboard_data)
 
     except Exception as e:
         frappe.log_error(f"Dashboard error: {str(e)}")
         context.error = str(e)
-        # Provide fallback data
-        context.migration_stats = {"total": 0, "completed": 0, "in_progress": 0, "failed": 0, "draft": 0}
-        context.connection_status = "Unknown"
-        context.available_data = {"accounts": 0, "cost_centers": 0, "customers": 0, "suppliers": 0}
-        context.recent_migrations = []
-        context.system_health = {"status": "unknown", "issues": [str(e)]}
+        context.system_health = {"status": "error", "issues": [str(e)]}
+
+    return context
 
 
 def get_dashboard_data():
@@ -81,6 +84,14 @@ def get_dashboard_data():
     except Exception as e:
         frappe.log_error(f"Error getting dashboard data: {str(e)}")
         data["error"] = str(e)
+        # Provide fallback data to prevent template errors
+        data.setdefault(
+            "migration_stats", {"total": 0, "completed": 0, "in_progress": 0, "failed": 0, "draft": 0}
+        )
+        data.setdefault("connection_status", "Unknown")
+        data.setdefault("available_data", {"accounts": 0, "cost_centers": 0, "customers": 0, "suppliers": 0})
+        data.setdefault("recent_migrations", [])
+        data.setdefault("system_health", {"status": "unknown", "issues": [str(e)]})
 
     return data
 
@@ -163,11 +174,13 @@ def get_system_health():
             health["status"] = "warning"
 
         # Check for stuck migrations
+        from frappe.utils import add_to_date, now
+        two_hours_ago = add_to_date(now(), hours=-2)
         stuck_migrations = frappe.db.count(
             "E-Boekhouden Migration",
             {
                 "migration_status": "In Progress",
-                "start_time": ["<", frappe.utils.add_hours(frappe.utils.now(), -2)],
+                "start_time": ["<", two_hours_ago],
             },
         )
 
@@ -176,11 +189,12 @@ def get_system_health():
             health["status"] = "warning"
 
         # Check recent failures
+        one_day_ago = add_to_date(now(), days=-1)
         recent_failures = frappe.db.count(
             "E-Boekhouden Migration",
             {
                 "migration_status": "Failed",
-                "start_time": [">=", frappe.utils.add_days(frappe.utils.now(), -1)],
+                "start_time": [">=", one_day_ago],
             },
         )
 
@@ -196,6 +210,9 @@ def get_system_health():
         health["issues"].append(f"Health check failed: {str(e)}")
 
     return health
+
+
+from verenigingen.utils.security.api_security_framework import OperationType, public_api
 
 
 @frappe.whitelist(allow_guest=True)

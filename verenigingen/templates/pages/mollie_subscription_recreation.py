@@ -438,10 +438,10 @@ def parse_and_validate_csv(
                     warnings.append("Current next invoice date is NOT in the past")
                     status = "warning"
 
-            # Check subscription status
+            # Check subscription status - block non-active/suspended subscriptions
             if current_status not in ["active", "suspended"]:
-                warnings.append(f"Subscription status is {current_status}")
-                status = "warning"
+                errors.append(f"Cannot recreate {current_status} subscription")
+                status = "error"
 
             validation_results.append(
                 {
@@ -516,7 +516,9 @@ def recreate_subscriptions(subscriptions_data: str, description_suffix: str = ""
             start_date = sub_data["planned_next_invoice_date"]
             interval = sub_data.get("current_interval")
             # Use planned description (which includes CSV override if provided)
-            description = sanitize_description(sub_data.get("planned_description") or sub_data.get("current_description"))
+            description = sanitize_description(
+                sub_data.get("planned_description") or sub_data.get("current_description")
+            )
             description_changed = sub_data.get("description_changed", False)
             mandate_id = sub_data.get("current_mandate_id")
             mandate_valid = sub_data.get("mandate_valid", False)
@@ -601,9 +603,7 @@ def recreate_subscriptions(subscriptions_data: str, description_suffix: str = ""
                 continue
 
             # Poll Mollie API to confirm cancellation before proceeding
-            cancellation_confirmed = poll_subscription_cancellation(
-                service, customer_id, old_subscription_id
-            )
+            cancellation_confirmed = poll_subscription_cancellation(service, customer_id, old_subscription_id)
 
             if not cancellation_confirmed:
                 results.append(

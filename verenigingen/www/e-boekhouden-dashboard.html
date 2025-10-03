@@ -2,420 +2,220 @@
 
 {% block title %}{{ title }}{% endblock %}
 
-{% block head_include %}
-<style>
-	.dashboard-container {
-		max-width: 1200px;
-		margin: 0 auto;
-		padding: 20px;
-		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-	}
-
-	.dashboard-header {
-		text-align: center;
-		margin-bottom: 40px;
-		padding: 20px;
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-		color: white;
-		border-radius: 12px;
-	}
-
-	.dashboard-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-		gap: 25px;
-		margin-bottom: 40px;
-	}
-
-	.dashboard-card {
-		background: white;
-		border-radius: 12px;
-		padding: 25px;
-		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-		border: 1px solid #e1e5e9;
-		transition: transform 0.2s ease, box-shadow 0.2s ease;
-	}
-
-	.dashboard-card:hover {
-		transform: translateY(-2px);
-		box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-	}
-
-	.card-header {
-		display: flex;
-		align-items: center;
-		margin-bottom: 20px;
-	}
-
-	.card-icon {
-		font-size: 2em;
-		margin-right: 15px;
-	}
-
-	.card-title {
-		font-size: 1.2em;
-		font-weight: 600;
-		color: #2c3e50;
-		margin: 0;
-	}
-
-	.card-metric {
-		font-size: 2.5em;
-		font-weight: bold;
-		margin: 10px 0;
-		color: #3498db;
-	}
-
-	.card-description {
-		color: #7f8c8d;
-		font-size: 0.9em;
-	}
-
-	.status-indicator {
-		display: inline-flex;
-		align-items: center;
-		padding: 6px 12px;
-		border-radius: 20px;
-		font-size: 0.85em;
-		font-weight: 500;
-		margin: 5px 0;
-	}
-
-	.status-connected {
-		background-color: #d4edda;
-		color: #155724;
-	}
-
-	.status-disconnected {
-		background-color: #f8d7da;
-		color: #721c24;
-	}
-
-	.status-good {
-		background-color: #d1ecf1;
-		color: #0c5460;
-	}
-
-	.status-warning {
-		background-color: #fff3cd;
-		color: #856404;
-	}
-
-	.status-error {
-		background-color: #f8d7da;
-		color: #721c24;
-	}
-
-	.progress-bar {
-		background-color: #e9ecef;
-		border-radius: 10px;
-		overflow: hidden;
-		height: 10px;
-		margin: 10px 0;
-	}
-
-	.progress-fill {
-		height: 100%;
-		background: linear-gradient(90deg, #56ab2f 0%, #a8e6cf 100%);
-		border-radius: 10px;
-		transition: width 0.3s ease;
-	}
-
-	.action-buttons {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 15px;
-		margin-top: 20px;
-	}
-
-	.btn-action {
-		display: inline-flex;
-		align-items: center;
-		padding: 12px 20px;
-		background-color: #3498db;
-		color: white;
-		text-decoration: none;
-		border-radius: 8px;
-		font-weight: 500;
-		transition: all 0.2s ease;
-		border: none;
-		cursor: pointer;
-	}
-
-	.btn-action:hover {
-		background-color: #2980b9;
-		transform: translateY(-1px);
-		color: white;
-		text-decoration: none;
-	}
-
-	.btn-success { background-color: #27ae60; }
-	.btn-success:hover { background-color: #229954; }
-	.btn-warning { background-color: #f39c12; }
-	.btn-warning:hover { background-color: #e67e22; }
-	.btn-danger { background-color: #e74c3c; }
-	.btn-danger:hover { background-color: #c0392b; }
-
-	.recent-migrations {
-		background: white;
-		border-radius: 12px;
-		padding: 25px;
-		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-		border: 1px solid #e1e5e9;
-	}
-
-	.migration-table {
-		width: 100%;
-		border-collapse: collapse;
-		margin-top: 15px;
-	}
-
-	.migration-table th,
-	.migration-table td {
-		padding: 15px 10px;
-		text-align: left;
-		border-bottom: 1px solid #eee;
-	}
-
-	.migration-table th {
-		background-color: #f8f9fa;
-		font-weight: 600;
-		color: #495057;
-	}
-
-	.migration-table tr:hover {
-		background-color: #f8f9fa;
-	}
-
-	.migration-link {
-		color: #3498db;
-		text-decoration: none;
-		font-weight: 500;
-	}
-
-	.migration-link:hover {
-		color: #2980b9;
-		text-decoration: underline;
-	}
-
-	.status-completed { color: #27ae60; font-weight: bold; }
-	.status-failed { color: #e74c3c; font-weight: bold; }
-	.status-in-progress { color: #3498db; font-weight: bold; }
-	.status-draft { color: #95a5a6; font-weight: bold; }
-
-	.refresh-button {
-		position: fixed;
-		bottom: 30px;
-		right: 30px;
-		background-color: #3498db;
-		color: white;
-		border: none;
-		border-radius: 50%;
-		width: 60px;
-		height: 60px;
-		font-size: 1.5em;
-		cursor: pointer;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-		transition: all 0.2s ease;
-	}
-
-	.refresh-button:hover {
-		background-color: #2980b9;
-		transform: scale(1.1);
-	}
-
-	.health-issues {
-		list-style: none;
-		padding: 0;
-		margin: 10px 0;
-	}
-
-	.health-issues li {
-		padding: 5px 0;
-		border-bottom: 1px solid #eee;
-	}
-
-	.health-issues li:last-child {
-		border-bottom: none;
-	}
-
-	@media (max-width: 768px) {
-		.dashboard-grid {
-			grid-template-columns: 1fr;
-		}
-
-		.action-buttons {
-			flex-direction: column;
-		}
-
-		.migration-table {
-			font-size: 0.9em;
-		}
-
-		.refresh-button {
-			bottom: 20px;
-			right: 20px;
-		}
-	}
-</style>
+{% block style %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
 {% endblock %}
 
 {% block page_content %}
-<div class="dashboard-container">
-	{% if error %}
-		<div class="alert alert-danger">
-			<strong>Error:</strong> {{ error }}
-		</div>
-	{% else %}
-		<!-- Dashboard Header -->
-		<div class="dashboard-header">
-			<h1>🚀 E-Boekhouden Migration Dashboard</h1>
-			<p>Monitor your data migration progress and system status</p>
-		</div>
+<div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8">
+	<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
-		<!-- Connection Status & Quick Stats -->
-		<div class="dashboard-grid">
-			<!-- Connection Status -->
-			<div class="dashboard-card">
-				<div class="card-header">
-					<span class="card-icon">🔌</span>
-					<h3 class="card-title">API Connection</h3>
+		{% if error %}
+			<div class="bg-danger-100 border-2 border-danger-300 rounded-lg p-8 text-center mb-8">
+				<div class="mb-4">
+					<svg class="w-16 h-16 text-danger-600 mx-auto" fill="currentColor" viewBox="0 0 20 20">
+						<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path>
+					</svg>
 				</div>
-				{% if connection_status == "Connected" %}
-					<div class="status-indicator status-connected">✅ Connected</div>
-				{% else %}
-					<div class="status-indicator status-disconnected">❌ Disconnected</div>
-					{% if connection_error %}
-						<div class="card-description">{{ connection_error }}</div>
+				<h3 class="text-2xl font-semibold text-danger-800 mb-4">Error</h3>
+				<p class="text-lg text-danger-700">{{ error }}</p>
+			</div>
+		{% else %}
+			<!-- Dashboard Header -->
+			<div class="text-center mb-8 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl text-white p-8 shadow-lg">
+				<h1 class="text-4xl font-bold mb-4">🚀 E-Boekhouden Migration Dashboard</h1>
+				<p class="text-xl opacity-90">Monitor your data migration progress and system status</p>
+			</div>
+
+			<!-- Connection Status & Quick Stats -->
+			<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+				<!-- Connection Status -->
+				<div class="bg-white rounded-xl p-6 shadow-md hover:shadow-lg transition-shadow duration-300">
+					<div class="flex items-center mb-4">
+						<span class="text-3xl mr-3">🔌</span>
+						<h3 class="text-lg font-semibold text-gray-800">API Connection</h3>
+					</div>
+					{% if connection_status == "Connected" %}
+						<span class="inline-flex items-center px-4 py-2 bg-success-100 text-success-800 rounded-full text-sm font-semibold">
+							<svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+								<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+							</svg>
+							Connected
+						</span>
+					{% else %}
+						<span class="inline-flex items-center px-4 py-2 bg-danger-100 text-danger-800 rounded-full text-sm font-semibold">
+							<svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+								<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path>
+							</svg>
+							Disconnected
+						</span>
+						{% if connection_error %}
+							<p class="text-sm text-gray-600 mt-2">{{ connection_error }}</p>
+						{% endif %}
 					{% endif %}
-				{% endif %}
-			</div>
-
-			<!-- Migration Stats -->
-			<div class="dashboard-card">
-				<div class="card-header">
-					<span class="card-icon">📊</span>
-					<h3 class="card-title">Migration Statistics</h3>
 				</div>
-				<div class="card-metric">{{ migration_stats.total or 0 }}</div>
-				<div class="card-description">
-					Total: {{ migration_stats.total or 0 }} |
-					Completed: {{ migration_stats.completed or 0 }} |
-					Failed: {{ migration_stats.failed or 0 }}
+
+				<!-- Migration Stats -->
+				<div class="bg-white rounded-xl p-6 shadow-md hover:shadow-lg transition-shadow duration-300">
+					<div class="flex items-center mb-4">
+						<span class="text-3xl mr-3">📊</span>
+						<h3 class="text-lg font-semibold text-gray-800">Migration Statistics</h3>
+					</div>
+					<div class="text-4xl font-bold text-primary-600 mb-2">{{ migration_stats.total or 0 }}</div>
+					<div class="text-sm text-gray-600 space-y-1">
+						<p>Total: {{ migration_stats.total or 0 }}</p>
+						<p>Completed: {{ migration_stats.completed or 0 }}</p>
+						<p>Failed: {{ migration_stats.failed or 0 }}</p>
+					</div>
+				</div>
+
+				<!-- Available Data -->
+				<div class="bg-white rounded-xl p-6 shadow-md hover:shadow-lg transition-shadow duration-300">
+					<div class="flex items-center mb-4">
+						<span class="text-3xl mr-3">💾</span>
+						<h3 class="text-lg font-semibold text-gray-800">Available Data</h3>
+					</div>
+					<div class="text-4xl font-bold text-primary-600 mb-2">
+						{{ (available_data.accounts or 0) + (available_data.cost_centers or 0) + (available_data.customers or 0) + (available_data.suppliers or 0) }}
+					</div>
+					<div class="text-sm text-gray-600 space-y-1">
+						<p>Accounts: {{ available_data.accounts or 0 }}</p>
+						<p>Customers: {{ available_data.customers or 0 }}</p>
+						<p>Suppliers: {{ available_data.suppliers or 0 }}</p>
+					</div>
+				</div>
+
+				<!-- System Health -->
+				<div class="bg-white rounded-xl p-6 shadow-md hover:shadow-lg transition-shadow duration-300">
+					<div class="flex items-center mb-4">
+						<span class="text-3xl mr-3">🏥</span>
+						<h3 class="text-lg font-semibold text-gray-800">System Health</h3>
+					</div>
+					{% if system_health.status == "good" %}
+						<span class="inline-flex items-center px-4 py-2 bg-success-100 text-success-800 rounded-full text-sm font-semibold">
+							<svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+								<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+							</svg>
+							All Good
+						</span>
+					{% elif system_health.status == "warning" %}
+						<span class="inline-flex items-center px-4 py-2 bg-warning-100 text-warning-800 rounded-full text-sm font-semibold">
+							<svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+								<path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+							</svg>
+							Warning
+						</span>
+					{% else %}
+						<span class="inline-flex items-center px-4 py-2 bg-danger-100 text-danger-800 rounded-full text-sm font-semibold">
+							<svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+								<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path>
+							</svg>
+							Issues
+						</span>
+					{% endif %}
+
+					{% if system_health.issues %}
+						<ul class="mt-3 space-y-1 text-sm text-gray-600">
+							{% for issue in system_health.issues %}
+								<li class="border-b border-gray-200 pb-1">{{ issue }}</li>
+							{% endfor %}
+						</ul>
+					{% endif %}
 				</div>
 			</div>
 
-			<!-- Available Data -->
-			<div class="dashboard-card">
-				<div class="card-header">
-					<span class="card-icon">💾</span>
-					<h3 class="card-title">Available Data</h3>
+			<!-- Action Buttons -->
+			<div class="bg-white rounded-xl p-6 shadow-md mb-8">
+				<div class="flex items-center mb-4">
+					<span class="text-3xl mr-3">⚡</span>
+					<h3 class="text-lg font-semibold text-gray-800">Quick Actions</h3>
 				</div>
-				<div class="card-metric">
-					{{ (available_data.accounts or 0) + (available_data.cost_centers or 0) + (available_data.customers or 0) + (available_data.suppliers or 0) }}
+				<div class="flex flex-wrap gap-3">
+					<a href="/app/e-boekhouden-migration/new-e-boekhouden-migration-1" class="btn-primary inline-flex items-center">
+						🚀 New Migration
+					</a>
+					<a href="/app/e-boekhouden-migration" class="btn-secondary inline-flex items-center">
+						📋 View All Migrations
+					</a>
+					<a href="/app/e-boekhouden-settings" class="btn-secondary inline-flex items-center">
+						⚙️ Settings
+					</a>
+					<button onclick="testConnection()" class="btn-secondary inline-flex items-center">
+						🔍 Test Connection
+					</button>
 				</div>
-				<div class="card-description">
-					Accounts: {{ available_data.accounts or 0 }} |
-					Customers: {{ available_data.customers or 0 }} |
-					Suppliers: {{ available_data.suppliers or 0 }}
+			</div>
+
+			<!-- Recent Migrations -->
+			{% if recent_migrations %}
+			<div class="bg-white rounded-xl p-6 shadow-md">
+				<div class="flex items-center mb-4">
+					<span class="text-3xl mr-3">📝</span>
+					<h3 class="text-lg font-semibold text-gray-800">Recent Migrations</h3>
+				</div>
+
+				<div class="overflow-x-auto">
+					<table class="min-w-full divide-y divide-gray-200">
+						<thead class="bg-gray-50">
+							<tr>
+								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Migration Name</th>
+								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
+								<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Started</th>
+							</tr>
+						</thead>
+						<tbody class="bg-white divide-y divide-gray-200">
+							{% for migration in recent_migrations %}
+							<tr class="hover:bg-gray-50">
+								<td class="px-6 py-4 whitespace-nowrap">
+									<a href="/app/e-boekhouden-migration/{{ migration.name }}" class="text-primary-600 hover:text-primary-700 font-medium">
+										{{ migration.migration_name }}
+									</a>
+								</td>
+								<td class="px-6 py-4 whitespace-nowrap">
+									{% if migration.migration_status == "Completed" %}
+										<span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-success-100 text-success-800">
+											{{ migration.migration_status }}
+										</span>
+									{% elif migration.migration_status == "Failed" %}
+										<span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-danger-100 text-danger-800">
+											{{ migration.migration_status }}
+										</span>
+									{% elif migration.migration_status == "In Progress" %}
+										<span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-primary-100 text-primary-800">
+											{{ migration.migration_status }}
+										</span>
+									{% else %}
+										<span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
+											{{ migration.migration_status }}
+										</span>
+									{% endif %}
+								</td>
+								<td class="px-6 py-4 whitespace-nowrap">
+									<div class="w-full bg-gray-200 rounded-full h-2.5">
+										<div class="bg-primary-600 h-2.5 rounded-full" style="width: {{ migration.progress_percentage or 0 }}%"></div>
+									</div>
+									<span class="text-sm text-gray-600">{{ migration.progress_percentage or 0 }}%</span>
+								</td>
+								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+									{{ frappe.utils.format_datetime(migration.start_time) if migration.start_time else "-" }}
+								</td>
+							</tr>
+							{% endfor %}
+						</tbody>
+					</table>
 				</div>
 			</div>
-
-			<!-- System Health -->
-			<div class="dashboard-card">
-				<div class="card-header">
-					<span class="card-icon">🏥</span>
-					<h3 class="card-title">System Health</h3>
-				</div>
-				{% if system_health.status == "good" %}
-					<div class="status-indicator status-good">✅ All Good</div>
-				{% elif system_health.status == "warning" %}
-					<div class="status-indicator status-warning">⚠️ Warning</div>
-				{% else %}
-					<div class="status-indicator status-error">❌ Issues</div>
-				{% endif %}
-
-				{% if system_health.issues %}
-					<ul class="health-issues">
-						{% for issue in system_health.issues %}
-							<li>{{ issue }}</li>
-						{% endfor %}
-					</ul>
-				{% endif %}
-			</div>
-		</div>
-
-		<!-- Action Buttons -->
-		<div class="dashboard-card">
-			<div class="card-header">
-				<span class="card-icon">⚡</span>
-				<h3 class="card-title">Quick Actions</h3>
-			</div>
-			<div class="action-buttons">
-				<a href="/app/e-boekhouden-migration/new-e-boekhouden-migration-1" class="btn-action btn-success">
-					🚀 New Migration
-				</a>
-				<a href="/app/e-boekhouden-migration" class="btn-action">
-					📋 View All Migrations
-				</a>
-				<a href="/app/e-boekhouden-settings" class="btn-action btn-warning">
-					⚙️ Settings
-				</a>
-				<button onclick="testConnection()" class="btn-action">
-					🔍 Test Connection
-				</button>
-			</div>
-		</div>
-
-		<!-- Recent Migrations -->
-		{% if recent_migrations %}
-		<div class="recent-migrations">
-			<div class="card-header">
-				<span class="card-icon">📝</span>
-				<h3 class="card-title">Recent Migrations</h3>
-			</div>
-
-			<table class="migration-table">
-				<thead>
-					<tr>
-						<th>Migration Name</th>
-						<th>Status</th>
-						<th>Progress</th>
-						<th>Started</th>
-					</tr>
-				</thead>
-				<tbody>
-					{% for migration in recent_migrations %}
-					<tr>
-						<td>
-							<a href="/app/e-boekhouden-migration/{{ migration.name }}" class="migration-link">
-								{{ migration.migration_name }}
-							</a>
-						</td>
-						<td>
-							<span class="status-{{ migration.migration_status.lower().replace(' ', '-') }}">
-								{{ migration.migration_status }}
-							</span>
-						</td>
-						<td>
-							<div class="progress-bar">
-								<div class="progress-fill" style="width: {{ migration.progress_percentage or 0 }}%"></div>
-							</div>
-							{{ migration.progress_percentage or 0 }}%
-						</td>
-						<td>{{ frappe.utils.format_datetime(migration.start_time) if migration.start_time else "-" }}</td>
-					</tr>
-					{% endfor %}
-				</tbody>
-			</table>
-		</div>
+			{% endif %}
 		{% endif %}
-	{% endif %}
+	</div>
 </div>
 
 <!-- Refresh Button -->
-<button class="refresh-button" onclick="refreshDashboard()" title="Refresh Dashboard">
-	🔄
+<button onclick="refreshDashboard()" class="fixed bottom-8 right-8 bg-primary-600 hover:bg-primary-700 text-white rounded-full w-14 h-14 flex items-center justify-center shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-110" title="Refresh Dashboard">
+	<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+		<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+	</svg>
 </button>
 
 <script>
@@ -451,7 +251,7 @@ setTimeout(function() {
 
 // Show loading state for buttons
 document.addEventListener('DOMContentLoaded', function() {
-	const buttons = document.querySelectorAll('.btn-action');
+	const buttons = document.querySelectorAll('.btn-primary, .btn-secondary');
 	buttons.forEach(button => {
 		button.addEventListener('click', function() {
 			if (this.tagName === 'BUTTON') {

@@ -1,0 +1,28 @@
+{
+  "app": "verenigingen",
+  "autoname": "hash",
+  "creation": "2025-10-02 12:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "tag"
+  ],
+  "fields": [
+    {
+      "fieldname": "tag",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Tag",
+      "reqd": 1
+    }
+  ],
+  "istable": 1,
+  "modified": "2025-10-02 12:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Verenigingen",
+  "name": "Volunteer Activity Tag",
+  "owner": "Administrator",
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}

@@ -109,7 +109,7 @@ function render_issue_members(issue_type, members) {
 
 	// Dynamic headers based on issue type
 	if (issue_type === 'sepa_selected_no_mandate') {
-		html += '<th>' + __('Member') + '</th><th>' + __('Payment Method') + '</th><th>' + __('Total Mandates') + '</th><th>' + __('Active Mandates') + '</th><th>' + __('Actions') + '</th>';
+		html += '<th>' + __('Member') + '</th><th>' + __('IBAN') + '</th><th>' + __('Account Holder') + '</th><th>' + __('Issue') + '</th><th>' + __('Actions') + '</th>';
 	} else if (issue_type === 'missing_child_table_entries') {
 		html += '<th>' + __('Member') + '</th><th>' + __('Mandate Count') + '</th><th>' + __('Mandate IDs') + '</th><th>' + __('Actions') + '</th>';
 	} else if (issue_type === 'orphaned_child_table_entries') {
@@ -125,12 +125,29 @@ function render_issue_members(issue_type, members) {
 	members.forEach(member => {
 		html += '<tr>';
 
+		// Track whether this member's issue can be auto-fixed
+		let can_fix = true;
+
 		if (issue_type === 'sepa_selected_no_mandate') {
+			// Determine issue message and action availability
+			let issue_msg = '';
+
+			if (member.banking_status === 'missing_iban') {
+				issue_msg = '<span class="label label-danger">' + __('Missing IBAN') + '</span>';
+				can_fix = false;
+			} else if (member.banking_status === 'missing_account_name') {
+				issue_msg = '<span class="label label-danger">' + __('Missing Account Holder Name') + '</span>';
+				can_fix = false;
+			} else if (member.banking_status === 'has_banking_data') {
+				issue_msg = '<span class="label label-warning">' + __('No Active Mandate') + '</span>';
+				can_fix = true;  // Can create mandate automatically
+			}
+
 			html += `
 				<td><a href="/app/member/${member.member_id}">${member.full_name}</a></td>
-				<td><span class="label label-info">${member.payment_method}</span></td>
-				<td>${member.total_mandates}</td>
-				<td><span class="label label-danger">${member.active_mandates}</span></td>
+				<td><small>${member.iban || '<em class="text-muted">' + __('Not set') + '</em>'}</small></td>
+				<td><small>${member.bank_account_name || '<em class="text-muted">' + __('Not set') + '</em>'}</small></td>
+				<td>${issue_msg}</td>
 			`;
 		} else if (issue_type === 'missing_child_table_entries') {
 			html += `
@@ -159,11 +176,18 @@ function render_issue_members(issue_type, members) {
 			`;
 		}
 
-		html += `
-			<td>
-				<button class="btn btn-xs btn-success" onclick="fix_single_member('${member.member_id}')">${__('Fix')}</button>
-			</td>
-		</tr>`;
+		// Action button - conditional based on issue type and fix availability
+		html += '<td>';
+		if (issue_type === 'sepa_selected_no_mandate') {
+			if (can_fix) {
+				html += `<button class="btn btn-xs btn-primary" onclick="fix_single_member('${member.member_id}')">${__('Create Mandate')}</button>`;
+			} else {
+				html += `<a href="/app/member/${member.member_id}" class="btn btn-xs btn-default">${__('Edit Member')}</a>`;
+			}
+		} else {
+			html += `<button class="btn btn-xs btn-success" onclick="fix_single_member('${member.member_id}')">${__('Fix')}</button>`;
+		}
+		html += '</td></tr>';
 	});
 
 	html += '</tbody></table>';

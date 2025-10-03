@@ -487,13 +487,7 @@ class MembershipDuesSchedule(Document):
                     max_multiplier = ConfigManager.get("maximum_fee_multiplier", 10.0)
 
                     if multiplier > max_multiplier:
-                        frappe.msgprint(
-                            f"Dues rate is {multiplier:.1f}x the suggested amount. "
-                            f"This may require additional verification.",
-                            title="High Multiplier Warning",
-                        )
-
-                        # Log for audit purposes
+                        # Log for audit purposes but don't show popup during bulk operations
                         frappe.logger().info(
                             f"High dues multiplier detected: {multiplier:.2f}x for member {self.member}, "
                             f"dues: €{self.dues_rate}, suggested: €{suggested_amount}, user: {frappe.session.user}"
@@ -648,14 +642,6 @@ class MembershipDuesSchedule(Document):
             except frappe.DoesNotExistError:
                 return False, f"Member {self.member} does not exist"
 
-        # Check if it's time to generate invoice
-        # Use configured days_before or system default
-        days_before = self.invoice_days_before if self.invoice_days_before is not None else 30
-        generate_on_date = add_days(self.next_invoice_date, -days_before)
-
-        if DateRangeValidator.is_date_before(today(), generate_on_date):
-            return False, f"Too early - will generate on {generate_on_date}"
-
         # ✅ CONCURRENCY PROTECTION: Check for concurrent invoice generation
         # This prevents race conditions where multiple processes try to generate
         # invoices for the same schedule simultaneously
@@ -674,10 +660,20 @@ class MembershipDuesSchedule(Document):
             if redis.get(schedule_lock_key):
                 return False, "Another process is already generating an invoice for this schedule"
 
-        # ✅ ENHANCED: Comprehensive duplicate prevention
+        # ✅ PRIMARY CHECK: Coverage-based duplicate prevention (ground truth)
+        # This checks actual invoice coverage periods - should be the primary logic
         duplicate_check_result = self.check_for_duplicate_invoices()
         if not duplicate_check_result["can_generate"]:
             return False, duplicate_check_result["reason"]
+
+        # ✅ FALLBACK CHECK: Scheduling-based "too early" check
+        # Only applies when coverage data doesn't exist or indicate duplicate
+        # Use configured days_before or system default
+        days_before = self.invoice_days_before if self.invoice_days_before is not None else 30
+        generate_on_date = add_days(self.next_invoice_date, -days_before)
+
+        if DateRangeValidator.is_date_before(today(), generate_on_date):
+            return False, f"Too early - will generate on {generate_on_date}"
 
         # Check if invoice already exists for this period
         if self.last_invoice_date == self.next_invoice_date:
@@ -1674,7 +1670,7 @@ class MembershipDuesSchedule(Document):
             doc=self,
             justification=f"Update invoice retry tracking for {self.name}",
             required_permissions=["Membership Dues Schedule:write"],
-            bypass_validation=True,  # Avoid validation loops during error recovery
+            bypass_validations=["link_validation"],  # Avoid validation loops during error recovery
         )
 
         if not retry_update_result.get("success"):
@@ -1708,7 +1704,7 @@ class MembershipDuesSchedule(Document):
                     doc=self,
                     justification=f"Schedule {self.name} flagged for manual review after {retry_count} failures",
                     required_permissions=["Membership Dues Schedule:write"],
-                    bypass_validation=True,
+                    bypass_validations=["link_validation"],
                 )
                 return {"action_taken": "skipped", "retry_count": retry_count}
         else:
@@ -2179,6 +2175,7 @@ class MembershipDuesSchedule(Document):
             member_doc = frappe.get_doc("Member", self.member)
             member_doc.next_invoice_date = self.next_invoice_date
             member_doc.flags.ignore_version = True  # Avoid version tracking for automated updates
+            member_doc.flags.ignore_links = True  # Skip link validation for automated system updates
             member_doc.save()
 
     def get_member_payment_method(self):

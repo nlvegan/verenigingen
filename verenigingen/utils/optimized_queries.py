@@ -458,6 +458,11 @@ class OptimizedMemberQueries:
 
             # ✅ FIX: Use true bulk insert for performance (not loop)
             if history_records:
+                # Generate unique names for child table records
+                for idx, record in enumerate(history_records, start=1):
+                    record["name"] = frappe.generate_hash(length=10)
+                    record["idx"] = idx
+
                 fields = list(history_records[0].keys())
                 values = [list(record.values()) for record in history_records]
 

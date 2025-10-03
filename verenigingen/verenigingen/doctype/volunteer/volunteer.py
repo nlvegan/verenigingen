@@ -987,7 +987,7 @@ class Volunteer(Document):
 
         for role in financial_roles:
             board_members = frappe.get_all(
-                "Verenigingen Chapter Board Member",
+                "Chapter Board Member",
                 filters={
                     "parent": chapter_name,
                     "chapter_role": role,
