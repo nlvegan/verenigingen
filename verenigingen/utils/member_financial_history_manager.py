@@ -269,6 +269,10 @@ class MemberFinancialHistoryManager:
         """
         for retry in range(max_retries):
             try:
+                # Suppress version tracking for history table cleanup
+                # These are maintenance operations, not meaningful changes to track
+                self.member.flags.ignore_version = True
+
                 # Use Frappe's native update_child_table() - no timestamp conflicts!
                 self.member.update_child_table(self.history_field)
                 frappe.db.commit()

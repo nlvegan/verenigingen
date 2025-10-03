@@ -1014,19 +1014,70 @@ class PaymentMixin:
         except Exception:
             return True
 
+    def _cleanup_broken_history_entries(self):
+        """
+        Remove invalid/broken entries from ALL member history child tables.
+
+        Uses centralized HistoryIntegrityManager for safe, permission-validated cleanup.
+        Cleans payment_history, fee_change_history, and volunteer_expenses (if applicable).
+
+        Returns:
+            dict: Cleanup statistics including counts of removed entries by reason
+        """
+        from verenigingen.utils.member_history_integrity import HistoryIntegrityManager
+
+        manager = HistoryIntegrityManager(self)
+
+        # Clean all history types
+        payment_stats = manager.cleanup_payment_history()
+        fee_stats = manager.cleanup_fee_history()
+
+        # Also clean volunteer expenses if employee exists
+        expense_stats = {"removed": 0, "errors": 0, "details": [], "error_details": []}
+        if hasattr(self, "employee") and self.employee:
+            expense_stats = manager.cleanup_volunteer_expense_history()
+
+        total_removed = payment_stats["removed"] + fee_stats["removed"] + expense_stats["removed"]
+
+        # Save changes if any entries were removed
+        if total_removed > 0:
+            from verenigingen.utils.member_financial_history_manager import MemberFinancialHistoryManager
+
+            history_manager = MemberFinancialHistoryManager(self, "payment_history")
+            history_manager._save_with_retry(max_retries=3)
+
+        # Convert to legacy format for backward compatibility, include detailed stats
+        return {
+            "removed": total_removed,
+            "reasons": {"total": total_removed},
+            "errors": payment_stats["errors"] + fee_stats["errors"] + expense_stats["errors"],
+            "payment": payment_stats,
+            "fee": fee_stats,
+            "expense": expense_stats,
+        }
+
     @frappe.whitelist()
     @high_security_api(operation_type=OperationType.FINANCIAL)
     def refresh_financial_history(self):
         """
-        Atomic financial history refresh - adds missing entries without clearing existing data.
-        This is the method called by the "Refresh Financial History" button and scheduled tasks.
+        Atomic financial history refresh with integrity checking.
+
+        This method:
+        1. Cleans broken/invalid entries from payment history
+        2. Adds missing entries without clearing valid existing data
+        3. Refreshes dues schedule history
+
+        Called by the "Refresh Financial History" button and scheduled tasks.
         """
         try:
             # Set flags to reduce activity logging for bulk financial updates
             self.flags.ignore_version = True
             self.flags.ignore_links = True
 
-            # Use atomic approach: only add missing invoices
+            # STEP 1: Clean broken data BEFORE adding new entries
+            cleanup_stats = self._cleanup_broken_history_entries()
+
+            # STEP 2: Use atomic approach to add missing invoices
             added_count = self._atomic_payment_history_refresh()
 
             # 2. Refresh dues schedule history if the method exists
@@ -1042,10 +1093,12 @@ class PaymentMixin:
 
             return {
                 "success": True,
-                "message": f"Financial history refreshed for member {self.name} - {added_count} new entries added",
+                "message": f"Financial history refreshed for member {self.name} - {added_count} new entries added, {cleanup_stats['removed']} broken entries cleaned",
                 "payment_history_count": len(self.payment_history) if hasattr(self, "payment_history") else 0,
                 "added_entries": added_count,
-                "method": "atomic_updates_only",
+                "removed_entries": cleanup_stats["removed"],
+                "cleanup_details": cleanup_stats,
+                "method": "atomic_updates_with_cleanup",
             }
 
         except Exception as e:

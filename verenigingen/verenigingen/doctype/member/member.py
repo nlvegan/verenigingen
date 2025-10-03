@@ -823,6 +823,9 @@ class Member(
             result = update_member_duration_fields(self)
 
             if result["success"]:
+                # Suppress version tracking for automatic duration updates
+                # These are calculated fields updated by scheduler, not user actions
+                self.flags.ignore_version = True
                 # Save the record - proper validation maintained
                 self.save()
 
@@ -1025,34 +1028,44 @@ class Member(
         """Record fee change in history using the financial history manager"""
         from verenigingen.utils.member_financial_history_manager import get_fee_change_history_manager
 
-        # Use amendment request name for true idempotency, fallback to date-based ID for other changes
+        # Use amendment request name for true idempotency, fallback to schedule+action for other changes
         amendment_name = change_data.get("amendment_request_name")
         if amendment_name:
             entry_id = f"amendment_{amendment_name}"
+            id_field_name = "amendment_request"
         else:
-            # For non-amendment changes (manual, system, etc.)
-            entry_id = f"{change_data['change_date']}_{change_data.get('dues_schedule_action', 'manual')}"
+            # For non-amendment changes: use schedule name + action type for deduplication
+            # This prevents duplicate entries when same schedule action is processed multiple times
+            schedule_name = change_data.get("dues_schedule_name", "unknown")
+            action = change_data.get("dues_schedule_action", "manual")
+            entry_id = f"{schedule_name}_{action}"
+            id_field_name = "dues_schedule"
 
         def build_fee_change_entry():
             entry_data = {
                 "change_date": change_data["change_date"],
                 "old_dues_rate": change_data["old_amount"],
                 "new_dues_rate": change_data["new_amount"],
-                "change_type": "Fee Adjustment",
+                "change_type": change_data.get("change_type", "Fee Adjustment"),
                 "reason": change_data["reason"],
                 "changed_by": change_data["changed_by"],
                 "dues_schedule": change_data.get("dues_schedule_name", ""),
+                "dues_schedule_doctype": "Membership Dues Schedule",
             }
+            # Add billing frequency if provided
+            if "billing_frequency" in change_data:
+                entry_data["billing_frequency"] = change_data["billing_frequency"]
             # Add amendment request reference if available
             if amendment_name:
                 entry_data["amendment_request"] = amendment_name
+                entry_data["amendment_request_doctype"] = "Contribution Amendment Request"
             return entry_data
 
         fee_history_manager = get_fee_change_history_manager(self)
         return fee_history_manager.add_or_update_entry(
             entry_id=entry_id,
             entry_builder=build_fee_change_entry,
-            id_field_name="amendment_request" if amendment_name else "dues_schedule",
+            id_field_name=id_field_name,
         )
 
     def get_active_membership(self):
@@ -1873,9 +1886,17 @@ class Member(
                         setattr(existing_row, field, expected_value)
                     updated_count += 1
             else:
-                # Add new row using the mixin method
-                self.add_expense_to_history(claim.name)
-                added_count += 1
+                # Add new row directly (not via batch processor since we're already batching)
+                try:
+                    self.append("volunteer_expenses", expected_row)
+                    added_count += 1
+                except Exception as e:
+                    frappe.log_error(
+                        f"Failed to append volunteer expense {claim_name} for {self.name}: {str(e)}",
+                        "Volunteer Expense Append Error",
+                    )
+                    # Continue processing other entries - don't break entire update
+                    continue
 
         return removed_count + updated_count + added_count
 
@@ -1884,32 +1905,53 @@ class Member(
     def incremental_update_history_tables(self):
         """
         Incremental update of both donation and volunteer expense history tables.
-        Only updates rows where data has actually changed.
+
+        Now includes integrity checking and cleanup via HistoryIntegrityManager.
         """
         try:
             changes_made = False
             donation_changes = 0
             expense_changes = 0
+            cleanup_removed = 0
 
-            # Update donation history if donor is linked
+            # STEP 1: Clean broken volunteer expense entries (if employee linked)
+            if hasattr(self, "employee") and self.employee:
+                from verenigingen.utils.member_history_integrity import HistoryIntegrityManager
+
+                manager = HistoryIntegrityManager(self)
+                cleanup_stats = manager.cleanup_volunteer_expense_history()
+                cleanup_removed = cleanup_stats["removed"]
+
+                if cleanup_removed > 0:
+                    changes_made = True
+
+            # STEP 2: Update donation history if donor is linked
             donation_changes = self._update_donation_history()
             if donation_changes > 0:
                 changes_made = True
 
-            # Update volunteer expense history if employee is linked
+            # STEP 3: Update volunteer expense history if employee is linked
             expense_changes = self._update_volunteer_expense_history()
             if expense_changes > 0:
                 changes_made = True
 
             # Only save if something actually changed
             if changes_made:
+                # Suppress version tracking for automated history updates
+                self.flags.ignore_version = True
+                # Skip link validation for automated system updates
+                self.flags.ignore_links = True
                 self.save()
 
             return {
                 "overall_success": True,
-                "volunteer_expenses": {"success": True, "count": expense_changes},
+                "volunteer_expenses": {
+                    "success": True,
+                    "count": expense_changes,
+                    "cleaned": cleanup_removed,
+                },
                 "donations": {"success": True, "count": donation_changes},
-                "message": f"Incremental update: {donation_changes} donation changes, {expense_changes} expense changes",
+                "message": f"Incremental update: {donation_changes} donation changes, {expense_changes} expense changes, {cleanup_removed} broken entries cleaned",
             }
 
         except Exception as e:
@@ -3730,10 +3772,21 @@ def get_current_dues_schedule_details(member):
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
 def refresh_fee_change_history(member_name):
-    """Refresh fee change history from dues schedules using smart detection (atomic approach)"""
+    """Refresh fee change history from dues schedules with integrity checking (atomic approach)"""
     try:
         # Get the member document - use get_doc with for_update to handle concurrency
         member_doc = frappe.get_doc("Member", member_name, for_update=True)
+
+        # STEP 1: Clean broken history entries (all types for consistency)
+        from verenigingen.utils.member_history_integrity import cleanup_member_history
+
+        cleanup_result = cleanup_member_history(member_doc)
+        # Extract fee-specific stats for backward compatibility
+        cleanup_stats = {
+            "removed": cleanup_result["fee_history"]["removed"],
+            "reasons": {"total": cleanup_result["fee_history"]["removed"]},
+            "errors": cleanup_result["fee_history"]["errors"],
+        }
 
         # Get all dues schedules for this member
         dues_schedules = frappe.get_all(
@@ -3816,11 +3869,13 @@ def refresh_fee_change_history(member_name):
 
         return {
             "success": True,
-            "message": f"Fee change history refreshed for {member_name} using atomic updates",
+            "message": f"Fee change history refreshed for {member_name} - {len(dues_schedules)} schedules processed, {cleanup_stats['removed']} broken entries cleaned",
             "history_count": len(dues_schedules),
             "reload_doc": True,  # Signal to reload the document
             "dues_schedules_found": len(dues_schedules),
-            "method": "atomic_smart_detection",
+            "removed_entries": cleanup_stats["removed"],
+            "cleanup_details": cleanup_stats,
+            "method": "atomic_smart_detection_with_cleanup",
         }
 
     except Exception as e:

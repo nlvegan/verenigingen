@@ -959,7 +959,7 @@ function add_administrative_buttons(frm) {
 			frm.add_custom_button(
 				__('Refresh Dues Schedule History'),
 				() => {
-					refresh_dues_schedule_history(frm);
+					refresh_fee_change_history(frm);
 				},
 				__('Membership & Dues')
 			);
@@ -1801,8 +1801,8 @@ function get_fee_source_label(source) {
 	return labels[source] || source;
 }
 
-function refresh_dues_schedule_history(frm) {
-	// Refresh both fee change history AND payment history with proper error handling
+function refresh_fee_change_history(frm) {
+	// Refresh fee change history from dues schedules with integrity checking
 	frappe.call({
 		method:
       'verenigingen.verenigingen.doctype.member.member.refresh_fee_change_history',
@@ -3251,7 +3251,7 @@ function add_consolidated_dues_schedule_buttons(frm) {
 				frm.add_custom_button(
 					__('Refresh Dues History'),
 					() => {
-						refresh_dues_schedule_history(frm);
+						refresh_fee_change_history(frm);
 					},
 					__('Membership & Dues')
 				);

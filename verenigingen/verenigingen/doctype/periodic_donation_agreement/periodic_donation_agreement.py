@@ -423,43 +423,12 @@ class PeriodicDonationAgreement(Document):
 
     def validate_anbi_eligibility(self):
         """
-        Validate ANBI eligibility based on comprehensive Dutch tax regulations.
+        Validate ANBI eligibility using unified validation service.
 
-        This method performs a complete validation of all requirements for ANBI
-        (Algemeen Nut Beogende Instelling) periodic donation tax benefits according
-        to Dutch tax law. ANBI status allows donors to deduct 100% of donations
-        without annual limits for qualifying periodic agreements.
-
-        Validates:
-        - System ANBI functionality is enabled in organization settings
-        - Organization has valid ANBI registration with Belastingdienst
-        - Donor has provided explicit ANBI consent for tax reporting
-        - Donor has appropriate tax identifier (BSN for individuals, RSIN for organizations)
-        - Agreement meets 5-year minimum duration requirement or is lifetime
-        - No duplicate active ANBI agreements exist for the same donor
-        - Agreement type supports formal ANBI documentation requirements
-
-        Raises:
-            frappe.ValidationError: When any ANBI requirement is not met, with specific
-                                  error message indicating which requirement failed
-
-        Business Rules (Dutch Tax Law):
-        - Individual donors require valid BSN (Burgerservicenummer) with 11-proof validation
-        - Organization donors require valid RSIN (Rechtspersonen Samenwerkingsverbanden Informatie Nummer)
-        - Agreements must be 5+ years or lifetime for ANBI periodic donation benefits
-        - Only one active ANBI agreement per donor allowed (prevents tax benefit abuse)
-        - Formal documentation required (Notarial or Private Written agreements)
-        - System must have valid ANBI registration to offer tax benefits
-
-        Note:
-        - This validation only runs when anbi_eligible=1 (claiming ANBI benefits)
-        - Shorter duration agreements can still be created as regular donation pledges
-        - Validation uses fail-closed patterns (defaults to rejection when config missing)
+        Uses ANBIValidationService for comprehensive validation of Dutch tax law requirements.
+        This replaces ~180 lines of duplicate validation logic with a clean service call.
         """
         # Always validate basic business rules regardless of ANBI flag
-        # This prevents data integrity issues
-
-        # First validate basic agreement requirements
         if not self.donor:
             frappe.throw(_("Donor is required for all agreements"))
 
@@ -470,243 +439,44 @@ class PeriodicDonationAgreement(Document):
         if not self.anbi_eligible:
             return
 
-        # 1. Check if ANBI functionality is enabled in system (fail-closed)
-        # Dutch tax law requires organizations to be explicitly registered as ANBI
-        # before they can offer tax benefits to donors
-        anbi_enabled = frappe.db.get_single_value("Verenigingen Settings", "enable_anbi_functionality")
-        if anbi_enabled is None:
-            # Fail-closed: if configuration is missing, assume ANBI is not available
-            # This prevents accidental tax benefit claims without proper setup
-            frappe.throw(
-                _(
-                    "ANBI functionality is not configured in system settings. Please contact administrator to configure ANBI settings."
-                )
-            )
-        if not anbi_enabled:
-            # Administrator has explicitly disabled ANBI (perhaps registration expired)
-            frappe.throw(
-                _("ANBI functionality is disabled in system settings. Please contact administrator.")
-            )
+        # Use unified ANBI validation service
+        from verenigingen.services.anbi_validation_service import ANBIValidationService
 
-        # 2. Check organization has valid ANBI registration (fail-closed)
-        # Only organizations with valid ANBI registration can offer tax benefits
-        # ANBI registration must be current and valid with Belastingdienst
-        org_anbi_status = frappe.db.get_single_value("Verenigingen Settings", "organization_has_anbi_status")
-        if org_anbi_status is None:
-            # Configuration missing - fail closed for tax compliance
-            frappe.throw(
-                _(
-                    "Organization ANBI status is not configured in system settings. Please contact administrator to configure ANBI registration status."
-                )
-            )
-        if org_anbi_status is False:
-            # Organization explicitly does not have ANBI status
-            # This could be due to expired registration, revoked status, or never registered
-            frappe.throw(
-                _("Organization does not have valid ANBI registration. ANBI tax benefits cannot be offered.")
-            )
-
-        # 3. Validate donor has provided ANBI consent
-        # ANBI agreements require explicit donor consent for tax reporting to Belastingdienst
-        if not self.donor:
-            frappe.throw(_("Donor is required for ANBI agreements"))
-
-        # Load donor record with proper error handling
-        try:
-            donor_doc = frappe.get_doc("Donor", self.donor)
-        except frappe.DoesNotExistError:
-            frappe.throw(
-                _(
-                    "Donor record '{0}' not found. Please ensure donor exists before creating agreement."
-                ).format(self.donor)
-            )
-
-        # Validate ANBI consent - required for tax reporting compliance
-        if not getattr(donor_doc, "anbi_consent", False):
-            # Without consent, we cannot report donations to Belastingdienst
-            # which means no automatic tax deduction for the donor
-            frappe.throw(
-                _(
-                    "Donor must provide ANBI consent before creating ANBI-eligible agreement. Please update donor record first."
-                )
-            )
-
-        # 4. Check if donor has required tax identifier
-        # Dutch tax law requires proper identification for ANBI reporting
-        donor_type = getattr(donor_doc, "donor_type", None)
-        if donor_type == "Individual":
-            # BSN (Burgerservicenummer) required for individual donors
-            # Must be 9 digits and pass eleven-proof validation
-            if not getattr(donor_doc, "bsn_citizen_service_number", None):
-                frappe.throw(
-                    _("Individual donors require valid BSN (Citizen Service Number) for ANBI agreements")
-                )
-        elif donor_type == "Organization":
-            # RSIN (Rechtspersonen Samenwerkingsverbanden Informatie Nummer) for organizations
-            # Used to identify legal entities in Dutch tax system
-            if not getattr(donor_doc, "rsin_organization_tax_number", None):
-                frappe.throw(
-                    _("Organization donors require valid RSIN (Organization Tax Number) for ANBI agreements")
-                )
-        else:
-            # Only these two types are supported in Dutch ANBI system
-            frappe.throw(_("Donor type must be 'Individual' or 'Organization' for ANBI agreements"))
-
-        # 5. Validate duration meets ANBI requirements
-        # Dutch tax law requires minimum 5-year commitment for ANBI periodic donation benefits
+        validator = ANBIValidationService()
         duration = self.get_agreement_duration()
-        if duration != -1 and duration < 5:  # Not lifetime and less than 5 years
-            # Shorter agreements are allowed but don't qualify for ANBI benefits
-            # They become regular donation pledges with standard tax deduction limits
-            frappe.throw(
-                _("ANBI periodic donation agreements require minimum 5-year commitment or lifetime agreement")
-            )
+        agreement_type = getattr(self, "agreement_type", None)
 
-        # 6. Validate minimum annual amount (if any restrictions exist)
-        # No specific minimum amount for ANBI agreements, but must be positive
-        if self.annual_amount and self.annual_amount <= 0:
-            frappe.throw(_("ANBI agreements must have positive annual amount"))
+        is_valid, errors = validator.validate_full_anbi_eligibility(
+            donor_name=self.donor,
+            duration_years=duration,
+            agreement_type=agreement_type,
+            current_agreement_name=self.name if not self.is_new() else None,
+        )
 
-        # 7. Validate agreement type supports ANBI
-        # ANBI agreements require formal documentation for tax compliance
-        if getattr(self, "agreement_type", None) and self.agreement_type not in [
-            "Notarial",
-            "Private Written",
-        ]:
-            # Notarial deeds provide strongest legal protection
-            # Private written agreements are acceptable for most amounts
-            frappe.throw(_("ANBI agreements require formal documentation (Notarial or Private Written)"))
-
-        # 8. Check for duplicate active ANBI agreements (business rule)
-        # Dutch tax law prevents abuse by limiting one active ANBI agreement per donor
-        if self.status in ["Active", "Draft"]:
-            existing_agreements = frappe.get_all(
-                "Periodic Donation Agreement",
-                filters={
-                    "donor": self.donor,
-                    "anbi_eligible": 1,
-                    "status": ["in", ["Active", "Draft"]],
-                    "name": ["!=", self.name],  # Exclude current record
-                },
-                fields=["name", "status"],
-            )
-
-            if existing_agreements:
-                active_agreements = [ag.name for ag in existing_agreements if ag.status == "Active"]
-                if active_agreements:
-                    # Prevent tax benefit abuse and ensure clear donor intent
-                    frappe.throw(
-                        _(
-                            "Donor already has active ANBI agreement: {0}. Only one active ANBI agreement per donor is allowed."
-                        ).format(", ".join(active_agreements))
-                    )
+        if not is_valid:
+            # Throw first error (most critical)
+            frappe.throw(_(errors[0]))
 
     @frappe.whitelist()
     def get_anbi_validation_status(self):
         """
         Get comprehensive ANBI validation status for UI feedback and diagnostics.
 
-        This method performs the same validation checks as validate_anbi_eligibility()
-        but returns detailed status information instead of throwing exceptions.
-        Useful for providing user feedback and diagnostic information in the UI.
-
-        Performs validation checks for:
-        - System ANBI configuration (enabled/disabled status)
-        - Organization ANBI registration status with Belastingdienst
-        - Donor consent and tax identifier requirements
-        - Agreement duration and business rule compliance
-
-        Returns:
-            dict: Comprehensive validation status containing:
-                - valid (bool): Whether all ANBI requirements are met
-                - errors (list): List of validation errors that prevent ANBI eligibility
-                - warnings (list): List of configuration warnings that should be addressed
-                - message (str): Summary message for display to users
-
-        Performance Notes:
-        - Uses bulk database queries to minimize round trips
-        - Caches system settings within single validation run
-        - Efficient field-specific donor lookups to avoid loading full documents
-
-        Usage:
-        - Called by UI to show validation status in real-time
-        - Used for diagnostic purposes without triggering validation errors
-        - Provides actionable feedback for resolving ANBI configuration issues
+        Uses ANBIValidationService for consistent validation logic.
+        Returns detailed status instead of throwing exceptions.
         """
         if not self.anbi_eligible:
             return {"valid": True, "message": "Agreement does not claim ANBI benefits", "warnings": []}
 
-        warnings = []
-        errors = []
+        from verenigingen.services.anbi_validation_service import ANBIValidationService
 
-        # Check each validation rule and collect issues
-        try:
-            # Bulk fetch system settings to avoid multiple queries
-            settings_values = frappe.db.get_singles_dict(
-                "Verenigingen Settings", ["enable_anbi_functionality", "organization_has_anbi_status"]
-            )
+        validator = ANBIValidationService()
+        duration = self.get_agreement_duration()
+        agreement_type = getattr(self, "agreement_type", None)
 
-            anbi_enabled = settings_values.get("enable_anbi_functionality")
-            org_anbi_status = settings_values.get("organization_has_anbi_status")
-
-            if anbi_enabled is None:
-                errors.append("ANBI functionality not configured in system")
-            elif not anbi_enabled:
-                errors.append("ANBI functionality disabled in system")
-
-            if org_anbi_status is None:
-                warnings.append("Organization ANBI status not configured")
-            elif org_anbi_status is False:
-                errors.append("Organization does not have ANBI registration")
-
-            # Donor validation - use get_value for specific fields only
-            if self.donor:
-                donor_fields = frappe.db.get_value(
-                    "Donor",
-                    self.donor,
-                    [
-                        "anbi_consent",
-                        "donor_type",
-                        "bsn_citizen_service_number",
-                        "rsin_organization_tax_number",
-                    ],
-                    as_dict=True,
-                )
-
-                if not donor_fields:
-                    errors.append("Donor record not found")
-                else:
-                    if not donor_fields.get("anbi_consent"):
-                        errors.append("Donor has not provided ANBI consent")
-
-                    donor_type = donor_fields.get("donor_type")
-                    if donor_type == "Individual" and not donor_fields.get("bsn_citizen_service_number"):
-                        errors.append("Individual donor missing BSN")
-                    elif donor_type == "Organization" and not donor_fields.get(
-                        "rsin_organization_tax_number"
-                    ):
-                        errors.append("Organization donor missing RSIN")
-
-            # Duration validation
-            duration = self.get_agreement_duration()
-            if duration != -1 and duration < 5:
-                errors.append(f"Duration ({duration} years) below ANBI minimum (5 years)")
-
-            # Amount validation
-            if not self.annual_amount or self.annual_amount <= 0:
-                errors.append("Invalid annual amount")
-
-        except Exception as e:
-            errors.append(f"Validation error: {str(e)}")
-
-        return {
-            "valid": len(errors) == 0,
-            "errors": errors,
-            "warnings": warnings,
-            "message": (
-                "ANBI validation passed" if len(errors) == 0 else f"{len(errors)} validation errors found"
-            ),
-        }
+        return validator.get_validation_status_dict(
+            donor_name=self.donor, duration_years=duration, agreement_type=agreement_type
+        )
 
     def update_anbi_eligibility(self):
         """

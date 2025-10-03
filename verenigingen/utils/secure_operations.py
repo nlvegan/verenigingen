@@ -101,6 +101,8 @@ def _execute_document_operation(
     if operation in ["create", "insert"]:
         doc.insert()
     elif operation in ["save", "update"]:
+        # Flags like ignore_version should already be set by caller if needed
+        # Just call save() and let Frappe respect the flags
         doc.save()
     elif operation == "update_child_table":
         # Specialized operation for child table updates that need to bypass

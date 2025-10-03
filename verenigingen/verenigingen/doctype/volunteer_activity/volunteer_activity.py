@@ -5,13 +5,19 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+from verenigingen.utils.validation_utilities import DateRangeValidator
+
 
 class VolunteerActivity(Document):
     def validate(self):
         """Validate activity data"""
-        # Validate dates
-        if self.end_date and self.start_date and self.end_date < self.start_date:
-            frappe.throw(_("End date cannot be before start date"))
+        # Validate dates using consistent validator
+        if self.end_date and self.start_date:
+            result = DateRangeValidator.validate_date_range(
+                self.start_date, self.end_date, start_label="Start Date", end_label="End Date"
+            )
+            if not result.get("valid"):
+                frappe.throw(_(result.get("message")))
 
         # Update volunteer record when activity is added or status changes
         self.update_volunteer_record()

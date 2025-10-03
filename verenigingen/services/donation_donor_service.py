@@ -9,10 +9,47 @@ from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
-from frappe.utils import validate_email_address
+from frappe.utils import flt, validate_email_address
 
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.validation_utilities import DocumentExistenceValidator
+
+
+def get_donor_by_email(email: str) -> Optional[Any]:
+    """
+    Get donor by email address.
+
+    This is the canonical way to lookup donors by email across the codebase.
+    Replaces ad-hoc frappe.get_all() and frappe.db.get_value() calls.
+
+    Performance Considerations:
+    - Caching removed due to stale data risks with ANBI consent and contact updates
+    - Single indexed query by email is fast enough without caching complexity
+    - Query uses indexed donor_email field with DESC ordering for latest record
+
+    Security:
+    - No permission bypass - uses standard Frappe permission system
+    - Returns full document (not bypassing row-level security)
+
+    Args:
+        email: Email address to search for (case-sensitive)
+
+    Returns:
+        Donor document if found, None otherwise
+
+    Example:
+        >>> donor = get_donor_by_email("john@example.com")
+        >>> if donor:
+        ...     print(f"Found donor: {donor.donor_name}")
+    """
+    if not email:
+        return None
+
+    donors = frappe.get_all("Donor", filters={"donor_email": email}, order_by="creation desc", limit=1)
+
+    if donors:
+        return frappe.get_doc("Donor", donors[0]["name"])
+    return None
 
 
 class DonationDonorService:
@@ -53,7 +90,7 @@ class DonationDonorService:
         """
         # Check if donor already exists for this user's email
         user_email = frappe.session.user
-        existing_donor = self._get_donor_by_email(user_email)
+        existing_donor = get_donor_by_email(user_email)
 
         if existing_donor:
             self.logger.info(f"Found existing donor {existing_donor.name} for email {user_email}")
@@ -112,7 +149,7 @@ class DonationDonorService:
             frappe.throw(_("Invalid email address: {0}").format(email))
 
         # Check if donor already exists
-        existing_donor = self._get_donor_by_email(email)
+        existing_donor = get_donor_by_email(email)
         if existing_donor:
             # Update existing donor information if needed
             return self._update_existing_donor(existing_donor, donor_name, phone)
@@ -278,14 +315,6 @@ class DonationDonorService:
         except Exception as e:
             self.logger.error(f"Failed to create customer for donor {donor_name}: {str(e)}")
             return None
-
-    def _get_donor_by_email(self, email: str) -> Optional[Any]:
-        """Get donor by email address"""
-        donors = frappe.get_all("Donor", filters={"donor_email": email}, order_by="creation desc")
-
-        if donors:
-            return frappe.get_doc("Donor", donors[0]["name"])
-        return None
 
     def _update_existing_donor(self, donor: Any, donor_name: str, phone: Optional[str] = None) -> str:
         """Update existing donor with new information if needed"""

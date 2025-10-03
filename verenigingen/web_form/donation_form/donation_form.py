@@ -109,14 +109,16 @@ def get_or_create_donor(data):
     if data.get("donor_phone"):
         validated_phone = APIValidator.validate_phone(data.get("donor_phone"), required=False)
 
-    # Check if donor exists by email
-    existing_donor = frappe.db.get_value("Donor", {"donor_email": validated_email}, "name")
+    # Check if donor exists by email using cached lookup
+    from verenigingen.services.donation_donor_service import get_donor_by_email
 
-    if existing_donor:
+    existing_donor_doc = get_donor_by_email(validated_email)
+
+    if existing_donor_doc:
         # Update phone if provided and validated
         if validated_phone:
-            frappe.db.set_value("Donor", existing_donor, "phone", validated_phone)
-        return existing_donor
+            frappe.db.set_value("Donor", existing_donor_doc.name, "phone", validated_phone)
+        return existing_donor_doc.name
 
     # Create new donor
     donor = frappe.new_doc("Donor")
@@ -257,7 +259,7 @@ def get_confirmation_email_content(donation, donor):
         <li>Reference: {donation.name}</li>
         <li>Date: {frappe.utils.formatdate(donation.date)}</li>
         <li>Amount: €{donation.amount:.2f}</li>
-        <li>Payment Method: {donation.payment_method}</li>
+        <li>Payment Method: {donation.mode_of_payment}</li>
     </ul>
 
     <p>As an ANBI-registered organization, your donation is tax-deductible.

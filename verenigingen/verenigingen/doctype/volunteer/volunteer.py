@@ -246,8 +246,8 @@ class Volunteer(Document):
             return self.get_aggregated_assignments_optimized()
         except Exception as e:
             frappe.log_error(f"Error in optimized assignments query: {str(e)}")
-            # Fallback to individual queries
-            return self.get_aggregated_assignments_fallback()
+            # Show user-visible error - no fallback to N+1 queries
+            return self.get_aggregated_assignments_fallback()  # Always throws
 
     def get_aggregated_assignments_optimized(self):
         """Optimized single query to get all assignments"""
@@ -348,22 +348,29 @@ class Volunteer(Document):
         return assignments
 
     def get_aggregated_assignments_fallback(self):
-        """Fallback method using individual queries"""
-        assignments = []
+        """
+        Fallback when optimized assignment query fails - shows user-visible error.
 
-        # 1. Get board assignments
-        board_assignments = self.get_board_assignments()
-        assignments.extend(board_assignments)
+        The optimized query should always work. If it fails, we need to alert the user
+        and log the error for investigation rather than silently hiding assignment data.
+        """
+        error_message = (
+            f"Critical: Optimized volunteer assignment query failed for {self.name}. "
+            "This indicates a system error that requires investigation."
+        )
 
-        # 2. Get team assignments
-        team_assignments = self.get_team_assignments()
-        assignments.extend(team_assignments)
+        frappe.log_error(error_message, "Volunteer Assignment Query Failure")
 
-        # 3. Get activity assignments
-        activity_assignments = self.get_activity_assignments()
-        assignments.extend(activity_assignments)
+        # Show user-visible error instead of silently hiding data
+        frappe.throw(
+            frappe._(
+                "Unable to load volunteer assignments due to a system error. "
+                "Please contact your administrator. The error has been logged for investigation."
+            ),
+            title=frappe._("System Error"),
+        )
 
-        return assignments
+        return []  # Unreachable, but keeps type checker happy
 
     def _transform_membership_to_assignment(self, membership, config):
         """Transform membership data to standardized assignment format"""

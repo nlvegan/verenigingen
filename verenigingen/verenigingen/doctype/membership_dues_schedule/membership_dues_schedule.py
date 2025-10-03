@@ -2478,7 +2478,7 @@ class MembershipDuesSchedule(Document):
     def after_insert(self):
         """Handle new schedule creation"""
         if not self.is_template and self.member:
-            self.add_billing_history_entry("New Schedule", None, self.dues_rate)
+            self._record_schedule_fee_change("New Schedule", 0, self.dues_rate)
             # Update member's dues_rate field
             self.update_member_dues_rate()
             # Update member's current_dues_schedule if this should be the current one
@@ -2499,16 +2499,16 @@ class MembershipDuesSchedule(Document):
 
         # Check for dues rate change
         if old_doc.dues_rate != self.dues_rate:
-            self.add_billing_history_entry("Fee Adjustment", old_doc.dues_rate, self.dues_rate)
+            self._record_schedule_fee_change("Fee Adjustment", old_doc.dues_rate, self.dues_rate)
             # Update member's dues_rate field
             self.update_member_dues_rate()
 
         # Check for status change
         if old_doc.status != self.status:
             if self.status == "Cancelled":
-                self.add_billing_history_entry("Schedule Cancelled", self.dues_rate, self.dues_rate)
+                self._record_schedule_fee_change("Schedule Cancelled", self.dues_rate, self.dues_rate)
             elif old_doc.status == "Paused" and self.status == "Active":
-                self.add_billing_history_entry("Schedule Resumed", self.dues_rate, self.dues_rate)
+                self._record_schedule_fee_change("Schedule Resumed", self.dues_rate, self.dues_rate)
 
             # Update member's current_dues_schedule when status changes
             from .membership_dues_schedule_hooks import update_member_current_dues_schedule
@@ -2517,7 +2517,7 @@ class MembershipDuesSchedule(Document):
 
         # Check for billing frequency change
         if old_doc.billing_frequency != self.billing_frequency:
-            self.add_billing_history_entry("Billing Frequency Change", self.dues_rate, self.dues_rate)
+            self._record_schedule_fee_change("Billing Frequency Change", self.dues_rate, self.dues_rate)
 
     def update_member_dues_rate(self):
         """Update the member's dues_rate field to match the schedule"""
@@ -2543,21 +2543,8 @@ class MembershipDuesSchedule(Document):
         except Exception as e:
             frappe.log_error(f"Error updating member dues rate: {str(e)}", "Member Dues Rate Update")
 
-    def update_member_fee_change_history(self):
-        """Update the member's fee change history from all dues schedules"""
-        try:
-            # Import the refresh function
-            from verenigingen.verenigingen.doctype.member.member import refresh_fee_change_history
-
-            # Call the refresh function to rebuild the fee change history
-            refresh_fee_change_history(self.member)
-        except Exception as e:
-            frappe.log_error(
-                f"Error updating member fee change history: {str(e)}", "Fee Change History Update"
-            )
-
-    def add_billing_history_entry(self, change_type, old_rate, new_rate):
-        """Add entry to member's billing history"""
+    def _record_schedule_fee_change(self, change_type, old_rate, new_rate):
+        """Record fee change using the centralized record_fee_change method with deduplication"""
         try:
             member_doc = frappe.get_doc("Member", self.member)
 
@@ -2565,7 +2552,7 @@ class MembershipDuesSchedule(Document):
             reason = (
                 self.custom_amount_reason
                 if self.uses_custom_amount
-                else f"{change_type} - {self.schedule_name}"
+                else f"{change_type} - {self.schedule_name or self.name}"
             )
 
             # Check if this change is from an amendment
@@ -2575,44 +2562,30 @@ class MembershipDuesSchedule(Document):
                     "Contribution Amendment Request", {"new_dues_schedule": self.name}, "name"
                 )
 
-            # Add history entry
-            member_doc.append(
-                "fee_change_history",
-                {
-                    "change_date": frappe.utils.now_datetime(),
-                    "dues_schedule": self.name,
-                    "billing_frequency": self.billing_frequency,
-                    "old_dues_rate": old_rate,
-                    "new_dues_rate": new_rate,
-                    "change_type": change_type,
-                    "reason": reason,
-                    "amendment_request": amendment_request,
-                    "changed_by": frappe.session.user,
-                },
-            )
+            # Build change data in the format expected by record_fee_change
+            change_data = {
+                "change_date": frappe.utils.now_datetime(),
+                "old_amount": old_rate or 0,
+                "new_amount": new_rate,
+                "reason": reason,
+                "changed_by": frappe.session.user or "Administrator",
+                "dues_schedule_name": self.name,
+                "dues_schedule_action": change_type.lower().replace(" ", "_"),
+                "billing_frequency": self.billing_frequency,
+                "change_type": change_type,
+            }
 
-            # Allow updates after submit for billing history
-            member_doc.flags.ignore_validate_update_after_submit = True
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            from verenigingen.utils.secure_operations import secure_document_operation
+            # Add amendment reference if available
+            if amendment_request:
+                change_data["amendment_request_name"] = amendment_request
 
-            billing_history_result = secure_document_operation(
-                operation="save",
-                doc=member_doc,
-                justification=f"Update member billing history from schedule {self.name}",
-                required_permissions=["Member:write"],
-            )
-
-            if not billing_history_result.success:
-                frappe.logger().error(
-                    f"Failed to update member billing history: {'; '.join(billing_history_result.errors)}"
-                )
-                # Don't fail the main operation for billing history update failure
+            # Use the centralized method with automatic deduplication
+            member_doc.record_fee_change(change_data)
 
         except Exception as e:
             # Shorten error message to avoid database field length limits
-            error_msg = f"Billing history error for {self.name}: {str(e)[:80]}"
-            frappe.log_error(error_msg, "Billing History Update")
+            error_msg = f"Fee change recording error for {self.name}: {str(e)[:80]}"
+            frappe.log_error(error_msg, "Fee Change Recording")
 
     # ✅ ERPNext-Inspired Validation Enhancements
 

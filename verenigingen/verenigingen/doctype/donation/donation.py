@@ -94,7 +94,10 @@ class Donation(Document):
         self.validate_donation_purpose()
 
     def create_donor_for_website_user(self):
-        donor_name = frappe.get_value("Donor", dict(email=frappe.session.user))
+        from verenigingen.services.donation_donor_service import get_donor_by_email
+
+        existing_donor = get_donor_by_email(frappe.session.user)
+        donor_name = existing_donor.name if existing_donor else None
 
         if not donor_name:
             user = frappe.get_doc("User", frappe.session.user)
@@ -154,11 +157,13 @@ class Donation(Document):
         if anbi_date and not anbi_number:
             frappe.throw(_("ANBI Agreement Number is required when ANBI Agreement Date is provided"))
 
-        # Auto-set belastingdienst_reportable for larger donations
-        settings = frappe.get_single("Verenigingen Settings")
-        min_amount = flt(getattr(settings, "anbi_minimum_reportable_amount", 500))
-        if self.amount and flt(self.amount) >= min_amount and anbi_number:
-            self.belastingdienst_reportable = 1
+        # Auto-set belastingdienst_reportable for larger donations using validation service
+        if self.amount and anbi_number:
+            from verenigingen.services.anbi_validation_service import ANBIValidationService
+
+            validator = ANBIValidationService()
+            if validator.should_mark_reportable(flt(self.amount)):
+                self.belastingdienst_reportable = 1
 
     def validate_periodic_donation_agreement(self):
         """Validate periodic donation agreement link"""
@@ -302,13 +307,25 @@ def create_donation_from_bank_transfer(donor, amount, date, bank_reference, dona
 
 
 def get_donor_by_email(email):
-    """Get donor by email address"""
-    donors = frappe.get_all("Donor", filters={"donor_email": email}, order_by="creation desc")
+    """
+    Get donor by email address.
 
-    try:
-        return frappe.get_doc("Donor", donors[0]["name"])
-    except Exception:
-        return None
+    .. deprecated:: 1.0
+        Use :func:`verenigingen.services.donation_donor_service.get_donor_by_email` instead.
+        This wrapper is kept for backward compatibility only.
+    """
+    import warnings
+
+    warnings.warn(
+        "donation.get_donor_by_email() is deprecated. "
+        "Use verenigingen.services.donation_donor_service.get_donor_by_email() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
+    from verenigingen.services.donation_donor_service import get_donor_by_email as _get_donor_func
+
+    return _get_donor_func(email)
 
 
 @frappe.whitelist()
