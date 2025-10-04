@@ -78,7 +78,7 @@ class Membership(Document):
 
                 # Update member record with dues schedule link
                 member = frappe.get_doc("Member", self.member)
-                member.dues_schedule = schedule_name
+                member.current_dues_schedule = schedule_name
 
                 # Handle timestamp mismatch by reloading and retrying once
                 try:
@@ -86,7 +86,7 @@ class Membership(Document):
                 except frappe.TimestampMismatchError:
                     # Reload member and retry save once
                     member.reload()
-                    member.dues_schedule = schedule_name
+                    member.current_dues_schedule = schedule_name
                     member.save()
 
                 # Log successful creation for monitoring
@@ -978,18 +978,6 @@ def process_membership_statuses():
                 membership.save()
 
                 frappe.logger().info(f"Marked membership {membership.name} as Expired")
-
-            # Check if payment is overdue and update status
-            elif (
-                membership.unpaid_amount
-                and flt(membership.unpaid_amount) > 0
-                and membership.status != "Inactive"
-            ):
-                membership.status = "Inactive"
-                membership.flags.ignore_validate_update_after_submit = True
-                membership.save()
-
-                frappe.logger().info(f"Marked membership {membership.name} as Inactive due to unpaid amount")
 
             # Check cancellations with end-of-period dates that have now been reached
             elif membership.cancellation_date and membership.cancellation_type == "End of Period":

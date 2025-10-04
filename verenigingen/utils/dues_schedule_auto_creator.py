@@ -210,7 +210,7 @@ def _process_dues_schedule_retry_queue():
 
                     # Update member record with dues schedule link
                     member = frappe.get_doc("Member", member_name)
-                    member.dues_schedule = schedule_name
+                    member.current_dues_schedule = schedule_name
                     member.save()
 
                     # Success - remove from retry queue

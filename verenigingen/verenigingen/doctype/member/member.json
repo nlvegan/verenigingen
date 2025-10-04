@@ -35,7 +35,6 @@
   "current_membership_type",
   "current_membership_plan",
   "current_dues_schedule",
-  "dues_schedule",
   "dues_rate",
   "column_break_incg",
   "next_invoice_date",
@@ -649,14 +648,6 @@
    "fieldname": "membership_status",
    "fieldtype": "Data",
    "label": "Membership Status",
-   "read_only": 1
-  },
-  {
-   "description": "Associated dues schedule for billing",
-   "fieldname": "dues_schedule",
-   "fieldtype": "Link",
-   "label": "Dues Schedule",
-   "options": "Membership Dues Schedule",
    "read_only": 1
   },
   {

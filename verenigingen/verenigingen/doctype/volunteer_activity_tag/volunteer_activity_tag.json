@@ -10,9 +10,10 @@
   "fields": [
     {
       "fieldname": "tag",
-      "fieldtype": "Data",
+      "fieldtype": "Link",
       "in_list_view": 1,
       "label": "Tag",
+      "options": "Activity Tag",
       "reqd": 1
     }
   ],

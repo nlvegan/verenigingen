@@ -125,15 +125,6 @@ frappe.ui.form.on('Volunteer Activity', {
 		});
 	},
 
-	volunteer(frm) {
-		// When volunteer is selected, fetch name
-		if (frm.doc.volunteer) {
-			frappe.db.get_doc('Volunteer', frm.doc.volunteer).then((doc) => {
-				frm.set_value('volunteer_name', doc.volunteer_name);
-			});
-		}
-	},
-
 	start_date(frm) {
 		// Validate dates
 		if (frm.doc.end_date && frm.doc.start_date > frm.doc.end_date) {

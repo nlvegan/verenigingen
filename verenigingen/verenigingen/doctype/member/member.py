@@ -1681,13 +1681,22 @@ class Member(
     def add_fee_change_to_history(self, schedule_data):
         """Add a single fee change to history incrementally"""
         try:
-            # Check if entry already exists for this schedule
+            # Check if entry already exists for this schedule or amendment
             existing_idx = None
-            self.fee_change_history = None
             for idx, row in enumerate(self.fee_change_history or []):
-                if row.dues_schedule == schedule_data.get(
-                    "schedule_name"
-                ) or row.dues_schedule == schedule_data.get("name"):
+                row_schedule = getattr(row, "dues_schedule", None)
+                row_amendment = getattr(row, "amendment_request", None)
+
+                # Match by dues schedule
+                if row_schedule and (
+                    row_schedule == schedule_data.get("schedule_name")
+                    or row_schedule == schedule_data.get("name")
+                ):
+                    existing_idx = idx
+                    break
+
+                # Match by amendment request
+                if row_amendment and row_amendment == schedule_data.get("amendment_request"):
                     existing_idx = idx
                     break
 
@@ -1701,7 +1710,9 @@ class Member(
 
             # Build entry data
             entry_data = {
-                "change_date": schedule_data.get("creation") or frappe.utils.now_datetime(),
+                "change_date": schedule_data.get("change_date")
+                or schedule_data.get("creation")
+                or frappe.utils.now_datetime(),
                 "dues_schedule": schedule_data.get("name") or schedule_data.get("schedule_name"),
                 "billing_frequency": billing_freq,
                 "old_dues_rate": schedule_data.get("old_dues_rate", 0),
@@ -1710,19 +1721,21 @@ class Member(
                 "reason": schedule_data.get("reason")
                 or f"Dues schedule: {schedule_data.get('schedule_name') or schedule_data.get('name')}",
                 "changed_by": schedule_data.get("changed_by") or frappe.session.user or "Administrator",
+                "amendment_request": schedule_data.get("amendment_request"),  # Support amendment tracking
             }
 
             if existing_idx is not None:
                 # Update existing entry
                 for key, value in entry_data.items():
-                    setattr(self.fee_change_history[existing_idx], key, value)
+                    if value is not None:  # Only update non-None values
+                        setattr(self.fee_change_history[existing_idx], key, value)
             else:
-                # Add new entry at the beginning (most recent first)
-                self.fee_change_history = getattr(self, "fee_change_history", [])  # Ensure it's initialized
-                self.fee_change_history.insert(0, entry_data)
+                # Add new entry using append method (Frappe converts dict to child doc)
+                self.append("fee_change_history", entry_data)
 
                 # Keep only 50 most recent entries to prevent unlimited growth
                 if len(self.fee_change_history) > 50:
+                    # Remove oldest entries (at the end)
                     self.fee_change_history = self.fee_change_history[:50]
 
             # CORRECTED SECURE VERSION: Use secure operations with explicit permission validation
@@ -3796,17 +3809,58 @@ def refresh_fee_change_history(member_name):
             order_by="creation",
         )
 
-        # Get existing fee change history entries to compare
-        existing_entries = {row.dues_schedule: row for row in member_doc.fee_change_history or []}
+        # Get existing fee change history entries - track by both schedule and amendment
+        existing_entries_by_schedule = {
+            row.dues_schedule: row for row in member_doc.fee_change_history or [] if row.dues_schedule
+        }
+        existing_entries_by_amendment = {
+            row.amendment_request: row for row in member_doc.fee_change_history or [] if row.amendment_request
+        }
 
-        # Process each schedule with smart detection
+        # STEP 2: Get all applied amendments for this member
+        applied_amendments = frappe.get_all(
+            "Contribution Amendment Request",
+            filters={"member": member_name, "status": "Applied"},
+            fields=[
+                "name",
+                "effective_date",
+                "requested_amount",
+                "current_amount",
+                "reason",
+                "applied_date",
+                "applied_by",
+            ],
+            order_by="effective_date, applied_date",
+        )
+
+        # Process amendments first to capture all changes
+        for amendment in applied_amendments:
+            amendment_name = amendment.name
+
+            # Check if we already have an entry for this amendment
+            if amendment_name not in existing_entries_by_amendment:
+                # Add new amendment entry
+                amendment_data = {
+                    "amendment_request": amendment_name,
+                    "dues_rate": amendment.requested_amount,
+                    "old_dues_rate": amendment.current_amount or 0,
+                    "change_type": "Fee Adjustment",
+                    "reason": f"Amendment: {amendment.reason}"
+                    if amendment.reason
+                    else f"Amendment {amendment_name}",
+                    "change_date": amendment.applied_date or amendment.effective_date,
+                    "changed_by": amendment.applied_by or "Administrator",
+                }
+                member_doc.add_fee_change_to_history(amendment_data)
+
+        # STEP 3: Process schedules (for initial schedule creation only)
         for schedule in dues_schedules:
             schedule_name = schedule.name
 
-            # Check if entry already exists
-            if schedule_name in existing_entries:
+            # Check if entry already exists for this schedule
+            if schedule_name in existing_entries_by_schedule:
                 # Update existing entry if needed
-                existing_entry = existing_entries[schedule_name]
+                existing_entry = existing_entries_by_schedule[schedule_name]
 
                 # Check if update is needed (compare key fields)
                 needs_update = (
@@ -3830,7 +3884,7 @@ def refresh_fee_change_history(member_name):
                     }
                     member_doc.update_fee_change_in_history(schedule_data)
             else:
-                # Add new entry using atomic method
+                # Add new entry using atomic method (initial schedule creation only)
                 schedule_data = {
                     "name": schedule.name,
                     "schedule_name": schedule.schedule_name,
@@ -3869,13 +3923,14 @@ def refresh_fee_change_history(member_name):
 
         return {
             "success": True,
-            "message": f"Fee change history refreshed for {member_name} - {len(dues_schedules)} schedules processed, {cleanup_stats['removed']} broken entries cleaned",
-            "history_count": len(dues_schedules),
+            "message": f"Fee change history refreshed for {member_name} - {len(applied_amendments)} amendments + {len(dues_schedules)} schedules processed, {cleanup_stats['removed']} broken entries cleaned",
+            "history_count": len(applied_amendments) + len(dues_schedules),
             "reload_doc": True,  # Signal to reload the document
+            "amendments_found": len(applied_amendments),
             "dues_schedules_found": len(dues_schedules),
             "removed_entries": cleanup_stats["removed"],
             "cleanup_details": cleanup_stats,
-            "method": "atomic_smart_detection_with_cleanup",
+            "method": "atomic_with_amendments",
         }
 
     except Exception as e:

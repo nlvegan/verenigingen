@@ -2461,7 +2461,7 @@ class MembershipDuesSchedule(Document):
         schedule.insert()
 
         # Link back to member with concurrency handling
-        member.dues_schedule = schedule.name
+        member.current_dues_schedule = schedule.name
         member.dues_rate = schedule.dues_rate
 
         try:
@@ -2469,7 +2469,7 @@ class MembershipDuesSchedule(Document):
         except frappe.TimestampMismatchError:
             # Reload member and retry save once
             member.reload()
-            member.dues_schedule = schedule.name
+            member.current_dues_schedule = schedule.name
             member.dues_rate = schedule.dues_rate
             member.save()
 
