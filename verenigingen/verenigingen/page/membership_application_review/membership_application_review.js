@@ -690,41 +690,130 @@ class MembershipApplicationReview {
 		const app = this.applications.find((a) => a.name === member_name);
 		if (!app) { return; }
 
-		// Show approval dialog
-		const dialog = new frappe.ui.Dialog({
-			title: `Approve Application: ${app.full_name}`,
-			fields: [
-				{
-					fieldtype: 'Link',
-					fieldname: 'membership_type',
-					label: 'Membership Type',
-					options: 'Membership Type',
+		// SECURITY: HTML escaping helper for XSS prevention
+		const escapeHtml = (str) => {
+			if (!str) return '';
+			return String(str)
+				.replace(/&/g, '&amp;')
+				.replace(/</g, '&lt;')
+				.replace(/>/g, '&gt;')
+				.replace(/"/g, '&quot;')
+				.replace(/'/g, '&#x27;');
+		};
+
+		// Check for duplicates before showing approval dialog
+		let duplicateCheckResult;
+		try {
+			duplicateCheckResult = await frappe.call({
+				method: 'verenigingen.services.member.validation.member_duplicate_detection_service.check_duplicate_for_approval',
+				args: { member_name }
+			});
+		} catch (error) {
+			console.error('Error checking duplicates:', error);
+			// Continue with approval even if duplicate check fails
+		}
+
+		// Build dialog fields
+		const dialogFields = [];
+
+		// Add duplicate warning section if duplicates found
+		if (duplicateCheckResult?.message?.has_duplicates) {
+			const duplicates = duplicateCheckResult.message;
+			const summary = duplicates.summary;
+
+			let warningHtml = '<div style="background: #fff3cd; border: 1px solid #ffc107; padding: 15px; border-radius: 5px; margin-bottom: 15px;">';
+			warningHtml += '<h5 style="margin-top: 0; color: #856404;"><i class="fa fa-exclamation-triangle"></i> Potential Duplicate Members Found</h5>';
+
+			if (summary.high > 0) {
+				warningHtml += `<p style="color: #721c24; font-weight: bold;">⚠️ ${summary.high} high-confidence match(es)</p>`;
+			}
+			if (summary.medium > 0) {
+				warningHtml += `<p style="color: #856404;">⚠ ${summary.medium} medium-confidence match(es)</p>`;
+			}
+			if (summary.low > 0) {
+				warningHtml += `<p style="color: #666;">ℹ ${summary.low} low-confidence match(es)</p>`;
+			}
+
+			// Show details for high and medium confidence matches
+			const importantMatches = [...duplicates.high_confidence, ...duplicates.medium_confidence];
+			if (importantMatches.length > 0) {
+				warningHtml += '<div style="margin-top: 10px;"><strong>Matches:</strong><ul style="margin-bottom: 5px;">';
+				importantMatches.forEach(match => {
+					const confidence = Math.round(match.confidence * 100);
+					const details = match.details;
+					// SECURITY FIX: Escape all user-controlled data to prevent XSS
+					warningHtml += `<li>
+						<strong>${escapeHtml(details.full_name)}</strong> (${confidence}% match)<br>
+						<small style="color: #666;">
+							${escapeHtml(details.email) || 'No email'} |
+							Status: ${escapeHtml(details.status) || 'Unknown'} |
+							Reason: ${escapeHtml(details.reason)}
+							<a href="#Form/Member/${escapeHtml(match.member_name)}" target="_blank" style="margin-left: 10px;">View Record</a>
+						</small>
+					</li>`;
+				});
+				warningHtml += '</ul></div>';
+			}
+
+			warningHtml += '<p style="margin-bottom: 0; margin-top: 10px;"><strong>Please review these matches before approving.</strong></p>';
+			warningHtml += '</div>';
+
+			dialogFields.push({
+				fieldtype: 'HTML',
+				fieldname: 'duplicate_warning',
+				options: warningHtml
+			});
+
+			// Add acknowledgment checkbox for high-confidence matches
+			if (summary.high > 0) {
+				dialogFields.push({
+					fieldtype: 'Check',
+					fieldname: 'acknowledge_duplicates',
+					label: 'I have reviewed the duplicate matches and want to proceed',
 					reqd: 1,
-					default: app.selected_membership_type,
-					get_query: () => ({ filters: { is_active: 1 } })
-				},
-				{
-					fieldtype: 'Link',
-					fieldname: 'chapter',
-					label: 'Chapter Assignment',
-					options: 'Chapter',
-					default:
+					default: 0
+				});
+			}
+		}
+
+		// Add standard approval fields
+		dialogFields.push(
+			{
+				fieldtype: 'Link',
+				fieldname: 'membership_type',
+				label: 'Membership Type',
+				options: 'Membership Type',
+				reqd: 1,
+				default: app.selected_membership_type,
+				get_query: () => ({ filters: { is_active: 1 } })
+			},
+			{
+				fieldtype: 'Link',
+				fieldname: 'chapter',
+				label: 'Chapter Assignment',
+				options: 'Chapter',
+				default:
             app.current_chapter_display !== 'Unassigned'
             	? app.current_chapter_display
             	: ''
-				},
-				{
-					fieldtype: 'Small Text',
-					fieldname: 'notes',
-					label: 'Approval Notes'
-				},
-				{
-					fieldtype: 'Check',
-					fieldname: 'create_invoice',
-					label: 'Create Invoice',
-					default: 1
-				}
-			],
+			},
+			{
+				fieldtype: 'Small Text',
+				fieldname: 'notes',
+				label: 'Approval Notes'
+			},
+			{
+				fieldtype: 'Check',
+				fieldname: 'create_invoice',
+				label: 'Create Invoice',
+				default: 1
+			}
+		);
+
+		// Show approval dialog
+		const dialog = new frappe.ui.Dialog({
+			title: `Approve Application: ${app.full_name}`,
+			fields: dialogFields,
 			primary_action_label: 'Approve',
 			primary_action: async (values) => {
 				try {

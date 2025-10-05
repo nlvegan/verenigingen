@@ -84,6 +84,27 @@ def get_data(filters):
             if required_level.lower() != filters.get("approval_level").lower():
                 continue
 
+        # Apply status filter if specified (after status mapping)
+        # Only filter if status is explicitly set (not empty string)
+        if filters and filters.get("status") and filters.get("status").strip():
+            if expense.get("status") != filters.get("status"):
+                continue
+
+        # Apply organization type filter if specified
+        if filters and filters.get("organization_type") and filters.get("organization_type").strip():
+            if expense.get("organization_type") != filters.get("organization_type"):
+                continue
+
+        # Apply specific chapter filter if specified
+        if filters and filters.get("chapter") and filters.get("chapter").strip():
+            if expense.get("chapter") != filters.get("chapter"):
+                continue
+
+        # Apply specific team filter if specified
+        if filters and filters.get("team") and filters.get("team").strip():
+            if expense.get("team") != filters.get("team"):
+                continue
+
         filtered_data.append(expense)
 
     return filtered_data
@@ -92,7 +113,9 @@ def get_data(filters):
 def get_erpnext_expense_data(filters):
     """Get data from ERPNext Expense Claims"""
     # Build base filters for ERPNext
-    base_filters = {"docstatus": 1}
+    # Don't filter by docstatus - show all (Draft, Submitted, Cancelled)
+    # User can filter by status using the status filter
+    base_filters = {}
 
     # Apply date filters
     if filters:
@@ -120,6 +143,10 @@ def get_erpnext_expense_data(filters):
             "remark",
             "company",
             "cost_center",
+            "custom_organization_type",
+            "custom_chapter",
+            "custom_team",
+            "custom_volunteer",
         ],
         order_by="posting_date desc, creation desc",
     )
@@ -129,8 +156,20 @@ def get_erpnext_expense_data(filters):
         # Get volunteer information by employee_id
         volunteer_name = "Unknown"
         volunteer_record = None
-        organization_type = "Unknown"
+
+        # Get organization info from custom fields
+        organization_type = claim.get("custom_organization_type") or "Unknown"
         organization_name = "Unknown"
+
+        # Get organization name based on type
+        if organization_type == "Chapter" and claim.get("custom_chapter"):
+            organization_name = frappe.db.get_value(
+                "Verenigingen Chapter", claim.get("custom_chapter"), "chapter_name"
+            ) or claim.get("custom_chapter")
+        elif organization_type == "Team" and claim.get("custom_team"):
+            organization_name = frappe.db.get_value(
+                "Verenigingen Volunteer Team", claim.get("custom_team"), "team_name"
+            ) or claim.get("custom_team")
 
         if claim.get("employee"):
             # Try to find volunteer by employee_id
@@ -212,6 +251,8 @@ def get_erpnext_expense_data(filters):
                 status=display_status,
                 is_erpnext=True,
                 expense_claim_id=claim.get("name"),
+                chapter=claim.get("custom_chapter"),
+                team=claim.get("custom_team"),
             )
 
             data.append(row)
@@ -233,6 +274,8 @@ def build_expense_row(
     expense_claim_id=None,
     approved_by=None,
     approved_on=None,
+    chapter=None,
+    team=None,
 ):
     """Build standardized expense row for report"""
 
@@ -272,6 +315,8 @@ def build_expense_row(
         "category_name": category_name,
         "organization_name": organization_name or "Unknown",
         "organization_type": organization_type,
+        "chapter": chapter,
+        "team": team,
         "status": status,
         "approval_level": approval_level.title(),
         "approved_by_name": approved_by_name,
@@ -303,16 +348,27 @@ def get_summary(data):
 
     # Basic counts
     total_expenses = len(data)
-    approved_count = len([d for d in data if d.get("status") in ["Approved", "Reimbursed"]])
-    pending_count = len([d for d in data if d.get("status") == "Submitted"])
+
+    # Count by individual status
+    awaiting_count = len([d for d in data if d.get("status") == "Awaiting Approval"])
+    submitted_count = len([d for d in data if d.get("status") == "Submitted"])
+    approved_count = len([d for d in data if d.get("status") == "Approved"])
+    reimbursed_count = len([d for d in data if d.get("status") == "Reimbursed"])
     rejected_count = len([d for d in data if d.get("status") == "Rejected"])
 
-    # Amount calculations
+    # Combined pending count
+    pending_count = awaiting_count + submitted_count
+
+    # Amount calculations by status
     total_amount = sum(flt(d.get("amount", 0)) for d in data)
-    approved_amount = sum(
-        flt(d.get("amount", 0)) for d in data if d.get("status") in ["Approved", "Reimbursed"]
-    )
-    pending_amount = sum(flt(d.get("amount", 0)) for d in data if d.get("status") == "Submitted")
+    awaiting_amount = sum(flt(d.get("amount", 0)) for d in data if d.get("status") == "Awaiting Approval")
+    submitted_amount = sum(flt(d.get("amount", 0)) for d in data if d.get("status") == "Submitted")
+    approved_amount = sum(flt(d.get("amount", 0)) for d in data if d.get("status") == "Approved")
+    reimbursed_amount = sum(flt(d.get("amount", 0)) for d in data if d.get("status") == "Reimbursed")
+    rejected_amount = sum(flt(d.get("amount", 0)) for d in data if d.get("status") == "Rejected")
+
+    # Combined pending amount
+    pending_amount = awaiting_amount + submitted_amount
 
     # Approval time statistics
     approval_times = [
@@ -330,25 +386,32 @@ def get_summary(data):
     return [
         {"value": total_expenses, "label": _("Total Expenses"), "datatype": "Int"},
         {"value": total_amount, "label": _("Total Amount"), "datatype": "Currency"},
+        {"value": awaiting_count, "label": _("Awaiting Approval"), "datatype": "Int", "color": "blue"},
+        {"value": awaiting_amount, "label": _("Awaiting Amount"), "datatype": "Currency", "color": "blue"},
+        {"value": submitted_count, "label": _("Submitted"), "datatype": "Int", "color": "orange"},
+        {
+            "value": submitted_amount,
+            "label": _("Submitted Amount"),
+            "datatype": "Currency",
+            "color": "orange",
+        },
         {"value": approved_count, "label": _("Approved"), "datatype": "Int", "color": "green"},
         {"value": approved_amount, "label": _("Approved Amount"), "datatype": "Currency", "color": "green"},
+        {"value": reimbursed_count, "label": _("Reimbursed"), "datatype": "Int", "color": "green"},
         {
-            "value": pending_count,
-            "label": _("Pending Approval"),
-            "datatype": "Int",
-            "color": "orange" if pending_count > 0 else "green",
+            "value": reimbursed_amount,
+            "label": _("Reimbursed Amount"),
+            "datatype": "Currency",
+            "color": "green",
         },
+        {"value": rejected_count, "label": _("Rejected"), "datatype": "Int", "color": "red"},
+        {"value": rejected_amount, "label": _("Rejected Amount"), "datatype": "Currency", "color": "red"},
+        {"value": pending_count, "label": _("Total Pending"), "datatype": "Int", "color": "orange"},
         {
             "value": pending_amount,
-            "label": _("Pending Amount"),
+            "label": _("Total Pending Amount"),
             "datatype": "Currency",
-            "color": "orange" if pending_amount > 0 else "green",
-        },
-        {
-            "value": rejected_count,
-            "label": _("Rejected"),
-            "datatype": "Int",
-            "color": "red" if rejected_count > 0 else "green",
+            "color": "orange",
         },
         {"value": round(avg_approval_time, 1), "label": _("Avg. Approval Time (days)"), "datatype": "Float"},
         {"value": basic_count, "label": _("Basic Level"), "datatype": "Int"},

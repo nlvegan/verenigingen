@@ -285,6 +285,76 @@ class TestMemberIBANHistory(EnhancedTestCase):
         # Verify IBAN was changed
         self.assertEqual(member.iban, "NL69 INGB 0123 4567 89")
 
+    def test_bic_auto_update_on_iban_change(self):
+        """Test BIC is automatically updated when IBAN changes to different bank"""
+        # Create member with initial IBAN/BIC
+        member = self.create_test_member(
+            first_name="BIC",
+            last_name="Update",
+            email="bic.update@example.com",
+            iban="NL13TEST0123456789",
+            bic="TESTNL2A",
+            bank_account_name="BIC Update Test",
+            payment_method="SEPA Direct Debit",
+        )
+
+        # Verify initial BIC is auto-derived
+        self.assertEqual(member.bic, "ABNANL2A")  # Auto-derived from TEST bank code
+
+        # Change IBAN to different bank
+        member.iban = "NL69INGB0123456789"
+        member.save()
+        member.reload()
+
+        # BIC should be auto-updated to match new bank
+        self.assertEqual(member.bic, "INGBNL2A")
+        self.assertEqual(member.iban, "NL69 INGB 0123 4567 89")
+
+    def test_bic_preserved_for_international_iban(self):
+        """Test BIC is preserved when IBAN cannot auto-derive BIC (international)"""
+        # Create member with international IBAN and manual BIC
+        member = self.create_test_member(
+            first_name="International",
+            last_name="Test",
+            email="international.test@example.com",
+            iban="DE89370400440532013000",
+            bic="DEUTDEFF",
+            bank_account_name="International Account",
+        )
+
+        # Verify BIC was preserved (not cleared)
+        self.assertEqual(member.bic, "DEUTDEFF")
+
+        # Save again to ensure BIC isn't cleared on re-validation
+        member.save()
+        member.reload()
+
+        # BIC should still be preserved
+        self.assertEqual(member.bic, "DEUTDEFF")
+
+    def test_bic_only_updates_when_iban_changes(self):
+        """Test BIC derivation is skipped when IBAN hasn't changed (performance)"""
+        # Create member with Dutch IBAN
+        member = self.create_test_member(
+            first_name="Performance",
+            last_name="Test",
+            email="performance.test@example.com",
+            iban="NL91ABNA0417164300",
+            bank_account_name="Performance Test",
+        )
+
+        # Verify initial BIC
+        original_bic = member.bic
+        self.assertEqual(original_bic, "ABNANL2A")
+
+        # Change unrelated field (not IBAN)
+        member.bank_account_name = "Updated Account Name"
+        member.save()
+        member.reload()
+
+        # BIC should remain unchanged (derivation was skipped)
+        self.assertEqual(member.bic, original_bic)
+
 
 def run_tests():
     """Run all Member IBAN history tests"""

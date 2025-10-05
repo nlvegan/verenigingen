@@ -69,7 +69,7 @@ frappe.query_reports['Chapter Expense Report'] = {
 			fieldname: 'status',
 			label: __('Status'),
 			fieldtype: 'Select',
-			options: '\nSubmitted\nApproved\nRejected\nDraft',
+			options: '\nAwaiting Approval\nSubmitted\nApproved\nRejected\nReimbursed',
 			default: ''
 		},
 		{
@@ -80,19 +80,18 @@ frappe.query_reports['Chapter Expense Report'] = {
 			default: ''
 		},
 		{
-			fieldname: 'organization',
-			label: __('Organization'),
-			fieldtype: 'Dynamic Link',
-			options: 'organization_type',
-			get_query() {
-				const organization_type
-          = frappe.query_report.get_filter_value('organization_type');
-				if (organization_type) {
-					return {
-						doctype: organization_type
-					};
-				}
-			}
+			fieldname: 'chapter',
+			label: __('Chapter'),
+			fieldtype: 'Link',
+			options: 'Chapter',
+			depends_on: 'eval:doc.organization_type=="Chapter"'
+		},
+		{
+			fieldname: 'team',
+			label: __('Team'),
+			fieldtype: 'Link',
+			options: 'Team',
+			depends_on: 'eval:doc.organization_type=="Team"'
 		},
 		{
 			fieldname: 'volunteer',

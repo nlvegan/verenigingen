@@ -151,16 +151,7 @@
                 <p class="text-sm text-gray-600 mt-1">{{ _("Name as it appears on your bank account") }}</p>
             </div>
 
-            <div>
-                <label for="bic" class="block text-sm font-medium text-gray-700 mb-2">{{ _("BIC/SWIFT Code") }}</label>
-                <input type="text"
-                       class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-red-500 focus:border-red-500"
-                       id="bic"
-                       name="bic"
-                       value="{{ current_details.bic if current_details else '' }}"
-                       placeholder="{{ _('Will be auto-filled for Dutch IBANs') }}">
-                <p class="text-sm text-gray-600 mt-1">{{ _("Bank Identifier Code - optional for Dutch accounts") }}</p>
-            </div>
+            <!-- BIC is auto-generated from IBAN, no user input needed -->
 
             <div>
                 <div class="flex items-start">
@@ -204,7 +195,6 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const ibanInput = document.getElementById('iban');
-    const bicInput = document.getElementById('bic');
 
     // Auto-format and validate IBAN
     ibanInput.addEventListener('input', function(e) {
@@ -213,30 +203,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Format IBAN with spaces for readability
         let formatted = value.replace(/(.{4})/g, '$1 ').trim();
         e.target.value = formatted;
-
-        // Auto-derive BIC for Dutch IBANs
-        if (value.startsWith('NL') && value.length >= 8 && !bicInput.value) {
-            const bankCode = value.substring(4, 8);
-            deriveBicFromBankCode(bankCode);
-        }
     });
-
-    function deriveBicFromBankCode(bankCode) {
-        const dutchBanks = {
-            'ABNA': 'ABNANL2A',
-            'RABO': 'RABONL2U',
-            'INGB': 'INGBNL2A',
-            'TRIO': 'TRIONL2U',
-            'SNSB': 'SNSBNL2A',
-            'ASNB': 'ASNBNL21',
-            'RBRB': 'RBRBNL21',
-            'BUNQ': 'BUNQNL2A'
-        };
-
-        if (dutchBanks[bankCode]) {
-            bicInput.value = dutchBanks[bankCode];
-        }
-    }
 
     // Form validation
     document.getElementById('bank-details-form').addEventListener('submit', function(e) {

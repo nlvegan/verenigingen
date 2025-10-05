@@ -231,10 +231,12 @@ class BrandSettings(Document):
             # Don't throw error, just log it - brand settings should still work
 
 
-@frappe.whitelist()
-@public_api
+@frappe.whitelist(allow_guest=True)
 def get_active_brand_settings():
-    """Get the brand settings (now a Single doctype)"""
+    """Get the brand settings (now a Single doctype)
+
+    Note: No rate limiting - this is cached read-only config data called on every portal page load.
+    """
     # Try to get from cache first
     cached_settings = frappe.cache().get_value("active_brand_settings")
     if cached_settings:

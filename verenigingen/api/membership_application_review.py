@@ -14,6 +14,9 @@ from verenigingen.services.member.approval.member_approval_service import (
     resolve_membership_type,
     validate_approval_prerequisites,
 )
+from verenigingen.services.member.validation.member_duplicate_detection_service import (
+    check_duplicate_for_approval,
+)
 from verenigingen.utils.member_utils import get_volunteer_for_member
 from verenigingen.utils.secure_operations import secure_document_operation
 

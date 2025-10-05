@@ -747,12 +747,19 @@ class PaymentMixin:
         # Format IBAN properly
         formatted_iban = format_iban(iban)
 
-        # Auto-derive BIC if not provided
-        if hasattr(self, "bic") and not self.bic:
-            derived_bic = derive_bic_from_iban(iban)
-            if derived_bic:
-                self.bic = derived_bic
-                frappe.msgprint(_("BIC automatically derived from IBAN: {0}").format(derived_bic))
+        # Auto-derive BIC for supported IBANs (primarily Dutch)
+        # Only run derivation if IBAN changed or BIC is empty (performance optimization)
+        if hasattr(self, "bic"):
+            iban_changed = self.has_value_changed("iban") if not self.is_new() else True
+
+            if iban_changed or not self.bic:
+                derived_bic = derive_bic_from_iban(iban)
+
+                if derived_bic:
+                    # Successfully derived BIC - update if different
+                    if self.bic != derived_bic:
+                        self.bic = derived_bic
+                # If derivation fails (international IBAN), preserve existing BIC value
 
         return formatted_iban
 
@@ -763,12 +770,16 @@ class PaymentMixin:
             old_iban = frappe.db.get_value("Member", self.name, "iban")
 
             if old_iban and old_iban != self.iban:
-                # Close the previous IBAN history record
-                if hasattr(self, "iban_history"):
-                    for history in self.iban_history:
-                        if history.is_active and history.iban == old_iban:
-                            history.is_active = 0
-                            history.to_date = today()
+                # Deactivate all previous IBAN history records atomically
+                # This prevents race conditions from concurrent updates
+                frappe.db.sql(
+                    """
+                    UPDATE `tabMember IBAN History`
+                    SET is_active = 0, to_date = %s
+                    WHERE parent = %s AND is_active = 1 AND iban = %s
+                    """,
+                    (today(), self.name, old_iban),
+                )
 
                 # Add new IBAN history record
                 self.append(

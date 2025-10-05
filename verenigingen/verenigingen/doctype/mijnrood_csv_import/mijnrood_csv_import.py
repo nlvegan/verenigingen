@@ -441,7 +441,13 @@ class MijnroodCSVImport(Document):
             return None
 
         # SECURITY: Prevent CSV injection attacks - reject dangerous content
-        if value.startswith(("=", "+", "@", "\t", "\r")) or (value.startswith("-") and len(value) > 1):
+        # Allow phone numbers with + prefix (e.g., +31), but block formula injections
+        is_phone_number = field_type == "contact_number" and value.startswith("+") and value[1:2].isdigit()
+
+        if not is_phone_number and (
+            value.startswith(("=", "@", "\t", "\r"))
+            or (value.startswith(("-", "+")) and not value[1:2].isdigit())
+        ):
             frappe.throw(
                 _(
                     "Security: Field contains potentially dangerous content that could be interpreted as formula: {0}"
@@ -1759,7 +1765,7 @@ class MijnroodCSVImport(Document):
 def validate_import_file(import_doc_name):
     """Manually validate an import file."""
     try:
-        doc = frappe.get_doc("Member CSV Import", import_doc_name)
+        doc = frappe.get_doc("Mijnrood CSV Import", import_doc_name)
 
         # Skip validation if no file
         if not doc.csv_file:

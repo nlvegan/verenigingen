@@ -2,14 +2,22 @@
 ============================================================
 
 ## Executive Summary
-- **Total API Files**: 157
-- **High Risk Files**: 19
-- **Protected Files**: 151
-- **Unprotected Files**: 6
-- **High Risk Protection Rate**: 18/19 (94.7%)
+- **Total API Files**: 163
+- **High Risk Files**: 21
+- **Protected Files**: 153
+- **Unprotected Files**: 10
+- **High Risk Protection Rate**: 20/21 (95.2%)
 
 ## High Risk Files Analysis
 These files handle critical financial/administrative operations:
+
+### 🔒 dues_invoice_workflow.py
+- **Security decorators**: 6
+- **@critical_api decorators**: 0
+- **@frappe.whitelist() functions**: 4
+- **Permission checks**: No
+- **Role validation**: No
+- **Protected functions**: generate_missing_invoices, prepare_sepa_batch, get_workflow_status, check_coverage_scheduling_mismatches
 
 ### 🔒 simple_payment_history_check.py
 - **Security decorators**: 3
@@ -144,6 +152,14 @@ These files handle critical financial/administrative operations:
 - **Role validation**: No
 - **Protected functions**: check_and_fix_invoice, fix_recent_missing_invoices
 
+### 🔒 mollie_payment.py
+- **Security decorators**: 2
+- **@critical_api decorators**: 0
+- **@frappe.whitelist() functions**: 2
+- **Permission checks**: No
+- **Role validation**: No
+- **Protected functions**: create_payment, get_payment_status
+
 ### 🔒 sepa_period_duplicate_prevention.py
 - **Security decorators**: 1
 - **@critical_api decorators**: 1
@@ -174,23 +190,25 @@ The following high-risk files lack adequate protection:
 - Add @critical_api protection to **sepa_reconciliation.py**
 
 ### 📈 Coverage Improvement Plan
-- **Current high-risk coverage**: 94.7%
-- **Target coverage**: 95%
-- **Files needing protection**: 0
+✅ High-risk coverage already exceeds 95% target
 
 ## All Unprotected Files
 The following files lack security framework protection:
 
 - **donation_reset.py** (LOW risk) - 0 whitelist functions
+- **test_specific_transaction.py** (LOW risk) - 1 whitelist functions
 - **phase2_2_rollback.py** (LOW risk) - 0 whitelist functions
 - **chart_sources.py** (LOW risk) - 0 whitelist functions
+- **check_webhook_logs.py** (LOW risk) - 1 whitelist functions
 - **sepa_reconciliation.py** (HIGH risk) - 0 whitelist functions
+- **check_mollie_config.py** (LOW risk) - 1 whitelist functions
+- **test_webhook_signature.py** (LOW risk) - 1 whitelist functions
 - **migrate_donation_agreements.py** (LOW risk) - 0 whitelist functions
 - **refund_processor.py** (LOW risk) - 0 whitelist functions
 
 ## Corrected Coverage Metrics
 
-**Accurate High-Risk API Coverage: 94.7%**
-*(Based on 18 protected out of 19 high-risk APIs)*
-**Overall API Protection Rate: 96.2%**
-*(Based on 151 protected out of 157 total APIs)*
+**Accurate High-Risk API Coverage: 95.2%**
+*(Based on 20 protected out of 21 high-risk APIs)*
+**Overall API Protection Rate: 93.9%**
+*(Based on 153 protected out of 163 total APIs)*
