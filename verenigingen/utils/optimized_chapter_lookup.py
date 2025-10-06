@@ -138,6 +138,9 @@ class OptimizedChapterLookup:
         if "-" in pattern:
             try:
                 start, end = pattern.split("-", 1)
+                # Sanitize - remove trailing asterisks
+                start = start.strip().rstrip("*")
+                end = end.strip().rstrip("*")
                 start_num = int(start)
                 end_num = int(end)
                 postal_num = int(postal_code[: len(start)])
@@ -150,8 +153,10 @@ class OptimizedChapterLookup:
             prefix = pattern[:-1]
             return postal_code.startswith(prefix)
         else:
-            # Default prefix match
-            return postal_code.startswith(pattern)
+            # Default prefix match for numeric patterns
+            # Sanitize pattern by removing trailing asterisks
+            clean_pattern = pattern.rstrip("*")
+            return postal_code.startswith(clean_pattern)
 
     def get_chapter_postal_mapping(self) -> Dict[str, List[Dict]]:
         """Get cached postal code mapping, refreshing if needed"""

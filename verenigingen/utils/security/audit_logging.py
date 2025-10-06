@@ -1060,8 +1060,8 @@ def get_audit_statistics(days: int = 7):
 def weekly_security_health_check():
     """Weekly security system health check - called by scheduler"""
     try:
-        log_sepa_event(
-            event_type="security_weekly_health_check",
+        log_security_event(
+            event_type="other",
             details={
                 "check_type": "weekly_health_check",
                 "system_status": "operational",

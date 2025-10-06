@@ -64,6 +64,11 @@ def handle_chapter_assignment_updates(event_name, event_data, **kwargs):
         **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
+        # Skip during bulk operations - chapter assignment is handled in bulk
+        if getattr(frappe.flags, "bulk_member_operations", False):
+            frappe.logger("events").info("Skipping chapter assignment update - bulk operation in progress")
+            return
+
         member_name = event_data.get("member")
         new_status = event_data.get("new_status")
 
@@ -326,7 +331,7 @@ def _send_reactivation_notification(member):
 
 
 def _assign_member_to_chapter(member):
-    """Assign approved member to appropriate chapter"""
+    """Assign approved member to appropriate chapter using centralized lookup"""
     # Get postal code from linked address
     postal_code = None
     if member.primary_address:
@@ -336,25 +341,33 @@ def _assign_member_to_chapter(member):
     if not postal_code:
         return
 
-    # Find appropriate chapter based on postal code
-    chapters = frappe.get_all("Chapter", filters={"status": "Active"}, fields=["name", "postal_codes"])
+    # Use centralized optimized chapter lookup
+    from verenigingen.utils.optimized_chapter_lookup import get_lookup_instance
 
-    for chapter in chapters:
-        if _postal_code_matches_chapter(postal_code, chapter.postal_codes):
-            # Create or update chapter membership
-            existing = frappe.db.exists("Chapter Member", {"member": member.name, "chapter": chapter.name})
+    lookup = get_lookup_instance()
+    best_chapter = lookup.find_best_chapter_for_postal_code(postal_code)
 
-            if not existing:
-                chapter_member = frappe.get_doc(
-                    {
-                        "doctype": "Chapter Member",
-                        "member": member.name,
-                        "chapter": chapter.name,
-                        "status": "Active",
-                    }
-                )
-                chapter_member.insert()
-            break
+    if best_chapter:
+        # Verify chapter exists
+        if not frappe.db.exists("Chapter", best_chapter):
+            frappe.logger("events").warning(f"Chapter {best_chapter} not found for member {member.name}")
+            return
+
+        # Check if member is already in this chapter's members child table
+        chapter_doc = frappe.get_doc("Chapter", best_chapter)
+
+        # Check if member already exists in the chapter's members child table
+        member_exists = False
+        for cm in chapter_doc.members or []:
+            if cm.member == member.name:
+                member_exists = True
+                break
+
+        if not member_exists:
+            # Add member to chapter's members child table
+            chapter_doc.append("members", {"member": member.name, "status": "Active"})
+            chapter_doc.save(ignore_permissions=True)
+            frappe.logger("events").info(f"Assigned member {member.name} to chapter {best_chapter}")
 
 
 def _update_chapter_membership_status(member, status):
@@ -365,30 +378,3 @@ def _update_chapter_membership_status(member, status):
         chapter_member = frappe.get_doc("Chapter Member", cm.name)
         chapter_member.status = status
         chapter_member.save()
-
-
-def _postal_code_matches_chapter(postal_code, postal_codes):
-    """Check if postal code falls within chapter's ranges"""
-    if not postal_codes:
-        return False
-
-    # Extract numeric part from Dutch postal code (e.g., "1234AB" -> 1234, "1234 AB" -> 1234)
-    try:
-        import re
-
-        # Extract the first numeric part from the postal code
-        numeric_match = re.match(r"(\d+)", postal_code.strip() if postal_code else "")
-        postal_numeric = int(numeric_match.group(1)) if numeric_match else 0
-    except (ValueError, AttributeError):
-        return False
-
-    for range_str in postal_codes.split(","):
-        if "-" in range_str:
-            start, end = range_str.strip().split("-")
-            if int(start) <= postal_numeric <= int(end):
-                return True
-        else:
-            if int(range_str.strip()) == postal_numeric:
-                return True
-
-    return False

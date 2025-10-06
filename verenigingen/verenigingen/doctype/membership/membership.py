@@ -26,6 +26,7 @@ class Membership(Document):
         """Create or update dues schedule when membership is submitted"""
         self.create_or_update_dues_schedule()
         self.update_member_current_membership_plan()
+        self.update_member_duration()
 
     def on_cancel(self):
         """Handle dues schedule when membership is cancelled"""
@@ -810,6 +811,28 @@ class Membership(Document):
             )
         except Exception as e:
             frappe.logger().error(f"Failed to update member fields for {self.member}: {str(e)}")
+            # Don't fail the membership submission if this update fails
+
+    def update_member_duration(self):
+        """Update the member's cumulative membership duration when membership is submitted"""
+        if not self.member:
+            return
+
+        try:
+            from verenigingen.services.member.utils.membership_duration_service import (
+                update_member_duration_fields,
+            )
+
+            member_doc = frappe.get_doc("Member", self.member)
+            result = update_member_duration_fields(member_doc)
+
+            if result.get("success"):
+                member_doc.save()
+                frappe.logger().info(
+                    f"Updated membership duration for {self.member}: {result.get('data', {}).get('duration')}"
+                )
+        except Exception as e:
+            frappe.logger().error(f"Failed to update membership duration for {self.member}: {str(e)}")
             # Don't fail the membership submission if this update fails
 
 

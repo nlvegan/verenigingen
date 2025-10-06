@@ -29,6 +29,11 @@
     "column_break_14",
     "rate_limit_scope",
     "rate_limit_key_pattern",
+    "batch_operations_section",
+    "batch_rate_limit_calls",
+    "batch_rate_limit_period_seconds",
+    "column_break_batch",
+    "apply_batch_limits_to",
     "business_rules_section",
     "enable_business_validation",
     "amount_threshold",
@@ -171,6 +176,37 @@
       "fieldtype": "Data",
       "label": "Rate Limit Key Pattern",
       "description": "Custom pattern for rate limit key (optional)"
+    },
+    {
+      "fieldname": "batch_operations_section",
+      "fieldtype": "Section Break",
+      "label": "Batch Operations Rate Limiting",
+      "description": "Higher limits for background batch processing contexts"
+    },
+    {
+      "fieldname": "batch_rate_limit_calls",
+      "fieldtype": "Int",
+      "label": "Batch Rate Limit - Max Calls",
+      "description": "Rate limit for background batch operations (higher than interactive)",
+      "default": "5000"
+    },
+    {
+      "fieldname": "batch_rate_limit_period_seconds",
+      "fieldtype": "Int",
+      "label": "Batch Rate Limit - Period (Seconds)",
+      "default": "3600"
+    },
+    {
+      "fieldname": "column_break_batch",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "apply_batch_limits_to",
+      "fieldtype": "Select",
+      "label": "Apply Batch Limits To",
+      "options": "\nBackground Jobs\nScheduled Tasks\nBoth",
+      "default": "Both",
+      "description": "Which background contexts should use batch rate limits"
     },
     {
       "fieldname": "business_rules_section",

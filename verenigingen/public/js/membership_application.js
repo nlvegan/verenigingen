@@ -2534,9 +2534,16 @@ class _MembershipApplication {
       = type.membership_type_name || type.name || 'Unknown';
 		const billingPeriod = type.billing_period || 'year';
 
+		// Get contribution options (new structure)
+		const contributionOptions = type.contribution_options || {};
+		const hasTiers = contributionOptions.tiers && contributionOptions.tiers.length > 0;
+		const hasQuickAmounts = contributionOptions.quick_amounts && contributionOptions.quick_amounts.length > 0;
+		const allowsContributionChoice = hasTiers || hasQuickAmounts || contributionOptions.mode;
+
 		console.log('Creating membership card for:', {
 			name: type.name,
 			amount,
+			contributionOptions,
 			type
 		});
 
@@ -2547,32 +2554,52 @@ class _MembershipApplication {
 		cardHTML += '</div>';
 		cardHTML += `<p class="membership-description">${type.description || ''}</p>`;
 
-		// Add custom amount section if allowed
-		if (type.allow_custom_amount) {
+		// Add contribution selection section if options are available
+		if (allowsContributionChoice) {
 			cardHTML += '<div class="custom-amount-section" style="display: none;">';
 			cardHTML += '<label>Choose Your Contribution:</label>';
-			cardHTML += '<div class="amount-suggestion-pills">';
 
-			if (type.suggested_amounts && type.suggested_amounts.length > 0) {
-				type.suggested_amounts.forEach((suggestion) => {
-					const suggestionAmount = parseFloat(suggestion.amount) || 0;
-					console.log('Creating amount pill:', {
-						label: suggestion.label,
+			// Show tiers if available
+			if (hasTiers) {
+				cardHTML += '<div class="contribution-tiers mb-3">';
+				contributionOptions.tiers.forEach((tier) => {
+					const tierAmount = parseFloat(tier.amount) || 0;
+					console.log('Creating tier option:', {
+						name: tier.name,
+						amount: tierAmount,
+						description: tier.description
+					});
+					cardHTML += `<div class="tier-option" data-amount="${tierAmount}">`;
+					cardHTML += `<strong>${tier.display_name || tier.name}</strong>: `;
+					cardHTML += frappe.format(tierAmount, { fieldtype: 'Currency' });
+					if (tier.description) {
+						cardHTML += `<br><small class="text-muted">${tier.description}</small>`;
+					}
+					cardHTML += '</div>';
+				});
+				cardHTML += '</div>';
+			}
+
+			// Show quick amounts if available
+			if (hasQuickAmounts) {
+				cardHTML += '<div class="amount-suggestion-pills">';
+				contributionOptions.quick_amounts.forEach((quickAmount) => {
+					const suggestionAmount = parseFloat(quickAmount.amount) || 0;
+					console.log('Creating quick amount pill:', {
+						label: quickAmount.label,
 						amount: suggestionAmount
 					});
 					cardHTML += `<span class="amount-pill" data-amount="${suggestionAmount}">`;
-					cardHTML += frappe.format(suggestionAmount, {
-						fieldtype: 'Currency'
-					});
-					cardHTML += `<br><small>${suggestion.label}</small>`;
+					cardHTML += frappe.format(suggestionAmount, { fieldtype: 'Currency' });
+					cardHTML += `<br><small>${quickAmount.label || ''}</small>`;
 					cardHTML += '</span>';
 				});
+				cardHTML += '</div>';
 			}
 
-			cardHTML += '</div>';
 			cardHTML += '<div class="mt-3">';
 			cardHTML += '<label>Or enter custom amount:</label>';
-			const minAmount = type.minimum_amount || amount;
+			const minAmount = contributionOptions.minimum || type.minimum_amount || amount;
 			cardHTML
         += '<input type="number" class="form-control custom-amount-input" ';
 			cardHTML += `min="${minAmount}" step="0.01" placeholder="Enter amount">`;
@@ -2584,10 +2611,10 @@ class _MembershipApplication {
 		cardHTML += '<div class="btn-group mt-3">';
 		cardHTML
       += '<button type="button" class="btn btn-primary select-membership">';
-		cardHTML += `Select${type.allow_custom_amount ? ' Standard' : ''}`;
+		cardHTML += `Select${allowsContributionChoice ? ' Standard' : ''}`;
 		cardHTML += '</button>';
 
-		if (type.allow_custom_amount) {
+		if (allowsContributionChoice) {
 			cardHTML
         += '<button type="button" class="btn btn-outline-secondary toggle-custom">';
 			cardHTML += 'Choose Amount';
@@ -2595,9 +2622,9 @@ class _MembershipApplication {
 		}
 		cardHTML += '</div>';
 
-		if (type.allow_custom_amount && type.custom_amount_note) {
+		if (contributionOptions.calculator && contributionOptions.calculator.description) {
 			cardHTML += '<div class="mt-2">';
-			cardHTML += `<small class="text-muted">${type.custom_amount_note}</small>`;
+			cardHTML += `<small class="text-muted">${contributionOptions.calculator.description}</small>`;
 			cardHTML += '</div>';
 		}
 
@@ -2667,6 +2694,7 @@ class _MembershipApplication {
 					button.text('Choose Amount');
 					card.find('.custom-amount-input').val('');
 					card.find('.amount-pill').removeClass('selected');
+					card.find('.tier-option').removeClass('selected');
 					this.selectMembershipType(card, false);
 				} else {
 					$('.custom-amount-section').hide();
@@ -2684,6 +2712,47 @@ class _MembershipApplication {
 						this.selectMembershipType(card, true, standardAmount);
 					}
 				}
+			});
+
+		// Tier selection
+		$(document)
+			.off('click', '.tier-option')
+			.on('click', '.tier-option', (e) => {
+				e.preventDefault();
+				e.stopPropagation();
+
+				console.log('Tier option clicked');
+				const tier = $(e.target).closest('.tier-option');
+				const card = tier.closest('.membership-type-card');
+				const rawAmount = tier.data('amount');
+				const amount = parseFloat(rawAmount);
+
+				console.log('Tier selection details:', {
+					tierText: tier.text().trim(),
+					rawAmount,
+					parsedAmount: amount,
+					isValid: !isNaN(amount),
+					cardType: card.data('type')
+				});
+
+				if (isNaN(amount) || amount <= 0) {
+					console.error(
+						'Invalid amount from tier:',
+						rawAmount,
+						'tier:',
+						tier[0]
+					);
+					return;
+				}
+
+				card.find('.tier-option').removeClass('selected');
+				card.find('.amount-pill').removeClass('selected');
+				tier.addClass('selected');
+
+				// Set input value with the valid amount
+				card.find('.custom-amount-input').val(amount);
+
+				this.selectMembershipType(card, true, amount);
 			});
 
 		// Amount pill selection
@@ -2719,6 +2788,7 @@ class _MembershipApplication {
 				}
 
 				card.find('.amount-pill').removeClass('selected');
+				card.find('.tier-option').removeClass('selected');
 				pill.addClass('selected');
 
 				// Set input value with the valid amount
@@ -2737,6 +2807,7 @@ class _MembershipApplication {
 				const minAmount = parseFloat(input.attr('min'));
 
 				card.find('.amount-pill').removeClass('selected');
+				card.find('.tier-option').removeClass('selected');
 
 				if (isNaN(amount) || amount <= 0) {
 					input.addClass('is-invalid');

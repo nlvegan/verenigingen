@@ -39,6 +39,15 @@ class OperationType(Enum):
     WEBHOOK_PROCESSING = "webhook_processing"  # Webhook endpoints with configurable rate limits
 
 
+class ExecutionContext(Enum):
+    """Execution contexts for scope-based rate limiting"""
+
+    INTERACTIVE = "interactive"  # HTTP requests from users
+    BACKGROUND_JOB = "background_job"  # Queued jobs via frappe.enqueue()
+    SCHEDULED_TASK = "scheduled_task"  # Cron jobs from scheduler
+    CLI = "cli"  # Bench commands, console, tests
+
+
 class AuditEventType(Enum):
     """Audit event types for categorization"""
 

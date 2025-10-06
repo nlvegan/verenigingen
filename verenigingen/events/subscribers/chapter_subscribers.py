@@ -326,7 +326,7 @@ def _send_board_member_added_notification(chapter, volunteer, role):
 
             email_service = get_email_service()
             context = {
-                "member_name": member_doc.get_full_name(),
+                "member_name": member_doc.full_name or f"{member_doc.first_name} {member_doc.last_name}",
                 "chapter_name": chapter.name,
                 "change_type": "Board Appointment",
                 "board_position": role,
@@ -357,7 +357,7 @@ def _send_board_member_removed_notification(chapter, volunteer, role):
 
             email_service = get_email_service()
             context = {
-                "member_name": member_doc.get_full_name(),
+                "member_name": member_doc.full_name or f"{member_doc.first_name} {member_doc.last_name}",
                 "chapter_name": chapter.name,
                 "change_type": "Board Tenure Ended",
                 "board_position": role,
@@ -388,7 +388,7 @@ def _send_board_role_changed_notification(chapter, volunteer, old_role, new_role
 
             email_service = get_email_service()
             context = {
-                "member_name": member_doc.get_full_name(),
+                "member_name": member_doc.full_name or f"{member_doc.first_name} {member_doc.last_name}",
                 "chapter_name": chapter.name,
                 "change_type": "Board Role Update",
                 "board_position": new_role,
@@ -415,7 +415,7 @@ def _send_member_welcome_notification(chapter, member_doc):
 
         email_service = get_email_service()
         context = {
-            "member_name": member_doc.get_full_name(),
+            "member_name": member_doc.full_name or f"{member_doc.first_name} {member_doc.last_name}",
             "chapter_name": chapter.name,
             "change_type": "Chapter Welcome",
             "effective_date": frappe.utils.today(),
@@ -448,7 +448,7 @@ def _send_member_farewell_notification(chapter, member_doc, reason):
         farewell_message += "\n\nYou're always welcome back!"
 
         context = {
-            "member_name": member_doc.get_full_name(),
+            "member_name": member_doc.full_name or f"{member_doc.first_name} {member_doc.last_name}",
             "chapter_name": chapter.name,
             "change_type": "Chapter Departure",
             "effective_date": frappe.utils.today(),

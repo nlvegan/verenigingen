@@ -389,7 +389,7 @@ def _send_team_member_added_notification(team, volunteer_doc, role):
 
             email_service = get_email_service()
             context = {
-                "member_name": member_doc.get_full_name(),
+                "member_name": member_doc.full_name or f"{member_doc.first_name} {member_doc.last_name}",
                 "team_name": team.name,
                 "change_type": "Team Assignment",
                 "new_role": role,
@@ -418,7 +418,7 @@ def _send_team_member_removed_notification(team, volunteer_doc, role):
 
             email_service = get_email_service()
             context = {
-                "member_name": member_doc.get_full_name(),
+                "member_name": member_doc.full_name or f"{member_doc.first_name} {member_doc.last_name}",
                 "team_name": team.name,
                 "change_type": "Team Assignment Ended",
                 "new_role": role,
@@ -447,7 +447,7 @@ def _send_team_role_changed_notification(team, volunteer_doc, old_role, new_role
 
             email_service = get_email_service()
             context = {
-                "member_name": member_doc.get_full_name(),
+                "member_name": member_doc.full_name or f"{member_doc.first_name} {member_doc.last_name}",
                 "team_name": team.name,
                 "change_type": "Role Update",
                 "new_role": new_role,
@@ -512,7 +512,8 @@ def _send_team_settings_notification(team, changed_fields):
 
                     email_service = get_email_service()
                     context = {
-                        "member_name": member_doc.get_full_name(),
+                        "member_name": member_doc.full_name
+                        or f"{member_doc.first_name} {member_doc.last_name}",
                         "team_name": team.name,
                         "change_type": "Team Settings Update",
                         "effective_date": frappe.utils.today(),
@@ -587,7 +588,8 @@ def _send_leadership_change_notification(team, old_lead, new_lead):
 
                         email_service = get_email_service()
                         context = {
-                            "member_name": member_doc.get_full_name(),
+                            "member_name": member_doc.full_name
+                            or f"{member_doc.first_name} {member_doc.last_name}",
                             "team_name": team.name,
                             "change_type": "Leadership Change",
                             "effective_date": frappe.utils.today(),

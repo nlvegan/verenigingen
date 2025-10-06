@@ -1570,10 +1570,11 @@ class EnhancedTestCase(FrappeTestCase):
                     frappe.delete_doc("Donation Campaign", campaign, force=True)
                 except Exception:
                     pass
-            
-            # Commit cleanup
-            frappe.db.commit()
-            
+
+            # REMOVED: frappe.db.commit() breaks test isolation by committing deletions
+            # that should rollback. Frappe's test framework handles transaction management.
+            # Committing here caused catastrophic data loss by making test deletions permanent.
+
         except Exception as e:
             frappe.logger().error(f"Test tearDown failed: {str(e)}")
         
@@ -1995,8 +1996,10 @@ class EnhancedTestCase(FrappeTestCase):
                     except Exception:
                         continue
 
-                # Commit cleanup changes
-                frappe.db.commit()
+                # REMOVED: frappe.db.commit() breaks test isolation
+                # This cleanup runs in setUp(), and committing here makes any deletions
+                # permanent instead of letting them rollback with the test transaction.
+                # Frappe's test framework manages transactions automatically.
 
             finally:
                 # Restore original user

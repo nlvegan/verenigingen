@@ -1850,8 +1850,8 @@
     "security_level": "critical",
     "business_context": "Member data maintenance - nuclear cleanup of all member data",
     "required_roles": "System Manager",
-    "rate_limit_calls": 1,
-    "rate_limit_period_seconds": 1800,
+    "rate_limit_calls": 100,
+    "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "per_user",
     "audit_level": "detailed",
     "alert_on_execution": 1,
@@ -1867,8 +1867,8 @@
     "security_level": "critical",
     "business_context": "Admin tools interface for destructive member cleanup",
     "required_roles": "System Manager",
-    "rate_limit_calls": 1,
-    "rate_limit_period_seconds": 1800,
+    "rate_limit_calls": 100,
+    "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "per_user",
     "audit_level": "detailed",
     "alert_on_execution": 1,
@@ -2866,7 +2866,7 @@
     "security_level": "high",
     "business_context": "Member lifecycle management - termination eligibility check",
     "required_roles": "Verenigingen Staff\nSystem Manager",
-    "rate_limit_calls": 30,
+    "rate_limit_calls": 200,
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "per_user",
     "audit_level": "detailed"
@@ -39690,7 +39690,10 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "per_user",
     "audit_level": "standard",
-    "alert_on_execution": 0
+    "alert_on_execution": 0,
+    "batch_rate_limit_calls": 5000,
+    "batch_rate_limit_period_seconds": 3600,
+    "apply_batch_limits_to": "Both"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -39706,7 +39709,10 @@
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "per_user",
     "audit_level": "standard",
-    "alert_on_execution": 0
+    "alert_on_execution": 0,
+    "batch_rate_limit_calls": 5000,
+    "batch_rate_limit_period_seconds": 3600,
+    "apply_batch_limits_to": "Both"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -39718,12 +39724,15 @@
     "security_level": "high",
     "business_context": "External API access for customer creation linked to member records",
     "required_roles": "System Manager",
-    "rate_limit_calls": 30,
+    "rate_limit_calls": 50,
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "per_user",
     "audit_level": "detailed",
     "alert_on_execution": 1,
-    "notification_recipients": "beheerder@veganisme.org"
+    "notification_recipients": "beheerder@veganisme.org",
+    "batch_rate_limit_calls": 5000,
+    "batch_rate_limit_period_seconds": 3600,
+    "apply_batch_limits_to": "Both"
   },
   {
     "doctype": "Critical Operation Rule",
@@ -40187,6 +40196,54 @@
     "rate_limit_calls": 100,
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "per_user",
+    "audit_level": "minimal",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "validate_custom_amount",
+    "operation_name": "validate_custom_amount",
+    "operation_type": "public",
+    "description": "Public custom amount validation for membership application form",
+    "enabled": 1,
+    "security_level": "low",
+    "business_context": "Public-facing form validation for custom membership contribution amounts",
+    "required_roles": "",
+    "rate_limit_calls": 50,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_ip",
+    "audit_level": "minimal",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "membership_application_validate_custom_amount",
+    "operation_name": "membership_application_validate_custom_amount",
+    "operation_type": "public",
+    "description": "Custom amount validation endpoint for membership application submissions",
+    "enabled": 1,
+    "security_level": "low",
+    "business_context": "Real-time custom amount validation during membership application process",
+    "required_roles": "",
+    "rate_limit_calls": 50,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_ip",
+    "audit_level": "minimal",
+    "alert_on_execution": 0
+  },
+  {
+    "doctype": "Critical Operation Rule",
+    "name": "api_validate_custom_amount",
+    "operation_name": "api_validate_custom_amount",
+    "operation_type": "public",
+    "description": "Generic API endpoint for custom amount validation across public forms",
+    "enabled": 1,
+    "security_level": "low",
+    "business_context": "Shared custom amount validation service for public-facing forms",
+    "required_roles": "",
+    "rate_limit_calls": 50,
+    "rate_limit_period_seconds": 60,
+    "rate_limit_scope": "per_ip",
     "audit_level": "minimal",
     "alert_on_execution": 0
   }

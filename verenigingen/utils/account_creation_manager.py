@@ -750,7 +750,7 @@ def queue_bulk_account_creation_for_members(
                 batch_id=batch_id,
                 batch_number=batch_number,
                 tracker_name=tracker.name,
-                queue="bulk",  # Use dedicated bulk queue
+                queue="long",  # Use long queue for batch processing
                 timeout=3600,  # 1 hour timeout for batch processing
                 job_name=f"bulk_account_creation_{batch_id}",
             )
@@ -826,6 +826,9 @@ def process_bulk_account_creation_batch(request_names, batch_id, batch_number, t
     import threading
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
+    # Mark this as a background job for rate limiting purposes
+    frappe.flags.in_background_job = True
+
     frappe.logger().info(
         f"Starting parallel batch processing for {batch_id} with {len(request_names)} requests"
     )
@@ -854,6 +857,18 @@ def process_bulk_account_creation_batch(request_names, batch_id, batch_number, t
             frappe.db.begin()
 
             try:
+                # Validate request exists before attempting to process
+                if not frappe.db.exists("Account Creation Request", request_name):
+                    frappe.logger().warning(
+                        f"Batch {batch_id}: Request {request_name} no longer exists (may have been deleted or already processed)"
+                    )
+                    return {
+                        "success": True,
+                        "request_name": request_name,
+                        "skipped": True,
+                        "reason": "not_found",
+                    }
+
                 # Ensure request is in processable status (handle retry scenario)
                 request = frappe.get_doc("Account Creation Request", request_name)
 
@@ -862,7 +877,12 @@ def process_bulk_account_creation_batch(request_names, batch_id, batch_number, t
                     frappe.logger().info(
                         f"Batch {batch_id}: Skipping already completed request {request_name}"
                     )
-                    return {"success": True, "request_name": request_name, "skipped": True}
+                    return {
+                        "success": True,
+                        "request_name": request_name,
+                        "skipped": True,
+                        "reason": "already_completed",
+                    }
 
                 if request.status == "Requested":
                     request.status = "Queued"

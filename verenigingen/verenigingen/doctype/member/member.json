@@ -89,6 +89,7 @@
   "application_status",
   "application_date",
   "selected_membership_type",
+  "is_aspirant",
   "column_break_app1",
   "reviewed_by",
   "review_date",
@@ -121,9 +122,6 @@
   "custom_field_4",
   "health_check_section",
   "custom_needs_health_check",
-  "financial_details_section",
-  "student_status",
-  "donation_interest",
   "address_optimization_section",
   "address_fingerprint",
   "normalized_address_line",
@@ -751,24 +749,6 @@
    "label": "Miscellaneous"
   },
   {
-   "collapsible": 1,
-   "fieldname": "financial_details_section",
-   "fieldtype": "Section Break",
-   "label": "Financial Details"
-  },
-  {
-   "default": "0",
-   "fieldname": "student_status",
-   "fieldtype": "Check",
-   "label": "Student Status"
-  },
-  {
-   "default": "0",
-   "fieldname": "donation_interest",
-   "fieldtype": "Check",
-   "label": "Interested in Donations"
-  },
-  {
    "fieldname": "payment_method_section",
    "fieldtype": "Section Break",
    "label": "Payment method"
@@ -908,6 +888,12 @@
   {
    "fieldname": "column_break_optn",
    "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_aspirant",
+   "fieldtype": "Check",
+   "label": "Is Aspirant"
   }
  ],
  "links": [
@@ -966,9 +952,14 @@
    "group": "Volunteer",
    "link_doctype": "Volunteer Expense",
    "link_fieldname": "volunteer"
+  },
+  {
+   "group": "Volunteer",
+   "link_doctype": "User",
+   "link_fieldname": "name"
   }
  ],
- "modified": "2025-10-02 09:02:49.743324",
+ "modified": "2025-10-06 11:30:34.643773",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Member",
@@ -985,12 +976,6 @@
    "report": 1,
    "role": "System Manager",
    "share": 1,
-   "write": 1
-  },
-  {
-   "permlevel": 1,
-   "read": 1,
-   "role": "System Manager",
    "write": 1
   },
   {

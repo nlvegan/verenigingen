@@ -313,11 +313,10 @@ def process_enhanced_application(data):
     """Process the enhanced membership application.
 
     Orchestrates the complete application processing workflow including:
-    1. Member record creation with pending status
-    2. Initial dues schedule setup
-    3. Payment method configuration (SEPA mandate if applicable)
-    4. First payment invoice generation
-    5. Confirmation email delivery
+    1. Member record creation with pending status and dues_rate stored
+    2. Payment method configuration (SEPA mandate if applicable)
+    3. First payment invoice generation with proper coverage period
+    4. Confirmation email delivery
 
     Args:
         data (dict): Validated application data
@@ -331,12 +330,15 @@ def process_enhanced_application(data):
             - error (str): Error description (on failure)
 
     Side Effects:
-        - Creates Member record with status='Pending'
-        - Creates Membership Dues Schedule record
+        - Creates Member record with status='Pending' and dues_rate
         - Creates SEPA Mandate record (for direct debit)
-        - Creates Sales Invoice for first payment
+        - Creates Sales Invoice for first payment with billing-frequency-based coverage
         - Sends confirmation email to applicant
         - Commits database transaction
+
+    Note:
+        Membership Dues Schedule is created during approval workflow when
+        membership.submit() is called, using the dues_rate stored on Member.
 
     Error Handling:
         - Logs all errors for debugging
@@ -347,14 +349,15 @@ def process_enhanced_application(data):
         # Create membership application
         application = create_membership_application(data)
 
-        # Create initial dues schedule
-        dues_schedule = create_initial_dues_schedule(application, data)
+        # Note: Membership Dues Schedule is created during approval workflow
+        # when membership.submit() is called. Applicant's chosen rate is stored
+        # on application.dues_rate field.
 
         # Handle payment setup
         setup_payment_method(application, data)
 
         # Create invoice for first payment
-        invoice = create_first_payment_invoice(application, dues_schedule, data)
+        invoice = create_first_payment_invoice(application, data)
 
         # Send confirmation email
         send_application_confirmation(application, invoice)
@@ -419,16 +422,10 @@ def create_membership_application(data):
 
     # Membership information
     application.membership_type = cstr(data.get("membership_type"))
-    application.contribution_amount = flt(data.get("contribution_amount"))
-    application.contribution_mode = cstr(data.get("contribution_mode", "Calculator"))
+    application.dues_rate = flt(data.get("contribution_amount"))
 
-    # Additional contribution details
-    if data.get("selected_tier"):
-        application.selected_tier = cstr(data.get("selected_tier"))
-    if data.get("base_multiplier"):
-        application.base_multiplier = flt(data.get("base_multiplier"))
-    if data.get("custom_amount_reason"):
-        application.custom_amount_reason = cstr(data.get("custom_amount_reason"))
+    # Note: contribution_mode, selected_tier, base_multiplier, and custom_amount_reason
+    # are stored on the Membership Dues Schedule, not on the Member record
 
     # Payment information
     application.payment_method = cstr(data.get("payment_method"))
@@ -509,106 +506,6 @@ def generate_contribution_description(data):
             description += f" - {data.get('custom_amount_reason')}"
 
     return description
-
-
-def create_initial_dues_schedule(application, data):
-    """Create initial membership dues schedule.
-
-    Sets up the billing configuration for the new member based on their
-    contribution choices and membership type settings.
-
-    Args:
-        application (Member): Created member application record
-        data (dict): Original application data
-
-    Returns:
-        MembershipDuesSchedule or None: Created dues schedule or None on error
-
-    Configuration:
-        - Uses membership type template values when available
-        - Sets defaults for minimum/suggested amounts
-        - Configures billing frequency (default: Monthly)
-        - Sets status='Draft' until membership is active
-        - Disables auto-generation until payment confirmed
-
-    Note:
-        Member and membership fields are left None until approval workflow
-        completes and actual Member/Membership records are created.
-    """
-    try:
-        dues_schedule = frappe.new_doc("Membership Dues Schedule")
-        # Leave member/membership fields empty until approval workflow completes
-        # These will be linked when the application is approved and formal records created
-        dues_schedule.member = None  # Will be set when member is created
-        dues_schedule.membership = None  # Will be set when membership is created
-        dues_schedule.membership_type = data.get("membership_type")
-
-        # Contribution configuration
-        dues_schedule.contribution_mode = data.get("contribution_mode")
-        dues_schedule.dues_rate = data.get("contribution_amount")
-
-        if data.get("selected_tier"):
-            dues_schedule.selected_tier = data.get("selected_tier")
-        if data.get("base_multiplier"):
-            dues_schedule.base_multiplier = data.get("base_multiplier")
-
-        # Get membership type details for defaults
-        mt_doc = frappe.get_doc("Membership Type", data.get("membership_type"))
-
-        # Get amounts from template if available
-        template_minimum_amount = 0
-        template_suggested_amount = 0
-        if mt_doc.dues_schedule_template:
-            try:
-                template = frappe.get_doc("Membership Dues Schedule", mt_doc.dues_schedule_template)
-                template_minimum_amount = template.minimum_amount or 0
-                template_suggested_amount = template.dues_rate or template.suggested_amount or 0
-            except Exception:
-                pass
-
-        dues_schedule.minimum_amount = template_minimum_amount or (
-            mt_doc.minimum_amount * 0.3 if mt_doc.minimum_amount else 5.0
-        )
-        dues_schedule.suggested_amount = template_suggested_amount or 15.0
-
-        # Custom amount handling
-        if data.get("contribution_mode") == "Custom":
-            dues_schedule.uses_custom_amount = 1
-            if data.get("custom_amount_reason"):
-                dues_schedule.custom_amount_reason = data.get("custom_amount_reason")
-
-        # Payment configuration
-        dues_schedule.payment_method = data.get("payment_method")
-        dues_schedule.billing_frequency = "Monthly"  # Default, can be changed later
-        dues_schedule.billing_day = 1  # Will be updated when member is created
-
-        # Set initial status and disable auto-billing until membership is active
-        # This prevents premature invoice generation before approval
-        dues_schedule.status = "Draft"
-        dues_schedule.auto_generate = 0  # Don't auto-generate until membership is active
-
-        # Coverage dates (will be updated when first payment is received)
-        dues_schedule.current_coverage_start = today()
-
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        from verenigingen.utils.secure_operations import secure_document_operation
-
-        # Secure dues schedule creation with explicit permission validation
-        dues_result = secure_document_operation(
-            operation="save",
-            doc=dues_schedule,
-            justification=f"Membership dues schedule creation for application {application.name}",
-            required_permissions=["Membership Dues Schedule:create"],
-        )
-
-        if not dues_result.success:
-            frappe.logger().error(f"Failed to create dues schedule: {'; '.join(dues_result.errors)}")
-            frappe.throw(_("Failed to create dues schedule: {0}").format("; ".join(dues_result.errors)))
-        return dues_schedule
-
-    except Exception as e:
-        frappe.log_error(f"Error creating dues schedule: {str(e)}")
-        return None
 
 
 def setup_payment_method(application, data):
@@ -712,7 +609,7 @@ def create_sepa_mandate(application):
         return None
 
 
-def create_first_payment_invoice(application, dues_schedule, data):
+def create_first_payment_invoice(application, data):
     """Create invoice for first payment.
 
     Generates the initial membership payment invoice to kickstart the
@@ -720,7 +617,6 @@ def create_first_payment_invoice(application, dues_schedule, data):
 
     Args:
         application (Member): Member application record
-        dues_schedule (MembershipDuesSchedule): Billing configuration
         data (dict): Application data
 
     Returns:
@@ -729,7 +625,7 @@ def create_first_payment_invoice(application, dues_schedule, data):
     Invoice Configuration:
         - 14-day payment terms
         - Membership item auto-creation if needed
-        - Coverage period documentation in remarks
+        - Coverage period based on membership type billing frequency
         - Links to application for tracking
 
     Item Management:
@@ -738,6 +634,9 @@ def create_first_payment_invoice(application, dues_schedule, data):
         - Configures as service item (non-stock)
     """
     try:
+        # Get membership type to determine billing frequency
+        membership_type = frappe.get_doc("Membership Type", data.get("membership_type"))
+
         # Create invoice
         invoice = frappe.new_doc("Sales Invoice")
         invoice.customer = application.email  # Temporary, will be updated when member is created
@@ -760,9 +659,21 @@ def create_first_payment_invoice(application, dues_schedule, data):
         # Add reference
         invoice.remarks = f"First payment for membership application: {application.name}"
 
-        # Coverage period
+        # Calculate coverage period based on membership type billing frequency
         coverage_start = today()
-        coverage_end = frappe.utils.add_months(coverage_start, 1)  # First month
+        billing_frequency = (
+            membership_type.billing_period.lower() if membership_type.billing_period else "monthly"
+        )
+
+        if billing_frequency == "quarterly":
+            coverage_end = frappe.utils.add_months(coverage_start, 3)
+        elif billing_frequency == "annual" or billing_frequency == "yearly":
+            coverage_end = frappe.utils.add_years(coverage_start, 1)
+        elif billing_frequency == "daily":
+            coverage_end = frappe.utils.add_days(coverage_start, 1)
+        else:  # monthly or default
+            coverage_end = frappe.utils.add_months(coverage_start, 1)
+
         invoice.customer_address = f"Coverage: {coverage_start} to {coverage_end}"
 
         # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation

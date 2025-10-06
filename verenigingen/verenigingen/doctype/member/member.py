@@ -627,6 +627,10 @@ class Member(
 
     def create_membership_on_approval(self):
         """Create membership record when application is approved"""
+        frappe.logger().info(
+            f"[MEMBER DEBUG] create_membership_on_approval called for {self.name}, "
+            f"bulk_member_operations={getattr(frappe.flags, 'bulk_member_operations', 'NOT SET')}"
+        )
         try:
             # Get membership type
             if not self.selected_membership_type:
@@ -658,11 +662,20 @@ class Member(
 
             # Update member with invoice reference
             # Reload to avoid timestamp mismatch
+            frappe.logger().info(
+                f"[MEMBER DEBUG] About to reload member {self.name} - this will wipe _csv_import flag. "
+                f"bulk_member_operations={getattr(frappe.flags, 'bulk_member_operations', 'NOT SET')}"
+            )
             self.reload()
             self.application_invoice = invoice.name
             self.application_payment_status = "Pending"
 
             # Handle concurrency with retry logic
+            frappe.logger().info(
+                f"[MEMBER DEBUG] About to save member {self.name} after approval, "
+                f"dues_rate={self.dues_rate}, "
+                f"bulk_member_operations={getattr(frappe.flags, 'bulk_member_operations', 'NOT SET')}"
+            )
             try:
                 self.save()
             except frappe.TimestampMismatchError:
@@ -787,6 +800,106 @@ class Member(
         if not self.customer and self.email:
             customer_name = create_customer_for_member(self, suppress_messages=False)
             self.customer = customer_name
+
+    def on_trash(self):
+        """
+        Handle cascade deletion of related records when a Member is deleted.
+
+        This prevents LinkExistsError by cleaning up all related documents
+        that have Link fields pointing to this Member.
+
+        Strategy:
+        1. Delete critical child records (Memberships, Chapter Members)
+        2. Handle Customer intelligently (preserve if has transactions)
+        3. Unlink Addresses (preserve for historical reference)
+        """
+        # Delete related Membership records (both draft and submitted)
+        memberships = frappe.get_all("Membership", filters={"member": self.name}, pluck="name")
+
+        for membership_name in memberships:
+            try:
+                membership = frappe.get_doc("Membership", membership_name)
+                # Cancel if submitted, then delete
+                if membership.docstatus == 1:  # Submitted
+                    membership.cancel()
+                frappe.delete_doc("Membership", membership_name, force=True)
+            except Exception as e:
+                frappe.logger().error(f"Error deleting Membership {membership_name}: {str(e)}")
+
+        # Delete Chapter Member assignments
+        chapter_members = frappe.get_all("Chapter Member", filters={"member": self.name}, pluck="name")
+
+        for chapter_member_name in chapter_members:
+            try:
+                frappe.delete_doc("Chapter Member", chapter_member_name, force=True)
+            except Exception as e:
+                frappe.logger().error(f"Error deleting Chapter Member {chapter_member_name}: {str(e)}")
+
+        # Handle Customer - preserve if has transactions
+        if self.customer:
+            try:
+                has_transactions = (
+                    frappe.db.count("Sales Invoice", {"customer": self.customer}) > 0
+                    or frappe.db.count("Payment Entry", {"party_type": "Customer", "party": self.customer})
+                    > 0
+                )
+
+                if has_transactions:
+                    # Unlink member from Customer's Dynamic Links
+                    self._unlink_from_customer()
+                    frappe.logger().info(
+                        f"Customer {self.customer} has transactions - unlinked Member reference"
+                    )
+                else:
+                    # No transactions - delete Customer
+                    frappe.delete_doc("Customer", self.customer, force=True)
+                    frappe.logger().info(f"Deleted Customer {self.customer}")
+
+            except Exception as e:
+                frappe.logger().error(f"Error handling Customer {self.customer}: {str(e)}")
+
+        # Handle Addresses - unlink from Member but preserve records
+        if self.primary_address:
+            try:
+                self._unlink_from_address(self.primary_address)
+            except Exception as e:
+                frappe.logger().error(f"Error unlinking Address {self.primary_address}: {str(e)}")
+
+    def _unlink_from_customer(self):
+        """Remove Member link from Customer's Dynamic Links table"""
+        if not self.customer:
+            return
+
+        customer = frappe.get_doc("Customer", self.customer)
+        # Remove any Dynamic Link entries pointing to this Member
+        links_to_remove = [
+            link
+            for link in customer.get("links", [])
+            if link.link_doctype == "Member" and link.link_name == self.name
+        ]
+
+        for link in links_to_remove:
+            customer.remove(link)
+
+        if links_to_remove:
+            customer.save(ignore_permissions=True)
+
+    def _unlink_from_address(self, address_name):
+        """Remove Member link from Address's links table"""
+        address = frappe.get_doc("Address", address_name)
+
+        # Remove any link entries pointing to this Member
+        links_to_remove = [
+            link
+            for link in address.get("links", [])
+            if link.link_doctype == "Member" and link.link_name == self.name
+        ]
+
+        for link in links_to_remove:
+            address.remove(link)
+
+        if links_to_remove:
+            address.save(ignore_permissions=True)
 
     def calculate_age(self):
         """Calculate age based on birth_date field - delegated to member_age_service"""
@@ -940,8 +1053,15 @@ class Member(
 
     def handle_fee_override_changes(self):
         """Handle changes to membership fee override using amendment system with better atomicity"""
-        # Skip all fee override handling for CSV imports
-        if getattr(self, "_csv_import", False) or getattr(self, "_system_update", False):
+        # Skip all fee override handling for CSV imports and bulk operations
+        csv_flag = getattr(self, "_csv_import", False)
+        system_flag = getattr(self, "_system_update", False)
+        # Check if member is part of an active bulk import (persists across saves)
+        in_bulk_import = (
+            hasattr(frappe.local, "bulk_import_members") and self.name in frappe.local.bulk_import_members
+        )
+
+        if csv_flag or system_flag or in_bulk_import:
             return
 
         # Check permissions for fee override changes
@@ -2336,7 +2456,11 @@ class Member(
 
                 if chapter_member:
                     cm_doc = frappe.get_doc("Chapter Member", chapter_member)
-                    cm_doc.status = current_entry.status
+                    # Map status - Chapter Member doesn't support "Terminated" or "Completed", use "Inactive" instead
+                    chapter_member_status = current_entry.status
+                    if chapter_member_status in ["Terminated", "Completed"]:
+                        chapter_member_status = "Inactive"
+                    cm_doc.status = chapter_member_status
                     cm_doc.to_date = current_entry.end_date
                     cm_doc.save()
 
@@ -2509,6 +2633,25 @@ def handle_fee_override_after_save(doc, method=None):
     """Hook function to handle fee override changes after save with improved atomicity"""
     frappe.logger().info(f"handle_fee_override_after_save called for member {doc.name}, method={method}")
 
+    # Skip fee change processing during bulk operations - rates are set directly on dues schedules
+    # This avoids deadlocks from concurrent amendment processing during bulk imports
+    bulk_flag = getattr(frappe.flags, "bulk_member_operations", False)
+    csv_flag = getattr(doc, "_csv_import", False)
+    system_update_flag = getattr(doc, "_system_update", False)
+    # CRITICAL: Also check persistent tracking set (survives document reloads)
+    in_bulk_import = (
+        hasattr(frappe.local, "bulk_import_members") and doc.name in frappe.local.bulk_import_members
+    )
+
+    frappe.logger().info(
+        f"[FEE OVERRIDE HOOK] Called for {doc.name}, "
+        f"bulk_flag={bulk_flag}, csv_flag={csv_flag}, "
+        f"system_flag={system_update_flag}, in_bulk_import={in_bulk_import}"
+    )
+    if bulk_flag or csv_flag or system_update_flag or in_bulk_import:
+        frappe.logger().info(f"[FEE OVERRIDE HOOK] Skipping for {doc.name} - bulk operation in progress")
+        return
+
     # Handle deferred fee changes
     if hasattr(doc, "_pending_fee_change"):
         try:
@@ -2580,6 +2723,8 @@ def handle_fee_override_after_save(doc, method=None):
                 try:
                     # Create a temporary member object to avoid modifying the original
                     temp_member = frappe.get_doc("Member", doc.name)
+                    # Mark as system update to bypass fee override validation
+                    temp_member._system_update = True
                     result = temp_member.update_active_dues_schedules()
                     frappe.logger().info(f"Dues schedule update result: {result}")
                 except Exception as e:

@@ -2464,6 +2464,12 @@ class MembershipDuesSchedule(Document):
         member.current_dues_schedule = schedule.name
         member.dues_rate = schedule.dues_rate
 
+        # Check if we're in a bulk operation and mark the member document accordingly
+        # This flag will persist through the save() call and prevent fee override validation
+        bulk_flag = getattr(frappe.flags, "bulk_member_operations", False)
+        if bulk_flag:
+            member._system_update = True
+
         try:
             member.save()
         except frappe.TimestampMismatchError:

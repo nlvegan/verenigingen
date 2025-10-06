@@ -591,5 +591,196 @@ class TestSecurityCompliance(VereningingenTestCase):
         pass
 
 
+class TestScopedRateLimiting(VereningingenTestCase):
+    """Test scope-based rate limiting with context detection"""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.framework = get_security_framework()
+
+    def setUp(self):
+        super().setUp()
+        # Clear rate limit cache
+        frappe.cache().delete_keys("cor_rate_limit:*")
+
+    def test_context_detection_interactive(self):
+        """Test detection of interactive HTTP context"""
+        from verenigingen.utils.security.types import ExecutionContext
+
+        # Simulate HTTP request context
+        frappe.local.request = MagicMock()
+        frappe.flags.in_background_job = False
+        frappe.flags.in_scheduler = False
+
+        context = self.framework._detect_execution_context()
+        self.assertEqual(context, ExecutionContext.INTERACTIVE)
+
+    def test_context_detection_background_job(self):
+        """Test detection of background job context"""
+        from verenigingen.utils.security.types import ExecutionContext
+
+        # Simulate background job context
+        frappe.flags.in_background_job = True
+        frappe.flags.in_scheduler = False
+
+        context = self.framework._detect_execution_context()
+        self.assertEqual(context, ExecutionContext.BACKGROUND_JOB)
+
+    def test_context_detection_scheduled_task(self):
+        """Test detection of scheduled task context"""
+        from verenigingen.utils.security.types import ExecutionContext
+
+        # Simulate scheduler context
+        frappe.flags.in_background_job = False
+        frappe.flags.in_scheduler = True
+
+        context = self.framework._detect_execution_context()
+        self.assertEqual(context, ExecutionContext.SCHEDULED_TASK)
+
+    def test_context_detection_cli(self):
+        """Test detection of CLI context"""
+        from verenigingen.utils.security.types import ExecutionContext
+
+        # Simulate CLI context (no request, no flags)
+        frappe.local.request = None
+        frappe.flags.in_background_job = False
+        frappe.flags.in_scheduler = False
+
+        context = self.framework._detect_execution_context()
+        self.assertEqual(context, ExecutionContext.CLI)
+
+    def test_batch_rate_limits_applied_in_background_job(self):
+        """Test that batch rate limits are used for background jobs"""
+        # Create a test COR with batch limits
+        cor = frappe.get_doc({
+            "doctype": "Critical Operation Rule",
+            "operation_name": "test_batch_operation",
+            "operation_type": "admin",
+            "security_level": "high",
+            "enabled": 1,
+            "rate_limit_calls": 5,
+            "rate_limit_period_seconds": 3600,
+            "batch_rate_limit_calls": 100,
+            "batch_rate_limit_period_seconds": 3600,
+            "apply_batch_limits_to": "Both"
+        })
+        cor.insert(ignore_if_duplicate=True)
+        frappe.db.commit()
+
+        # Set background job flag
+        frappe.flags.in_background_job = True
+
+        # Should be able to make more than 5 calls (interactive limit)
+        # but less than 100 calls (batch limit)
+        profile = self.framework.get_security_profile(SecurityLevel.HIGH)
+
+        # Make 10 calls - should succeed with batch limits
+        for i in range(10):
+            try:
+                self.framework.validate_rate_limits(profile, "test_batch_operation")
+            except Exception as e:
+                self.fail(f"Batch rate limiting failed on call {i+1}: {str(e)}")
+
+    def test_interactive_rate_limits_enforced_in_http_context(self):
+        """Test that interactive rate limits are enforced for HTTP requests"""
+        # Create a test COR with low interactive limits
+        cor = frappe.get_doc({
+            "doctype": "Critical Operation Rule",
+            "operation_name": "test_interactive_operation",
+            "operation_type": "admin",
+            "security_level": "high",
+            "enabled": 1,
+            "rate_limit_calls": 3,
+            "rate_limit_period_seconds": 3600,
+            "batch_rate_limit_calls": 100,
+            "batch_rate_limit_period_seconds": 3600,
+            "apply_batch_limits_to": "Both"
+        })
+        cor.insert(ignore_if_duplicate=True)
+        frappe.db.commit()
+
+        # Simulate HTTP context
+        frappe.local.request = MagicMock()
+        frappe.flags.in_background_job = False
+
+        profile = self.framework.get_security_profile(SecurityLevel.HIGH)
+
+        # Make 3 calls - should succeed
+        for i in range(3):
+            self.framework.validate_rate_limits(profile, "test_interactive_operation")
+
+        # 4th call should fail
+        from verenigingen.utils.error_handling import PermissionError as VPermissionError
+        with self.assertRaises(VPermissionError):
+            self.framework.validate_rate_limits(profile, "test_interactive_operation")
+
+    def test_batch_limits_fallback_to_interactive(self):
+        """Test fallback to interactive limits when batch limits not configured"""
+        # Create a COR without batch limits
+        cor = frappe.get_doc({
+            "doctype": "Critical Operation Rule",
+            "operation_name": "test_no_batch_limits",
+            "operation_type": "admin",
+            "security_level": "high",
+            "enabled": 1,
+            "rate_limit_calls": 5,
+            "rate_limit_period_seconds": 3600
+            # No batch_rate_limit_calls configured
+        })
+        cor.insert(ignore_if_duplicate=True)
+        frappe.db.commit()
+
+        # Set background job flag
+        frappe.flags.in_background_job = True
+
+        profile = self.framework.get_security_profile(SecurityLevel.HIGH)
+
+        # Should use interactive limits (5) as fallback
+        for i in range(5):
+            self.framework.validate_rate_limits(profile, "test_no_batch_limits")
+
+        # 6th call should fail
+        from verenigingen.utils.error_handling import PermissionError as VPermissionError
+        with self.assertRaises(VPermissionError):
+            self.framework.validate_rate_limits(profile, "test_no_batch_limits")
+
+    def test_separate_cache_keys_for_batch_and_interactive(self):
+        """Test that batch and interactive contexts use separate cache keys"""
+        # Create a test COR
+        cor = frappe.get_doc({
+            "doctype": "Critical Operation Rule",
+            "operation_name": "test_cache_separation",
+            "operation_type": "admin",
+            "security_level": "high",
+            "enabled": 1,
+            "rate_limit_calls": 5,
+            "rate_limit_period_seconds": 3600,
+            "batch_rate_limit_calls": 10,
+            "batch_rate_limit_period_seconds": 3600,
+            "apply_batch_limits_to": "Both"
+        })
+        cor.insert(ignore_if_duplicate=True)
+        frappe.db.commit()
+
+        profile = self.framework.get_security_profile(SecurityLevel.HIGH)
+
+        # Make 5 calls in interactive context
+        frappe.local.request = MagicMock()
+        frappe.flags.in_background_job = False
+        for i in range(5):
+            self.framework.validate_rate_limits(profile, "test_cache_separation")
+
+        # Switch to background job context
+        frappe.flags.in_background_job = True
+
+        # Should be able to make 10 more calls (separate cache key)
+        for i in range(10):
+            try:
+                self.framework.validate_rate_limits(profile, "test_cache_separation")
+            except Exception as e:
+                self.fail(f"Cache key separation failed: {str(e)}")
+
+
 if __name__ == "__main__":
     unittest.main()

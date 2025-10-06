@@ -309,6 +309,23 @@ def get_context(context):
             "color": "brand-accent",
         },
         {
+            "title": "Force Cleanup Orphaned Schedules/Invoices (DRY RUN)",
+            "description": "Preview cleanup of orphaned dues schedules and invoices after members deleted",
+            "method": "verenigingen.utils.member_import_cleanup.force_cleanup_orphaned_schedules_and_invoices",
+            "icon": "fa fa-eye",
+            "color": "brand-accent",
+            "args": {"dry_run": True},
+        },
+        {
+            "title": "Force Cleanup Orphaned Schedules/Invoices (LIVE)",
+            "description": "Delete orphaned dues schedules and membership invoices that reference deleted members",
+            "method": "verenigingen.utils.member_import_cleanup.force_cleanup_orphaned_schedules_and_invoices",
+            "icon": "fa fa-trash",
+            "color": "brand-secondary",
+            "warning": "This will force-delete orphaned schedules and invoices!",
+            "args": {"dry_run": False},
+        },
+        {
             "title": "Cleanup Test Members Only",
             "description": "Delete only members with test email patterns and their related records",
             "method": "verenigingen.utils.member_import_cleanup.cleanup_test_members_only",
@@ -482,6 +499,7 @@ ALLOWED_ADMIN_METHODS = {
     "verenigingen.utils.member_import_cleanup.preview_member_cleanup",
     "verenigingen.utils.member_import_cleanup.cleanup_test_members_only",
     "verenigingen.utils.member_import_cleanup.nuclear_cleanup_all_members",
+    "verenigingen.utils.member_import_cleanup.force_cleanup_orphaned_schedules_and_invoices",
     # Payment history race condition fixes
     "verenigingen.api.fix_race_condition_invoices.fix_recent_missing_invoices",
     "verenigingen.api.fix_race_condition_invoices.check_and_fix_invoice",

@@ -35,6 +35,7 @@ from verenigingen.utils.security.types import (
     AuditEventType,
     AuditSeverity,
     EnvironmentLevel,
+    ExecutionContext,
     OperationType,
     SecurityLevel,
 )
@@ -252,6 +253,76 @@ class APISecurityFramework:
         except (AttributeError, RuntimeError):
             pass
         return "test_environment"
+
+    def _get_cor_config(self, operation_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get Critical Operation Rule configuration for an operation.
+
+        Args:
+            operation_name: Name of the operation to get config for
+
+        Returns:
+            dict: COR configuration or None if not found
+        """
+        # Fields to fetch from COR
+        fields = [
+            "rate_limit_calls",
+            "rate_limit_period_seconds",
+            "rate_limit_scope",
+            "batch_rate_limit_calls",
+            "batch_rate_limit_period_seconds",
+            "apply_batch_limits_to",
+        ]
+
+        # Try to find specific COR record for this operation
+        cor_record = frappe.db.get_value(
+            "Critical Operation Rule",
+            {"operation_name": operation_name, "enabled": 1},
+            fields,
+            as_dict=True,
+        )
+
+        # If no specific COR found, use generic fallback
+        if not cor_record:
+            cor_record = frappe.db.get_value(
+                "Critical Operation Rule",
+                {"operation_name": "_generic_api_fallback", "enabled": 1},
+                fields,
+                as_dict=True,
+            )
+
+        return cor_record
+
+    def _detect_execution_context(self) -> ExecutionContext:
+        """
+        Detect the execution context to determine appropriate rate limiting.
+
+        Returns:
+            ExecutionContext: The detected execution context
+        """
+        # Check if we're in a background job context
+        # Background jobs are queued via frappe.enqueue() and have specific flags
+        if getattr(frappe.flags, "in_background_job", False):
+            return ExecutionContext.BACKGROUND_JOB
+
+        # Check for scheduled task context (cron jobs)
+        if getattr(frappe.flags, "in_scheduler", False):
+            return ExecutionContext.SCHEDULED_TASK
+
+        # Check if there's an active HTTP request
+        # If no request, we're likely in CLI or test context
+        try:
+            if hasattr(frappe.local, "request") and frappe.local.request:
+                return ExecutionContext.INTERACTIVE
+        except (AttributeError, RuntimeError):
+            pass
+
+        # If we're in test mode, treat as CLI
+        if frappe.flags.in_test:
+            return ExecutionContext.CLI
+
+        # Default to CLI for all other contexts (bench commands, console, etc.)
+        return ExecutionContext.CLI
 
     def get_security_profile(self, level: SecurityLevel) -> SecurityProfile:
         """Get security profile for given level"""
@@ -692,49 +763,68 @@ class APISecurityFramework:
             raise VPermissionError(_("CSRF validation failed: {0}").format(str(e)))
 
     def validate_rate_limits(self, profile: SecurityProfile, operation_key: str) -> bool:
-        """Validate rate limits using COR records"""
+        """Validate rate limits using COR records with context-aware batch support"""
         try:
             # Extract operation name from operation key
             # e.g., "verenigingen.integrations.mollie.api.payment_webhook.handle_mollie_payment_webhook"
             # -> "handle_mollie_payment_webhook"
             operation_name = operation_key.split(".")[-1] if "." in operation_key else operation_key
 
-            # Try to find specific COR record for this operation
-            cor_record = frappe.db.get_value(
-                "Critical Operation Rule",
-                {"operation_name": operation_name, "enabled": 1},
-                ["rate_limit_calls", "rate_limit_period_seconds", "rate_limit_scope"],
-                as_dict=True,
-            )
+            # Get COR configuration for this operation
+            cor_record = self._get_cor_config(operation_name)
 
-            # If no specific COR found, use generic fallback
-            if not cor_record:
-                cor_record = frappe.db.get_value(
-                    "Critical Operation Rule",
-                    {"operation_name": "_generic_api_fallback", "enabled": 1},
-                    ["rate_limit_calls", "rate_limit_period_seconds", "rate_limit_scope"],
-                    as_dict=True,
-                )
-
-            # If still no COR found, refuse to proceed (no hardcoded fallback)
+            # If no COR found, refuse to proceed (no hardcoded fallback)
             if not cor_record:
                 raise VPermissionError(
                     _("No rate limiting configuration found for operation: {0}").format(operation_name)
                 )
 
-            # Apply COR-based rate limiting
-            max_calls = cor_record.rate_limit_calls
-            period_seconds = cor_record.rate_limit_period_seconds
-            scope = cor_record.rate_limit_scope or "per_user"
+            # Detect execution context
+            context = self._detect_execution_context()
 
-            # Build cache key based on scope
+            # Determine which rate limits to apply based on context
+            # Start with interactive limits as defaults
+            max_calls = cor_record.rate_limit_calls or 10
+            period_seconds = cor_record.rate_limit_period_seconds or 3600
+            scope = cor_record.rate_limit_scope or "per_user"
+            limit_type = "interactive"
+
+            # Use batch limits if:
+            # 1. We're in a background job or scheduled task context
+            # 2. The COR has batch limits configured
+            # 3. The COR allows batch limits for this context
+            if context in [ExecutionContext.BACKGROUND_JOB, ExecutionContext.SCHEDULED_TASK]:
+                apply_to = cor_record.get("apply_batch_limits_to", "Both")
+                should_use_batch = (
+                    (apply_to == "Both")
+                    or (apply_to == "Background Jobs" and context == ExecutionContext.BACKGROUND_JOB)
+                    or (apply_to == "Scheduled Tasks" and context == ExecutionContext.SCHEDULED_TASK)
+                )
+
+                # Only use batch limits if they're actually configured
+                batch_calls = cor_record.get("batch_rate_limit_calls")
+                if should_use_batch and batch_calls:
+                    max_calls = batch_calls
+                    # Fall back to interactive period if batch period not set
+                    period_seconds = cor_record.get("batch_rate_limit_period_seconds") or period_seconds
+                    limit_type = "batch"
+                    frappe.logger("verenigingen.rate_limit").debug(
+                        f"Using batch rate limits for {operation_name} in {context.value} context: {max_calls}/{period_seconds}s"
+                    )
+                else:
+                    # Batch context but no batch limits configured - use interactive limits
+                    frappe.logger("verenigingen.rate_limit").debug(
+                        f"No batch limits configured for {operation_name}, using interactive limits in {context.value} context"
+                    )
+
+            # Build cache key based on scope - include limit_type to separate batch/interactive counters
             if scope == "global":
-                cache_key = f"cor_rate_limit:{operation_name}"
+                cache_key = f"cor_rate_limit:{limit_type}:{operation_name}"
             elif scope == "per_ip":
-                client_ip = frappe.local.request.environ.get("REMOTE_ADDR", "unknown")
-                cache_key = f"cor_rate_limit:{operation_name}:{client_ip}"
+                client_ip = self._get_client_ip()
+                cache_key = f"cor_rate_limit:{limit_type}:{operation_name}:{client_ip}"
             else:  # per_user (default)
-                cache_key = f"cor_rate_limit:{operation_name}:{frappe.session.user}"
+                cache_key = f"cor_rate_limit:{limit_type}:{operation_name}:{frappe.session.user}"
 
             # Check current usage (ensure it's an integer)
             current_count = int(frappe.cache().get(cache_key) or 0)

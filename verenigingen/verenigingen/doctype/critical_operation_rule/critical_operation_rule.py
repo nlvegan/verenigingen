@@ -68,6 +68,22 @@ class CriticalOperationRule(Document):
         if self.rate_limit_period_seconds and self.rate_limit_period_seconds < 60:
             frappe.throw(_("Rate limit period must be at least 60 seconds"))
 
+        # Validate batch rate limits if configured
+        if self.batch_rate_limit_calls:
+            if self.batch_rate_limit_calls < 1:
+                frappe.throw(_("Batch rate limit calls must be at least 1"))
+
+            # Batch limits should be higher than or equal to interactive limits
+            if self.rate_limit_calls and self.batch_rate_limit_calls < self.rate_limit_calls:
+                frappe.throw(
+                    _(
+                        "Batch rate limit ({0}) should be greater than or equal to interactive rate limit ({1})"
+                    ).format(self.batch_rate_limit_calls, self.rate_limit_calls)
+                )
+
+        if self.batch_rate_limit_period_seconds and self.batch_rate_limit_period_seconds < 60:
+            frappe.throw(_("Batch rate limit period must be at least 60 seconds"))
+
         # Warn about very permissive rate limits for critical operations
         if self.security_level == "critical" and self.rate_limit_calls > 50:
             frappe.msgprint(

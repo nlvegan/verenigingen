@@ -6,6 +6,7 @@ import io
 import json
 import os
 import re
+import traceback
 from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
@@ -14,6 +15,16 @@ from frappe.model.document import Document
 from frappe.utils import cstr, flt, getdate, today
 
 from verenigingen.utils.account_creation_manager import queue_bulk_account_creation_for_members
+from verenigingen.utils.chapter_membership_manager import ChapterMembershipManager
+from verenigingen.utils.csv.data_transformers import (
+    clean_phone_number,
+    clean_value,
+    convert_country_code,
+    convert_membership_type,
+    parse_date,
+)
+from verenigingen.utils.csv.secure_csv_parser import SecureCSVParser
+from verenigingen.utils.csv_import_processor import CSVImportBackgroundProcessor
 from verenigingen.utils.safe_member_optimizer import safe_member_optimizer
 from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
@@ -38,9 +49,21 @@ class MijnroodCSVImport(Document):
         pass
 
     def on_submit(self):
-        """Process the CSV import when document is submitted."""
+        """Queue the CSV import for background processing."""
         if not self.test_mode:
-            self._process_import()
+            # Queue import as background job instead of processing synchronously
+            frappe.enqueue(
+                method="verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import.process_import_background",
+                queue="long",
+                timeout=3600,  # 1 hour timeout
+                import_doc_name=self.name,
+                now=False,
+            )
+            self.import_status = "Queued"
+            self.save()
+            frappe.msgprint(
+                _("Import queued for background processing. You will receive an email when it completes.")
+            )
         else:
             frappe.msgprint(_("Import completed in test mode. No records were created."))
 
@@ -74,287 +97,61 @@ class MijnroodCSVImport(Document):
             frappe.throw(_("CSV validation failed: {0}").format(error_msg))
 
     def _read_csv_file(self) -> List[Dict]:
-        """Read CSV file and return parsed data."""
-        if not self.csv_file:
-            return []
-
-        try:
-            filename = self._sanitize_filename()
-            file_path, file_content = self._resolve_file_location(filename)
-            return self._parse_file_data(file_path, file_content, filename)
-
-        except UnicodeDecodeError:
-            frappe.throw(
-                _("File encoding error. Please check the encoding setting or try a different encoding.")
-            )
-        except Exception as e:
-            frappe.log_error("CSV file reading error: %s", str(e))
-            frappe.throw(_("Error reading CSV file: {0}").format(str(e)))
+        """Read CSV file and return parsed data using SecureCSVParser."""
+        parser = SecureCSVParser(encoding=self.encoding)
+        return parser.read_csv_file(self.csv_file)
 
     def _sanitize_filename(self) -> str:
         """Sanitize filename to prevent security issues."""
-        raw_filename = self.csv_file.split("/")[-1] if "/" in self.csv_file else self.csv_file
-        filename = os.path.basename(raw_filename)  # Prevent path traversal
-        filename = re.sub(r"[^\w\-_\.]", "_", filename)  # Sanitize filename
-
-        # Validate file extension for security
-        if not filename.lower().endswith((".csv", ".xlsx", ".xls")):
-            frappe.throw(_("Only CSV and Excel files are allowed. File: {0}").format(filename))
-
-        return filename
+        parser = SecureCSVParser()
+        return parser._sanitize_filename(self.csv_file)
 
     def _resolve_file_location(self, filename: str) -> Tuple[Optional[str], Optional[bytes]]:
         """Resolve file location using multiple methods."""
-        file_path, file_content = self._try_file_document_lookup(filename)
-
-        if not file_path or not os.path.exists(file_path):
-            file_path = self._try_direct_path_construction(filename)
-
-        if not file_path and not file_content:
-            self._handle_file_not_found(filename)
-
-        return file_path, file_content
+        parser = SecureCSVParser()
+        return parser._resolve_file_location(self.csv_file, filename)
 
     def _try_file_document_lookup(self, filename: str) -> Tuple[Optional[str], Optional[bytes]]:
         """Try to find file via Frappe File document lookup."""
-        file_path = None
-        file_content = None
-
-        # Method 1: Try to get File document by file_url
-        try:
-            file_doc = frappe.get_doc("File", {"file_url": self.csv_file})
-            if file_doc:
-                file_path = file_doc.get_full_path()
-                if hasattr(file_doc, "get_content"):
-                    file_content = file_doc.get_content()
-        except frappe.DoesNotExistError:
-            pass
-        except Exception:
-            pass
-
-        # Method 2: Try to find by sanitized file name
-        if not file_path:
-            try:
-                file_doc = frappe.get_doc("File", {"file_name": filename})
-                if file_doc:
-                    file_path = file_doc.get_full_path()
-                    if hasattr(file_doc, "get_content"):
-                        file_content = file_doc.get_content()
-            except frappe.DoesNotExistError:
-                pass
-            except Exception:
-                pass
-
-        return file_path, file_content
+        parser = SecureCSVParser()
+        return parser._try_file_document_lookup(self.csv_file, filename)
 
     def _try_direct_path_construction(self, filename: str) -> Optional[str]:
         """Try to construct file path directly using common locations."""
-        possible_paths = [
-            frappe.get_site_path("public", "files", filename),
-            frappe.get_site_path("private", "files", filename),
-            os.path.join(frappe.get_site_path(), "public", "files", filename),
-            os.path.join(frappe.get_site_path(), "private", "files", filename),
-        ]
-
-        for path in possible_paths:
-            if os.path.exists(path) and self._is_safe_file_path(path):
-                return path
-
-        return None
+        parser = SecureCSVParser()
+        return parser._try_direct_path_construction(filename)
 
     def _handle_file_not_found(self, filename: str):
         """Handle file not found scenario with helpful debug information."""
-        files = frappe.get_all(
-            "File",
-            fields=["name", "file_name", "file_url", "is_private"],
-            filters=[["file_name", "like", f"%{filename}%"]],
-        )
-
-        debug_info = f"File URL: {self.csv_file}\n"
-        debug_info += f"Looking for filename: {filename}\n"
-        if files:
-            debug_info += f"Found {len(files)} similar files:\n"
-            for f in files[:5]:  # Show max 5 files
-                debug_info += f"  - {f.file_name} ({f.file_url})\n"
-        else:
-            debug_info += "No files found in database.\n"
-
-        frappe.throw(_("File not found. {0}").format(debug_info))
+        parser = SecureCSVParser()
+        parser._handle_file_not_found(self.csv_file, filename)
 
     def _parse_file_data(
         self, file_path: Optional[str], file_content: Optional[bytes], filename: str
     ) -> List[Dict]:
         """Parse file data based on available file path or content."""
-        if file_path and os.path.exists(file_path):
-            return self._read_file_from_path(file_path)
-        elif file_content:
-            return self._read_file_from_content(file_content, filename)
-        else:
-            frappe.throw(_("Could not access file content. File path: {0}").format(file_path))
+        parser = SecureCSVParser()
+        return parser._parse_file_data(file_path, file_content, filename)
 
     def _is_safe_file_path(self, file_path: str) -> bool:
         """Check if file path is within allowed directories for security."""
-        try:
-            # Get absolute path and resolve any symlinks
-            abs_path = os.path.abspath(os.path.realpath(file_path))
-            site_path = os.path.abspath(frappe.get_site_path())
-
-            # Ensure file is within site directory structure
-            return abs_path.startswith(site_path)
-        except OSError:
-            return False
+        parser = SecureCSVParser()
+        return parser.validate_file_path(file_path)
 
     def _read_file_from_path(self, file_path: str) -> List[Dict]:
         """Read file from file system path."""
-        # Handle Excel files if pandas is available
-        if file_path.lower().endswith(".xlsx") or file_path.lower().endswith(".xls"):
-            if not PANDAS_AVAILABLE:
-                frappe.throw(
-                    _(
-                        "Excel files require pandas library. Please install pandas or convert to CSV format first."
-                    )
-                )
-
-            try:
-                # Read Excel file using pandas
-                df = pd.read_excel(
-                    file_path, engine="openpyxl" if file_path.lower().endswith(".xlsx") else None
-                )
-                # Convert to list of dictionaries and remove empty rows
-                records = df.to_dict("records")
-                return [
-                    record
-                    for record in records
-                    if any(str(v).strip() for v in record.values() if v is not None)
-                ]
-            except Exception as e:
-                frappe.throw(
-                    _("Error reading Excel file: {0}. Please try converting to CSV format.").format(str(e))
-                )
-
-        # Read and parse CSV with BOM handling
-        try:
-            # Try UTF-8 with BOM first
-            encodings_to_try = ["utf-8-sig", "utf-8", "iso-8859-1", "windows-1252"]
-
-            for encoding in encodings_to_try:
-                try:
-                    with open(file_path, "r", encoding=encoding) as csvfile:
-                        return self._parse_csv_content(csvfile)
-                except UnicodeDecodeError:
-                    continue
-                except (UnicodeDecodeError, OSError) as e:
-                    # If it's not an encoding issue, re-raise
-                    if "codec" not in str(e).lower():
-                        raise
-                    continue
-
-            frappe.throw(_("Could not read file with any supported encoding. Please check file format."))
-
-        except Exception as e:
-            frappe.throw(_("Error reading CSV file: {0}").format(str(e)))
+        parser = SecureCSVParser(encoding=self.encoding)
+        return parser._read_file_from_path(file_path)
 
     def _read_file_from_content(self, file_content: bytes, filename: str) -> List[Dict]:
         """Read file from content bytes."""
-        # Handle Excel files if pandas is available
-        if filename.lower().endswith(".xlsx") or filename.lower().endswith(".xls"):
-            if not PANDAS_AVAILABLE:
-                frappe.throw(
-                    _(
-                        "Excel files require pandas library. Please install pandas or convert to CSV format first."
-                    )
-                )
-
-            try:
-                # Read Excel file using pandas from bytes
-                df = pd.read_excel(
-                    io.BytesIO(file_content),
-                    engine="openpyxl" if filename.lower().endswith(".xlsx") else None,
-                )
-                # Convert to list of dictionaries
-                return df.to_dict("records")
-            except Exception as e:
-                frappe.throw(
-                    _("Error reading Excel file: {0}. Please try converting to CSV format.").format(str(e))
-                )
-
-        # Read and parse CSV from content
-        try:
-            # Decode content to string
-            content_str = file_content.decode(self.encoding or "utf-8")
-            csvfile = io.StringIO(content_str)
-            return self._parse_csv_content(csvfile)
-        except UnicodeDecodeError:
-            frappe.throw(
-                _("File encoding error. Please check the encoding setting or try a different encoding.")
-            )
+        parser = SecureCSVParser(encoding=self.encoding)
+        return parser._read_file_from_content(file_content, filename)
 
     def _parse_csv_content(self, csvfile) -> List[Dict]:
         """Parse CSV content from file-like object."""
-        # Try to detect delimiter, with fallback to common delimiters
-        sample = csvfile.read(1024)
-        csvfile.seek(0)
-
-        data = []
-        reader = None
-
-        # Try to detect delimiter
-        try:
-            dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
-            reader = csv.DictReader(csvfile, dialect=dialect)
-            data = list(reader)
-        except csv.Error:
-            # Fallback: try common delimiters one by one
-            csvfile.seek(0)
-            for delimiter in [",", ";", "\t"]:
-                try:
-                    csvfile.seek(0)
-                    reader = csv.DictReader(csvfile, delimiter=delimiter)
-                    # Test if we can read at least one row
-                    first_row = next(reader, None)
-                    if first_row and len(first_row) > 1:  # At least 2 columns
-                        csvfile.seek(0)
-                        reader = csv.DictReader(csvfile, delimiter=delimiter)
-                        data = [first_row] + list(reader)
-                        break
-                except (csv.Error, ValueError):
-                    continue
-
-            if not data:
-                # If all delimiters fail, throw error
-                frappe.throw(
-                    _(
-                        "Could not determine CSV delimiter. Please ensure your file uses comma (,), semicolon (;), or tab delimiters."
-                    )
-                )
-
-        # Filter out completely empty rows
-        filtered_data = []
-        for row in data:
-            # Check if row has any meaningful data
-            has_data = any(
-                value
-                and str(value).strip()
-                and str(value).strip() != "-"
-                and str(value).strip().lower() != "nb"
-                for value in row.values()
-            )
-            if has_data:
-                # Clean up the row data
-                cleaned_row = {}
-                for key, value in row.items():
-                    if (
-                        value is None
-                        or str(value).strip() == ""
-                        or str(value).strip() == "-"
-                        or str(value).strip().lower() == "nb"
-                    ):
-                        cleaned_row[key] = None
-                    else:
-                        cleaned_row[key] = str(value).strip()
-                filtered_data.append(cleaned_row)
-
-        return filtered_data
+        parser = SecureCSVParser()
+        return parser.parse_csv_content(csvfile)
 
     def _validate_and_map_data(self, csv_data: List[Dict]) -> Tuple[List[Dict], List[str]]:
         """Validate CSV data and map to Member fields."""
@@ -431,158 +228,23 @@ class MijnroodCSVImport(Document):
 
     def _clean_value(self, value: str, field_type: str) -> Any:
         """Clean and convert values based on field type."""
-        if not value or value.strip() == "":
-            return None
-
-        value = value.strip()
-
-        # Handle common "no data" indicators - convert to None
-        if value in ["-", "N/A", "n/a", "N.A.", "n.a.", "NULL", "null", "UNKNOWN", "unknown", "?"]:
-            return None
-
-        # SECURITY: Prevent CSV injection attacks - reject dangerous content
-        # Allow phone numbers with + prefix (e.g., +31), but block formula injections
-        is_phone_number = field_type == "contact_number" and value.startswith("+") and value[1:2].isdigit()
-
-        if not is_phone_number and (
-            value.startswith(("=", "@", "\t", "\r"))
-            or (value.startswith(("-", "+")) and not value[1:2].isdigit())
-        ):
-            frappe.throw(
-                _(
-                    "Security: Field contains potentially dangerous content that could be interpreted as formula: {0}"
-                ).format(value[:50])
-            )
-
-        # SECURITY: Limit field length to prevent memory issues
-        if len(value) > 2000:  # Reasonable limit for most fields
-            frappe.throw(_("Field value too long (max 2000 characters): {0}").format(value[:50] + "..."))
-
-        # Date fields
-        if field_type in ["birth_date", "member_since"]:
-            return self._parse_date(value)
-
-        # Currency fields
-        elif field_type in ["dues_rate"]:
-            return flt(re.sub(r"[^\d.,]", "", value).replace(",", "."))
-
-        # Boolean fields
-        elif field_type in ["privacy_accepted"]:
-            return value.lower() in ["ja", "yes", "1", "true", "waar"]
-
-        # IBAN cleaning - FIXED REGEX
-        elif field_type == "iban":
-            return re.sub(r"\s+", "", value.upper())
-
-        # Email cleaning
-        elif field_type == "email":
-            return value.lower()
-
-        # Phone number cleaning
-        elif field_type == "contact_number":
-            return self._clean_phone_number(value)
-
-        # Country code conversion
-        elif field_type == "country":
-            return self._convert_country_code(value)
-
-        # Membership type conversion
-        elif field_type == "membership_type":
-            return self._convert_membership_type(value)
-
-        return cstr(value)
+        return clean_value(value, field_type)
 
     def _convert_country_code(self, country_code: str) -> str:
         """Convert country codes to full country names."""
-        country_mapping = {
-            "NL": "Netherlands",
-            "BE": "Belgium",
-            "DE": "Germany",
-            "FR": "France",
-            "ES": "Spain",
-            "IT": "Italy",
-            "SE": "Sweden",
-            "NO": "Norway",
-            "DK": "Denmark",
-            "FI": "Finland",
-            "AT": "Austria",
-            "CH": "Switzerland",
-            "LU": "Luxembourg",
-            "GB": "United Kingdom",
-            "UK": "United Kingdom",
-            "US": "United States",
-            "CA": "Canada",
-            "AU": "Australia",
-        }
-
-        code = country_code.upper().strip()
-        return country_mapping.get(code, country_code)  # Return original if not found
+        return convert_country_code(country_code)
 
     def _clean_phone_number(self, phone_number: str) -> str:
         """Clean and normalize phone number format for validation compatibility."""
-        if not phone_number:
-            return ""
-
-        # Remove extra whitespace
-        phone = phone_number.strip()
-
-        # Step 1: Normalize common formats
-        if phone.startswith("+"):
-            # Remove spaces in international numbers but keep the + prefix
-            phone = "+" + "".join(phone[1:].split())
-        else:
-            # For non-international numbers, just remove spaces and dashes
-            phone = "".join(phone.split()).replace("-", "")
-
-        # Step 2: Apply Dutch-specific normalization rules
-        if phone.startswith("+316") and len(phone) == 12:  # Dutch mobile
-            # Convert to national format for better compatibility
-            phone = "0" + phone[3:]  # +31612345678 → 0612345678
-        elif phone.startswith("+3120") or phone.startswith("+3130"):  # Dutch landline
-            # Convert to national format
-            phone = "0" + phone[3:]  # +31201234567 → 0201234567
-
-        # Step 3: Validate length and format for Dutch numbers
-        if phone.startswith("06") and len(phone) == 10:  # Dutch mobile
-            return phone
-        elif phone.startswith("0") and len(phone) >= 9 and len(phone) <= 10:  # Dutch landline
-            return phone
-        elif phone.startswith("+") and len(phone) >= 10 and len(phone) <= 15:  # International
-            return phone
-        else:
-            # Invalid format - return empty string to skip this field
-            frappe.logger().warning("Invalid phone number format during CSV import: %s", phone_number)
-            return ""
+        return clean_phone_number(phone_number)
 
     def _convert_membership_type(self, membership_type: str) -> str:
         """Convert Dutch membership types to standardized values."""
-        type_mapping = {
-            "lid": "Standard",  # Regular member
-            "aspirant": "Aspirant",  # Candidate/provisional member
-            "uitgeschreven": "Terminated",  # Unsubscribed/left voluntarily
-            "opgezegd": "Terminated",  # Cancelled/terminated
-            "geroyeerd": "Expelled",  # Expelled/removed for cause
-            "geschorst": "Suspended",  # Suspended
-        }
-
-        type_value = membership_type.lower().strip() if membership_type else ""
-        return type_mapping.get(type_value, membership_type)  # Return original if not found
+        return convert_membership_type(membership_type)
 
     def _parse_date(self, date_str: str) -> Optional[str]:
         """Parse date string to YYYY-MM-DD format."""
-        if not date_str:
-            return None
-
-        # Try different date formats
-        formats = ["%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d"]
-
-        for fmt in formats:
-            try:
-                return getdate(date_str).strftime("%Y-%m-%d")
-            except (ValueError, TypeError):
-                continue
-
-        return None
+        return parse_date(date_str)
 
     def _validate_row(self, row: Dict, row_num: int) -> List[str]:
         """Validate a single row of mapped data with comprehensive checks."""
@@ -744,56 +406,6 @@ class MijnroodCSVImport(Document):
         except (ValueError, OverflowError):
             return False
 
-    def _process_import(self):
-        """Process the actual import of member data with transaction safety."""
-        try:
-            # Update status first
-            self.import_status = "In Progress"
-            self.save()
-            frappe.db.commit()
-
-            # Read and validate CSV again
-            csv_data = self._read_csv_file()
-            mapped_data, validation_errors = self._validate_and_map_data(csv_data)
-
-            if validation_errors:
-                self.import_status = "Failed"
-                self.error_log = "\\n".join(validation_errors)
-                self.save()
-                return
-
-            # TRANSACTION SAFETY: Wrap import operations in transaction
-            created_count = 0
-            updated_count = 0
-            skipped_count = 0
-            error_log = []
-            processed_members = []  # Track successfully processed members for user account creation
-
-            # Process members with proper error isolation
-            for row in mapped_data:
-                result, member_name = self._process_single_member(row, error_log)
-                if result == "created":
-                    created_count += 1
-                    if member_name:
-                        processed_members.append(member_name)
-                elif result == "updated":
-                    updated_count += 1
-                    if member_name:
-                        processed_members.append(member_name)
-                else:
-                    skipped_count += 1
-
-            # Update import results
-            self._finalize_import_results(
-                created_count, updated_count, skipped_count, error_log, processed_members
-            )
-
-        except Exception as e:
-            self.import_status = "Failed"
-            self.error_log = f"Import failed: {str(e)}"
-            self.save()
-            frappe.log_error(f"Member CSV Import failed: {str(e)}", "CSV Import System Error")
-
     def _process_single_member(self, row: Dict, error_log: List[str]) -> tuple:
         """Process a single member with proper error handling and transaction isolation."""
         try:
@@ -801,15 +413,18 @@ class MijnroodCSVImport(Document):
             result, member_name = self._create_or_update_member(row)
             return result, member_name
         except frappe.ValidationError as ve:
-            error_log.append(f"Row {row.get('row_number', '?')}: Validation error - {str(ve)}")
+            skip_msg = f"Row {row.get('row_number', '?')}: Validation error - {str(ve)}"
+            error_log.append(skip_msg)
             frappe.log_error(f"Import validation error: {str(ve)}", "CSV Import Row Validation")
             return "skipped", None
         except frappe.DuplicateEntryError as de:
-            error_log.append(f"Row {row.get('row_number', '?')}: Duplicate entry - {str(de)}")
+            skip_msg = f"Row {row.get('row_number', '?')}: Duplicate entry - {str(de)}"
+            error_log.append(skip_msg)
             frappe.log_error(f"Import duplicate error: {str(de)}", "CSV Import Duplicate")
             return "skipped", None
         except Exception as e:
-            error_log.append(f"Row {row.get('row_number', '?')}: Unexpected error - {str(e)}")
+            skip_msg = f"Row {row.get('row_number', '?')}: Unexpected error - {str(e)}"
+            error_log.append(skip_msg)
             frappe.log_error(f"Import unexpected error: {str(e)}", "CSV Import Unexpected Error")
             return "skipped", None
 
@@ -826,10 +441,38 @@ class MijnroodCSVImport(Document):
         self.members_updated = updated_count
         self.members_skipped = skipped_count
 
-        # Process user account creation if enabled
-        user_account_summary = ""
-        if self.create_user_accounts and processed_members:
-            user_account_summary = self._process_user_account_creation(processed_members)
+        # Bulk operations flag should already be set from _process_import
+        # Verify it's still set for the finalization phase
+        if not getattr(frappe.flags, "bulk_member_operations", False):
+            frappe.logger().warning(
+                f"[CSV IMPORT DEBUG] bulk_member_operations flag was NOT set during finalization - setting it now"
+            )
+            frappe.flags.bulk_member_operations = True
+        else:
+            frappe.logger().info(
+                f"[CSV IMPORT DEBUG] Confirmed bulk_member_operations flag still set during finalization"
+            )
+
+        try:
+            # Process bulk operations if enabled
+            user_account_summary = ""
+            if self.create_user_accounts and processed_members:
+                user_account_summary = self._process_user_account_creation(processed_members)
+
+            volunteer_summary = ""
+            if self.create_volunteer_records and processed_members:
+                volunteer_summary = self._process_bulk_volunteer_creation(processed_members)
+
+            chapter_summary = ""
+            if processed_members:
+                # Always assign chapters if members have addresses
+                chapter_summary = self._process_bulk_chapter_assignment(processed_members)
+        finally:
+            # Always clear the bulk operations flag
+            frappe.flags.bulk_member_operations = False
+            frappe.logger().info(
+                f"[CSV IMPORT DEBUG] Cleared bulk_member_operations flag at end of finalization"
+            )
 
         # Validate Mollie subscription data preservation
         mollie_validation_summary = ""
@@ -850,23 +493,40 @@ class MijnroodCSVImport(Document):
         if self.use_safe_optimization and created_count > 0:
             performance_report = f"\n\n{self._generate_performance_report()}"
 
-        self.import_summary = (
-            f"{base_summary}{user_account_summary}{mollie_validation_summary}{performance_report}"
-        )
+        self.import_summary = f"{base_summary}{user_account_summary}{volunteer_summary}{chapter_summary}{mollie_validation_summary}{performance_report}"
 
         if error_log:
             self.error_log = "\\n".join(error_log[:50])  # Limit error log size
 
+        # Reload to avoid timestamp mismatch from concurrent progress updates
+        self.reload()
         self.save()
 
     def _process_user_account_creation(self, processed_members: List[str]) -> str:
         """Queue bulk user account creation for successfully imported members using AccountCreationManager"""
         try:
-            frappe.logger().info("Queuing bulk account creation for %d members", len(processed_members))
+            # Filter to only include active members - skip inactive, terminated, or rejected members
+            active_members = [
+                member_name
+                for member_name in processed_members
+                if frappe.db.get_value("Member", member_name, "status") == "Active"
+            ]
+
+            if not active_members:
+                frappe.logger().info(
+                    "No active members to create accounts for (all are inactive/rejected/terminated)"
+                )
+                return ". No user accounts created (no active members)"
+
+            frappe.logger().info(
+                "Queuing bulk account creation for %d active members (filtered from %d total)",
+                len(active_members),
+                len(processed_members),
+            )
 
             # Use the secure AccountCreationManager bulk processing system
             result = queue_bulk_account_creation_for_members(
-                member_names=processed_members,
+                member_names=active_members,  # Only create accounts for active members
                 roles=["Verenigingen Member"],
                 role_profile="Verenigingen Member",
                 batch_size=50,  # Process in batches of 50
@@ -944,6 +604,97 @@ class MijnroodCSVImport(Document):
             frappe.log_error(frappe.get_traceback(), "Mijnrood Bulk Account Creation Error")
             frappe.logger().error(error_msg)
             return f". User account creation failed: {str(e)}"
+
+    def _process_bulk_volunteer_creation(self, processed_members: List[str]) -> str:
+        """Create volunteer records in bulk for successfully imported members"""
+        try:
+            from verenigingen.utils.bulk_volunteer_creation import bulk_create_volunteers_for_members
+
+            # Filter to only include active members
+            active_members = [
+                member_name
+                for member_name in processed_members
+                if frappe.db.get_value("Member", member_name, "status") == "Active"
+            ]
+
+            if not active_members:
+                frappe.logger().info("No active members to create volunteers for")
+                return ". No volunteer records created (no active members)"
+
+            frappe.logger().info(
+                f"Creating volunteers for {len(active_members)} active members (filtered from {len(processed_members)} total)"
+            )
+
+            result = bulk_create_volunteers_for_members(member_names=active_members, batch_size=100)
+
+            summary_parts = []
+            if result.get("created", 0) > 0:
+                summary_parts.append(f"{result['created']} volunteers created")
+
+            if result.get("skipped", 0) > 0:
+                summary_parts.append(f"{result['skipped']} skipped")
+
+            if result.get("errors"):
+                summary_parts.append(f"{len(result['errors'])} errors")
+                frappe.logger().warning(f"Volunteer creation errors: {result['errors'][:5]}")
+
+            if summary_parts:
+                return f". Volunteers: {', '.join(summary_parts)}"
+            else:
+                return ". No volunteer records created"
+
+        except Exception as e:
+            error_msg = f"Error during bulk volunteer creation: {str(e)}"
+            frappe.log_error(frappe.get_traceback(), "Mijnrood Bulk Volunteer Creation Error")
+            frappe.logger().error(error_msg)
+            return f". Volunteer creation failed: {str(e)}"
+
+    def _process_bulk_chapter_assignment(self, processed_members: List[str]) -> str:
+        """Assign members to chapters in bulk based on postal codes"""
+        try:
+            from verenigingen.utils.bulk_chapter_assignment import bulk_assign_members_with_addresses
+
+            # Filter to only include active members
+            active_members = [
+                member_name
+                for member_name in processed_members
+                if frappe.db.get_value("Member", member_name, "status") == "Active"
+            ]
+
+            if not active_members:
+                frappe.logger().info("No active members to assign to chapters")
+                return ". No chapter assignments (no active members)"
+
+            frappe.logger().info(
+                f"Assigning chapters for {len(active_members)} active members (filtered from {len(processed_members)} total)"
+            )
+
+            result = bulk_assign_members_with_addresses(member_names=active_members, batch_size=200)
+
+            summary_parts = []
+            if result.get("assigned", 0) > 0:
+                summary_parts.append(f"{result['assigned']} members assigned")
+
+            if result.get("chapters_updated"):
+                summary_parts.append(f"{len(result['chapters_updated'])} chapters updated")
+
+            if result.get("skipped", 0) > 0:
+                summary_parts.append(f"{result['skipped']} skipped")
+
+            if result.get("errors"):
+                summary_parts.append(f"{len(result['errors'])} errors")
+                frappe.logger().warning(f"Chapter assignment errors: {result['errors'][:5]}")
+
+            if summary_parts:
+                return f". Chapters: {', '.join(summary_parts)}"
+            else:
+                return ". No chapter assignments"
+
+        except Exception as e:
+            error_msg = f"Error during bulk chapter assignment: {str(e)}"
+            frappe.log_error(frappe.get_traceback(), "Mijnrood Bulk Chapter Assignment Error")
+            frappe.logger().error(error_msg)
+            return f". Chapter assignment failed: {str(e)}"
 
     def _validate_mollie_data_preservation(self, processed_members: List[str]) -> List[str]:
         """Validate that Mollie subscription data was properly preserved during import"""
@@ -1023,6 +774,15 @@ class MijnroodCSVImport(Document):
         if existing_member:
             # Update existing member
             member = frappe.get_doc("Member", existing_member)
+
+            # Log which member was updated and why (add to error_log as informational message)
+            match_reason = "member_id" if row_data.get("member_id") else "email"
+            match_value = row_data.get("member_id") if row_data.get("member_id") else row_data.get("email")
+
+            frappe.logger().info(
+                f"Updating existing member {member.name} (matched by {match_reason}: {match_value})"
+            )
+
             self._update_member_fields(member, row_data)
             member.save()
 
@@ -1069,6 +829,14 @@ class MijnroodCSVImport(Document):
         # Save member with safe optimizations applied automatically via before_save() hook
         member.insert()
 
+        # CRITICAL: Add member to bulk import tracking set IMMEDIATELY after insert
+        # This prevents race conditions if member is reloaded/saved during approval workflow
+        if hasattr(frappe.local, "bulk_import_members"):
+            frappe.local.bulk_import_members.add(member.name)
+        else:
+            # Tracking set should have been initialized by processor - log warning if missing
+            frappe.logger().warning(f"bulk_import_members not initialized when creating {member.name}")
+
         # Record performance metrics for optimization feedback
         creation_time = time.time() - start_time
         if hasattr(self, "_performance_metrics"):
@@ -1109,18 +877,35 @@ class MijnroodCSVImport(Document):
         member_doc.application_id = None  # Explicitly ensure no application ID
         member_doc.application_status = "Approved"  # Backend-created = pre-approved
 
-        # Set status based on membership type
+        # Set status based on membership type (Lidmaatschapstype from CSV)
         membership_type = row_data.get("membership_type", "").lower()
-        if membership_type in ["lid", "aspirant"]:
+        if membership_type in ["lid", "standard", "aspirant"]:
             member_doc.status = "Active"
-        elif membership_type in ["uitgeschreven", "opgezegd"]:
+            member_doc.application_status = "Approved"
+            # Mark as aspirant if membership type is "aspirant"
+            if membership_type == "aspirant":
+                member_doc.is_aspirant = 1
+            else:
+                member_doc.is_aspirant = 0
+        elif membership_type == "overleden":
+            member_doc.status = "Deceased"
+            member_doc.application_status = "Approved"  # Was approved before passing
+        elif membership_type in ["opgezegd", "terminated", "uitgeschreven"]:
             member_doc.status = "Terminated"
-        elif membership_type == "geroyeerd":
+            member_doc.application_status = "Approved"  # Was approved, then terminated
+        elif membership_type in ["geroyeerd", "expelled"]:
             member_doc.status = "Banned"
+            member_doc.application_status = "Approved"  # Was approved, then banned
+        elif membership_type == "dubbel":
+            # Duplicate entries should be marked as rejected
+            member_doc.status = "Rejected"
+            member_doc.application_status = "Rejected"
         elif membership_type == "geschorst":
             member_doc.status = "Suspended"
+            member_doc.application_status = "Approved"  # Was approved, then suspended
         else:
             member_doc.status = "Active"  # Default for unknown types
+            member_doc.application_status = "Approved"
 
         # Set system flags early to ensure they're available during all validations
         member_doc._system_update = True  # Bypass fee override validation
@@ -1163,14 +948,39 @@ class MijnroodCSVImport(Document):
         if row_data.get("iban"):
             member_doc.iban = row_data["iban"]
             member_doc.payment_method = "SEPA Direct Debit"
-        if row_data.get("dues_rate"):
-            # Set dues_rate - CSV import flag will handle validation bypass
-            member_doc.dues_rate = row_data["dues_rate"]
+
+        # Handle dues rate - distinguish between missing (None) and zero (free membership)
+        dues_rate = None
+        if "dues_rate" in row_data:
+            dues_rate = row_data["dues_rate"]
+            # Only look up membership type rate if dues_rate is None or empty string
+            # Do NOT replace explicit zero (which means free membership)
+            if dues_rate is None or (isinstance(dues_rate, str) and not dues_rate.strip()):
+                # Missing or empty - look up membership type's minimum rate
+                membership_type = self._determine_membership_type(row_data)
+                try:
+                    mt_doc = frappe.get_doc("Membership Type", membership_type)
+                    dues_rate = mt_doc.minimum_amount
+                    frappe.logger().info(
+                        f"Using membership type '{membership_type}' minimum amount: {dues_rate} for member"
+                    )
+                except frappe.DoesNotExistError:
+                    # Membership type doesn't exist - shouldn't happen with proper _determine_membership_type
+                    frappe.logger().error(
+                        f"Membership type '{membership_type}' not found - configuration error"
+                    )
+                    dues_rate = None
+            # else: Use the explicit value from CSV (including 0 for free memberships)
+
+        if dues_rate is not None:
             # Store data for creating membership dues schedule after member creation
+            # Don't set member.dues_rate here - it will be set by the dues schedule creation
             member_doc._pending_dues_schedule_data = {
-                "dues_rate": row_data["dues_rate"],
+                "dues_rate": dues_rate,
                 "payment_period": row_data.get("payment_period"),
-                "override_reason": "Import from mijnrood",
+                "override_reason": "Imported from CSV with custom rate"
+                if row_data.get("dues_rate")
+                else "Default membership type rate",
             }
 
         # Store Mollie information for later - will be set on Customer record
@@ -1193,8 +1003,17 @@ class MijnroodCSVImport(Document):
             else None
         )
 
-        # Store termination information for later creation if member is terminated
-        if membership_type in ["uitgeschreven", "opgezegd", "geroyeerd", "geschorst"]:
+        # Store termination information for later creation if member is terminated/deceased/banned
+        if membership_type in [
+            "opgezegd",
+            "terminated",
+            "uitgeschreven",
+            "geroyeerd",
+            "expelled",
+            "geschorst",
+            "overleden",
+            "deceased",
+        ]:
             member_doc._pending_termination_data = {
                 "membership_type": membership_type,
                 "member_since": row_data.get("member_since"),
@@ -1203,9 +1022,13 @@ class MijnroodCSVImport(Document):
 
         # Handle chapter assignment if chapter is provided
         if row_data.get("chapter"):
-            chapter_name = str(row_data["chapter"]).strip()
-            # Store chapter information for later creation (after member is saved and has a name)
-            member_doc._pending_chapter_assignment = chapter_name
+            chapter_raw = str(row_data["chapter"]).strip()
+            # Sanitize chapter name - remove any non-numeric characters except spaces and hyphens
+            # Chapter names can be like "56" or "Amsterdam" or "56 - Amsterdam"
+            chapter_name = chapter_raw.rstrip("*").strip()  # Remove trailing asterisks and whitespace
+            if chapter_name:  # Only assign if we have something left after sanitization
+                # Store chapter information for later creation (after member is saved and has a name)
+                member_doc._pending_chapter_assignment = chapter_name
 
         # Set member_since date (status was already set at the beginning of _update_member_fields)
         member_doc.member_since = row_data.get("member_since") or today()
@@ -1260,25 +1083,94 @@ class MijnroodCSVImport(Document):
                 }
             )
 
-        # Check if address already exists
-        if member_doc.primary_address:
-            address = frappe.get_doc("Address", member_doc.primary_address)
+        # Check if address already exists for this member
+        existing_address = None
+
+        if member_doc.primary_address and frappe.db.exists("Address", member_doc.primary_address):
+            # Update existing primary address
+            existing_address = frappe.get_doc("Address", member_doc.primary_address)
+            frappe.logger().info(
+                f"Updating existing primary address {existing_address.name} for member {member_doc.name}"
+            )
+        else:
+            # Search for matching address by full content (street, city, postal code)
+            matching_addresses = frappe.get_all(
+                "Address",
+                filters={
+                    "address_line1": address_line1,
+                    "city": city,
+                    "pincode": address_data["pincode"],
+                    "country": address_data["country"],
+                },
+                fields=["name"],
+                limit=1,
+            )
+
+            if matching_addresses:
+                # Found identical address - link to it instead of creating duplicate
+                existing_address = frappe.get_doc("Address", matching_addresses[0].name)
+                frappe.logger().info(
+                    f"Found matching address {existing_address.name} for member {member_doc.name}, linking instead of creating duplicate"
+                )
+                member_doc.primary_address = existing_address.name
+
+        if existing_address:
+            # Update existing address fields
             for field, value in address_data.items():
                 if field != "links" and value:
-                    setattr(address, field, value)
-            address.save()
+                    setattr(existing_address, field, value)
+
+            # Ensure member is linked to the address
+            member_linked = any(
+                link.link_doctype == "Member" and link.link_name == member_doc.name
+                for link in (existing_address.links or [])
+            )
+            if not member_linked:
+                existing_address.append(
+                    "links",
+                    {
+                        "link_doctype": "Member",
+                        "link_name": member_doc.name,
+                        "link_title": member_doc.full_name
+                        or f"{member_doc.first_name} {member_doc.last_name}",
+                    },
+                )
+
+            # Ensure customer is linked if exists
+            if member_doc.customer:
+                customer_linked = any(
+                    link.link_doctype == "Customer" and link.link_name == member_doc.customer
+                    for link in (existing_address.links or [])
+                )
+                if not customer_linked:
+                    existing_address.append(
+                        "links",
+                        {
+                            "link_doctype": "Customer",
+                            "link_name": member_doc.customer,
+                            "link_title": f"{member_doc.first_name} {member_doc.last_name}",
+                        },
+                    )
+
+            existing_address.save()
         else:
+            # Create new address
             address = frappe.get_doc({"doctype": "Address", **address_data})
             address.insert()
             member_doc.primary_address = address.name
+            frappe.logger().info(f"Created new address {address.name} for member {member_doc.name}")
 
     def _get_termination_reason(self, membership_type: str) -> str:
         """Get human-readable termination reason from membership type."""
         reason_mapping = {
             "uitgeschreven": "Voluntarily left membership",
-            "opgezegd": "Membership cancelled/terminated",
-            "geroyeerd": "Expelled from organization",
+            "opgezegd": "Membership cancelled/terminated voluntarily",
+            "terminated": "Membership terminated",
+            "geroyeerd": "Expelled from organization for cause",
+            "expelled": "Expelled from organization",
             "geschorst": "Membership suspended",
+            "overleden": "Member deceased",
+            "deceased": "Member deceased",
         }
         return reason_mapping.get(membership_type, f"Terminated ({membership_type})")
 
@@ -1359,13 +1251,62 @@ class MijnroodCSVImport(Document):
             if hasattr(member_doc, "_pending_chapter_assignment"):
                 self._assign_member_to_chapter(member_doc, member_doc._pending_chapter_assignment)
 
-            # Create dues schedule if dues data was provided
-            if hasattr(member_doc, "_pending_dues_schedule_data"):
-                self._create_dues_schedule_from_import(member_doc, member_doc._pending_dues_schedule_data)
+            # Create membership and dues schedule for active members only
+            # Use the Member's built-in method to ensure consistency with approval workflow
+            if member_doc.status == "Active" and hasattr(member_doc, "_pending_dues_schedule_data"):
+                # Check if member already has an active membership (skip if re-importing)
+                existing_membership = frappe.db.exists(
+                    "Membership", {"member": member_doc.name, "status": "Active", "docstatus": 1}
+                )
 
-            # Create membership record with appropriate type
-            if row_data and (row_data.get("payment_period") or row_data.get("membership_type")):
-                self._create_membership_from_import(member_doc, row_data)
+                if existing_membership:
+                    frappe.logger().info(
+                        f"Member {member_doc.name} already has active membership {existing_membership}, skipping creation"
+                    )
+                else:
+                    # Set the membership type from CSV data or fallback to settings default
+                    membership_type = (
+                        self._determine_membership_type(row_data)
+                        if row_data
+                        else self._determine_membership_type(None)
+                    )
+                    member_doc.selected_membership_type = membership_type
+
+                    # Call the Member's create_membership_on_approval method
+                    # This will create both the Membership record and trigger the Membership's
+                    # on_submit hook which creates the dues schedule from the membership type template
+                    frappe.logger().info(
+                        f"[CSV IMPORT DEBUG] Calling create_membership_on_approval for {member_doc.name}, "
+                        f"bulk_member_operations={getattr(frappe.flags, 'bulk_member_operations', 'NOT SET')}"
+                    )
+                    member_doc.create_membership_on_approval()
+
+                    # Now apply custom rate from CSV if provided
+                    if hasattr(member_doc, "_pending_dues_schedule_data"):
+                        dues_data = member_doc._pending_dues_schedule_data
+                        # Get the dues schedule that was just created
+                        if member_doc.current_dues_schedule:
+                            schedule = frappe.get_doc(
+                                "Membership Dues Schedule", member_doc.current_dues_schedule
+                            )
+                            # Override with CSV rate and reason
+                            schedule.dues_rate = dues_data["dues_rate"]
+                            schedule.uses_custom_amount = 1
+                            schedule.custom_amount_reason = dues_data["override_reason"]
+                            schedule.custom_amount_approved = 1
+                            schedule.custom_amount_approved_by = frappe.session.user
+                            schedule.custom_amount_approved_date = today()
+                            # Set CSV import flag to bypass workflows
+                            schedule._csv_import = True
+                            schedule.save()
+
+                            frappe.logger().info(
+                                f"Applied custom rate {dues_data['dues_rate']} to dues schedule for member {member_doc.name}"
+                            )
+
+                frappe.logger().info(
+                    f"Created membership and dues schedule for member {member_doc.name} via approval workflow"
+                )
 
         except Exception as e:
             # Log error but don't fail the entire member creation for related record issues
@@ -1383,10 +1324,20 @@ class MijnroodCSVImport(Document):
                 )
                 return
 
+            # Skip if member is already in a terminal state (Terminated, Banned)
+            if member_doc.status in ["Terminated", "Banned"]:
+                frappe.logger().info(
+                    f"Member {member_doc.name} already has status {member_doc.status}, skipping termination request"
+                )
+                return
+
             termination_doc = frappe.new_doc("Membership Termination Request")
             termination_doc.member = member_doc.name
             termination_doc.termination_reason = termination_data["termination_reason"]
-            termination_doc.termination_date = termination_data.get("member_since") or today()
+            # For imported terminated members, use today as both request and termination date
+            # since these are historical records
+            termination_doc.request_date = today()
+            termination_doc.termination_date = today()
             termination_doc.notes = (
                 f"Imported from CSV - Original type: {termination_data['membership_type']}"
             )
@@ -1426,64 +1377,31 @@ class MijnroodCSVImport(Document):
                     )
                     return
 
-            # Create chapter membership using proper parent.append() pattern
-            # Get chapter document and add member to its members child table
-            try:
-                chapter_doc = frappe.get_doc("Chapter", chapter_name)
+            # Use the centralized ChapterMembershipManager for proper assignment
+            result = ChapterMembershipManager.assign_member_to_chapter(
+                member_id=member_doc.name,
+                chapter_name=chapter_name,
+                reason=f"Imported from Mijnrood CSV (Import: {self.name})",
+                assigned_by=frappe.session.user,
+            )
 
-                # Check if member is already in the chapter
-                existing_membership = False
-                for existing_member in chapter_doc.members:
-                    if existing_member.member == member_doc.name and existing_member.enabled:
-                        existing_membership = True
-                        break
-
-                if not existing_membership:
-                    # Add member to chapter's members child table
-                    chapter_doc.append(
-                        "members",
-                        {
-                            "member": member_doc.name,
-                            "enabled": 1,
-                            "status": "Active",
-                            "chapter_join_date": member_doc.member_since or today(),
-                        },
-                    )
-                    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                    from verenigingen.utils.secure_operations import secure_document_operation
-
-                    chapter_save_result = secure_document_operation(
-                        operation="save",
-                        doc=chapter_doc,
-                        justification=f"Assign member {member_doc.name} to chapter {chapter_name} during Mijnrood import",
-                        required_permissions=["Chapter:write"],
-                    )
-
-                    if not chapter_save_result.success:
-                        frappe.logger().error(
-                            f"Failed to assign member to chapter during import: {'; '.join(chapter_save_result.errors)}"
-                        )
-                        # Don't throw here as this is import processing, just log the error
-                    frappe.logger().info(
-                        f"Successfully assigned member {member_doc.name} to chapter {chapter_name}"
-                    )
-                else:
-                    frappe.logger().info(
-                        "Member %s already exists in chapter %s", member_doc.name, chapter_name
-                    )
-            except Exception as e:
-                frappe.logger().warning(
-                    f"Could not assign member {member_doc.name} to chapter {chapter_name}: {str(e)}"
-                )
-            else:
+            if result.get("success"):
                 frappe.logger().info(
-                    f"Member {member_doc.name} is already assigned to chapter {chapter_name}"
+                    f"Successfully assigned member {member_doc.name} to chapter {chapter_name}"
                 )
+            elif result.get("action") == "already_exists":
+                # Member already in chapter - this is fine, not an error
+                frappe.logger().info(f"Member {member_doc.name} already assigned to chapter {chapter_name}")
+            else:
+                error_msg = (
+                    result.get("error") or result.get("message") or "Unknown error - check result for details"
+                )
+                full_error = f"Failed to assign member {member_doc.name} to chapter {chapter_name}: {error_msg}. Full result: {result}"
+                frappe.logger().error(full_error)
 
         except Exception as e:
-            frappe.logger().error(
-                f"Failed to assign member {member_doc.name} to chapter {chapter_name}: {str(e)}"
-            )
+            error_msg = f"Failed to assign member {member_doc.name} to chapter {chapter_name}: {str(e)}"
+            frappe.logger().error(error_msg)
             # Don't fail the entire import for chapter assignment issues
 
     def _create_dues_schedule_from_import(self, member_doc: Document, dues_data: dict):
@@ -1495,18 +1413,27 @@ class MijnroodCSVImport(Document):
             # Create dues schedule
             dues_schedule = frappe.new_doc("Membership Dues Schedule")
             dues_schedule.member = member_doc.name
-            dues_schedule.member_name = (
-                member_doc.full_name or f"{member_doc.first_name} {member_doc.last_name}"
-            )
+            member_full_name = member_doc.full_name or f"{member_doc.first_name} {member_doc.last_name}"
+            dues_schedule.member_name = member_full_name
+
+            # Generate schedule name: member name + sequence number
+            # Count existing schedules for this member to determine sequence
+            existing_count = frappe.db.count("Membership Dues Schedule", {"member": member_doc.name})
+            sequence_number = existing_count + 1
+            dues_schedule.schedule_name = f"{member_full_name} - {sequence_number}"
+
             # Get membership type from the row data context
-            membership_type_name = self._determine_membership_type(row_data) or "Standard"
+            membership_type_name = self._determine_membership_type(row_data)
             dues_schedule.membership_type = membership_type_name
             dues_schedule.dues_rate = dues_data["dues_rate"]
             dues_schedule.billing_frequency = billing_frequency
             dues_schedule.status = "Active"
             dues_schedule.is_active = 1
             dues_schedule.uses_custom_amount = 1
-            dues_schedule.custom_amount_reason = dues_data["override_reason"]
+            # Provide a default reason if none was given
+            dues_schedule.custom_amount_reason = (
+                dues_data.get("override_reason") or "Imported from CSV with custom rate"
+            )
             dues_schedule.custom_amount_approved = 1
             dues_schedule.custom_amount_approved_by = frappe.session.user
             dues_schedule.custom_amount_approved_date = today()
@@ -1624,8 +1551,8 @@ class MijnroodCSVImport(Document):
 
         # Check if we have specific membership types that match the payment period
         period_type_mapping = {
-            "maandelijks": "Standard",
-            "monthly": "Standard",
+            "maandelijks": "Monthly",
+            "monthly": "Monthly",
             "kwartaal": "Quarterly",
             "quarterly": "Quarterly",
             "halfjaar": "Semi-Annual",
@@ -1639,14 +1566,25 @@ class MijnroodCSVImport(Document):
         if suggested_type and self._validate_membership_type_exists(suggested_type):
             return suggested_type
 
-        # Default to Standard if available, otherwise first active membership type
-        if self._validate_membership_type_exists("Standard"):
-            return "Standard"
+        # Fallback to default membership type from Verenigingen Settings
+        settings = frappe.get_single("Verenigingen Settings")
+        if settings.default_membership_type and self._validate_membership_type_exists(
+            settings.default_membership_type
+        ):
+            return settings.default_membership_type
 
-        # Fallback: get any active membership type
+        # Final fallback: get any active membership type
         active_types = frappe.get_all("Membership Type", filters={"is_active": 1}, fields=["name"], limit=1)
 
-        return active_types[0].name if active_types else "Standard"
+        if active_types:
+            return active_types[0].name
+
+        # No membership types exist - this is a configuration error
+        frappe.throw(
+            _(
+                "No active Membership Types found. Please create at least one Membership Type before importing members."
+            )
+        )
 
     def _calculate_next_invoice_date(self, start_date: "datetime.date", billing_frequency: str) -> str:
         """Calculate next invoice date based on start date and billing frequency."""
@@ -1758,6 +1696,78 @@ class MijnroodCSVImport(Document):
         except Exception as e:
             frappe.logger().error("Failed to create chapter '%s': %s", chapter_name, str(e))
             return None
+
+    def _generate_performance_report(self):
+        """Generate performance optimization report for the import session"""
+        if not hasattr(self, "_performance_metrics") or not self._performance_metrics:
+            return ""
+
+        metrics = self._performance_metrics
+        total_members = len(metrics)
+
+        # Calculate optimization statistics
+        optimized_count = sum(1 for m in metrics if m["optimization_applied"])
+        avg_creation_time = sum(m["creation_time_ms"] for m in metrics) / total_members
+
+        optimization_breakdown = {
+            "meta_optimized": sum(1 for m in metrics if m["meta_optimized"]),
+            "link_optimized": sum(1 for m in metrics if m["link_optimized"]),
+            "fetch_optimized": sum(1 for m in metrics if m["fetch_optimized"]),
+            "child_optimized": sum(1 for m in metrics if m["child_optimized"]),
+        }
+
+        # Generate report
+        report_lines = [
+            "=== SAFE MEMBER OPTIMIZATION PERFORMANCE REPORT ===",
+            f"Total members processed: {total_members}",
+            f"Safe optimization enabled: {optimized_count}/{total_members} ({optimized_count / total_members * 100:.1f}%)",
+            f"Average member creation time: {avg_creation_time:.1f}ms",
+            "",
+            "Optimization component breakdown:",
+            f"  • Metadata caching applied: {optimization_breakdown['meta_optimized']}/{total_members} ({optimization_breakdown['meta_optimized'] / total_members * 100:.1f}%)",
+            f"  • Link field batching applied: {optimization_breakdown['link_optimized']}/{total_members} ({optimization_breakdown['link_optimized'] / total_members * 100:.1f}%)",
+            f"  • Fetch field caching applied: {optimization_breakdown['fetch_optimized']}/{total_members} ({optimization_breakdown['fetch_optimized'] / total_members * 100:.1f}%)",
+            f"  • Child table optimization applied: {optimization_breakdown['child_optimized']}/{total_members} ({optimization_breakdown['child_optimized'] / total_members * 100:.1f}%)",
+            "",
+        ]
+
+        # Add performance insights
+        if optimized_count > 0:
+            optimized_times = [m["creation_time_ms"] for m in metrics if m["optimization_applied"]]
+            unoptimized_times = [m["creation_time_ms"] for m in metrics if not m["optimization_applied"]]
+
+            if unoptimized_times:
+                optimized_avg = sum(optimized_times) / len(optimized_times)
+                unoptimized_avg = sum(unoptimized_times) / len(unoptimized_times)
+                improvement = ((unoptimized_avg - optimized_avg) / unoptimized_avg) * 100
+
+                report_lines.extend(
+                    [
+                        "Performance comparison:",
+                        f"  • With optimization: {optimized_avg:.1f}ms average",
+                        f"  • Without optimization: {unoptimized_avg:.1f}ms average",
+                        f"  • Performance improvement: {improvement:.1f}% faster",
+                        "",
+                    ]
+                )
+
+        # Add fastest/slowest member insights
+        fastest = min(metrics, key=lambda x: x["creation_time_ms"])
+        slowest = max(metrics, key=lambda x: x["creation_time_ms"])
+
+        report_lines.extend(
+            [
+                "Member creation time range:",
+                f"  • Fastest: {fastest['member_name']} ({fastest['creation_time_ms']}ms)",
+                f"  • Slowest: {slowest['member_name']} ({slowest['creation_time_ms']}ms)",
+                f"  • Time range: {slowest['creation_time_ms'] - fastest['creation_time_ms']:.1f}ms difference",
+                "",
+                "✅ Safe optimization system: No security bypasses, full validation maintained",
+                "🚀 Target achieved: ~20-25% query reduction through metadata caching and batching",
+            ]
+        )
+
+        return "\n".join(report_lines)
 
 
 @frappe.whitelist()
@@ -1893,74 +1903,79 @@ def get_import_template():
 
     return {"filename": "member_import_template.csv", "content": output.getvalue()}
 
-    def _generate_performance_report(self):
-        """Generate performance optimization report for the import session"""
-        if not hasattr(self, "_performance_metrics") or not self._performance_metrics:
-            return ""
 
-        metrics = self._performance_metrics
-        total_members = len(metrics)
+# Background Processing Functions
 
-        # Calculate optimization statistics
-        optimized_count = sum(1 for m in metrics if m["optimization_applied"])
-        avg_creation_time = sum(m["creation_time_ms"] for m in metrics) / total_members
 
-        optimization_breakdown = {
-            "meta_optimized": sum(1 for m in metrics if m["meta_optimized"]),
-            "link_optimized": sum(1 for m in metrics if m["link_optimized"]),
-            "fetch_optimized": sum(1 for m in metrics if m["fetch_optimized"]),
-            "child_optimized": sum(1 for m in metrics if m["child_optimized"]),
-        }
+@frappe.whitelist()
+def process_import_background(import_doc_name: str):
+    """
+    Background job function to process member CSV import.
 
-        # Generate report
-        report_lines = [
-            "=== SAFE MEMBER OPTIMIZATION PERFORMANCE REPORT ===",
-            f"Total members processed: {total_members}",
-            f"Safe optimization enabled: {optimized_count}/{total_members} ({optimized_count / total_members * 100:.1f}%)",
-            f"Average member creation time: {avg_creation_time:.1f}ms",
-            "",
-            "Optimization component breakdown:",
-            f"  • Metadata caching applied: {optimization_breakdown['meta_optimized']}/{total_members} ({optimization_breakdown['meta_optimized'] / total_members * 100:.1f}%)",
-            f"  • Link field batching applied: {optimization_breakdown['link_optimized']}/{total_members} ({optimization_breakdown['link_optimized'] / total_members * 100:.1f}%)",
-            f"  • Fetch field caching applied: {optimization_breakdown['fetch_optimized']}/{total_members} ({optimization_breakdown['fetch_optimized'] / total_members * 100:.1f}%)",
-            f"  • Child table optimization applied: {optimization_breakdown['child_optimized']}/{total_members} ({optimization_breakdown['child_optimized'] / total_members * 100:.1f}%)",
-            "",
-        ]
+    This function is called by the Redis queue system and processes the import
+    in batches to prevent timeouts and provide progress tracking.
 
-        # Add performance insights
-        if optimized_count > 0:
-            optimized_times = [m["creation_time_ms"] for m in metrics if m["optimization_applied"]]
-            unoptimized_times = [m["creation_time_ms"] for m in metrics if not m["optimization_applied"]]
+    Args:
+        import_doc_name: Name of the Mijnrood CSV Import document
+    """
+    # Mark this as a background job for scope-based rate limiting
+    frappe.flags.in_background_job = True
 
-            if unoptimized_times:
-                optimized_avg = sum(optimized_times) / len(optimized_times)
-                unoptimized_avg = sum(unoptimized_times) / len(unoptimized_times)
-                improvement = ((unoptimized_avg - optimized_avg) / unoptimized_avg) * 100
+    frappe.logger().info(f"Starting background import processing for {import_doc_name}")
 
-                report_lines.extend(
-                    [
-                        "Performance comparison:",
-                        f"  • With optimization: {optimized_avg:.1f}ms average",
-                        f"  • Without optimization: {unoptimized_avg:.1f}ms average",
-                        f"  • Performance improvement: {improvement:.1f}% faster",
-                        "",
-                    ]
-                )
+    try:
+        # Load the import document
+        import_doc = frappe.get_doc("Mijnrood CSV Import", import_doc_name)
 
-        # Add fastest/slowest member insights
-        fastest = min(metrics, key=lambda x: x["creation_time_ms"])
-        slowest = max(metrics, key=lambda x: x["creation_time_ms"])
+        # Read and validate CSV data
+        csv_data = import_doc._read_csv_file()
+        mapped_data, validation_errors = import_doc._validate_and_map_data(csv_data)
 
-        report_lines.extend(
-            [
-                "Member creation time range:",
-                f"  • Fastest: {fastest['member_name']} ({fastest['creation_time_ms']}ms)",
-                f"  • Slowest: {slowest['member_name']} ({slowest['creation_time_ms']}ms)",
-                f"  • Time range: {slowest['creation_time_ms'] - fastest['creation_time_ms']:.1f}ms difference",
-                "",
-                "✅ Safe optimization system: No security bypasses, full validation maintained",
-                "🚀 Target achieved: ~20-25% query reduction through metadata caching and batching",
-            ]
+        if validation_errors:
+            import_doc.import_status = "Failed"
+            import_doc.error_log = "\n".join(validation_errors)
+            import_doc.save(ignore_permissions=True)
+            frappe.db.commit()
+            frappe.logger().error(f"Import validation failed for {import_doc_name}")
+            return
+
+        # Create background processor
+        processor = CSVImportBackgroundProcessor(
+            import_doc_name=import_doc_name, doctype="Mijnrood CSV Import"
         )
 
-        return "\n".join(report_lines)
+        # Define row processing callback
+        def process_row(row: Dict, error_log: List[str]) -> tuple:
+            """Process a single member row."""
+            return import_doc._process_single_member(row, error_log)
+
+        # Define finalization callback
+        def finalize_import(
+            created_count: int,
+            updated_count: int,
+            skipped_count: int,
+            error_log: List[str],
+            processed_members: List[str],
+        ):
+            """Finalize the import with account creation and summaries."""
+            import_doc._finalize_import_results(
+                created_count, updated_count, skipped_count, error_log, processed_members
+            )
+
+        # Process the import in batches
+        result = processor.process_import(
+            data_rows=mapped_data,
+            process_row_callback=process_row,
+            finalize_callback=finalize_import,
+            batch_size=50,  # Process 50 members per batch
+            batch_commit=True,  # Commit after each batch
+        )
+
+        frappe.logger().info(f"Background import completed for {import_doc_name}: {result}")
+
+    except Exception as e:
+        frappe.logger().error(f"Background import failed for {import_doc_name}: {str(e)}")
+        frappe.log_error(
+            message=f"Background import failed: {str(e)}\n{traceback.format_exc()}",
+            title=f"CSV Import Background Job Failed: {import_doc_name}",
+        )
