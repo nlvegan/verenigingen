@@ -63,6 +63,11 @@
   "book_year_end_month",
   "book_year_end_day",
   "enable_sequential_coverage",
+  "csv_import_section",
+  "csv_monthly_membership_type",
+  "csv_quarterly_membership_type",
+  "csv_annual_membership_type",
+  "use_unified_membership_creation",
   "sepa_settings_tab",
   "financial_section",
   "company_account_holder",
@@ -416,6 +421,39 @@
    "fieldtype": "Datetime",
    "label": "Last Member History Refresh",
    "read_only": 1
+  },
+  {
+   "fieldname": "csv_import_section",
+   "fieldtype": "Section Break",
+   "label": "Mijnrood CSV Import Settings"
+  },
+  {
+   "description": "Membership type to use for CSV imports with monthly payment period (Maandelijks)",
+   "fieldname": "csv_monthly_membership_type",
+   "fieldtype": "Link",
+   "label": "CSV Monthly Membership Type",
+   "options": "Membership Type"
+  },
+  {
+   "description": "Membership type to use for CSV imports with quarterly payment period (Kwartaal)",
+   "fieldname": "csv_quarterly_membership_type",
+   "fieldtype": "Link",
+   "label": "CSV Quarterly Membership Type",
+   "options": "Membership Type"
+  },
+  {
+   "description": "Membership type to use for CSV imports with annual payment period (Jaarlijks)",
+   "fieldname": "csv_annual_membership_type",
+   "fieldtype": "Link",
+   "label": "CSV Annual Membership Type",
+   "options": "Membership Type"
+  },
+  {
+   "default": "0",
+   "description": "Enable unified membership creation path for CSV imports (uses Member.create_membership_on_approval() instead of legacy MembershipDuesHandler). Keep OFF during validation period.",
+   "fieldname": "use_unified_membership_creation",
+   "fieldtype": "Check",
+   "label": "Use Unified Membership Creation (BETA)"
   },
   {
    "description": "This chapter will be treated as the National Board with restricted access",
@@ -828,7 +866,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2025-09-29 23:11:28.328384",
+ "modified": "2025-10-07 17:34:19.151252",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Verenigingen Settings",

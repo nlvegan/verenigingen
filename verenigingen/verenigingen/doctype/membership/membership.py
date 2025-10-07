@@ -34,8 +34,20 @@ class Membership(Document):
 
     def create_or_update_dues_schedule(self):
         """Create or update the member's dues schedule with improved error handling"""
+        frappe.logger().info(
+            f"[DUES SCHEDULE] create_or_update_dues_schedule called for {self.name}, "
+            f"member={self.member}, status={self.status}"
+        )
         if not self.member or self.status != "Active":
+            frappe.logger().warning(
+                f"[DUES SCHEDULE] Skipping dues schedule creation: member={self.member}, status={self.status}"
+            )
             return
+
+        # Check if member has CSV import custom fee set (optimized query)
+        custom_fee, custom_fee_reason = frappe.db.get_value(
+            "Member", self.member, ["csv_import_custom_fee", "csv_import_custom_fee_reason"]
+        ) or (None, None)
 
         # Check if member already has a dues schedule
         existing_schedule = frappe.db.get_value(
@@ -73,9 +85,28 @@ class Membership(Document):
                     MembershipDuesSchedule,
                 )
 
-                schedule_name = MembershipDuesSchedule.create_from_template(
-                    self.member, membership_type=self.membership_type, membership_name=self.name
-                )
+                # Pass custom amount if CSV import fee is set (check for > 0, not just truthy)
+                kwargs = {"membership_type": self.membership_type, "membership_name": self.name}
+                if custom_fee and custom_fee > 0:
+                    kwargs["custom_amount"] = custom_fee
+                    kwargs["custom_amount_reason"] = custom_fee_reason or "Imported from CSV"
+                    kwargs["custom_amount_approved"] = 1  # Auto-approve for CSV imports
+
+                    # CRITICAL: Clear fields after use to prevent reuse on renewals
+                    frappe.logger().info(
+                        f"[DUES SCHEDULE] Clearing csv_import_custom_fee after use for member {self.member}"
+                    )
+                    frappe.db.set_value(
+                        "Member",
+                        self.member,
+                        {
+                            "csv_import_custom_fee": 0,  # Set to 0, not None (Currency field)
+                            "csv_import_custom_fee_reason": "",  # Set to empty string, not None
+                        },
+                        update_modified=False,
+                    )
+
+                schedule_name = MembershipDuesSchedule.create_from_template(self.member, **kwargs)
 
                 # Update member record with dues schedule link
                 member = frappe.get_doc("Member", self.member)
@@ -426,7 +457,17 @@ class Membership(Document):
                         frappe.flags[message_key] = True
 
                 if months:
-                    self.renewal_date = add_to_date(self.start_date, months=months)
+                    # For CSV imports with historic start_date, calculate renewal from today
+                    # to ensure Active status rather than Expired
+                    reference_date = self.start_date
+                    if getattr(self, "_is_csv_import", False) and getdate(self.start_date) < getdate(today()):
+                        reference_date = today()
+                        frappe.logger().info(
+                            f"[MEMBERSHIP] CSV import with historic start_date {self.start_date}, "
+                            f"calculating renewal_date from today: {reference_date}"
+                        )
+
+                    self.renewal_date = add_to_date(reference_date, months=months)
                 elif billing_period == "Daily":
                     # Handle daily period
                     if enforce_minimum:
@@ -449,7 +490,12 @@ class Membership(Document):
                 if enforce_minimum:
                     # For lifetime memberships, still set a minimum 1-year initial period
                     # This allows the 1-year cancellation rule to be enforced
-                    self.renewal_date = add_to_date(self.start_date, months=12)
+                    # For CSV imports with historic start_date, calculate from today
+                    reference_date = self.start_date
+                    if getattr(self, "_is_csv_import", False) and getdate(self.start_date) < getdate(today()):
+                        reference_date = today()
+
+                    self.renewal_date = add_to_date(reference_date, months=12)
                     # Only show message once per session and if renewal date is not already set
                     message_key = f"lifetime_message_{self.name or 'new'}"
                     if not frappe.flags.get(message_key) and not getattr(

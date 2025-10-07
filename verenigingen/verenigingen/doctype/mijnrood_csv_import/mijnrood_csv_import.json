@@ -7,6 +7,7 @@
   "editable_grid": 1,
   "engine": "InnoDB",
   "field_order": [
+    "settings_instructions",
     "naming_series",
     "csv_file",
     "encoding",
@@ -45,6 +46,12 @@
       "label": "Series",
       "options": "MEMBER-IMPORT-.YYYY.-",
       "reqd": 1
+    },
+    {
+      "fieldname": "settings_instructions",
+      "fieldtype": "HTML",
+      "label": "Configuration Required",
+      "options": "<div class=\"alert alert-warning\" style=\"margin-bottom: 15px;\">\n<h6><i class=\"fa fa-exclamation-triangle\"></i> Before Starting Import</h6>\n<p>Please configure the membership type mappings in <a href=\"/app/verenigingen-settings\" target=\"_blank\"><b>Verenigingen Settings</b></a>:</p>\n<ul>\n<li><b>CSV Monthly Membership Type</b> - Used for rows with \"Maandelijks\" payment period</li>\n<li><b>CSV Annual Membership Type</b> - Used for rows with \"Jaarlijks\" payment period</li>\n<li><b>CSV Quarterly Membership Type</b> (optional) - Used for rows with \"Kwartaal\" payment period</li>\n</ul>\n<p>The import will not start until these settings are configured.</p>\n</div>"
     },
     {
       "description": "Upload your CSV or Excel file with member data",

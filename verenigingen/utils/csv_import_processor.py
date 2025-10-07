@@ -91,7 +91,9 @@ class CSVImportBackgroundProcessor:
             updated_count = 0
             skipped_count = 0
             error_log = []
-            processed_records = []
+            created_records = []
+            updated_records = []
+            skipped_records = []
 
             total_rows = len(data_rows)
 
@@ -112,13 +114,15 @@ class CSVImportBackgroundProcessor:
                         if result == "created":
                             created_count += 1
                             if record_name:
-                                processed_records.append(record_name)
+                                created_records.append(record_name)
                         elif result == "updated":
                             updated_count += 1
                             if record_name:
-                                processed_records.append(record_name)
+                                updated_records.append(record_name)
                         else:
                             skipped_count += 1
+                            if record_name:
+                                skipped_records.append(record_name)
 
                     except Exception as e:
                         skipped_count += 1
@@ -138,7 +142,15 @@ class CSVImportBackgroundProcessor:
 
             # Finalize import
             if finalize_callback:
-                finalize_callback(created_count, updated_count, skipped_count, error_log, processed_records)
+                finalize_callback(
+                    created_count,
+                    updated_count,
+                    skipped_count,
+                    error_log,
+                    created_records,
+                    updated_records,
+                    skipped_records,
+                )
             else:
                 self._default_finalize(created_count, updated_count, skipped_count, error_log)
 

@@ -625,11 +625,27 @@ class Member(
         # Create membership - this should trigger the dues schedule logic
         return self.create_membership_on_approval()
 
-    def create_membership_on_approval(self):
-        """Create membership record when application is approved"""
+    def create_membership_on_approval(
+        self,
+        start_date=None,
+        create_invoice=True,
+        custom_dues_rate=None,
+        custom_rate_reason=None,
+        is_csv_import=False,
+    ):
+        """Create membership record when application is approved
+
+        Args:
+            start_date: Custom start date for membership (defaults to today)
+            create_invoice: Whether to create invoice (False for historic CSV imports)
+            custom_dues_rate: Custom dues rate for CSV imports (bypasses normal calculation)
+            custom_rate_reason: Reason for custom dues rate
+            is_csv_import: Flag indicating this is from CSV import with historic date
+        """
         frappe.logger().info(
             f"[MEMBER DEBUG] create_membership_on_approval called for {self.name}, "
-            f"bulk_member_operations={getattr(frappe.flags, 'bulk_member_operations', 'NOT SET')}"
+            f"bulk_member_operations={getattr(frappe.flags, 'bulk_member_operations', 'NOT SET')}, "
+            f"start_date={start_date}, create_invoice={create_invoice}, custom_dues_rate={custom_dues_rate}"
         )
         try:
             # Get membership type
@@ -638,52 +654,73 @@ class Member(
 
             membership_type = frappe.get_doc("Membership Type", self.selected_membership_type)
 
+            # Set custom dues rate on member if provided (for CSV imports)
+            if custom_dues_rate:
+                # Save to database immediately so membership.on_submit() can read it
+                frappe.db.set_value(
+                    "Member",
+                    self.name,
+                    {
+                        "csv_import_custom_fee": custom_dues_rate,
+                        "csv_import_custom_fee_reason": custom_rate_reason or "Imported from CSV",
+                    },
+                    update_modified=False,
+                )
+
             # Create membership record
             membership = frappe.get_doc(
                 {
                     "doctype": "Membership",
                     "member": self.name,
                     "membership_type": self.selected_membership_type,
-                    "start_date": today(),
+                    "start_date": start_date or today(),
                     "status": "Active",  # Active immediately on approval
                 }
             )
+
+            # Set CSV import flag for proper renewal_date calculation
+            if is_csv_import:
+                membership._is_csv_import = True
+
             membership.insert()
             membership.submit()  # Submit to make it fully active
 
             # Set this as the member's current membership plan
             self.current_membership_plan = membership.name
 
-            # Generate invoice with member's custom fee if applicable
-            from verenigingen.utils.application_payments import create_membership_invoice
+            # Generate invoice with member's custom fee if applicable (skip for CSV imports)
+            invoice = None
+            if create_invoice:
+                from verenigingen.utils.application_payments import create_membership_invoice
 
-            current_fee = self.get_current_membership_fee()
-            invoice = create_membership_invoice(self, membership, membership_type, current_fee["amount"])
+                current_fee = self.get_current_membership_fee()
+                invoice = create_membership_invoice(self, membership, membership_type, current_fee["amount"])
 
-            # Update member with invoice reference
-            # Reload to avoid timestamp mismatch
-            frappe.logger().info(
-                f"[MEMBER DEBUG] About to reload member {self.name} - this will wipe _csv_import flag. "
-                f"bulk_member_operations={getattr(frappe.flags, 'bulk_member_operations', 'NOT SET')}"
-            )
-            self.reload()
-            self.application_invoice = invoice.name
-            self.application_payment_status = "Pending"
-
-            # Handle concurrency with retry logic
-            frappe.logger().info(
-                f"[MEMBER DEBUG] About to save member {self.name} after approval, "
-                f"dues_rate={self.dues_rate}, "
-                f"bulk_member_operations={getattr(frappe.flags, 'bulk_member_operations', 'NOT SET')}"
-            )
-            try:
-                self.save()
-            except frappe.TimestampMismatchError:
-                # Reload member and retry save once
+            # Update member with invoice reference (only if invoice was created)
+            if invoice:
+                # Reload to avoid timestamp mismatch
+                frappe.logger().info(
+                    f"[MEMBER DEBUG] About to reload member {self.name} - this will wipe _csv_import flag. "
+                    f"bulk_member_operations={getattr(frappe.flags, 'bulk_member_operations', 'NOT SET')}"
+                )
                 self.reload()
                 self.application_invoice = invoice.name
                 self.application_payment_status = "Pending"
-                self.save()
+
+                # Handle concurrency with retry logic
+                frappe.logger().info(
+                    f"[MEMBER DEBUG] About to save member {self.name} after approval, "
+                    f"dues_rate={self.dues_rate}, "
+                    f"bulk_member_operations={getattr(frappe.flags, 'bulk_member_operations', 'NOT SET')}"
+                )
+                try:
+                    self.save()
+                except frappe.TimestampMismatchError:
+                    # Reload member and retry save once
+                    self.reload()
+                    self.application_invoice = invoice.name
+                    self.application_payment_status = "Pending"
+                    self.save()
 
             return membership
 
@@ -3435,6 +3472,10 @@ def set_member_user_modules(user_name):
 def check_donor_exists(member_name):
     """Check if a donor record exists for this member"""
     try:
+        # Check if member exists first to avoid DoesNotExistError noise
+        if not frappe.db.exists("Member", member_name):
+            return {"exists": False}
+
         member = frappe.get_doc("Member", member_name)
 
         # Check if donor record exists with matching email or member link

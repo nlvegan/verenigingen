@@ -105,6 +105,10 @@ class MemberManager(BaseManager):
             # Note: Primary chapter concept is handled through Chapter Member ordering
             # The first (most recent) chapter membership is considered primary
 
+            # Clean up stale member references before saving
+            # This prevents FK validation errors when members from previous imports were deleted
+            self._remove_stale_member_links()
+
             # Save chapter with concurrency handling
             try:
                 self.chapter_doc.save()
@@ -936,6 +940,35 @@ class MemberManager(BaseManager):
             frappe.throw(_("Unsupported export format: {0}").format(format))
 
     # Private helper methods
+
+    def _remove_stale_member_links(self):
+        """
+        Remove chapter member entries that reference deleted members.
+
+        When reusing chapters from previous imports, they may have member entries
+        pointing to members that were deleted by cleanup. These stale references
+        cause FK validation errors when trying to save the chapter.
+        """
+        if not hasattr(self.chapter_doc, "members") or not self.chapter_doc.members:
+            return
+
+        members_to_remove = []
+        for idx, member_entry in enumerate(self.chapter_doc.members):
+            # Check if the referenced member still exists
+            if member_entry.member and not frappe.db.exists("Member", member_entry.member):
+                frappe.logger().info(
+                    f"Removing stale member reference {member_entry.member} from chapter {self.chapter_name}"
+                )
+                members_to_remove.append(idx)
+
+        # Remove stale entries in reverse order to preserve indices
+        for idx in reversed(members_to_remove):
+            self.chapter_doc.members.pop(idx)
+
+        if members_to_remove:
+            frappe.logger().info(
+                f"Removed {len(members_to_remove)} stale member reference(s) from chapter {self.chapter_name}"
+            )
 
     def _find_chapter_member(self, member_id: str):
         """Find chapter member by ID"""

@@ -2303,7 +2303,15 @@ class MembershipDuesSchedule(Document):
             raise frappe.ValidationError(f"Could not create default template for {membership_type}: {str(e)}")
 
     @staticmethod
-    def create_from_template(member_name, template_name=None, membership_type=None, membership_name=None):
+    def create_from_template(
+        member_name,
+        template_name=None,
+        membership_type=None,
+        membership_name=None,
+        custom_amount=None,
+        custom_amount_reason=None,
+        custom_amount_approved=0,
+    ):
         """Create an individual dues schedule from a template
 
         Args:
@@ -2311,6 +2319,9 @@ class MembershipDuesSchedule(Document):
             template_name: Explicit template name to use (optional)
             membership_type: Membership type to get template from (optional)
             membership_name: Name of membership to link to (optional)
+            custom_amount: Custom dues amount for CSV imports (optional)
+            custom_amount_reason: Reason for custom amount (optional)
+            custom_amount_approved: Whether custom amount is pre-approved (optional)
 
         Note: Either template_name OR membership_type must be provided.
         If membership_type is provided, uses the explicit dues_schedule_template
@@ -2413,6 +2424,8 @@ class MembershipDuesSchedule(Document):
         member_doc = frappe.get_doc("Member", member_name)
         user_selected_rate = getattr(member_doc, "dues_rate", None)
 
+        # Priority 1: User-selected rate from application (MOST AUTHORITATIVE)
+        # User's explicit selection represents an active choice and should always win
         if user_selected_rate and user_selected_rate > 0:
             # User has selected a specific dues rate during application - preserve it
             schedule.dues_rate = user_selected_rate
@@ -2428,6 +2441,18 @@ class MembershipDuesSchedule(Document):
                     f"for {template.membership_type} membership (€{template_minimum:.2f}). "
                     f"Please contact support to resolve this discrepancy."
                 )
+        # Priority 2: CSV import custom amount (only if user didn't select)
+        # Historic data from imports, should not override active user choices
+        elif custom_amount and custom_amount > 0:
+            schedule.dues_rate = custom_amount
+            schedule.contribution_mode = "Custom"
+            schedule.uses_custom_amount = 1
+            schedule.custom_amount_reason = custom_amount_reason or "Imported from CSV"
+            schedule.custom_amount_approved = custom_amount_approved
+            frappe.logger().info(
+                f"[DUES SCHEDULE] Using CSV import custom amount: €{custom_amount:.2f} for member {member_name}"
+            )
+        # Priority 3: Template fallbacks
         else:
             # No user selection - use template's dues_rate as fallback
             template_dues_rate = getattr(template, "dues_rate", None)

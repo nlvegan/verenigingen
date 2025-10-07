@@ -68,17 +68,32 @@ def check_member_dues_status(period_start: str = None, period_end: str = None) -
     # Get total active members count
     total_active_members = frappe.db.count("Member", {"status": ["in", ["Active", "Pending", "Suspended"]]})
 
-    # Get members without any membership dues schedule (no active membership)
-    members_with_schedules = frappe.db.sql_list(
+    # Count active members without any Membership record (proper query)
+    members_without_membership = frappe.db.sql(
         """
-        SELECT DISTINCT member
-        FROM `tabMembership Dues Schedule`
-        WHERE member IS NOT NULL
+        SELECT COUNT(DISTINCT m.name)
+        FROM `tabMember` m
+        WHERE m.status IN ('Active', 'Pending', 'Suspended')
+        AND NOT EXISTS (
+            SELECT 1 FROM `tabMembership` mem
+            WHERE mem.member = m.name
+        )
     """
-    )
-    members_without_membership = (
-        total_active_members - len(members_with_schedules) if members_with_schedules else total_active_members
-    )
+    )[0][0]
+
+    # Count members with active Membership but no Dues Schedule
+    members_without_schedule = frappe.db.sql(
+        """
+        SELECT COUNT(DISTINCT mem.member)
+        FROM `tabMembership` mem
+        WHERE mem.member IS NOT NULL
+        AND mem.status = 'Active'
+        AND NOT EXISTS (
+            SELECT 1 FROM `tabMembership Dues Schedule` mds
+            WHERE mds.member = mem.member
+        )
+    """
+    )[0][0]
 
     # Build comprehensive response
     result = {
@@ -89,6 +104,7 @@ def check_member_dues_status(period_start: str = None, period_end: str = None) -
             "members_with_invoices": len(filtered_members.get("already_covered", [])),
             "members_missing_invoices": len(eligibility_result["eligible_schedules"]),
             "members_without_membership": members_without_membership,
+            "members_without_schedule": members_without_schedule,
             "invoice_breakdown": {
                 "draft_invoices": 0,  # Would require additional query
                 "submitted_invoices": 0,  # Would require additional query
@@ -419,6 +435,8 @@ def get_workflow_status() -> Dict:
                 "total_active_members": 0,
                 "members_with_invoices": 0,
                 "members_missing_invoices": 0,
+                "members_without_membership": 0,
+                "members_without_schedule": 0,
                 "sepa_eligible": 0,
             }
         }
@@ -431,6 +449,8 @@ def get_workflow_status() -> Dict:
             "total_active_members": members_status["summary"]["total_active_members"],
             "members_with_coverage": members_status["summary"]["members_with_invoices"],
             "members_missing_invoices": members_status["summary"]["members_missing_invoices"],
+            "members_without_membership": members_status["summary"]["members_without_membership"],
+            "members_without_schedule": members_status["summary"]["members_without_schedule"],
             "sepa_eligible": members_status["summary"]["sepa_eligible"],
         },
         "coverage_mismatches": mismatches,

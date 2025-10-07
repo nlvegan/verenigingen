@@ -37,7 +37,7 @@
         </div>
 
         <!-- Dashboard Cards -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 mb-8">
             <!-- Active Members -->
             <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-blue-500">
                 <div class="flex items-center mb-4">
@@ -76,6 +76,46 @@
                     </div>
                 </div>
                 <p class="text-sm text-gray-500">{{ _("Members needing invoices") }}</p>
+            </div>
+
+            <!-- Members Lacking Memberships -->
+            <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-red-500">
+                <div class="flex items-center mb-4">
+                    <div class="flex-shrink-0 bg-red-100 rounded-lg p-3">
+                        <i class="fa fa-user-slash text-2xl text-red-600"></i>
+                    </div>
+                    <div class="ml-4">
+                        <h3 class="text-sm font-medium text-gray-600">{{ _("Lacking Memberships") }}</h3>
+                        <p class="text-3xl font-bold text-gray-900" id="card-lacking-memberships">
+                            {% if workflow_status and workflow_status.members_analysis and workflow_status.members_analysis.members_without_membership %}
+                                {{ workflow_status.members_analysis.members_without_membership }}
+                            {% else %}
+                                --
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+                <p class="text-sm text-gray-500">{{ _("No membership record") }}</p>
+            </div>
+
+            <!-- Missing Dues Schedule -->
+            <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-purple-500">
+                <div class="flex items-center mb-4">
+                    <div class="flex-shrink-0 bg-purple-100 rounded-lg p-3">
+                        <i class="fa fa-calendar-times text-2xl text-purple-600"></i>
+                    </div>
+                    <div class="ml-4">
+                        <h3 class="text-sm font-medium text-gray-600">{{ _("Missing Billing") }}</h3>
+                        <p class="text-3xl font-bold text-gray-900" id="card-missing-schedule">
+                            {% if workflow_status and workflow_status.members_analysis and workflow_status.members_analysis.members_without_schedule %}
+                                {{ workflow_status.members_analysis.members_without_schedule }}
+                            {% else %}
+                                --
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+                <p class="text-sm text-gray-500">{{ _("Has membership, no billing") }}</p>
             </div>
 
             <!-- SEPA Ready -->
@@ -304,6 +344,16 @@ function updateDashboardCards(summary) {
     const missingCard = document.getElementById('card-missing-invoices');
     if (missingCard) {
         missingCard.textContent = summary.members_missing_invoices || 0;
+    }
+
+    const lackingCard = document.getElementById('card-lacking-memberships');
+    if (lackingCard) {
+        lackingCard.textContent = summary.members_without_membership || 0;
+    }
+
+    const missingScheduleCard = document.getElementById('card-missing-schedule');
+    if (missingScheduleCard) {
+        missingScheduleCard.textContent = summary.members_without_schedule || 0;
     }
 
     const sepaCard = document.getElementById('card-sepa-ready');

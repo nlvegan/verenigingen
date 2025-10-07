@@ -24,6 +24,7 @@ from verenigingen.utils.csv.data_transformers import (
     convert_membership_type,
     parse_date,
 )
+from verenigingen.utils.csv.membership_dues_handler import MembershipDuesHandler
 from verenigingen.utils.csv.secure_csv_parser import SecureCSVParser
 from verenigingen.utils.csv_import_processor import CSVImportBackgroundProcessor
 from verenigingen.utils.safe_member_optimizer import safe_member_optimizer
@@ -46,8 +47,35 @@ class MijnroodCSVImport(Document):
         if not getattr(self, "import_date", None):
             self.import_date = today()
 
+        # Validate CSV import membership type settings are configured
+        if self.docstatus == 1:  # On submit
+            self._validate_csv_import_settings()
+
         # Skip automatic CSV validation - make it manual only
         pass
+
+    def _validate_csv_import_settings(self):
+        """Validate that CSV import membership type settings are configured."""
+        settings = frappe.get_single("Verenigingen Settings")
+
+        missing_settings = []
+
+        if not settings.csv_monthly_membership_type:
+            missing_settings.append("CSV Monthly Membership Type")
+
+        if not settings.csv_annual_membership_type:
+            missing_settings.append("CSV Annual Membership Type")
+
+        if missing_settings:
+            frappe.throw(
+                _(
+                    "Cannot start CSV import. Please configure the following in Verenigingen Settings:<br><br>"
+                    "<b>{0}</b><br><br>"
+                    "Go to: <a href='/app/vereinigingen-settings'>Verenigingen Settings</a> → "
+                    "Mijnrood CSV Import Settings section"
+                ).format("<br>".join(f"• {s}" for s in missing_settings)),
+                title=_("Missing CSV Import Configuration"),
+            )
 
     def on_submit(self):
         """Queue the CSV import for background processing."""
@@ -227,12 +255,17 @@ class MijnroodCSVImport(Document):
         updated_count: int,
         skipped_count: int,
         error_log: List[str],
-        processed_members: List[str] = None,
+        created_members: List[str] = None,
+        updated_members: List[str] = None,
+        skipped_members: List[str] = None,
     ):
         """Finalize import results and update document status."""
         self.members_created = created_count
         self.members_updated = updated_count
         self.members_skipped = skipped_count
+
+        # Combine all members for bulk operations
+        processed_members = (created_members or []) + (updated_members or [])
 
         # Bulk operations flag should already be set from _process_import
         # Verify it's still set for the finalization phase
@@ -255,11 +288,6 @@ class MijnroodCSVImport(Document):
             volunteer_summary = ""
             if self.create_volunteer_records and processed_members:
                 volunteer_summary = self._process_bulk_volunteer_creation(processed_members)
-
-            chapter_summary = ""
-            if processed_members:
-                # Always assign chapters if members have addresses
-                chapter_summary = self._process_bulk_chapter_assignment(processed_members)
         finally:
             # Always clear the bulk operations flag
             frappe.flags.bulk_member_operations = False
@@ -286,7 +314,11 @@ class MijnroodCSVImport(Document):
         if self.use_safe_optimization and created_count > 0:
             performance_report = f"\n\n{self._generate_performance_report()}"
 
-        self.import_summary = f"{base_summary}{user_account_summary}{volunteer_summary}{chapter_summary}{mollie_validation_summary}{performance_report}"
+        self.import_summary = f"{base_summary}{user_account_summary}{volunteer_summary}{mollie_validation_summary}{performance_report}"
+
+        # Generate itemized member list in notes field
+        self.notes = self._generate_itemized_member_list(created_members, updated_members, skipped_members)
+        frappe.logger().info(f"Notes field set with itemized member lists")
 
         if error_log:
             self.error_log = "\\n".join(error_log[:50])  # Limit error log size
@@ -442,53 +474,6 @@ class MijnroodCSVImport(Document):
             frappe.logger().error(error_msg)
             return f". Volunteer creation failed: {str(e)}"
 
-    def _process_bulk_chapter_assignment(self, processed_members: List[str]) -> str:
-        """Assign members to chapters in bulk based on postal codes"""
-        try:
-            from verenigingen.utils.bulk_chapter_assignment import bulk_assign_members_with_addresses
-
-            # Filter to only include active members
-            active_members = [
-                member_name
-                for member_name in processed_members
-                if frappe.db.get_value("Member", member_name, "status") == "Active"
-            ]
-
-            if not active_members:
-                frappe.logger().info("No active members to assign to chapters")
-                return ". No chapter assignments (no active members)"
-
-            frappe.logger().info(
-                f"Assigning chapters for {len(active_members)} active members (filtered from {len(processed_members)} total)"
-            )
-
-            result = bulk_assign_members_with_addresses(member_names=active_members, batch_size=200)
-
-            summary_parts = []
-            if result.get("assigned", 0) > 0:
-                summary_parts.append(f"{result['assigned']} members assigned")
-
-            if result.get("chapters_updated"):
-                summary_parts.append(f"{len(result['chapters_updated'])} chapters updated")
-
-            if result.get("skipped", 0) > 0:
-                summary_parts.append(f"{result['skipped']} skipped")
-
-            if result.get("errors"):
-                summary_parts.append(f"{len(result['errors'])} errors")
-                frappe.logger().warning(f"Chapter assignment errors: {result['errors'][:5]}")
-
-            if summary_parts:
-                return f". Chapters: {', '.join(summary_parts)}"
-            else:
-                return ". No chapter assignments"
-
-        except Exception as e:
-            error_msg = f"Error during bulk chapter assignment: {str(e)}"
-            frappe.log_error(frappe.get_traceback(), "Mijnrood Bulk Chapter Assignment Error")
-            frappe.logger().error(error_msg)
-            return f". Chapter assignment failed: {str(e)}"
-
     def _validate_mollie_data_preservation(self, processed_members: List[str]) -> List[str]:
         """Validate that Mollie subscription data was properly preserved during import"""
         validation_issues = []
@@ -581,16 +566,11 @@ class MijnroodCSVImport(Document):
             member._system_update = True
             member.save()
 
-            # Update address if address data was provided
-            if hasattr(member, "_pending_address_data") and member._pending_address_data:
-                self._create_or_update_address(member, member._pending_address_data)
-                # Update primary_address field on member if address was created
-                if member.primary_address:
-                    # Mark as system update to skip fee override validation during CSV import
-                    member._system_update = True
-                    member.save()
+            # Commit member to DB before creating related records
+            # Required for FK validation when creating Address/Chapter Member links
+            frappe.db.commit()
 
-            # Update/create dues schedule and membership if data was provided
+            # Update/create related records (address, dues schedule, membership, etc.)
             self._create_related_records(member, row_data)
 
             return "updated", member.name
@@ -625,6 +605,10 @@ class MijnroodCSVImport(Document):
 
         # Save member with safe optimizations applied automatically via before_save() hook
         member.insert()
+
+        # Commit member to DB before creating related records
+        # Required for FK validation when creating Address/Chapter Member links
+        frappe.db.commit()
 
         # CRITICAL: Add member to bulk import tracking set IMMEDIATELY after insert
         # This prevents race conditions if member is reloaded/saved during approval workflow
@@ -909,6 +893,10 @@ class MijnroodCSVImport(Document):
                 frappe.logger().info(
                     f"Found matching address {existing_address.name} for member {member_doc.name}, linking instead of creating duplicate"
                 )
+
+                # Clean up stale links to deleted members before reusing this address
+                self._remove_stale_address_links(existing_address)
+
                 member_doc.primary_address = existing_address.name
 
         if existing_address:
@@ -916,6 +904,9 @@ class MijnroodCSVImport(Document):
             for field, value in address_data.items():
                 if field != "links" and value:
                     setattr(existing_address, field, value)
+
+            # Set as primary address on member
+            member_doc.primary_address = existing_address.name
 
             # Ensure member is linked to the address
             member_linked = any(
@@ -1026,8 +1017,43 @@ class MijnroodCSVImport(Document):
                 f"Failed to update Customer with Mollie data for Member {member_doc.name}: {str(e)}"
             )
 
+    def _remove_stale_address_links(self, address_doc: Document):
+        """
+        Remove links to deleted members/customers from an address.
+
+        When reusing addresses from previous imports, they may have links to members
+        that were deleted by cleanup. These stale links cause FK validation errors
+        when trying to save the address with new links.
+        """
+        if not hasattr(address_doc, "links") or not address_doc.links:
+            return
+
+        links_to_remove = []
+        for idx, link in enumerate(address_doc.links):
+            # Check if linked record exists
+            if link.link_doctype and link.link_name:
+                if not frappe.db.exists(link.link_doctype, link.link_name):
+                    frappe.logger().info(
+                        f"Removing stale link to {link.link_doctype} {link.link_name} from address {address_doc.name}"
+                    )
+                    links_to_remove.append(idx)
+
+        # Remove stale links in reverse order to preserve indices
+        for idx in reversed(links_to_remove):
+            address_doc.links.pop(idx)
+
+        if links_to_remove:
+            frappe.logger().info(
+                f"Removed {len(links_to_remove)} stale link(s) from address {address_doc.name}"
+            )
+
     def _create_related_records(self, member_doc: Document, row_data: Dict = None):
         """Create related records (address, termination) after successful member creation."""
+        frappe.log_error(
+            f"DEBUG: _create_related_records called for {member_doc.name}, status={member_doc.status}, "
+            f"has_dues_data={hasattr(member_doc, '_pending_dues_schedule_data')}",
+            "CSV Import Debug",
+        )
         try:
             # Update Customer with Mollie data if present
             if hasattr(member_doc, "_mollie_data") and member_doc._mollie_data:
@@ -1050,6 +1076,12 @@ class MijnroodCSVImport(Document):
             if hasattr(member_doc, "_pending_chapter_assignment"):
                 self._assign_member_to_chapter(member_doc, member_doc._pending_chapter_assignment)
 
+            frappe.log_error(
+                f"DEBUG: Reached membership creation section for {member_doc.name}, "
+                f"status={member_doc.status}, has_dues={hasattr(member_doc, '_pending_dues_schedule_data')}",
+                "CSV Import Debug - Pre Membership",
+            )
+
             # Create membership and dues schedule for active members only
             # Use the Member's built-in method to ensure consistency with approval workflow
             if member_doc.status == "Active" and hasattr(member_doc, "_pending_dues_schedule_data"):
@@ -1063,45 +1095,40 @@ class MijnroodCSVImport(Document):
                         f"Member {member_doc.name} already has active membership {existing_membership}, skipping creation"
                     )
                 else:
-                    # Set the membership type from CSV data or fallback to settings default
-                    membership_type = (
-                        self._determine_membership_type(row_data)
-                        if row_data
-                        else self._determine_membership_type(None)
+                    frappe.log_error(
+                        f"DEBUG: About to create membership for {member_doc.name}",
+                        "CSV Import Debug - Creating Membership",
                     )
-                    member_doc.selected_membership_type = membership_type
 
-                    # Call the Member's create_membership_on_approval method
-                    # This will create both the Membership record and trigger the Membership's
-                    # on_submit hook which creates the dues schedule from the membership type template
+                    # For CSV imports, create membership and dues schedule WITHOUT initial invoice
+                    # Historical members may have joined years ago with different rates, so we can't
+                    # accurately create a catch-up invoice. Just set up the dues schedule for future billing.
+
                     frappe.logger().info(
-                        f"[CSV IMPORT DEBUG] Calling create_membership_on_approval for {member_doc.name}, "
-                        f"bulk_member_operations={getattr(frappe.flags, 'bulk_member_operations', 'NOT SET')}"
+                        f"Creating membership for {member_doc.name}, has_dues_data: {hasattr(member_doc, '_pending_dues_schedule_data')}"
                     )
-                    member_doc.create_membership_on_approval()
 
-                    # Now apply custom rate from CSV if provided
-                    if hasattr(member_doc, "_pending_dues_schedule_data"):
+                    # Create membership record using handler (skips invoice creation)
+                    membership_name = self._create_membership_from_import(member_doc, row_data)
+                    frappe.logger().info(f"Membership creation result: {membership_name}")
+
+                    # Create dues schedule with custom CSV rate if provided
+                    if membership_name and hasattr(member_doc, "_pending_dues_schedule_data"):
                         dues_data = member_doc._pending_dues_schedule_data
-                        # Get the dues schedule that was just created
-                        if member_doc.current_dues_schedule:
-                            schedule = frappe.get_doc(
-                                "Membership Dues Schedule", member_doc.current_dues_schedule
-                            )
-                            # Override with CSV rate and reason
-                            schedule.dues_rate = dues_data["dues_rate"]
-                            schedule.uses_custom_amount = 1
-                            schedule.custom_amount_reason = dues_data["override_reason"]
-                            schedule.custom_amount_approved = 1
-                            schedule.custom_amount_approved_by = frappe.session.user
-                            schedule.custom_amount_approved_date = today()
-                            # Set CSV import flag to bypass workflows
-                            schedule._csv_import = True
-                            schedule.save()
+                        frappe.logger().info(
+                            f"Creating dues schedule with rate: {dues_data.get('dues_rate')}"
+                        )
+                        self._create_dues_schedule_from_import(member_doc, dues_data, row_data)
 
-                            frappe.logger().info(
-                                f"Applied custom rate {dues_data['dues_rate']} to dues schedule for member {member_doc.name}"
-                            )
+                        frappe.logger().info(
+                            f"Created membership {membership_name} and dues schedule for {member_doc.name} "
+                            f"with rate {dues_data['dues_rate']} (no initial invoice for CSV import)"
+                        )
+                    else:
+                        frappe.logger().warning(
+                            f"Skipping dues schedule for {member_doc.name}: membership_name={membership_name}, "
+                            f"has_dues_data={hasattr(member_doc, '_pending_dues_schedule_data')}"
+                        )
 
                 frappe.logger().info(
                     f"Created membership and dues schedule for member {member_doc.name} via approval workflow"
@@ -1109,8 +1136,9 @@ class MijnroodCSVImport(Document):
 
         except Exception as e:
             # Log error but don't fail the entire member creation for related record issues
-            frappe.logger().error(
-                "Failed to create related records for member %s: %s", member_doc.name, str(e)
+            frappe.log_error(
+                f"Failed to create related records for member {member_doc.name}: {str(e)}\n{frappe.get_traceback()}",
+                "CSV Import - Related Records Error",
             )
 
     def _create_termination_record(self, member_doc: Document, termination_data: dict):
@@ -1203,209 +1231,147 @@ class MijnroodCSVImport(Document):
             frappe.logger().error(error_msg)
             # Don't fail the entire import for chapter assignment issues
 
-    def _create_dues_schedule_from_import(self, member_doc: Document, dues_data: dict):
-        """Create a membership dues schedule from CSV import data."""
-        try:
-            # Map payment period to billing frequency
-            billing_frequency = self._map_payment_period_to_frequency(dues_data.get("payment_period"))
+    def _create_dues_schedule_from_import(self, member_doc: Document, dues_data: dict, row_data: dict = None):
+        """Create a membership dues schedule using MembershipDuesHandler."""
+        handler = MembershipDuesHandler()
+        schedule_name = handler.create_dues_schedule(member_doc, dues_data, row_data)
 
-            # Create dues schedule
-            dues_schedule = frappe.new_doc("Membership Dues Schedule")
-            dues_schedule.member = member_doc.name
-            member_full_name = member_doc.full_name or f"{member_doc.first_name} {member_doc.last_name}"
-            dues_schedule.member_name = member_full_name
-
-            # Generate schedule name: member name + sequence number
-            # Count existing schedules for this member to determine sequence
-            existing_count = frappe.db.count("Membership Dues Schedule", {"member": member_doc.name})
-            sequence_number = existing_count + 1
-            dues_schedule.schedule_name = f"{member_full_name} - {sequence_number}"
-
-            # Get membership type from the row data context
-            membership_type_name = self._determine_membership_type(row_data)
-            dues_schedule.membership_type = membership_type_name
-            dues_schedule.dues_rate = dues_data["dues_rate"]
-            dues_schedule.billing_frequency = billing_frequency
-            dues_schedule.status = "Active"
-            dues_schedule.is_active = 1
-            dues_schedule.uses_custom_amount = 1
-            # Provide a default reason if none was given
-            dues_schedule.custom_amount_reason = (
-                dues_data.get("override_reason") or "Imported from CSV with custom rate"
-            )
-            dues_schedule.custom_amount_approved = 1
-            dues_schedule.custom_amount_approved_by = frappe.session.user
-            dues_schedule.custom_amount_approved_date = today()
-
-            # Set next invoice date based on member_since date and billing frequency
-            if member_doc.member_since:
-                dues_schedule.next_invoice_date = self._calculate_next_invoice_date(
-                    getdate(member_doc.member_since), billing_frequency
-                )
-            else:
-                dues_schedule.next_invoice_date = today()
-
-            # Set CSV import flag
-            dues_schedule._csv_import = True
-            dues_schedule.flags.ignore_workflow = True
-
-            dues_schedule.insert()
-
+        if schedule_name:
             # Update member's current dues schedule reference
-            member_doc.current_dues_schedule = dues_schedule.name
-            member_doc.next_invoice_date = dues_schedule.next_invoice_date
+            member_doc.current_dues_schedule = schedule_name
+            # Get the schedule to update next_invoice_date
+            schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
+            member_doc.next_invoice_date = schedule.next_invoice_date
             # Mark as system update to skip fee override validation during CSV import
             member_doc._system_update = True
             member_doc.save()
-
-            frappe.logger().info(
-                "Created dues schedule %s for member %s", dues_schedule.name, member_doc.name
-            )
-
-        except Exception as e:
-            frappe.logger().error("Failed to create dues schedule for %s: %s", member_doc.name, str(e))
-            # Don't fail the entire import for dues schedule issues
 
     def _create_membership_from_import(self, member_doc: Document, row_data: dict):
-        """Create a membership record from CSV import data."""
+        """Create a membership record - uses unified path if feature flag enabled, otherwise legacy path."""
         try:
-            # Determine membership type from payment period or existing membership_type
-            membership_type_name = self._determine_membership_type(row_data)
-
-            # Create membership record
-            membership = frappe.new_doc("Membership")
-            membership.member = member_doc.name
-            membership.member_name = member_doc.full_name or f"{member_doc.first_name} {member_doc.last_name}"
-            membership.membership_type = membership_type_name
-            membership.start_date = row_data.get("member_since") or today()
-            membership.status = "Active"
-
-            # Set end date based on membership type billing period
-            if membership_type_name:
-                membership_type_doc = frappe.get_doc("Membership Type", membership_type_name)
-                if (
-                    hasattr(membership_type_doc, "billing_period_in_months")
-                    and membership_type_doc.billing_period_in_months
-                ):
-                    from dateutil.relativedelta import relativedelta
-
-                    start_date = getdate(membership.start_date)
-                    membership.renewal_date = start_date + relativedelta(
-                        months=membership_type_doc.billing_period_in_months
-                    )
-
-            # Set CSV import flag
-            membership._csv_import = True
-            membership.flags.ignore_workflow = True
-
-            membership.insert()
-            membership.submit()
-
-            # Update member's current membership reference
-            # Note: These fields are fetch fields and will be updated automatically from the membership record
-            member_doc.current_membership_plan = membership.name
-            # Mark as system update to skip fee override validation during CSV import
-            member_doc._system_update = True
-            member_doc.save()
-
-            frappe.logger().info("Created membership %s for member %s", membership.name, member_doc.name)
-
-        except Exception as e:
-            frappe.logger().error("Failed to create membership for %s: %s", member_doc.name, str(e))
-            # Don't fail the entire import for membership creation issues
-
-    def _map_payment_period_to_frequency(self, payment_period: str) -> str:
-        """Map Dutch payment period terms to billing frequencies."""
-        if not payment_period:
-            return "Annual"
-
-        period_mapping = {
-            "maandelijks": "Monthly",
-            "monthly": "Monthly",
-            "per maand": "Monthly",
-            "kwartaal": "Quarterly",
-            "quarterly": "Quarterly",
-            "per kwartaal": "Quarterly",
-            "driemaandelijks": "Quarterly",
-            "halfjaar": "Semi-Annual",
-            "halfjaarlijks": "Semi-Annual",
-            "semi-annual": "Semi-Annual",
-            "per halfjaar": "Semi-Annual",
-            "jaar": "Annual",
-            "jaarlijks": "Annual",
-            "annual": "Annual",
-            "per jaar": "Annual",
-            "yearly": "Annual",
-        }
-
-        period_lower = payment_period.lower().strip()
-        return period_mapping.get(period_lower, "Annual")
-
-    def _determine_membership_type(self, row_data: dict) -> str:
-        """Determine membership type from CSV data."""
-        # First check if membership_type was explicitly provided
-        if row_data.get("membership_type"):
-            membership_type = row_data["membership_type"]
-            if self._validate_membership_type_exists(membership_type):
-                return membership_type
-
-        # Map payment periods to likely membership types
-        payment_period = row_data.get("payment_period", "").lower().strip()
-
-        # Check if we have specific membership types that match the payment period
-        period_type_mapping = {
-            "maandelijks": "Monthly",
-            "monthly": "Monthly",
-            "kwartaal": "Quarterly",
-            "quarterly": "Quarterly",
-            "halfjaar": "Semi-Annual",
-            "semi-annual": "Semi-Annual",
-            "jaar": "Annual",
-            "annual": "Annual",
-            "jaarlijks": "Annual",
-        }
-
-        suggested_type = period_type_mapping.get(payment_period)
-        if suggested_type and self._validate_membership_type_exists(suggested_type):
-            return suggested_type
-
-        # Fallback to default membership type from Verenigingen Settings
-        settings = frappe.get_single("Verenigingen Settings")
-        if settings.default_membership_type and self._validate_membership_type_exists(
-            settings.default_membership_type
-        ):
-            return settings.default_membership_type
-
-        # Final fallback: get any active membership type
-        active_types = frappe.get_all("Membership Type", filters={"is_active": 1}, fields=["name"], limit=1)
-
-        if active_types:
-            return active_types[0].name
-
-        # No membership types exist - this is a configuration error
-        frappe.throw(
-            _(
-                "No active Membership Types found. Please create at least one Membership Type before importing members."
+            frappe.log_error(
+                f"DEBUG: _create_membership_from_import called for {member_doc.name}",
+                "CSV Import - Membership Creation Start",
             )
+
+            # Check if member already has an active membership to prevent duplicates
+            existing_membership = frappe.db.get_value(
+                "Membership",
+                {"member": member_doc.name, "docstatus": 1, "status": "Active"},  # Submitted
+                "name",
+            )
+
+            if existing_membership:
+                frappe.log_error(
+                    f"DEBUG: Member {member_doc.name} already has active membership {existing_membership}, skipping creation",
+                    "CSV Import - Duplicate Membership Skipped",
+                )
+                return existing_membership
+
+            # Check feature flag from Verenigingen Settings with explicit validation
+            try:
+                settings = frappe.get_single("Verenigingen Settings")
+                if not hasattr(settings, "use_unified_membership_creation"):
+                    frappe.log_error(
+                        "Field 'use_unified_membership_creation' does not exist on Verenigingen Settings. "
+                        "Database migration may have failed. Falling back to legacy path.",
+                        "CSV Import - Missing Feature Flag Field",
+                    )
+                    use_unified = False
+                else:
+                    use_unified = bool(settings.use_unified_membership_creation)
+
+                frappe.logger().info(
+                    f"[CSV IMPORT] Feature flag check: use_unified={use_unified}, "
+                    f"field_exists={hasattr(settings, 'use_unified_membership_creation')}"
+                )
+            except Exception as e:
+                frappe.log_error(
+                    f"Failed to fetch feature flag setting: {str(e)}. Falling back to legacy path.",
+                    "CSV Import - Feature Flag Fetch Error",
+                )
+                use_unified = False
+
+            if use_unified:
+                # UNIFIED PATH: Use normal member approval workflow
+                frappe.logger().info(f"[CSV IMPORT] Using unified membership creation for {member_doc.name}")
+                membership_name = self._create_membership_unified_path(member_doc, row_data)
+            else:
+                # LEGACY PATH: Use MembershipDuesHandler
+                frappe.logger().info(f"[CSV IMPORT] Using legacy membership creation for {member_doc.name}")
+                handler = MembershipDuesHandler()
+                membership_name = handler.create_membership(member_doc, row_data)
+
+            frappe.log_error(
+                f"DEBUG: Membership creation returned: {membership_name} (unified={use_unified})",
+                "CSV Import - Membership Creation Result",
+            )
+
+            if membership_name:
+                # Reload member doc to get latest version (membership creation may have updated it)
+                member_doc.reload()
+                # Update member's current membership reference
+                member_doc.current_membership_plan = membership_name
+                # Mark as system update to skip fee override validation during CSV import
+                member_doc._system_update = True
+                member_doc.save()
+
+            return membership_name
+        except Exception as e:
+            frappe.log_error(
+                f"ERROR in _create_membership_from_import for {member_doc.name}: {str(e)}\n{frappe.get_traceback()}",
+                "CSV Import - Membership Creation Failed",
+            )
+            return None
+
+    def _create_membership_unified_path(self, member_doc: Document, row_data: dict):
+        """Create membership using unified normal approval workflow (Phase 3)."""
+        # Determine membership type from payment period
+        handler = MembershipDuesHandler()
+        membership_type = handler.determine_membership_type(row_data)
+
+        if not membership_type:
+            frappe.throw(
+                f"Could not determine membership type for payment period: {row_data.get('betaalperiode')}"
+            )
+
+        # Set member fields for unified path
+        member_doc.selected_membership_type = membership_type
+
+        # Use normal approval workflow with CSV-specific parameters
+        # IMPORTANT: is_csv_import=True flag ensures renewal_date calculated from today, not historic start_date
+        membership_doc = member_doc.create_membership_on_approval(
+            start_date=row_data.get("member_since"),  # Historic start date from CSV
+            create_invoice=False,  # No backfill invoices for historic imports
+            custom_dues_rate=row_data.get("dues_rate"),  # Custom rate from CSV
+            custom_rate_reason="Imported from CSV with custom rate",
+            is_csv_import=True,  # Flag for proper renewal_date calculation
         )
 
-    def _calculate_next_invoice_date(self, start_date: "datetime.date", billing_frequency: str) -> str:
-        """Calculate next invoice date based on start date and billing frequency."""
-        from dateutil.relativedelta import relativedelta
+        if membership_doc:
+            frappe.logger().info(
+                f"[CSV IMPORT] Created membership with unified path: {membership_doc.name}, "
+                f"start_date={membership_doc.start_date}, "
+                f"renewal_date={membership_doc.renewal_date}, "
+                f"status={membership_doc.status}"
+            )
 
-        if billing_frequency == "Monthly":
-            next_date = start_date + relativedelta(months=1)
-        elif billing_frequency == "Quarterly":
-            next_date = start_date + relativedelta(months=3)
-        elif billing_frequency == "Semi-Annual":
-            next_date = start_date + relativedelta(months=6)
-        elif billing_frequency == "Annual":
-            next_date = start_date + relativedelta(months=12)
-        else:
-            # Default to annual
-            next_date = start_date + relativedelta(months=12)
+        return membership_doc.name if membership_doc else None
 
-        return next_date.strftime("%Y-%m-%d")
+    def _map_payment_period_to_frequency(self, payment_period: str) -> str:
+        """Map Dutch payment period terms to billing frequencies using MembershipDuesHandler."""
+        handler = MembershipDuesHandler()
+        return handler.map_payment_period_to_frequency(payment_period)
+
+    def _determine_membership_type(self, row_data: dict) -> str:
+        """Determine membership type using MembershipDuesHandler."""
+        handler = MembershipDuesHandler()
+        return handler.determine_membership_type(row_data)
+
+    def _calculate_next_invoice_date(self, start_date, billing_frequency: str) -> str:
+        """Calculate next invoice date using MembershipDuesHandler."""
+        handler = MembershipDuesHandler()
+        return handler.calculate_next_invoice_date(start_date, billing_frequency)
 
     def _validate_membership_type_exists(self, membership_type: str) -> bool:
         """Validate that a membership type exists before using it."""
@@ -1571,6 +1537,39 @@ class MijnroodCSVImport(Document):
         )
 
         return "\n".join(report_lines)
+
+    def _generate_itemized_member_list(
+        self,
+        created_members: List[str] = None,
+        updated_members: List[str] = None,
+        skipped_members: List[str] = None,
+    ) -> str:
+        """Generate itemized list of created/updated/skipped members."""
+        output = []
+        output.append("## Itemized Import Results\n")
+
+        if created_members:
+            output.append(f"\n### Created Members ({len(created_members)}):")
+            for name in created_members[:100]:  # Limit to first 100
+                output.append(f"- {name}")
+            if len(created_members) > 100:
+                output.append(f"... and {len(created_members) - 100} more")
+
+        if updated_members:
+            output.append(f"\n### Updated Members ({len(updated_members)}):")
+            for name in updated_members[:100]:
+                output.append(f"- {name}")
+            if len(updated_members) > 100:
+                output.append(f"... and {len(updated_members) - 100} more")
+
+        if skipped_members:
+            output.append(f"\n### Skipped Members ({len(skipped_members)}):")
+            for name in skipped_members[:50]:  # Limit skipped to 50
+                output.append(f"- {name}")
+            if len(skipped_members) > 50:
+                output.append(f"... and {len(skipped_members) - 50} more")
+
+        return "\n".join(output) if output else ""
 
 
 @frappe.whitelist()
@@ -1758,11 +1757,19 @@ def process_import_background(import_doc_name: str):
             updated_count: int,
             skipped_count: int,
             error_log: List[str],
-            processed_members: List[str],
+            created_members: List[str],
+            updated_members: List[str],
+            skipped_members: List[str],
         ):
             """Finalize the import with account creation and summaries."""
             import_doc._finalize_import_results(
-                created_count, updated_count, skipped_count, error_log, processed_members
+                created_count,
+                updated_count,
+                skipped_count,
+                error_log,
+                created_members,
+                updated_members,
+                skipped_members,
             )
 
         # Process the import in batches

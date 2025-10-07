@@ -84,6 +84,11 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
     - Members
     - Memberships
     - Membership Dues Schedules
+    - Sales Invoices (membership invoices AND application invoices):
+      * Invoices linked via Customer records
+      * Application invoices using email as temporary customer
+      * Invoices referenced in remarks/descriptions
+      * All found invoices are canceled (if submitted) then deleted
     - Volunteers
     - SEPA Mandates (member-linked)
     - Member Payment History
@@ -201,9 +206,11 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
             account_creation_requests = []
             results["account_creation_requests"]["count"] = 0
 
-        # Sales Invoices linked to membership dues (both via customer and membership invoice flag)
+        # Sales Invoices - comprehensive cleanup including application invoices
         try:
-            # Get customer IDs for these members
+            sales_invoices = []
+
+            # Method 1: Get customer IDs for these members and find their invoices
             customer_ids = []
             if frappe.db.has_column("Customer", "custom_member") and member_names:
                 placeholders = ", ".join(["%s"] * len(member_names))
@@ -217,11 +224,10 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                 )
                 customer_ids = [c.name for c in customers]
 
-            # Find all membership-related sales invoices
-            sales_invoices = []
+            # Find all membership-related sales invoices via Customer link
             if customer_ids:
                 placeholders = ", ".join(["%s"] * len(customer_ids))
-                sales_invoices = frappe.db.sql(
+                sales_invoices_by_customer = frappe.db.sql(
                     f"""
                     SELECT name, docstatus FROM `tabSales Invoice`
                     WHERE customer IN ({placeholders})
@@ -230,6 +236,47 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
                     customer_ids,
                     as_dict=True,
                 )
+                sales_invoices.extend(sales_invoices_by_customer)
+
+            # Method 2: Find application invoices by email (temporary customer during application)
+            if member_names:
+                member_emails = [m["email"] for m in members if m.get("email")]
+                if member_emails:
+                    placeholders = ", ".join(["%s"] * len(member_emails))
+                    application_invoices = frappe.db.sql(
+                        f"""
+                        SELECT name, docstatus FROM `tabSales Invoice`
+                        WHERE customer IN ({placeholders})
+                        AND remarks LIKE '%application%'
+                    """,
+                        member_emails,
+                        as_dict=True,
+                    )
+                    sales_invoices.extend(application_invoices)
+
+            # Method 3: Find invoices by remarks referencing member names
+            if member_names:
+                placeholders = ", ".join(["%s"] * len(member_names))
+                invoices_by_remarks = frappe.db.sql(
+                    f"""
+                    SELECT name, docstatus FROM `tabSales Invoice`
+                    WHERE remarks LIKE CONCAT('%', REPLACE({placeholders}, ',', '%') , '%')
+                    LIMIT 1000
+                """,
+                    member_names[0] if member_names else "",
+                    as_dict=True,
+                )
+                sales_invoices.extend(invoices_by_remarks)
+
+            # Remove duplicates
+            seen_invoices = set()
+            unique_invoices = []
+            for inv in sales_invoices:
+                if inv.name not in seen_invoices:
+                    seen_invoices.add(inv.name)
+                    unique_invoices.append(inv)
+
+            sales_invoices = unique_invoices
             results["sales_invoices"]["count"] = len(sales_invoices)
         except Exception as e:
             frappe.logger().error(f"Error querying Sales Invoice: {str(e)}")
@@ -460,6 +507,27 @@ def nuclear_cleanup_all_members(confirm_nuclear_cleanup=False, dry_run=True):
             # Delete Addresses linked to members
             for address in addresses:
                 try:
+                    # Load address and clean up any stale links before deletion
+                    addr_doc = frappe.get_doc("Address", address.parent)
+
+                    # Remove links to deleted members/customers to prevent validation errors
+                    if hasattr(addr_doc, "links") and addr_doc.links:
+                        links_to_remove = []
+                        for idx, link in enumerate(addr_doc.links):
+                            if link.link_doctype and link.link_name:
+                                if not frappe.db.exists(link.link_doctype, link.link_name):
+                                    links_to_remove.append(idx)
+
+                        # Remove stale links in reverse order
+                        for idx in reversed(links_to_remove):
+                            addr_doc.links.pop(idx)
+
+                        # Save without validation to remove stale links
+                        if links_to_remove:
+                            addr_doc.flags.ignore_validate = True
+                            addr_doc.save(ignore_permissions=True)
+
+                    # Now delete the address
                     frappe.delete_doc("Address", address.parent, ignore_permissions=True, force=True)
                     results["addresses"]["deleted"] += 1
                 except Exception as e:
