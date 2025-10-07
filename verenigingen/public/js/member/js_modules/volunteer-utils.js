@@ -194,34 +194,98 @@ function get_status_class(status) {
 }
 
 function create_volunteer_from_member(frm) {
-	frappe.confirm(
-		__('Would you like to create a volunteer profile for this member?'),
-		() => {
+	// Create dialog with account creation option
+	const d = new frappe.ui.Dialog({
+		title: __('Create Volunteer Profile'),
+		fields: [
+			{
+				fieldtype: 'HTML',
+				options: `<p class="text-muted">${__('Create a volunteer profile for')} <strong>${frm.doc.full_name || frm.doc.name}</strong></p>`
+			},
+			{
+				fieldtype: 'Check',
+				fieldname: 'create_user_account',
+				label: __('Create User Account'),
+				description: __(
+					'Create login credentials for volunteer portal access via AccountCreationManager'
+				),
+				default: 0
+			},
+			{
+				fieldtype: 'MultiSelect',
+				fieldname: 'roles',
+				label: __('Additional Roles'),
+				options: [
+					'Verenigingen Volunteer',
+					'Volunteer Team Member',
+					'Volunteer Team Leader'
+				],
+				depends_on: 'eval:doc.create_user_account',
+				description: __('Roles to assign to the user account (default: Verenigingen Volunteer)')
+			},
+			{
+				fieldtype: 'HTML',
+				options: `<div class="alert alert-info" style="margin-top: 10px;">
+					<strong>${__('Note:')}</strong> ${__('Account creation will be processed in the background. You can monitor progress via Account Creation Request.')}
+				</div>`,
+				depends_on: 'eval:doc.create_user_account'
+			}
+		],
+		primary_action_label: __('Create Volunteer Profile'),
+		primary_action(values) {
+			// Prepare API call arguments
+			const args = {
+				member: frm.doc.name,
+				create_user_account: values.create_user_account ? 1 : 0
+			};
+
+			// Add roles if account creation is enabled
+			if (values.create_user_account && values.roles) {
+				args.roles = values.roles;
+			}
+
 			frappe.call({
 				method:
-          'verenigingen.verenigingen.doctype.volunteer.volunteer.create_from_member',
-				args: {
-					member: frm.doc.name
-				},
+					'verenigingen.verenigingen.doctype.volunteer.volunteer.create_from_member',
+				args: args,
+				freeze: true,
+				freeze_message: __('Creating volunteer profile...'),
 				callback(r) {
-					if (r.message) {
+					if (r.message && r.message.success) {
+						let message = __('Volunteer profile created successfully');
+
+						// Add account creation info if queued
+						if (r.message.account_creation_queued) {
+							message += `<br><small>${__('User account creation queued')}: ${r.message.account_request}</small>`;
+						}
+
 						frappe.show_alert(
 							{
-								message: __('Volunteer profile created successfully'),
+								message: message,
 								indicator: 'green'
 							},
-							5
+							7
 						);
+
+						d.hide();
 
 						// Refresh the form to show volunteer info
 						setTimeout(() => {
 							frm.refresh();
 						}, 1000);
+					} else {
+						frappe.msgprint({
+							title: __('Error'),
+							message: r.message?.error || __('Failed to create volunteer profile'),
+							indicator: 'red'
+						});
 					}
 				}
 			});
 		}
-	);
+	});
+
+	d.show();
 }
 
 function show_volunteer_activities(member_name) {

@@ -111,6 +111,9 @@ class Membership(Document):
                 # Update member record with dues schedule link
                 member = frappe.get_doc("Member", self.member)
                 member.current_dues_schedule = schedule_name
+                # Mark as system update to bypass fee override validation
+                # (dues_rate was just set by schedule creation)
+                member._system_update = True
 
                 # Handle timestamp mismatch by reloading and retrying once
                 try:
@@ -119,6 +122,8 @@ class Membership(Document):
                     # Reload member and retry save once
                     member.reload()
                     member.current_dues_schedule = schedule_name
+                    # Re-set flag after reload
+                    member._system_update = True
                     member.save()
 
                 # Log successful creation for monitoring
@@ -842,6 +847,8 @@ class Membership(Document):
         try:
             member_doc = frappe.get_doc("Member", self.member)
             member_doc.current_membership_plan = self.name
+            # Mark as system update to bypass fee override validation
+            member_doc._system_update = True
 
             # Also update current_dues_schedule to match the member's dues schedule
             dues_schedule = frappe.db.get_value(
@@ -873,6 +880,8 @@ class Membership(Document):
             result = update_member_duration_fields(member_doc)
 
             if result.get("success"):
+                # Mark as system update to bypass fee override validation
+                member_doc._system_update = True
                 member_doc.save()
                 frappe.logger().info(
                     f"Updated membership duration for {self.member}: {result.get('data', {}).get('duration')}"

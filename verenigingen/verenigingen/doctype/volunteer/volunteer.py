@@ -1127,7 +1127,14 @@ def create_from_member(member):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def create_volunteer_from_member(member_name, volunteer_name=None, status="New", interested_skills=None):
+def create_volunteer_from_member(
+    member_name,
+    volunteer_name=None,
+    status="New",
+    interested_skills=None,
+    create_user_account=False,
+    roles=None,
+):
     """Create a volunteer record from an existing member
 
     Args:
@@ -1135,6 +1142,8 @@ def create_volunteer_from_member(member_name, volunteer_name=None, status="New",
         volunteer_name: Optional custom volunteer name (defaults to member's full name)
         status: Initial volunteer status (default: "New")
         interested_skills: Optional list/string of skills the volunteer is interested in
+        create_user_account: Whether to create user account via AccountCreationManager (default: False)
+        roles: List of roles to assign if creating user account (default: ["Verenigingen Volunteer"])
 
     Returns:
         dict: Result with volunteer name if successful, error message if failed
@@ -1249,12 +1258,26 @@ def create_volunteer_from_member(member_name, volunteer_name=None, status="New",
         # User must have proper permissions to create volunteer records
         volunteer.insert()
 
-        return {
+        # Queue account creation if requested
+        account_request_name = None
+        if create_user_account:
+            account_request_name = _queue_volunteer_account_creation(
+                member_name=member_name, volunteer_name=volunteer.name, roles=roles
+            )
+
+        result = {
             "success": True,
             "volunteer_name": volunteer.name,
             "volunteer_display_name": volunteer.volunteer_name,
             "message": f"Successfully created volunteer record {volunteer.name} for member {member_name}",
         }
+
+        if account_request_name:
+            result["account_creation_queued"] = True
+            result["account_request"] = account_request_name
+            result["message"] += f". User account creation queued (request: {account_request_name})"
+
+        return result
 
     except frappe.ValidationError as e:
         return {"success": False, "error": f"Validation failed: {str(e)}"}
@@ -1265,6 +1288,55 @@ def create_volunteer_from_member(member_name, volunteer_name=None, status="New",
             f"Error creating volunteer from member {member_name}: {str(e)}", "Volunteer Creation Error"
         )
         return {"success": False, "error": f"Failed to create volunteer: {str(e)}"}
+
+
+def _queue_volunteer_account_creation(member_name, volunteer_name, roles=None):
+    """Queue account creation for volunteer via AccountCreationManager
+
+    Args:
+        member_name: Member record name
+        volunteer_name: Volunteer record name
+        roles: List of roles to assign (default: ["Verenigingen Volunteer"])
+
+    Returns:
+        str: Account Creation Request name if successful, None otherwise
+    """
+    try:
+        from verenigingen.utils.account_creation_manager import queue_account_creation_for_member
+
+        # Default roles for volunteers
+        if not roles:
+            roles = ["Verenigingen Volunteer"]
+        elif isinstance(roles, str):
+            import json
+
+            try:
+                roles = json.loads(roles)
+            except json.JSONDecodeError:
+                roles = [roles]
+
+        # Queue account creation via centralized manager
+        result = queue_account_creation_for_member(member_name=member_name, roles=roles, priority="Normal")
+
+        if result and result.get("success"):
+            frappe.logger().info(
+                f"Queued account creation for volunteer {volunteer_name} "
+                f"(member: {member_name}, request: {result.get('request_name')})"
+            )
+            return result.get("request_name")
+        else:
+            frappe.logger().warning(
+                f"Failed to queue account creation for volunteer {volunteer_name}: "
+                f"{result.get('error') if result else 'Unknown error'}"
+            )
+            return None
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error queuing account creation for volunteer {volunteer_name}: {str(e)}",
+            "Volunteer Account Creation Queue Error",
+        )
+        return None
 
 
 @frappe.whitelist()

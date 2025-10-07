@@ -1108,31 +1108,14 @@ class MijnroodCSVImport(Document):
                         f"Creating membership for {member_doc.name}, has_dues_data: {hasattr(member_doc, '_pending_dues_schedule_data')}"
                     )
 
-                    # Create membership record using handler (skips invoice creation)
+                    # Create membership using unified path (automatically creates dues schedule via on_submit hook)
                     membership_name = self._create_membership_from_import(member_doc, row_data)
-                    frappe.logger().info(f"Membership creation result: {membership_name}")
 
-                    # Create dues schedule with custom CSV rate if provided
-                    if membership_name and hasattr(member_doc, "_pending_dues_schedule_data"):
-                        dues_data = member_doc._pending_dues_schedule_data
+                    if membership_name:
                         frappe.logger().info(
-                            f"Creating dues schedule with rate: {dues_data.get('dues_rate')}"
+                            f"Created membership {membership_name} for {member_doc.name} "
+                            "(dues schedule created automatically via on_submit hook)"
                         )
-                        self._create_dues_schedule_from_import(member_doc, dues_data, row_data)
-
-                        frappe.logger().info(
-                            f"Created membership {membership_name} and dues schedule for {member_doc.name} "
-                            f"with rate {dues_data['dues_rate']} (no initial invoice for CSV import)"
-                        )
-                    else:
-                        frappe.logger().warning(
-                            f"Skipping dues schedule for {member_doc.name}: membership_name={membership_name}, "
-                            f"has_dues_data={hasattr(member_doc, '_pending_dues_schedule_data')}"
-                        )
-
-                frappe.logger().info(
-                    f"Created membership and dues schedule for member {member_doc.name} via approval workflow"
-                )
 
         except Exception as e:
             # Log error but don't fail the entire member creation for related record issues
@@ -1231,23 +1214,8 @@ class MijnroodCSVImport(Document):
             frappe.logger().error(error_msg)
             # Don't fail the entire import for chapter assignment issues
 
-    def _create_dues_schedule_from_import(self, member_doc: Document, dues_data: dict, row_data: dict = None):
-        """Create a membership dues schedule using MembershipDuesHandler."""
-        handler = MembershipDuesHandler()
-        schedule_name = handler.create_dues_schedule(member_doc, dues_data, row_data)
-
-        if schedule_name:
-            # Update member's current dues schedule reference
-            member_doc.current_dues_schedule = schedule_name
-            # Get the schedule to update next_invoice_date
-            schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
-            member_doc.next_invoice_date = schedule.next_invoice_date
-            # Mark as system update to skip fee override validation during CSV import
-            member_doc._system_update = True
-            member_doc.save()
-
     def _create_membership_from_import(self, member_doc: Document, row_data: dict):
-        """Create a membership record - uses unified path if feature flag enabled, otherwise legacy path."""
+        """Create a membership record using unified normal approval workflow."""
         try:
             frappe.log_error(
                 f"DEBUG: _create_membership_from_import called for {member_doc.name}",
@@ -1268,42 +1236,12 @@ class MijnroodCSVImport(Document):
                 )
                 return existing_membership
 
-            # Check feature flag from Verenigingen Settings with explicit validation
-            try:
-                settings = frappe.get_single("Verenigingen Settings")
-                if not hasattr(settings, "use_unified_membership_creation"):
-                    frappe.log_error(
-                        "Field 'use_unified_membership_creation' does not exist on Verenigingen Settings. "
-                        "Database migration may have failed. Falling back to legacy path.",
-                        "CSV Import - Missing Feature Flag Field",
-                    )
-                    use_unified = False
-                else:
-                    use_unified = bool(settings.use_unified_membership_creation)
-
-                frappe.logger().info(
-                    f"[CSV IMPORT] Feature flag check: use_unified={use_unified}, "
-                    f"field_exists={hasattr(settings, 'use_unified_membership_creation')}"
-                )
-            except Exception as e:
-                frappe.log_error(
-                    f"Failed to fetch feature flag setting: {str(e)}. Falling back to legacy path.",
-                    "CSV Import - Feature Flag Fetch Error",
-                )
-                use_unified = False
-
-            if use_unified:
-                # UNIFIED PATH: Use normal member approval workflow
-                frappe.logger().info(f"[CSV IMPORT] Using unified membership creation for {member_doc.name}")
-                membership_name = self._create_membership_unified_path(member_doc, row_data)
-            else:
-                # LEGACY PATH: Use MembershipDuesHandler
-                frappe.logger().info(f"[CSV IMPORT] Using legacy membership creation for {member_doc.name}")
-                handler = MembershipDuesHandler()
-                membership_name = handler.create_membership(member_doc, row_data)
+            # Use unified path (legacy path removed - unified is production-ready)
+            frappe.logger().info(f"[CSV IMPORT] Creating membership for {member_doc.name}")
+            membership_name = self._create_membership_unified_path(member_doc, row_data)
 
             frappe.log_error(
-                f"DEBUG: Membership creation returned: {membership_name} (unified={use_unified})",
+                f"DEBUG: Membership creation returned: {membership_name}",
                 "CSV Import - Membership Creation Result",
             )
 
