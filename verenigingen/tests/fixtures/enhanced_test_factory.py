@@ -1563,43 +1563,25 @@ class EnhancedTestCase(FrappeTestCase):
         self._setup_rate_limit_mocking()
 
     def tearDown(self):
-        """Clean up test data with enhanced isolation tracking"""
-        try:
-            # ISOLATION ENHANCEMENT: Use factory's document tracking if available
-            factory_docs = []
-            if hasattr(self, 'factory') and hasattr(self.factory, 'created_documents'):
-                factory_docs = sorted(self.factory.created_documents, key=lambda x: x['priority'], reverse=True)
+        """
+        Clean up test environment - relies on Frappe's transaction rollback.
 
-            # Clean up factory-tracked documents first (by priority)
-            for doc_info in factory_docs:
-                self._cleanup_document_with_retry(doc_info, is_team_role=(doc_info['doctype'] == 'Team Role'))
+        CRITICAL: Database records are automatically cleaned up by Frappe's test
+        framework via transaction rollback. Manual deletion is unnecessary and
+        causes issues:
 
-            # Clean up legacy tracked records in reverse order (dependencies)
-            # Use proper permission validation even in tests
-            for record in reversed(self.created_records):
-                self._cleanup_document_with_retry(record, use_secure_operations=True)
-            
-            # Clean up test campaigns that might have been created
-            test_campaigns = frappe.get_all("Donation Campaign", 
-                filters=[["campaign_name", "like", "Test Campaign%"]],
-                pluck="name")
-            
-            for campaign in test_campaigns:
-                try:
-                    doc = frappe.get_doc("Donation Campaign", campaign)
-                    if doc.docstatus == 1:
-                        doc.cancel()
-                    frappe.delete_doc("Donation Campaign", campaign, force=True)
-                except Exception:
-                    pass
+        1. Foreign key constraints can cause silent deletion failures
+        2. Failed deletions accumulate test data (31 Emma Students found!)
+        3. Manual deletion before rollback interferes with Frappe's cleanup
 
-            # REMOVED: frappe.db.commit() breaks test isolation by committing deletions
-            # that should rollback. Frappe's test framework handles transaction management.
-            # Committing here caused catastrophic data loss by making test deletions permanent.
+        KNOWN ISSUE: Member DocType has 11 frappe.db.commit() calls that break
+        test isolation. Records created during tests may persist despite rollback.
+        The _cleanup_stale_test_data() method runs once per test class to catch
+        these leaked records using email patterns (@test.invalid, @university.nl).
 
-        except Exception as e:
-            frappe.logger().error(f"Test tearDown failed: {str(e)}")
-        
+        We only clean up in-memory Python objects (mocks, patches) that aren't
+        affected by database rollback.
+        """
         # EMAIL MOCKING CLEANUP: Stop all email patches
         try:
             # Stop comprehensive email patches  
@@ -2012,6 +1994,7 @@ class EnhancedTestCase(FrappeTestCase):
                 test_member_patterns = [
                     {"email": ["like", "%@test.invalid"]},
                     {"email": ["like", "%@example.com"]},
+                    {"email": ["like", "%@university.nl"]},  # Student test records
                     {"first_name": ["like", "Test%"]},
                     {"first_name": ["like", "%TestMember%"]},
                     # REMOVED: {"name": ["like", "Assoc-Member-%"]} - TOO BROAD, matches production!
@@ -2022,6 +2005,7 @@ class EnhancedTestCase(FrappeTestCase):
                     SELECT COUNT(*) FROM `tabMember`
                     WHERE email LIKE '%@test.invalid'
                        OR email LIKE '%@example.com'
+                       OR email LIKE '%@university.nl'
                        OR first_name LIKE 'Test%'
                        OR first_name LIKE '%TestMember%'
                 """)[0][0]
