@@ -250,53 +250,6 @@ if (typeof frappe !== 'undefined' && frappe.ready) {
         </div>
     </div>
 
-    <!-- Payment History Race Condition Fix Tools -->
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="card">
-                <div class="card-header bg-warning text-dark">
-                    <h4 class="mb-0">
-                        <i class="fa fa-refresh"></i> Payment History Race Condition Fix
-                    </h4>
-                </div>
-                <div class="card-body">
-                    <p class="text-muted mb-3">
-                        <strong>Purpose:</strong> Fix invoices that are missing from member payment history due to race conditions during rapid invoice creation.
-                        These tools scan recent invoices and add any missing entries to maintain data consistency.
-                    </p>
-                    <div class="row">
-                        {% for tool in payment_fix_tools %}
-                        <div class="col-md-6 mb-3">
-                            <div class="card tool-card h-100" data-method="{{ tool.method }}">
-                                <div class="card-body">
-                                    <h5 class="card-title">
-                                        <i class="fa {{ tool.icon }} text-{{ tool.color }}"></i>
-                                        {{ tool.title }}
-                                    </h5>
-                                    <p class="card-text">{{ tool.description }}</p>
-                                    {% if tool.warning %}
-                                        <div class="alert alert-warning alert-sm mb-2">
-                                            <i class="fa fa-warning"></i> {{ tool.warning }}
-                                        </div>
-                                    {% endif %}
-                                    <button class="btn btn-sm btn-{{ tool.color }} execute-tool"
-                                            data-method="{{ tool.method }}"
-                                            data-title="{{ tool.title }}"
-                                            {% if tool.args %}data-args='{{ tool.args|tojson|safe }}'{% endif %}
-                                            {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}
-                                            data-formatter="{{ tool.formatter or 'generic' }}">
-                                        <i class="fa fa-play"></i> Execute
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                        {% endfor %}
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- Command Examples -->
     <div class="row mb-4">
         <div class="col-12">
@@ -601,9 +554,6 @@ function formatToolResult(result, toolTitle, formatterType) {
             break;
         case 'cleanup':
             html += formatCleanupResult(result);
-            break;
-        case 'payment_fix':
-            html += formatPaymentFixResult(result);
             break;
         case 'security':
             html += formatSecurityResult(result);
@@ -989,112 +939,6 @@ function formatCleanupResult(result) {
             }
         });
         html += '</div>';
-    }
-
-    return html;
-}
-
-function formatPaymentFixResult(result) {
-    var html = '<h5 class="text-warning mb-3"><i class="fa fa-refresh"></i> Payment History Fix Results</h5>';
-
-    // Show summary statistics
-    if (result.summary) {
-        html += '<div class="statistics-grid mb-4">';
-
-        html += '<div class="stat-card" style="border-left-color: #28a745;">';
-        html += '<div class="stat-value" style="color: #28a745;">' + (result.summary.total_checked || 0) + '</div>';
-        html += '<div class="stat-label">Total Checked</div>';
-        html += '</div>';
-
-        html += '<div class="stat-card" style="border-left-color: #ffc107;">';
-        html += '<div class="stat-value" style="color: #ffc107;">' + (result.summary.fixed || 0) + '</div>';
-        html += '<div class="stat-label">Fixed</div>';
-        html += '</div>';
-
-        html += '<div class="stat-card" style="border-left-color: #17a2b8;">';
-        html += '<div class="stat-value" style="color: #17a2b8;">' + (result.summary.already_exists || 0) + '</div>';
-        html += '<div class="stat-label">Already OK</div>';
-        html += '</div>';
-
-        if (result.summary.errors > 0) {
-            html += '<div class="stat-card" style="border-left-color: #dc3545;">';
-            html += '<div class="stat-value" style="color: #dc3545;">' + result.summary.errors + '</div>';
-            html += '<div class="stat-label">Errors</div>';
-            html += '</div>';
-        }
-
-        html += '</div>';
-    }
-
-    // Show results summary
-    if (result.summary && result.summary.fixed > 0) {
-        html += '<div class="alert alert-success">';
-        html += '<strong><i class="fa fa-check-circle"></i> Success:</strong> Fixed ' + result.summary.fixed + ' missing invoice(s) in member payment history.';
-        html += '</div>';
-    } else if (result.summary && result.summary.fixed === 0) {
-        html += '<div class="alert alert-info">';
-        html += '<strong><i class="fa fa-info-circle"></i> No Issues Found:</strong> All invoices are already properly recorded in payment history.';
-        html += '</div>';
-    }
-
-    // Show errors if any
-    if (result.summary && result.summary.errors > 0) {
-        html += '<div class="alert alert-warning">';
-        html += '<strong><i class="fa fa-exclamation-triangle"></i> Partial Errors:</strong> ' + result.summary.errors + ' invoices could not be processed. Check error logs for details.';
-        html += '</div>';
-    }
-
-    // Show details if available (limited to avoid overwhelming UI)
-    if (result.details && result.details.length > 0) {
-        html += '<h6 class="mt-4">Operation Details:</h6>';
-        html += '<div class="table-responsive">';
-        html += '<table class="table table-sm table-striped">';
-        html += '<thead><tr><th>Invoice</th><th>Member</th><th>Status</th><th>Message</th></tr></thead>';
-        html += '<tbody>';
-
-        result.details.forEach(function(detail) {
-            var statusClass = detail.status === 'fixed' ? 'text-success' :
-                             detail.status === 'error' ? 'text-danger' :
-                             'text-muted';
-            var statusIcon = detail.status === 'fixed' ? 'fa-check' :
-                            detail.status === 'error' ? 'fa-times' :
-                            'fa-info';
-
-            html += '<tr>';
-            html += '<td><code>' + detail.invoice + '</code></td>';
-            html += '<td>' + detail.member + '</td>';
-            html += '<td><i class="fa ' + statusIcon + ' ' + statusClass + '"></i> ' + detail.status + '</td>';
-            html += '<td class="' + statusClass + '">' + (detail.message || '') + '</td>';
-            html += '</tr>';
-        });
-
-        html += '</tbody></table></div>';
-
-        if (result.details.length >= 20) {
-            html += '<p class="text-muted"><em>Showing first 20 results. Check logs for complete details.</em></p>';
-        }
-    }
-
-    // Single invoice check results
-    if (result.invoice && result.members) {
-        html += '<h6>Invoice Details:</h6>';
-        html += '<p><strong>Invoice:</strong> <code>' + result.invoice + '</code><br>';
-        html += '<strong>Customer:</strong> ' + result.customer + '<br>';
-        html += '<strong>Status:</strong> ' + result.status + '<br>';
-        html += '<strong>Amount:</strong> ' + result.grand_total + '</p>';
-
-        html += '<h6>Member Results:</h6>';
-        html += '<ul class="list-group">';
-        result.members.forEach(function(member) {
-            var statusClass = member.status === 'added' ? 'list-group-item-success' :
-                             member.status === 'error' ? 'list-group-item-danger' :
-                             'list-group-item-info';
-            html += '<li class="list-group-item ' + statusClass + '">';
-            html += '<strong>' + member.member + '</strong>: ' + member.status;
-            if (member.message) html += ' - ' + member.message;
-            html += '</li>';
-        });
-        html += '</ul>';
     }
 
     return html;

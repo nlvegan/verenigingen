@@ -31,24 +31,30 @@ class MemberLifecycleCompleteRealTest(EnhancedTestCase):
         # Create test chapter for member assignment
         self.test_chapter = self.create_chapter(region="Noord-Holland")
         
-        # Create membership types for lifecycle testing
-        self.regular_membership_type = frappe.get_doc({
-            "doctype": "Membership Type",
-            "membership_type": "Regular Member",
-            "minimum_amount": 60.0,
-            "description": "Standard membership",
-            "is_default": 1
-        })
-        self.regular_membership_type.insert()
-        
-        self.student_membership_type = frappe.get_doc({
-            "doctype": "Membership Type", 
-            "membership_type": "Student Member",
-            "minimum_amount": 30.0,
-            "description": "Student discount membership",
-            "student_discount": 1
-        })
-        self.student_membership_type.insert()
+        # Create membership types for lifecycle testing (or use existing)
+        if frappe.db.exists("Membership Type", "Regular Member"):
+            self.regular_membership_type = frappe.get_doc("Membership Type", "Regular Member")
+        else:
+            self.regular_membership_type = frappe.get_doc({
+                "doctype": "Membership Type",
+                "membership_type_name": "Regular Member",
+                "minimum_amount": 60.0,
+                "description": "Standard membership",
+                "is_default": 1
+            })
+            self.regular_membership_type.insert()
+
+        if frappe.db.exists("Membership Type", "Student Member"):
+            self.student_membership_type = frappe.get_doc("Membership Type", "Student Member")
+        else:
+            self.student_membership_type = frappe.get_doc({
+                "doctype": "Membership Type",
+                "membership_type_name": "Student Member",
+                "minimum_amount": 30.0,
+                "description": "Student discount membership",
+                "student_discount": 1
+            })
+            self.student_membership_type.insert()
 
     def test_complete_member_application_to_active_workflow(self):
         """Test complete member application to active status workflow"""
@@ -56,24 +62,24 @@ class MemberLifecycleCompleteRealTest(EnhancedTestCase):
         # Phase 1: Initial Application Submission
         application_data = {
             "first_name": "Jan",
-            "last_name": "Test", 
+            "last_name": "Test",
             "tussenvoegsel": "van",
             "email": "jan.van.test@example.com",
-            "phone": "+31612345678",
+            "contact_number": "+31612345678",
             "birth_date": "1990-05-15",
-            "address_1": "Teststraat 123",
-            "postal_code": "1234 AB",
+            "address_line1": "Teststraat 123",
             "city": "Amsterdam",
-            "status": "Application Pending",
-            "primary_chapter": self.test_chapter.name,
-            "membership_type": self.regular_membership_type.name
+            "postal_code": "1234 AB",
+            "status": "Pending",
+            "selected_membership_type": self.regular_membership_type.name,
+            "chapter": self.test_chapter.name
         }
-        
+
         # Submit application with real data validation
         pending_member = self.create_test_member(**application_data)
         
         # Verify application state
-        self.assertEqual(pending_member.status, "Application Pending")
+        self.assertEqual(pending_member.status, "Pending")
         self.assertIsNotNone(pending_member.application_id)
         self.assertIsNone(pending_member.member_id)
         self.assertEqual(pending_member.full_name, "Jan van Test")
@@ -230,11 +236,11 @@ class MemberLifecycleCompleteRealTest(EnhancedTestCase):
             "last_name": "Student",
             "email": "emma.student@university.nl",
             "birth_date": "2002-09-01",  # 21 years old
-            "address_1": "Studentenstraat 45",
+            "address_line1": "Studentenstraat 45",
             "postal_code": "2500 CD", 
             "city": "Den Haag",
-            "status": "Application Pending",
-            "primary_chapter": self.test_chapter.name,
+            "status": "Pending",
+            "chapter": self.test_chapter.name,
             "membership_type": self.student_membership_type.name,
             "is_student": 1,
             "student_id": "STU2024001"
@@ -308,7 +314,7 @@ class MemberLifecycleCompleteRealTest(EnhancedTestCase):
             last_name="Member",
             email="transfer@example.com",
             status="Active",
-            primary_chapter=self.test_chapter.name
+            chapter=self.test_chapter.name
         )
         
         # Create second chapter for transfer
@@ -345,22 +351,20 @@ class MemberLifecycleCompleteRealTest(EnhancedTestCase):
         })
         new_chapter_member.insert()
         
-        # Update member's primary chapter
-        original_member.primary_chapter = target_chapter.name
-        original_member.transfer_date = transfer_date
-        original_member.save()
-        
         # Verify transfer completed
         original_chapter_member.reload()
         self.assertEqual(original_chapter_member.status, "Transferred")
         self.assertEqual(original_chapter_member.end_date, transfer_date)
-        
+
         self.assertEqual(new_chapter_member.status, "Active")
         self.assertEqual(new_chapter_member.transfer_from, self.test_chapter.name)
-        
+
+        # Update member's chapter display
         original_member.reload()
-        self.assertEqual(original_member.primary_chapter, target_chapter.name)
-        self.assertEqual(original_member.transfer_date, transfer_date)
+        original_member.update_current_chapter_display()
+        # Verify chapter display updated (Note: primary_chapter field doesn't exist,
+        # chapter membership is tracked via Chapter Member records)
+        self.assertIn(target_chapter.name, original_member.current_chapter_display or "")
         
         return original_member, original_chapter_member, new_chapter_member, target_chapter
 
@@ -373,7 +377,7 @@ class MemberLifecycleCompleteRealTest(EnhancedTestCase):
             last_name="Member", 
             email="suspended@example.com",
             status="Active",
-            primary_chapter=self.test_chapter.name
+            chapter=self.test_chapter.name
         )
         
         # Create membership and payment history
@@ -471,7 +475,7 @@ class MemberLifecycleCompleteRealTest(EnhancedTestCase):
             last_name="Member",
             email="terminating@example.com", 
             status="Active",
-            primary_chapter=self.test_chapter.name
+            chapter=self.test_chapter.name
         )
         
         # Create membership history
@@ -599,37 +603,45 @@ class MemberLifecycleCompleteRealTest(EnhancedTestCase):
             first_name="Original",
             last_name="Name",
             email="original@example.com",
-            address_1="Old Street 123",
+            address_line1="Old Street 123",
             postal_code="1000 AA",
             city="Old City",
             status="Active",
-            primary_chapter=self.test_chapter.name
+            chapter=self.test_chapter.name
         )
         
+        # Get original address data from linked Address document
+        original_address = frappe.get_doc("Address", member_for_correction.primary_address)
         original_data = {
             "first_name": member_for_correction.first_name,
             "last_name": member_for_correction.last_name,
             "email": member_for_correction.email,
-            "address_1": member_for_correction.address_1,
-            "postal_code": member_for_correction.postal_code,
-            "city": member_for_correction.city
+            "address_line1": original_address.address_line1,
+            "postal_code": original_address.pincode,
+            "city": original_address.city
         }
-        
+
         # Process data correction request
         corrections = {
             "first_name": "Corrected",
-            "last_name": "NewName", 
+            "last_name": "NewName",
             "email": "corrected@example.com",
-            "address_1": "New Street 456",
-            "postal_code": "2000 BB",
-            "city": "New City"
         }
-        
-        # Apply corrections
+
+        # Update member fields
         for field, new_value in corrections.items():
             setattr(member_for_correction, field, new_value)
-        
         member_for_correction.save()
+
+        # Update address fields
+        address_corrections = {
+            "address_line1": "New Street 456",
+            "pincode": "2000 BB",
+            "city": "New City"
+        }
+        for field, new_value in address_corrections.items():
+            setattr(original_address, field, new_value)
+        original_address.save()
         
         # Create correction audit entry
         correction_audit = frappe.get_doc({
@@ -664,7 +676,7 @@ class MemberLifecycleCompleteRealTest(EnhancedTestCase):
             last_name="History",
             email="payment.history@example.com",
             status="Active",
-            primary_chapter=self.test_chapter.name
+            chapter=self.test_chapter.name
         )
         
         # Create membership and dues schedule

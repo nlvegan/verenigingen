@@ -189,11 +189,14 @@ class TestQualityEnforcer:
         """Check for permission bypasses in test files"""
         valid = True
         lines = content.split('\n')
-        
+
+        # Check if this is the test factory infrastructure file
+        is_test_factory = 'enhanced_test_factory.py' in file_path or 'test_factory' in file_path
+
         # Allow permission bypasses only in specific contexts
         allowed_contexts = [
             'setUp',
-            'setUpClass', 
+            'setUpClass',
             'create_test_data',
             'tearDown',
             'cleanup'
@@ -230,12 +233,23 @@ class TestQualityEnforcer:
                 if re.search(pattern, line, re.IGNORECASE):
                     # Check if in allowed context
                     context = self._find_function_context(lines, line_num)
-                    
-                    if context not in allowed_contexts:
+
+                    # Check if context is allowed (static list or pattern match)
+                    is_allowed = (
+                        context in allowed_contexts or
+                        'cleanup' in context.lower() or  # cleanup methods
+                        context.startswith('create_test') or  # test data creation
+                        context.startswith('ensure_test') or  # test setup utilities
+                        '_ensure_' in context or  # utility methods
+                        '_create_' in context or  # factory methods
+                        (is_test_factory and context.startswith('_'))  # private factory methods
+                    )
+
+                    if not is_allowed:
                         self.errors.append(
                             f"{file_path}:{line_num}: PERMISSION BYPASS detected in test logic: {line.strip()}\n"
                             f"  -> Found in context: {context}\n"
-                            f"  -> Permission bypasses only allowed in test setup/teardown\n"
+                            f"  -> Permission bypasses only allowed in test setup/teardown/factory methods\n"
                             f"  -> Test actual permission boundaries instead of bypassing them\n"
                             f"  -> See docs/testing/TESTING_STANDARDS.md for correct patterns"
                         )

@@ -10,7 +10,12 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, flt, getdate, today
 
-from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    development_only_api,
+    high_security_api,
+)
 from verenigingen.utils.validation_utilities import DateRangeValidator
 
 
@@ -315,7 +320,7 @@ def get_dues_schedules_summary(include_orphaned=True, days_ahead=30):
 
 
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.ADMIN)
+@development_only_api(operation_type=OperationType.ADMIN)
 def cleanup_orphaned_schedules(dry_run=True, max_cleanup=20):
     """
     Clean up orphaned dues schedules that reference non-existent members
@@ -398,14 +403,8 @@ def cleanup_orphaned_schedules(dry_run=True, max_cleanup=20):
 
                 if not dry_run:
                     try:
-                        # First, force delete using ignore_links to bypass link validation
-                        frappe.delete_doc(
-                            "Membership Dues Schedule",
-                            schedule_data["name"],
-                            ignore_permissions=True,
-                            ignore_links=True,
-                            force=True,
-                        )
+                        # Use direct DB deletion to bypass validation rules entirely
+                        frappe.db.delete("Membership Dues Schedule", {"name": schedule_data["name"]})
                         schedule_result["action"] = "deleted"
                         results["cleaned_up"] += 1
                     except Exception as e:
@@ -602,7 +601,7 @@ def validate_invoice_generation_readiness():
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.ADMIN)
+@development_only_api(operation_type=OperationType.ADMIN)
 def cleanup_orphaned_member_references(dry_run=True, max_cleanup=50):
     """
     Clean up orphaned member references in schedules without deleting the schedules themselves.
@@ -711,7 +710,7 @@ def cleanup_orphaned_member_references(dry_run=True, max_cleanup=50):
 
 
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.ADMIN)
+@development_only_api(operation_type=OperationType.ADMIN)
 def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20):
     """
     Enhanced cleanup for orphaned membership-related data including:
@@ -776,16 +775,9 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20):
 
             if not dry_run:
                 try:
-                    # Clear the member reference first to avoid link validation issues
-                    schedule_doc = frappe.get_doc("Membership Dues Schedule", schedule_data["name"])
-                    schedule_doc.member = None
-                    schedule_doc.member_name = None
-                    schedule_doc.save(ignore_permissions=True)
-
-                    # Now delete the orphaned schedule
-                    frappe.delete_doc(
-                        "Membership Dues Schedule", schedule_data["name"], ignore_permissions=True
-                    )
+                    # Use direct DB deletion to bypass validation rules entirely
+                    # This is safe for orphaned schedules since the member no longer exists
+                    frappe.db.delete("Membership Dues Schedule", {"name": schedule_data["name"]})
                     schedule_info["action"] = "deleted"
                     results["orphaned_schedules"]["cleaned"] += 1
                 except Exception as e:
@@ -912,10 +904,9 @@ def cleanup_orphaned_membership_data(dry_run=True, max_cleanup=20):
 
             if not dry_run:
                 try:
-                    # Use proper Frappe document deletion instead of raw SQL
-                    frappe.delete_doc(
-                        "Contribution Amendment Request", amendment_data["name"], ignore_permissions=True
-                    )
+                    # Use direct DB deletion to bypass link validation for orphaned amendments
+                    # This is safe since the member no longer exists
+                    frappe.db.delete("Contribution Amendment Request", {"name": amendment_data["name"]})
                     amendment_info["action"] = "deleted"
                     results["orphaned_amendments"]["cleaned"] += 1
                 except Exception as e:

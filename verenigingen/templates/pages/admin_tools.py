@@ -352,36 +352,6 @@ def get_context(context):
         },
     ]
 
-    # Payment History Race Condition Fix Tools
-    context.payment_fix_tools = [
-        {
-            "title": "Fix Recent Missing Invoices",
-            "description": "Scan recent invoices and fix any missing from member payment history (last 7 days)",
-            "method": "verenigingen.api.fix_race_condition_invoices.fix_recent_missing_invoices",
-            "icon": "fa fa-refresh",
-            "color": "brand-secondary",
-            "args": {"days_back": 7},
-            "formatter": "payment_fix",
-        },
-        {
-            "title": "Fix Recent Missing Invoices (14 days)",
-            "description": "Scan recent invoices and fix any missing from member payment history (last 14 days)",
-            "method": "verenigingen.api.fix_race_condition_invoices.fix_recent_missing_invoices",
-            "icon": "fa fa-calendar",
-            "color": "brand-accent",
-            "args": {"days_back": 14},
-        },
-        {
-            "title": "Fix Recent Missing Invoices (30 days)",
-            "description": "Scan recent invoices and fix any missing from member payment history (last 30 days)",
-            "method": "verenigingen.api.fix_race_condition_invoices.fix_recent_missing_invoices",
-            "icon": "fa fa-history",
-            "color": "brand-primary",
-            "args": {"days_back": 30},
-            "warning": "This will scan 30 days of invoices - may take longer to complete",
-        },
-    ]
-
     # Add command examples
     context.command_examples = [
         {
@@ -444,18 +414,6 @@ def get_context(context):
             "description": "⚠️ DANGER: Nuclear cleanup ALL members (LIVE)",
             "command": 'bench --site dev.veganisme.net execute verenigingen.utils.member_import_cleanup.nuclear_cleanup_all_members --kwargs=\'{"confirm_nuclear_cleanup": true, "dry_run": false}\'',
         },
-        {
-            "description": "Fix missing invoices in payment history (7 days)",
-            "command": "bench --site dev.veganisme.net execute verenigingen.api.fix_race_condition_invoices.fix_recent_missing_invoices --kwargs='{\"days_back\": 7}'",
-        },
-        {
-            "description": "Fix missing invoices in payment history (30 days)",
-            "command": "bench --site dev.veganisme.net execute verenigingen.api.fix_race_condition_invoices.fix_recent_missing_invoices --kwargs='{\"days_back\": 30}'",
-        },
-        {
-            "description": "Check specific invoice in payment history",
-            "command": 'bench --site dev.veganisme.net execute verenigingen.api.fix_race_condition_invoices.check_and_fix_invoice --kwargs=\'{"invoice_name": "SINV-YYYY-NNNNN"}\'',
-        },
     ]
 
     return context
@@ -500,9 +458,6 @@ ALLOWED_ADMIN_METHODS = {
     "verenigingen.utils.member_import_cleanup.cleanup_test_members_only",
     "verenigingen.utils.member_import_cleanup.nuclear_cleanup_all_members",
     "verenigingen.utils.member_import_cleanup.force_cleanup_orphaned_schedules_and_invoices",
-    # Payment history race condition fixes
-    "verenigingen.api.fix_race_condition_invoices.fix_recent_missing_invoices",
-    "verenigingen.api.fix_race_condition_invoices.check_and_fix_invoice",
 }
 
 

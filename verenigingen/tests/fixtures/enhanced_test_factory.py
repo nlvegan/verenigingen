@@ -473,12 +473,14 @@ class EnhancedTestDataFactory:
         if not hasattr(frappe, 'flags'):
             frappe.flags = frappe._dict()
         frappe.flags.in_test = True
-        # Fields that might be custom or runtime fields
+        # Fields that might be custom, runtime, or handled separately (like addresses)
         skip_validation_fields = {
-            'chapter', 'suspension_reason', 'termination_reason', 
-            'termination_date', 'join_date'
+            'chapter', 'suspension_reason', 'termination_reason',
+            'termination_date', 'join_date',
+            # Address fields - not on Member, handled via Address DocType
+            'address_line1', 'city', 'pincode', 'postal_code', 'country'
         }
-        
+
         # Validate fields exist in Member doctype
         for field in kwargs.keys():
             if field not in skip_validation_fields:
@@ -543,7 +545,32 @@ class EnhancedTestDataFactory:
                 # Create Customer Address if missing (required for invoice generation)
                 if member.customer and not self._has_customer_address(member.customer):
                     self._create_customer_address(member)
-                
+
+                # Create Member Address if address fields were provided
+                if any(key in kwargs for key in ['address_line1', 'city', 'pincode', 'postal_code']):
+                    member_address = self.create_address(
+                        address_line1=kwargs.get('address_line1'),
+                        city=kwargs.get('city'),
+                        pincode=kwargs.get('pincode') or kwargs.get('postal_code'),
+                        link_doctype="Member",
+                        link_name=member.name,
+                        address_title=f"{member.full_name} - Address"
+                    )
+                    # Link to member's primary_address field
+                    member.primary_address = member_address.name
+                    member.save()
+
+                # Assign to chapter if chapter was provided
+                if 'chapter' in kwargs and kwargs['chapter']:
+                    from verenigingen.utils.chapter_membership_manager import ChapterMembershipManager
+                    ChapterMembershipManager.assign_member_to_chapter(
+                        member_id=member.name,
+                        chapter_name=kwargs['chapter'],
+                        reason="Test data creation",
+                        assigned_by=frappe.session.user
+                    )
+                    member.reload()
+
                 return member
             finally:
                 frappe.set_user(current_user)
@@ -563,25 +590,37 @@ class EnhancedTestDataFactory:
         )
         return len(addresses) > 0
     
-    def _create_customer_address(self, member):
-        """Create Customer Address for invoice generation (infrastructure setup only)"""
+    def create_address(self, address_line1=None, city=None, pincode=None, link_doctype=None, link_name=None, **kwargs):
+        """Create Address document with optional linking to Member/Customer"""
         address = frappe.new_doc("Address")
-        address.address_title = f"{member.full_name} - Test Address"
-        address.address_line1 = member.address_line1 if hasattr(member, 'address_line1') and member.address_line1 else "Test Street 123"
-        address.city = member.city if hasattr(member, 'city') and member.city else "Amsterdam"  
-        address.pincode = member.postal_code if hasattr(member, 'postal_code') and member.postal_code else "1234 AB"
-        address.country = "Netherlands"
-        address.is_primary_address = 1
-        
-        # Link to customer
-        address.append("links", {
-            "link_doctype": "Customer",
-            "link_name": member.customer
-        })
-        
+        address.address_title = kwargs.get("address_title", f"Test Address {frappe.generate_hash(length=8)}")
+        address.address_line1 = address_line1 or "Test Street 123"
+        address.city = city or "Amsterdam"
+        address.pincode = pincode or "1234 AB"
+        address.country = kwargs.get("country", "Netherlands")
+        address.is_primary_address = kwargs.get("is_primary_address", 1)
+
+        # Link to doctype if provided
+        if link_doctype and link_name:
+            address.append("links", {
+                "link_doctype": link_doctype,
+                "link_name": link_name
+            })
+
         address.insert()
         self.track_document("Address", address.name, priority=3)
         return address
+
+    def _create_customer_address(self, member):
+        """Create Customer Address for invoice generation (infrastructure setup only)"""
+        return self.create_address(
+            address_line1=member.address_line1 if hasattr(member, 'address_line1') and member.address_line1 else None,
+            city=member.city if hasattr(member, 'city') and member.city else None,
+            pincode=member.postal_code if hasattr(member, 'postal_code') and member.postal_code else None,
+            link_doctype="Customer",
+            link_name=member.customer,
+            address_title=f"{member.full_name} - Test Address"
+        )
             
     def create_volunteer(self, member_name: str = None, **kwargs):
         """Create volunteer with business rule and field validation"""
@@ -1960,17 +1999,20 @@ class EnhancedTestCase(FrappeTestCase):
             try:
                 # Clean up test members (highest priority - others depend on these)
                 # Match common test patterns from EnhancedTestDataFactory
+                # CRITICAL: Patterns must be VERY specific to avoid deleting production data
                 test_member_patterns = [
                     {"email": ["like", "%@test.invalid"]},
+                    {"email": ["like", "%@example.com"]},
                     {"first_name": ["like", "Test%"]},
                     {"first_name": ["like", "%TestMember%"]},
-                    {"name": ["like", "Assoc-Member-%"]},  # Old test members
+                    # REMOVED: {"name": ["like", "Assoc-Member-%"]} - TOO BROAD, matches production!
                 ]
 
                 # SAFETY CHECK 4: Count before deleting
                 pending_deletion_count = frappe.db.sql("""
                     SELECT COUNT(*) FROM `tabMember`
                     WHERE email LIKE '%@test.invalid'
+                       OR email LIKE '%@example.com'
                        OR first_name LIKE 'Test%'
                        OR first_name LIKE '%TestMember%'
                 """)[0][0]

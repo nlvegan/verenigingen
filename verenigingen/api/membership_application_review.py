@@ -260,6 +260,12 @@ def approve_membership_application(
     # Assign member to chapter using helper function
     assign_member_to_chapter(member, chapter)
 
+    # Explicitly update chapter display after assignment to ensure it's set
+    if chapter:
+        member.reload()
+        member.update_current_chapter_display()
+        member.save()
+
     # Set the selected membership type in memory (will be saved during membership creation)
     try:
         member.selected_membership_type = membership_type
