@@ -478,7 +478,9 @@ class EnhancedTestDataFactory:
             'chapter', 'suspension_reason', 'termination_reason',
             'termination_date', 'join_date',
             # Address fields - not on Member, handled via Address DocType
-            'address_line1', 'city', 'pincode', 'postal_code', 'country'
+            'address_line1', 'city', 'pincode', 'postal_code', 'country',
+            # Student fields - might not exist in all configurations
+            'is_student', 'student_id'
         }
 
         # Validate fields exist in Member doctype
@@ -2260,7 +2262,7 @@ class EnhancedTestCase(FrappeTestCase):
                             raise validation_error
                     
                     doc.insert()
-                    self.track_document(doctype, doc.name, priority=1)
+                    self.factory.track_document(doctype, doc.name, priority=1)
                     loaded_count += 1
                     
                 except Exception as e:
@@ -2486,7 +2488,7 @@ class EnhancedTestCase(FrappeTestCase):
                         frappe.logger().warning(f"Failed to create test company: {result.errors}")
                         # Fallback to direct creation only if secure operation fails
                         company.insert()
-                        self.track_document("Company", company.name, priority=1)
+                        self.factory.track_document("Company", company.name, priority=1)
                 
             # Ensure comprehensive fiscal year coverage
             from frappe.utils import getdate
@@ -2525,7 +2527,7 @@ class EnhancedTestCase(FrappeTestCase):
                             frappe.logger().warning(f"Failed to create fiscal year {fy_name}: {result.errors}")
                             # Fallback only if secure operation fails
                             fiscal_year.insert()
-                            self.track_document("Fiscal Year", fiscal_year.name, priority=1)
+                            self.factory.track_document("Fiscal Year", fiscal_year.name, priority=1)
                     except Exception as fy_error:
                         frappe.logger().warning(f"Failed to create fiscal year {fy_name}: {fy_error}")
             
@@ -2671,7 +2673,7 @@ class EnhancedTestCase(FrappeTestCase):
         membership.insert()
 
         # Track for cleanup in tearDown
-        self.track_document("Membership", membership.name, priority=5)
+        self.factory.track_document("Membership", membership.name, priority=5)
 
         membership.submit()
         return membership
@@ -2735,7 +2737,7 @@ class EnhancedTestCase(FrappeTestCase):
         
         invoice = frappe.get_doc(invoice_data)
         invoice.insert()
-        self.track_document("Sales Invoice", invoice.name, priority=4)
+        self.factory.track_document("Sales Invoice", invoice.name, priority=4)
 
         # Update grand_total and outstanding_amount manually for testing
         # This simulates overdue invoices with specific amounts
@@ -2777,7 +2779,7 @@ class EnhancedTestCase(FrappeTestCase):
             income_group.report_type = "Profit and Loss"
             income_group.is_group = 1
             income_group.save()
-            self.track_document("Account", income_group.name, priority=1)
+            self.factory.track_document("Account", income_group.name, priority=1)
             income_parent = income_group.name
 
         # Create new income account under proper parent
@@ -2790,7 +2792,7 @@ class EnhancedTestCase(FrappeTestCase):
         account.report_type = "Profit and Loss"
         account.is_group = 0
         account.save()
-        self.track_document("Account", account.name, priority=1)
+        self.factory.track_document("Account", account.name, priority=1)
         return account.name
     
     def create_test_donor(self, **kwargs):
@@ -2825,7 +2827,7 @@ class EnhancedTestCase(FrappeTestCase):
             
         donor = frappe.get_doc(donor_data)
         donor.insert()
-        self.track_document("Donor", donor.name, priority=4)
+        self.factory.track_document("Donor", donor.name, priority=4)
         return donor
     
     def create_test_donation(self, **kwargs):
@@ -2870,7 +2872,7 @@ class EnhancedTestCase(FrappeTestCase):
                 
         donation = frappe.get_doc(donation_data)
         donation.insert()
-        self.track_document("Donation", donation.name, priority=4)
+        self.factory.track_document("Donation", donation.name, priority=4)
         # Always submit the donation in test context to ensure docstatus=1 for campaign queries
         if frappe.flags.in_test:
             # Use db_set to avoid fiscal year and other submission validation issues in tests
@@ -2895,7 +2897,7 @@ class EnhancedTestCase(FrappeTestCase):
                 "description": f"Test item created by Enhanced Test Factory"
             })
             item.insert()
-            self.track_document("Item", item.name, priority=1)
+            self.factory.track_document("Item", item.name, priority=1)
         return item_code
     
     def create_test_user(self, email, roles=None, **kwargs):
@@ -2924,7 +2926,7 @@ class EnhancedTestCase(FrappeTestCase):
                 user = frappe.get_doc(user_data)
                 user.insert()
                 # Priority 2: Organization - deleted after transactional records but before infrastructure
-                self.track_document("User", user.name, priority=2)
+                self.factory.track_document("User", user.name, priority=2)
 
             # Add roles - clear existing to ensure clean test state
             user.roles = []  # Clear existing roles
@@ -2932,7 +2934,7 @@ class EnhancedTestCase(FrappeTestCase):
                 user.append("roles", {"role": role})
             user.save()
             # Track again after role changes to ensure cleanup captures final state
-            self.track_document("User", user.name, priority=2)
+            self.factory.track_document("User", user.name, priority=2)
 
             return user
         finally:
@@ -3295,7 +3297,7 @@ def validate_business_rules(doctype):
         # Create and return the payment entry
         payment_entry = frappe.get_doc(payment_entry_data)
         payment_entry.insert()
-        self.track_document("Payment Entry", payment_entry.name, priority=4)
+        self.factory.track_document("Payment Entry", payment_entry.name, priority=4)
 
         # Submit if requested
         if kwargs.get("submit", False):
@@ -3740,7 +3742,7 @@ def validate_business_rules(doctype):
                 "customer_group": "Individual"
             })
             customer.insert()
-            self.track_document("Customer", customer.name, priority=3)
+            self.factory.track_document("Customer", customer.name, priority=3)
             return customer
         else:
             return frappe.get_doc("Customer", customer_name)
@@ -3764,7 +3766,7 @@ def validate_business_rules(doctype):
                 **kwargs
             })
             mandate.insert()
-            self.track_document("SEPA Mandate", mandate.name, priority=4)
+            self.factory.track_document("SEPA Mandate", mandate.name, priority=4)
             return mandate
 
     def create_test_dues_schedule(self, member, membership_type=None, amount=25.0, frequency="monthly", **kwargs):
@@ -3789,7 +3791,7 @@ def validate_business_rules(doctype):
                 **kwargs
             })
             schedule.insert()
-            self.track_document("Membership Dues Schedule", schedule.name, priority=4)
+            self.factory.track_document("Membership Dues Schedule", schedule.name, priority=4)
             return schedule
 
     def create_test_member_application(self, **kwargs):
@@ -3805,7 +3807,7 @@ def validate_business_rules(doctype):
         defaults.update(kwargs)
         application.update(defaults)
         application.insert()
-        self.track_document("Member Application", application.name, priority=5)
+        self.factory.track_document("Member Application", application.name, priority=5)
         return application
 
     def assign_member_to_chapter_by_postal_code(self, member, postal_code):
@@ -3831,7 +3833,7 @@ def validate_business_rules(doctype):
                                 "join_date": frappe.utils.today()
                             })
                             chapter_member.insert()
-                            self.track_document("Chapter Member", chapter_member.name, priority=5)
+                            self.factory.track_document("Chapter Member", chapter_member.name, priority=5)
                             return chapter
 
         # Return first available chapter as fallback
@@ -3859,7 +3861,7 @@ def validate_business_rules(doctype):
             member.chapter = application.chapter
 
         member.insert()
-        self.track_document("Member", member.name, priority=5)
+        self.factory.track_document("Member", member.name, priority=5)
         return member
 
     def transition_member_status(self, member, new_status):
@@ -3933,7 +3935,7 @@ def validate_business_rules(doctype):
         template.insert()
 
         # Track for cleanup in tearDown
-        self.track_document("Email Template", template.name, priority=3)
+        self.factory.track_document("Email Template", template.name, priority=3)
 
         return template
 

@@ -84,13 +84,17 @@ def check_member_dues_status(period_start: str = None, period_end: str = None) -
     # Count members with active Membership but no Dues Schedule
     members_without_schedule = frappe.db.sql(
         """
-        SELECT COUNT(DISTINCT mem.member)
-        FROM `tabMembership` mem
-        WHERE mem.member IS NOT NULL
-        AND mem.status = 'Active'
+        SELECT COUNT(DISTINCT m.name)
+        FROM `tabMember` m
+        WHERE m.status IN ('Active', 'Pending', 'Suspended')
+        AND EXISTS (
+            SELECT 1 FROM `tabMembership` mem
+            WHERE mem.member = m.name
+            AND mem.status = 'Active'
+        )
         AND NOT EXISTS (
             SELECT 1 FROM `tabMembership Dues Schedule` mds
-            WHERE mds.member = mem.member
+            WHERE mds.member = m.name
         )
     """
     )[0][0]

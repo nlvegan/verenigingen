@@ -1231,31 +1231,53 @@ class PaymentMixin:
         return True  # Queued successfully
 
     def _get_invoice_with_retry(self, invoice_name, max_retries=3):
-        """Get invoice with retry mechanism for race conditions"""
+        """
+        Get invoice with exponential backoff retry mechanism for race conditions.
+
+        Uses exponential backoff with jitter to handle transient failures:
+        - Normal mode: 0.5s base delay (retries at ~0.5s, ~1s, ~2s with jitter)
+        - Bulk mode: 2s base delay (retries at ~2s, ~4s, ~8s with jitter)
+
+        Jitter (±25%) prevents thundering herd when multiple requests retry simultaneously.
+        """
+        import random
+        import time
+
         is_bulk_processing = getattr(frappe.flags, "bulk_invoice_generation", False)
+
+        # Base delay: 0.5s for normal, 2s for bulk processing
+        base_delay = 2.0 if is_bulk_processing else 0.5
+        max_delay = 10.0  # Cap maximum delay at 10 seconds
 
         for retry_count in range(max_retries):
             try:
                 return frappe.get_doc("Sales Invoice", invoice_name)
             except frappe.DoesNotExistError:
                 if retry_count < max_retries - 1:
-                    import time
+                    # Exponential backoff: base_delay * (2 ^ retry_count)
+                    delay = min(base_delay * (2 ** retry_count), max_delay)
 
-                    sleep_duration = 120 if is_bulk_processing else 1
+                    # Add jitter: ±25% randomization to prevent synchronized retries
+                    jitter = random.uniform(0.75, 1.25)
+                    sleep_duration = delay * jitter
 
                     frappe.logger("payment_history").info(
                         f"Invoice {invoice_name} not found (attempt {retry_count + 1}/{max_retries}). "
-                        f"Waiting {sleep_duration}s before retry {'(bulk mode)' if is_bulk_processing else '(normal mode)'}"
+                        f"Exponential backoff: waiting {sleep_duration:.2f}s "
+                        f"{'(bulk mode)' if is_bulk_processing else '(normal mode)'}"
                     )
 
                     time.sleep(sleep_duration)
                     frappe.db.commit()
                 else:
-                    timeout_info = (
-                        "360s total (bulk mode)" if is_bulk_processing else "3s total (normal mode)"
+                    # Calculate total wait time for error message
+                    total_wait = sum(
+                        min(base_delay * (2 ** i), max_delay) for i in range(max_retries - 1)
                     )
+
                     frappe.log_error(
-                        f"Sales Invoice {invoice_name} not found after {max_retries} retries ({timeout_info}) - possible race condition",
+                        f"Sales Invoice {invoice_name} not found after {max_retries} retries "
+                        f"(~{total_wait:.1f}s total wait) - possible race condition",
                         "Payment History Race Condition",
                     )
                     return None

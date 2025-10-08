@@ -65,6 +65,13 @@ class Membership(Document):
             )
             return
 
+        # Check if the member actually exists in the database
+        if not frappe.db.exists("Member", self.member):
+            frappe.logger().error(
+                f"[DUES SCHEDULE] Orphaned membership {self.name}: member {self.member} does not exist"
+            )
+            return
+
         # Check if member has CSV import custom fee set (optimized query)
         custom_fee, custom_fee_reason = frappe.db.get_value(
             "Member", self.member, ["csv_import_custom_fee", "csv_import_custom_fee_reason"]

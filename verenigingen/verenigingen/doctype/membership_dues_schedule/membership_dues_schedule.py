@@ -682,13 +682,16 @@ class MembershipDuesSchedule(Document):
             return False, duplicate_check_result["reason"]
 
         # ✅ FALLBACK CHECK: Scheduling-based "too early" check
-        # Only applies when coverage data doesn't exist or indicate duplicate
-        # Use configured days_before or system default
-        days_before = self.invoice_days_before if self.invoice_days_before is not None else 30
-        generate_on_date = add_days(self.next_invoice_date, -days_before)
+        # Only applies when there's existing coverage - prevents generating too far ahead
+        # If no coverage exists, member has a gap that needs filling immediately
+        latest_coverage_end = self.get_latest_coverage_end_date()
+        if latest_coverage_end:
+            # Use configured days_before or system default
+            days_before = self.invoice_days_before if self.invoice_days_before is not None else 30
+            generate_on_date = add_days(self.next_invoice_date, -days_before)
 
-        if DateRangeValidator.is_date_before(today(), generate_on_date):
-            return False, f"Too early - will generate on {generate_on_date}"
+            if DateRangeValidator.is_date_before(today(), generate_on_date):
+                return False, f"Too early - will generate on {generate_on_date}"
 
         # Check if invoice already exists for this period
         if self.last_invoice_date == self.next_invoice_date:
