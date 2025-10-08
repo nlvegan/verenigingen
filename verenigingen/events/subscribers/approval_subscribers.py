@@ -16,12 +16,17 @@ from frappe.utils import now_datetime
 logger = logging.getLogger(__name__)
 
 
-def handle_customer_creation(event_name, event_data):
+def handle_customer_creation(event_name, event_data, **kwargs):
     """
     Background job to create customer record for approved member.
 
     This runs after the main approval transaction to avoid document conflicts.
     Includes retry logic and database transaction protection.
+
+    Args:
+        event_name: Name of the event that triggered this handler
+        event_data: Event payload with member information
+        **kwargs: Additional job metadata (dedupe, delay, etc.) - ignored
     """
     member_name = event_data.get("member")
     if not member_name:
@@ -71,9 +76,14 @@ def handle_customer_creation(event_name, event_data):
                 time.sleep(10 * (2**retry_count))  # Conservative exponential backoff: 20s, 40s, 80s
 
 
-def handle_chapter_assignment(event_name, event_data):
+def handle_chapter_assignment(event_name, event_data, **kwargs):
     """
     Background job to assign member to chapter.
+
+    Args:
+        event_name: Name of the event that triggered this handler
+        event_data: Event payload with member information
+        **kwargs: Additional job metadata (dedupe, delay, etc.) - ignored
     """
     member_name = event_data.get("member")
     chapter = event_data.get("chapter")
@@ -101,9 +111,14 @@ def handle_chapter_assignment(event_name, event_data):
         return {"success": False, "error": str(e)}
 
 
-def handle_iban_history_creation(event_name, event_data):
+def handle_iban_history_creation(event_name, event_data, **kwargs):
     """
     Background job to create initial IBAN history record.
+
+    Args:
+        event_name: Name of the event that triggered this handler
+        event_data: Event payload with member information
+        **kwargs: Additional job metadata (dedupe, delay, etc.) - ignored
     """
     member_name = event_data.get("member")
     if not member_name:
@@ -126,11 +141,16 @@ def handle_iban_history_creation(event_name, event_data):
         return {"success": False, "error": str(e), "critical": False}
 
 
-def handle_user_account_creation(event_name, event_data):
+def handle_user_account_creation(event_name, event_data, **kwargs):
     """
     Background job to create user account for approved member.
 
     Uses the existing AccountCreationManager which already supports background processing.
+
+    Args:
+        event_name: Name of the event that triggered this handler
+        event_data: Event payload with member information
+        **kwargs: Additional job metadata (dedupe, delay, etc.) - ignored
     """
     member_name = event_data.get("member")
     if not member_name:
@@ -153,9 +173,14 @@ def handle_user_account_creation(event_name, event_data):
         return {"success": False, "error": str(e), "critical": False}
 
 
-def handle_approval_notification(event_name, event_data):
+def handle_approval_notification(event_name, event_data, **kwargs):
     """
     Background job to send approval notification email.
+
+    Args:
+        event_name: Name of the event that triggered this handler
+        event_data: Event payload with member and invoice information
+        **kwargs: Additional job metadata (dedupe, delay, etc.) - ignored
     """
     member_name = event_data.get("member")
     invoice_name = event_data.get("invoice")
@@ -193,9 +218,14 @@ def handle_approval_notification(event_name, event_data):
         return {"success": False, "error": str(e), "critical": False}
 
 
-def handle_volunteer_activation(event_name, event_data):
+def handle_volunteer_activation(event_name, event_data, **kwargs):
     """
     Background job to activate volunteer record if member is interested in volunteering.
+
+    Args:
+        event_name: Name of the event that triggered this handler
+        event_data: Event payload with member information
+        **kwargs: Additional job metadata (dedupe, delay, etc.) - ignored
     """
     member_name = event_data.get("member")
     if not member_name:
