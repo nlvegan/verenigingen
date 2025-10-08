@@ -200,6 +200,64 @@ class TestMembershipApplicationWorkflow(VereningingenTestCase):
 
         print("✅ All critical member creation imports validated")
 
+    def test_approval_idempotency(self):
+        """Test that approving an already-approved member is idempotent"""
+        # Create a test member that's already approved
+        member = self.create_test_member(
+            first_name="Test",
+            last_name="Idempotent",
+            email="test.idempotent@example.com"
+        )
+
+        # Manually set member to approved state (bypass full approval flow to avoid test complexity)
+        member.reload()
+        member.application_status = "Approved"
+        member.status = "Active"
+        member.member_since = frappe.utils.today()
+        member.save()
+        member.reload()
+
+        # Create a fake membership record to simulate an approved member
+        membership = frappe.get_doc({
+            "doctype": "Membership",
+            "member": member.name,
+            "membership_type": "Annual Membership",
+            "start_date": frappe.utils.today(),
+            "end_date": frappe.utils.add_months(frappe.utils.today(), 12),
+            "status": "Active"
+        })
+        membership.insert()
+        membership.submit()
+
+        # Import approval function
+        from verenigingen.api.membership_application_review import approve_membership_application
+
+        # Try to approve again (should be idempotent)
+        result = approve_membership_application(
+            member_name=member.name,
+            membership_type="Annual Membership",
+            create_invoice=False
+        )
+
+        # Verify idempotent response
+        self.assertTrue(result["success"], f"Idempotent approval failed: {result.get('message')}")
+        self.assertTrue(result.get("idempotent", False), "Should indicate idempotent operation")
+        self.assertEqual(result.get("membership"), membership.name, "Should return existing membership")
+
+        # Verify member status unchanged
+        member.reload()
+        self.assertEqual(member.application_status, "Approved")
+
+        # Verify only one membership exists
+        memberships = frappe.get_all(
+            "Membership",
+            filters={"member": member.name, "docstatus": 1},
+            pluck="name"
+        )
+        self.assertEqual(len(memberships), 1, "Should only have one submitted membership")
+
+        print("✅ Approval idempotency works correctly")
+
 
 if __name__ == "__main__":
     unittest.main()

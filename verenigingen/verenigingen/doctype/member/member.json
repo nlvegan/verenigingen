@@ -537,7 +537,7 @@
    "description": "Shows pending membership fee amendment requests",
    "fieldname": "amendment_status_html",
    "fieldtype": "HTML",
-   "label": "Amendment Status",
+   "label": "Amendment status",
    "read_only": 1
   },
   {
@@ -619,7 +619,7 @@
    "fetch_from": "current_dues_schedule.next_invoice_date",
    "fieldname": "next_invoice_date",
    "fieldtype": "Date",
-   "label": "Next Invoice Date",
+   "label": "Next invoice date",
    "read_only": 1
   },
   {
@@ -633,14 +633,14 @@
    "fetch_from": "current_membership_plan.start_date",
    "fieldname": "current_membership_start",
    "fieldtype": "Date",
-   "label": "Start Date",
+   "label": "Membership start date",
    "read_only": 1
   },
   {
    "fetch_from": "current_membership_plan.renewal_date",
    "fieldname": "current_membership_end",
    "fieldtype": "Date",
-   "label": "End Date",
+   "label": "Membership end date",
    "read_only": 1
   },
   {
@@ -865,7 +865,6 @@
    "description": "Custom membership fee amount set during CSV import for dues schedule creation",
    "fieldname": "csv_import_custom_fee",
    "fieldtype": "Currency",
-   "hidden": 0,
    "label": "CSV Import Custom Fee (Debug)",
    "no_copy": 1,
    "precision": "2",
@@ -878,7 +877,6 @@
    "description": "Reason for custom fee amount set during CSV import",
    "fieldname": "csv_import_custom_fee_reason",
    "fieldtype": "Small Text",
-   "hidden": 0,
    "label": "CSV Import Custom Fee Reason (Debug)",
    "no_copy": 1,
    "print_hide": 1,
@@ -986,7 +984,7 @@
    "link_fieldname": "name"
   }
  ],
- "modified": "2025-10-06 11:30:34.643773",
+ "modified": "2025-10-08 10:02:58.435293",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Member",

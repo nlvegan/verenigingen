@@ -374,12 +374,23 @@ class MembershipDuesSchedule(Document):
             return False
         chapter = chapters[0]  # Use first active chapter
 
+        # Get the user's member record
+        member_name = frappe.db.get_value("Member", {"user": user}, "name")
+        if not member_name:
+            return False
+
+        # Get the volunteer linked to the member
+        volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
+        if not volunteer_name:
+            return False
+
         # Check if user is a board member of this chapter with finance permissions
+        # Note: Chapter Board Member is a child table, not a standalone DocType
         board_member = frappe.db.get_value(
-            "Verenigingen Chapter Board Member",
+            "Chapter Board Member",
             {
                 "parent": chapter,
-                "member": frappe.db.get_value("Member", {"user": user}, "name"),
+                "volunteer": volunteer_name,
                 "is_active": 1,
             },
             ["name", "chapter_role"],

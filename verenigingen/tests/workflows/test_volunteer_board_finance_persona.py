@@ -65,9 +65,10 @@ class TestVolunteerBoardFinancePersona(VereningingenTestCase):
         # Create some volunteer activities to show experience
         activity = frappe.new_doc("Volunteer Activity")
         activity.volunteer = alex_volunteer.name
-        activity.activity_name = "Financial Records Review"
-        activity.activity_date = today()
-        activity.hours = 4.0
+        activity.activity_type = "Project"  # Required field
+        activity.role = "Financial Records Reviewer"  # Required field
+        activity.start_date = today()  # Required field (was activity_date)
+        activity.actual_hours = 4.0  # Corrected field name (was hours)
         activity.description = "Helped review chapter financial records"
         activity.status = "Completed"
         activity.insert()

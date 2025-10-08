@@ -652,8 +652,18 @@ def suspend_member_safe(
 
         # 2. Suspend user account if requested
         if suspend_user:
-            user_email = frappe.db.get_value("Member", member_name, "user")
-            if user_email and frappe.db.exists("User", user_email):
+            # Check both the linked user field and for a user with the same email address
+            user_from_link = frappe.db.get_value("Member", member_name, "user")
+            member_email = frappe.db.get_value("Member", member_name, "email")
+
+            # Try to find user by link field first, then by email
+            user_email = None
+            if user_from_link and frappe.db.exists("User", user_from_link):
+                user_email = user_from_link
+            elif member_email and frappe.db.exists("User", member_email):
+                user_email = member_email
+
+            if user_email:
                 user_doc = frappe.get_doc("User", user_email)
                 user_doc.enabled = 0
 
@@ -672,7 +682,7 @@ def suspend_member_safe(
                     pass
 
                 results["user_suspended"] = True
-                results["actions_taken"].append("User account suspended")
+                results["actions_taken"].append(f"User account suspended ({user_email})")
 
         # 3. Suspend team memberships if requested
         if suspend_teams:
@@ -752,8 +762,18 @@ def unsuspend_member_safe(member_name, unsuspension_reason, restore_teams=True):
         results["actions_taken"].append(f"Member status restored to {restore_status}")
 
         # 2. Reactivate user account
-        user_email = frappe.db.get_value("Member", member_name, "user")
-        if user_email and frappe.db.exists("User", user_email):
+        # Check both the linked user field and for a user with the same email address
+        user_from_link = frappe.db.get_value("Member", member_name, "user")
+        member_email = frappe.db.get_value("Member", member_name, "email")
+
+        # Try to find user by link field first, then by email
+        user_email = None
+        if user_from_link and frappe.db.exists("User", user_from_link):
+            user_email = user_from_link
+        elif member_email and frappe.db.exists("User", member_email):
+            user_email = member_email
+
+        if user_email:
             user_doc = frappe.get_doc("User", user_email)
 
             # Only reactivate if it was disabled (not if it was disabled for other reasons)
@@ -774,7 +794,7 @@ def unsuspend_member_safe(member_name, unsuspension_reason, restore_teams=True):
                     # Continue with other operations even if user reactivation fails
 
                 results["user_unsuspended"] = True
-                results["actions_taken"].append("User account reactivated")
+                results["actions_taken"].append(f"User account reactivated ({user_email})")
 
         # Note: Team memberships are not automatically restored as they may have been
         # legitimately changed during suspension. Manual team re-assignment is recommended.

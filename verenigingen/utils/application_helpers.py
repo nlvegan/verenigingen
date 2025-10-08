@@ -545,6 +545,147 @@ def create_member_from_application(data, application_id, address=None):
                     raise
 
 
+def update_member_from_reapplication(member_name, data, application_id, address=None):
+    """
+    Update existing member record from reapplication data.
+
+    Used for:
+    - Rejected applications reapplying
+    - Pending applications being updated
+    - Voluntary terminations rejoining
+    """
+    from verenigingen.utils.secure_operations import get_system_user_for_operation, secure_user_context
+    from verenigingen.utils.validation.application_validators import validate_name
+
+    # Get existing member
+    member = frappe.get_doc("Member", member_name)
+
+    # Sanitize names before updating
+    first_name = data.get("first_name", "")
+    middle_name = data.get("middle_name", "")
+    tussenvoegsel = data.get("tussenvoegsel", "")
+    last_name = data.get("last_name", "")
+
+    # Validate and sanitize names
+    if first_name:
+        validation_result = validate_name(first_name, "First Name")
+        if validation_result.get("valid") and validation_result.get("sanitized"):
+            first_name = validation_result["sanitized"]
+
+    if middle_name:
+        validation_result = validate_name(middle_name, "Middle Name")
+        if validation_result.get("valid") and validation_result.get("sanitized"):
+            middle_name = validation_result["sanitized"]
+
+    if tussenvoegsel:
+        validation_result = validate_name(tussenvoegsel, "Tussenvoegsel")
+        if validation_result.get("valid") and validation_result.get("sanitized"):
+            tussenvoegsel = validation_result["sanitized"]
+
+    if last_name:
+        validation_result = validate_name(last_name, "Last Name")
+        if validation_result.get("valid") and validation_result.get("sanitized"):
+            last_name = validation_result["sanitized"]
+
+    # Update member fields with new application data
+    member.first_name = first_name
+    member.middle_name = middle_name
+    member.tussenvoegsel = tussenvoegsel
+    member.last_name = last_name
+    member.contact_number = data.get("contact_number", "")
+    member.birth_date = data.get("birth_date")
+    member.pronouns = data.get("pronouns", "")
+
+    # Update address if provided
+    if address:
+        member.primary_address = address.name
+
+    # Reset to pending status for reapplication
+    member.status = "Pending"
+    member.application_status = "Pending"
+    member.application_date = now_datetime()
+    member.application_id = application_id
+
+    # Update application-specific fields
+    member.selected_membership_type = data.get("selected_membership_type")
+    member.interested_in_volunteering = data.get("interested_in_volunteering", 0)
+    member.newsletter_opt_in = data.get("newsletter_opt_in", 1)
+    member.opt_out_optional_emails = data.get("opt_out_optional_emails", 0)
+    member.application_source = data.get("application_source", "Website")
+    member.payment_method = map_payment_method(data.get("payment_method", ""))
+    member.current_chapter_display = data.get("selected_chapter", "")
+
+    # Update bank details
+    member.iban = data.get("iban", "")
+    member.bic = data.get("bic", "")
+    member.bank_account_name = data.get("bank_account_name", "")
+
+    # Transfer volunteer skills (consistency with new applications)
+    volunteer_skills = data.get("volunteer_skills", [])
+    if volunteer_skills:
+        member.volunteer_skills = volunteer_skills
+
+    # Add chapter information to notes for approver visibility
+    selected_chapter = data.get("selected_chapter")
+    if selected_chapter:
+        try:
+            chapter_doc = frappe.get_doc("Chapter", selected_chapter)
+            chapter_display = f"{chapter_doc.region} ({selected_chapter})"
+            existing_notes = member.notes or ""
+            if existing_notes:
+                existing_notes += "\n\n"
+            member.notes = existing_notes + f"Selected Chapter (Reapplication): {chapter_display}\n"
+        except Exception as e:
+            frappe.log_error(f"Error storing chapter information: {str(e)}", "Chapter Info Storage Error")
+
+    # Add reapplication timestamp note
+    reapp_note = f"Reapplication submitted: {now_datetime()}"
+    if member.notes:
+        member.notes += f"\n{reapp_note}"
+    else:
+        member.notes = reapp_note
+
+    # Suppress customer creation messages during reapplication processing
+    member._suppress_customer_messages = True
+
+    # Handle custom membership amount
+    if data.get("custom_contribution_fee") or data.get("uses_custom_amount"):
+        try:
+            custom_contribution_fee = 0
+            if data.get("custom_contribution_fee"):
+                try:
+                    custom_contribution_fee = float(data.get("custom_contribution_fee"))
+                except (ValueError, TypeError) as e:
+                    frappe.logger().error(f"Error converting custom_contribution_fee: {str(e)}")
+                    custom_contribution_fee = 0
+
+            if custom_contribution_fee > 0:
+                member.dues_rate = custom_contribution_fee
+                member.fee_override_reason = f"Custom amount from reapplication: {data.get('custom_amount_reason', 'Member-specified contribution level')}"
+                member.fee_override_date = today()
+                member.application_custom_fee = custom_contribution_fee
+
+                # Set override user
+                override_user = None
+                if frappe.session.user and frappe.session.user != "Guest":
+                    if frappe.db.exists("User", frappe.session.user):
+                        override_user = frappe.session.user
+                if not override_user and frappe.db.exists("User", "Administrator"):
+                    override_user = "Administrator"
+                if override_user:
+                    member.fee_override_by = override_user
+
+        except Exception as e:
+            frappe.log_error(f"Error updating custom amount data: {str(e)}", "Custom Amount Update Error")
+
+    # Save with proper permissions
+    system_user = get_system_user_for_operation("member_reapplication_update")
+    with secure_user_context(system_user, f"Update member {member_name} from reapplication {application_id}"):
+        member.save()
+
+    return member
+
+
 def create_volunteer_record(member):
     """Create volunteer record if member is interested"""
     if not member.interested_in_volunteering:

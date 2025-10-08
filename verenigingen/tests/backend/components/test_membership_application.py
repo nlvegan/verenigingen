@@ -2538,12 +2538,35 @@ class TestMembershipApplicationEdgeCases(EnhancedTestCase):
         import threading
 
         results = []
+        results_lock = threading.Lock()
 
         def submit_concurrent_application(email_suffix):
-            data = self.base_data.copy()
-            data["email"] = f"concurrent_{email_suffix}@example.com"
-            result = submit_application(data)
-            results.append(result)
+            # Initialize Frappe context for this thread
+            try:
+                # Set up thread-local frappe context
+                frappe.init(site=frappe.local.site)
+                frappe.connect()
+                frappe.set_user(frappe.session.user)
+
+                # Copy test flags from main thread
+                if not hasattr(frappe, 'flags'):
+                    frappe.flags = frappe._dict()
+                frappe.flags.in_test = True
+                frappe.flags.mute_emails = True
+
+                data = self.base_data.copy()
+                data["email"] = f"concurrent_{email_suffix}@example.com"
+                result = submit_application(data)
+
+                with results_lock:
+                    results.append(result)
+            except Exception as e:
+                # Log error but don't fail the thread
+                with results_lock:
+                    results.append({"success": False, "error": str(e)})
+            finally:
+                # Clean up thread-local context
+                frappe.destroy()
 
         # Submit multiple applications concurrently
         threads = []
@@ -2557,7 +2580,7 @@ class TestMembershipApplicationEdgeCases(EnhancedTestCase):
             t.join()
 
         # All should succeed since they have different emails
-        successful_results = [r for r in results if r["success"]]
+        successful_results = [r for r in results if r.get("success")]
         self.assertEqual(len(successful_results), 3, "All concurrent applications should succeed")
 
         print("✅ Concurrent submissions handled correctly")

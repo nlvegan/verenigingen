@@ -77,6 +77,10 @@ class AccountCreationManager:
             # Step 2: Create user account (if not exists)
             if not self.request.created_user:
                 self.create_user_account()
+            else:
+                # User already exists - populate instance variable for linking
+                self.created_user = self.request.created_user
+                frappe.logger().info(f"User already exists: {self.created_user}, will link to member")
 
             # Step 3: Assign roles and role profile
             if self.request.pipeline_stage != "Completed":
@@ -85,6 +89,10 @@ class AccountCreationManager:
             # Step 4: Create employee record (if needed)
             if self.requires_employee_creation() and not self.request.created_employee:
                 self.create_employee_record()
+            elif self.request.created_employee:
+                # Employee already exists - populate instance variable for linking
+                self.created_employee = self.request.created_employee
+                frappe.logger().info(f"Employee already exists: {self.created_employee}, will link to member")
 
             # Step 5: Link all records together
             self.link_records()

@@ -488,8 +488,7 @@ def get_member_form_settings():
     return settings
 
 
-@frappe.whitelist()
-@standard_api(operation_type=OperationType.PUBLIC)
+@frappe.whitelist(allow_guest=True)
 def find_chapter_by_postal_code(postal_code):
     """Find chapters matching a postal code"""
     if not is_chapter_management_enabled():

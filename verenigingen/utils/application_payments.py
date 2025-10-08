@@ -82,6 +82,8 @@ def create_membership_invoice_with_amount(member, membership, amount):
         "membership": membership.name,
         "posting_date": today(),
         "due_date": add_days(today(), 14),
+        "custom_coverage_start_date": period_start,  # Set coverage period start
+        "custom_coverage_end_date": period_end,  # Set coverage period end
         "items": [
             {
                 "item_code": get_membership_item(membership_type),

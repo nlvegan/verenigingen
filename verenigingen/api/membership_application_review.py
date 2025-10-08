@@ -25,57 +25,34 @@ from verenigingen.utils.security.api_security_framework import critical_api, hig
 
 
 def assign_member_to_chapter(member, chapter):
-    """Assign member to chapter - extracted from approval workflow"""
+    """
+    Assign member to chapter using centralized ChapterMembershipManager.
+
+    This ensures proper history tracking and avoids race conditions.
+    """
     if not chapter:
         return
 
     try:
-        # Validate chapter exists
-        if not frappe.db.exists("Chapter", chapter):
-            frappe.logger().warning(f"Chapter {chapter} does not exist, skipping assignment")
-            return
+        from verenigingen.utils.chapter_membership_manager import ChapterMembershipManager
 
-        # Get chapter document
-        chapter_doc = frappe.get_doc("Chapter", chapter)
+        result = ChapterMembershipManager.assign_member_to_chapter(
+            member_id=member.name,
+            chapter_name=chapter,
+            reason="Membership application approval",
+            assigned_by=frappe.session.user,
+        )
 
-        # Check if member is already in the chapter
-        existing_membership = False
-        for existing_member in chapter_doc.members:
-            if existing_member.member == member.name and existing_member.enabled:
-                existing_membership = True
-                break
-
-        if not existing_membership:
-            # Add member to chapter's members child table
-            chapter_doc.append(
-                "members",
-                {
-                    "member": member.name,
-                    "enabled": 1,
-                    "status": "Active",
-                    "chapter_join_date": today(),
-                },
-            )
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            chapter_result = secure_document_operation(
-                operation="save",
-                doc=chapter_doc,
-                justification=f"Assign member {member.name} to chapter {chapter}",
-                required_permissions=["Chapter:write"],
-            )
-
-            if not chapter_result.success:
-                frappe.log_error(
-                    f"Failed to assign member to chapter: {'; '.join(chapter_result.errors)}",
-                    "Chapter Assignment Security",
-                )
-                return
-            frappe.logger().info(f"Added member {member.name} to chapter {chapter}")
+        if result.get("success"):
+            frappe.logger().info(f"Assigned member {member.name} to chapter {chapter}")
         else:
-            frappe.logger().info(f"Member {member.name} already exists in chapter {chapter}")
+            frappe.logger().warning(
+                f"Chapter assignment returned non-success: {result.get('error', 'Unknown error')}"
+            )
 
     except Exception as e:
-        frappe.logger().warning(f"Could not create chapter membership for {member.name}: {str(e)}")
+        # Non-critical error - log but don't fail the approval
+        frappe.logger().warning(f"Could not assign member to chapter: {str(e)}")
 
 
 def create_membership_and_invoice(member, membership_type):
@@ -139,12 +116,18 @@ def create_membership_and_invoice(member, membership_type):
 @frappe.whitelist()
 @high_security_api()  # Member application approval workflow
 def approve_membership_application(
-    member_name, membership_type=None, chapter=None, notes=None, create_invoice=True
+    member_name,
+    membership_type=None,
+    chapter=None,
+    notes=None,
+    create_invoice=True,
+    activate_as_volunteer=False,
 ):
     """
     Approve a membership application with focused responsibilities
 
-    This function handles:
+    This function is the canonical approval pathway and handles:
+    - Idempotency: Safe to call multiple times for the same member
     - Input validation and security checks
     - Member status updates and chapter assignments
     - Membership record and invoice creation
@@ -152,6 +135,8 @@ def approve_membership_application(
 
     Delegated to AccountCreationManager:
     - User account creation
+    - Role assignment and management
+    - Employee record creation
 
     Args:
         member_name (str): Member document name
@@ -159,6 +144,7 @@ def approve_membership_application(
         chapter (str, optional): Chapter to assign member to
         notes (str, optional): Review notes
         create_invoice (bool, optional): Whether to create initial invoice (default True)
+        activate_as_volunteer (bool, optional): Whether to activate as volunteer and assign Volunteer role profile (default False)
 
     Returns:
         dict: Approval result with structure:
@@ -168,8 +154,14 @@ def approve_membership_application(
                 "invoice": str (invoice name),
                 "amount": float,
                 "user_account": dict,
-                "membership": str (membership name)
+                "membership": str (membership name),
+                "idempotent": bool (optional, True if member was already approved)
             }
+
+    Idempotency:
+        If the member is already approved (application_status == "Approved"), the function
+        returns success with existing membership/invoice data and sets idempotent=True.
+        This prevents duplicate memberships, invoices, or status changes.
 
     Internal approval_fields dict structure:
         {
@@ -179,11 +171,9 @@ def approve_membership_application(
             "reviewed_by": str (user),
             "review_date": datetime,
             "selected_membership_type": str (membership type),
-            "review_notes": str (optional)
+            "review_notes": str (optional),
+            "fee_override_reason": str (optional, auto-set if custom dues_rate)
         }
-    - Role assignment and management
-    - Employee record creation
-    - User-Employee linking
 
     This separation ensures proper security compliance and maintainable code.
     """
@@ -209,6 +199,35 @@ def approve_membership_application(
                 "high",
             )
             frappe.throw(_("Invalid member reference"))
+
+        # Idempotency check - if already approved, return success
+        member_status = frappe.db.get_value(
+            "Member", member_name, ["application_status", "status"], as_dict=True
+        )
+        if member_status and member_status.application_status == "Approved":
+            frappe.logger().info(
+                f"Member {member_name} already approved (application_status=Approved), returning existing approval"
+            )
+            # Get existing membership for response
+            existing_membership = frappe.db.get_value(
+                "Membership", {"member": member_name, "status": "Active", "docstatus": 1}, "name"
+            )
+
+            # Get most recent invoice for this member if exists
+            existing_invoice = frappe.db.get_value(
+                "Sales Invoice",
+                {"customer": frappe.db.get_value("Member", member_name, "customer"), "docstatus": 1},
+                "name",
+                order_by="creation desc",
+            )
+
+            return {
+                "success": True,
+                "message": _("Member application already approved"),
+                "membership": existing_membership,
+                "invoice": existing_invoice,
+                "idempotent": True,  # Flag to indicate this was already done
+            }
 
     except Exception as e:
         log_security_event(
@@ -310,18 +329,29 @@ def approve_membership_application(
         f"(source: {'invoice' if invoice and hasattr(invoice, 'grand_total') else 'member_rate' if hasattr(member, 'dues_rate') and member.dues_rate else 'membership_type'})"
     )
 
-    # Activate volunteer record if member is interested in volunteering
-    try:
-        if hasattr(member, "interested_in_volunteering") and member.interested_in_volunteering:
-            activate_volunteer_record(member)
-    except Exception as e:
-        safe_log_error(f"Non-critical: Failed to activate volunteer record for {member.name}: {str(e)}")
-        # Continue with approval - this is not critical
+    # Activate volunteer record if explicitly requested (not automatic)
+    # Note: interested_in_volunteering flag creates Volunteer record but doesn't auto-activate
+    volunteer_activated = False
+    if activate_as_volunteer:
+        try:
+            if hasattr(member, "interested_in_volunteering") and member.interested_in_volunteering:
+                activate_volunteer_record(member)
+                volunteer_activated = True
+                frappe.logger().info(f"Activated volunteer record for {member.name} per approval request")
+            else:
+                frappe.logger().warning(
+                    f"Cannot activate as volunteer for {member.name} - no interested_in_volunteering flag"
+                )
+        except Exception as e:
+            safe_log_error(f"Non-critical: Failed to activate volunteer record for {member.name}: {str(e)}")
+            # Continue with approval - this is not critical
 
     # Create user account for portal access using secure AccountCreationManager
     user_creation_result = {"success": False, "error": "Not attempted"}
     try:
-        user_creation_result = create_secure_user_account_for_member(member)
+        user_creation_result = create_secure_user_account_for_member(
+            member, activate_as_volunteer=activate_as_volunteer
+        )
     except Exception as e:
         safe_log_error(f"Non-critical: User account creation failed for {member.name}: {str(e)}")
         user_creation_result = {"success": False, "error": "Account creation failed"}
@@ -447,39 +477,54 @@ def safe_log_error(message, title=None):
     frappe.log_error(safe_message, title)
 
 
-def create_secure_user_account_for_member(member):
-    """Create user account for approved member using secure AccountCreationManager with proper role profiles"""
+def create_secure_user_account_for_member(member, activate_as_volunteer=False):
+    """
+    Create user account for approved member using secure AccountCreationManager with proper role profiles
+
+    Args:
+        member: Member document
+        activate_as_volunteer: If True, assign Volunteer role profile; otherwise Member role profile
+    """
     try:
         from verenigingen.utils.account_creation_manager import (
             AccountCreationManager,
             queue_account_creation_for_member,
         )
 
-        # Simplified logic - determine the appropriate role profile
-        role_profile = "Verenigingen Member"  # Default role profile
+        # Determine role profile based on explicit activation flag
+        role_profile = "Verenigingen Member"  # Default role profile for regular members
         additional_roles = []  # Only for roles not covered by role profiles
 
-        # Check if member is a volunteer - this determines the base role profile
-        volunteer_name = get_volunteer_for_member(member.name)
-        volunteer_record = None
-        if volunteer_name:
-            volunteer_status = frappe.db.get_value("Volunteer", volunteer_name, "status")
-            volunteer_record = [volunteer_name, volunteer_status]
-        if volunteer_record and volunteer_record[1] in ["Active", "Pending"]:
-            role_profile = "Verenigingen Volunteer"  # Automatically includes all volunteer roles
-            volunteer_name = volunteer_record[0]
-            frappe.logger().info(f"Member {member.name} is a volunteer, using Verenigingen Volunteer profile")
+        # Only assign Volunteer profile if explicitly requested via activate_as_volunteer parameter
+        if activate_as_volunteer:
+            # Verify volunteer record exists before assigning volunteer profile
+            volunteer_name = get_volunteer_for_member(member.name)
+            if volunteer_name:
+                volunteer_status = frappe.db.get_value("Volunteer", volunteer_name, "status")
+                if volunteer_status in ["Active", "Pending"]:
+                    role_profile = "Verenigingen Volunteer"  # Volunteer role profile
+                    frappe.logger().info(
+                        f"Member {member.name} activated as volunteer, using Verenigingen Volunteer profile"
+                    )
 
-            # Check if volunteer is a board member - this requires additional role assignment
-            board_member_chapters = frappe.get_all(
-                "Chapter Board Member",
-                filters={"volunteer": volunteer_name, "is_active": 1},
-                fields=["parent"],
-            )
-            if board_member_chapters:
-                additional_roles.append("Verenigingen Chapter Board Member")
-                frappe.logger().info(
-                    f"Member {member.name} is board member of {len(board_member_chapters)} chapters - adding board member role"
+                    # Check if volunteer is a board member - this requires additional role assignment
+                    board_member_chapters = frappe.get_all(
+                        "Chapter Board Member",
+                        filters={"volunteer": volunteer_name, "is_active": 1},
+                        fields=["parent"],
+                    )
+                    if board_member_chapters:
+                        additional_roles.append("Verenigingen Chapter Board Member")
+                        frappe.logger().info(
+                            f"Member {member.name} is board member of {len(board_member_chapters)} chapters - adding board member role"
+                        )
+                else:
+                    frappe.logger().warning(
+                        f"Cannot assign Volunteer profile to {member.name} - volunteer status is {volunteer_status}"
+                    )
+            else:
+                frappe.logger().warning(
+                    f"Cannot assign Volunteer profile to {member.name} - no volunteer record found"
                 )
 
         frappe.logger().info(

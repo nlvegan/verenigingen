@@ -1484,6 +1484,12 @@ class EnhancedTestCase(FrappeTestCase):
             self._cleanup_stale_test_data()
             self.__class__._cleanup_done = True
 
+        # FIXTURE VALIDATION: Check required fixtures are loaded
+        # Only run once per test class to avoid overhead
+        if not hasattr(self.__class__, '_fixtures_validated'):
+            self._validate_fixtures()
+            self.__class__._fixtures_validated = True
+
         # Set global test flags for appropriate test behavior
         frappe.flags.skip_volunteer_account_creation = True
 
@@ -1515,47 +1521,15 @@ class EnhancedTestCase(FrappeTestCase):
             factory_docs = []
             if hasattr(self, 'factory') and hasattr(self.factory, 'created_documents'):
                 factory_docs = sorted(self.factory.created_documents, key=lambda x: x['priority'], reverse=True)
-            
+
             # Clean up factory-tracked documents first (by priority)
             for doc_info in factory_docs:
-                try:
-                    if frappe.db.exists(doc_info['doctype'], doc_info['name']):
-                        # Special handling for Team Role - they can't be deleted if actively assigned
-                        if doc_info['doctype'] == 'Team Role':
-                            try:
-                                # Try to deactivate first instead of deleting
-                                role_doc = frappe.get_doc('Team Role', doc_info['name'])
-                                role_doc.is_active = 0
-                                role_doc.save()
-                            except Exception:
-                                pass  # Role might already be inactive or deleted
-                        else:
-                            frappe.delete_doc(doc_info['doctype'], doc_info['name'], force=True)
-                except Exception:
-                    pass  # Continue with other cleanups
-            
+                self._cleanup_document_with_retry(doc_info, is_team_role=(doc_info['doctype'] == 'Team Role'))
+
             # Clean up legacy tracked records in reverse order (dependencies)
             # Use proper permission validation even in tests
             for record in reversed(self.created_records):
-                try:
-                    if frappe.db.exists(record['doctype'], record['name']):
-                        # Use secure operations for deletion to validate permissions properly
-                        from verenigingen.utils.secure_operations import secure_document_operation
-                        doc = frappe.get_doc(record['doctype'], record['name'])
-                        
-                        # Cancel first if submitted
-                        if doc.docstatus == 1:
-                            secure_document_operation(
-                                operation="cancel", 
-                                doc=doc,
-                                justification=f"Test cleanup: cancelling {record['doctype']} {record['name']}"
-                            )
-                        
-                        # Then delete
-                        frappe.delete_doc(record['doctype'], record['name'], force=True)
-                except Exception as e:
-                    # Log but don't fail teardown
-                    frappe.logger().warning(f"Failed to delete {record['doctype']} {record['name']}: {str(e)}")
+                self._cleanup_document_with_retry(record, use_secure_operations=True)
             
             # Clean up test campaigns that might have been created
             test_campaigns = frappe.get_all("Donation Campaign", 
@@ -1601,7 +1575,62 @@ class EnhancedTestCase(FrappeTestCase):
             pass  # Continue cleanup even if rate limit patch cleanup fails
 
         super().tearDown()
-        
+
+    def _cleanup_document_with_retry(self, doc_info, max_retries=3, retry_delay=0.5, is_team_role=False, use_secure_operations=False):
+        """Clean up document with retry logic for lock timeouts"""
+        import time
+
+        for attempt in range(max_retries):
+            try:
+                if frappe.db.exists(doc_info['doctype'], doc_info['name']):
+                    # Special handling for Team Role - they can't be deleted if actively assigned
+                    if is_team_role:
+                        try:
+                            # Try to deactivate first instead of deleting
+                            role_doc = frappe.get_doc('Team Role', doc_info['name'])
+                            role_doc.is_active = 0
+                            role_doc.save()
+                            frappe.db.commit()
+                            break
+                        except Exception:
+                            pass  # Role might already be inactive or deleted
+
+                    # Ensure any pending transactions are rolled back before cleanup
+                    frappe.db.rollback()
+
+                    if use_secure_operations:
+                        # Use secure operations for deletion to validate permissions properly
+                        from verenigingen.utils.secure_operations import secure_document_operation
+                        doc = frappe.get_doc(doc_info['doctype'], doc_info['name'])
+
+                        # Cancel first if submitted
+                        if doc.docstatus == 1:
+                            secure_document_operation(
+                                operation="cancel",
+                                doc=doc,
+                                justification=f"Test cleanup: cancelling {doc_info['doctype']} {doc_info['name']}"
+                            )
+
+                    # Delete the document
+                    frappe.delete_doc(doc_info['doctype'], doc_info['name'], force=True)
+                    # Commit the deletion to release locks
+                    frappe.db.commit()
+                break  # Success, exit retry loop
+            except frappe.exceptions.QueryTimeoutError as e:
+                if attempt < max_retries - 1:
+                    frappe.logger().warning(f"Lock timeout cleaning up {doc_info['doctype']} {doc_info['name']}, retrying (attempt {attempt + 1}/{max_retries})...")
+                    time.sleep(retry_delay)
+                    # Rollback any stuck transaction before retrying
+                    frappe.db.rollback()
+                else:
+                    frappe.logger().warning(f"Failed to clean up {doc_info['doctype']} {doc_info['name']} after {max_retries} attempts: {e}")
+            except Exception as e:
+                # For other exceptions, log and continue
+                frappe.logger().warning(f"Error cleaning up {doc_info['doctype']} {doc_info['name']}: {str(e)}")
+                # Rollback to clean up any partial transaction
+                frappe.db.rollback()
+                break  # Don't retry for non-timeout errors
+
     def _setup_email_mocking(self):
         """
         Set up comprehensive email mocking infrastructure for tests.
@@ -2008,6 +2037,33 @@ class EnhancedTestCase(FrappeTestCase):
         except Exception as e:
             # Don't fail tests if cleanup fails - just log
             frappe.logger().warning(f"Stale test data cleanup encountered error: {str(e)}")
+
+    def _validate_fixtures(self):
+        """
+        Validate required fixtures are loaded before running tests.
+
+        Prints warnings if fixtures are missing but doesn't block tests.
+        Set SKIP_FIXTURE_VALIDATION=1 environment variable to skip validation.
+        """
+        import os
+
+        # Allow skipping fixture validation via environment variable
+        if os.environ.get('SKIP_FIXTURE_VALIDATION'):
+            return
+
+        # Check if already validated globally
+        if hasattr(frappe.flags, 'fixtures_validated'):
+            return
+        frappe.flags.fixtures_validated = True
+
+        from verenigingen.tests.utils.fixture_validator import validate_test_fixtures
+
+        # Validate core fixtures (non-blocking - just warns)
+        categories = ["roles", "regions"]
+        if not validate_test_fixtures(categories=categories, quiet=False):
+            print("\n⚠️  WARNING: Some fixtures are missing but tests will continue")
+            print("    Tests may fail with cryptic LinkValidationError messages")
+            print("    Set SKIP_FIXTURE_VALIDATION=1 to hide this warning\n")
 
     def _ensure_production_ready_setup(self):
         """

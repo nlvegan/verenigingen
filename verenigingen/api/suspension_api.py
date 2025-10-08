@@ -256,9 +256,20 @@ def get_suspension_preview(member_name):
 
     member = frappe.get_doc("Member", member_name)
 
-    # Get user account info
-    user_email = frappe.db.get_value("Member", member_name, "user")
-    has_user_account = bool(user_email and frappe.db.exists("User", user_email))
+    # Get user account info - check both linked user field and email match
+    user_from_link = frappe.db.get_value("Member", member_name, "user")
+    member_email = frappe.db.get_value("Member", member_name, "email")
+
+    user_email = None
+    user_found_via = None
+    if user_from_link and frappe.db.exists("User", user_from_link):
+        user_email = user_from_link
+        user_found_via = "linked_user_field"
+    elif member_email and frappe.db.exists("User", member_email):
+        user_email = member_email
+        user_found_via = "email_match"
+
+    has_user_account = bool(user_email)
 
     # Get team memberships through volunteer
     active_teams = 0
@@ -283,6 +294,8 @@ def get_suspension_preview(member_name):
     return {
         "member_status": member.status,
         "has_user_account": has_user_account,
+        "user_email": user_email,
+        "user_found_via": user_found_via,
         "active_teams": active_teams,
         "team_details": team_details,
         "active_memberships": len(active_memberships),

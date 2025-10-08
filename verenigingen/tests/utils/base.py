@@ -58,6 +58,10 @@ class VereningingenTestCase(FrappeTestCase):
         super().setUpClass()
         cls._ensure_test_environment()
         cls._track_created_docs = []
+
+        # Validate required fixtures are loaded (run once per test class)
+        cls._validate_fixtures()
+
         cls.setup_payment_modes()  # Ensure payment modes exist for all tests
 
     @classmethod
@@ -65,6 +69,34 @@ class VereningingenTestCase(FrappeTestCase):
         """Clean up class-level test data"""
         cls._cleanup_tracked_docs()
         super().tearDownClass()
+
+    @classmethod
+    def _validate_fixtures(cls):
+        """
+        Validate required fixtures are loaded before running tests.
+
+        Prints warnings if fixtures are missing but doesn't block tests.
+        Set SKIP_FIXTURE_VALIDATION=1 environment variable to skip validation.
+        """
+        import os
+
+        # Allow skipping fixture validation via environment variable
+        if os.environ.get('SKIP_FIXTURE_VALIDATION'):
+            return
+
+        # Only validate once globally (not per test class)
+        if hasattr(frappe.flags, 'fixtures_validated'):
+            return
+        frappe.flags.fixtures_validated = True
+
+        from verenigingen.tests.utils.fixture_validator import validate_test_fixtures
+
+        # Validate core fixtures (non-blocking - just warns)
+        categories = ["roles", "regions"]
+        if not validate_test_fixtures(categories=categories, quiet=False):
+            print("\n⚠️  WARNING: Some fixtures are missing but tests will continue")
+            print("    Tests may fail with cryptic LinkValidationError messages")
+            print("    Set SKIP_FIXTURE_VALIDATION=1 to hide this warning\n")
 
     def setUp(self):
         """Set up test-specific environment"""
@@ -91,28 +123,52 @@ class VereningingenTestCase(FrappeTestCase):
         """Clean up test-specific data"""
         # Check for errors that occurred during this test BEFORE cleanup
         self._check_test_errors()
-        
+
         # Restore original session user
         frappe.session.user = self._original_session_user
 
         # Clean up customers linked to members BEFORE deleting members
         self._cleanup_member_customers()
 
-        # Clean up test docs
+        # Clean up test docs with retry logic for lock timeouts
         for doc_info in reversed(self._test_docs):
-            try:
-                if frappe.db.exists(doc_info["doctype"], doc_info["name"]):
-                    frappe.delete_doc(doc_info["doctype"], doc_info["name"], force=True)
-            except Exception as e:
-                print(f"Error cleaning up {doc_info['doctype']} {doc_info['name']}: {e}")
+            self._cleanup_document_with_retry(doc_info)
 
         # Clean up test request context
         self._cleanup_test_request_context()
-        
+
         # Restore original behaviors
         self._cleanup_test_mocks()
-        
+
         super().tearDown()
+
+    def _cleanup_document_with_retry(self, doc_info, max_retries=3, retry_delay=0.5):
+        """Clean up document with retry logic for lock timeouts"""
+        import time
+
+        for attempt in range(max_retries):
+            try:
+                if frappe.db.exists(doc_info["doctype"], doc_info["name"]):
+                    # Ensure any pending transactions are rolled back before cleanup
+                    frappe.db.rollback()
+                    frappe.delete_doc(doc_info["doctype"], doc_info["name"], force=True)
+                    # Commit the deletion to release locks
+                    frappe.db.commit()
+                break  # Success, exit retry loop
+            except frappe.exceptions.QueryTimeoutError as e:
+                if attempt < max_retries - 1:
+                    print(f"Lock timeout cleaning up {doc_info['doctype']} {doc_info['name']}, retrying (attempt {attempt + 1}/{max_retries})...")
+                    time.sleep(retry_delay)
+                    # Rollback any stuck transaction before retrying
+                    frappe.db.rollback()
+                else:
+                    print(f"Failed to clean up {doc_info['doctype']} {doc_info['name']} after {max_retries} attempts: {e}")
+            except Exception as e:
+                # For other exceptions, log and continue
+                print(f"Error cleaning up {doc_info['doctype']} {doc_info['name']}: {e}")
+                # Rollback to clean up any partial transaction
+                frappe.db.rollback()
+                break  # Don't retry for non-timeout errors
         
     def _check_test_errors(self):
         """Check for errors that occurred during this test"""
