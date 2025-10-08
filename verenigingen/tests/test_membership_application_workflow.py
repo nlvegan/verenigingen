@@ -75,11 +75,14 @@ class TestMembershipApplicationWorkflow(VereningingenTestCase):
             last_name="Workflow",
             email="test.workflow@example.com"
         )
-        
+
+        # Reload immediately after creation to get fresh timestamp
+        member.reload()
+
         # Set initial state
         member.application_status = "Pending"
         member.save()
-        
+
         # Refresh to avoid timestamp mismatch
         member.reload()
         
@@ -187,8 +190,9 @@ class TestMembershipApplicationWorkflow(VereningingenTestCase):
         }
 
         # Test that we can call the member creation function without import errors
+        # Note: membership_application.py was archived, use enhanced_membership_application instead
         try:
-            from verenigingen.api.membership_application import submit_application
+            from verenigingen.api.enhanced_membership_application import submit_enhanced_application
             # We don't actually submit but test the import path works
             print("✅ Member creation API imports working correctly")
         except ImportError as e:

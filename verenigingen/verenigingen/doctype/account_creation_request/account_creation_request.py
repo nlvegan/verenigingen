@@ -50,6 +50,67 @@ class AccountCreationRequest(Document):
         if not self.status:
             self.status = "Requested"
 
+    def on_update(self):
+        """Handle status changes and trigger notifications"""
+        # Check if status just changed to Completed
+        if self.has_value_changed("status") and self.status == "Completed":
+            self.handle_completion()
+
+    def handle_completion(self):
+        """Handle actions when account creation is completed"""
+        try:
+            # Check if this is a member application approval
+            if self.request_type == "Member":
+                member = frappe.get_doc("Member", self.source_record)
+
+                # Only send approval email if this member has an approved application
+                if member.application_status == "Approved":
+                    self.send_member_approval_email(member)
+        except Exception as e:
+            frappe.log_error(
+                f"Error handling account creation completion for {self.name}: {str(e)}",
+                "Account Creation Completion Error",
+            )
+
+    def send_member_approval_email(self, member):
+        """Send approval email with login credentials when account is ready"""
+        try:
+            from verenigingen.utils.application_notifications import send_approval_email
+
+            # Get the application invoice
+            invoice = self.get_application_invoice(member)
+
+            if invoice:
+                send_approval_email(member, invoice)
+                frappe.logger().info(f"Sent approval email for member {member.name} after account creation")
+            else:
+                frappe.logger().warning(
+                    f"No application invoice found for member {member.name}, skipping approval email"
+                )
+        except Exception as e:
+            frappe.log_error(
+                f"Error sending approval email for member {member.name}: {str(e)}", "Approval Email Error"
+            )
+
+    def get_application_invoice(self, member):
+        """Get the application invoice for a member"""
+        try:
+            # Get application invoice from payment history
+            payment_history = getattr(member, "payment_history", None) or []
+
+            for payment in payment_history:
+                payment_description = getattr(payment, "description", None) or ""
+                invoice_type = getattr(payment, "invoice_type", None)
+                if invoice_type == "Application" or "application" in payment_description.lower():
+                    invoice_name = getattr(payment, "invoice", None)
+                    if invoice_name:
+                        return frappe.get_doc("Sales Invoice", invoice_name)
+
+            return None
+        except Exception as e:
+            frappe.log_error(f"Error getting application invoice: {str(e)}")
+            return None
+
     def autoname(self):
         """Generate naming for account creation requests"""
         self.name = f"ACR-{self.request_type}-{frappe.utils.now()[:10]}-{frappe.generate_hash()[:8]}"

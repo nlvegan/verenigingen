@@ -87,6 +87,14 @@ class ValidationIssue:
     category: str = "field_reference"
     inference_method: Optional[str] = None
 
+# Known Python built-in properties - not Frappe fields
+PYTHON_BUILTIN_ATTRS = {
+    'year', 'month', 'day',           # date/datetime
+    'hour', 'minute', 'second', 'microsecond',  # time/datetime
+    'tzinfo', 'fold',                 # datetime timezone
+    'date', 'time', 'timestamp',      # datetime methods
+}
+
 class ConfidenceThresholds:
     """Confidence scoring thresholds"""
     CRITICAL = 0.9
@@ -1278,11 +1286,17 @@ class ASTFieldAnalyzer:
                         print(f"  🔍 Analyzing {obj_name}.{field_name} with modern logic...")
                     
                     doctype, inference_method = self.detect_doctype_with_modern_logic(node, source_lines, file_context)
-                    
+
                     if doctype and doctype in self.doctypes:
                         doctype_info = self.doctypes[doctype]
                         fields = doctype_info['fields']
-                        
+
+                        # Skip Python built-in date/datetime/time properties
+                        if field_name in PYTHON_BUILTIN_ATTRS:
+                            if self.verbose:
+                                print(f"  ✓ Skipped Python built-in property: {field_name}")
+                            continue
+
                         if field_name not in fields:
                             # Create issue
                             issue = ValidationIssue(

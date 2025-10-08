@@ -77,13 +77,17 @@ class MembershipDuesSchedule(Document):
         template_minimum = values["minimum_amount"]  # Already validated above
         template_suggested = values["suggested_amount"]  # Already validated above
 
-        # Only enforce template-level validation for new templates, not when updating existing schedules
+        # Use the maximum of template minimum and membership type minimum
+        # This ensures compliance even if template is misconfigured
         if not getattr(self, "_skip_template_validation", False):
             if template_minimum < membership_type_minimum:
-                frappe.throw(
-                    f"Template minimum amount (€{template_minimum:.2f}) cannot be less than "
-                    f"membership type minimum (€{membership_type_minimum:.2f})"
+                frappe.logger().warning(
+                    f"Template minimum amount (€{template_minimum:.2f}) is less than "
+                    f"membership type minimum (€{membership_type_minimum:.2f}). "
+                    f"Using membership type minimum instead."
                 )
+                values["minimum_amount"] = membership_type_minimum
+                template_minimum = membership_type_minimum
 
             # Use the same logic as application helpers: dues_rate takes precedence over suggested_amount
             effective_amount = template.dues_rate if template.dues_rate else template_suggested

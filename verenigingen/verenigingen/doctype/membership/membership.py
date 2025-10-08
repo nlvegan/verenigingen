@@ -25,6 +25,27 @@ class Membership(Document):
     def on_submit(self):
         """Create or update dues schedule when membership is submitted"""
         self.create_or_update_dues_schedule()
+
+        # Check if parent Member is coordinating updates for performance optimization
+        # If so, skip our member updates - parent will do them in one consolidated save
+        if self.member:
+            try:
+                from verenigingen.utils.document_coordination import should_skip_child_updates
+
+                member_doc = frappe.get_doc("Member", self.member)
+                if should_skip_child_updates(member_doc, "Membership"):
+                    frappe.logger().info(
+                        f"Skipping member field updates for {self.member} - "
+                        f"coordinated by Member.create_membership_on_approval"
+                    )
+                    return
+            except Exception as e:
+                # If coordination check fails, proceed with normal updates
+                frappe.logger().warning(
+                    f"Coordination check failed for {self.member}, proceeding with updates: {e}"
+                )
+
+        # No coordination active, update member normally
         self.update_member_current_membership_plan()
         self.update_member_duration()
 

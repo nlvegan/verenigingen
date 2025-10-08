@@ -243,9 +243,9 @@ def _can_suspend_member_fallback(member_name):
     return False
 
 
+@frappe.whitelist()
 @handle_api_error
 @performance_monitor()
-@frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_suspension_preview(member_name):
     """
@@ -292,9 +292,9 @@ def get_suspension_preview(member_name):
     }
 
 
+@frappe.whitelist()
 @handle_api_error
 @performance_monitor()
-@frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def bulk_suspend_members(member_list, suspension_reason, suspend_user=True, suspend_teams=True):
     """
@@ -393,9 +393,9 @@ def bulk_suspend_members(member_list, suspension_reason, suspend_user=True, susp
     return results
 
 
+@frappe.whitelist()
 @handle_api_error
 @performance_monitor()
-@frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
 def get_suspension_list(limit=100, offset=0, status=None, chapter=None):
     """

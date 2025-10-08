@@ -501,11 +501,28 @@ class ChapterMembershipHistoryManager:
                 )
                 return True
             else:
-                print(f"No pending membership found to update for member {member_id} in {chapter_name}")
+                # No pending entry found - check if there's already an Active entry with same chapter/type
+                # This prevents creating duplicates when activation happens in multiple places
+                for membership in member.chapter_membership_history or []:
+                    if (
+                        membership.chapter_name == chapter_name
+                        and membership.assignment_type == assignment_type
+                        and membership.status == new_status
+                    ):
+                        frappe.logger().info(
+                            f"Membership already has status {new_status} for member {member_id} in {chapter_name} - no update needed"
+                        )
+                        return True  # Already in desired state
+
+                frappe.logger().warning(
+                    f"No pending membership found to update for member {member_id} in {chapter_name} "
+                    f"(assignment_type={assignment_type}). Available entries: "
+                    f"{[(m.chapter_name, m.assignment_type, m.status) for m in member.chapter_membership_history or []]}"
+                )
                 return False
 
         except Exception as e:
-            print(f"Error updating membership status for member {member_id}: {str(e)}")
+            frappe.logger().error(f"Error updating membership status for member {member_id}: {str(e)}")
             import traceback
 
             traceback.print_exc()

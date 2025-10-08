@@ -1155,6 +1155,7 @@ class MemberManager(BaseManager):
                     chapter_name=self.chapter_name,
                     assignment_type="Member",
                     start_date=today(),
+                    status=member.status or "Active",
                     reason="Membership re-enabled",
                 )
 

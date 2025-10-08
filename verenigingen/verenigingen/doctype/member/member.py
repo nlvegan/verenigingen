@@ -632,6 +632,7 @@ class Member(
         custom_dues_rate=None,
         custom_rate_reason=None,
         is_csv_import=False,
+        approval_fields=None,
     ):
         """Create membership record when application is approved
 
@@ -641,6 +642,7 @@ class Member(
             custom_dues_rate: Custom dues rate for CSV imports (bypasses normal calculation)
             custom_rate_reason: Reason for custom dues rate
             is_csv_import: Flag indicating this is from CSV import with historic date
+            approval_fields: Dict of approval fields to set (application_status, reviewed_by, etc.)
         """
         frappe.logger().info(
             f"[MEMBER DEBUG] create_membership_on_approval called for {self.name}, "
@@ -667,26 +669,94 @@ class Member(
                     update_modified=False,
                 )
 
-            # Create membership record
-            membership = frappe.get_doc(
-                {
-                    "doctype": "Membership",
-                    "member": self.name,
-                    "membership_type": self.selected_membership_type,
-                    "start_date": start_date or today(),
-                    "status": "Active",  # Active immediately on approval
-                }
+            # Check for existing active membership from previous failed approval attempt
+            existing_membership = frappe.db.get_value(
+                "Membership",
+                {"member": self.name, "status": "Active", "docstatus": 1},
+                ["name", "membership_type", "start_date"],
+                as_dict=True,
             )
 
-            # Set CSV import flag for proper renewal_date calculation
-            if is_csv_import:
-                membership._is_csv_import = True
+            if existing_membership:
+                # Reuse existing membership if it matches selected type and has recent start date
+                # This handles retry scenarios where membership was created but approval failed
+                days_old = date_diff(today(), existing_membership.start_date)
+                same_type = existing_membership.membership_type == self.selected_membership_type
 
-            membership.insert()
-            membership.submit()  # Submit to make it fully active
+                if same_type and days_old <= 1:
+                    # Existing membership is appropriate - reuse it
+                    frappe.logger().info(
+                        f"Reusing existing membership {existing_membership.name} for member {self.name} (retry scenario)"
+                    )
+                    membership = frappe.get_doc("Membership", existing_membership.name)
+                else:
+                    # Existing membership is wrong type or too old - fail with clear message
+                    frappe.throw(
+                        _(
+                            "Member already has an active membership ({0}) with type '{1}' from {2}. "
+                            "Please cancel the existing membership before approving with a different type."
+                        ).format(
+                            existing_membership.name,
+                            existing_membership.membership_type,
+                            frappe.format_date(existing_membership.start_date),
+                        )
+                    )
+            else:
+                # No existing membership - create new one
+                membership = frappe.get_doc(
+                    {
+                        "doctype": "Membership",
+                        "member": self.name,
+                        "membership_type": self.selected_membership_type,
+                        "start_date": start_date or today(),
+                        "status": "Active",  # Active immediately on approval
+                    }
+                )
+
+                # Set CSV import flag for proper renewal_date calculation
+                if is_csv_import:
+                    membership._is_csv_import = True
+
+                # Use context manager to skip member updates in membership.on_submit()
+                # We'll consolidate all updates into one save below for performance
+                from verenigingen.utils.document_coordination import skip_child_document_updates
+
+                with skip_child_document_updates(
+                    self, "Membership", "Consolidating member updates for approval performance"
+                ):
+                    membership.insert()
+                    membership.submit()  # Submit to make it fully active
 
             # Set this as the member's current membership plan
             self.current_membership_plan = membership.name
+
+            # Ensure dues schedule exists (handles both new and reused memberships)
+            # This was previously done in membership.on_submit() hook, but that doesn't run for reused memberships
+            existing_schedule = frappe.db.get_value(
+                "Membership Dues Schedule", {"member": self.name, "is_template": 0}, "name"
+            )
+
+            if not existing_schedule:
+                # Create dues schedule explicitly instead of relying on hook
+                from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
+                    MembershipDuesSchedule,
+                )
+
+                try:
+                    schedule_name = MembershipDuesSchedule.create_from_template(
+                        self.name, membership_type=membership.membership_type, membership_name=membership.name
+                    )
+                    frappe.logger().info(
+                        f"Created dues schedule {schedule_name} for member {self.name} during approval"
+                    )
+                except Exception as e:
+                    frappe.logger().error(f"Failed to create dues schedule for member {self.name}: {str(e)}")
+                    # Don't fail approval if dues schedule creation fails - it can be created later
+                    frappe.msgprint(
+                        _("Warning: Dues schedule creation failed. It will be retried automatically."),
+                        alert=True,
+                        indicator="orange",
+                    )
 
             # Generate invoice with member's custom fee if applicable (skip for CSV imports)
             invoice = None
@@ -696,31 +766,85 @@ class Member(
                 current_fee = self.get_current_membership_fee()
                 invoice = create_membership_invoice(self, membership, membership_type, current_fee["amount"])
 
-            # Update member with invoice reference (only if invoice was created)
+            # Reload member to get latest data and update all fields in one save
+            frappe.logger().info(f"[MEMBER DEBUG] Reloading member {self.name} to consolidate all updates")
+            self.reload()
+
+            # Set current membership plan (was set before but reload wiped it)
+            self.current_membership_plan = membership.name
+
+            # Set current dues schedule (normally done by membership.update_member_current_membership_plan)
+            dues_schedule = frappe.db.get_value(
+                "Membership Dues Schedule", {"member": self.name, "is_template": 0}, "name"
+            )
+            if dues_schedule:
+                self.current_dues_schedule = dues_schedule
+
+            # Update membership duration (normally done by membership.update_member_duration)
+            from verenigingen.services.member.utils.membership_duration_service import (
+                update_member_duration_fields,
+            )
+
+            update_member_duration_fields(self)  # Updates fields in-place, doesn't save
+
+            # Set invoice fields if invoice was created
             if invoice:
-                # Reload to avoid timestamp mismatch
-                frappe.logger().info(
-                    f"[MEMBER DEBUG] About to reload member {self.name} - this will wipe _csv_import flag. "
-                    f"bulk_member_operations={getattr(frappe.flags, 'bulk_member_operations', 'NOT SET')}"
-                )
-                self.reload()
                 self.application_invoice = invoice.name
                 self.application_payment_status = "Pending"
 
-                # Handle concurrency with retry logic
-                frappe.logger().info(
-                    f"[MEMBER DEBUG] About to save member {self.name} after approval, "
-                    f"dues_rate={self.dues_rate}, "
-                    f"bulk_member_operations={getattr(frappe.flags, 'bulk_member_operations', 'NOT SET')}"
+            # Set approval fields if provided (from approval workflow)
+            if approval_fields:
+                for field, value in approval_fields.items():
+                    setattr(self, field, value)
+
+            # Mark as system update to bypass fee override validation
+            self._system_update = True
+
+            # SECURITY AUDIT: Log validation bypass for compliance
+            if self.dues_rate:
+                frappe.logger().warning(
+                    f"SECURITY_AUDIT: Fee override validation bypassed via _system_update "
+                    f"for member {self.name}, dues_rate={self.dues_rate}, "
+                    f"user={frappe.session.user}, context=create_membership_on_approval"
                 )
-                try:
-                    self.save()
-                except frappe.TimestampMismatchError:
-                    # Reload member and retry save once
-                    self.reload()
-                    self.application_invoice = invoice.name
-                    self.application_payment_status = "Pending"
-                    self.save()
+
+            # Single consolidated save with retry logic and rollback on failure
+            frappe.logger().info(f"[MEMBER DEBUG] Saving member {self.name} with all updates consolidated")
+
+            # Define field restoration callback for retry logic
+            def restore_member_fields(member_doc):
+                """Restore all member fields after reload during retry"""
+                member_doc.current_membership_plan = membership.name
+                if dues_schedule:
+                    member_doc.current_dues_schedule = dues_schedule
+                # CRITICAL: Re-apply duration fields after reload
+                update_member_duration_fields(member_doc)
+                if invoice:
+                    member_doc.application_invoice = invoice.name
+                    member_doc.application_payment_status = "Pending"
+                # Restore approval fields if provided
+                if approval_fields:
+                    for field, value in approval_fields.items():
+                        setattr(member_doc, field, value)
+                member_doc._system_update = True
+
+                # SECURITY AUDIT: Log validation bypass for compliance
+                if member_doc.dues_rate:
+                    frappe.logger().warning(
+                        f"SECURITY_AUDIT: Fee override validation bypassed via _system_update "
+                        f"for member {member_doc.name}, dues_rate={member_doc.dues_rate}, "
+                        f"user={frappe.session.user}, context=create_membership_on_approval"
+                    )
+
+            # Use retry utility with automatic rollback of membership if member save fails
+            from verenigingen.utils.document_save_retry import save_with_rollback
+
+            save_with_rollback(
+                self,
+                rollback_docs=[membership],  # Cancel membership if member save fails
+                max_retries=1,
+                field_restore_callback=restore_member_fields,
+            )
 
             return membership
 

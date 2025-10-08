@@ -161,7 +161,7 @@ def parse_application_data(data_input):
                 stripped_data = decoded_data.strip()
                 if stripped_data != decoded_data:
                     frappe.logger("verenigingen.application").debug(
-                        f"Found whitespace, using stripped version"
+                        "Found whitespace, using stripped version"
                     )
                     decoded_data = stripped_data
 
@@ -326,7 +326,7 @@ def create_address_from_application(data):
     system_user = get_system_user_for_operation("address_creation_during_member_application")
     with secure_user_context(
         system_user, f"Address creation for member application {data.get('email', 'unknown')}"
-    ) as ctx:
+    ):
         address = frappe.get_doc(
             {
                 "doctype": "Address",
@@ -512,7 +512,7 @@ def create_member_from_application(data, application_id, address=None):
     from verenigingen.utils.secure_operations import get_system_user_for_operation, secure_user_context
 
     system_user = get_system_user_for_operation("member_creation_during_application")
-    with secure_user_context(system_user, f"Member creation for application {application_id}") as ctx:
+    with secure_user_context(system_user, f"Member creation for application {application_id}"):
         # Handle potential application_id collision with retry logic
         max_attempts = 3
         for attempt in range(max_attempts):
@@ -646,7 +646,7 @@ def create_volunteer_record(member):
         from verenigingen.utils.secure_operations import get_system_user_for_operation, secure_user_context
 
         system_user = get_system_user_for_operation("volunteer_creation_during_application")
-        with secure_user_context(system_user, f"Volunteer creation for member {member.name}") as ctx:
+        with secure_user_context(system_user, f"Volunteer creation for member {member.name}"):
             # Insert with proper permissions using secure operations framework
             volunteer.insert()
             return volunteer
@@ -1069,7 +1069,7 @@ def activate_pending_chapter_membership(member, chapter_name):
         # Update membership history to reflect activation
         from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
 
-        ChapterMembershipHistoryManager.update_membership_status(
+        history_updated = ChapterMembershipHistoryManager.update_membership_status(
             member_id=member.name,
             chapter_name=chapter_name,
             assignment_type="Member",
@@ -1077,7 +1077,16 @@ def activate_pending_chapter_membership(member, chapter_name):
             reason=f"Membership application approved for {chapter_name} chapter",
         )
 
-        frappe.logger().info(f"Activated Chapter Member record for {member.name} in {chapter_name}")
+        if history_updated:
+            frappe.logger().info(
+                f"Activated Chapter Member record and updated history for {member.name} in {chapter_name}"
+            )
+        else:
+            frappe.logger().warning(
+                f"Activated Chapter Member record for {member.name} in {chapter_name} "
+                f"but failed to update membership history - pending entry may still exist"
+            )
+
         return pending_member
 
     except Exception as e:

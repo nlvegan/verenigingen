@@ -217,13 +217,7 @@ class AccountCreationManager:
                     raise frappe.ValidationError(f"Role profile does not exist: {self.request.role_profile}")
 
                 user_doc.role_profile_name = self.request.role_profile
-
-                # Note: Module profiles are not part of core Role Profile DocType
-                # If module profile functionality is needed, it should be implemented
-                # via custom fields or alternative mechanisms
-                frappe.logger().info(
-                    f"Role profile {self.request.role_profile} assigned (module profiles not implemented)"
-                )
+                frappe.logger().info(f"Role profile {self.request.role_profile} assigned")
 
             # Save with proper permissions - NO ignore_permissions=True
             if roles_added or self.request.role_profile:
@@ -231,6 +225,11 @@ class AccountCreationManager:
                 frappe.logger().info(f"Roles assigned successfully: {roles_added}")
             else:
                 frappe.logger().info("No new roles to assign")
+
+            # Set module access for member users
+            if self.request.request_type == "Member":
+                self._set_member_user_modules()
+                frappe.logger().info(f"Module access configured for member user: {self.created_user}")
 
         except Exception as e:
             frappe.logger().error(f"Failed to assign roles: {str(e)}")
@@ -299,16 +298,36 @@ class AccountCreationManager:
         frappe.logger().info(f"Linking records for {self.request_name}")
 
         try:
-            # Update source document with user/employee links
+            # Update source document with user/employee links using db_set
+            # This avoids validation/timestamp issues while ensuring the link is saved
             if self.created_user and hasattr(self.source_doc, "user"):
-                if not self.source_doc.user:
-                    self.source_doc.user = self.created_user
-                    self.source_doc.save()
+                current_user = frappe.db.get_value(
+                    self.request.request_type, self.request.source_record, "user"
+                )
+                if not current_user:
+                    frappe.db.set_value(
+                        self.request.request_type, self.request.source_record, "user", self.created_user
+                    )
+                    frappe.db.commit()
+                    frappe.logger().info(
+                        f"Linked user {self.created_user} to {self.request.request_type} {self.request.source_record}"
+                    )
 
             if self.created_employee and hasattr(self.source_doc, "employee"):
-                if not self.source_doc.employee:
-                    self.source_doc.employee = self.created_employee
-                    self.source_doc.save()
+                current_employee = frappe.db.get_value(
+                    self.request.request_type, self.request.source_record, "employee"
+                )
+                if not current_employee:
+                    frappe.db.set_value(
+                        self.request.request_type,
+                        self.request.source_record,
+                        "employee",
+                        self.created_employee,
+                    )
+                    frappe.db.commit()
+                    frappe.logger().info(
+                        f"Linked employee {self.created_employee} to {self.request.request_type} {self.request.source_record}"
+                    )
 
             # Update user with employee link
             if self.created_user and self.created_employee:
@@ -366,6 +385,22 @@ class AccountCreationManager:
             return role_name in allowed_roles
 
         return False
+
+    def _set_member_user_modules(self):
+        """Set allowed modules for member users - restrict to relevant modules only"""
+        if not self.created_user:
+            return
+
+        try:
+            from verenigingen.verenigingen.doctype.member.member import set_member_user_modules
+
+            set_member_user_modules(self.created_user)
+            frappe.logger().info(f"Module access configured for user {self.created_user}")
+
+        except Exception as e:
+            frappe.logger().error(f"Error setting member user modules: {str(e)}")
+            # Don't fail the entire process for module configuration
+            frappe.logger().warning("Continuing despite module configuration error")
 
     def get_current_stage(self):
         """Get current processing stage for error reporting"""
@@ -502,7 +537,11 @@ def queue_account_creation_for_member(member_name, roles=None, role_profile=None
     # Queue for processing
     result = request.queue_processing()
 
-    return {"request_name": request.name, "result": result}
+    return {
+        "success": True,
+        "request_name": request.name,
+        "message": result.get("message", "Account creation queued"),
+    }
 
 
 @frappe.whitelist()
@@ -566,7 +605,11 @@ def queue_account_creation_for_volunteer(volunteer_name, priority="Normal"):
     # Queue for processing
     result = request.queue_processing()
 
-    return {"request_name": request.name, "result": result}
+    return {
+        "success": True,
+        "request_name": request.name,
+        "message": result.get("message", "Account creation queued"),
+    }
 
 
 # Bulk processing functions

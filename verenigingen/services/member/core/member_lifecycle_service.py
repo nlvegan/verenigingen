@@ -42,7 +42,10 @@ class MemberLifecycleService:
 
     def approve_application(self, member) -> Dict[str, Any]:
         """
-        Approve member application and perform all necessary setup.
+        Validate application and assign member_id.
+
+        Status field setting is delegated to create_membership_on_approval()
+        via the approval_fields dict pattern to prevent duplicate saves.
 
         Args:
             member: Member document to approve
@@ -56,46 +59,25 @@ class MemberLifecycleService:
             if not validation_result["success"]:
                 return validation_result
 
-            # Assign member ID if needed
+            # Assign member ID if needed (this is the only field this service should set)
             if not member.member_id:
                 member.member_id = member.generate_member_id()
-
-            # Update status fields
-            member.application_status = "Approved"
-            member.status = "Active"
-            member.reviewed_by = frappe.session.user
-            member.review_date = now_datetime()
-
-            # Set member_since date if not already set
-            if not getattr(member, "member_since", None):
-                member.member_since = today()
-
-            # Save with concurrency handling
-            save_result = self._save_member_with_retry(member, "approve")
-            if not save_result["success"]:
-                return save_result
-
-            # Perform post-approval setup
-            setup_result = self._perform_post_approval_setup(member)
+                # Save ONLY member_id field to avoid duplicate full saves
+                frappe.db.set_value("Member", member.name, "member_id", member.member_id)
+                frappe.db.commit()
 
             return {
                 "success": True,
                 "member_id": member.member_id,
-                "status": member.status,
-                "review_date": member.review_date,
-                "setup_results": setup_result,
                 "errors": [],
             }
 
         except Exception as e:
-            logger.error(f"Error approving application for member {member.name}: {str(e)}")
+            logger.error(f"Error validating application for member {member.name}: {str(e)}")
             return {
                 "success": False,
                 "member_id": None,
-                "status": None,
-                "review_date": None,
-                "setup_results": {},
-                "errors": [f"Application approval failed: {str(e)}"],
+                "errors": [f"Application validation failed: {str(e)}"],
             }
 
     def reject_application(self, member, reason: str) -> Dict[str, Any]:
@@ -406,20 +388,37 @@ class MemberLifecycleService:
     def _perform_post_approval_setup(self, member) -> Dict[str, Any]:
         """Perform post-approval setup tasks"""
         setup_results = {
-            "user_created": False,
+            "user_creation_queued": False,
             "customer_created": False,
             "chapter_activated": False,
             "errors": [],
         }
 
         try:
-            # Create user account if not exists
+            # Queue user account creation via AccountCreationManager instead of direct creation
             if not member.user:
                 try:
-                    member.create_user()
-                    setup_results["user_created"] = True
+                    from verenigingen.utils.account_creation_manager import queue_account_creation_for_member
+
+                    result = queue_account_creation_for_member(
+                        member_name=member.name,
+                        roles=["Verenigingen Member"],
+                        priority="High",  # Approval workflow gets high priority
+                    )
+
+                    if result and result.get("success"):
+                        setup_results["user_creation_queued"] = True
+                        setup_results["account_request"] = result.get("request_name")
+                        logger.info(
+                            f"Queued account creation for member {member.name}: {result.get('request_name')}"
+                        )
+                    else:
+                        error_msg = result.get("error") if result else "Unknown error"
+                        setup_results["errors"].append(f"Failed to queue user creation: {error_msg}")
+                        logger.error(f"Account creation queue failed for {member.name}: {error_msg}")
                 except Exception as e:
-                    setup_results["errors"].append(f"Failed to create user: {str(e)}")
+                    setup_results["errors"].append(f"Failed to queue user creation: {str(e)}")
+                    logger.error(f"Exception queuing account creation for {member.name}: {str(e)}")
 
             # Create customer if not exists
             if not member.customer:
