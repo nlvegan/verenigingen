@@ -84,7 +84,22 @@
   "module": "Verenigingen",
   "name": "Chapter Membership History",
   "owner": "Administrator",
-  "permissions": [],
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "read": 1,
+      "role": "Verenigingen Administrator",
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "read": 1,
+      "role": "Verenigingen Staff",
+      "write": 1
+    }
+  ],
   "sort_field": "start_date",
   "sort_order": "DESC"
 }

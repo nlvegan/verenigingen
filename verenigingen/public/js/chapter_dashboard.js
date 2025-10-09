@@ -85,15 +85,20 @@ function setupEventListeners() {
 
 	// Keyboard shortcuts
 	$(document).on('keydown', (e) => {
-		// Ctrl/Cmd + R for refresh
-		if ((e.ctrlKey || e.metaKey) && e.keyCode === 82) {
-			e.preventDefault();
-			refreshDashboardData();
-		}
+		// Ctrl/Cmd + R for refresh - DISABLED to prevent conflict with browser refresh
+		// if ((e.ctrlKey || e.metaKey) && e.keyCode === 82) {
+		// 	e.preventDefault();
+		// 	refreshDashboardData();
+		// }
 	});
 }
 
 function setupAutoRefresh() {
+	// Only set up auto-refresh if we have a valid chapter
+	if (!selectedChapter || selectedChapter === '' || selectedChapter === 'None') {
+		return;
+	}
+
 	// Refresh dashboard data every 5 minutes
 	setInterval(() => {
 		refreshDashboardData(true); // Silent refresh
@@ -278,6 +283,14 @@ function manageBoardMembers() {
 
 // Dashboard Data Management
 function refreshDashboardData(silent = false) {
+	// Don't refresh if no chapter is selected
+	if (!selectedChapter || selectedChapter === '' || selectedChapter === 'None') {
+		if (!silent) {
+			frappe.msgprint(__('No chapter selected'));
+		}
+		return;
+	}
+
 	if (!silent) {
 		showLoading();
 	}

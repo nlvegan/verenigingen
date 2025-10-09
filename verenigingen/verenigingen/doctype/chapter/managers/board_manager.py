@@ -6,7 +6,6 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, today
 
-from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
 from verenigingen.utils.secure_operations import secure_document_operation
 
 from .base_manager import BaseManager
@@ -110,18 +109,7 @@ class BoardManager(BaseManager):
                     "message": "Failed to add board member - see error logs for details",
                 }
 
-            # Add to volunteer assignment history
-            self.add_volunteer_assignment_history(volunteer, role, from_date)
-
-            # Add to chapter membership history for the associated member
-            if member_doc:
-                ChapterMembershipHistoryManager.add_membership_history(
-                    member_id=member_doc.name,
-                    chapter_name=self.chapter_name,
-                    assignment_type="Board Member",
-                    start_date=from_date,
-                    reason=f"Appointed as {role} in {self.chapter_name}",
-                )
+            # Assignment history is handled by validation sync (handle_board_member_additions)
 
             # Create audit comment
             self.create_comment(
@@ -208,28 +196,7 @@ class BoardManager(BaseManager):
                     "message": "Failed to remove board member - see error logs for details",
                 }
 
-            # Update volunteer assignment history
-            self.update_volunteer_assignment_history(
-                board_member_data["volunteer"],
-                board_member_data["chapter_role"],
-                board_member_data["from_date"],
-                end_date,
-            )
-
-            # Update chapter membership history for the associated member
-            try:
-                volunteer_doc = frappe.get_doc("Volunteer", board_member_data["volunteer"])
-                if volunteer_doc.member:
-                    ChapterMembershipHistoryManager.end_chapter_membership(
-                        member_id=volunteer_doc.member,
-                        chapter_name=self.chapter_name,
-                        assignment_type="Board Member",
-                        start_date=board_member_data["from_date"],
-                        end_date=end_date,
-                        reason=reason or f"Removed from {board_member_data['chapter_role']} role",
-                    )
-            except Exception as e:
-                frappe.log_error(f"Error updating chapter membership history: {str(e)}")
+            # Assignment history is handled by validation sync (handle_board_member_modifications)
 
             # Create audit comment
             self.create_comment(
@@ -830,23 +797,15 @@ class BoardManager(BaseManager):
                     board_member.to_date,
                 )
 
-                # Mark for removal from active board display
-                members_to_remove.append(board_member)
-
-        # Remove deactivated board members from the list
-        # This ensures they don't show up in the active board display
-        for member_to_remove in members_to_remove:
-            self.chapter_doc.board_members.remove(member_to_remove)
-
-            self.log_action(
-                "Removed deactivated board member from display",
-                {
-                    "volunteer": member_to_remove.volunteer,
-                    "volunteer_name": member_to_remove.volunteer_name,
-                    "role": member_to_remove.chapter_role,
-                    "end_date": member_to_remove.to_date,
-                },
-            )
+                self.log_action(
+                    "Deactivated board member",
+                    {
+                        "volunteer": board_member.volunteer,
+                        "volunteer_name": board_member.volunteer_name,
+                        "role": board_member.chapter_role,
+                        "end_date": board_member.to_date,
+                    },
+                )
 
         # Handle deleted board members (existed in old doc but not in new)
         self.handle_board_member_deletions(old_doc)
@@ -885,23 +844,6 @@ class BoardManager(BaseManager):
                     old_board_member.from_date,
                     end_date,
                 )
-
-                # Update chapter membership history for the associated member
-                try:
-                    volunteer_doc = frappe.get_doc("Volunteer", old_board_member.volunteer)
-                    if volunteer_doc.member:
-                        ChapterMembershipHistoryManager.end_chapter_membership(
-                            member_id=volunteer_doc.member,
-                            chapter_name=self.chapter_name,
-                            assignment_type="Board Member",
-                            start_date=old_board_member.from_date,
-                            end_date=end_date,
-                            reason="Removed from board (row deleted)",
-                        )
-                except Exception as e:
-                    frappe.log_error(
-                        f"Error updating chapter membership history for deleted board member: {str(e)}"
-                    )
 
                 self.log_action(
                     "Board member deleted from chapter",

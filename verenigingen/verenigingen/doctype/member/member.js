@@ -69,6 +69,39 @@ frappe.require([
 ]);
 
 /**
+ * Validate all Link fields in the form and clear broken links
+ *
+ * This prevents blank page errors when linked records have been deleted.
+ * Iterates through all fields in the DocType, checks Link fields for
+ * existence of the linked record, and clears the field if not found.
+ *
+ * @param {Object} frm - Frappe Form object
+ */
+function validate_link_fields(frm) {
+	const meta = frappe.get_meta('Member');
+	if (!meta || !meta.fields) { return; }
+
+	// Find all Link fields
+	const link_fields = meta.fields.filter(df => df.fieldtype === 'Link');
+
+	// Validate each Link field that has a value
+	link_fields.forEach(df => {
+		const fieldname = df.fieldname;
+		const link_doctype = df.options;
+		const link_value = frm.doc[fieldname];
+
+		if (link_value && link_doctype) {
+			frappe.db.exists(link_doctype, link_value).then(exists => {
+				if (!exists) {
+					console.warn(`${link_doctype} record '${link_value}' not found in field '${fieldname}', clearing link`);
+					frm.set_value(fieldname, null);
+				}
+			});
+		}
+	});
+}
+
+/**
  * Main Member DocType Form Controller
  *
  * Handles all form events and user interactions for the Member DocType.
@@ -141,6 +174,10 @@ frappe.ui.form.on('Member', {
 			add_basic_action_buttons(frm);
 			return;
 		}
+
+		// Validate all Link fields - clear if linked records don't exist
+		// This prevents blank page errors when linked records are deleted
+		validate_link_fields(frm);
 
 		// Initialize UI and custom CSS
 		if (window.UIUtils) {

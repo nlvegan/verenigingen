@@ -11,7 +11,7 @@ import frappe
 from frappe import _
 
 
-def handle_board_role_assignments(event_name, event_data):
+def handle_board_role_assignments(event_name, event_data, **kwargs):
     """
     Handle role profile assignments when board membership changes.
 
@@ -46,7 +46,7 @@ def handle_board_role_assignments(event_name, event_data):
         )
 
 
-def handle_board_notifications(event_name, event_data):
+def handle_board_notifications(event_name, event_data, **kwargs):
     """
     Handle notification sending for board changes.
 
@@ -78,11 +78,16 @@ def handle_board_notifications(event_name, event_data):
         frappe.log_error(f"Failed to send board notifications: {str(e)}", "Chapter Board Notification Error")
 
 
-def handle_volunteer_sync(event_name, event_data):
+def handle_volunteer_sync(event_name, event_data, **kwargs):
     """
     Handle synchronization with volunteer system when board changes.
 
     Updates volunteer records and assignment history.
+
+    Args:
+        event_name: Name of the event that triggered this handler
+        event_data: Dict containing event-specific data
+        **kwargs: Additional keyword arguments from background job system (dedupe, delay, etc.)
     """
     try:
         chapter_name = event_data.get("chapter")
@@ -200,7 +205,7 @@ def handle_cache_invalidation(event_name, event_data, **kwargs):
         frappe.log_error(f"Failed to clear caches: {str(e)}", "Chapter Cache Invalidation Error")
 
 
-def handle_settings_notifications(event_name, event_data):
+def handle_settings_notifications(event_name, event_data, **kwargs):
     """
     Handle notifications for chapter settings changes.
 
@@ -229,7 +234,7 @@ def handle_settings_notifications(event_name, event_data):
         )
 
 
-def handle_permissions_updates(event_name, event_data):
+def handle_permissions_updates(event_name, event_data, **kwargs):
     """
     Handle permission updates when chapter settings change.
 
@@ -258,7 +263,7 @@ def handle_permissions_updates(event_name, event_data):
         frappe.log_error(f"Failed to update permissions: {str(e)}", "Chapter Permissions Update Error")
 
 
-def handle_website_updates(event_name, event_data):
+def handle_website_updates(event_name, event_data, **kwargs):
     """
     Handle website updates when chapter settings change.
 

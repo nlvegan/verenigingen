@@ -40,7 +40,7 @@ CHAPTER_CONFIG = EntityConfig(
     specific_profiles_field="board_role_specific_profiles",
     child_table_doctype="Chapter Role Profile Mapping",
     role_field_in_child="chapter_role",
-    member_enabled_field="enabled",
+    member_enabled_field="is_active",
     member_status_field=None,
     member_status_active_value=None,
     member_role_field="chapter_role",
@@ -63,7 +63,7 @@ class ChapterRoleProfileManager(BaseRoleProfileManager):
             # Check if user is still on other chapter boards that require this profile
             other_board_memberships = frappe.db.exists(
                 "Chapter Board Member",
-                {"member": user_member, "enabled": 1, "parent": ["in", other_entities]},
+                {"member": user_member, "is_active": 1, "parent": ["in", other_entities]},
             )
             return bool(other_board_memberships)
 
@@ -84,13 +84,13 @@ class ChapterRoleProfileManager(BaseRoleProfileManager):
             .select(CBM.member, CBM.chapter_role, Member.user, User.enabled.as_("user_enabled"))
             .where(
                 (CBM.parent == entity_name)
-                & (CBM.enabled == 1)
+                & (CBM.is_active == 1)
                 & (Member.user.isnotnull())
                 & (User.enabled == 1)
             )
         ).run(as_dict=True)
 
-    def _get_user_from_board_member_doc(self, doc: "frappe._dict") -> Optional[str]:
+    def _get_user_from_member_doc(self, doc: "frappe._dict") -> Optional[str]:
         """Extract user from chapter board member document
 
         Args:
@@ -234,8 +234,8 @@ def on_chapter_board_member_add(doc: "frappe._dict", method: str):
         doc: ChapterBoardMember document with volunteer, parent, and chapter_role fields
         method: Hook method name
     """
-    if doc.enabled:
-        user = _chapter_manager._get_user_from_board_member_doc(doc)
+    if doc.is_active:
+        user = _chapter_manager._get_user_from_member_doc(doc)
         if user:
 
             def assign_role():
@@ -255,7 +255,7 @@ def on_chapter_board_member_remove(doc: "frappe._dict", method: str):
         doc: ChapterBoardMember document with volunteer, parent, and chapter_role fields
         method: Hook method name
     """
-    user = _chapter_manager._get_user_from_board_member_doc(doc)
+    user = _chapter_manager._get_user_from_member_doc(doc)
     if user:
 
         def remove_role():
@@ -275,11 +275,11 @@ def on_chapter_board_member_update(doc: "frappe._dict", method: str):
         doc: ChapterBoardMember document with volunteer, parent, and chapter_role fields
         method: Hook method name
     """
-    # Handle enabled status changes
-    if doc.has_value_changed("enabled"):
-        user = _chapter_manager._get_user_from_board_member_doc(doc)
+    # Handle is_active status changes
+    if doc.has_value_changed("is_active"):
+        user = _chapter_manager._get_user_from_member_doc(doc)
         if user:
-            if doc.enabled:
+            if doc.is_active:
 
                 def assign_role():
                     return assign_chapter_board_role_profile(

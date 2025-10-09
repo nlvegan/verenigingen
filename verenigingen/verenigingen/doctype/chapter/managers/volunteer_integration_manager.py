@@ -22,6 +22,8 @@ class VolunteerIntegrationManager(BaseManager):
         """
         Add active assignment to volunteer history when joining board
 
+        Delegates to centralized AssignmentHistoryManager for consistency.
+
         Args:
             volunteer_id: Volunteer ID
             role: Chapter role
@@ -32,71 +34,37 @@ class VolunteerIntegrationManager(BaseManager):
             bool: Whether assignment was added successfully
         """
         try:
-            volunteer = frappe.get_doc("Volunteer", volunteer_id)
+            from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
 
-            # Check if this assignment already exists as active
-            for assignment in volunteer.assignment_history or []:
-                if (
-                    assignment.reference_doctype == "Chapter"
-                    and assignment.reference_name == self.chapter_name
-                    and assignment.role == role
-                    and assignment.status == "Active"
-                ):
-                    self.log_action(
-                        "Assignment already exists as active",
-                        {"volunteer": volunteer_id, "role": role, "chapter": self.chapter_name},
-                        "warning",
-                    )
-                    return True  # Already exists, consider it successful
-
-            # Add new active assignment
-            volunteer.append(
-                "assignment_history",
-                {
-                    "assignment_type": assignment_type,
-                    "reference_doctype": "Chapter",
-                    "reference_name": self.chapter_name,
-                    "role": role,
-                    "start_date": start_date,
-                    "status": "Active",
-                },
+            success = AssignmentHistoryManager.add_assignment_history(
+                volunteer_id=volunteer_id,
+                assignment_type=assignment_type,
+                reference_doctype="Chapter",
+                reference_name=self.chapter_name,
+                role=role,
+                start_date=start_date,
             )
 
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            from verenigingen.utils.secure_operations import secure_document_operation
-
-            volunteer_result = secure_document_operation(
-                operation="save",
-                doc=volunteer,
-                justification=f"Add chapter assignment history for volunteer {volunteer_id}",
-                required_permissions=["Volunteer:write"],
-            )
-
-            if not volunteer_result.success:
-                frappe.logger().error(
-                    f"Failed to save volunteer assignment history: {'; '.join(volunteer_result.errors)}"
+            if success:
+                self.log_action(
+                    "Added volunteer assignment history",
+                    {
+                        "volunteer": volunteer_id,
+                        "role": role,
+                        "start_date": start_date,
+                        "assignment_type": assignment_type,
+                    },
                 )
-                frappe.throw(
-                    _("Failed to save volunteer assignment history: {0}").format(
-                        "; ".join(volunteer_result.errors)
-                    )
+                # Clear cache
+                self._clear_volunteer_cache(volunteer_id)
+            else:
+                self.log_action(
+                    "Failed to add volunteer assignment history",
+                    {"volunteer": volunteer_id, "role": role},
+                    "error",
                 )
 
-            self.log_action(
-                "Added volunteer assignment history",
-                {
-                    "volunteer": volunteer_id,
-                    "volunteer_name": volunteer.volunteer_name,
-                    "role": role,
-                    "start_date": start_date,
-                    "assignment_type": assignment_type,
-                },
-            )
-
-            # Clear cache
-            self._clear_volunteer_cache(volunteer_id)
-
-            return True
+            return success
 
         except Exception as e:
             self.log_action(
@@ -112,6 +80,8 @@ class VolunteerIntegrationManager(BaseManager):
         """
         Update volunteer assignment history when removing from board
 
+        Delegates to centralized AssignmentHistoryManager for consistency.
+
         Args:
             volunteer_id: Volunteer ID
             role: Chapter role
@@ -122,105 +92,38 @@ class VolunteerIntegrationManager(BaseManager):
             bool: Whether assignment was updated successfully
         """
         try:
-            volunteer = frappe.get_doc("Volunteer", volunteer_id)
+            from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
 
-            # First, look for any active assignment for this chapter and role
-            existing_active_assignment = None
-            for assignment in volunteer.assignment_history or []:
-                if (
-                    assignment.reference_doctype == "Chapter"
-                    and assignment.reference_name == self.chapter_name
-                    and assignment.role == role
-                    and assignment.status == "Active"
-                ):
-                    existing_active_assignment = assignment
-                    break
-
-            if existing_active_assignment:
-                # Update the active assignment to completed
-                existing_active_assignment.end_date = end_date
-                existing_active_assignment.status = "Completed"
-
-                self.log_action(
-                    "Updated active assignment to completed",
-                    {"volunteer": volunteer_id, "role": role, "end_date": end_date},
-                )
-            else:
-                # Look for assignment by exact start date match (backup search)
-                existing_assignment_by_date = None
-                for assignment in volunteer.assignment_history or []:
-                    if (
-                        assignment.reference_doctype == "Chapter"
-                        and assignment.reference_name == self.chapter_name
-                        and assignment.role == role
-                        and getdate(assignment.start_date) == getdate(start_date)
-                    ):
-                        existing_assignment_by_date = assignment
-                        break
-
-                if existing_assignment_by_date:
-                    # Update existing assignment
-                    existing_assignment_by_date.end_date = end_date
-                    existing_assignment_by_date.status = "Completed"
-
-                    self.log_action(
-                        "Updated existing assignment by date",
-                        {
-                            "volunteer": volunteer_id,
-                            "role": role,
-                            "start_date": start_date,
-                            "end_date": end_date,
-                        },
-                    )
-                else:
-                    # No existing assignment found, create a new completed one
-                    volunteer.append(
-                        "assignment_history",
-                        {
-                            "assignment_type": "Board Position",
-                            "reference_doctype": "Chapter",
-                            "reference_name": self.chapter_name,
-                            "role": role,
-                            "start_date": start_date,
-                            "end_date": end_date,
-                            "status": "Completed",
-                        },
-                    )
-
-                    self.log_action(
-                        "Added new completed assignment",
-                        {
-                            "volunteer": volunteer_id,
-                            "role": role,
-                            "start_date": start_date,
-                            "end_date": end_date,
-                        },
-                    )
-
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            from verenigingen.utils.secure_operations import secure_document_operation
-
-            volunteer_update_result = secure_document_operation(
-                operation="save",
-                doc=volunteer,
-                justification=f"Remove chapter assignment for volunteer {volunteer_id}",
-                required_permissions=["Volunteer:write"],
+            success = AssignmentHistoryManager.complete_assignment_history(
+                volunteer_id=volunteer_id,
+                assignment_type="Board Position",
+                reference_doctype="Chapter",
+                reference_name=self.chapter_name,
+                role=role,
+                start_date=start_date,
+                end_date=end_date,
             )
 
-            if not volunteer_update_result.success:
-                frappe.logger().error(
-                    f"Failed to remove volunteer assignment: {'; '.join(volunteer_update_result.errors)}"
+            if success:
+                self.log_action(
+                    "Updated volunteer assignment history",
+                    {
+                        "volunteer": volunteer_id,
+                        "role": role,
+                        "start_date": start_date,
+                        "end_date": end_date,
+                    },
                 )
-                frappe.throw(
-                    _("Failed to remove volunteer assignment: {0}").format(
-                        "; ".join(volunteer_update_result.errors)
-                    )
+                # Clear cache
+                self._clear_volunteer_cache(volunteer_id)
+            else:
+                self.log_action(
+                    "Failed to update volunteer assignment history",
+                    {"volunteer": volunteer_id, "role": role},
+                    "error",
                 )
 
-            # Clear cache
-            self._clear_volunteer_cache(volunteer_id)
-
-            return True
+            return success
 
         except Exception as e:
             self.log_action(

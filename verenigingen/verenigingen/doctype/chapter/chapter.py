@@ -161,12 +161,16 @@ class Chapter(WebsiteGenerator):
                 lambda: self._update_chapter_cost_center_name(),
             )
 
-        # Sync with volunteer system if needed
-        if self.has_value_changed("board_members"):
-            self._safe_manager_operation(
-                "volunteer_sync",
-                lambda: self.volunteer_integration_manager.sync_board_members_with_volunteer_system(),
-            )
+        # Sync with volunteer system if needed (with recursion guard)
+        if self.has_value_changed("board_members") and not getattr(self, "_syncing_board_members", False):
+            self._syncing_board_members = True
+            try:
+                self._safe_manager_operation(
+                    "volunteer_sync",
+                    lambda: self.volunteer_integration_manager.sync_board_members_with_volunteer_system(),
+                )
+            finally:
+                self._syncing_board_members = False
 
     def _safe_manager_operation(self, operation_name: str, operation_func):
         """Execute manager operation safely with proper error handling"""

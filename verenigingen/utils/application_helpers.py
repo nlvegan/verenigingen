@@ -687,11 +687,48 @@ def update_member_from_reapplication(member_name, data, application_id, address=
 
 
 def create_volunteer_record(member):
-    """Create volunteer record if member is interested"""
+    """Create volunteer record if member is interested - relinks existing volunteer if found"""
     if not member.interested_in_volunteering:
         return None
 
     try:
+        # Check if a volunteer with this email already exists (handles reapplication case)
+        existing_volunteer = frappe.db.get_value("Volunteer", {"email": member.email}, "name")
+
+        if existing_volunteer:
+            # Relink existing volunteer to new member record
+            frappe.logger().info(
+                f"Found existing volunteer {existing_volunteer} with email {member.email}, relinking to member {member.name}"
+            )
+            volunteer = frappe.get_doc("Volunteer", existing_volunteer)
+            volunteer.member = member.name
+            volunteer.volunteer_name = member.full_name or f"{member.first_name} {member.last_name}".strip()
+            volunteer.first_name = member.first_name
+            volunteer.last_name = member.last_name
+            # Reset to New status for reapplication
+            volunteer.status = "New"
+            volunteer.date_joined = today()
+
+            from verenigingen.utils.secure_operations import (
+                get_system_user_for_operation,
+                secure_user_context,
+            )
+
+            system_user = get_system_user_for_operation("volunteer_creation_during_application")
+            with secure_user_context(system_user, f"Volunteer relink for member {member.name}"):
+                volunteer.save()
+
+                # Also update member's volunteer_record field if it exists
+                if hasattr(member, "volunteer_record"):
+                    member.volunteer_record = volunteer.name
+                    member.save()
+
+            frappe.logger().info(
+                f"Successfully relinked volunteer {existing_volunteer} to member {member.name}"
+            )
+            return volunteer
+
+        # No existing volunteer - create new one
         # Create volunteer name using Dutch naming conventions if applicable
         if member.full_name:
             # Use the member's properly formatted full_name (which includes Dutch naming if applicable)
@@ -790,6 +827,12 @@ def create_volunteer_record(member):
         with secure_user_context(system_user, f"Volunteer creation for member {member.name}"):
             # Insert with proper permissions using secure operations framework
             volunteer.insert()
+
+            # Also update member's volunteer_record field if it exists
+            if hasattr(member, "volunteer_record"):
+                member.volunteer_record = volunteer.name
+                member.save()
+
             return volunteer
     except Exception as e:
         safe_log_error(f"Error creating volunteer record: {str(e)}")

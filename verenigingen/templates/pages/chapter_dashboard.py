@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
-from frappe.query_builder import DocType
+from frappe.query_builder import DocType, Order
 from frappe.utils import now_datetime
 
 from verenigingen.utils.api_response import api_response_handler
@@ -46,6 +46,7 @@ def get_context(context):
 
     # Get user's board chapters
     user_chapters = get_user_board_chapters()
+
     if not user_chapters:
         error_msg = _(
             "You must be a board member to access this dashboard. Please contact your chapter administrator."
@@ -62,12 +63,13 @@ def get_context(context):
 
     # Handle chapter selection with explicit fallback logic
     selected_chapter = frappe.form_dict.get("chapter")
+
     if not selected_chapter and user_chapters:
-        selected_chapter = user_chapters[0].get("parent") or user_chapters[0].get("chapter_name")
+        selected_chapter = user_chapters[0].get("chapter_name")
 
     # Verify user has access to selected chapter
-    if not any((ch.get("parent") or ch.get("chapter_name")) == selected_chapter for ch in user_chapters):
-        selected_chapter = user_chapters[0].get("parent") or user_chapters[0].get("chapter_name")
+    if not any(ch.get("chapter_name") == selected_chapter for ch in user_chapters):
+        selected_chapter = user_chapters[0].get("chapter_name") if user_chapters else None
 
     # Set context variables
     if hasattr(context, "selected_chapter"):
@@ -79,10 +81,10 @@ def get_context(context):
         context["user_chapters"] = user_chapters
         context["user_board_role"] = get_user_board_role(selected_chapter)
 
-    # Get dashboard data
+    # Get dashboard data (use internal function to avoid API wrapper)
     try:
-        dashboard_data = get_chapter_dashboard_data(selected_chapter)
-        has_data = True
+        dashboard_data = _get_chapter_dashboard_data_internal(selected_chapter) if selected_chapter else None
+        has_data = dashboard_data is not None
     except Exception as e:
         frappe.log_error(f"Error loading dashboard data: {str(e)}", "Chapter Dashboard")
         dashboard_data = None
@@ -109,7 +111,11 @@ def get_user_board_chapters() -> List[Dict[str, Any]]:
     # Admin users can see all chapters
     admin_roles = [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN]
     if any(role in frappe.get_roles() for role in admin_roles):
-        return frappe.get_all("Chapter", fields=["name", "region"], filters={"published": 1}, order_by="name")
+        chapters = frappe.get_all(
+            "Chapter", fields=["name", "region"], filters={"published": 1}, order_by="name"
+        )
+        # Transform to match the structure expected by the rest of the code
+        return [{"chapter_name": ch["name"], "region": ch.get("region")} for ch in chapters]
 
     # Find member record for current user
     member = frappe.db.get_value("Member", {"email": user_email}, "name")
@@ -139,7 +145,7 @@ def get_user_board_chapters() -> List[Dict[str, Any]]:
                 ChapterBoardMember.is_active,
             )
             .where((ChapterBoardMember.volunteer == volunteer) & (ChapterBoardMember.is_active == 1))
-            .orderby(ChapterBoardMember.from_date, order=frappe.qb.Order.desc)
+            .orderby(ChapterBoardMember.from_date, order=Order.desc)
             .distinct()
         )
 
@@ -169,7 +175,7 @@ def get_user_board_role(chapter_name: str) -> Optional[Dict[str, Any]]:
         return None
 
     board_role = frappe.db.get_value(
-        "Verenigingen Chapter Board Member",
+        "Chapter Board Member",
         {"parent": chapter_name, "volunteer": volunteer, "is_active": 1},
         ["chapter_role", "from_date"],
         as_dict=True,
@@ -226,12 +232,8 @@ def get_role_permissions(role_name: str) -> Dict[str, Any]:
     return role_permissions.get(role_name, default_permissions)
 
 
-@frappe.whitelist()
-@high_security_api(operation_type=OperationType.MEMBER_DATA)
-@api_response_handler
-@cache_with_ttl(ttl=300)  # Cache for 5 minutes - dashboard data changes frequently
-def get_chapter_dashboard_data(chapter_name: str) -> Dict[str, Any]:
-    """Get comprehensive dashboard data for chapter board members"""
+def _get_chapter_dashboard_data_internal(chapter_name: str) -> Dict[str, Any]:
+    """Internal function to get dashboard data without API wrapper"""
 
     if not chapter_name:
         frappe.throw(_("Chapter name is required"))
@@ -254,6 +256,15 @@ def get_chapter_dashboard_data(chapter_name: str) -> Dict[str, Any]:
 
     # Serialize all date/datetime objects for JSON compatibility
     return serialize_dates(dashboard_data)
+
+
+@frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
+@api_response_handler
+@cache_with_ttl(ttl=300)  # Cache for 5 minutes - dashboard data changes frequently
+def get_chapter_dashboard_data(chapter_name: str) -> Dict[str, Any]:
+    """Get comprehensive dashboard data for chapter board members (API endpoint)"""
+    return _get_chapter_dashboard_data_internal(chapter_name)
 
 
 def get_chapter_basic_info(chapter_name: str) -> Dict[str, Any]:
@@ -321,11 +332,11 @@ def get_chapter_key_metrics(chapter_name: str) -> Dict[str, Any]:
 
     return {
         "members": {
-            "active": int(member_stats.active_members or 0),
-            "pending": int(member_stats.pending_members or 0),
-            "inactive": int(member_stats.inactive_members or 0),
-            "new_this_month": int(member_stats.new_this_month or 0),
-            "total": int(member_stats.total_members or 0),
+            "active": int(member_stats["active_members"] or 0),
+            "pending": int(member_stats["pending_members"] or 0),
+            "inactive": int(member_stats["inactive_members"] or 0),
+            "new_this_month": int(member_stats["new_this_month"] or 0),
+            "total": int(member_stats["total_members"] or 0),
         },
         "expenses": expense_stats,
         "activities": activity_stats,
@@ -569,8 +580,8 @@ def get_recent_activity(chapter_name: str) -> List[Dict[str, Any]]:
         activities.append(
             {
                 "type": "member_join",
-                "description": f"{join.full_name} joined the chapter ({join.status})",
-                "timestamp": join.chapter_join_date,
+                "description": f"{join['full_name']} joined the chapter ({join['status']})",
+                "timestamp": join.get("chapter_join_date"),
                 "user": "System",
             }
         )

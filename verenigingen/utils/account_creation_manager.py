@@ -344,6 +344,38 @@ class AccountCreationManager:
                     user_doc.employee = self.created_employee
                     user_doc.save()
 
+            # Link user to volunteer record if member has a volunteer
+            if self.created_user and self.request.request_type == "Member":
+                volunteer_record = frappe.db.get_value(
+                    "Volunteer", {"member": self.request.source_record}, "name"
+                )
+                if volunteer_record:
+                    current_volunteer_user = frappe.db.get_value("Volunteer", volunteer_record, "user")
+                    if not current_volunteer_user:
+                        frappe.db.set_value("Volunteer", volunteer_record, "user", self.created_user)
+                        frappe.db.commit()
+                        frappe.logger().info(
+                            f"Linked user {self.created_user} to Volunteer {volunteer_record}"
+                        )
+
+            # Link employee to volunteer record if volunteer has no employee
+            if self.created_employee and self.request.request_type == "Member":
+                volunteer_record = frappe.db.get_value(
+                    "Volunteer", {"member": self.request.source_record}, "name"
+                )
+                if volunteer_record:
+                    current_volunteer_employee = frappe.db.get_value(
+                        "Volunteer", volunteer_record, "employee_id"
+                    )
+                    if not current_volunteer_employee:
+                        frappe.db.set_value(
+                            "Volunteer", volunteer_record, "employee_id", self.created_employee
+                        )
+                        frappe.db.commit()
+                        frappe.logger().info(
+                            f"Linked employee {self.created_employee} to Volunteer {volunteer_record}"
+                        )
+
             frappe.logger().info(f"Records linked successfully for {self.request_name}")
 
         except Exception as e:

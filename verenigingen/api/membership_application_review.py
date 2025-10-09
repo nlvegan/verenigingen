@@ -618,6 +618,26 @@ def activate_volunteer_record(member):
         # Find existing volunteer record for this member
         volunteer_name = get_volunteer_for_member(member.name)
 
+        # Also check by email in case member record was recreated
+        if not volunteer_name:
+            volunteer_name = frappe.db.get_value("Volunteer", {"email": member.email}, "name")
+            if volunteer_name:
+                frappe.logger().info(
+                    f"Found orphaned volunteer {volunteer_name} by email, relinking to member {member.name}"
+                )
+                # Relink the volunteer to this member
+                volunteer = frappe.get_doc("Volunteer", volunteer_name)
+                volunteer.member = member.name
+                volunteer.volunteer_name = (
+                    member.full_name or f"{member.first_name} {member.last_name}".strip()
+                )
+                volunteer.save()
+
+                # Also update member's volunteer_record field if it exists
+                if hasattr(member, "volunteer_record"):
+                    member.volunteer_record = volunteer_name
+                    member.save()
+
         if volunteer_name:
             # Update existing volunteer record
             volunteer = frappe.get_doc("Volunteer", volunteer_name)

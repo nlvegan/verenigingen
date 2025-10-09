@@ -103,6 +103,7 @@
   "erpnext_integration_section",
   "customer",
   "contact",
+  "volunteer_record",
   "column_break_24",
   "user",
   "employee",
@@ -560,12 +561,12 @@
   {
    "fieldname": "erpnext_integration_section",
    "fieldtype": "Section Break",
-   "label": "ERPNext Integration"
+   "label": "Related records"
   },
   {
    "fieldname": "customer",
    "fieldtype": "Link",
-   "label": "Customer",
+   "label": "Customer record",
    "options": "Customer"
   },
   {
@@ -575,7 +576,7 @@
   {
    "fieldname": "user",
    "fieldtype": "Link",
-   "label": "User",
+   "label": "User record",
    "options": "User",
    "show_dashboard": 1
   },
@@ -893,7 +894,7 @@
   {
    "fieldname": "contact",
    "fieldtype": "Link",
-   "label": "Contact",
+   "label": "Contact record",
    "options": "Contact"
   },
   {
@@ -919,6 +920,12 @@
    "fieldname": "is_aspirant",
    "fieldtype": "Check",
    "label": "Is Aspirant"
+  },
+  {
+   "fieldname": "volunteer_record",
+   "fieldtype": "Link",
+   "label": "Volunteer record",
+   "options": "Volunteer"
   }
  ],
  "links": [
@@ -984,7 +991,7 @@
    "link_fieldname": "name"
   }
  ],
- "modified": "2025-10-08 10:02:58.435293",
+ "modified": "2025-10-09 09:17:17.436067",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Member",

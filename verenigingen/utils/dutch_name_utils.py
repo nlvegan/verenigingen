@@ -65,9 +65,12 @@ def get_full_last_name(last_name, tussenvoegsel=None):
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.UTILITY)
 def format_dutch_full_name(first_name, middle_name=None, tussenvoegsel=None, last_name=None):
-    """Format a complete Dutch name with proper tussenvoegsel handling"""
+    """
+    Format a complete Dutch name with proper tussenvoegsel handling
+
+    No rate limiting - this is just name formatting, not a sensitive operation.
+    """
     parts = []
 
     if first_name:
