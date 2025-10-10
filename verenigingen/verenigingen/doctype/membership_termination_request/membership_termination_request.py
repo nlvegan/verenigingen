@@ -28,7 +28,6 @@ class MembershipTerminationRequest(Document):
             if self.member_request_date:
                 if self.apply_grace_period:
                     self.termination_date = add_days(self.member_request_date, 30)
-                    self.grace_period_end = self.termination_date
                 else:
                     self.termination_date = self.member_request_date
             else:
@@ -424,7 +423,6 @@ class MembershipTerminationRequest(Document):
             if self.member_request_date:
                 if self.apply_grace_period:
                     self.termination_date = add_days(self.member_request_date, 30)
-                    self.grace_period_end = self.termination_date
                 else:
                     self.termination_date = self.member_request_date
             else:
@@ -477,7 +475,6 @@ class MembershipTerminationRequest(Document):
             if self.member_request_date:
                 if self.apply_grace_period:
                     self.termination_date = add_days(self.member_request_date, 30)
-                    self.grace_period_end = self.termination_date
                 else:
                     self.termination_date = self.member_request_date
             else:
@@ -638,12 +635,12 @@ class MembershipTerminationRequest(Document):
             if getdate(self.termination_date) < getdate(self.member_request_date):
                 frappe.throw(_("Termination date cannot be before member request date"))
 
-        if self.grace_period_end and self.termination_date:
-            if getdate(self.grace_period_end) < getdate(self.termination_date):
-                frappe.throw(_("Grace period end cannot be before termination date"))
-
     def validate_termination_request(self):
         """Additional validation logic for termination requests (moved from hooks.py)"""
+        # Skip validation if we're executing - member status was just changed by this process
+        if self.status == "Executed":
+            return
+
         # Validate that member exists and is active
         if not frappe.db.exists("Member", self.member):
             frappe.throw(_("Member {0} does not exist").format(self.member))

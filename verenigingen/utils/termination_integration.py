@@ -319,19 +319,7 @@ def cancel_future_invoices_safe(customer_name, termination_date):
                 invoice = frappe.get_doc("Sales Invoice", invoice_data.name)
 
                 if invoice_data.docstatus == 1:
-                    # Submitted invoice - cancel it
-                    cancellation_note = (
-                        f"Cancelled due to membership termination on {termination_date}. "
-                        f"Coverage period ({invoice_data.custom_coverage_start_date} to {invoice_data.custom_coverage_end_date}) "
-                        f"is after termination date."
-                    )
-
-                    if invoice.remarks:
-                        invoice.remarks += f"\n\n{cancellation_note}"
-                    else:
-                        invoice.remarks = cancellation_note
-
-                    invoice.save()
+                    # Submitted invoice - cancel it directly (can't modify submitted docs)
                     invoice.cancel()
 
                     results["invoices_cancelled"] += 1
@@ -410,11 +398,18 @@ def update_member_status_safe(member_name, termination_type, termination_date, t
             # Handle concurrency - reload and retry once
             try:
                 member.reload()
-                member.status = status_mapping.get(termination_type, "Terminated")
-                if member.notes:
-                    member.notes += f"\n\n{termination_note}"
-                else:
-                    member.notes = termination_note
+                target_status = status_mapping.get(termination_type, "Terminated")
+
+                # Only update if status not already set (may have succeeded despite error)
+                if member.status != target_status:
+                    member.status = target_status
+
+                # Only add note if not already present
+                if termination_note not in (member.notes or ""):
+                    if member.notes:
+                        member.notes += f"\n\n{termination_note}"
+                    else:
+                        member.notes = termination_note
 
                 retry_result = secure_document_operation(
                     operation="save",

@@ -76,9 +76,24 @@ function show_termination_dialog(member_id, member_name) {
 					reqd: 1
 				},
 				{
-					fieldname: 'execution_date',
+					fieldname: 'member_request_date',
 					fieldtype: 'Date',
-					label: __('Execution Date'),
+					label: __('Member Request Date'),
+					description: __('Date when member indicated they want to leave (for voluntary/deceased terminations)'),
+					depends_on: 'eval:["Voluntary", "Deceased"].includes(doc.termination_type)'
+				},
+				{
+					fieldname: 'apply_grace_period',
+					fieldtype: 'Check',
+					label: __('Apply 30-day Grace Period'),
+					default: 0,
+					depends_on: 'eval:["Voluntary", "Deceased"].includes(doc.termination_type)'
+				},
+				{
+					fieldname: 'termination_date',
+					fieldtype: 'Date',
+					label: __('Effective Termination Date'),
+					description: __('Date when membership ends'),
 					default: frappe.datetime.get_today(),
 					reqd: 1
 				},
@@ -196,7 +211,9 @@ function create_termination_request_v2(member_id, member_name, values, dialog) {
 		member_name,
 		termination_type: values.termination_type,
 		termination_reason: values.termination_reason,
-		execution_date: values.execution_date,
+		termination_date: values.termination_date,
+		member_request_date: values.member_request_date,
+		apply_grace_period: values.apply_grace_period,
 		deactivate_sepa_mandates: values.deactivate_sepa_mandates,
 		end_board_positions: values.end_board_positions,
 		cancel_memberships: values.cancel_memberships,

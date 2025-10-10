@@ -152,10 +152,11 @@ def handle_user_account_updates(event_name, event_data, **kwargs):
         if hasattr(member, "user") and member.user:
             user_doc = frappe.get_doc("User", member.user)
 
-            if new_status in ["Suspended", "Terminated"]:
+            # Only update if there's an actual change
+            if new_status in ["Suspended", "Terminated"] and user_doc.enabled == 1:
                 user_doc.enabled = 0
                 user_doc.save()
-            elif new_status == "Active":
+            elif new_status == "Active" and user_doc.enabled == 0:
                 user_doc.enabled = 1
                 user_doc.save()
 

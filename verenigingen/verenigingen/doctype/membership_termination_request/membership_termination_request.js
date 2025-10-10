@@ -267,26 +267,9 @@ function set_default_dates(frm) {
 		'Disciplinary Action',
 		'Expulsion'
 	];
-	const is_disciplinary = disciplinary_types.includes(frm.doc.termination_type);
-
-	if (is_disciplinary) {
-		// Disciplinary terminations are immediate - no grace period
-		if (!frm.doc.termination_date) {
-			frm.set_value('termination_date', frappe.datetime.get_today());
-		}
-		frm.set_value('grace_period_end', null);
-	} else {
-		// Standard terminations may have grace period
-		if (!frm.doc.termination_date) {
-			frm.set_value('termination_date', frappe.datetime.get_today());
-		}
-		if (!frm.doc.grace_period_end && frm.doc.termination_type !== 'Deceased') {
-			// 30-day grace period for non-disciplinary, non-deceased
-			frm.set_value(
-				'grace_period_end',
-				frappe.datetime.add_days(frappe.datetime.get_today(), 30)
-			);
-		}
+	// Set default termination date if not already set
+	if (!frm.doc.termination_date) {
+		frm.set_value('termination_date', frappe.datetime.get_today());
 	}
 }
 

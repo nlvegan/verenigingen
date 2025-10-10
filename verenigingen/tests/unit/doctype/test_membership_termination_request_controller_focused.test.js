@@ -278,12 +278,14 @@ describe('Membership Termination Request Controller (Focused Tests)', () => {
 			];
 			const nonDisciplinaryTypes = ['Voluntary', 'Non-payment', 'Deceased'];
 
-			// Test disciplinary types
+			// Test disciplinary types - NEW documents only
 			disciplinaryTypes.forEach((type) => {
 				controllerTest.mockForm.doc.termination_type = type;
+				controllerTest.mockForm.doc.__islocal = 1; // Mark as new
+				controllerTest.mockForm.is_new = jest.fn(() => true);
 				controllerTest.testEvent('termination_type');
 
-				// Should set requires_secondary_approval to 1
+				// Should set requires_secondary_approval to 1 for new docs
 				expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith(
 					'requires_secondary_approval',
 					1
@@ -293,12 +295,14 @@ describe('Membership Termination Request Controller (Focused Tests)', () => {
 			// Reset mock
 			controllerTest.mockForm.set_value.mockClear();
 
-			// Test non-disciplinary types
+			// Test non-disciplinary types - NEW documents only
 			nonDisciplinaryTypes.forEach((type) => {
 				controllerTest.mockForm.doc.termination_type = type;
+				controllerTest.mockForm.doc.__islocal = 1; // Mark as new
+				controllerTest.mockForm.is_new = jest.fn(() => true);
 				controllerTest.testEvent('termination_type');
 
-				// Should set requires_secondary_approval to 0
+				// Should set requires_secondary_approval to 0 for new docs
 				expect(controllerTest.mockForm.set_value).toHaveBeenCalledWith(
 					'requires_secondary_approval',
 					0
