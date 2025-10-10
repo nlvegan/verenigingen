@@ -16,10 +16,24 @@ from verenigingen.utils.security.api_security_framework import (
 class MembershipTerminationRequest(Document):
     def validate(self):
         self.set_defaults()
+        self.calculate_termination_date()  # Calculate date so it's visible in all statuses
         self.set_approval_requirements()
         self.validate_permissions()
         self.validate_dates()
         self.validate_termination_request()  # Moved from hooks.py
+
+    def calculate_termination_date(self):
+        """Calculate termination date from member request date or today"""
+        if not self.termination_date:
+            if self.member_request_date:
+                if self.apply_grace_period:
+                    self.termination_date = add_days(self.member_request_date, 30)
+                    self.grace_period_end = self.termination_date
+                else:
+                    self.termination_date = self.member_request_date
+            else:
+                # Disciplinary/Administrative terminations without member request date use today
+                self.termination_date = today()
 
     def set_defaults(self):
         """Set default values"""
@@ -129,6 +143,7 @@ class MembershipTerminationRequest(Document):
     def execute_system_updates_safely(self):
         """Execute system updates using safe integration methods from utils"""
         from verenigingen.utils.termination_integration import (  # Updated to use dues schedule system
+            cancel_future_invoices_safe,
             cancel_membership_safe,
             cancel_sepa_mandate_safe,
             deactivate_user_account_safe,
@@ -149,6 +164,8 @@ class MembershipTerminationRequest(Document):
             "positions_ended": 0,
             # "dues_schedules_cancelled": 0,  # Updated to use dues schedule system
             "invoices_updated": 0,
+            "invoices_cancelled": 0,
+            "invoices_deleted": 0,
             "customer_updated": False,
             "member_updated": False,
             "volunteers_terminated": 0,
@@ -272,8 +289,9 @@ class MembershipTerminationRequest(Document):
         # 5. Update customer record if exists
         if member_doc.customer:
             termination_note = f"Member terminated on {self.termination_date or today()} - Type: {self.termination_type} - Request: {self.name}"
-            disciplinary_types = ["Policy Violation", "Disciplinary Action", "Expulsion"]
-            disable_customer = self.termination_type in disciplinary_types
+            # Note: Never disable customer - Member status already indicates termination
+            # Customer record needs to remain accessible for financial/historical data
+            disable_customer = False
 
             if update_customer_safe(member_doc.customer, termination_note, disable_customer):
                 results["customer_updated"] = True
@@ -307,6 +325,26 @@ class MembershipTerminationRequest(Document):
                 results["actions_taken"].append(
                     f"Updated {results['invoices_updated']} outstanding invoice(s)"
                 )
+
+            # 6b. Cancel future invoices (coverage starts after termination)
+            future_invoice_results = cancel_future_invoices_safe(
+                member_doc.customer, self.termination_date or today()
+            )
+            results["invoices_cancelled"] = future_invoice_results.get("invoices_cancelled", 0)
+            results["invoices_deleted"] = future_invoice_results.get("invoices_deleted", 0)
+
+            if results["invoices_cancelled"] > 0:
+                results["actions_taken"].append(
+                    f"Cancelled {results['invoices_cancelled']} future invoice(s) with coverage after termination"
+                )
+            if results["invoices_deleted"] > 0:
+                results["actions_taken"].append(
+                    f"Deleted {results['invoices_deleted']} draft invoice(s) with coverage after termination"
+                )
+
+            # Log any errors from future invoice cancellation
+            for error in future_invoice_results.get("errors", []):
+                results["errors"].append(error)
 
         # Updated to use dues schedule system
         # 7. Handle additional dues schedules not linked to memberships
@@ -361,9 +399,15 @@ class MembershipTerminationRequest(Document):
 
     def set_approval_requirements(self):
         """Set whether secondary approval is required based on termination type"""
+        # Only set defaults for new documents - don't override user's choice on save
+        if not self.is_new():
+            return
+
         disciplinary_types = ["Policy Violation", "Disciplinary Action", "Expulsion"]
 
         if self.termination_type in disciplinary_types:
+            # Default to requiring secondary approval for disciplinary
+            # But Verenigingen Administrators can uncheck this if needed
             self.requires_secondary_approval = 1
         else:
             self.requires_secondary_approval = 0
@@ -375,9 +419,17 @@ class MembershipTerminationRequest(Document):
         if not self.approval_date:
             self.approval_date = now()
 
-        # Set default termination date if not provided
+        # Calculate termination date from member request date (if provided) or today for disciplinary
         if not self.termination_date:
-            self.termination_date = today()
+            if self.member_request_date:
+                if self.apply_grace_period:
+                    self.termination_date = add_days(self.member_request_date, 30)
+                    self.grace_period_end = self.termination_date
+                else:
+                    self.termination_date = self.member_request_date
+            else:
+                # Disciplinary/Administrative terminations without member request date use today
+                self.termination_date = today()
 
         # Add to expulsion report if disciplinary
         if self.requires_secondary_approval:
@@ -420,14 +472,17 @@ class MembershipTerminationRequest(Document):
             self.approved_by = frappe.session.user
             self.approved_date = now()
 
-        # Set default termination date if not provided
+        # Calculate termination date from member request date (if provided) or today for disciplinary
         if not self.termination_date:
-            grace_period_types = ["Voluntary", "Non-payment", "Deceased"]
-            if self.termination_type in grace_period_types:
-                self.termination_date = add_days(today(), 30)  # 30-day grace period
-                self.grace_period_end = self.termination_date
+            if self.member_request_date:
+                if self.apply_grace_period:
+                    self.termination_date = add_days(self.member_request_date, 30)
+                    self.grace_period_end = self.termination_date
+                else:
+                    self.termination_date = self.member_request_date
             else:
-                self.termination_date = today()  # Immediate for disciplinary
+                # Disciplinary/Administrative terminations without member request date use today
+                self.termination_date = today()
 
         # Save the document
         self.save()
@@ -465,14 +520,13 @@ class MembershipTerminationRequest(Document):
             self.approved_date = now()
             self.approver_notes = notes
 
-            # Set default termination date if not provided
-            if not self.termination_date:
-                grace_period_types = ["Voluntary", "Non-payment", "Deceased"]
-                if self.termination_type in grace_period_types:
-                    self.termination_date = add_days(today(), 30)  # 30-day grace period
+            # Calculate termination date from member request date
+            if not self.termination_date and self.member_request_date:
+                if self.apply_grace_period:
+                    self.termination_date = add_days(self.member_request_date, 30)
                     self.grace_period_end = self.termination_date
                 else:
-                    self.termination_date = today()  # Immediate for disciplinary
+                    self.termination_date = self.member_request_date
 
             self.add_audit_entry("Request Approved", f"Approved by {frappe.session.user}")
             frappe.msgprint(_("Termination request approved"))
@@ -579,8 +633,10 @@ class MembershipTerminationRequest(Document):
 
     def validate_dates(self):
         """Validate termination and grace period dates"""
-        if self.termination_date and getdate(self.termination_date) < getdate(self.request_date):
-            frappe.throw(_("Termination date cannot be before request date"))
+        # For voluntary exits, termination date shouldn't be before member request date
+        if self.member_request_date and self.termination_date:
+            if getdate(self.termination_date) < getdate(self.member_request_date):
+                frappe.throw(_("Termination date cannot be before member request date"))
 
         if self.grace_period_end and self.termination_date:
             if getdate(self.grace_period_end) < getdate(self.termination_date):
@@ -593,7 +649,8 @@ class MembershipTerminationRequest(Document):
             frappe.throw(_("Member {0} does not exist").format(self.member))
 
         member_status = frappe.db.get_value("Member", self.member, "status")
-        if member_status in ["Terminated", "Expired", "Banned", "Deceased"]:
+        # Allow termination of Expired members (formal closure), but not already Terminated/Banned/Deceased
+        if member_status in ["Terminated", "Banned", "Deceased"]:
             frappe.throw(_("Cannot terminate member with status: {0}").format(member_status))
 
         # Validate disciplinary terminations
@@ -827,8 +884,11 @@ def get_termination_statistics():
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
-def get_eligible_approvers():
-    """Get list of users eligible to approve termination requests"""
+def get_eligible_approvers(doctype=None, txt=None, searchfield=None, start=0, page_len=20, filters=None):
+    """Get list of users eligible to approve termination requests
+
+    Used as query function for Link field - returns list of tuples
+    """
     try:
         # Get users with termination approval roles
         approval_roles = [
@@ -838,30 +898,35 @@ def get_eligible_approvers():
             "Board Member",
         ]
 
-        eligible_users = []
+        conditions = "u.enabled = 1"
+        if txt:
+            conditions += f" AND (u.name LIKE %(txt)s OR u.full_name LIKE %(txt)s OR u.email LIKE %(txt)s)"
 
-        for role in approval_roles:
-            users = frappe.get_all(
-                "Has Role", filters={"role": role, "parenttype": "User"}, fields=["parent as user"]
-            )
+        # Get users with approval roles
+        users = frappe.db.sql(
+            f"""
+            SELECT DISTINCT u.name, u.full_name
+            FROM `tabUser` u
+            INNER JOIN `tabHas Role` hr ON hr.parent = u.name
+            WHERE hr.role IN %(roles)s
+            AND {conditions}
+            ORDER BY u.full_name
+            LIMIT %(start)s, %(page_len)s
+            """,
+            {
+                "roles": approval_roles,
+                "txt": f"%{txt}%" if txt else "%",
+                "start": start,
+                "page_len": page_len,
+            },
+            as_list=True,
+        )
 
-            for user in users:
-                user_doc = frappe.get_doc("User", user.user)
-                if user_doc.enabled and user_doc.name not in [u["user"] for u in eligible_users]:
-                    eligible_users.append(
-                        {
-                            "user": user_doc.name,
-                            "full_name": user_doc.full_name,
-                            "email": user_doc.email,
-                            "role": role,
-                        }
-                    )
-
-        return {"success": True, "approvers": eligible_users}
+        return users
 
     except Exception as e:
         frappe.log_error(f"Error getting eligible approvers: {str(e)}")
-        return {"success": False, "error": str(e), "approvers": []}
+        return []
 
 
 @frappe.whitelist()

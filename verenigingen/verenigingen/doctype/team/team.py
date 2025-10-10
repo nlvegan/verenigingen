@@ -447,10 +447,12 @@ class Team(Document):
                     },
                 )
 
-        # Find role changes
+        # Find role changes and status changes
         for key, member in new_by_volunteer.items():
             if key in old_by_volunteer:
                 old_member = old_by_volunteer[key]
+
+                # Check for role change
                 if old_member.team_role != member.team_role and old_member.is_active and member.is_active:
                     emit_team_membership_changed(
                         self.name,
@@ -459,6 +461,33 @@ class Team(Document):
                             "action": "role_changed",
                             "role": member.team_role,
                             "old_role": old_member.team_role,
+                            "from_date": member.from_date,
+                            "changed_by": frappe.session.user,
+                        },
+                    )
+
+                # Check for status change from active to inactive
+                if old_member.is_active and not member.is_active:
+                    emit_team_membership_changed(
+                        self.name,
+                        {
+                            "volunteer": member.volunteer,
+                            "action": "removed",
+                            "old_role": old_member.team_role,
+                            "from_date": old_member.from_date,
+                            "to_date": frappe.utils.today(),
+                            "changed_by": frappe.session.user,
+                        },
+                    )
+
+                # Check for status change from inactive to active
+                elif not old_member.is_active and member.is_active:
+                    emit_team_membership_changed(
+                        self.name,
+                        {
+                            "volunteer": member.volunteer,
+                            "action": "added",
+                            "role": member.team_role,
                             "from_date": member.from_date,
                             "changed_by": frappe.session.user,
                         },

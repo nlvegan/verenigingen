@@ -93,6 +93,11 @@ frappe.ui.form.on('Membership Termination Request', {
 		// Make audit trail read-only
 		frm.set_df_property('audit_trail', 'read_only', 1);
 
+		// Only admins can override secondary approval requirement
+		const can_override_approval = frappe.user_roles.includes('System Manager')
+			|| frappe.user_roles.includes('Verenigingen Administrator');
+		frm.set_df_property('requires_secondary_approval', 'read_only', !can_override_approval);
+
 		// Add view member button
 		if (frm.doc.member) {
 			frm.add_custom_button(
@@ -234,8 +239,10 @@ function toggle_disciplinary_fields(frm) {
 	frm.toggle_display('secondary_approver', is_disciplinary);
 	frm.toggle_reqd('secondary_approver', is_disciplinary);
 
-	// Update requires_secondary_approval flag
-	frm.set_value('requires_secondary_approval', is_disciplinary ? 1 : 0);
+	// Update requires_secondary_approval flag - only set default for new documents
+	if (frm.is_new()) {
+		frm.set_value('requires_secondary_approval', is_disciplinary ? 1 : 0);
+	}
 }
 
 function set_approval_requirements(frm) {
@@ -248,7 +255,10 @@ function set_approval_requirements(frm) {
 		frm.doc.termination_type
 	);
 
-	frm.set_value('requires_secondary_approval', requires_approval ? 1 : 0);
+	// Only set default for new documents - don't override saved values
+	if (frm.is_new()) {
+		frm.set_value('requires_secondary_approval', requires_approval ? 1 : 0);
+	}
 }
 
 function set_default_dates(frm) {

@@ -292,31 +292,36 @@ def handle_website_updates(event_name, event_data, **kwargs):
 
 
 def _assign_board_role_profile(chapter, volunteer, role):
-    """Assign role profile to new board member"""
-    from verenigingen.utils.chapter_role_profile_manager import assign_role_profile_to_board_member
+    """Recalculate role profile when board member is added"""
+    from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
 
     volunteer_doc = frappe.get_doc("Volunteer", volunteer)
     if volunteer_doc.member:
         member_doc = frappe.get_doc("Member", volunteer_doc.member)
         if member_doc.user:
-            assign_role_profile_to_board_member(chapter.name, volunteer, role)
+            auto_sync_on_role_change(member_doc.user)
 
 
 def _remove_board_role_profile(chapter, volunteer, old_role):
-    """Remove role profile from former board member"""
-    from verenigingen.utils.chapter_role_profile_manager import remove_role_profile_from_board_member
+    """Recalculate role profile when board member is removed"""
+    from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
 
     volunteer_doc = frappe.get_doc("Volunteer", volunteer)
     if volunteer_doc.member:
         member_doc = frappe.get_doc("Member", volunteer_doc.member)
         if member_doc.user:
-            remove_role_profile_from_board_member(chapter.name, volunteer, old_role)
+            auto_sync_on_role_change(member_doc.user)
 
 
 def _update_board_role_profile(chapter, volunteer, old_role, new_role):
-    """Update role profile for board member with changed role"""
-    _remove_board_role_profile(chapter, volunteer, old_role)
-    _assign_board_role_profile(chapter, volunteer, new_role)
+    """Recalculate role profile when board member role changes"""
+    from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
+
+    volunteer_doc = frappe.get_doc("Volunteer", volunteer)
+    if volunteer_doc.member:
+        member_doc = frappe.get_doc("Member", volunteer_doc.member)
+        if member_doc.user:
+            auto_sync_on_role_change(member_doc.user)
 
 
 def _send_board_member_added_notification(chapter, volunteer, role):

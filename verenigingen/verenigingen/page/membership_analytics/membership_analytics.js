@@ -148,6 +148,7 @@ class MembershipAnalytics {
 			year: new Date().getFullYear(),
 			period: 'year',
 			compare_previous: false,
+			cohort_interval: 'monthly',
 			chapter: null,
 			region: null,
 			membership_type: null,
@@ -234,6 +235,21 @@ class MembershipAnalytics {
 			)
 				.val('')
 				.trigger('change');
+		});
+
+		// Cohort interval toggle buttons
+		$('#cohort-monthly').on('click', () => {
+			$('#cohort-monthly').addClass('active');
+			$('#cohort-yearly').removeClass('active');
+			this.filters.cohort_interval = 'monthly';
+			this.refresh_dashboard();
+		});
+
+		$('#cohort-yearly').on('click', () => {
+			$('#cohort-yearly').addClass('active');
+			$('#cohort-monthly').removeClass('active');
+			this.filters.cohort_interval = 'yearly';
+			this.refresh_dashboard();
 		});
 	}
 
@@ -419,6 +435,7 @@ class MembershipAnalytics {
 				year: this.filters.year,
 				period: this.filters.period,
 				compare_previous: this.filters.compare_previous,
+				cohort_interval: this.filters.cohort_interval,
 				filters: this.filters
 			},
 			callback: (r) => {
@@ -568,12 +585,12 @@ class MembershipAnalytics {
 		}
 
 		goals.forEach((goal) => {
-			const progress_class
-        = goal.achievement_percentage >= 100
-        	? 'progress-bar-success'
-        	: goal.achievement_percentage >= 75
-        		? 'progress-bar-warning'
-        		: 'progress-bar-danger';
+			const progress_class =
+				goal.achievement_percentage >= 100
+					? 'progress-bar-success'
+					: goal.achievement_percentage >= 75
+						? 'progress-bar-warning'
+						: 'progress-bar-danger';
 
 			const goal_html = `
                 <div class="goal-item mb-3">
@@ -897,6 +914,17 @@ class MembershipAnalytics {
 		const container = $('#cohort-heatmap');
 		container.empty();
 
+		if (!cohortData || cohortData.length === 0) {
+			container.html('<p class="text-muted">No cohort data available</p>');
+			return;
+		}
+
+		// Detect interval type (monthly vs yearly)
+		const isYearly = cohortData[0].retention.length > 0 && 'year' in cohortData[0].retention[0];
+		const maxPeriods = isYearly ? 10 : 12;
+		const periodKey = isYearly ? 'year' : 'month';
+		const periodLabel = isYearly ? 'Y' : 'M';
+
 		let tableHtml = `
             <table class="table table-bordered table-sm cohort-table">
                 <thead>
@@ -904,9 +932,9 @@ class MembershipAnalytics {
                         <th>Cohort</th>
                         <th>Size</th>`;
 
-		// Add month headers
-		for (let i = 0; i < 12; i++) {
-			tableHtml += `<th>M${i}</th>`;
+		// Add period headers
+		for (let i = 0; i < maxPeriods; i++) {
+			tableHtml += `<th>${periodLabel}${i}</th>`;
 		}
 		tableHtml += '</tr></thead><tbody>';
 
@@ -916,21 +944,21 @@ class MembershipAnalytics {
                 <td><strong>${cohort.cohort}</strong></td>
                 <td>${cohort.initial}</td>`;
 
-			for (let i = 0; i < 12; i++) {
-				const retention = cohort.retention.find((r) => r.month === i);
+			for (let i = 0; i < maxPeriods; i++) {
+				const retention = cohort.retention.find((r) => r[periodKey] === i);
 				if (retention) {
 					const rate = retention.rate;
-					const colorClass
-            = rate >= 80
-            	? 'bg-success'
-            	: rate >= 60
-            		? 'bg-info'
-            		: rate >= 40
-            			? 'bg-warning'
-            			: 'bg-danger';
-					tableHtml += `<td class="${colorClass} text-white">${rate.toFixed(0)}%</td>`;
+					const colorClass =
+						rate >= 80
+							? 'bg-success'
+							: rate >= 60
+								? 'bg-info'
+								: rate >= 40
+									? 'bg-warning'
+									: 'bg-danger';
+					tableHtml += `<td class="${colorClass} text-white" title="${retention.count} members">${rate.toFixed(0)}%</td>`;
 				} else {
-					tableHtml += '<td>-</td>';
+					tableHtml += '<td class="text-muted">-</td>';
 				}
 			}
 			tableHtml += '</tr>';

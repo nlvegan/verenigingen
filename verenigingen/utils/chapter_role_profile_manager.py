@@ -60,10 +60,15 @@ class ChapterRoleProfileManager(BaseRoleProfileManager):
         user_member = frappe.db.get_value("Member", {"user": user}, "name")
 
         if user_member and other_entities:
-            # Check if user is still on other chapter boards that require this profile
+            # Get volunteer record for this member
+            volunteer = frappe.db.get_value("Volunteer", {"member": user_member}, "name")
+            if not volunteer:
+                return False
+
+            # Check if volunteer is still on other chapter boards that require this profile
             other_board_memberships = frappe.db.exists(
                 "Chapter Board Member",
-                {"member": user_member, "is_active": 1, "parent": ["in", other_entities]},
+                {"volunteer": volunteer, "is_active": 1, "parent": ["in", other_entities]},
             )
             return bool(other_board_memberships)
 
@@ -237,15 +242,9 @@ def on_chapter_board_member_add(doc: "frappe._dict", method: str):
     if doc.is_active:
         user = _chapter_manager._get_user_from_member_doc(doc)
         if user:
+            from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
 
-            def assign_role():
-                return assign_chapter_board_role_profile(
-                    user, doc.parent, doc.chapter_role  # ast-skip: doc is ChapterBoardMember
-                )
-
-            result = safe_hook_execution(assign_role)
-            if result and not result.get("success"):
-                frappe.logger().warning(f"Failed to assign chapter board role profile: {result.get('error')}")
+            auto_sync_on_role_change(user)
 
 
 def on_chapter_board_member_remove(doc: "frappe._dict", method: str):
@@ -257,15 +256,9 @@ def on_chapter_board_member_remove(doc: "frappe._dict", method: str):
     """
     user = _chapter_manager._get_user_from_member_doc(doc)
     if user:
+        from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
 
-        def remove_role():
-            return remove_chapter_board_role_profile(
-                user, doc.parent, doc.chapter_role  # ast-skip: doc is ChapterBoardMember
-            )
-
-        result = safe_hook_execution(remove_role)
-        if result and not result.get("success"):
-            frappe.logger().warning(f"Failed to remove chapter board role profile: {result.get('error')}")
+        auto_sync_on_role_change(user)
 
 
 def on_chapter_board_member_update(doc: "frappe._dict", method: str):
@@ -275,26 +268,13 @@ def on_chapter_board_member_update(doc: "frappe._dict", method: str):
         doc: ChapterBoardMember document with volunteer, parent, and chapter_role fields
         method: Hook method name
     """
-    # Handle is_active status changes
-    if doc.has_value_changed("is_active"):
+    # Handle is_active status changes or role changes
+    if doc.has_value_changed("is_active") or doc.has_value_changed("chapter_role"):
         user = _chapter_manager._get_user_from_member_doc(doc)
         if user:
-            if doc.is_active:
+            from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
 
-                def assign_role():
-                    return assign_chapter_board_role_profile(
-                        user, doc.parent, doc.chapter_role  # ast-skip: doc is ChapterBoardMember
-                    )
-
-                safe_hook_execution(assign_role)
-            else:
-
-                def remove_role():
-                    return remove_chapter_board_role_profile(
-                        user, doc.parent, doc.chapter_role  # ast-skip: doc is ChapterBoardMember
-                    )
-
-                safe_hook_execution(remove_role)
+            auto_sync_on_role_change(user)
 
 
 # For backward compatibility - maintain the old validation function

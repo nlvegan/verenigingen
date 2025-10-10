@@ -223,20 +223,19 @@ def handle_invoice_updated(event_name=None, event_data=None, **kwargs):
     from verenigingen.utils.financial_utils import get_member_for_customer
 
     member_name = get_member_for_customer(customer)
-    members = [{"name": member_name}] if member_name else []
 
-    for member in members:
+    if member_name:
         try:
             # Use atomic update method
-            member_doc = frappe.get_doc("Member", member.name)
+            member_doc = frappe.get_doc("Member", member_name)
             member_doc.update_invoice_in_payment_history(invoice)
 
             frappe.logger("payment_history").info(
-                f"Updated invoice {invoice} in payment history for member {member.name}"
+                f"Updated invoice {invoice} in payment history for member {member_name}"
             )
         except Exception as e:
             frappe.log_error(
-                f"Failed to update invoice {invoice} in payment history for member {member.name}: {str(e)}",
+                f"Failed to update invoice {invoice} in payment history for member {member_name}: {str(e)}",
                 "Invoice Update Payment History Update Error",
             )
 

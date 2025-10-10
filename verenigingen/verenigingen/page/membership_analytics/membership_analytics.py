@@ -19,7 +19,9 @@ from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.REPORTING)
-def get_dashboard_data(year=None, period="year", compare_previous=False, filters=None):
+def get_dashboard_data(
+    year=None, period="year", compare_previous=False, cohort_interval="monthly", filters=None
+):
     """Get all dashboard data for membership analytics"""
     if not year:
         year = datetime.now().year
@@ -39,7 +41,7 @@ def get_dashboard_data(year=None, period="year", compare_previous=False, filters
         "goals": get_goals_progress(year),
         "insights": get_top_insights(year),
         "segmentation": get_segmentation_data(year, period, filters),
-        "cohort_analysis": get_cohort_analysis(year),
+        "cohort_analysis": get_cohort_analysis(year, cohort_interval),
         "last_updated": now_datetime(),
     }
 
@@ -637,19 +639,43 @@ def get_join_year_segmentation(year, filter_conditions):
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
-def get_cohort_analysis(year):
-    """Get cohort retention analysis"""
+def get_cohort_analysis(year=None, cohort_interval="monthly"):
+    """Get cohort retention analysis
 
-    # Ensure year is an integer
-    year = int(year)
-    # Get last 12 months of cohorts
+    Args:
+        year: Ignored - kept for API compatibility
+        cohort_interval: 'monthly' or 'yearly' cohort grouping
+    """
     cohorts = []
-    end_date = datetime(year, 12, 31)
 
-    for months_back in range(12):
-        cohort_date = add_months(end_date, -months_back)
-        cohort_month = cohort_date.replace(day=1)
+    # Get the earliest member_since date
+    earliest_date = frappe.db.sql(
+        """
+        SELECT MIN(member_since) as earliest
+        FROM `tabMember`
+        WHERE member_since IS NOT NULL
+        AND status != 'Rejected'
+        """,
+        as_dict=True,
+    )[0].earliest
 
+    if not earliest_date:
+        return []
+
+    # Determine cohort periods based on interval
+    if cohort_interval == "yearly":
+        return _get_yearly_cohorts(earliest_date)
+    else:
+        return _get_monthly_cohorts(earliest_date)
+
+
+def _get_monthly_cohorts(earliest_date):
+    """Generate monthly cohorts from earliest_date to now"""
+    cohorts = []
+    current_date = datetime.now()
+    cohort_date = datetime(earliest_date.year, earliest_date.month, 1)
+
+    while cohort_date <= current_date:
         # Get initial cohort size
         initial_count = frappe.db.sql(
             """
@@ -657,43 +683,98 @@ def get_cohort_analysis(year):
             FROM `tabMember`
             WHERE DATE_FORMAT(member_since, '%%Y-%%m') = %s
             AND status != 'Rejected'
-        """,
-            cohort_month.strftime("%Y-%m"),
+            """,
+            cohort_date.strftime("%Y-%m"),
         )[0][0]
 
         if initial_count > 0:
             cohort_data = {
-                "cohort": cohort_month.strftime("%b %Y"),
+                "cohort": cohort_date.strftime("%b %Y"),
                 "initial": initial_count,
                 "retention": [],
             }
 
-            # Calculate retention for each subsequent month
-            for month_offset in range(0, min(months_back + 1, 13)):
-                check_date = add_months(cohort_month, month_offset)
+            # Calculate retention for each subsequent month up to now
+            months_since_cohort = (
+                (current_date.year - cohort_date.year) * 12 + current_date.month - cohort_date.month
+            )
+
+            for month_offset in range(0, min(months_since_cohort + 1, 36)):  # Cap at 36 months
+                check_date = add_months(cohort_date, month_offset)
 
                 retained = frappe.db.sql(
                     """
                     SELECT COUNT(*)
                     FROM `tabMember` m
                     WHERE DATE_FORMAT(member_since, '%%Y-%%m') = %s
-                    AND status = 'Active'
-                    AND NOT EXISTS (
-                        SELECT 1 FROM `tabMembership Termination Request` t
-                        WHERE t.member = m.name
-                        AND t.status = 'Completed'
-                        AND t.termination_date < %s
-                    )
-                """,
-                    (cohort_month.strftime("%Y-%m"), check_date),
+                    AND (member_end_date IS NULL OR member_end_date > %s)
+                    """,
+                    (cohort_date.strftime("%Y-%m"), check_date),
                 )[0][0]
 
-                retention_rate = (retained / initial_count) * 100
+                retention_rate = (retained / initial_count) * 100 if initial_count > 0 else 0
                 cohort_data["retention"].append(
                     {"month": month_offset, "rate": retention_rate, "count": retained}
                 )
 
             cohorts.append(cohort_data)
+
+        # Move to next month
+        cohort_date = add_months(cohort_date, 1)
+
+    return cohorts
+
+
+def _get_yearly_cohorts(earliest_date):
+    """Generate yearly cohorts from earliest_date to now"""
+    cohorts = []
+    current_date = datetime.now()
+    cohort_year = earliest_date.year
+
+    while cohort_year <= current_date.year:
+        # Get initial cohort size for the year
+        initial_count = frappe.db.sql(
+            """
+            SELECT COUNT(*)
+            FROM `tabMember`
+            WHERE YEAR(member_since) = %s
+            AND status != 'Rejected'
+            """,
+            cohort_year,
+        )[0][0]
+
+        if initial_count > 0:
+            cohort_data = {
+                "cohort": str(cohort_year),
+                "initial": initial_count,
+                "retention": [],
+            }
+
+            # Calculate retention for each subsequent year
+            years_since_cohort = current_date.year - cohort_year
+
+            for year_offset in range(0, min(years_since_cohort + 1, 10)):  # Cap at 10 years
+                check_year = cohort_year + year_offset
+                end_of_check_year = f"{check_year}-12-31"
+
+                retained = frappe.db.sql(
+                    """
+                    SELECT COUNT(*)
+                    FROM `tabMember` m
+                    WHERE YEAR(member_since) = %s
+                    AND (member_end_date IS NULL OR member_end_date > %s)
+                    """,
+                    (cohort_year, end_of_check_year),
+                )[0][0]
+
+                retention_rate = (retained / initial_count) * 100 if initial_count > 0 else 0
+                cohort_data["retention"].append(
+                    {"year": year_offset, "rate": retention_rate, "count": retained}
+                )
+
+            cohorts.append(cohort_data)
+
+        cohort_year += 1
 
     return cohorts
 

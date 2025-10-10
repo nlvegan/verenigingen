@@ -268,8 +268,22 @@
                 <div class="col-md-12">
                     <div class="card">
                         <div class="card-header">
-                            <h5>{{ __("Cohort Retention Analysis") }}</h5>
-                            <small class="text-muted">{{ __("Shows member retention rates by cohort over time") }}</small>
+                            <div class="row">
+                                <div class="col-md-8">
+                                    <h5>{{ __("Cohort Retention Analysis") }}</h5>
+                                    <small class="text-muted">{{ __("Shows member retention rates by cohort over time") }}</small>
+                                </div>
+                                <div class="col-md-4 text-right">
+                                    <div class="btn-group btn-group-sm" role="group">
+                                        <button type="button" class="btn btn-default active" id="cohort-monthly">
+                                            {{ __("Monthly") }}
+                                        </button>
+                                        <button type="button" class="btn btn-default" id="cohort-yearly">
+                                            {{ __("Yearly") }}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                         <div class="card-body">
                             <div id="cohort-heatmap" style="overflow-x: auto;"></div>

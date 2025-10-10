@@ -333,7 +333,11 @@ doc_events = {
     # Updated to use dues schedule system instead of subscription hooks
     "Chapter": {
         # validate: now handled in controller validate() method
-        "on_update": "verenigingen.utils.optimized_chapter_lookup.invalidate_chapter_lookup_cache",
+        "on_update": [
+            "verenigingen.utils.optimized_chapter_lookup.invalidate_chapter_lookup_cache",
+            "verenigingen.utils.chapter_role_profile_hooks.on_chapter_board_members_change",  # Direct hook as fallback
+            "verenigingen.utils.chapter_role_profile_hooks.invalidate_chapter_profile_cache",  # Profile config cache invalidation
+        ],
         "after_save": "verenigingen.utils.optimized_chapter_lookup.invalidate_chapter_lookup_cache",
     },
     "Verenigingen Settings": {
@@ -464,7 +468,16 @@ doc_events = {
             "verenigingen.utils.native_expense_helpers.update_employee_approver",
             "verenigingen.utils.chapter_role_events.on_volunteer_on_update",
             "verenigingen.utils.performance_event_handlers.on_volunteer_assignment_change",  # Safe performance optimization
+            "verenigingen.utils.volunteer_role_profile_hooks.on_volunteer_status_change",  # Role profile recalculation
         ]
+    },
+    # Team updates affect team leader role profiles
+    "Team": {
+        "on_update": [
+            "verenigingen.utils.team_role_profile_hooks.on_team_lead_change",  # Role profile recalculation for team lead changes
+            "verenigingen.utils.team_role_profile_hooks.on_team_members_change",  # Direct hook as fallback
+            "verenigingen.utils.team_role_profile_hooks.invalidate_team_profile_cache",  # Profile config cache invalidation
+        ],
     },
     # Member updates can affect board member roles and email groups
     "Member": {
@@ -508,13 +521,11 @@ doc_events = {
     # Team Member role profile automation
     "Team Member": {
         "after_insert": "verenigingen.utils.team_role_profile_manager.on_team_member_add",
-        "before_delete": "verenigingen.utils.team_role_profile_manager.on_team_member_remove",
         "on_update": "verenigingen.utils.team_role_profile_manager.on_team_member_update",
     },
     # Chapter Board Member role profile automation
     "Chapter Board Member": {
         "after_insert": "verenigingen.utils.chapter_role_profile_manager.on_chapter_board_member_add",
-        "before_delete": "verenigingen.utils.chapter_role_profile_manager.on_chapter_board_member_remove",
         "on_update": "verenigingen.utils.chapter_role_profile_manager.on_chapter_board_member_update",
     },
     # Donation Agreement lifecycle and validation

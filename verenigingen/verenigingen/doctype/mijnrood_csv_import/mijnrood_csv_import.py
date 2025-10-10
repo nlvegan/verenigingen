@@ -671,12 +671,15 @@ class MijnroodCSVImport(Document):
         elif membership_type == "overleden":
             member_doc.status = "Deceased"
             member_doc.application_status = "Approved"  # Was approved before passing
+            # Note: member_end_date left as NULL for historical imports (MNAR data)
         elif membership_type in ["opgezegd", "terminated", "uitgeschreven"]:
             member_doc.status = "Terminated"
             member_doc.application_status = "Approved"  # Was approved, then terminated
+            # Note: member_end_date left as NULL for historical imports (MNAR data)
         elif membership_type in ["geroyeerd", "expelled"]:
             member_doc.status = "Banned"
             member_doc.application_status = "Approved"  # Was approved, then banned
+            # Note: member_end_date left as NULL for historical imports (MNAR data)
         elif membership_type == "dubbel":
             # Duplicate entries should be marked as rejected
             member_doc.status = "Rejected"

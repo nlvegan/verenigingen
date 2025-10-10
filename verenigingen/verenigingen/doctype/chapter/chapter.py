@@ -704,19 +704,22 @@ class Chapter(WebsiteGenerator):
             )
 
     def _detect_and_emit_board_changes(self, old_doc):
-        """Detect and emit board member changes"""
-        old_board = {(bm.volunteer, bm.chapter_role) for bm in (old_doc.board_members or [])}
-        new_board = {(bm.volunteer, bm.chapter_role) for bm in (self.board_members or [])}
+        """Detect and emit board member changes (including is_active changes)"""
+        # Include is_active status in comparison to detect activation/deactivation
+        old_board = {(bm.volunteer, bm.chapter_role) for bm in (old_doc.board_members or []) if bm.is_active}
+        new_board = {(bm.volunteer, bm.chapter_role) for bm in (self.board_members or []) if bm.is_active}
 
-        # Find added board members
+        # Find added/activated board members
         for volunteer, role in new_board - old_board:
             # Check if it's a new member or role change
             old_volunteer_roles = {
-                bm.chapter_role for bm in (old_doc.board_members or []) if bm.volunteer == volunteer
+                bm.chapter_role
+                for bm in (old_doc.board_members or [])
+                if bm.volunteer == volunteer and bm.is_active
             }
 
             if not old_volunteer_roles:
-                # New board member
+                # New board member or reactivated
                 emit_chapter_board_changed(
                     self.name,
                     {
@@ -740,15 +743,17 @@ class Chapter(WebsiteGenerator):
                     },
                 )
 
-        # Find removed board members
+        # Find removed/deactivated board members
         for volunteer, role in old_board - new_board:
             # Check if completely removed or just role changed
             new_volunteer_roles = {
-                bm.chapter_role for bm in (self.board_members or []) if bm.volunteer == volunteer
+                bm.chapter_role
+                for bm in (self.board_members or [])
+                if bm.volunteer == volunteer and bm.is_active
             }
 
             if not new_volunteer_roles:
-                # Completely removed
+                # Completely removed or deactivated
                 emit_chapter_board_changed(
                     self.name,
                     {

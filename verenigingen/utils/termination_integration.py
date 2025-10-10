@@ -261,6 +261,105 @@ def update_invoice_safe(invoice_name, termination_note):
         return False
 
 
+def cancel_future_invoices_safe(customer_name, termination_date):
+    """
+    Cancel invoices whose coverage period starts after the termination date
+    Member shouldn't be invoiced for periods they won't be a member
+    """
+    try:
+        from frappe.utils import getdate
+
+        # Validate required custom fields exist (per CLAUDE.md guidelines)
+        if not frappe.db.exists(
+            "Custom Field", {"dt": "Sales Invoice", "fieldname": "custom_coverage_start_date"}
+        ):
+            frappe.logger().warning(
+                "Custom field 'custom_coverage_start_date' not found on Sales Invoice - skipping future invoice cancellation"
+            )
+            return {
+                "invoices_cancelled": 0,
+                "invoices_deleted": 0,
+                "errors": ["Custom coverage fields not configured"],
+            }
+
+        if not termination_date:
+            termination_date = today()
+
+        termination_date = getdate(termination_date)
+
+        results = {
+            "invoices_cancelled": 0,
+            "invoices_deleted": 0,
+            "errors": [],
+        }
+
+        # Find invoices with coverage start date after termination
+        future_invoices = frappe.get_all(
+            "Sales Invoice",
+            filters={
+                "customer": customer_name,
+                "custom_coverage_start_date": [">", termination_date],
+                "docstatus": ["!=", 2],  # Not already cancelled
+            },
+            fields=[
+                "name",
+                "docstatus",
+                "custom_coverage_start_date",
+                "custom_coverage_end_date",
+                "grand_total",
+            ],
+        )
+
+        frappe.logger().info(
+            f"Found {len(future_invoices)} invoice(s) with coverage starting after {termination_date}"
+        )
+
+        for invoice_data in future_invoices:
+            try:
+                invoice = frappe.get_doc("Sales Invoice", invoice_data.name)
+
+                if invoice_data.docstatus == 1:
+                    # Submitted invoice - cancel it
+                    cancellation_note = (
+                        f"Cancelled due to membership termination on {termination_date}. "
+                        f"Coverage period ({invoice_data.custom_coverage_start_date} to {invoice_data.custom_coverage_end_date}) "
+                        f"is after termination date."
+                    )
+
+                    if invoice.remarks:
+                        invoice.remarks += f"\n\n{cancellation_note}"
+                    else:
+                        invoice.remarks = cancellation_note
+
+                    invoice.save()
+                    invoice.cancel()
+
+                    results["invoices_cancelled"] += 1
+                    frappe.logger().info(
+                        f"Cancelled invoice {invoice_data.name} (coverage: {invoice_data.custom_coverage_start_date} to {invoice_data.custom_coverage_end_date})"
+                    )
+
+                elif invoice_data.docstatus == 0:
+                    # Draft invoice - delete it
+                    invoice.delete()
+
+                    results["invoices_deleted"] += 1
+                    frappe.logger().info(
+                        f"Deleted draft invoice {invoice_data.name} (coverage: {invoice_data.custom_coverage_start_date} to {invoice_data.custom_coverage_end_date})"
+                    )
+
+            except Exception as e:
+                error_msg = f"Failed to cancel invoice {invoice_data.name}: {str(e)}"
+                results["errors"].append(error_msg)
+                frappe.logger().error(error_msg)
+
+        return results
+
+    except Exception as e:
+        frappe.logger().error(f"Failed to cancel future invoices for {customer_name}: {str(e)}")
+        return {"invoices_cancelled": 0, "invoices_deleted": 0, "errors": [str(e)]}
+
+
 def update_member_status_safe(member_name, termination_type, termination_date, termination_request=None):
     """
     Update member status safely using standard fields
@@ -269,18 +368,24 @@ def update_member_status_safe(member_name, termination_type, termination_date, t
         member = frappe.get_doc("Member", member_name)
 
         # Map termination types to valid member status values
+        # Note: Suspension has its own separate workflow - this is TERMINATION
         status_mapping = {
-            "Voluntary": "Expired",  # Member chose to leave
-            "Non-payment": "Suspended",  # Could be temporary
-            "Deceased": "Deceased",  # Clear mapping
-            "Policy Violation": "Suspended",  # Disciplinary but not permanent ban
-            "Disciplinary Action": "Suspended",  # Disciplinary suspension
+            "Voluntary": "Terminated",  # Member chose to leave
+            "Non-payment": "Terminated",  # Termination for non-payment
+            "Deceased": "Deceased",  # Special status for deceased members
+            "Policy Violation": "Terminated",  # Terminated for policy violation
+            "Disciplinary Action": "Terminated",  # Terminated for disciplinary reasons
             "Expulsion": "Banned",  # Permanent ban from organization
+            "Administrative": "Terminated",  # Administrative termination
         }
 
         # Update member status
         if hasattr(member, "status"):
-            member.status = status_mapping.get(termination_type, "Suspended")
+            member.status = status_mapping.get(termination_type, "Terminated")
+
+        # Set member end date
+        if hasattr(member, "member_end_date"):
+            member.member_end_date = termination_date
 
         # Add termination information to notes (standard field)
         termination_note = f"Membership terminated on {termination_date} - Type: {termination_type}"
@@ -297,7 +402,7 @@ def update_member_status_safe(member_name, termination_type, termination_date, t
         member_result = secure_document_operation(
             operation="save",
             doc=member,
-            justification=f"Update member {member_name} termination status to {status_mapping.get(termination_type, 'Suspended')}",
+            justification=f"Update member {member_name} termination status to {status_mapping.get(termination_type, 'Terminated')}",
             required_permissions=["Member:write"],
         )
 
@@ -305,7 +410,7 @@ def update_member_status_safe(member_name, termination_type, termination_date, t
             # Handle concurrency - reload and retry once
             try:
                 member.reload()
-                member.status = status_mapping.get(termination_type, "Suspended")
+                member.status = status_mapping.get(termination_type, "Terminated")
                 if member.notes:
                     member.notes += f"\n\n{termination_note}"
                 else:

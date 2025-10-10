@@ -24,6 +24,7 @@
   "member_id",
   "member_since",
   "cumulative_membership_duration",
+  "member_end_date",
   "address_section",
   "primary_address",
   "address_display",
@@ -41,6 +42,7 @@
   "current_membership_start",
   "current_membership_end",
   "amendment_status_html",
+  "termination_status_html",
   "fee_change_history_section",
   "fee_change_history",
   "payments_tab",
@@ -98,8 +100,6 @@
   "application_custom_fee",
   "communication_preferences_section",
   "accepts_optional_communications",
-  "termination_status_section",
-  "termination_status_html",
   "erpnext_integration_section",
   "customer",
   "contact",
@@ -522,12 +522,6 @@
    "read_only": 1
   },
   {
-   "collapsible": 1,
-   "fieldname": "termination_status_section",
-   "fieldtype": "Section Break",
-   "label": "Termination Status"
-  },
-  {
    "description": "Shows current termination status and any pending requests",
    "fieldname": "termination_status_html",
    "fieldtype": "HTML",
@@ -729,6 +723,13 @@
    "fieldtype": "Data",
    "label": "Total Membership Duration",
    "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "description": "Date when member left the organization (termination, resignation, deceased, etc.)",
+   "fieldname": "member_end_date",
+   "fieldtype": "Date",
+   "label": "Member End Date",
    "read_only": 1
   },
   {

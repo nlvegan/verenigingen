@@ -318,65 +318,26 @@ def handle_team_lead_permissions(event_name, event_data):
 
 
 def _assign_team_role_profile(team_name, user, role):
-    """Assign role profile to team member"""
+    """Recalculate role profile when team member is added"""
+    from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
+
     try:
-        # Get team configuration
-        team = frappe.get_doc("Team", team_name)
-
-        if not team.enable_role_profiles:
-            return
-
-        # Determine role profile to assign
-        role_profile = None
-
-        # Check for role-specific profile
-        if hasattr(team, "team_role_specific_profiles"):
-            for profile_assignment in team.team_role_specific_profiles or []:
-                if profile_assignment.team_role == role:
-                    role_profile = profile_assignment.role_profile
-                    break
-
-        # Fall back to default profile
-        if not role_profile and team.default_role_profile:
-            role_profile = team.default_role_profile
-
-        if role_profile:
-            user_doc = frappe.get_doc("User", user)
-            if not user_doc.role_profile_name or user_doc.role_profile_name != role_profile:
-                user_doc.role_profile_name = role_profile
-                user_doc.save()
-                frappe.logger("events").info(f"Assigned role profile {role_profile} to {user}")
-
+        auto_sync_on_role_change(user)
+        frappe.logger("events").info(f"Recalculated role profile for {user} after team assignment")
     except Exception as e:
-        frappe.logger("events").warning(f"Failed to assign role profile for {user}: {str(e)}")
+        frappe.logger("events").warning(f"Failed to recalculate role profile for {user}: {str(e)}")
 
 
 def _remove_team_role_profile(team_name, user, role):
-    """Remove role profile from former team member"""
-    try:
-        # Only remove if user has no other active team memberships
-        active_teams = frappe.db.sql(
-            """
-            SELECT DISTINCT t.name
-            FROM `tabTeam` t
-            JOIN `tabTeam Member` tm ON tm.parent = t.name
-            JOIN `tabVolunteer` v ON tm.volunteer = v.name
-            JOIN `tabMember` m ON v.member = m.name
-            WHERE m.user = %s AND tm.is_active = 1 AND t.name != %s
-        """,
-            (user, team_name),
-        )
+    """Recalculate role profile when team member is removed"""
+    from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
 
-        if not active_teams:
-            # User has no other active team memberships, remove role profile
-            user_doc = frappe.get_doc("User", user)
-            if user_doc.role_profile_name:
-                user_doc.role_profile_name = None
-                user_doc.save()
-                frappe.logger("events").info(f"Removed role profile from {user}")
+    try:
+        auto_sync_on_role_change(user)
+        frappe.logger("events").info(f"Recalculated role profile for {user} after team removal")
 
     except Exception as e:
-        frappe.logger("events").warning(f"Failed to remove role profile for {user}: {str(e)}")
+        frappe.logger("events").warning(f"Failed to recalculate role profile for {user}: {str(e)}")
 
 
 def _send_team_member_added_notification(team, volunteer_doc, role):

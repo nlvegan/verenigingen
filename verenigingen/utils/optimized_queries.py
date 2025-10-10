@@ -392,19 +392,44 @@ class OptimizedMemberQueries:
         Frappe manages transactions around request boundaries. Manual transaction
         management causes "implicit commit" warnings and breaks Frappe's rollback logic.
         """
+        import time
+
         update_results = {"updated_count": 0, "errors": []}
 
         for member_name in member_names:
-            try:
-                member_payments = member_payment_data.get(member_name, [])
-                OptimizedMemberQueries._update_member_payment_history_bulk(member_name, member_payments)
-                update_results["updated_count"] += 1
+            # Retry logic for deadlock errors (1213)
+            max_retries = 3
+            retry_delay = 0.1  # Start with 100ms
 
-            except Exception as e:
-                error_msg = f"Failed to update payment history for member {member_name}: {str(e)}"
-                frappe.log_error(error_msg, "Bulk Payment History Update")
-                update_results["errors"].append(error_msg)
-                # Let error propagate - Frappe will handle rollback
+            for attempt in range(max_retries):
+                try:
+                    member_payments = member_payment_data.get(member_name, [])
+                    OptimizedMemberQueries._update_member_payment_history_bulk(member_name, member_payments)
+                    update_results["updated_count"] += 1
+                    break  # Success - exit retry loop
+
+                except frappe.QueryDeadlockError as e:
+                    # Deadlock is transient - retry with exponential backoff
+                    if attempt < max_retries - 1:
+                        frappe.logger().warning(
+                            f"Deadlock on member {member_name}, attempt {attempt + 1}/{max_retries}, "
+                            f"retrying in {retry_delay}s"
+                        )
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                        continue
+                    else:
+                        # Final attempt failed
+                        error_msg = f"Failed to update payment history for member {member_name} after {max_retries} attempts: {str(e)}"
+                        frappe.log_error(error_msg, "Bulk Payment History Update - Deadlock")
+                        update_results["errors"].append(error_msg)
+
+                except Exception as e:
+                    # Non-deadlock errors - don't retry
+                    error_msg = f"Failed to update payment history for member {member_name}: {str(e)}"
+                    frappe.log_error(error_msg, "Bulk Payment History Update")
+                    update_results["errors"].append(error_msg)
+                    break  # Exit retry loop for non-transient errors
 
         return update_results
 

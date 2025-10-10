@@ -497,8 +497,13 @@ class AccountCreationManager:
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
-def process_account_creation_request(request_name):
-    """Background job entry point for processing account creation requests"""
+def process_account_creation_request(request_name, at_time=None):
+    """Background job entry point for processing account creation requests
+
+    Args:
+        request_name: Name of the Account Creation Request to process
+        at_time: Scheduled execution time (passed by frappe.enqueue when using at_time parameter)
+    """
     try:
         manager = AccountCreationManager(request_name)
         manager.process_complete_pipeline()

@@ -269,15 +269,9 @@ def on_team_member_add(doc: "frappe._dict", method: str):
     if doc.status == "Active":
         user = _team_manager._get_user_from_team_member_doc(doc)
         if user:
+            from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
 
-            def assign_role():
-                return assign_team_role_profile(
-                    user, doc.parent, doc.team_role  # ast-skip: doc is TeamMember
-                )
-
-            result = safe_hook_execution(assign_role)
-            if result and not result.get("success"):
-                frappe.logger().warning(f"Failed to assign team role profile: {result.get('error')}")
+            auto_sync_on_role_change(user)
 
 
 def on_team_member_remove(doc: "frappe._dict", method: str):
@@ -289,13 +283,9 @@ def on_team_member_remove(doc: "frappe._dict", method: str):
     """
     user = _team_manager._get_user_from_team_member_doc(doc)
     if user:
+        from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
 
-        def remove_role():
-            return remove_team_role_profile(user, doc.parent, doc.team_role)  # ast-skip: doc is TeamMember
-
-        result = safe_hook_execution(remove_role)
-        if result and not result.get("success"):
-            frappe.logger().warning(f"Failed to remove team role profile: {result.get('error')}")
+        auto_sync_on_role_change(user)
 
 
 def on_team_member_update(doc: "frappe._dict", method: str):
@@ -305,26 +295,13 @@ def on_team_member_update(doc: "frappe._dict", method: str):
         doc: TeamMember document with volunteer, parent, and team_role fields
         method: Hook method name
     """
-    # Handle status changes (active -> inactive, etc.)
-    if doc.has_value_changed("status"):
+    # Handle status changes or role changes
+    if doc.has_value_changed("status") or doc.has_value_changed("team_role"):
         user = _team_manager._get_user_from_team_member_doc(doc)
         if user:
-            if doc.status == "Active":
+            from verenigingen.utils.user_role_profile_calculator import auto_sync_on_role_change
 
-                def assign_role():
-                    return assign_team_role_profile(
-                        user, doc.parent, doc.team_role  # ast-skip: doc is TeamMember
-                    )
-
-                safe_hook_execution(assign_role)
-            else:
-
-                def remove_role():
-                    return remove_team_role_profile(
-                        user, doc.parent, doc.team_role  # ast-skip: doc is TeamMember
-                    )
-
-                safe_hook_execution(remove_role)
+            auto_sync_on_role_change(user)
 
 
 # For backward compatibility - maintain the old validation function

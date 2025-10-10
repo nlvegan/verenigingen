@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-
-from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 """
 Deploy Enhanced Role Profiles for Verenigingen
 
@@ -12,6 +10,9 @@ import json
 import os
 
 import frappe
+
+from verenigingen.constants.profile_mappings import ROLE_MODULE_MAPPING
+from verenigingen.utils.validation_utilities import DocumentExistenceValidator
 
 
 def deploy_enhanced_profiles():
@@ -161,26 +162,9 @@ def deploy_role_profiles_from_file(file_path):
 
 
 def link_module_profiles():
-    """Link module profiles to role profiles"""
+    """Link module profiles to role profiles using shared mapping"""
 
-    # Enhanced mapping with new profiles
-    role_module_mapping = {
-        "Verenigingen Member": "Verenigingen Basic Access",
-        "Verenigingen Volunteer": "Verenigingen Volunteer Access",
-        "Verenigingen Team Leader": "Verenigingen Team Management Access",
-        "Verenigingen Chapter Board Member": "Verenigingen Volunteer Access",
-        "Verenigingen Treasurer": "Verenigingen Financial Access",
-        "Verenigingen Chapter Administrator": "Verenigingen Management Access",
-        "Verenigingen Communications Officer": "Verenigingen Communications Access",
-        "Verenigingen Event Coordinator": "Verenigingen Volunteer Access",
-        "Verenigingen Staff": "Verenigingen Management Access",
-        "Verenigingen Finance Manager": "Verenigingen Finance Management Access",
-        "Verenigingen System Administrator": None,  # Full access
-        "Verenigingen Auditor": "Verenigingen Audit Access",
-        "Verenigingen Guest": "Verenigingen Guest Access",
-    }
-
-    for role_profile_name, module_profile_name in role_module_mapping.items():
+    for role_profile_name, module_profile_name in ROLE_MODULE_MAPPING.items():
         try:
             if DocumentExistenceValidator.check_document_exists("Role Profile", role_profile_name):
                 role_profile = frappe.get_doc("Role Profile", role_profile_name)
