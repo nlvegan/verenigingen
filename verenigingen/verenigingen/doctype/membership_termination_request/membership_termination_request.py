@@ -523,7 +523,7 @@ class MembershipTerminationRequest(Document):
             # For simple terminations, can go directly to approved
             self.status = "Approved"
             self.approved_by = frappe.session.user
-            self.approved_date = now()
+            self.approval_date = now()
 
         # Calculate termination date using centralized logic
         self.calculate_termination_date()
@@ -561,7 +561,7 @@ class MembershipTerminationRequest(Document):
         if decision == "approved":
             self.status = "Approved"
             self.approved_by = frappe.session.user
-            self.approved_date = now()
+            self.approval_date = now()
             self.approver_notes = notes
 
             # Calculate termination date using centralized logic

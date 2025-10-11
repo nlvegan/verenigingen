@@ -183,7 +183,7 @@
   },
   {
    "default": "0",
-   "depends_on": "eval:['Voluntary', 'Non-payment', 'Deceased'].includes(doc.termination_type)",
+   "depends_on": "eval:['Voluntary', 'Non-payment'].includes(doc.termination_type)",
    "description": "Add 30-day grace period from Member Request Date",
    "fieldname": "apply_grace_period",
    "fieldtype": "Check",

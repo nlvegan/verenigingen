@@ -76,6 +76,85 @@
  */
 
 /**
+ * Configuration constants for termination workflows
+ * @const {Object} TERMINATION_CONFIG
+ */
+const TERMINATION_CONFIG = {
+	/** @type {string[]} Termination types requiring disciplinary documentation and secondary approval */
+	DISCIPLINARY_TYPES: Object.freeze([
+		'Policy Violation',
+		'Disciplinary Action',
+		'Expulsion'
+	]),
+
+	/** @type {Object.<string, string>} Status value constants */
+	STATUS: Object.freeze({
+		DRAFT: 'Draft',
+		PENDING: 'Pending',
+		APPROVED: 'Approved',
+		REJECTED: 'Rejected',
+		EXECUTED: 'Executed'
+	}),
+
+	/** @type {Object.<string, string>} Status indicator colors for UI */
+	INDICATOR_COLORS: Object.freeze({
+		Draft: 'blue',
+		Pending: 'yellow',
+		Approved: 'green',
+		Rejected: 'red',
+		Executed: 'gray'
+	}),
+
+	/** @type {string[]} Roles authorized to override secondary approval requirements */
+	ADMIN_ROLES: Object.freeze([
+		'System Manager',
+		'Verenigingen Administrator'
+	])
+};
+
+/**
+ * API method paths for server-side operations
+ * @const {Object} API_METHODS
+ */
+const API_METHODS = {
+	GET_ELIGIBLE_APPROVERS: 'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_eligible_approvers',
+	INITIATE_DISCIPLINARY: 'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.initiate_disciplinary_termination'
+};
+
+/**
+ * Pure business logic functions (testable, no side effects)
+ */
+
+/**
+ * Check if a termination type is disciplinary
+ * @param {string} termination_type - The termination type to check
+ * @returns {boolean} True if termination type requires disciplinary workflow
+ */
+function isDisciplinaryType(termination_type) {
+	return TERMINATION_CONFIG.DISCIPLINARY_TYPES.includes(termination_type);
+}
+
+/**
+ * Check if current user can approve a termination request
+ * @param {string[]} user_roles - Array of user role names
+ * @param {string} secondary_approver - Designated secondary approver user ID
+ * @returns {boolean} True if user has approval authority
+ */
+function canUserApprove(user_roles, secondary_approver) {
+	// Admin roles can always approve
+	const has_admin_role = TERMINATION_CONFIG.ADMIN_ROLES.some(
+		role => user_roles.includes(role)
+	);
+
+	if (has_admin_role) {
+		return true;
+	}
+
+	// Check if user is the designated secondary approver
+	return secondary_approver === frappe.session.user;
+}
+
+/**
  * @namespace MembershipTerminationController
  * @description Advanced membership termination form controller with workflow management
  */
@@ -94,20 +173,10 @@ frappe.ui.form.on('Membership Termination Request', {
 		frm.set_df_property('audit_trail', 'read_only', 1);
 
 		// Only admins can override secondary approval requirement
-		const can_override_approval = frappe.user_roles.includes('System Manager')
-			|| frappe.user_roles.includes('Verenigingen Administrator');
+		const can_override_approval = TERMINATION_CONFIG.ADMIN_ROLES.some(
+			role => frappe.user_roles.includes(role)
+		);
 		frm.set_df_property('requires_secondary_approval', 'read_only', !can_override_approval);
-
-		// Add view member button
-		if (frm.doc.member) {
-			frm.add_custom_button(
-				__('View Member'),
-				() => {
-					frappe.set_route('Form', 'Member', frm.doc.member);
-				},
-				__('View')
-			);
-		}
 	},
 
 	onload(frm) {
@@ -115,7 +184,7 @@ frappe.ui.form.on('Membership Termination Request', {
 		if (frm.is_new()) {
 			frm.set_value('request_date', frappe.datetime.get_today());
 			frm.set_value('requested_by', frappe.session.user);
-			frm.set_value('status', 'Draft');
+			frm.set_value('status', TERMINATION_CONFIG.STATUS.DRAFT);
 		}
 
 		// Filter secondary approver to only show eligible users
@@ -125,9 +194,6 @@ frappe.ui.form.on('Membership Termination Request', {
 	termination_type(frm) {
 		// Toggle disciplinary fields based on termination type
 		toggle_disciplinary_fields(frm);
-
-		// Set approval requirements
-		set_approval_requirements(frm);
 
 		// Set default dates based on type
 		set_default_dates(frm);
@@ -147,24 +213,29 @@ frappe.ui.form.on('Membership Termination Request', {
 });
 
 function set_status_indicator(frm) {
-	const indicator_map = {
-		Draft: 'blue',
-		Pending: 'yellow',
-		Approved: 'green',
-		Rejected: 'red',
-		Executed: 'gray'
-	};
-
-	if (frm.doc.status && indicator_map[frm.doc.status]) {
-		frm.page.set_indicator(frm.doc.status, indicator_map[frm.doc.status]);
+	if (frm.doc.status && TERMINATION_CONFIG.INDICATOR_COLORS[frm.doc.status]) {
+		frm.page.set_indicator(
+			frm.doc.status,
+			TERMINATION_CONFIG.INDICATOR_COLORS[frm.doc.status]
+		);
 	}
 }
 
 function add_action_buttons(frm) {
+	// Track button state to prevent race conditions and unnecessary rebuilds
+	const current_state = `${frm.doc.status}|${frm.doc.member}`;
+
+	// Only rebuild if state changed
+	if (frm._button_state === current_state) {
+		return;
+	}
+
+	frm._button_state = current_state;
+
 	// Clear existing custom buttons
 	frm.clear_custom_buttons();
 
-	if (frm.doc.status === 'Draft') {
+	if (frm.doc.status === TERMINATION_CONFIG.STATUS.DRAFT) {
 		// Submit for approval button
 		frm
 			.add_custom_button(
@@ -175,7 +246,7 @@ function add_action_buttons(frm) {
 				__('Actions')
 			)
 			.addClass('btn-primary');
-	} else if (frm.doc.status === 'Pending') {
+	} else if (frm.doc.status === TERMINATION_CONFIG.STATUS.PENDING) {
 		// Show approval buttons if user can approve
 		if (can_approve_request(frm)) {
 			frm
@@ -198,7 +269,7 @@ function add_action_buttons(frm) {
 				)
 				.addClass('btn-danger');
 		}
-	} else if (frm.doc.status === 'Approved') {
+	} else if (frm.doc.status === TERMINATION_CONFIG.STATUS.APPROVED) {
 		// Execute termination button
 		frm
 			.add_custom_button(
@@ -224,12 +295,7 @@ function add_action_buttons(frm) {
 }
 
 function toggle_disciplinary_fields(frm) {
-	const disciplinary_types = [
-		'Policy Violation',
-		'Disciplinary Action',
-		'Expulsion'
-	];
-	const is_disciplinary = disciplinary_types.includes(frm.doc.termination_type);
+	const is_disciplinary = isDisciplinaryType(frm.doc.termination_type);
 
 	// Show/hide disciplinary documentation
 	frm.toggle_display('disciplinary_documentation', is_disciplinary);
@@ -245,28 +311,7 @@ function toggle_disciplinary_fields(frm) {
 	}
 }
 
-function set_approval_requirements(frm) {
-	const disciplinary_types = [
-		'Policy Violation',
-		'Disciplinary Action',
-		'Expulsion'
-	];
-	const requires_approval = disciplinary_types.includes(
-		frm.doc.termination_type
-	);
-
-	// Only set default for new documents - don't override saved values
-	if (frm.is_new()) {
-		frm.set_value('requires_secondary_approval', requires_approval ? 1 : 0);
-	}
-}
-
 function set_default_dates(frm) {
-	const disciplinary_types = [
-		'Policy Violation',
-		'Disciplinary Action',
-		'Expulsion'
-	];
 	// Set default termination date if not already set
 	if (!frm.doc.termination_date) {
 		frm.set_value('termination_date', frappe.datetime.get_today());
@@ -276,19 +321,13 @@ function set_default_dates(frm) {
 function set_secondary_approver_filter(frm) {
 	frm.set_query('secondary_approver', () => {
 		return {
-			query:
-        'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_eligible_approvers'
+			query: API_METHODS.GET_ELIGIBLE_APPROVERS
 		};
 	});
 }
 
 function validate_required_fields(frm) {
-	const disciplinary_types = [
-		'Policy Violation',
-		'Disciplinary Action',
-		'Expulsion'
-	];
-	const is_disciplinary = disciplinary_types.includes(frm.doc.termination_type);
+	const is_disciplinary = isDisciplinaryType(frm.doc.termination_type);
 
 	if (is_disciplinary) {
 		if (!frm.doc.disciplinary_documentation) {
@@ -297,7 +336,7 @@ function validate_required_fields(frm) {
 			);
 		}
 
-		if (frm.doc.status === 'Pending' && !frm.doc.secondary_approver) {
+		if (frm.doc.status === TERMINATION_CONFIG.STATUS.PENDING && !frm.doc.secondary_approver) {
 			frappe.throw(
 				__('Secondary approver is required for disciplinary terminations')
 			);
@@ -322,30 +361,27 @@ function submit_for_approval(frm) {
 					},
 					5
 				);
+			} else {
+				frappe.msgprint({
+					title: __('Warning'),
+					message: __('Request processed but no confirmation received. Please refresh to verify status.'),
+					indicator: 'orange'
+				});
 			}
+		},
+		error(r) {
+			frappe.msgprint({
+				title: __('Submission Failed'),
+				message: r.message || __('Failed to submit request. Please try again.'),
+				indicator: 'red'
+			});
 		}
 	});
 }
 
 function can_approve_request(frm) {
-	// Check if current user can approve this request
-	const user_roles = frappe.user_roles;
-
-	// System managers can always approve
-	if (user_roles.includes('System Manager')) {
-		return true;
-	}
-
-	// Association managers can approve disciplinary terminations
-	if (
-		user_roles.includes('Verenigingen Administrator')
-    && frm.doc.requires_secondary_approval
-	) {
-		return true;
-	}
-
-	// Check if user is the designated secondary approver
-	return frm.doc.secondary_approver === frappe.session.user;
+	// Delegate to pure business logic function
+	return canUserApprove(frappe.user_roles, frm.doc.secondary_approver);
 }
 
 function approve_request(frm, decision) {
@@ -368,6 +404,10 @@ function approve_request(frm, decision) {
 		],
 		primary_action_label: __(decision === 'approved' ? 'Approve' : 'Reject'),
 		primary_action(values) {
+			// Disable button during processing
+			dialog.disable_primary_action();
+			dialog.set_primary_action(__('Processing...'));
+
 			frappe.call({
 				method: 'approve_request',
 				doc: frm.doc,
@@ -397,7 +437,25 @@ function approve_request(frm, decision) {
 							},
 							5
 						);
+					} else {
+						frappe.msgprint({
+							title: __('Warning'),
+							message: __('Operation completed but no confirmation received. Please refresh to verify status.'),
+							indicator: 'orange'
+						});
+						dialog.enable_primary_action();
+						dialog.set_primary_action(__(decision === 'approved' ? 'Approve' : 'Reject'));
 					}
+				},
+				error(r) {
+					dialog.enable_primary_action();
+					dialog.set_primary_action(__(decision === 'approved' ? 'Approve' : 'Reject'));
+
+					frappe.msgprint({
+						title: __('Operation Failed'),
+						message: r.message || __('Failed to process approval. Please try again.'),
+						indicator: 'red'
+					});
 				}
 			});
 		}
@@ -433,7 +491,20 @@ function execute_termination(frm) {
 							},
 							7
 						);
+					} else {
+						frappe.msgprint({
+							title: __('Warning'),
+							message: __('Termination processed but no confirmation received. Please refresh to verify status.'),
+							indicator: 'orange'
+						});
 					}
+				},
+				error(r) {
+					frappe.msgprint({
+						title: __('Execution Failed'),
+						message: r.message || __('Failed to execute termination. Please try again or contact support.'),
+						indicator: 'red'
+					});
 				}
 			});
 		}
@@ -441,7 +512,19 @@ function execute_termination(frm) {
 }
 
 // Enhanced termination dialog function that can be called from Member form
-window.show_enhanced_termination_dialog = function (member_id, member_name) {
+/**
+ * Frappe namespace for membership termination operations
+ * @namespace frappe.membership_termination
+ */
+frappe.membership_termination = frappe.membership_termination || {};
+
+/**
+ * Show enhanced termination dialog with workflow selection
+ * @param {string} member_id - Member DocType name identifier
+ * @param {string} member_name - Member display name for dialog title
+ * @memberof frappe.membership_termination
+ */
+frappe.membership_termination.show_dialog = function (member_id, member_name) {
 	const dialog = new frappe.ui.Dialog({
 		title: __('Terminate Membership: {0}', [member_name]),
 		size: 'large',
@@ -507,8 +590,7 @@ window.show_enhanced_termination_dialog = function (member_id, member_name) {
           'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)',
 				get_query() {
 					return {
-						query:
-              'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_eligible_approvers'
+						query: API_METHODS.GET_ELIGIBLE_APPROVERS
 					};
 				}
 			},
@@ -537,6 +619,17 @@ window.show_enhanced_termination_dialog = function (member_id, member_name) {
 		],
 		primary_action_label: __('Create Termination Request'),
 		primary_action(values) {
+			// Validate input before proceeding
+			const validation = validateTerminationDialogInput(values);
+			if (!validation.valid) {
+				frappe.msgprint({
+					title: __('Validation Error'),
+					message: validation.errors.join('<br>'),
+					indicator: 'red'
+				});
+				return;
+			}
+
 			// Create the termination request
 			const termination_data = {
 				termination_type: values.termination_type,
@@ -549,20 +642,16 @@ window.show_enhanced_termination_dialog = function (member_id, member_name) {
 			};
 
 			// Call the appropriate method based on termination type
-			const disciplinary_types = [
-				'Policy Violation',
-				'Disciplinary Action',
-				'Expulsion'
-			];
-			const is_disciplinary = disciplinary_types.includes(
-				values.termination_type
-			);
+			const is_disciplinary = isDisciplinaryType(values.termination_type);
 
 			if (is_disciplinary) {
 				// Use disciplinary workflow
+				// Disable button during processing
+				dialog.disable_primary_action();
+				dialog.set_primary_action(__('Creating...'));
+
 				frappe.call({
-					method:
-            'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.initiate_disciplinary_termination',
+					method: API_METHODS.INITIATE_DISCIPLINARY,
 					args: {
 						member_id,
 						termination_data
@@ -575,7 +664,25 @@ window.show_enhanced_termination_dialog = function (member_id, member_name) {
 								'Membership Termination Request',
 								r.message.request_id
 							);
+						} else {
+							frappe.msgprint({
+								title: __('Warning'),
+								message: __('Request processed but no confirmation received.'),
+								indicator: 'orange'
+							});
+							dialog.enable_primary_action();
+							dialog.set_primary_action(__('Create Termination Request'));
 						}
+					},
+					error(r) {
+						dialog.enable_primary_action();
+						dialog.set_primary_action(__('Create Termination Request'));
+
+						frappe.msgprint({
+							title: __('Creation Failed'),
+							message: r.message || __('Failed to create termination request. Please try again.'),
+							indicator: 'red'
+						});
 					}
 				});
 			} else {
@@ -597,13 +704,47 @@ window.show_enhanced_termination_dialog = function (member_id, member_name) {
 	dialog.show();
 };
 
+/**
+ * Validate termination dialog input values
+ * @param {Object} values - Dialog field values
+ * @returns {Object} { valid: boolean, errors: string[] }
+ */
+function validateTerminationDialogInput(values) {
+	const errors = [];
+
+	// Required field validation
+	if (!values.termination_type || values.termination_type.trim() === '') {
+		errors.push(__('Termination type is required'));
+	}
+
+	// Prevent selecting the visual separator
+	if (values.termination_type === '--- Disciplinary ---') {
+		errors.push(__('Please select a valid termination type'));
+	}
+
+	if (!values.termination_reason || values.termination_reason.trim() === '') {
+		errors.push(__('Termination reason is required'));
+	}
+
+	// Disciplinary-specific validation
+	const is_disciplinary = isDisciplinaryType(values.termination_type);
+	if (is_disciplinary) {
+		if (!values.disciplinary_documentation || values.disciplinary_documentation.trim() === '') {
+			errors.push(__('Documentation is required for disciplinary terminations'));
+		}
+		if (!values.secondary_approver || values.secondary_approver.trim() === '') {
+			errors.push(__('Secondary approver is required for disciplinary terminations'));
+		}
+	}
+
+	return {
+		valid: errors.length === 0,
+		errors: errors
+	};
+}
+
 function toggle_dialog_fields(dialog, termination_type) {
-	const disciplinary_types = [
-		'Policy Violation',
-		'Disciplinary Action',
-		'Expulsion'
-	];
-	const is_disciplinary = disciplinary_types.includes(termination_type);
+	const is_disciplinary = isDisciplinaryType(termination_type);
 
 	// Toggle visibility of disciplinary-specific fields
 	dialog.fields_dict.disciplinary_documentation.df.hidden = !is_disciplinary;
@@ -613,17 +754,12 @@ function toggle_dialog_fields(dialog, termination_type) {
 	dialog.refresh();
 }
 
-// Server-side query for eligible approvers
-frappe.provide(
-	'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request'
-);
-
-frappe.query_reports['Get Eligible Approvers'] = {
-	execute(filters) {
-		return frappe.call({
-			method:
-        'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_eligible_approvers',
-			args: filters
-		});
-	}
+// Backward-compatible alias for existing code
+// @deprecated Use frappe.membership_termination.show_dialog() instead
+window.show_enhanced_termination_dialog = function (member_id, member_name) {
+	console.warn(
+		'window.show_enhanced_termination_dialog() is deprecated. ' +
+		'Use frappe.membership_termination.show_dialog() instead.'
+	);
+	return frappe.membership_termination.show_dialog(member_id, member_name);
 };
