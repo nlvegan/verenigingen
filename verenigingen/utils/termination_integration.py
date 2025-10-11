@@ -435,13 +435,19 @@ def update_member_status_safe(member_name, termination_type, termination_date, t
             "Administrative": "Terminated",  # Administrative termination
         }
 
+        target_status = status_mapping.get(termination_type, "Terminated")
+
         # Update member status
         if hasattr(member, "status"):
-            member.status = status_mapping.get(termination_type, "Terminated")
+            member.status = target_status
 
         # Set member end date
         if hasattr(member, "member_end_date"):
             member.member_end_date = termination_date
+
+        # Clear next_invoice_date - terminated members shouldn't be invoiced
+        if hasattr(member, "next_invoice_date"):
+            member.next_invoice_date = None
 
         # Add termination information to notes (standard field)
         termination_note = f"Membership terminated on {termination_date} - Type: {termination_type}"
@@ -452,6 +458,12 @@ def update_member_status_safe(member_name, termination_type, termination_date, t
             member.notes += f"\n\n{termination_note}"
         else:
             member.notes = termination_note
+
+        # CRITICAL: Set flag to prevent status being overridden by Membership hooks
+        # When Membership.cancel() triggers member.save(), this flag prevents the status
+        # from being changed from "Deceased" to "Terminated" by membership validation logic
+        member._termination_in_progress = True
+        member._termination_final_status = target_status
 
         # Save the member with concurrency handling
         # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation

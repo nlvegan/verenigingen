@@ -2196,10 +2196,14 @@ class MembershipDuesSchedule(Document):
         if self.member:
             # ✅ FIX: Use document model instead of direct db.set_value to avoid implicit commits
             member_doc = frappe.get_doc("Member", self.member)
-            member_doc.next_invoice_date = self.next_invoice_date
-            member_doc.flags.ignore_version = True  # Avoid version tracking for automated updates
-            member_doc.flags.ignore_links = True  # Skip link validation for automated system updates
-            member_doc.save()
+
+            # Don't update next_invoice_date for terminated members (Deceased, Banned, Terminated)
+            # They shouldn't be invoiced anyway
+            if member_doc.status not in ["Deceased", "Banned", "Terminated"]:
+                member_doc.next_invoice_date = self.next_invoice_date
+                member_doc.flags.ignore_version = True  # Avoid version tracking for automated updates
+                member_doc.flags.ignore_links = True  # Skip link validation for automated system updates
+                member_doc.save()
 
     def get_member_payment_method(self):
         """Get member's preferred payment method"""

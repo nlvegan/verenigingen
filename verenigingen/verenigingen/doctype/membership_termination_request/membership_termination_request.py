@@ -481,17 +481,8 @@ class MembershipTerminationRequest(Document):
         if not self.approval_date:
             self.approval_date = now()
 
-        # Calculate termination date from member request date (if provided) or today for disciplinary
-        if not self.termination_date:
-            if self.member_request_date:
-                if self.apply_grace_period:
-                    grace_days = self.get_grace_period_days()
-                    self.termination_date = add_days(self.member_request_date, grace_days)
-                else:
-                    self.termination_date = self.member_request_date
-            else:
-                # Disciplinary/Administrative terminations without member request date use today
-                self.termination_date = today()
+        # Calculate termination date using centralized logic
+        self.calculate_termination_date()
 
         # Add to expulsion report if disciplinary
         if self.requires_secondary_approval:
@@ -534,17 +525,8 @@ class MembershipTerminationRequest(Document):
             self.approved_by = frappe.session.user
             self.approved_date = now()
 
-        # Calculate termination date from member request date (if provided) or today for disciplinary
-        if not self.termination_date:
-            if self.member_request_date:
-                if self.apply_grace_period:
-                    grace_days = self.get_grace_period_days()
-                    self.termination_date = add_days(self.member_request_date, grace_days)
-                else:
-                    self.termination_date = self.member_request_date
-            else:
-                # Disciplinary/Administrative terminations without member request date use today
-                self.termination_date = today()
+        # Calculate termination date using centralized logic
+        self.calculate_termination_date()
 
         # Save the document
         self.save()
@@ -582,14 +564,8 @@ class MembershipTerminationRequest(Document):
             self.approved_date = now()
             self.approver_notes = notes
 
-            # Calculate termination date from member request date
-            if not self.termination_date and self.member_request_date:
-                if self.apply_grace_period:
-                    grace_days = self.get_grace_period_days()
-                    self.termination_date = add_days(self.member_request_date, grace_days)
-                    self.grace_period_end = self.termination_date
-                else:
-                    self.termination_date = self.member_request_date
+            # Calculate termination date using centralized logic
+            self.calculate_termination_date()
 
             self.add_audit_entry("Request Approved", f"Approved by {frappe.session.user}")
             frappe.msgprint(_("Termination request approved"))

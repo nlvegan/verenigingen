@@ -642,9 +642,30 @@ def get_member_termination_status(member):
 
 
 def update_termination_status_display(doc, method=None):
-    """Update member fields to display current termination status"""
+    """
+    Update member status and member_end_date based on termination request.
+
+    Note: This function only updates fields that exist in the Member DocType:
+    - status: The main member status ("Terminated", "Deceased", "Banned", etc.)
+    - member_end_date: Date when membership ended
+
+    Termination metadata is stored in Membership Termination Request records,
+    not duplicated on the Member record. Use get_member_termination_status()
+    to retrieve detailed termination information.
+    """
     member = doc
 
+    # CRITICAL: During termination execution, termination_integration.py sets status correctly
+    # Don't override it - respect the _termination_in_progress flag and _termination_final_status
+    if getattr(member, "_termination_in_progress", False):
+        # Termination is being executed - status already set correctly by termination_integration.py
+        if hasattr(member, "_termination_final_status"):
+            # Ensure status matches what termination execution set
+            if member.status != member._termination_final_status:
+                member.status = member._termination_final_status
+        return  # Skip database query and other logic
+
+    # Get most recent executed termination
     executed_termination = frappe.get_all(
         "Membership Termination Request",
         filters={"member": member.name, "status": "Executed"},
@@ -653,72 +674,24 @@ def update_termination_status_display(doc, method=None):
         limit=1,
     )
 
-    pending_termination = frappe.get_all(
-        "Membership Termination Request",
-        filters={"member": member.name, "status": ["in", ["Draft", "Pending Approval", "Approved"]]},
-        fields=["name", "status", "termination_type", "request_date"],
-        order_by="request_date desc",
-        limit=1,
-    )
-
     if executed_termination:
         term_data = executed_termination[0]
 
-        if hasattr(member, "termination_status"):
-            member.termination_status = "Terminated"
+        # Map termination type to correct member status
+        status_mapping = {
+            "Deceased": "Deceased",
+            "Expulsion": "Banned",
+        }
+        target_status = status_mapping.get(term_data.termination_type, "Terminated")
 
-        if hasattr(member, "termination_date"):
-            member.termination_date = term_data.execution_date or term_data.termination_date
+        # Update status if not already set correctly
+        if member.status != target_status:
+            member.status = target_status
 
-        if hasattr(member, "termination_type"):
-            member.termination_type = term_data.termination_type
-
-        if hasattr(member, "termination_request"):
-            member.termination_request = term_data.name
-
-        if hasattr(member, "status") and member.status != "Terminated":
-            member.status = "Terminated"
-
-        if hasattr(member, "termination_notes"):
-            member.termination_notes = (
-                f"Terminated on {term_data.execution_date} - Type: {term_data.termination_type}"
-            )
-
-    elif pending_termination:
-        pend_data = pending_termination[0]
-
-        if hasattr(member, "termination_status"):
-            status_map = {
-                "Draft": "Termination Draft",
-                "Pending Approval": "Termination Pending Approval",
-                "Approved": "Termination Approved",
-            }
-            member.termination_status = status_map.get(pend_data.status, "Termination Pending")
-
-        if hasattr(member, "pending_termination_type"):
-            member.pending_termination_type = pend_data.termination_type
-
-        if hasattr(member, "pending_termination_request"):
-            member.pending_termination_request = pend_data.name
-
-    else:
-        if hasattr(member, "termination_status"):
-            member.termination_status = "Active"
-
-        if hasattr(member, "termination_date"):
-            member.termination_date = None
-
-        if hasattr(member, "termination_type"):
-            member.termination_type = None
-
-        if hasattr(member, "termination_request"):
-            member.termination_request = None
-
-        if hasattr(member, "pending_termination_type"):
-            member.pending_termination_type = None
-
-        if hasattr(member, "pending_termination_request"):
-            member.pending_termination_request = None
+        # Set member_end_date to the termination date
+        target_date = term_data.termination_date or term_data.execution_date
+        if member.member_end_date != target_date:
+            member.member_end_date = target_date
 
 
 @frappe.whitelist()
