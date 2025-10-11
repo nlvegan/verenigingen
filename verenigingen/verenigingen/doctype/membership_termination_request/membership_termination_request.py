@@ -22,12 +22,18 @@ class MembershipTerminationRequest(Document):
         self.validate_dates()
         self.validate_termination_request()  # Moved from hooks.py
 
+    def get_grace_period_days(self):
+        """Get grace period days from Verenigingen Settings"""
+        settings = frappe.get_cached_doc("Verenigingen Settings")
+        return settings.default_grace_period_days or 30  # Fallback to 30 if not set
+
     def calculate_termination_date(self):
         """Calculate termination date from member request date or today"""
         if not self.termination_date:
             if self.member_request_date:
                 if self.apply_grace_period:
-                    self.termination_date = add_days(self.member_request_date, 30)
+                    grace_days = self.get_grace_period_days()
+                    self.termination_date = add_days(self.member_request_date, grace_days)
                 else:
                     self.termination_date = self.member_request_date
             else:
@@ -83,7 +89,32 @@ class MembershipTerminationRequest(Document):
     def execute_termination_internal(self):
         """Internal method for executing termination using safe integration methods"""
         try:
+            # IDEMPOTENCY CHECK: Prevent double-execution
+            if self.execution_date:
+                frappe.logger().info(
+                    f"Termination {self.name} already executed on {self.execution_date} "
+                    f"by {self.executed_by} - skipping duplicate execution"
+                )
+                frappe.msgprint(
+                    _("This termination was already executed on {0}").format(
+                        frappe.format(self.execution_date, {"fieldtype": "Datetime"})
+                    ),
+                    indicator="blue",
+                )
+                return True
+
             frappe.logger().info(f"Starting termination execution for {self.name}")
+
+            # PRE-EXECUTION VALIDATION: Minimal checks for retry safety
+            # Only check member exists - don't check status, as this enables retry after partial failure
+            if not frappe.db.exists("Member", self.member):
+                frappe.throw(_("Member {0} no longer exists").format(self.member))
+
+            # Log member current status for audit purposes but don't block
+            current_member_status = frappe.db.get_value("Member", self.member, "status")
+            frappe.logger().info(
+                f"Executing termination {self.name} - member {self.member} current status: {current_member_status}"
+            )
 
             # Validate we can execute
             if self.status != "Executed":
@@ -102,6 +133,7 @@ class MembershipTerminationRequest(Document):
             self.sepa_mandates_cancelled = results.get("sepa_mandates_cancelled", 0)
             self.positions_ended = results.get("positions_ended", 0)
             self.newsletters_updated = 1 if results.get("customer_updated") else 0
+            self.outstanding_invoices_cancelled = results.get("outstanding_invoices_cancelled", 0)
 
             # Save changes (use flags to avoid validation issues)
             self.flags.ignore_validate_update_after_submit = True
@@ -135,15 +167,18 @@ class MembershipTerminationRequest(Document):
             # Revert status if execution failed
             self.status = "Approved"
             self.flags.ignore_validate_update_after_submit = True
+            self.flags.skip_termination_validation = True  # Skip validation during error recovery
             self.save()
 
             frappe.throw(_("Failed to execute termination: {0}").format(error_msg))
 
     def execute_system_updates_safely(self):
         """Execute system updates using safe integration methods from utils"""
-        from verenigingen.utils.termination_integration import (  # Updated to use dues schedule system
+        from verenigingen.utils.termination_integration import (
+            cancel_dues_schedule_safe,
             cancel_future_invoices_safe,
             cancel_membership_safe,
+            cancel_outstanding_invoices_safe,
             cancel_sepa_mandate_safe,
             deactivate_user_account_safe,
             end_board_positions_safe,
@@ -161,10 +196,11 @@ class MembershipTerminationRequest(Document):
             "sepa_mandates_cancelled": 0,
             "memberships_cancelled": 0,
             "positions_ended": 0,
-            # "dues_schedules_cancelled": 0,  # Updated to use dues schedule system
+            "dues_schedules_cancelled": 0,
             "invoices_updated": 0,
             "invoices_cancelled": 0,
             "invoices_deleted": 0,
+            "outstanding_invoices_cancelled": 0,
             "customer_updated": False,
             "member_updated": False,
             "volunteers_terminated": 0,
@@ -276,16 +312,7 @@ class MembershipTerminationRequest(Document):
         results["actions_taken"].extend(employee_results["actions_taken"])
         results["errors"].extend(employee_results["errors"])
 
-        # 6. Update member status
-        if update_member_status_safe(
-            member_doc.name, self.termination_type, self.termination_date or today(), self.name
-        ):
-            results["member_updated"] = True
-            results["actions_taken"].append("Updated member status")
-        else:
-            results["errors"].append("Failed to update member status")
-
-        # 5. Update customer record if exists
+        # 6. Update customer record if exists
         if member_doc.customer:
             termination_note = f"Member terminated on {self.termination_date or today()} - Type: {self.termination_type} - Request: {self.name}"
             # Note: Never disable customer - Member status already indicates termination
@@ -325,6 +352,27 @@ class MembershipTerminationRequest(Document):
                     f"Updated {results['invoices_updated']} outstanding invoice(s)"
                 )
 
+            # 6a. Cancel outstanding invoices if requested (WARNING: Cannot be undone)
+            if self.cancel_outstanding_invoices:
+                termination_reason = (
+                    f"Member terminated - Type: {self.termination_type} - Request: {self.name}"
+                )
+                outstanding_cancel_results = cancel_outstanding_invoices_safe(
+                    member_doc.customer, termination_reason
+                )
+                results["outstanding_invoices_cancelled"] = outstanding_cancel_results.get(
+                    "invoices_cancelled", 0
+                ) + outstanding_cancel_results.get("invoices_deleted", 0)
+
+                if results["outstanding_invoices_cancelled"] > 0:
+                    results["actions_taken"].append(
+                        f"Cancelled {results['outstanding_invoices_cancelled']} outstanding invoice(s)"
+                    )
+
+                # Log any errors from outstanding invoice cancellation
+                for error in outstanding_cancel_results.get("errors", []):
+                    results["errors"].append(error)
+
             # 6b. Cancel future invoices (coverage starts after termination)
             future_invoice_results = cancel_future_invoices_safe(
                 member_doc.customer, self.termination_date or today()
@@ -345,24 +393,39 @@ class MembershipTerminationRequest(Document):
             for error in future_invoice_results.get("errors", []):
                 results["errors"].append(error)
 
-        # Updated to use dues schedule system
-        # 7. Handle additional dues schedules not linked to memberships
-        # if member_doc.name:
-        #     remaining_dues_schedules = frappe.get_all(
-        #         "Membership Dues Schedule",
-        #         filters={
-        #             "member": member_doc.name,
-        #             "status": ["in", ["Active", "Past Due"]],
-        #         },
-        #         fields=["name"],
-        #     )
-        #
-        #     for dues_data in remaining_dues_schedules:
-        #         if cancel_dues_schedule_safe(dues_data.name):
-        #             results["dues_schedules_cancelled"] += 1
-        #             results["actions_taken"].append(f"Cancelled additional dues schedule {dues_data.name}")
-        #         else:
-        #             results["errors"].append(f"Failed to cancel dues schedule {dues_data.name}")
+        # 7. Cancel active dues schedules
+        if member_doc.name:
+            active_dues_schedules = frappe.get_all(
+                "Membership Dues Schedule",
+                filters={
+                    "member": member_doc.name,
+                    "status": ["in", ["Active", "Past Due"]],
+                },
+                fields=["name"],
+            )
+
+            frappe.logger().info(f"Found {len(active_dues_schedules)} dues schedules to cancel")
+
+            for dues_data in active_dues_schedules:
+                if cancel_dues_schedule_safe(dues_data.name):
+                    results["dues_schedules_cancelled"] += 1
+                    results["actions_taken"].append(f"Cancelled dues schedule {dues_data.name}")
+                else:
+                    results["errors"].append(f"Failed to cancel dues schedule {dues_data.name}")
+
+        # FINAL STEP: Update member status (only after all other operations complete)
+        # This is the "commit point" - member status should be the last thing that changes
+        if update_member_status_safe(
+            member_doc.name, self.termination_type, self.termination_date or today(), self.name
+        ):
+            results["member_updated"] = True
+            results["actions_taken"].append("Updated member status to Terminated")
+            frappe.logger().info(f"Member {member_doc.name} status updated to Terminated as final step")
+        else:
+            results["errors"].append("Failed to update member status")
+            frappe.logger().error(
+                f"CRITICAL: Failed to update member {member_doc.name} status - termination incomplete"
+            )
 
         # Log results
         frappe.logger().info(f"System updates completed: {results}")
@@ -422,7 +485,8 @@ class MembershipTerminationRequest(Document):
         if not self.termination_date:
             if self.member_request_date:
                 if self.apply_grace_period:
-                    self.termination_date = add_days(self.member_request_date, 30)
+                    grace_days = self.get_grace_period_days()
+                    self.termination_date = add_days(self.member_request_date, grace_days)
                 else:
                     self.termination_date = self.member_request_date
             else:
@@ -474,7 +538,8 @@ class MembershipTerminationRequest(Document):
         if not self.termination_date:
             if self.member_request_date:
                 if self.apply_grace_period:
-                    self.termination_date = add_days(self.member_request_date, 30)
+                    grace_days = self.get_grace_period_days()
+                    self.termination_date = add_days(self.member_request_date, grace_days)
                 else:
                     self.termination_date = self.member_request_date
             else:
@@ -520,7 +585,8 @@ class MembershipTerminationRequest(Document):
             # Calculate termination date from member request date
             if not self.termination_date and self.member_request_date:
                 if self.apply_grace_period:
-                    self.termination_date = add_days(self.member_request_date, 30)
+                    grace_days = self.get_grace_period_days()
+                    self.termination_date = add_days(self.member_request_date, grace_days)
                     self.grace_period_end = self.termination_date
                 else:
                     self.termination_date = self.member_request_date
@@ -582,17 +648,23 @@ class MembershipTerminationRequest(Document):
             expulsion_entry.status = "Active"
 
             # Get member's primary chapter from Chapter Member table
-            # Note: Database queries should generally respect permissions, but this is audit trail creation
-            member_chapters = frappe.get_all(
-                "Chapter Member",
-                filters={"member": self.member, "enabled": 1},
-                fields=["parent"],
-                order_by="chapter_join_date desc",
-                limit=1,
-                # Removed ignore_permissions - use proper permission validation
-            )
-            if member_chapters:
-                expulsion_entry.chapter_involved = member_chapters[0].parent
+            # Validate permissions before querying Chapter Member records
+            if frappe.has_permission("Chapter Member", "read"):
+                member_chapters = frappe.get_all(
+                    "Chapter Member",
+                    filters={"member": self.member, "enabled": 1},
+                    fields=["parent"],
+                    order_by="chapter_join_date desc",
+                    limit=1,
+                )
+                if member_chapters:
+                    expulsion_entry.chapter_involved = member_chapters[0].parent
+            else:
+                # Log permission issue but continue - chapter is supplementary audit data
+                frappe.logger().warning(
+                    f"User {frappe.session.user} lacks permission to read Chapter Member - "
+                    f"chapter information omitted from expulsion report"
+                )
 
             # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
             from verenigingen.utils.secure_operations import secure_document_operation
@@ -639,6 +711,10 @@ class MembershipTerminationRequest(Document):
         """Additional validation logic for termination requests (moved from hooks.py)"""
         # Skip validation if we're executing - member status was just changed by this process
         if self.status == "Executed":
+            return
+
+        # Skip validation during error recovery
+        if getattr(self.flags, "skip_termination_validation", False):
             return
 
         # Validate that member exists and is active
@@ -744,9 +820,10 @@ def get_termination_impact_preview(member):
         return {
             "active_memberships": 0,
             "sepa_mandates": 0,
+            "mollie_mandates": 0,
             "board_positions": 0,
             "outstanding_invoices": 0,
-            # "dues_schedules": 0,  # Updated to use dues schedule system
+            "active_dues_schedules": 0,
             "volunteer_records": 0,
             "pending_volunteer_expenses": 0,
             "employee_records": 0,
@@ -954,6 +1031,11 @@ def generate_expulsion_report(filters=None):
             conditions.append("mem.current_chapter_display = %s")
             values.append(filters["chapter"])
 
+        # Add disciplinary/expulsion filter using parameterized query
+        disciplinary_types = ["Policy Violation", "Disciplinary Action", "Expulsion"]
+        conditions.append("ter.termination_type IN %s")
+        values.append(tuple(disciplinary_types))
+
         # Get expulsion data
         query = f"""
             SELECT
@@ -971,7 +1053,6 @@ def generate_expulsion_report(filters=None):
             FROM `tabMembership Termination Request` ter
             LEFT JOIN `tabMember` mem ON ter.member = mem.name
             WHERE {' AND '.join(conditions)}
-            AND ter.termination_type IN ('Disciplinary', 'Expulsion', 'Exclusion')
             ORDER BY ter.termination_date DESC
         """
 

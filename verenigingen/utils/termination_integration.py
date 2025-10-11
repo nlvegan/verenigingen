@@ -84,6 +84,7 @@ def cancel_dues_schedule_safe(dues_schedule_name):
 
         # Normal cancellation process
         dues_schedule.flags.ignore_validate_update_after_submit = True
+        dues_schedule._skip_membership_validation = True  # Skip active membership check during termination
 
         try:
             # Update dues schedule status directly
@@ -259,6 +260,73 @@ def update_invoice_safe(invoice_name, termination_note):
     except Exception as e:
         frappe.logger().error(f"Failed to update invoice {invoice_name}: {str(e)}")
         return False
+
+
+def cancel_outstanding_invoices_safe(customer_name, termination_reason=None):
+    """
+    Cancel all outstanding invoices for a customer
+    WARNING: This operation cannot be undone
+    """
+    try:
+        results = {
+            "invoices_cancelled": 0,
+            "invoices_deleted": 0,
+            "errors": [],
+        }
+
+        # Find all outstanding invoices
+        outstanding_invoices = frappe.get_all(
+            "Sales Invoice",
+            filters={
+                "customer": customer_name,
+                "docstatus": ["!=", 2],  # Not already cancelled
+                "status": ["in", ["Unpaid", "Overdue", "Partially Paid"]],
+            },
+            fields=["name", "docstatus", "grand_total", "outstanding_amount"],
+        )
+
+        frappe.logger().info(
+            f"Found {len(outstanding_invoices)} outstanding invoice(s) to cancel for {customer_name}"
+        )
+
+        for invoice_data in outstanding_invoices:
+            try:
+                invoice = frappe.get_doc("Sales Invoice", invoice_data.name)
+
+                # Add cancellation reason to remarks
+                if termination_reason:
+                    cancellation_note = f"Cancelled due to membership termination: {termination_reason}"
+                    if invoice.remarks:
+                        invoice.remarks += f"\n\n{cancellation_note}"
+                    else:
+                        invoice.remarks = cancellation_note
+
+                if invoice_data.docstatus == 1:
+                    # Submitted invoice - cancel it
+                    invoice.cancel()
+                    results["invoices_cancelled"] += 1
+                    frappe.logger().info(
+                        f"Cancelled invoice {invoice_data.name} (Amount: {invoice_data.grand_total})"
+                    )
+
+                elif invoice_data.docstatus == 0:
+                    # Draft invoice - delete it
+                    invoice.delete()
+                    results["invoices_deleted"] += 1
+                    frappe.logger().info(
+                        f"Deleted draft invoice {invoice_data.name} (Amount: {invoice_data.grand_total})"
+                    )
+
+            except Exception as e:
+                error_msg = f"Failed to cancel invoice {invoice_data.name}: {str(e)}"
+                results["errors"].append(error_msg)
+                frappe.logger().error(error_msg)
+
+        return results
+
+    except Exception as e:
+        frappe.logger().error(f"Failed to cancel outstanding invoices for {customer_name}: {str(e)}")
+        return {"invoices_cancelled": 0, "invoices_deleted": 0, "errors": [str(e)]}
 
 
 def cancel_future_invoices_safe(customer_name, termination_date):

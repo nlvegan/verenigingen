@@ -172,6 +172,11 @@ class MembershipDuesSchedule(Document):
             if getattr(self, "_skip_membership_validation", False):
                 return
 
+            # Skip validation when cancelling or pausing the schedule
+            # This allows cleanup after membership cancellation
+            if self.status in ["Cancelled", "Paused"]:
+                return
+
             # Check if member has any active membership
             active_membership = DocumentExistenceValidator.check_document_exists(
                 "Membership", {"member": self.member, "status": "Active", "docstatus": 1}

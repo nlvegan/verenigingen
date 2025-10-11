@@ -112,7 +112,7 @@ frappe.listview_settings['Member'] = {
 			Rejected: ['red', 'Application Rejected'],
 			Expired: ['orange', 'Membership Expired'],
 			Suspended: ['dark grey', 'Account Suspended'],
-			Banned: ['black', 'Permanently Banned'],
+			Banned: ['purple', 'Permanently Banned'],
 			Deceased: ['purple', 'Deceased'],
 			Terminated: ['red', 'Membership Terminated']
 		};
@@ -182,8 +182,7 @@ frappe.listview_settings['Member'] = {
 				Expired: '⏰',
 				Suspended: '⏸️',
 				Banned: '🚫',
-				Deceased: '🕊️',
-				Terminated: '🔴'
+				Deceased: '†'
 			};
 
 			const emoji = status_emojis[value] || '';
@@ -225,8 +224,7 @@ frappe.listview_settings['Member'] = {
 					Expired: '⏰',
 					Suspended: '⏸️',
 					Banned: '🚫',
-					Deceased: '🕊️',
-					Terminated: '🔴'
+					Deceased: '†'
 				};
 
 				const badge_emoji = member_status_badges[doc.status] || '';

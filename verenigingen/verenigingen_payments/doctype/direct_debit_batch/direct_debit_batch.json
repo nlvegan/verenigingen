@@ -19,6 +19,7 @@
     "risk_level",
     "column_break_approval",
     "approval_notes",
+    "related_bank_transactions",
     "validation_section",
     "validation_status",
     "validation_errors",
@@ -129,6 +130,12 @@
       "fieldtype": "Long Text",
       "label": "Approval Notes",
       "allow_on_submit": 1
+    },
+    {
+      "description": "Bank transaction references related to this batch",
+      "fieldname": "related_bank_transactions",
+      "fieldtype": "Long Text",
+      "label": "Related Bank Transactions"
     },
     {
       "fieldname": "validation_section",

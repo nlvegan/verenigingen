@@ -92,7 +92,7 @@ function show_termination_dialog(member_id, member_name) {
 				{
 					fieldname: 'termination_date',
 					fieldtype: 'Date',
-					label: __('Effective Termination Date'),
+					label: __('Termination Date'),
 					description: __('Date when membership ends'),
 					default: frappe.datetime.get_today(),
 					reqd: 1
@@ -104,14 +104,22 @@ function show_termination_dialog(member_id, member_name) {
 				{
 					fieldname: 'deactivate_sepa_mandates',
 					fieldtype: 'Check',
-					label: __('Deactivate SEPA Mandates'),
-					default: impact_data.sepa_mandates > 0 ? 1 : 0,
-					description:
-            impact_data.sepa_mandates > 0
-            	? __('Will deactivate {0} SEPA mandate(s)', [
-            		impact_data.sepa_mandates
-            	])
-            	: __('No SEPA mandates found')
+					label: __('Cancel Payment Mandates'),
+					default: (impact_data.sepa_mandates > 0 || impact_data.mollie_mandates > 0) ? 1 : 0,
+					description: (() => {
+						const sepa_count = impact_data.sepa_mandates || 0;
+						const mollie_count = impact_data.mollie_mandates || 0;
+
+						if (sepa_count > 0 && mollie_count > 0) {
+							return __('Will cancel {0} SEPA mandate(s) and {1} Mollie mandate(s)', [sepa_count, mollie_count]);
+						} else if (sepa_count > 0) {
+							return __('Will cancel {0} SEPA mandate(s)', [sepa_count]);
+						} else if (mollie_count > 0) {
+							return __('Will cancel {0} Mollie mandate(s)', [mollie_count]);
+						} else {
+							return __('No payment mandates found');
+						}
+					})()
 				},
 				{
 					fieldname: 'end_board_positions',
@@ -126,43 +134,48 @@ function show_termination_dialog(member_id, member_name) {
             	: __('No active board positions found')
 				},
 				{
-					fieldname: 'cancel_memberships',
+					fieldname: 'cancel_memberships_and_subscriptions',
 					fieldtype: 'Check',
-					label: __('Cancel Active Memberships'),
-					default: impact_data.active_memberships > 0 ? 1 : 0,
-					description:
-            impact_data.active_memberships > 0
-            	? __('Will cancel {0} active membership(s)', [
-            		impact_data.active_memberships
-            	])
-            	: __('No active memberships found')
+					label: __('Cancel Memberships & Subscriptions'),
+					default: (impact_data.active_memberships > 0 || (impact_data.active_dues_schedules || 0) > 0) ? 1 : 0,
+					description: (() => {
+						const memberships = impact_data.active_memberships || 0;
+						const schedules = impact_data.active_dues_schedules || 0;
+
+						if (memberships > 0 && schedules > 0) {
+							return __('Will cancel {0} membership(s) and {1} dues schedule(s)', [memberships, schedules]);
+						} else if (memberships > 0) {
+							return __('Will cancel {0} membership(s)', [memberships]);
+						} else if (schedules > 0) {
+							return __('Will cancel {0} dues schedule(s)', [schedules]);
+						} else {
+							return __('No active memberships or subscriptions found');
+						}
+					})()
 				},
 				{
 					fieldname: 'process_invoices',
 					fieldtype: 'Check',
-					label: __('Process Outstanding Invoices'),
+					label: __('Annotate Outstanding Invoices'),
 					default: impact_data.outstanding_invoices > 0 ? 1 : 0,
 					description:
             impact_data.outstanding_invoices > 0
-            	? __('Will process {0} outstanding invoice(s)', [
+            	? __('Will add termination note to {0} outstanding invoice(s)', [
             		impact_data.outstanding_invoices
             	])
             	: __('No outstanding invoices found')
 				},
 				{
-					// Updated to use dues schedule system
-					fieldname: 'cancel_dues_schedules',
+					fieldname: 'cancel_outstanding_invoices',
 					fieldtype: 'Check',
-					label: __('Cancel Subscriptions'),
-					// Updated to use dues schedule system
-					default: impact_data.dues_schedules > 0 ? 1 : 0,
-					// Updated to use dues schedule system
+					label: __('Cancel Outstanding Invoices'),
+					default: 0,
 					description:
-            impact_data.dues_schedules > 0
-            	? __('Will cancel {0} active dues schedule(s)', [
-            		impact_data.dues_schedules
+            impact_data.outstanding_invoices > 0
+            	? __('⚠️ Will cancel {0} outstanding invoice(s) - cannot be undone', [
+            		impact_data.outstanding_invoices
             	])
-            	: __('No active dues schedules found')
+            	: __('No outstanding invoices found')
 				},
 				{
 					fieldtype: 'Section Break',
@@ -216,9 +229,10 @@ function create_termination_request_v2(member_id, member_name, values, dialog) {
 		apply_grace_period: values.apply_grace_period,
 		deactivate_sepa_mandates: values.deactivate_sepa_mandates,
 		end_board_positions: values.end_board_positions,
-		cancel_memberships: values.cancel_memberships,
+		cancel_memberships: values.cancel_memberships_and_subscriptions,
 		process_invoices: values.process_invoices,
-		cancel_dues_schedules: values.cancel_dues_schedules
+		cancel_outstanding_invoices: values.cancel_outstanding_invoices,
+		cancel_dues_schedules: values.cancel_memberships_and_subscriptions
 	};
 
 	// Add disciplinary fields if applicable
@@ -288,19 +302,19 @@ function create_confirmation_message(values, termination_data) {
 
 	const actions = [];
 	if (values.deactivate_sepa_mandates) {
-		actions.push(__('Deactivate SEPA mandates'));
+		actions.push(__('Cancel payment mandates'));
 	}
 	if (values.end_board_positions) {
 		actions.push(__('End board positions'));
 	}
-	if (values.cancel_memberships) {
-		actions.push(__('Cancel memberships'));
+	if (values.cancel_memberships_and_subscriptions) {
+		actions.push(__('Cancel memberships and subscriptions'));
 	}
 	if (values.process_invoices) {
-		actions.push(__('Process outstanding invoices'));
+		actions.push(__('Annotate outstanding invoices'));
 	}
-	if (values.cancel_dues_schedules) {
-		actions.push(__('Cancel dues schedules'));
+	if (values.cancel_outstanding_invoices) {
+		actions.push(__('⚠️ Cancel outstanding invoices'));
 	}
 
 	if (actions.length > 0) {
@@ -395,6 +409,7 @@ function generate_impact_assessment_html(impact_data) {
 
 	const impacts = [
 		{ label: 'SEPA Mandates', count: impact_data.sepa_mandates, icon: '💳' },
+		{ label: 'Mollie Mandates', count: impact_data.mollie_mandates || 0, icon: '🔵' },
 		{
 			label: 'Active Memberships',
 			count: impact_data.active_memberships,
@@ -412,7 +427,7 @@ function generate_impact_assessment_html(impact_data) {
 		},
 		{
 			label: 'Active Dues Schedules',
-			count: impact_data.dues_schedules,
+			count: impact_data.active_dues_schedules || 0,
 			icon: '🔄'
 		},
 		{

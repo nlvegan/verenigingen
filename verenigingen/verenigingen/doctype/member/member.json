@@ -729,7 +729,7 @@
    "description": "Date when member left the organization (termination, resignation, deceased, etc.)",
    "fieldname": "member_end_date",
    "fieldtype": "Date",
-   "label": "Member End Date",
+   "label": "Membership End Date",
    "read_only": 1
   },
   {
@@ -992,7 +992,7 @@
    "link_fieldname": "name"
   }
  ],
- "modified": "2025-10-09 09:17:17.436067",
+ "modified": "2025-10-11 18:51:40.594428",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Member",
@@ -1097,6 +1097,10 @@
   {
    "color": "Purple",
    "title": "Banned"
+  },
+  {
+   "color": "Purple",
+   "title": "Deceased"
   },
   {
    "color": "Red",

@@ -36,10 +36,12 @@
   "cancel_sepa_mandates",
   "unsubscribe_newsletters",
   "end_board_positions",
+  "cancel_outstanding_invoices",
   "column_break_4",
   "sepa_mandates_cancelled",
   "positions_ended",
   "newsletters_updated",
+  "outstanding_invoices_cancelled",
   "audit_section",
   "audit_trail",
   "volunteers_terminated",
@@ -241,6 +243,13 @@
    "label": "End Board/Committee Positions"
   },
   {
+   "default": "0",
+   "fieldname": "cancel_outstanding_invoices",
+   "fieldtype": "Check",
+   "label": "Cancel Outstanding Invoices",
+   "description": "Warning: This will cancel all outstanding invoices - cannot be undone"
+  },
+  {
    "fieldname": "column_break_4",
    "fieldtype": "Column Break"
   },
@@ -263,6 +272,13 @@
    "fieldname": "newsletters_updated",
    "fieldtype": "Check",
    "label": "Newsletter Subscriptions Updated",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "outstanding_invoices_cancelled",
+   "fieldtype": "Int",
+   "label": "Outstanding Invoices Cancelled",
    "read_only": 1
   },
   {

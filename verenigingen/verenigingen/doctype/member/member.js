@@ -1994,11 +1994,12 @@ function update_termination_status_html(frm, status) {
     && status.executed_requests.length > 0
 	) {
 		const term_data = status.executed_requests[0];
+		const display_date = term_data.termination_date || term_data.execution_date;
 		html += `
             <div class="alert alert-danger">
                 <h5><i class="fa fa-exclamation-triangle"></i> Membership Terminated</h5>
                 <p><strong>Termination Type:</strong> ${term_data.termination_type}</p>
-                <p><strong>Execution Date:</strong> ${frappe.datetime.str_to_user(term_data.execution_date)}</p>
+                <p><strong>Termination Date:</strong> ${display_date}</p>
                 <p><strong>Request:</strong> <a href="/app/membership-termination-request/${term_data.name}">${term_data.name}</a></p>
             </div>
         `;
@@ -2038,6 +2039,11 @@ function update_termination_status_html(frm, status) {
 }
 
 function add_termination_dashboard_indicators(frm, status) {
+	// Clear existing termination indicators to avoid duplicates
+	if (frm.dashboard && frm.dashboard.clear_headline) {
+		frm.dashboard.clear_headline();
+	}
+
 	if (
 		status.is_terminated
     && status.executed_requests
@@ -2045,15 +2051,16 @@ function add_termination_dashboard_indicators(frm, status) {
 	) {
 		const term_data = status.executed_requests[0];
 
-		frm.dashboard.add_indicator(__('Membership Terminated'), 'red');
+		// Use termination_date (when membership ended) instead of execution_date (system timestamp)
+		const display_date = term_data.termination_date || term_data.execution_date;
 
-		if (term_data.execution_date) {
+		if (display_date) {
 			frm.dashboard.add_indicator(
-				__('Terminated on {0}', [
-					frappe.datetime.str_to_user(term_data.execution_date)
-				]),
-				'grey'
+				__('Terminated on {0}', [display_date]),
+				'red'
 			);
+		} else {
+			frm.dashboard.add_indicator(__('Membership Terminated'), 'red');
 		}
 	} else if (status.pending_requests && status.pending_requests.length > 0) {
 		const pending = status.pending_requests[0];

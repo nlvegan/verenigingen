@@ -141,9 +141,17 @@ def handle_user_account_updates(event_name, event_data, **kwargs):
     """
     try:
         member_name = event_data.get("member")
+        old_status = event_data.get("old_status")
         new_status = event_data.get("new_status")
 
         if not member_name:
+            return
+
+        # Skip if status hasn't actually changed
+        if old_status == new_status:
+            frappe.logger("events").info(
+                f"Skipping user account update for {member_name} - status unchanged ({old_status})"
+            )
             return
 
         member = frappe.get_doc("Member", member_name)
@@ -163,7 +171,9 @@ def handle_user_account_updates(event_name, event_data, **kwargs):
         frappe.logger("events").info(f"Updated user account for {member_name}")
 
     except Exception as e:
-        frappe.log_error(f"Failed to update user account: {str(e)}", "User Account Update Error")
+        # Use shorter error message to avoid field length issues
+        error_msg = str(e)[:100]  # Truncate to avoid field length errors
+        frappe.log_error(f"User account update failed: {error_msg}", "User Account Update")
 
 
 def handle_cache_invalidation(event_name, event_data, **kwargs):

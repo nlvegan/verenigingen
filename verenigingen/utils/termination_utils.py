@@ -44,6 +44,10 @@ def validate_termination_readiness(member_name):
         )
         readiness["impact"]["sepa_mandates"] = active_mandates
 
+        # Check Mollie mandates
+        mollie_mandate_id = frappe.db.get_value("Member", member_name, "mollie_mandate_id")
+        readiness["impact"]["mollie_mandates"] = 1 if mollie_mandate_id else 0
+
         # Check board positions - look for both volunteer-linked and direct member-linked positions
         board_positions = 0
 

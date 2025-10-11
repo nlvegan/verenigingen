@@ -34,6 +34,9 @@
   "creation_trigger_amount",
   "donor_segmentation_section",
   "donor_category",
+  "mollie_customer_id",
+  "mollie_mandate_id",
+  "mollie_subscription_id",
   "column_break_3lr0r",
   "communication_preference",
   "donation_history_tab",
@@ -178,6 +181,24 @@
    "fieldtype": "Select",
    "label": "Donor Category",
    "options": "\nMajor Donor\nRegular Donor\nCorporate Donor\nEvent Attendee"
+  },
+  {
+   "description": "Mollie customer ID for recurring payments and customer management",
+   "fieldname": "mollie_customer_id",
+   "fieldtype": "Data",
+   "label": "Mollie Customer ID"
+  },
+  {
+   "description": "Mollie mandate ID for SEPA direct debit authorization",
+   "fieldname": "mollie_mandate_id",
+   "fieldtype": "Data",
+   "label": "Mollie Mandate ID"
+  },
+  {
+   "description": "Mollie subscription ID for recurring donation tracking",
+   "fieldname": "mollie_subscription_id",
+   "fieldtype": "Data",
+   "label": "Mollie Subscription ID"
   },
   {
    "fieldname": "column_break_3lr0r",
