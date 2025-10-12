@@ -890,7 +890,6 @@ class Member(
         self.validate_payment_method()
         self.set_payment_reference()
         self.validate_bank_details()
-        self.sync_payment_amount()
 
         # Member ID validation
         validate_member_id_change(self)
@@ -1725,47 +1724,21 @@ class Member(
             self.current_chapter_display = '<p style="color: #dc3545;">Error loading chapter information</p>'
 
     def get_current_chapters_optimized(self):
-        """Get current chapter memberships with optimized single query"""
+        """
+        Get current chapter memberships with optimized single query.
+
+        Delegates to ChapterManagementService for optimized query execution.
+        This method is maintained for backward compatibility but delegates to service.
+        """
         if not self.name:
             return []
 
         try:
-            # Single optimized query to get all chapter information at once
-            chapters_data = frappe.db.sql(
-                """
-                SELECT
-                    cm.parent as chapter,
-                    cm.chapter_join_date,
-                    cm.status,
-                    c.region,
-                    cbm.volunteer as board_volunteer,
-                    cbm.is_active as is_board_member
-                FROM `tabChapter Member` cm
-                LEFT JOIN `tabChapter` c ON cm.parent = c.name
-                LEFT JOIN `tabVolunteer` v ON v.member = %s
-                LEFT JOIN `tabChapter Board Member` cbm ON cbm.parent = cm.parent AND cbm.volunteer = v.name AND cbm.is_active = 1
-                WHERE cm.member = %s AND cm.enabled = 1
-                ORDER BY cm.chapter_join_date DESC
-            """,
-                (self.name, self.name),
-                as_dict=True,
+            from verenigingen.services.member.chapter.chapter_management_service import (
+                ChapterManagementService,
             )
 
-            chapters = []
-            for idx, chapter_data in enumerate(chapters_data):
-                chapters.append(
-                    {
-                        "chapter": chapter_data.chapter,
-                        "chapter_join_date": chapter_data.chapter_join_date,
-                        "status": chapter_data.status,
-                        "region": chapter_data.region,
-                        "is_primary": idx == 0,  # First one is primary
-                        "is_board": bool(chapter_data.is_board_member),
-                    }
-                )
-
-            return chapters
-
+            return ChapterManagementService.get_member_chapters_optimized(self.name)
         except Exception as e:
             frappe.log_error(f"Error getting current chapters optimized: {str(e)}", "Member Chapter Query")
             # Fallback to original method
@@ -3457,17 +3430,23 @@ def create_donor_from_member(member_name):
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_member_current_chapters(member_name):
-    """Get current chapters for a member - safe for client calls"""
+    """
+    Get current chapters for a member - safe for client calls.
+
+    Delegates to ChapterManagementService for optimized query execution.
+    This function maintains backward compatibility for API endpoints.
+    """
     if not member_name:
         return []
 
     try:
-        # Check if user has permission to access this member
-        member_doc = frappe.get_doc("Member", member_name)
-        return member_doc.get_current_chapters()
+        from verenigingen.services.member.chapter.chapter_management_service import ChapterManagementService
+
+        # Use optimized service method
+        return ChapterManagementService.get_member_chapters_optimized(member_name)
 
     except frappe.PermissionError:
-        # If no permission to member, return empty list
+        # If no permission to member, return empty list (API compatibility)
         return []
     except Exception as e:
         frappe.log_error(f"Error getting member chapters: {str(e)}", "Member Chapters API")
@@ -3477,13 +3456,18 @@ def get_member_current_chapters(member_name):
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_member_chapter_names(member_name):
-    """Get simple list of chapter names for a member"""
+    """
+    Get simple list of chapter names for a member.
+
+    Delegates to ChapterManagementService for optimized query execution.
+    """
     if not member_name:
         return []
 
     try:
-        chapters = get_member_current_chapters(member_name)
-        return [chapter.get("chapter_name", chapter.get("name", "")) for chapter in chapters]
+        from verenigingen.services.member.chapter.chapter_management_service import ChapterManagementService
+
+        return ChapterManagementService.get_chapter_names(member_name)
     except Exception as e:
         frappe.log_error(f"Error getting member chapter names: {str(e)}", "Member Chapter Names API")
         return []
@@ -3492,30 +3476,18 @@ def get_member_chapter_names(member_name):
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_member_chapter_display_html(member_name):
-    """Get HTML display of member's chapters"""
+    """
+    Get HTML display of member's chapters.
+
+    Delegates to ChapterManagementService for optimized query execution.
+    """
     if not member_name:
         return "<div class='text-muted'>No member specified</div>"
 
     try:
-        chapters = get_member_current_chapters(member_name)
-        if not chapters:
-            return "<div class='text-muted'>No active chapters</div>"
+        from verenigingen.services.member.chapter.chapter_management_service import ChapterManagementService
 
-        html = "<div class='chapter-list'>"
-        for chapter in chapters:
-            chapter_name = chapter.get("chapter_name", chapter.get("name", "Unknown"))
-            status = chapter.get("status", "Unknown")
-
-            status_class = "success" if status == "Active" else "secondary"
-            html += f"""
-            <div class="chapter-item">
-                <span class="badge badge-{status_class}">{chapter_name}</span>
-                <small class="text-muted ml-2">{status}</small>
-            </div>
-            """
-
-        html += "</div>"
-        return html
+        return ChapterManagementService.get_chapter_display_html(member_name)
 
     except Exception as e:
         frappe.log_error(f"Error generating chapter display HTML: {str(e)}", "Member Chapter Display")

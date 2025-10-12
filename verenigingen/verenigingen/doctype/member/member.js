@@ -859,29 +859,6 @@ function add_consolidated_action_buttons(frm) {
 
 	// === MEMBER ACTIONS GROUP ===
 
-	// Payment actions for submitted documents
-	if (frm.doc.docstatus === 1 && frm.doc.payment_status !== 'Paid') {
-		frm.add_custom_button(
-			__('Process Payment'),
-			() => {
-				if (window.PaymentUtils) {
-					PaymentUtils.process_payment(frm);
-				}
-			},
-			__('Member Actions')
-		);
-
-		frm.add_custom_button(
-			__('Mark as Paid'),
-			() => {
-				if (window.PaymentUtils) {
-					PaymentUtils.mark_as_paid(frm);
-				}
-			},
-			__('Member Actions')
-		);
-	}
-
 	// Payment history update
 	frm.add_custom_button(
 		__('Update Payment History'),

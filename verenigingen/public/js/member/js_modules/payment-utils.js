@@ -36,50 +36,6 @@
 // Payment-related utility functions for Member doctype
 // Updated to use the Membership Dues Schedule system.
 
-function process_payment(frm) {
-	if (!frm.doc.name) {
-		frappe.msgprint(__('Please save the member record first.'));
-		return;
-	}
-
-	frappe.call({
-		method: 'verenigingen.verenigingen.doctype.member.member.process_payment',
-		args: {
-			member: frm.doc.name
-		},
-		callback(r) {
-			if (r.message) {
-				frm.refresh();
-				frappe.show_alert(__('Payment processed successfully'), 5);
-			}
-		},
-		error(r) {
-			console.error('Error processing payment:', r);
-			frappe.msgprint(__('Error processing payment. Please try again.'));
-		}
-	});
-}
-
-function mark_as_paid(frm) {
-	frappe.confirm(
-		__('Are you sure you want to mark this member as paid?'),
-		() => {
-			frappe.call({
-				method: 'verenigingen.verenigingen.doctype.member.member.mark_as_paid',
-				args: {
-					member: frm.doc.name
-				},
-				callback(r) {
-					if (r.message) {
-						frm.refresh();
-						frappe.show_alert(__('Member marked as paid'), 5);
-					}
-				}
-			});
-		}
-	);
-}
-
 function format_payment_history_row(row) {
 	if (row && row.doc) {
 		const statusColors = {
@@ -211,8 +167,6 @@ function calculate_financial_stats(records) {
 
 // Export functions for use in member.js
 window.PaymentUtils = {
-	process_payment,
-	mark_as_paid,
 	format_payment_history_row,
 	refresh_membership_dues_info,
 	calculate_financial_stats

@@ -708,44 +708,36 @@ class PaymentMixin:
                 frappe.throw(_("Account Holder Name is required for SEPA Direct Debit payment method"))
 
     def validate_iban_format(self, iban):
-        """Comprehensive IBAN validation and formatting using enhanced validator"""
+        """
+        Comprehensive IBAN validation and formatting using PaymentValidationService.
+
+        DELEGATE: This method now delegates to PaymentValidationService for validation orchestration.
+        Preserves backward compatibility while consolidating validation logic.
+
+        Args:
+            iban: IBAN to validate and format
+
+        Returns:
+            str: Formatted IBAN
+
+        Raises:
+            frappe.ValidationError: If IBAN validation fails
+        """
         if not iban:
             return None
 
-        from verenigingen.utils.validation.iban_validator import (
-            derive_bic_from_iban,
-            format_iban,
-            validate_iban,
-        )
+        from verenigingen.services.payment.validation_service import get_payment_validation_service
 
-        # Validate IBAN
-        validation_result = validate_iban(iban)
-        if not validation_result["valid"]:
-            error_message = validation_result["message"]
+        # Delegate IBAN validation to service
+        service = get_payment_validation_service()
+        result = service.validate_iban_with_context(iban, context="member")
 
-            # Provide more user-friendly error messages
-            if "checksum" in error_message.lower():
-                error_message = _(
-                    "The IBAN you entered appears to be incorrect. "
-                    "Please double-check the account number and try again. "
-                    "Common issues include typos or missing/extra digits."
-                )
-            elif "too short" in error_message.lower():
-                error_message = _(
-                    "The IBAN you entered is too short. " "Please enter the complete IBAN number."
-                )
-            elif "invalid characters" in error_message.lower():
-                error_message = _(
-                    "The IBAN contains invalid characters. " "IBANs should only contain letters and numbers."
-                )
-            elif "must be" in error_message and "characters" in error_message:
-                # Keep the country-specific length message as it's already helpful
-                pass
+        if not result.valid:
+            # Service already provides user-friendly error messages
+            frappe.throw(result.message, title=_("Invalid IBAN"), exc=frappe.ValidationError)
 
-            frappe.throw(error_message, title=_("Invalid IBAN"), exc=frappe.ValidationError)
-
-        # Format IBAN properly
-        formatted_iban = format_iban(iban)
+        # Get formatted IBAN from result
+        formatted_iban = result.data.get("formatted_iban", iban)
 
         # Auto-derive BIC for supported IBANs (primarily Dutch)
         # Only run derivation if IBAN changed or BIC is empty (performance optimization)
@@ -753,6 +745,8 @@ class PaymentMixin:
             iban_changed = self.has_value_changed("iban") if not self.is_new() else True
 
             if iban_changed or not self.bic:
+                from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
+
                 derived_bic = derive_bic_from_iban(iban)
 
                 if derived_bic:
@@ -809,171 +803,6 @@ class PaymentMixin:
                     )
         except Exception as e:
             frappe.logger().error(f"Error tracking IBAN change for member {self.name}: {str(e)}")
-
-    def sync_payment_amount(self):
-        """Sync payment amount from membership type"""
-        if hasattr(self, "payment_amount") and not self.payment_amount:
-            active_membership = self.get_active_membership()
-            if active_membership and active_membership.membership_type:
-                membership_type = frappe.get_doc("Membership Type", active_membership.membership_type)
-                if not membership_type.dues_schedule_template:
-                    frappe.throw(
-                        f"Membership Type '{membership_type.name}' must have a dues schedule template"
-                    )
-                template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-                self.payment_amount = template.suggested_amount or 0
-
-    def create_payment_entry(self, payment_date=None, amount=None):
-        """Create a payment entry for this membership"""
-        if not payment_date:
-            payment_date = today()
-
-        if not amount:
-            amount = self.payment_amount or 0
-
-        member = frappe.get_doc("Member", self.member)
-        if not member.customer:
-            frappe.throw(_("Member must have a linked customer for payment processing"))
-
-        settings = frappe.get_single("Verenigingen Settings")
-
-        payment_entry = frappe.new_doc("Payment Entry")
-        payment_entry.payment_type = "Receive"
-        payment_entry.party_type = "Customer"
-        payment_entry.party = member.customer
-        payment_entry.posting_date = payment_date
-        payment_entry.paid_from = settings.membership_debit_account
-        payment_entry.paid_to = settings.membership_payment_account
-        payment_entry.paid_amount = amount
-        payment_entry.received_amount = amount
-        payment_entry.reference_no = self.payment_reference
-        payment_entry.reference_date = payment_date
-        payment_entry.mode_of_payment = self.payment_method
-
-        payment_entry.append(
-            "references",
-            {"reference_doctype": "Membership", "reference_name": self.name, "allocated_amount": amount},
-        )
-
-        payment_entry.flags.ignore_mandatory = True
-
-        # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-        payment_result = secure_document_operation(
-            operation="insert",
-            doc=payment_entry,
-            justification=f"Create payment entry for member {self.name} membership payment of {amount}",
-            required_permissions=["Payment Entry:create"],
-        )
-
-        if not payment_result.success:
-            frappe.log_error(
-                f"Failed to create payment entry: {'; '.join(payment_result.errors)}",
-                "Member Payment Entry Security",
-            )
-            frappe.throw(_("Failed to create payment entry for member {0}").format(self.name))
-
-        payment_entry = payment_result.doc
-        payment_entry.submit()
-
-        # Update payment status only if the field exists on the DocType
-        if hasattr(self, "payment_status"):
-            self.payment_status = "Paid"
-            self.db_set("payment_status", "Paid")
-
-        # Skip payment_date and paid_amount - these fields don't exist on Member DocType
-        # The payment information is stored in the Payment Entry instead
-
-        return payment_entry.name
-
-    def process_payment(self, payment_method=None):
-        """Process payment for this membership"""
-        if payment_method:
-            self.payment_method = payment_method
-
-        if self.payment_method == "SEPA Direct Debit":
-            batch = self.add_to_direct_debit_batch()
-            self.payment_status = "Pending"
-            self.db_set("payment_status", "Pending")
-            return batch
-        else:
-            payment_entry = self.create_payment_entry()
-            return payment_entry
-
-    def add_to_direct_debit_batch(self):
-        """Add this membership to a direct debit batch"""
-        open_batch = frappe.get_all(
-            "Direct Debit Batch", filters={"status": "Draft", "docstatus": 0}, limit=1
-        )
-
-        if open_batch:
-            batch = frappe.get_doc("Direct Debit Batch", open_batch[0].name)
-        else:
-            batch = frappe.new_doc("Direct Debit Batch")
-            batch.batch_date = today()
-            batch.batch_description = f"Membership payments - {today()}"
-            batch.batch_type = "RCUR"
-            batch.currency = "EUR"
-
-        # Get mandate reference from default SEPA mandate
-        mandate_reference = None
-        default_mandate = self.get_default_sepa_mandate()
-        if default_mandate:
-            mandate_reference = default_mandate.mandate_id
-
-        batch.append(
-            "invoices",
-            {
-                "membership": self.name,
-                "member": self.member,
-                "member_name": self.member_name,
-                "amount": self.payment_amount,
-                "currency": "EUR",
-                "iban": self.iban,
-                "mandate_reference": mandate_reference,
-                "status": "Pending",
-            },
-        )
-
-        batch.calculate_totals()
-        batch.save()
-
-        return batch.name
-
-    @frappe.whitelist()
-    @critical_api(operation_type=OperationType.FINANCIAL)
-    def mark_as_paid(self, payment_date=None, amount=None):
-        """Mark membership as paid"""
-        if not payment_date:
-            payment_date = today()
-
-        if not amount:
-            amount = self.payment_amount
-
-        # Update payment status only if the field exists on the DocType
-        if hasattr(self, "payment_status"):
-            self.payment_status = "Paid"
-
-        # Skip payment_date and paid_amount - these fields don't exist on Member DocType
-        # The payment information is stored in Payment Entry instead
-
-        self.save()
-
-        settings = frappe.get_single("Verenigingen Settings")
-        if not settings.automate_membership_payment_entries:
-            self.create_payment_entry(payment_date, amount)
-
-        return True
-
-    def check_payment_status(self):
-        """Check and update payment status"""
-        if self.payment_status == "Paid":
-            return
-
-        if self.payment_status == "Unpaid" and self.start_date:
-            days_overdue = date_diff(today(), self.start_date)
-            if days_overdue > 30:
-                self.payment_status = "Overdue"
-                self.db_set("payment_status", "Overdue")
 
     def can_view_member_payments(self, view_member):
         """Check if this member can view another member's payment info"""
@@ -1255,7 +1084,7 @@ class PaymentMixin:
             except frappe.DoesNotExistError:
                 if retry_count < max_retries - 1:
                     # Exponential backoff: base_delay * (2 ^ retry_count)
-                    delay = min(base_delay * (2 ** retry_count), max_delay)
+                    delay = min(base_delay * (2**retry_count), max_delay)
 
                     # Add jitter: ±25% randomization to prevent synchronized retries
                     jitter = random.uniform(0.75, 1.25)
@@ -1271,9 +1100,7 @@ class PaymentMixin:
                     frappe.db.commit()
                 else:
                     # Calculate total wait time for error message
-                    total_wait = sum(
-                        min(base_delay * (2 ** i), max_delay) for i in range(max_retries - 1)
-                    )
+                    total_wait = sum(min(base_delay * (2**i), max_delay) for i in range(max_retries - 1))
 
                     frappe.log_error(
                         f"Sales Invoice {invoice_name} not found after {max_retries} retries "

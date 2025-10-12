@@ -2,7 +2,13 @@ import frappe
 
 
 class ChapterMixin:
-    """Mixin for chapter-related functionality"""
+    """
+    Mixin for chapter-related functionality.
+
+    This mixin provides chapter management methods for Member DocType.
+    Read operations delegate to ChapterManagementService for optimized queries.
+    Domain logic methods (tracking, assignment) remain here.
+    """
 
     def handle_chapter_assignment(self):
         """Handle chapter assignment changes - now managed through Chapter Member child table"""
@@ -28,78 +34,87 @@ class ChapterMixin:
                     self.chapter_change_reason = f"Initial assignment to {new_chapter}"
 
     def get_chapters(self):
-        """Get all chapters this member belongs to based on Chapter Member child table"""
+        """
+        Get all chapters this member belongs to (delegates to service).
+
+        Uses ChapterManagementService.get_member_chapters_optimized() for
+        efficient single-query retrieval. Falls back to service on error.
+
+        Returns:
+            List of dicts with chapter details
+        """
         if not self._is_chapter_management_enabled():
             return []
 
-        chapters = []
-
-        # Get chapters from Chapter Member child table
-        member_chapters = frappe.get_all(
-            "Chapter Member",
-            filters={"member": self.name, "enabled": 1},
-            fields=["parent as chapter", "chapter_join_date"],
-            order_by="chapter_join_date desc",
-        )
-
-        for i, mc in enumerate(member_chapters):
-            chapters.append(
-                {
-                    "chapter": mc.chapter,
-                    "is_primary": i == 0,  # First (most recent) is primary
-                    "chapter_join_date": mc.chapter_join_date,
-                }
+        try:
+            from verenigingen.services.member.chapter.chapter_management_service import (
+                ChapterManagementService,
             )
 
-        # Add board member chapters if not already included
-        # Get volunteer linked to this member
-        volunteer_name = frappe.db.get_value("Volunteer", {"member": self.name}, "name")
-        board_chapters = []
-        if volunteer_name:
-            board_chapters = frappe.get_all(
-                "Chapter Board Member",
-                filters={"volunteer": volunteer_name, "is_active": 1},
-                fields=["parent as chapter"],
-            )
-
-        for bc in board_chapters:
-            if not any(c["chapter"] == bc.chapter for c in chapters):
-                chapters.append({"chapter": bc.chapter, "is_primary": 0, "is_board": 1})
-
-        return chapters
+            return ChapterManagementService.get_member_chapters_optimized(self.name)
+        except Exception as e:
+            frappe.log_error(f"Error in ChapterMixin.get_chapters for {self.name}: {str(e)}", "ChapterMixin")
+            return []
 
     def is_board_member(self, chapter=None):
-        """Check if member is a board member of any chapter or a specific chapter"""
+        """
+        Check if member is a board member of any chapter or a specific chapter.
+
+        Args:
+            chapter: Optional chapter name to check specific chapter
+
+        Returns:
+            Boolean indicating board membership
+        """
         if not self._is_chapter_management_enabled():
             return False
 
-        filters = {"member": self.name, "is_active": 1}
+        try:
+            from verenigingen.services.member.chapter.chapter_management_service import (
+                ChapterManagementService,
+            )
 
-        if chapter:
-            filters["parent"] = chapter
-
-        return frappe.db.exists("Chapter Board Member", filters)
+            if chapter:
+                # Check specific chapter using public API
+                return ChapterManagementService.check_board_membership(self.name, chapter)
+            else:
+                # Check any board membership
+                board_positions = ChapterManagementService.get_board_memberships(self.name)
+                return len(board_positions) > 0
+        except Exception as e:
+            frappe.log_error(f"Error checking board membership for {self.name}: {str(e)}", "ChapterMixin")
+            return False
 
     def get_board_roles(self):
-        """Get all board roles for this member"""
+        """
+        Get all board roles for this member (delegates to service).
+
+        Returns:
+            List of dicts with chapter and role information
+        """
         if not self._is_chapter_management_enabled():
             return []
 
-        # Get volunteer linked to this member
-        volunteer_name = frappe.db.get_value("Volunteer", {"member": self.name}, "name")
-        board_roles = []
-        if volunteer_name:
-            board_roles = frappe.get_all(
-                "Chapter Board Member",
-                filters={"volunteer": volunteer_name, "is_active": 1},
-                fields=["parent as chapter", "chapter_role as role"],
+        try:
+            from verenigingen.services.member.chapter.chapter_management_service import (
+                ChapterManagementService,
             )
 
-        return board_roles
+            board_memberships = ChapterManagementService.get_board_memberships(self.name)
+            # Transform to expected format
+            return [{"chapter": bm.get("chapter"), "role": bm.get("role")} for bm in board_memberships]
+        except Exception as e:
+            frappe.log_error(f"Error getting board roles for {self.name}: {str(e)}", "ChapterMixin")
+            return []
 
     def _is_chapter_management_enabled(self):
-        """Check if chapter management is enabled"""
+        """Check if chapter management is enabled (delegates to service)"""
         try:
-            return frappe.db.get_single_value("Verenigingen Settings", "enable_chapter_management") == 1
+            from verenigingen.services.member.chapter.chapter_management_service import (
+                ChapterManagementService,
+            )
+
+            return ChapterManagementService.is_chapter_management_enabled()
         except Exception:
+            # Default to enabled for backward compatibility
             return True
