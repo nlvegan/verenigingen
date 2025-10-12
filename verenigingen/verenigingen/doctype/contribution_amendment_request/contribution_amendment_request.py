@@ -1,7 +1,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import add_days, getdate, now_datetime, today
+from frappe.utils import add_days, escape_html, getdate, now_datetime, today
 
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import (
@@ -1047,11 +1047,18 @@ class ContributionAmendmentRequest(Document):
             )
 
     def send_rejection_notification(self):
-        """Send notification to requester about rejection"""
+        """Send notification to requester about rejection (XSS-safe)"""
         if not self.requested_by:
             return
 
         try:
+            # Escape all user-provided content to prevent XSS attacks
+            safe_name = escape_html(self.name)
+            safe_type = escape_html(self.amendment_type) if self.amendment_type else "N/A"
+            safe_reason = (
+                escape_html(self.rejection_reason) if self.rejection_reason else "No reason provided"
+            )
+
             frappe.sendmail(
                 recipients=[self.requested_by],
                 subject=_("Membership Amendment Request Rejected"),
@@ -1062,10 +1069,10 @@ class ContributionAmendmentRequest(Document):
 
                 <p><strong>Details:</strong></p>
                 <ul>
-                    <li>Amendment ID: {self.name}</li>
-                    <li>Type: {self.amendment_type}</li>
+                    <li>Amendment ID: {safe_name}</li>
+                    <li>Type: {safe_type}</li>
                     <li>Requested Amount: {frappe.format_value(self.requested_amount, 'Currency') if self.requested_amount else 'N/A'}</li>
-                    <li>Rejection Reason: {self.rejection_reason}</li>
+                    <li>Rejection Reason: {safe_reason}</li>
                 </ul>
 
                 <p>If you have questions about this decision, please contact the membership team.</p>

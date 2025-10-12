@@ -5,6 +5,18 @@ Phase 3.3: Evolutionary Architecture Improvements
 Provides centralized SEPA operations that work alongside existing Member mixins.
 This service layer gradually replaces complex mixin methods while maintaining
 backward compatibility.
+
+ERROR HANDLING PATTERN: Dict-Based Result Pattern
+==================================================
+All methods return: {"success": bool, "error": str, ...additional data...}
+
+Rationale: Utility service called from multiple contexts (UI, API, batch jobs)
+requiring different error handling strategies. Dict pattern allows callers to:
+- Handle errors gracefully without aborting
+- Collect errors in batch operations
+- Customize error presentation per context
+
+See: docs/patterns/ERROR_HANDLING_PATTERNS.md
 """
 
 import re
@@ -13,6 +25,7 @@ from typing import Any, Dict, List, Optional
 
 import frappe
 
+from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
 
@@ -191,33 +204,15 @@ class SEPAService:
     @staticmethod
     def derive_bic_from_iban(iban: str) -> str:
         """
-        Derive BIC from Dutch IBAN
+        Derive BIC from IBAN - delegates to iban_validator for comprehensive bank database
 
-        For real banks, this would use a lookup table.
-        For mock banks, generate appropriate test BICs.
+        Uses the most comprehensive BIC database available (22+ Dutch banks).
+        Consolidated from multiple implementations across the codebase.
         """
-        if not iban or len(iban) < 8:
-            return ""
+        from verenigingen.utils.validation.iban_validator import derive_bic_from_iban as validator_derive_bic
 
-        # Extract bank code (positions 4-7)
-        bank_code = iban[4:8]
-
-        # Mock bank BIC mapping
-        mock_bic_map = {"TEST": "TESTNL2A", "MOCK": "MOCKNL2A", "DEMO": "DEMONL2A"}
-
-        if bank_code in mock_bic_map:
-            return mock_bic_map[bank_code]
-
-        # For real Dutch banks, you would have a comprehensive lookup table
-        # This is a simplified example
-        real_bank_mapping = {
-            "ABNA": "ABNANL2A",  # ABN AMRO
-            "RABO": "RABONL2U",  # Rabobank
-            "INGB": "INGBNL2A",  # ING Bank
-            "TRIO": "TRIONL2U",  # Triodos Bank
-        }
-
-        return real_bank_mapping.get(bank_code, f"{bank_code}NL2X")
+        bic = validator_derive_bic(iban)
+        return bic if bic else ""
 
     @staticmethod
     def get_active_mandates(member_name: str) -> List[Dict[str, Any]]:
@@ -270,6 +265,576 @@ class SEPAService:
             return None
 
     @staticmethod
+    def validate_mandate_creation(member: str, iban: str, mandate_id: str) -> Dict[str, Any]:
+        """
+        Validate mandate creation parameters and check for existing mandates
+
+        Consolidated from member.py and member_utils.py implementations.
+
+        Args:
+            member: Member document name
+            iban: IBAN to validate
+            mandate_id: Mandate ID to check for uniqueness
+
+        Returns:
+            dict: Validation result with valid/error/warning keys
+        """
+        try:
+            # Check if member exists
+            if not frappe.db.exists("Member", member):
+                return {"error": frappe._("Member does not exist")}
+
+            # Check if mandate ID already exists
+            existing_mandate = frappe.db.exists("SEPA Mandate", {"mandate_id": mandate_id})
+            if existing_mandate:
+                return {"error": frappe._("Mandate ID {0} already exists").format(mandate_id)}
+
+            # Check for existing active mandates for this member
+            existing_mandates = frappe.get_all(
+                "SEPA Mandate",
+                filters={"member": member, "status": "Active", "is_active": 1},
+                fields=["name", "mandate_id", "iban"],
+            )
+
+            # Check if there's an existing mandate for the same IBAN
+            iban_mandate = None
+            for mandate in existing_mandates:
+                if mandate.iban == iban:
+                    iban_mandate = mandate.mandate_id
+                    break
+
+            result = {"valid": True}
+
+            if iban_mandate:
+                result["existing_mandate"] = iban_mandate
+                result["warning"] = frappe._("An active mandate already exists for this IBAN: {0}").format(
+                    iban_mandate
+                )
+
+            return result
+
+        except Exception as e:
+            frappe.log_error(f"Error validating mandate creation: {str(e)}")
+            return {"error": frappe._("Error validating mandate: {0}").format(str(e))}
+
+    @staticmethod
+    def deactivate_old_sepa_mandates(member: str, new_iban: str) -> Dict[str, Any]:
+        """
+        Deactivate old SEPA mandates when IBAN changes
+
+        Consolidated from member.py implementation.
+
+        Args:
+            member: Member document name
+            new_iban: New IBAN to keep active
+
+        Returns:
+            dict: Result with success, deactivated_count, and deactivated_mandates
+        """
+        try:
+            from frappe.utils import today
+
+            # Get all active mandates for this member
+            active_mandates = frappe.get_all(
+                "SEPA Mandate",
+                filters={"member": member, "status": "Active", "is_active": 1},
+                fields=["name", "iban", "mandate_id", "status"],
+            )
+
+            deactivated_count = 0
+            deactivated_mandates = []
+
+            for mandate_data in active_mandates:
+                # Only deactivate mandates with different IBAN
+                if mandate_data.iban != new_iban:
+                    mandate = frappe.get_doc("SEPA Mandate", mandate_data.name)
+
+                    # Deactivate the mandate
+                    mandate.status = "Cancelled"
+                    mandate.is_active = 0
+                    mandate.cancellation_date = today()
+                    mandate.cancellation_reason = f"IBAN changed from {mandate.iban} to {new_iban}"
+
+                    # Use secure_document_operation for proper audit trail
+                    mandate_result = secure_document_operation(
+                        operation="save",
+                        doc=mandate,
+                        justification=f"Deactivate SEPA mandate {mandate.mandate_id} due to IBAN change from {mandate.iban} to {new_iban}",
+                        required_permissions=["SEPA Mandate:write"],
+                    )
+
+                    if not mandate_result.success:
+                        frappe.log_error(
+                            f"Failed to deactivate SEPA mandate {mandate.mandate_id}: {'; '.join(mandate_result.errors)}",
+                            "SEPA Mandate Deactivation Security",
+                        )
+                        # Continue with other mandates rather than failing entirely
+                        continue
+
+                    deactivated_count += 1
+                    deactivated_mandates.append({"mandate_id": mandate.mandate_id, "old_iban": mandate.iban})
+
+                    frappe.logger().info(
+                        f"Deactivated SEPA mandate {mandate.mandate_id} for member {member} due to IBAN change"
+                    )
+
+            return {
+                "success": True,
+                "deactivated_count": deactivated_count,
+                "deactivated_mandates": deactivated_mandates,
+            }
+
+        except Exception as e:
+            frappe.log_error(f"Error deactivating old SEPA mandates for member {member}: {str(e)}")
+            return {"success": False, "error": str(e)}
+
+    @staticmethod
+    def refresh_sepa_mandates(member: str) -> Dict[str, Any]:
+        """
+        Refresh the SEPA mandates child table by syncing with actual SEPA Mandate records
+
+        Consolidated from member.py implementation. Delegates to Member method.
+
+        Args:
+            member: Member document name
+
+        Returns:
+            dict: Result with success status
+        """
+        try:
+            member_doc = frappe.get_doc("Member", member)
+            result = member_doc.refresh_sepa_mandates_table()
+            return result
+
+        except Exception as e:
+            frappe.log_error(f"Error refreshing SEPA mandates for member {member}: {str(e)}")
+            return {"success": False, "error": str(e)}
+
+    @staticmethod
+    def get_active_sepa_mandate(member: str, iban: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        Get active SEPA mandate for a member
+
+        Consolidated from member.py implementation.
+
+        Args:
+            member: Member document name
+            iban: Optional IBAN to filter by
+
+        Returns:
+            dict: Active mandate data or None
+        """
+        try:
+            filters = {"member": member, "status": "Active", "is_active": 1}
+
+            if iban:
+                filters["iban"] = iban
+
+            mandates = frappe.get_all(
+                "SEPA Mandate",
+                filters=filters,
+                fields=["name", "mandate_id", "status", "iban", "account_holder_name"],
+                order_by="creation desc",
+                limit=1,
+            )
+
+            return mandates[0] if mandates else None
+
+        except Exception as e:
+            frappe.log_error(f"Error getting active SEPA mandate for member {member}: {str(e)}")
+            return None
+
+    @staticmethod
+    def _validate_mandate_creation_inputs(
+        member: str,
+        mandate_id: str,
+        iban: str,
+        account_holder_name: str,
+        mandate_type: str = "Recurring",
+        sign_date: Optional[str] = None,
+        used_for_memberships: int = 1,
+        used_for_donations: int = 0,
+        notes: str = "",
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Validate all inputs for mandate creation.
+
+        Provides comprehensive input validation at service layer for defense-in-depth.
+
+        Args:
+            member: Member document name
+            mandate_id: Unique mandate identifier
+            iban: IBAN for direct debit
+            account_holder_name: Name of account holder
+            mandate_type: Type - "One-off" or "Recurring"
+            sign_date: Date mandate was signed (optional)
+            used_for_memberships: Use for membership dues (1/0)
+            used_for_donations: Use for donations (1/0)
+            notes: Additional notes (optional)
+
+        Returns:
+            dict: Error result if validation fails, None if all valid
+        """
+        from frappe.utils import getdate, today
+
+        # Validate mandatory fields
+        if not member or not member.strip():
+            return {"success": False, "error": "Member is required"}
+
+        if not mandate_id or not mandate_id.strip():
+            return {"success": False, "error": "Mandate ID is required"}
+
+        if not iban or not iban.strip():
+            return {"success": False, "error": "IBAN is required for SEPA mandate creation"}
+
+        if not account_holder_name or not account_holder_name.strip():
+            return {"success": False, "error": "Account holder name is required"}
+
+        # Validate member exists
+        if not frappe.db.exists("Member", member):
+            return {"success": False, "error": f"Member {member} does not exist"}
+
+        # Validate IBAN format
+        if not SEPAService.validate_iban(iban):
+            return {"success": False, "error": "Invalid IBAN format"}
+
+        # Validate mandate_type
+        valid_types = ["One-off", "One-of", "Recurring", "OOFF", "RCUR"]
+        if mandate_type not in valid_types:
+            return {
+                "success": False,
+                "error": f"Invalid mandate type '{mandate_type}'. Must be one of: {', '.join(valid_types[:3])}",
+            }
+
+        # Validate sign_date if provided (SEPA allows max 10 years historical, no future dates)
+        if sign_date:
+            from verenigingen.utils.validation_utilities import validate_historical_date_window
+
+            result = validate_historical_date_window(
+                sign_date,
+                max_years_past=10,
+                max_days_future=0,
+                field_name="sign_date",
+                throw_on_error=False,
+            )
+            if not result["valid"]:
+                return {"success": False, "error": result["message"]}
+
+        # Validate at least one usage flag is set
+        if not used_for_memberships and not used_for_donations:
+            return {"success": False, "error": "Mandate must be used for memberships and/or donations"}
+
+        # Validate notes length (sanity check)
+        if notes and len(notes) > 1000:
+            return {
+                "success": False,
+                "error": f"Notes field is too long ({len(notes)} characters). Maximum 1000 characters.",
+            }
+
+        # Validate mandate_id format (basic sanity check)
+        if len(mandate_id) < 3:
+            return {"success": False, "error": "Mandate ID must be at least 3 characters long"}
+
+        if len(mandate_id) > 35:  # SEPA specification limit
+            return {
+                "success": False,
+                "error": "Mandate ID must not exceed 35 characters (SEPA specification)",
+            }
+
+        return None  # All validations passed
+
+    @staticmethod
+    def _prepare_mandate_document(
+        mandate_id: str,
+        member: str,
+        iban: str,
+        bic: str,
+        account_holder_name: str,
+        mandate_type: str,
+        sign_date: str,
+        used_for_memberships: int,
+        used_for_donations: int,
+        notes: str,
+    ):
+        """
+        Create and populate SEPA mandate document.
+
+        Args:
+            mandate_id: Unique mandate identifier
+            member: Member document name
+            iban: IBAN for direct debit
+            bic: BIC code
+            account_holder_name: Name of account holder
+            mandate_type: Mandate type (internal format: OOFF/RCUR)
+            sign_date: Date mandate was signed
+            used_for_memberships: Use for membership dues
+            used_for_donations: Use for donations
+            notes: Additional notes
+
+        Returns:
+            Document: Prepared (not saved) SEPA Mandate document
+        """
+        from verenigingen.utils.boolean_utils import cbool
+        from verenigingen.verenigingen_payments.utils.sepa_utilities import SEPAUtilities
+
+        mandate = frappe.new_doc("SEPA Mandate")
+        mandate.mandate_id = mandate_id
+        mandate.member = member
+        # Normalize IBAN to standard format (with spaces every 4 characters)
+        mandate.iban = SEPAUtilities.format_iban_display(iban)
+        mandate.bic = bic if bic else SEPAService.derive_bic_from_iban(iban)
+        mandate.account_holder_name = account_holder_name
+        mandate.mandate_type = mandate_type
+        mandate.sign_date = sign_date
+        mandate.used_for_memberships = cbool(used_for_memberships)
+        mandate.used_for_donations = cbool(used_for_donations)
+        mandate.status = "Active"
+        mandate.is_active = 1
+        mandate.notes = notes
+
+        return mandate
+
+    @staticmethod
+    def _create_mandate_with_security(mandate, mandate_id: str, member: str, iban: str) -> Dict[str, Any]:
+        """
+        Create SEPA mandate with security validation and audit trail.
+
+        Args:
+            mandate: Prepared SEPA Mandate document
+            mandate_id: Mandate identifier (for logging)
+            member: Member name (for logging)
+            iban: IBAN (for logging)
+
+        Returns:
+            dict: Result with success, mandate (document), or error
+        """
+        mandate_result = secure_document_operation(
+            operation="insert",
+            doc=mandate,
+            justification=f"Create new SEPA mandate {mandate_id} for member {member} with IBAN {iban[-4:]}",
+            required_permissions=["SEPA Mandate:create"],
+        )
+
+        if not mandate_result.success:
+            frappe.log_error(
+                f"Failed to create SEPA mandate {mandate_id}: {'; '.join(mandate_result.errors)}",
+                "SEPA Mandate Security",
+            )
+            return {
+                "success": False,
+                "error": mandate_result.errors[0]
+                if mandate_result.errors
+                else "Failed to create SEPA mandate",
+            }
+
+        # Get the created mandate from result
+        mandate = mandate_result.document or frappe.get_doc("SEPA Mandate", mandate_result.doc_name)
+        return {"success": True, "mandate": mandate}
+
+    @staticmethod
+    def _update_member_mandate_links(
+        member_doc, mandate, mandate_id: str, sign_date: str, replace_existing: Optional[str]
+    ):
+        """
+        Update member's SEPA mandates child table with new mandate link.
+
+        Args:
+            member_doc: Member document instance
+            mandate: Created SEPA Mandate document
+            mandate_id: Mandate identifier
+            sign_date: Mandate sign date
+            replace_existing: Mandate ID to replace (optional)
+        """
+        # Mark existing mandates as non-current if replacing
+        if replace_existing:
+            for link in member_doc.sepa_mandates:
+                if link.mandate_reference == replace_existing:
+                    link.is_current = 0
+
+        # Check if this mandate is already linked to avoid duplicates
+        existing_link = None
+        for link in member_doc.sepa_mandates:
+            if link.mandate_reference == mandate_id:
+                existing_link = link
+                break
+
+        if existing_link:
+            # Update existing link
+            existing_link.sepa_mandate = mandate.name
+            existing_link.is_current = 1
+            existing_link.status = "Active"
+            existing_link.valid_from = sign_date
+        else:
+            # Add new mandate link
+            member_doc.append(
+                "sepa_mandates",
+                {
+                    "sepa_mandate": mandate.name,
+                    "mandate_reference": mandate_id,
+                    "is_current": 1,
+                    "status": "Active",
+                    "valid_from": sign_date,
+                },
+            )
+
+    @staticmethod
+    def _save_member_with_security(member_doc, mandate_id: str, member: str) -> Dict[str, Any]:
+        """
+        Save member document with security validation and audit trail.
+
+        Args:
+            member_doc: Member document to save
+            mandate_id: Mandate ID (for logging)
+            member: Member name (for logging)
+
+        Returns:
+            dict: Result with success or error
+        """
+        member_result = secure_document_operation(
+            operation="save",
+            doc=member_doc,
+            justification=f"Link SEPA mandate {mandate_id} to member {member} after mandate creation",
+            required_permissions=["Member:write"],
+        )
+
+        if not member_result.success:
+            frappe.log_error(
+                f"Failed to link SEPA mandate to member {member}: {'; '.join(member_result.errors)}",
+                "Member SEPA Link Security",
+            )
+            return {
+                "success": False,
+                "error": member_result.errors[0]
+                if member_result.errors
+                else "Failed to link mandate to member",
+            }
+
+        return {"success": True}
+
+    @staticmethod
+    def create_and_link_mandate_enhanced(
+        member: str,
+        mandate_id: str,
+        iban: str,
+        bic: str = "",
+        account_holder_name: str = "",
+        mandate_type: str = "Recurring",
+        sign_date: Optional[str] = None,
+        used_for_memberships: int = 1,
+        used_for_donations: int = 0,
+        notes: str = "",
+        replace_existing: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Create a new SEPA mandate and link it to the member.
+
+        This is the main orchestration method that coordinates all mandate creation steps.
+
+        Args:
+            member: Member document name
+            mandate_id: Unique mandate identifier
+            iban: IBAN for direct debit
+            bic: BIC code (optional)
+            account_holder_name: Name of account holder
+            mandate_type: Type - "One-off" or "Recurring"
+            sign_date: Date mandate was signed (optional)
+            used_for_memberships: Use for membership dues (1/0)
+            used_for_donations: Use for donations (1/0)
+            notes: Additional notes (optional)
+            replace_existing: Mandate ID to replace (optional)
+
+        Returns:
+            dict: Result with success, mandate_name, and mandate_id
+        """
+        try:
+            from frappe.utils import today
+
+            # Step 1: Validate all inputs (defense-in-depth)
+            validation_error = SEPAService._validate_mandate_creation_inputs(
+                member,
+                mandate_id,
+                iban,
+                account_holder_name,
+                mandate_type,
+                sign_date,
+                used_for_memberships,
+                used_for_donations,
+                notes,
+            )
+            if validation_error:
+                return validation_error
+
+            # Step 2: Prepare mandate parameters
+            if not sign_date:
+                sign_date = today()
+
+            # Convert mandate type to internal format
+            type_mapping = {"One-off": "OOFF", "One-of": "OOFF", "Recurring": "RCUR"}
+            internal_type = type_mapping.get(mandate_type, "RCUR")
+
+            # Step 3: Create mandate document
+            mandate = SEPAService._prepare_mandate_document(
+                mandate_id,
+                member,
+                iban,
+                bic,
+                account_holder_name,
+                internal_type,
+                sign_date,
+                used_for_memberships,
+                used_for_donations,
+                notes,
+            )
+
+            # Step 4: Create mandate with security validation
+            create_result = SEPAService._create_mandate_with_security(mandate, mandate_id, member, iban)
+            if not create_result["success"]:
+                return create_result
+
+            mandate = create_result["mandate"]
+
+            # Step 5: Update member's mandate links
+            member_doc = frappe.get_doc("Member", member)
+            SEPAService._update_member_mandate_links(
+                member_doc, mandate, mandate_id, sign_date, replace_existing
+            )
+
+            # Step 6: Save member with security validation
+            save_result = SEPAService._save_member_with_security(member_doc, mandate_id, member)
+            if not save_result["success"]:
+                return save_result
+
+            return {"success": True, "mandate_name": mandate.name, "mandate_id": mandate_id}
+
+        except frappe.ValidationError as e:
+            # Handle validation errors gracefully
+            error_msg = str(e)
+            if "iban" in error_msg.lower():
+                return {"success": False, "error": "Invalid IBAN format. Please provide a valid IBAN."}
+            elif "mandate_id" in error_msg.lower():
+                return {"success": False, "error": "Invalid mandate ID. Please provide a unique mandate ID."}
+            elif "account_holder_name" in error_msg.lower():
+                return {"success": False, "error": "Account holder name is required."}
+            else:
+                return {"success": False, "error": f"Validation error: {error_msg}"}
+
+        except frappe.DuplicateEntryError:
+            return {
+                "success": False,
+                "error": "A mandate with this ID already exists. Please use a different mandate ID.",
+            }
+
+        except Exception as e:
+            # Log unexpected errors for debugging
+            frappe.log_error(
+                f"Unexpected error creating SEPA mandate: {str(e)}", "SEPA Mandate Creation Error"
+            )
+            return {
+                "success": False,
+                "error": "An unexpected error occurred while creating the SEPA mandate. Please try again or contact support.",
+            }
+
+    @staticmethod
     def cancel_mandate(mandate_name: str, reason: str = "Cancelled by service") -> Dict[str, Any]:
         """
         Cancel a SEPA mandate safely
@@ -294,7 +859,26 @@ class SEPAService:
             mandate_doc.status = "Cancelled"
             mandate_doc.cancelled_date = date.today()
             mandate_doc.cancellation_reason = reason
-            mandate_doc.save()
+
+            # Use secure_document_operation for proper audit trail
+            mandate_result = secure_document_operation(
+                operation="save",
+                doc=mandate_doc,
+                justification=f"Cancel SEPA mandate {mandate_name}: {reason}",
+                required_permissions=["SEPA Mandate:write"],
+            )
+
+            if not mandate_result.success:
+                frappe.log_error(
+                    f"Failed to cancel SEPA mandate {mandate_name}: {'; '.join(mandate_result.errors)}",
+                    "SEPA Mandate Cancellation Security",
+                )
+                return {
+                    "success": False,
+                    "message": mandate_result.errors[0]
+                    if mandate_result.errors
+                    else "Failed to cancel mandate",
+                }
 
             # Log the cancellation
             frappe.log_action(
@@ -401,3 +985,73 @@ def cancel_mandate_via_service(mandate_name: str, reason: str = "Cancelled via A
     """API endpoint for cancelling mandates via service layer"""
     service = get_sepa_service()
     return service.cancel_mandate(mandate_name, reason)
+
+
+# Consolidated API endpoints for SEPA operations (extracted from member.py and member_utils.py)
+
+
+@frappe.whitelist()
+@high_security_api(operation_type=OperationType.UTILITY)
+def validate_mandate_creation(member: str, iban: str, mandate_id: str) -> Dict[str, Any]:
+    """API endpoint for validating mandate creation parameters"""
+    return SEPAService.validate_mandate_creation(member, iban, mandate_id)
+
+
+@frappe.whitelist()
+@high_security_api(operation_type=OperationType.UTILITY)
+def derive_bic_from_iban(iban: str) -> Dict[str, Any]:
+    """API endpoint for deriving BIC from IBAN"""
+    bic = SEPAService.derive_bic_from_iban(iban)
+    return {"bic": bic if bic else None}
+
+
+@frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def deactivate_old_sepa_mandates(member: str, new_iban: str) -> Dict[str, Any]:
+    """API endpoint for deactivating old SEPA mandates when IBAN changes"""
+    return SEPAService.deactivate_old_sepa_mandates(member, new_iban)
+
+
+@frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def refresh_sepa_mandates(member: str) -> Dict[str, Any]:
+    """API endpoint for refreshing SEPA mandates child table"""
+    return SEPAService.refresh_sepa_mandates(member)
+
+
+@frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def get_active_sepa_mandate(member: str, iban: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """API endpoint for getting active SEPA mandate for a member"""
+    return SEPAService.get_active_sepa_mandate(member, iban)
+
+
+@frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
+def create_and_link_mandate_enhanced(
+    member: str,
+    mandate_id: str,
+    iban: str,
+    bic: str = "",
+    account_holder_name: str = "",
+    mandate_type: str = "Recurring",
+    sign_date: Optional[str] = None,
+    used_for_memberships: int = 1,
+    used_for_donations: int = 0,
+    notes: str = "",
+    replace_existing: Optional[str] = None,
+) -> Dict[str, Any]:
+    """API endpoint for creating and linking enhanced SEPA mandate"""
+    return SEPAService.create_and_link_mandate_enhanced(
+        member=member,
+        mandate_id=mandate_id,
+        iban=iban,
+        bic=bic,
+        account_holder_name=account_holder_name,
+        mandate_type=mandate_type,
+        sign_date=sign_date,
+        used_for_memberships=used_for_memberships,
+        used_for_donations=used_for_donations,
+        notes=notes,
+        replace_existing=replace_existing,
+    )

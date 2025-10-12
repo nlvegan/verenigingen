@@ -2391,9 +2391,9 @@ def is_chapter_management_enabled():
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_board_memberships(member_name):
     """Get board memberships for a member"""
-    from verenigingen.verenigingen.doctype.member.member_utils import get_board_memberships
+    from verenigingen.services.member.chapter import ChapterManagementService
 
-    return get_board_memberships(member_name)
+    return ChapterManagementService.get_board_memberships(member_name)
 
 
 def handle_fee_override_after_save(doc, method=None):
@@ -3201,27 +3201,9 @@ def set_member_user_modules(user_name):
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
 def check_donor_exists(member_name):
     """Check if a donor record exists for this member"""
-    try:
-        # Check if member exists first to avoid DoesNotExistError noise
-        if not frappe.db.exists("Member", member_name):
-            return {"exists": False}
+    from verenigingen.services.member.donor import DonorManagementService
 
-        member = frappe.get_doc("Member", member_name)
-
-        # Check if donor record exists with matching email or member link
-        existing_donor = frappe.db.get_value("Donor", {"donor_email": member.email}, ["name", "donor_name"])
-
-        if existing_donor:
-            return {"exists": True, "donor_name": existing_donor[0], "donor_display_name": existing_donor[1]}
-
-        # Note: No direct member field exists in Donor doctype
-        # Email-based lookup above is the primary method for finding donor records
-
-        return {"exists": False}
-
-    except Exception as e:
-        frappe.log_error(f"Error checking donor existence for member {member_name}: {str(e)}")
-        return {"exists": False, "error": str(e)}
+    return DonorManagementService.check_donor_exists(member_name)
 
 
 @frappe.whitelist()

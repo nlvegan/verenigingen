@@ -34,6 +34,7 @@
     "members_updated",
     "members_skipped",
     "error_log",
+    "notes",
     "section_break_dates",
     "import_date",
     "column_break_dates",
@@ -235,6 +236,13 @@
       "fieldname": "error_log",
       "fieldtype": "Long Text",
       "label": "Error Log",
+      "read_only": 1
+    },
+    {
+      "fieldname": "notes",
+      "fieldtype": "Long Text",
+      "label": "Import Notes",
+      "description": "Detailed itemized list of imported members",
       "read_only": 1
     },
     {

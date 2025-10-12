@@ -57,50 +57,8 @@ def is_chapter_management_enabled():
         return True
 
 
-@frappe.whitelist()
-@high_security_api(operation_type=OperationType.MEMBER_DATA)
-def get_board_memberships(member_name):
-    """Get board memberships for a member with proper permission handling"""
-    if not is_chapter_management_enabled():
-        return []
-
-    # Validate input
-    if not member_name:
-        frappe.log_error("get_board_memberships called with empty member_name", "Board Memberships API")
-        return []
-
-    # Debug logging to track the issue
-    frappe.logger().info(f"Getting board memberships for member: {member_name}")
-
-    board_memberships = frappe.db.sql(
-        """
-        SELECT cbm.parent as chapter, cbm.chapter_role as role,
-               cbm.from_date as start_date, cbm.to_date as end_date,
-               v.name as volunteer_name, v.member as member_check
-        FROM `tabChapter Board Member` cbm
-        JOIN `tabVolunteer` v ON cbm.volunteer = v.name
-        WHERE v.member = %s AND cbm.is_active = 1
-    """,
-        (member_name,),
-        as_dict=True,
-    )
-
-    # Additional validation - ensure the member matches
-    validated_memberships = []
-    for membership in board_memberships:
-        if membership.get("member_check") == member_name:
-            # Remove the debug fields before returning
-            del membership["volunteer_name"]
-            del membership["member_check"]
-            validated_memberships.append(membership)
-        else:
-            frappe.log_error(
-                f"Board membership data integrity issue: Expected member {member_name} but got {membership.get('member_check')}",
-                "Board Memberships API",
-            )
-
-    frappe.logger().info(f"Found {len(validated_memberships)} board memberships for member: {member_name}")
-    return validated_memberships
+# get_board_memberships moved to ChapterManagementService
+# Delegate function remains in member.py for API compatibility
 
 
 @frappe.whitelist()
@@ -347,28 +305,8 @@ def get_linked_donations(member):
     return {"success": False, "message": "No donor record found for this member"}
 
 
-@frappe.whitelist()
-@high_security_api(operation_type=OperationType.MEMBER_DATA)
-def check_donor_exists(member):
-    """Check if a donor record exists for this member"""
-    if not member:
-        return {"exists": False, "message": "No member specified"}
-
-    member_doc = frappe.get_doc("Member", member)
-
-    # Check by email first (correct field name)
-    if member_doc.email:
-        existing_donor = frappe.db.exists("Donor", {"donor_email": member_doc.email})
-        if existing_donor:
-            return {"exists": True, "donor": existing_donor}
-
-    # Check by name if no email match
-    if member_doc.full_name:
-        existing_donor = frappe.db.exists("Donor", {"donor_name": member_doc.full_name})
-        if existing_donor:
-            return {"exists": True, "donor": existing_donor}
-
-    return {"exists": False, "message": "No donor record found"}
+# check_donor_exists moved to DonorManagementService
+# Use DonorManagementService.check_donor_exists() for checking donor existence
 
 
 # Removed duplicate create_donor_from_member function
@@ -569,51 +507,14 @@ def check_mandate_iban_mismatch(member, current_iban):
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
 def derive_bic_from_iban(iban):
-    """Derive BIC/SWIFT code from IBAN for supported countries"""
-    if not iban:
-        return {"bic": None}
+    """Derive BIC from IBAN - redirects to SEPAService
 
-    iban = iban.replace(" ", "").upper()
+    NOTE: Original implementation here was more sophisticated with full bank mappings.
+    SEPAService should be enhanced with this mapping in a future iteration.
+    """
+    from verenigingen.utils.services import sepa_service
 
-    if len(iban) < 8:
-        return {"bic": None}
-
-    country_code = iban[:2]
-
-    bank_code_map = get_iban_bank_codes()
-
-    if country_code not in bank_code_map:
-        return {"bic": None}
-
-    start_pos, length = bank_code_map[country_code]
-    if len(iban) < start_pos + length:
-        return {"bic": None}
-
-    bank_code = iban[start_pos : start_pos + length]
-
-    bank_to_bic = {
-        # Netherlands
-        "ABNA": "ABNANL2A",
-        "RABO": "RABONL2U",
-        "INGB": "INGBNL2A",
-        "SNSB": "SNSBNL2A",
-        "TRIO": "TRIONL2U",
-        "BUNQ": "BUNQNL2A",
-        "ASNB": "ASNBNL21",
-        # Germany
-        "10010010": "PBNKDEFF",
-        "37040044": "COBADEFF",
-        "50010517": "INGDDEFF",
-        "70020270": "HYVEDEMM",
-        "10000000": "MARKDEF1100",
-    }
-
-    bic = bank_to_bic.get(bank_code)
-
-    if not bic and len(bank_code) >= 4:
-        bic = bank_code[:4] + country_code + "X"
-
-    return {"bic": bic}
+    return sepa_service.derive_bic_from_iban(iban)
 
 
 @frappe.whitelist()
@@ -748,202 +649,32 @@ def create_and_link_mandate_enhanced(
     notes=None,
     replace_mandate=None,
 ):
-    """Enhanced version of create_and_link_mandate with better mandate management"""
-    if not member or not iban or not mandate_id:
-        frappe.throw(_("Member, IBAN, and Mandate ID are required"))
+    """Create and link SEPA mandate - redirects to SEPAService
 
-    if not sign_date:
-        sign_date = today()
+    NOTE: Original implementation here used secure_document_operation throughout.
+    SEPAService should be enhanced with secure_document_operation in Phase 2B.
 
-    member_doc = frappe.get_doc("Member", member)
-    if not account_holder_name:
-        account_holder_name = member_doc.full_name
+    TODO Phase 2B:
+    - Add secure_document_operation to SEPAService.create_and_link_mandate_enhanced()
+    - Add mandate superseding logic (not just cancellation)
+    - Add member SEPA mandate link management with proper security
+    """
+    from verenigingen.utils.services import sepa_service
 
-    if frappe.db.exists("SEPA Mandate", {"mandate_id": mandate_id}):
-        frappe.throw(_("Mandate ID {0} already exists. Please use a different reference.").format(mandate_id))
-
-    if replace_mandate:
-        try:
-            old_mandate = frappe.get_doc("SEPA Mandate", replace_mandate)
-            old_mandate.status = "Cancelled"
-            old_mandate.is_active = 0
-            old_mandate.cancelled_date = today()
-            old_mandate.cancelled_reason = "Bank account change"
-            if notes:
-                old_mandate.notes = (old_mandate.notes or "") + f"\nReplaced on {today()}: {notes}"
-
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            cancel_result = secure_document_operation(
-                operation="save",
-                doc=old_mandate,
-                justification=f"Cancel SEPA mandate {replace_mandate} due to bank account change for member {member}",
-                required_permissions=["SEPA Mandate:write"],
-            )
-
-            if not cancel_result.success:
-                frappe.log_error(
-                    f"Failed to cancel SEPA mandate {replace_mandate}: {'; '.join(cancel_result.errors)}",
-                    "SEPA Mandate Cancellation Security",
-                )
-                # Don't throw here - this is cleanup logic, continue with new mandate creation
-            frappe.logger().debug(f"Marked mandate {replace_mandate} as replaced")
-        except Exception as e:
-            frappe.logger().error(f"Error replacing mandate {replace_mandate}: {str(e)}")
-
-    existing_mandates = frappe.get_all(
-        "SEPA Mandate",
-        filters={
-            "member": member,
-            "status": "Active",
-            "is_active": 1,
-            "name": ["!=", replace_mandate] if replace_mandate else ["!=", ""],
-        },
-        fields=["name", "used_for_memberships", "used_for_donations"],
+    # SEPAService uses "replace_existing" parameter instead of "replace_mandate"
+    return sepa_service.create_and_link_mandate_enhanced(
+        member=member,
+        mandate_id=mandate_id,
+        iban=iban,
+        bic=bic,
+        account_holder_name=account_holder_name,
+        mandate_type=mandate_type,
+        sign_date=sign_date,
+        used_for_memberships=used_for_memberships,
+        used_for_donations=used_for_donations,
+        notes=notes,
+        replace_existing=replace_mandate,  # Parameter name mapping
     )
-
-    for mandate_data in existing_mandates:
-        mandate = frappe.get_doc("SEPA Mandate", mandate_data.name)
-        should_suspend = False
-
-        if used_for_memberships and mandate.used_for_memberships:
-            should_suspend = True
-
-        if used_for_donations and mandate.used_for_donations:
-            should_suspend = True
-
-        if should_suspend:
-            mandate.status = "Superseded"
-            mandate.is_active = 0
-            mandate.superseded_date = today()
-            mandate.superseded_by = mandate_id
-
-            # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-            suspend_result = secure_document_operation(
-                operation="save",
-                doc=mandate,
-                justification=f"Supersede SEPA mandate {mandate.name} when creating new mandate {mandate_id} for member {member}",
-                required_permissions=["SEPA Mandate:write"],
-            )
-
-            if not suspend_result.success:
-                frappe.log_error(
-                    f"Failed to supersede SEPA mandate {mandate.name}: {'; '.join(suspend_result.errors)}",
-                    "SEPA Mandate Security",
-                )
-                continue
-            frappe.logger().debug(f"Superseded mandate {mandate.name}")
-
-    mandate = frappe.new_doc("SEPA Mandate")
-    mandate.mandate_id = mandate_id
-    mandate.member = member
-    mandate.member_name = member_doc.full_name
-    mandate.account_holder_name = account_holder_name
-    mandate.iban = iban
-
-    if not bic:
-        bic_result = derive_bic_from_iban(iban)
-        if bic_result and bic_result.get("bic"):
-            bic = bic_result["bic"]
-
-    if bic:
-        mandate.bic = bic
-
-    mandate.sign_date = sign_date
-    mandate.mandate_type = mandate_type
-
-    mandate.used_for_memberships = 1 if used_for_memberships else 0
-    mandate.used_for_donations = 1 if used_for_donations else 0
-
-    mandate.status = "Active"
-    mandate.is_active = 1
-
-    if notes:
-        mandate.notes = notes
-
-    creation_notes = f"Created via member form on {today()}"
-    if replace_mandate:
-        creation_notes += f" (replacing {replace_mandate})"
-
-    mandate.notes = (mandate.notes + "\n" + creation_notes) if mandate.notes else creation_notes
-
-    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-    mandate_result = secure_document_operation(
-        operation="insert",
-        doc=mandate,
-        justification=f"Create new SEPA mandate {mandate_id} for member {member} with IBAN {iban}",
-        required_permissions=["SEPA Mandate:create"],
-    )
-
-    if not mandate_result.success:
-        frappe.log_error(
-            f"Failed to create SEPA mandate {mandate_id}: {'; '.join(mandate_result.errors)}",
-            "SEPA Mandate Security",
-        )
-        frappe.throw(
-            _("Failed to create SEPA mandate: {0}").format(
-                mandate_result.errors[0] if mandate_result.errors else _("Unknown error")
-            )
-        )
-
-    mandate = mandate_result.doc
-
-    frappe.db.delete("Member SEPA Mandate Link", {"parent": member, "sepa_mandate": mandate.name})
-
-    # Update member document with new mandate link using ORM
-    member_doc = frappe.get_doc("Member", member)
-
-    # Set all existing mandate links as inactive
-    for mandate_link in member_doc.sepa_mandates:
-        mandate_link.is_current = 0
-
-    # Add new mandate link
-    member_doc.append(
-        "sepa_mandates",
-        {
-            "sepa_mandate": mandate.name,
-            "is_current": 1,
-            "mandate_reference": mandate.mandate_id,
-            "status": "Active",
-            "valid_from": mandate.sign_date,
-        },
-    )
-
-    # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-    member_result = secure_document_operation(
-        operation="save",
-        doc=member_doc,
-        justification=f"Link new SEPA mandate {mandate.name} to member {member_doc.name} after enhanced mandate creation",
-        required_permissions=["Member:write"],
-    )
-
-    if not member_result.success:
-        frappe.log_error(
-            f"Failed to link SEPA mandate to member {member_doc.name}: {'; '.join(member_result.errors)}",
-            "Member SEPA Link Security",
-        )
-        frappe.throw(
-            _("Failed to link mandate to member: {0}").format(
-                member_result.errors[0] if member_result.errors else _("Unknown error")
-            )
-        )
-
-    frappe.logger().debug(f"Created and linked mandate {mandate.name} with ID {mandate_id}")
-
-    return {
-        "mandate_name": mandate.name,
-        "mandate_id": mandate_id,
-        "replaced_mandate": replace_mandate,
-        "superseded_mandates": len(
-            [
-                m
-                for m in existing_mandates
-                if used_for_memberships
-                and m.used_for_memberships
-                or used_for_donations
-                and m.used_for_donations
-            ]
-        ),
-    }
 
 
 @frappe.whitelist()

@@ -428,6 +428,79 @@ class DateRangeValidator:
         date2_obj = getdate(date2) if isinstance(date2, str) else date2
         return date1_obj >= date2_obj
 
+    @staticmethod
+    def validate_historical_date_window(
+        date_value: Union[str, date],
+        max_years_past: Optional[int] = None,
+        max_days_future: Optional[int] = None,
+        field_name: str = "date",
+        throw_on_error: bool = True,
+    ) -> Dict[str, Union[bool, str]]:
+        """
+        Validate a single date falls within acceptable historical window.
+
+        Useful for validating dates that should be recent (e.g., sign dates, effective dates)
+        but allow reasonable historical and future windows for backfilling or scheduling.
+
+        Args:
+            date_value: Date to validate
+            max_years_past: Maximum years in the past allowed (e.g., 10 for SEPA mandates)
+            max_days_future: Maximum days in the future allowed (e.g., 30 for scheduled starts)
+            field_name: Name of the field for error messages
+            throw_on_error: Whether to throw exception on validation failure
+
+        Returns:
+            Dict with validation result: {"valid": bool, "message": str (if invalid)}
+
+        Examples:
+            # SEPA mandate sign date (not >10 years past, not future)
+            validate_historical_date_window(sign_date, max_years_past=10, max_days_future=0)
+
+            # Membership start date (not >5 years past, allow 30 days future scheduling)
+            validate_historical_date_window(start_date, max_years_past=5, max_days_future=30)
+        """
+        from frappe.utils import date_diff
+
+        date_obj = getdate(date_value) if isinstance(date_value, str) else date_value
+        today_obj = getdate(today())
+
+        # Validate not too far in past
+        if max_years_past is not None:
+            days_ago = date_diff(today_obj, date_obj)
+            years_ago = days_ago / 365.0
+
+            if years_ago > max_years_past:
+                error_msg = _(
+                    "{field_name} cannot be more than {max_years} years in the past. "
+                    "Provided: {date_value}"
+                ).format(
+                    field_name=field_name.replace("_", " ").title(),
+                    max_years=max_years_past,
+                    date_value=frappe.format_date(date_value),
+                )
+                if throw_on_error:
+                    raise ValidationError(error_msg)
+                return {"valid": False, "message": error_msg}
+
+        # Validate not too far in future
+        if max_days_future is not None:
+            days_future = date_diff(date_obj, today_obj)
+
+            if days_future > max_days_future:
+                error_msg = _(
+                    "{field_name} cannot be more than {max_days} days in the future. "
+                    "Provided: {date_value}"
+                ).format(
+                    field_name=field_name.replace("_", " ").title(),
+                    max_days=max_days_future,
+                    date_value=frappe.format_date(date_value),
+                )
+                if throw_on_error:
+                    raise ValidationError(error_msg)
+                return {"valid": False, "message": error_msg}
+
+        return {"valid": True}
+
 
 # Convenience functions for backward compatibility and ease of use
 
@@ -489,6 +562,24 @@ def validate_date_range(
         Dict with validation result
     """
     return DateRangeValidator.validate_date_range(start_date, end_date, **kwargs)
+
+
+def validate_historical_date_window(
+    date_value: Union[str, date],
+    max_years_past: Optional[int] = None,
+    max_days_future: Optional[int] = None,
+    field_name: str = "date",
+    throw_on_error: bool = True,
+) -> Dict[str, Union[bool, str]]:
+    """
+    Convenience function for historical date window validation
+
+    Returns:
+        Dict with validation result
+    """
+    return DateRangeValidator.validate_historical_date_window(
+        date_value, max_years_past, max_days_future, field_name, throw_on_error
+    )
 
 
 class QueryBuilder:

@@ -485,22 +485,27 @@ class Chapter(WebsiteGenerator):
         if not active_board_data:
             return None
 
-        # Use single optimized query to find chair - modernized with proper escaping
-        volunteer_list = [frappe.db.escape(v[0]) for v in active_board_data]
-        role_list = [frappe.db.escape(v[1]) for v in active_board_data]
+        # Use single optimized query to find chair with parameterized query (SQL injection safe)
+        volunteers = [v[0] for v in active_board_data]
+        roles = [v[1] for v in active_board_data]
+
+        placeholders_volunteers = ", ".join(["%s"] * len(volunteers))
+        placeholders_roles = ", ".join(["%s"] * len(roles))
 
         chair_query = f"""
             SELECT v.member
             FROM `tabVolunteer` v
-            JOIN `tabChapter Role` cr ON cr.name IN ({', '.join(role_list)})
-            WHERE v.name IN ({', '.join(volunteer_list)})
+            JOIN `tabChapter Role` cr ON cr.name IN ({placeholders_roles})
+            WHERE v.name IN ({placeholders_volunteers})
             AND cr.is_chair = 1
             AND cr.is_active = 1
             AND v.member IS NOT NULL
             LIMIT 1
         """
 
-        result = frappe.db.sql(chair_query, as_dict=True)
+        # Parameterized query: roles first, then volunteers
+        params = tuple(roles + volunteers)
+        result = frappe.db.sql(chair_query, params, as_dict=True)
         return result[0].member if result else None
 
     def get_context(self, context):
