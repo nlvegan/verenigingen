@@ -46,6 +46,55 @@ class TestMemberLifecycleWorkflows(EnhancedTestCase):
             }
         )
 
+        # Create membership types needed for testing
+        self.membership_types = {
+            "Regular Adult": self.factory.ensure_membership_type(
+                "Regular Adult",
+                {
+                    "minimum_amount": 25.0,
+                    "billing_period": "Monthly",
+                    "is_active": 1,
+                    "description": "Standard adult membership"
+                }
+            ),
+            "Student": self.factory.ensure_membership_type(
+                "Student",
+                {
+                    "minimum_amount": 15.0,
+                    "billing_period": "Monthly",
+                    "is_active": 1,
+                    "description": "Discounted student membership"
+                }
+            ),
+            "Senior": self.factory.ensure_membership_type(
+                "Senior",
+                {
+                    "minimum_amount": 20.0,
+                    "billing_period": "Monthly",
+                    "is_active": 1,
+                    "description": "Senior membership (65+)"
+                }
+            ),
+            "Family": self.factory.ensure_membership_type(
+                "Family",
+                {
+                    "minimum_amount": 40.0,
+                    "billing_period": "Monthly",
+                    "is_active": 1,
+                    "description": "Family membership for multiple members"
+                }
+            ),
+            "Corporate": self.factory.ensure_membership_type(
+                "Corporate",
+                {
+                    "minimum_amount": 100.0,
+                    "billing_period": "Monthly",
+                    "is_active": 1,
+                    "description": "Corporate/organizational membership"
+                }
+            ),
+        }
+
     def test_member_application_to_active_transition_complete_workflow(self):
         """
         Test Priority 1: Complete member application workflow
@@ -143,21 +192,22 @@ class TestMemberLifecycleWorkflows(EnhancedTestCase):
         """
         # Test data: Different member types and their expected dues
         member_types_and_dues = [
-            ("Regular Adult", Decimal("25.00"), "monthly"),
-            ("Student", Decimal("15.00"), "monthly"),
-            ("Senior (65+)", Decimal("20.00"), "monthly"),
-            ("Family", Decimal("40.00"), "monthly"),
-            ("Corporate", Decimal("100.00"), "monthly"),
+            ("Regular Adult", Decimal("25.00"), "Monthly"),
+            ("Student", Decimal("15.00"), "Monthly"),
+            ("Senior", Decimal("20.00"), "Monthly"),
+            ("Family", Decimal("40.00"), "Monthly"),
+            ("Corporate", Decimal("100.00"), "Monthly"),
         ]
 
         for member_type, expected_amount, frequency in member_types_and_dues:
             with self.subTest(member_type=member_type):
-                # Create member of specific type
-                # Use simple last name to avoid special characters in member_type
+                # Create member of specific type with unique name
+                # Use simple last name to avoid special characters, add member_type for uniqueness
                 member = self.create_test_member(
-                    first_name="Test",
+                    first_name=f"Test{member_type.replace(' ', '')}",
                     last_name="Member",
                     birth_date="1980-01-01",
+                    email=f"test.{member_type.lower().replace(' ', '.')}@test.nl",
                     current_membership_type=member_type
                 )
 
@@ -382,26 +432,42 @@ class TestMemberLifecycleWorkflows(EnhancedTestCase):
         """Create test dues schedule"""
         import time
 
+        member_name = member if isinstance(member, str) else member.name
+
+        # Deactivate any existing active dues schedules for this member (test cleanup)
+        existing_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_name, "status": "Active"},
+            pluck="name"
+        )
+        for schedule_name in existing_schedules:
+            schedule_doc = frappe.get_doc("Membership Dues Schedule", schedule_name)
+            schedule_doc.status = "Inactive"
+            schedule_doc.save()
+            frappe.db.commit()  # Commit changes immediately
+
         # Create active membership if not provided (required by dues schedule validation)
         if "membership" not in kwargs:
             membership_doc = frappe.new_doc("Membership")
             membership_doc.update({
-                "member": member if isinstance(member, str) else member.name,
+                "member": member_name,
                 "membership_type": membership_type or "Standard Member",
-                "from_date": frappe.utils.today(),
-                "to_date": frappe.utils.add_months(frappe.utils.today(), 12),
+                "start_date": frappe.utils.today(),
                 "status": "Active",
             })
+            # Set flag to skip dues schedule auto-creation during testing
+            membership_doc.flags.skip_dues_schedule_creation = True
             membership_doc.insert()
             membership_doc.submit()
             kwargs["membership"] = membership_doc.name
 
         schedule = frappe.new_doc("Membership Dues Schedule")
         # Generate unique schedule_name (required for autoname)
-        schedule_name = kwargs.pop("schedule_name", f"Test-Schedule-{member}-{int(time.time() * 1000)}")
+        schedule_name = kwargs.pop("schedule_name", f"Test-Schedule-{member_name}-{int(time.time() * 1000)}")
         schedule.update({
             "schedule_name": schedule_name,
-            "member": member if isinstance(member, str) else member.name,
+            "member": member_name,
+            "membership_type": membership_type or "Standard Member",  # Required field
             "dues_rate": amount,  # Field is 'dues_rate' not 'dues_amount'
             "billing_frequency": frequency,  # Field is 'billing_frequency' not 'frequency'
             "status": "Active",
@@ -430,8 +496,16 @@ class TestMemberLifecycleWorkflows(EnhancedTestCase):
         """Generate invoice from dues schedule"""
         member = frappe.get_doc("Member", dues_schedule.member)
         if not member.customer:
-            customer = self.factory.create_test_customer(customer_name=member.full_name)
-            member.customer = customer.name
+            # Create Customer directly if member doesn't have one
+            customer_doc = frappe.new_doc("Customer")
+            customer_doc.update({
+                "customer_name": member.full_name,
+                "customer_type": "Individual",
+                "customer_group": "Individual",
+                "territory": "Netherlands",
+            })
+            customer_doc.insert()
+            member.customer = customer_doc.name
             member.save()
 
         invoice = self.create_test_sales_invoice(

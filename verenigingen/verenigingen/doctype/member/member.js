@@ -204,6 +204,11 @@ frappe.ui.form.on('Member', {
 		// Display termination status
 		display_termination_status(frm);
 
+		// Display board memberships if member has any board positions
+		if (window.UIUtils && UIUtils.show_board_memberships) {
+			UIUtils.show_board_memberships(frm);
+		}
+
 		// Auto-populate other_members_at_address field on form load
 		// Check if data is already available from backend via onload
 		if (frm.doc.primary_address && !frm.doc.__islocal) {

@@ -24,7 +24,9 @@ class Membership(Document):
 
     def on_submit(self):
         """Create or update dues schedule when membership is submitted"""
-        self.create_or_update_dues_schedule()
+        # Skip dues schedule creation if flag is set (used in testing)
+        if not getattr(self.flags, "skip_dues_schedule_creation", False):
+            self.create_or_update_dues_schedule()
 
         # Check if parent Member is coordinating updates for performance optimization
         # If so, skip our member updates - parent will do them in one consolidated save
