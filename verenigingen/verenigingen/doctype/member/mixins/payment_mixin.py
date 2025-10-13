@@ -277,6 +277,13 @@ class PaymentMixin:
             query_fields = base_fields + coverage_fields
 
             # Only get the most recent invoices
+            # Sort by coverage_end_date if available, fallback to posting_date
+            order_by_clause = (
+                "custom_coverage_end_date desc"
+                if coverage_fields and "custom_coverage_end_date" in coverage_fields
+                else "posting_date desc"
+            )
+
             invoices = frappe.get_all(
                 "Sales Invoice",
                 filters={
@@ -284,7 +291,7 @@ class PaymentMixin:
                     "docstatus": ["in", [0, 1]],
                 },  # Include both draft and submitted
                 fields=query_fields,
-                order_by="posting_date desc",
+                order_by=order_by_clause,
                 limit=MAX_PAYMENT_HISTORY_ENTRIES,
             )
 

@@ -56,14 +56,25 @@ def check_member_dues_status(period_start: str = None, period_end: str = None) -
     # Transform the unified result into the expected API format
     filtered_members = eligibility_result["filtered_members"]
 
-    # Calculate SEPA eligibility for members needing invoices
+    # Calculate SEPA eligibility and build member list for members needing invoices
     sepa_eligible_count = 0
+    needs_invoicing_members = []
     for schedule_name in eligibility_result["eligible_schedules"]:
         schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
         if schedule.member:
             mandate_exists = frappe.db.exists("SEPA Mandate", {"member": schedule.member, "status": "Active"})
             if mandate_exists:
                 sepa_eligible_count += 1
+
+            # Get member details for display
+            member = frappe.get_doc("Member", schedule.member)
+            needs_invoicing_members.append(
+                {
+                    "member_id": schedule.member,
+                    "member_name": f"{member.first_name} {member.last_name}",
+                    "schedule": schedule_name,
+                }
+            )
 
     # Get total active members count
     total_active_members = frappe.db.count("Member", {"status": ["in", ["Active", "Pending", "Suspended"]]})
@@ -138,7 +149,7 @@ def check_member_dues_status(period_start: str = None, period_end: str = None) -
             },
             "needs_invoicing": {
                 "count": len(eligibility_result["eligible_schedules"]),
-                "members": [],  # Could populate with schedule details if needed
+                "members": needs_invoicing_members,
                 "description": "Members who will get new invoices generated",
             },
             "no_customer": {

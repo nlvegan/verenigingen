@@ -674,40 +674,23 @@ class MembershipDuesSchedule(Document):
         """
         Get the latest coverage end date from existing invoices for this schedule.
 
-        CRITICAL: Always queries the database to find the TRUE latest invoice,
-        since the tracked field may be stale if invoices were created outside
-        the normal flow.
+        ✅ SERVICE EXTRACTION: Use CoverageCalculator service for coverage queries.
         """
+        from verenigingen.services.billing.coverage_calculator import CoverageCalculator
+
         if not self.member:
             return None
 
         member_doc = frappe.get_doc("Member", self.member)
-        if not member_doc.customer:
-            return None
+        calculator = CoverageCalculator(self)
 
-        # Query for the absolute latest submitted invoice with coverage dates
-        latest_invoice = frappe.db.sql(
-            """
-            SELECT custom_coverage_end_date
-            FROM `tabSales Invoice`
-            WHERE customer = %s
-            AND docstatus = 1
-            AND custom_coverage_end_date IS NOT NULL
-            ORDER BY custom_coverage_end_date DESC
-            LIMIT 1
-        """,
-            member_doc.customer,
-            as_dict=True,
-        )
-
-        if latest_invoice:
-            return latest_invoice[0].custom_coverage_end_date
-        return None
+        return calculator.get_latest_coverage_end_date(member_doc)
 
     def calculate_next_coverage_period(self, force_date=None):
         """
         Calculate next coverage period using sequential logic for gap-free coverage.
-        Falls back to date-based calculation for first invoice or when sequential is disabled.
+
+        ✅ SERVICE EXTRACTION: Use CoverageCalculator service for period calculations.
 
         Args:
             force_date: Override date for coverage calculation (for testing/manual generation)
@@ -715,64 +698,25 @@ class MembershipDuesSchedule(Document):
         Returns:
             tuple: (coverage_start, coverage_end) dates
         """
-        # Check if sequential coverage is enabled
-        settings = frappe.get_single("Verenigingen Settings")
-        use_sequential = getattr(settings, "enable_sequential_coverage", True)
+        from verenigingen.services.billing.coverage_calculator import CoverageCalculator
 
-        if use_sequential:
-            # Sequential logic: Build on previous coverage
-            latest_coverage_end = self.get_latest_coverage_end_date()
+        member_doc = frappe.get_doc("Member", self.member)
+        calculator = CoverageCalculator(self)
 
-            if latest_coverage_end:
-                # Start the day after previous coverage ended
-                coverage_start = add_days(latest_coverage_end, 1)
-            else:
-                # First invoice: Use schedule creation or force date as fallback
-                coverage_start = getdate(force_date or frappe.utils.today())
-        else:
-            # Fallback to date-based calculation
-            return self.calculate_billing_period(force_date or frappe.utils.today())
+        result = calculator.calculate_next_coverage_period(member_doc=member_doc, force_date=force_date)
 
-        # Calculate end date based on billing frequency
-        if self.billing_frequency == "Daily":
-            coverage_end = coverage_start
-        elif self.billing_frequency == "Weekly":
-            coverage_end = add_days(coverage_start, 6)  # 7 days total
-        elif self.billing_frequency == "Monthly":
-            coverage_end = add_days(add_months(coverage_start, 1), -1)
-        elif self.billing_frequency == "Quarterly":
-            coverage_end = add_days(add_months(coverage_start, 3), -1)
-        elif self.billing_frequency == "Semi-Annual":
-            coverage_end = add_days(add_months(coverage_start, 6), -1)
-        elif self.billing_frequency == "Annual":
-            coverage_end = add_days(add_months(coverage_start, 12), -1)
-        else:
-            # Unknown frequency - fallback to monthly
-            coverage_end = add_days(add_months(coverage_start, 1), -1)
+        # Validate result
+        if not result.is_valid():
+            error_msg = result.metadata.get("error", "Unknown coverage calculation error")
+            frappe.throw(error_msg)
 
-        # ✅ VALIDATION: Ensure coverage dates are never empty or invalid
-        if not coverage_start or not coverage_end:
-            frappe.throw(f"Coverage calculation failed: start={coverage_start}, end={coverage_end}")
-
-        # For daily billing, start and end can be the same day; otherwise start must be before end
-        if getdate(coverage_start) > getdate(coverage_end):
-            frappe.throw(
-                f"Invalid coverage period: start date {coverage_start} must not be after end date {coverage_end}"
-            )
-        elif getdate(coverage_start) == getdate(coverage_end) and self.billing_frequency != "Daily":
-            frappe.throw(
-                f"Invalid coverage period: start date {coverage_start} must be before end date {coverage_end} for {self.billing_frequency} billing"
-            )
-
-        return coverage_start, coverage_end
+        return result.start_date, result.end_date
 
     def should_generate_for_cutoff_period(self, cutoff_date):
         """
-        Determine if this schedule needs invoice generation to cover through cutoff_date
+        Determine if this schedule needs invoice generation to cover through cutoff_date.
 
-        The duplicate coverage check is the real safeguard - this just determines if we
-        should attempt generation. Generating ahead of time is fine as long as we don't
-        duplicate coverage.
+        ✅ SERVICE EXTRACTION: Use CoverageCalculator service for cutoff logic.
 
         Args:
             cutoff_date: Target date that should be covered by invoices
@@ -780,18 +724,10 @@ class MembershipDuesSchedule(Document):
         Returns:
             bool: True if invoice generation is needed
         """
-        # Get latest coverage end date
-        latest_coverage_end = self.get_latest_coverage_end_date()
+        from verenigingen.services.billing.coverage_calculator import CoverageCalculator
 
-        # Generate if:
-        # 1. No previous coverage, OR
-        # 2. Latest coverage doesn't extend through cutoff_date, OR
-        # 3. next_invoice_date is overdue
-        return (
-            not latest_coverage_end
-            or latest_coverage_end < getdate(cutoff_date)
-            or getdate(self.next_invoice_date) < getdate(frappe.utils.today())
-        )
+        calculator = CoverageCalculator(self)
+        return calculator.should_generate_invoice_for_cutoff(cutoff_date)
 
     def calculate_billing_period(self, invoice_date):
         """Calculate the billing period start and end dates for a given invoice date"""
@@ -1094,8 +1030,21 @@ class MembershipDuesSchedule(Document):
             # ✅ ENHANCED: Calculate coverage period using sequential logic
             coverage_start, coverage_end = self.calculate_next_coverage_period()
 
-            # Create actual invoice with the calculated coverage period
-            invoice = self.create_sales_invoice(coverage_start, coverage_end)
+            # ✅ SERVICE EXTRACTION: Use InvoiceGenerator service for invoice creation
+            from verenigingen.services.billing.invoice_generator import InvoiceGenerator
+
+            # Get member document for service
+            member_doc = frappe.get_doc("Member", self.member)
+
+            # Generate invoice via service
+            generator = InvoiceGenerator(self)
+            result = generator.generate_invoice(coverage_start, coverage_end, member_doc)
+
+            # Check service result
+            if not result.success:
+                frappe.throw(f"Invoice generation failed: {result.error}")
+
+            invoice = result.invoice
             invoice_name = invoice.name
 
             # ✅ SAFETY CHECK: Ensure we're not trying to edit a cancelled invoice
@@ -1145,7 +1094,8 @@ class MembershipDuesSchedule(Document):
                 print(f"Original error was: {full_error_details}")
 
             # Create user-friendly shortened message for display
-            user_error_msg = f"Invoice gen failed for {self.name}: {str(e)[:100]}"
+            # Use 200 chars to avoid truncating dates/amounts in error messages
+            user_error_msg = f"Invoice gen failed for {self.name}: {str(e)[:200]}"
 
             # Re-raise exception to maintain existing error handling behavior
             raise frappe.ValidationError(user_error_msg)
@@ -1202,9 +1152,10 @@ class MembershipDuesSchedule(Document):
             bypass_validations=["link_validation"],  # Avoid validation loops during error recovery
         )
 
-        if not retry_update_result.get("success"):
+        if not retry_update_result.success:
+            error_msg = retry_update_result.errors[0] if retry_update_result.errors else "Unknown error"
             frappe.log_error(
-                f"Failed to update retry tracking for {self.name}: {retry_update_result.get('error')}",
+                f"Failed to update retry tracking for {self.name}: {error_msg}",
                 "Retry Tracking Update Failure",
             )
 
@@ -1447,6 +1398,12 @@ class MembershipDuesSchedule(Document):
         """
         Create a sales invoice for membership dues
 
+        DEPRECATED: This method has been replaced by InvoiceGenerator service.
+        See: verenigingen/services/billing/invoice_generator.py
+
+        Kept for backwards compatibility with any external callers.
+        Use InvoiceGenerator directly for new code.
+
         Args:
             coverage_start: Start date for invoice coverage period (if None, calculates from posting date)
             coverage_end: End date for invoice coverage period (if None, calculates from posting date)
@@ -1684,13 +1641,21 @@ class MembershipDuesSchedule(Document):
         """
         Update schedule dates after invoice generation.
 
-        CRITICAL FIX: Uses actual invoice posting date instead of theoretical next_invoice_date
-        to prevent date drift and duplicate billing issues.
+        CRITICAL FIX: For daily/sequential billing, base next_invoice_date on coverage end
+        rather than posting date to prevent date drift when generating ahead of time.
         """
         if actual_invoice_date:
             # Use the actual posting date from the created invoice
             self.last_invoice_date = actual_invoice_date
-            self.next_invoice_date = self.calculate_next_invoice_date(actual_invoice_date)
+
+            # For daily billing or when we have coverage tracking, calculate next date from coverage end
+            # This prevents date drift when generating invoices ahead of the posting date
+            if self.billing_frequency == "Daily" and self.last_invoice_coverage_end:
+                # For daily: next invoice should be day after coverage ends
+                self.next_invoice_date = self.calculate_next_invoice_date(self.last_invoice_coverage_end)
+            else:
+                # For other frequencies: use posting date as before
+                self.next_invoice_date = self.calculate_next_invoice_date(actual_invoice_date)
         else:
             # Fallback to old behavior (for test mode)
             self.last_invoice_date = self.next_invoice_date

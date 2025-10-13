@@ -404,10 +404,22 @@ function checkMemberStatus() {
                 // Members needing invoices (amber)
                 if (categories.needs_invoicing && categories.needs_invoicing.count > 0) {
                     html += `
-                        <div class="border-l-4 border-amber-500 bg-amber-50 p-4 rounded">
-                            <div class="font-semibold text-amber-800">⚠ Needs Invoicing (${categories.needs_invoicing.count})</div>
-                            <div class="text-sm text-amber-700 mt-1">${categories.needs_invoicing.description}</div>
-                        </div>
+                        <details class="border-l-4 border-amber-500 bg-amber-50 p-4 rounded">
+                            <summary class="cursor-pointer font-semibold text-amber-800">
+                                ⚠ Needs Invoicing (${categories.needs_invoicing.count})
+                            </summary>
+                            <div class="text-sm text-amber-700 mt-2">${categories.needs_invoicing.description}</div>
+                            ${categories.needs_invoicing.members && categories.needs_invoicing.members.length > 0 ? `
+                                <ul class="mt-2 space-y-1 text-sm">
+                                    ${categories.needs_invoicing.members.map(m => `
+                                        <li class="text-amber-600">
+                                            ${m.member_name}
+                                            <a href="/app/member/${m.member_id}" class="text-blue-600 hover:text-blue-800 ml-2" target="_blank">[view]</a>
+                                        </li>
+                                    `).join('')}
+                                </ul>
+                            ` : ''}
+                        </details>
                     `;
                 }
 

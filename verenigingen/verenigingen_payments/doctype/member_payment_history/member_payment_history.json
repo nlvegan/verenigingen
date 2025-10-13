@@ -80,12 +80,14 @@
     {
       "fieldname": "coverage_start_date",
       "fieldtype": "Date",
+      "in_list_view": 1,
       "label": "Coverage Start Date",
       "read_only": 1
     },
     {
       "fieldname": "coverage_end_date",
       "fieldtype": "Date",
+      "in_list_view": 1,
       "label": "Coverage End Date",
       "read_only": 1
     },
@@ -96,7 +98,6 @@
     {
       "fieldname": "transaction_type",
       "fieldtype": "Data",
-      "in_list_view": 1,
       "label": "Type",
       "read_only": 1
     },

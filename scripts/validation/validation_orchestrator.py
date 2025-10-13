@@ -316,10 +316,11 @@ class ValidationOrchestrator:
             '__pycache__', '.git', 'node_modules', '.pyc', 'migrations',
             'test_validation', 'validator.py',  # Skip validation tools themselves
             'tests/', 'test_', '_test.py', 'debug_', '_debug.py',
-            'scripts/testing/', 'scripts/debug/', 'archived_', 
-            'archived_unused/', 'archived_deleted/', 'temp_', '.temp'
+            'scripts/testing/', 'scripts/debug/', 'archived_',
+            'archived_unused/', 'archived_deleted/', 'temp_', '.temp',
+            'verenigingen/validations.py'  # Validation hook file with multi-DocType context
         ]
-        
+
         file_str = str(file_path)
         return any(pattern in file_str for pattern in skip_patterns)
     
