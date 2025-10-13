@@ -217,13 +217,8 @@ class EligibilityChecker:
         if not timing_result.can_generate:
             return timing_result
 
-        # ========== Final Sanity Check ==========
-
-        # Check if invoice already generated for this exact period
-        if self.last_invoice_date == self.next_invoice_date:
-            return EligibilityResult(False, "Invoice already generated for this period", "duplicate")
-
-        # All checks passed
+        # All checks passed - coverage dates are the source of truth for duplicates
+        # (checked by DuplicateInvoiceDetector above)
         return EligibilityResult(True, "Can generate invoice", "valid")
 
     # ========== Individual Validation Methods ==========
@@ -338,12 +333,11 @@ class EligibilityChecker:
             return EligibilityResult(True, "Rate validation passed", "valid")
 
         except Exception as e:
-            # Don't block generation on rate validation errors
-            # Log error but allow generation to proceed
+            # Fail closed on rate validation errors - better to block than generate invalid invoices
             frappe.log_error(
                 f"Rate validation error for {self.schedule_name}: {str(e)}", "Rate Validation Error"
             )
-            return EligibilityResult(True, "Rate validation error - allowing generation", "valid")
+            return EligibilityResult(False, f"Rate validation system error: {str(e)}", "system")
 
     def check_membership_type_consistency(self, member_doc: Any) -> EligibilityResult:
         """
@@ -367,11 +361,11 @@ class EligibilityChecker:
             return EligibilityResult(True, "Membership type consistent", "valid")
 
         except Exception as e:
-            # Don't block generation on type validation errors
+            # Fail closed on type validation errors - better to block than bill at wrong rate
             frappe.log_error(
                 f"Type validation error for {self.schedule_name}: {str(e)}", "Type Validation Error"
             )
-            return EligibilityResult(True, "Type validation error - allowing generation", "valid")
+            return EligibilityResult(False, f"Type validation system error: {str(e)}", "system")
 
     def check_concurrency_lock(self) -> EligibilityResult:
         """
@@ -407,12 +401,12 @@ class EligibilityChecker:
             return EligibilityResult(True, "No concurrent generation detected", "valid")
 
         except Exception as e:
-            # Don't block on Redis errors - log and continue
-            # Missing concurrency protection is better than blocking all generation
+            # Fail closed on Redis errors - if Redis is down, instance has bigger problems
+            # Pre-generation safety checks (missing invoice checks) provide additional safety
             frappe.log_error(
                 f"Redis lock check error for {self.schedule_name}: {str(e)}", "Concurrency Check Error"
             )
-            return EligibilityResult(True, "Concurrency check skipped due to error", "valid")
+            return EligibilityResult(False, f"Concurrency check system error: {str(e)}", "system")
 
     def check_for_duplicates(self) -> EligibilityResult:
         """

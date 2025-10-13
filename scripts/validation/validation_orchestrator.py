@@ -317,8 +317,7 @@ class ValidationOrchestrator:
             'test_validation', 'validator.py',  # Skip validation tools themselves
             'tests/', 'test_', '_test.py', 'debug_', '_debug.py',
             'scripts/testing/', 'scripts/debug/', 'archived_',
-            'archived_unused/', 'archived_deleted/', 'temp_', '.temp',
-            'verenigingen/validations.py'  # Validation hook file with multi-DocType context
+            'archived_unused/', 'archived_deleted/', 'temp_', '.temp'
         ]
 
         file_str = str(file_path)

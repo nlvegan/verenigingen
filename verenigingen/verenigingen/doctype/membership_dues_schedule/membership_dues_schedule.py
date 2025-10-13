@@ -208,47 +208,35 @@ class MembershipDuesSchedule(Document):
                 )
                 self.last_invoice_date = today_date
 
+        # Allow last_invoice_date == next_invoice_date (means invoice already generated for period)
+        # Coverage dates are the source of truth for overlap detection, not these tracking dates
         if self.last_invoice_date and self.next_invoice_date:
-            if DateRangeValidator.is_date_today_or_after(self.last_invoice_date, self.next_invoice_date):
-                frappe.throw("Next Invoice Date must be after Last Invoice Date")
+            if getdate(self.last_invoice_date) > getdate(self.next_invoice_date):
+                frappe.throw("Next Invoice Date cannot be before Last Invoice Date")
 
-        # Validate next_invoice_date is not unreasonably far in the future
-        if self.next_invoice_date:
+        # Warn about significant gaps between next invoice date and coverage end date
+        if self.next_invoice_date and self.last_invoice_coverage_end:
             next_date = getdate(self.next_invoice_date)
+            coverage_end = getdate(self.last_invoice_coverage_end)
 
-            # Determine reasonable future limit based on billing frequency
-            if self.billing_frequency == "Daily":
-                max_future_days = 7  # Daily billing should not be scheduled more than a week ahead
-            elif self.billing_frequency == "Weekly":
-                max_future_days = 14  # Weekly billing should not be more than 2 weeks ahead
-            elif self.billing_frequency == "Monthly":
-                max_future_days = 62  # Monthly billing should not be more than 2 months ahead
-            elif self.billing_frequency == "Quarterly":
-                max_future_days = 100  # Quarterly billing should not be more than ~3 months ahead
-            elif self.billing_frequency == "Annual":
-                max_future_days = 400  # Annual billing can be up to ~13 months ahead
-            else:
-                max_future_days = 30  # Default conservative limit
+            # Calculate gap in days (positive = invoice after coverage ends, negative = invoice before coverage ends)
+            gap_days = (next_date - coverage_end).days
 
-            max_future_date = add_days(today_date, max_future_days)
-
-            if next_date > max_future_date:
-                # Auto-correct the date instead of throwing error (better UX)
-                self.next_invoice_date = today_date
+            # Warn if invoice is scheduled more than 30 days after coverage ends
+            if gap_days > 30:
                 frappe.msgprint(
-                    f"Next Invoice Date was too far in the future ({next_date}). "
-                    f"Automatically corrected to {today_date} for {self.billing_frequency} billing.",
+                    f"Warning: Next Invoice Date ({next_date}) is {gap_days} days after Coverage End Date ({coverage_end}). "
+                    f"This schedule may be trying to invoice for expired coverage.",
+                    indicator="orange",
                     alert=True,
                 )
 
-            # Also check for very old dates (more than 6 months in the past)
-            min_past_date = add_days(today_date, -180)  # 6 months ago
-            if next_date < min_past_date:
-                # Auto-correct old dates
-                self.next_invoice_date = today_date
+            # Warn if invoice is scheduled more than 30 days before coverage ends
+            elif gap_days < -30:
                 frappe.msgprint(
-                    f"Next Invoice Date was too far in the past ({next_date}). "
-                    f"Automatically corrected to {today_date}.",
+                    f"Warning: Next Invoice Date ({next_date}) is {abs(gap_days)} days before Coverage End Date ({coverage_end}). "
+                    f"This schedule may not generate invoices before coverage expires.",
+                    indicator="orange",
                     alert=True,
                 )
 
@@ -561,84 +549,23 @@ class MembershipDuesSchedule(Document):
                 self.billing_day = 1
 
     def can_generate_invoice(self):
-        """Check if invoice can be generated with comprehensive duplicate prevention"""
-        if self.is_template:
-            return False, "Templates cannot generate invoices"
+        """
+        Check if invoice can be generated with comprehensive validation.
 
-        if self.status != "Active":
-            return False, "Schedule is not active"
+        ✅ SERVICE EXTRACTION: Delegates to EligibilityChecker service for all validation logic.
+        This method maintains backward compatibility by returning tuple format.
 
-        if not self.auto_generate:
-            return False, "Auto generation is disabled"
+        Returns:
+            tuple: (can_generate: bool, reason: str) for backward compatibility
+        """
+        from verenigingen.services.billing.eligibility_checker import EligibilityChecker
 
-        if self.test_mode:
-            return True, "Test mode - can generate"
+        # Delegate to service for comprehensive eligibility check
+        checker = EligibilityChecker(self)
+        result = checker.check_eligibility()
 
-        # ⚠️ CRITICAL: Check member eligibility for billing
-        if self.member:
-            if not self.validate_member_eligibility_for_invoice():
-                return False, "Member is not eligible for billing"
-
-        # ✅ NEW: Rate validation checks
-        rate_validation = self.validate_dues_rate()
-        if not rate_validation["valid"]:
-            return False, rate_validation["reason"]
-
-        # ✅ NEW: Membership type consistency check
-        membership_validation = self.validate_membership_type_consistency()
-        if not membership_validation["valid"]:
-            return False, membership_validation["reason"]
-
-        # ✅ NEW: Check if member has customer record for invoice creation
-        if self.member:
-            try:
-                member_doc = frappe.get_doc("Member", self.member)
-                if not member_doc.customer:
-                    return False, f"Member {self.member} does not have a customer record"
-            except frappe.DoesNotExistError:
-                return False, f"Member {self.member} does not exist"
-
-        # ✅ CONCURRENCY PROTECTION: Check for concurrent invoice generation
-        # This prevents race conditions where multiple processes try to generate
-        # invoices for the same schedule simultaneously
-        import time
-
-        from frappe.utils.redis_wrapper import RedisWrapper
-
-        redis = RedisWrapper.from_url(frappe.conf.redis_cache)
-        schedule_lock_key = f"verenigingen_invoice_generation_{self.name}"
-
-        # Check if another process is already generating an invoice for this schedule
-        existing_lock = redis.get(schedule_lock_key)
-        if existing_lock:
-            # Allow a small grace period for quick operations to complete
-            time.sleep(0.1)
-            if redis.get(schedule_lock_key):
-                return False, "Another process is already generating an invoice for this schedule"
-
-        # ✅ PRIMARY CHECK: Coverage-based duplicate prevention (ground truth)
-        # This checks actual invoice coverage periods - should be the primary logic
-        duplicate_check_result = self.check_for_duplicate_invoices()
-        if not duplicate_check_result["can_generate"]:
-            return False, duplicate_check_result["reason"]
-
-        # ✅ FALLBACK CHECK: Scheduling-based "too early" check
-        # Only applies when there's existing coverage - prevents generating too far ahead
-        # If no coverage exists, member has a gap that needs filling immediately
-        latest_coverage_end = self.get_latest_coverage_end_date()
-        if latest_coverage_end:
-            # Use configured days_before or system default
-            days_before = self.invoice_days_before if self.invoice_days_before is not None else 30
-            generate_on_date = add_days(self.next_invoice_date, -days_before)
-
-            if DateRangeValidator.is_date_before(today(), generate_on_date):
-                return False, f"Too early - will generate on {generate_on_date}"
-
-        # Check if invoice already exists for this period
-        if self.last_invoice_date == self.next_invoice_date:
-            return False, "Invoice already generated for this period"
-
-        return True, "Can generate invoice"
+        # Return tuple for backward compatibility with existing code
+        return result.can_generate, result.reason
 
     def check_for_duplicate_invoices(self):
         """
@@ -1665,16 +1592,15 @@ class MembershipDuesSchedule(Document):
 
         # Also update the Member's next_invoice_date field
         if self.member:
-            # ✅ FIX: Use document model instead of direct db.set_value to avoid implicit commits
-            member_doc = frappe.get_doc("Member", self.member)
+            # Check member status before updating (don't update terminated members)
+            member_status = frappe.db.get_value("Member", self.member, "status")
 
-            # Don't update next_invoice_date for terminated members (Deceased, Banned, Terminated)
-            # They shouldn't be invoiced anyway
-            if member_doc.status not in ["Deceased", "Banned", "Terminated"]:
-                member_doc.next_invoice_date = self.next_invoice_date
-                member_doc.flags.ignore_version = True  # Avoid version tracking for automated updates
-                member_doc.flags.ignore_links = True  # Skip link validation for automated system updates
-                member_doc.save()
+            if member_status not in ["Deceased", "Banned", "Terminated"]:
+                # Use db.set_value to avoid triggering Member's validate/on_update hooks
+                # This prevents cascading saves that can cause race conditions
+                frappe.db.set_value(
+                    "Member", self.member, "next_invoice_date", self.next_invoice_date, update_modified=False
+                )
 
     def get_member_payment_method(self):
         """Get member's preferred payment method"""

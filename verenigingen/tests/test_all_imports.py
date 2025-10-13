@@ -97,8 +97,8 @@ class TestAllImports(EnhancedTestCase):
         """Test configuration file imports"""
         import verenigingen.hooks
         import verenigingen.permissions
-        import verenigingen.validations
-        
+        # verenigingen.validations archived 2025-10-13 - validation logic now in DocType controllers
+
         self.assertTrue(True, "All configuration imports successful")
         
     def test_test_utility_imports(self):
