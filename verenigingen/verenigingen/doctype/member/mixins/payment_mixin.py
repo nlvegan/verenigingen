@@ -243,9 +243,9 @@ class PaymentMixin:
         if not self.customer:
             return
 
-        # New approach: Only show 20 most recent entries
-        # Limit to 20 most recent entries
-        MAX_PAYMENT_HISTORY_ENTRIES = 20
+        # Get configurable limit from settings (defaults to 20 for backward compatibility)
+        settings = frappe.get_single("Verenigingen Settings")
+        max_entries = getattr(settings, "max_payment_history_entries", 20)
 
         self.payment_history = []
 
@@ -292,7 +292,7 @@ class PaymentMixin:
                 },  # Include both draft and submitted
                 fields=query_fields,
                 order_by=order_by_clause,
-                limit=MAX_PAYMENT_HISTORY_ENTRIES,
+                limit=max_entries,
             )
 
         except Exception as e:
@@ -600,10 +600,7 @@ class PaymentMixin:
 
             # Delegate to coverage calculator service
             return CoverageCalculator.calculate_billing_period(
-                billing_frequency,
-                invoice_date,
-                custom_frequency_number,
-                custom_frequency_unit
+                billing_frequency, invoice_date, custom_frequency_number, custom_frequency_unit
             )
 
         except Exception as e:
@@ -714,7 +711,7 @@ class PaymentMixin:
             bic=bic_for_validation,
             account_holder_name=self.bank_account_name if hasattr(self, "bank_account_name") else None,
             auto_derive_bic=should_derive_bic,
-            require_bic=False
+            require_bic=False,
         )
 
         if not result.valid:
@@ -769,7 +766,9 @@ class PaymentMixin:
                 # Show SEPA mandate warning if applicable
                 if hasattr(self, "payment_method") and self.payment_method == "SEPA Direct Debit":
                     frappe.msgprint(
-                        _("IBAN has been changed. Please review SEPA mandates as they may need to be updated."),
+                        _(
+                            "IBAN has been changed. Please review SEPA mandates as they may need to be updated."
+                        ),
                         indicator="orange",
                         alert=True,
                     )

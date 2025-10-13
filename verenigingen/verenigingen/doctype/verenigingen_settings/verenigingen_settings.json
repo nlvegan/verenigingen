@@ -38,6 +38,7 @@
   "stuck_schedule_notification_emails",
   "column_break_ybid",
   "payment_history_failure_threshold",
+  "max_payment_history_entries",
   "bulk_generation_timeout",
   "invoice_generation_timeout",
   "memberships_tab",
@@ -700,6 +701,13 @@
    "fieldname": "payment_history_failure_threshold",
    "fieldtype": "Int",
    "label": "Payment History Failure Threshold"
+  },
+  {
+   "default": "20",
+   "description": "Maximum number of payment history entries to display in member views (affects performance with large histories)",
+   "fieldname": "max_payment_history_entries",
+   "fieldtype": "Int",
+   "label": "Max Payment History Entries"
   },
   {
    "default": "3600",

@@ -104,35 +104,39 @@ def auto_create_missing_dues_schedules_scheduled():
     1. An active membership with a membership type
     2. No active dues schedule
 
-    This scheduled task ensures billing continuity for members and handles retries from failed hook attempts.
+    This scheduled task ensures billing continuity for members.
+    Note: Retry logic is now handled by DuesScheduleCreationService with frappe.enqueue().
     """
     frappe.logger().info("Starting scheduled auto-creation of missing dues schedules")
-
-    # Process retry queue first
-    retry_result = _process_dues_schedule_retry_queue()
 
     # Call the enhanced version that's defined later in this file
     result = auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=True)
 
-    # Combine results
-    total_created = result.get("created_count", 0) + retry_result.get("created_count", 0)
-    total_errors = result.get("error_count", 0) + retry_result.get("error_count", 0)
-
-    # Send enhanced summary email if there were activities
-    if total_created > 0 or total_errors > 0:
-        _send_enhanced_summary_email(result, retry_result)
+    # Send summary email if there were activities
+    if result.get("created_count", 0) > 0 or result.get("error_count", 0) > 0:
+        _send_summary_email(result)
 
     return {
         "total_found": result.get("total_members", 0),
-        "created": total_created,
-        "errors": total_errors,
-        "retry_processed": retry_result.get("processed_count", 0),
+        "created": result.get("created_count", 0),
+        "errors": result.get("error_count", 0),
     }
 
 
 def _process_dues_schedule_retry_queue():
-    """Process the retry queue for failed dues schedule creations"""
-    result = {
+    """
+    DEPRECATED: Process the retry queue for failed dues schedule creations
+
+    This function is obsolete and will be removed in a future version.
+    Retry logic is now handled by DuesScheduleCreationService using frappe.enqueue().
+
+    Returns empty result for backward compatibility.
+    """
+    frappe.logger().warning(
+        "[DEPRECATED] _process_dues_schedule_retry_queue() is deprecated. "
+        "Use DuesScheduleCreationService instead."
+    )
+    return {
         "processed_count": 0,
         "created_count": 0,
         "error_count": 0,
@@ -140,125 +144,19 @@ def _process_dues_schedule_retry_queue():
         "successful_retries": [],
     }
 
-    try:
-        # Get retry queue from cache
-        retry_queue = frappe.cache().get("dues_schedule_retry_queue") or {}
-
-        if not retry_queue:
-            return result
-
-        frappe.logger().info(f"Processing {len(retry_queue)} items from dues schedule retry queue")
-
-        for member_name, retry_data in retry_queue.items():
-            try:
-                result["processed_count"] += 1
-
-                # Check if member still needs a dues schedule
-                existing_schedule = frappe.db.get_value(
-                    "Membership Dues Schedule", {"member": member_name, "is_template": 0}, "name"
-                )
-
-                if existing_schedule:
-                    # Schedule already exists, remove from retry queue
-                    current_queue = frappe.cache().get("dues_schedule_retry_queue") or {}
-                    if member_name in current_queue:
-                        del current_queue[member_name]
-                        frappe.cache().set("dues_schedule_retry_queue", current_queue)
-                    frappe.logger().info(
-                        f"Member {member_name} already has dues schedule, removed from retry queue"
-                    )
-                    continue
-
-                # Check retry count and time limits
-                retry_count = retry_data.get("retry_count", 0)
-                max_retries = 3
-
-                if retry_count >= max_retries:
-                    # Too many retries, create alert and remove from queue
-                    _create_max_retry_alert(member_name, retry_data)
-                    current_queue = frappe.cache().get("dues_schedule_retry_queue") or {}
-                    if member_name in current_queue:
-                        del current_queue[member_name]
-                        frappe.cache().set("dues_schedule_retry_queue", current_queue)
-                    result["error_count"] += 1
-                    result["failed_retries"].append({"member": member_name, "reason": "Max retries exceeded"})
-                    continue
-
-                # Attempt to create dues schedule
-                membership_name = retry_data.get("membership")
-                membership_type = retry_data.get("membership_type")
-
-                if not membership_name or not membership_type:
-                    frappe.logger().error(
-                        f"Invalid retry data for member {member_name}: missing membership info"
-                    )
-                    current_queue = frappe.cache().get("dues_schedule_retry_queue") or {}
-                    if member_name in current_queue:
-                        del current_queue[member_name]
-                        frappe.cache().set("dues_schedule_retry_queue", current_queue)
-                    continue
-
-                # Try to create the dues schedule
-                try:
-                    from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
-                        MembershipDuesSchedule,
-                    )
-
-                    schedule_name = MembershipDuesSchedule.create_from_template(
-                        member_name, membership_type=membership_type, membership_name=membership_name
-                    )
-
-                    # Update member record with dues schedule link
-                    member = frappe.get_doc("Member", member_name)
-                    member.current_dues_schedule = schedule_name
-                    member.save()
-
-                    # Success - remove from retry queue
-                    current_queue = frappe.cache().get("dues_schedule_retry_queue") or {}
-                    if member_name in current_queue:
-                        del current_queue[member_name]
-                        frappe.cache().set("dues_schedule_retry_queue", current_queue)
-                    result["created_count"] += 1
-                    result["successful_retries"].append(
-                        {"member": member_name, "schedule": schedule_name, "retry_count": retry_count + 1}
-                    )
-
-                    frappe.logger().info(
-                        f"Successfully created dues schedule {schedule_name} for member {member_name} on retry {retry_count + 1}"
-                    )
-
-                except Exception as create_error:
-                    # Update retry count and schedule next attempt
-                    retry_data["retry_count"] = retry_count + 1
-                    retry_data["last_attempt"] = frappe.utils.now()
-                    retry_data["last_error"] = str(create_error)
-
-                    current_queue = frappe.cache().get("dues_schedule_retry_queue") or {}
-                    current_queue[member_name] = retry_data
-                    frappe.cache().set("dues_schedule_retry_queue", current_queue)
-                    result["error_count"] += 1
-                    result["failed_retries"].append(
-                        {"member": member_name, "error": str(create_error), "retry_count": retry_count + 1}
-                    )
-
-                    frappe.logger().warning(
-                        f"Retry {retry_count + 1} failed for member {member_name}: {str(create_error)}"
-                    )
-
-            except Exception as process_error:
-                frappe.logger().error(
-                    f"Error processing retry for member {member_name}: {str(process_error)}"
-                )
-                result["error_count"] += 1
-
-    except Exception as queue_error:
-        frappe.logger().error(f"Error processing dues schedule retry queue: {str(queue_error)}")
-
-    return result
-
 
 def _create_max_retry_alert(member_name, retry_data):
-    """Create alert when member reaches maximum retry attempts"""
+    """
+    DEPRECATED: Create alert when member reaches maximum retry attempts
+
+    This function is obsolete and will be removed in a future version.
+    Alerts are now handled by DuesScheduleCreationService._create_failure_alert().
+    """
+    frappe.logger().warning(
+        "[DEPRECATED] _create_max_retry_alert() is deprecated. "
+        "Use DuesScheduleCreationService._create_failure_alert() instead."
+    )
+    return  # No-op for backward compatibility
     try:
         # Create notification for administrators
         notification = frappe.new_doc("Notification Log")
@@ -349,7 +247,20 @@ def _create_max_retry_alert(member_name, retry_data):
 
 
 def _send_enhanced_summary_email(main_result, retry_result):
-    """Send enhanced summary email including retry processing results"""
+    """
+    DEPRECATED: Send enhanced summary email including retry processing results
+
+    This function is obsolete - retry results are no longer generated.
+    Falls back to standard _send_summary_email().
+    """
+    frappe.logger().warning(
+        "[DEPRECATED] _send_enhanced_summary_email() is deprecated. Using _send_summary_email() instead."
+    )
+    _send_summary_email(main_result)
+    return  # No-op for backward compatibility
+
+    # OLD CODE BELOW - UNREACHABLE (kept for reference during migration period)
+    """OLD: Send enhanced summary email including retry processing results"""
     try:
         # Get administrators
         admins = frappe.get_all(
@@ -888,89 +799,54 @@ def get_members_without_dues_schedules():
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.ADMIN)
 def get_dues_schedule_retry_queue_status():
-    """Get status of the dues schedule retry queue for administrators"""
-    if not frappe.has_permission("Membership Dues Schedule", "create"):
-        frappe.throw("You don't have permission to view dues schedule retry queue")
+    """
+    DEPRECATED: Get status of the dues schedule retry queue for administrators
 
-    try:
-        import json
-
-        retry_queue = frappe.cache().get("dues_schedule_retry_queue") or {}
-
-        if not retry_queue:
-            return {"queue_size": 0, "items": [], "message": "Retry queue is empty"}
-
-        queue_items = []
-        for member_name, retry_data in retry_queue.items():
-            try:
-                queue_items.append(
-                    {
-                        "member": member_name,
-                        "membership": retry_data.get("membership"),
-                        "membership_type": retry_data.get("membership_type"),
-                        "retry_count": retry_data.get("retry_count", 0),
-                        "last_attempt": retry_data.get("last_attempt"),
-                        "last_error": retry_data.get("last_error", "N/A"),
-                        "scheduled_by": retry_data.get("scheduled_by", "unknown"),
-                    }
-                )
-            except Exception as e:
-                queue_items.append({"member": member_name, "error": f"Invalid retry data: {str(e)}"})
-
-        return {
-            "queue_size": len(retry_queue),
-            "items": queue_items,
-            "message": f"Found {len(retry_queue)} items in retry queue",
-        }
-
-    except Exception as e:
-        frappe.throw(f"Error accessing retry queue: {str(e)}")
+    This function is obsolete - retry queue no longer exists.
+    Retry logic now uses frappe.enqueue() background jobs.
+    """
+    frappe.logger().warning(
+        "[DEPRECATED] get_dues_schedule_retry_queue_status() is deprecated. "
+        "Retry queue no longer exists - use RQ job status instead."
+    )
+    return {"queue_size": 0, "items": [], "message": "Retry queue no longer exists (deprecated)"}
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def clear_dues_schedule_retry_queue(member_name=None):
-    """Clear retry queue items (all or specific member) - admin only"""
-    if not frappe.has_permission("System Manager"):
-        frappe.throw("Only System Managers can clear the retry queue")
+    """
+    DEPRECATED: Clear retry queue items (all or specific member) - admin only
 
-    try:
-        if member_name:
-            # Clear specific member
-            current_queue = frappe.cache().get("dues_schedule_retry_queue") or {}
-            if member_name in current_queue:
-                del current_queue[member_name]
-                frappe.cache().set("dues_schedule_retry_queue", current_queue)
-            return {"message": f"Cleared retry queue for member {member_name}"}
-        else:
-            # Clear entire queue
-            frappe.cache().delete_value("dues_schedule_retry_queue")
-            return {"message": "Cleared entire retry queue"}
-
-    except Exception as e:
-        frappe.throw(f"Error clearing retry queue: {str(e)}")
+    This function is obsolete - retry queue no longer exists.
+    Retry logic now uses frappe.enqueue() background jobs.
+    """
+    frappe.logger().warning(
+        "[DEPRECATED] clear_dues_schedule_retry_queue() is deprecated. " "Retry queue no longer exists."
+    )
+    return {"message": "Retry queue no longer exists (deprecated) - no action taken"}
 
 
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def manually_process_retry_queue():
-    """Manually trigger retry queue processing - admin only"""
-    if not frappe.has_permission("Membership Dues Schedule", "create"):
-        frappe.throw("You don't have permission to process retry queue")
+    """
+    DEPRECATED: Manually trigger retry queue processing - admin only
 
-    frappe.logger().info("Manual retry queue processing triggered by user: " + frappe.session.user)
-
-    result = _process_dues_schedule_retry_queue()
-
+    This function is obsolete - retry queue no longer exists.
+    Retry logic now uses frappe.enqueue() background jobs automatically.
+    """
+    frappe.logger().warning(
+        "[DEPRECATED] manually_process_retry_queue() is deprecated. "
+        "Retry queue no longer exists - retries happen automatically via background jobs."
+    )
     return {
-        "processed_count": result.get("processed_count", 0),
-        "created_count": result.get("created_count", 0),
-        "error_count": result.get("error_count", 0),
-        "successful_retries": result.get("successful_retries", []),
-        "failed_retries": result.get("failed_retries", []),
-        "message": f"Processed {result.get('processed_count', 0)} items from retry queue. "
-        f"Created {result.get('created_count', 0)} schedules, "
-        f"{result.get('error_count', 0)} errors.",
+        "processed_count": 0,
+        "created_count": 0,
+        "error_count": 0,
+        "successful_retries": [],
+        "failed_retries": [],
+        "message": "Retry queue no longer exists (deprecated) - retries happen automatically via background jobs",
     }
 
 

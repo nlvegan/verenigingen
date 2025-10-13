@@ -162,20 +162,66 @@ class Membership(Document):
                 )
 
             except Exception as e:
-                self._handle_dues_schedule_error(e, "create")
+                # Use new service-based retry instead of cache queue
+                from verenigingen.services.billing.dues_schedule_creation_service import (
+                    DuesScheduleCreationService,
+                )
+
+                service = DuesScheduleCreationService()
+                result = service.create_schedule_with_retry(
+                    member_name=self.member,
+                    membership_name=self.name,
+                    membership_type=self.membership_type,
+                    custom_amount=custom_fee if custom_fee and custom_fee > 0 else None,
+                    custom_amount_reason=custom_fee_reason if custom_fee and custom_fee > 0 else None,
+                    custom_amount_approved=1 if custom_fee and custom_fee > 0 else 0,
+                    retry_count=0,
+                )
+
+                if result.success:
+                    # Update member record with dues schedule link
+                    member = frappe.get_doc("Member", self.member)
+                    member.current_dues_schedule = result.schedule_name
+                    member._system_update = True
+                    try:
+                        member.save()
+                    except frappe.TimestampMismatchError:
+                        member.reload()
+                        member.current_dues_schedule = result.schedule_name
+                        member._system_update = True
+                        member.save()
+
+                    # Clear CSV import fields if used
+                    if custom_fee and custom_fee > 0:
+                        frappe.db.set_value(
+                            "Member",
+                            self.member,
+                            {
+                                "csv_import_custom_fee": 0,
+                                "csv_import_custom_fee_reason": "",
+                            },
+                            update_modified=False,
+                        )
+
+                    frappe.logger().info(
+                        f"Successfully created dues schedule {result.schedule_name} via retry service"
+                    )
+                elif result.retry_job_id:
+                    # Retry enqueued - show user-friendly message
+                    frappe.msgprint(
+                        f"Dues schedule creation will be retried automatically in the background. "
+                        f"You can continue working - the system will handle this.",
+                        title="Dues Schedule Queued",
+                        indicator="orange",
+                        alert=True,
+                    )
+                else:
+                    # Permanent failure - show error
+                    self._handle_dues_schedule_error(e, "create")
 
     def _handle_dues_schedule_error(self, error, operation="create", schedule_name=None):
-        """Enhanced error handling for dues schedule operations"""
+        """Enhanced error handling for dues schedule operations (simplified - retry handled by service)"""
         error_msg = str(error)
-        error_details = {
-            "membership": self.name,
-            "member": self.member,
-            "membership_type": self.membership_type,
-            "operation": operation,
-            "schedule_name": schedule_name,
-            "error": error_msg,
-            "timestamp": frappe.utils.now(),
-        }
 
         # Create detailed error log
         log_title = f"Dues Schedule {operation.title()} Failed: {self.member}"
@@ -194,18 +240,11 @@ class Membership(Document):
             log_title,
         )
 
-        # Create system alert for administrators
-        self._create_dues_schedule_alert(error_details)
-
-        # Schedule retry if it's a creation operation
-        if operation == "create":
-            self._schedule_dues_schedule_retry()
-
-        # Show user-friendly message
+        # Show user-friendly message (retry is handled by DuesScheduleCreationService)
         if "minimum_amount" in error_msg.lower() or "template" in error_msg.lower():
             frappe.msgprint(
                 f"Warning: Dues schedule {operation} failed due to configuration issue. "
-                f"The scheduled task will retry creating the dues schedule later.",
+                f"Please check the membership type configuration.",
                 title="Dues Schedule Configuration Issue",
                 indicator="orange",
                 alert=True,
@@ -213,125 +252,15 @@ class Membership(Document):
         else:
             frappe.msgprint(
                 f"Warning: Could not {operation} dues schedule automatically. "
-                f"A retry has been scheduled and administrators have been notified.",
+                f"Administrators have been notified.",
                 title="Dues Schedule Issue",
                 indicator="orange",
                 alert=True,
             )
 
-    def _create_dues_schedule_alert(self, error_details):
-        """Create system alert for dues schedule errors"""
-        try:
-            # Create notification for administrators
-            notification = frappe.new_doc("Notification Log")
-            notification.subject = f"Dues Schedule Error - Member {error_details['member']}"
-            notification.email_content = f"""
-            <h3>Dues Schedule {error_details['operation'].title()} Failed</h3>
+    # REMOVED: _create_dues_schedule_alert() - replaced by DuesScheduleCreationService._create_failure_alert()
 
-            <p>A dues schedule {error_details['operation']} operation failed during membership submission.</p>
-
-            <table style="border-collapse: collapse; width: 100%; margin: 10px 0;">
-                <tr>
-                    <td style="border: 1px solid #ddd; padding: 8px; font-weight: bold;">Membership:</td>
-                    <td style="border: 1px solid #ddd; padding: 8px;">{error_details['membership']}</td>
-                </tr>
-                <tr>
-                    <td style="border: 1px solid #ddd; padding: 8px; font-weight: bold;">Member:</td>
-                    <td style="border: 1px solid #ddd; padding: 8px;">{error_details['member']}</td>
-                </tr>
-                <tr>
-                    <td style="border: 1px solid #ddd; padding: 8px; font-weight: bold;">Membership Type:</td>
-                    <td style="border: 1px solid #ddd; padding: 8px;">{error_details['membership_type']}</td>
-                </tr>
-                <tr>
-                    <td style="border: 1px solid #ddd; padding: 8px; font-weight: bold;">Error:</td>
-                    <td style="border: 1px solid #ddd; padding: 8px;">{error_details['error']}</td>
-                </tr>
-                <tr>
-                    <td style="border: 1px solid #ddd; padding: 8px; font-weight: bold;">Time:</td>
-                    <td style="border: 1px solid #ddd; padding: 8px;">{error_details['timestamp']}</td>
-                </tr>
-            </table>
-
-            <p style="margin-top: 20px;">
-                <strong>Action Required:</strong><br>
-                1. Check the member's configuration and membership type template<br>
-                2. Verify the dues schedule template has proper suggested_amount<br>
-                3. The scheduled task will attempt to create missing schedules automatically<br>
-                4. Manual dues schedule creation may be required if the issue persists
-            </p>
-
-            <p style="margin-top: 15px;">
-                <a href="/app/member/{error_details['member']}" style="background: #007bff; color: white; padding: 8px 12px; text-decoration: none; border-radius: 4px;">View Member</a>
-                <a href="/app/membership/{error_details['membership']}" style="background: #28a745; color: white; padding: 8px 12px; text-decoration: none; border-radius: 4px; margin-left: 10px;">View Membership</a>
-            </p>
-            """
-
-            notification.type = "Alert"
-            notification.document_type = "Membership"
-            notification.document_name = self.name
-            notification.from_user = "Administrator"
-
-            # Send to administrators
-            admin_users = frappe.get_all(
-                "User",
-                filters={"enabled": 1, "user_type": "System User"},
-                or_filters=[
-                    ["role_profile_name", "=", "Verenigingen Administrator"],
-                    ["name", "in", frappe.get_roles("Verenigingen Administrator")],
-                ],
-                pluck="name",
-            )
-
-            if not admin_users:
-                # Fallback to System Manager role
-                admin_users = frappe.get_all(
-                    "User",
-                    filters={"enabled": 1, "user_type": "System User"},
-                    or_filters=[["name", "in", frappe.get_roles("System Manager")]],
-                    pluck="name",
-                )
-
-            for admin in admin_users:
-                admin_notification = notification.copy()
-                admin_notification.for_user = admin
-                # CORRECTED SECURE VERSION: Use proper secure operations with explicit permission validation
-                from verenigingen.utils.secure_operations import secure_document_operation
-
-                notification_result = secure_document_operation(
-                    operation="insert",
-                    doc=admin_notification,
-                    justification=f"Create dues schedule alert notification for admin {admin}",
-                    required_permissions=["Notification:create"],
-                )
-
-                if not notification_result.success:
-                    frappe.logger().error(
-                        f"Failed to create admin notification: {'; '.join(notification_result.errors)}"
-                    )
-                    # Don't throw here as this is notification creation, just log the error
-
-        except Exception as notification_error:
-            frappe.logger().error(f"Failed to create dues schedule alert: {str(notification_error)}")
-
-    def _schedule_dues_schedule_retry(self):
-        """Schedule a retry for dues schedule creation via the auto-creator"""
-        try:
-            # Add this member to a retry queue or flag for the scheduled task
-            current_queue = frappe.cache().get("dues_schedule_retry_queue") or {}
-            current_queue[self.member] = {
-                "membership": self.name,
-                "membership_type": self.membership_type,
-                "retry_count": 0,
-                "last_attempt": frappe.utils.now(),
-                "scheduled_by": "membership_hook",
-            }
-            frappe.cache().set("dues_schedule_retry_queue", current_queue)
-
-            frappe.logger().info(f"Scheduled dues schedule retry for member {self.member}")
-
-        except Exception as e:
-            frappe.logger().error(f"Failed to schedule dues schedule retry: {str(e)}")
+    # REMOVED: _schedule_dues_schedule_retry() - replaced by DuesScheduleCreationService with frappe.enqueue()
 
     def pause_dues_schedule(self):
         """Pause the member's dues schedule when membership is cancelled"""
