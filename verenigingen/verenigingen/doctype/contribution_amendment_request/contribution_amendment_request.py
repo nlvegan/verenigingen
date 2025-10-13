@@ -1,7 +1,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import add_days, escape_html, getdate, now_datetime, today
+from frappe.utils import add_days, getdate, now_datetime, today
 
 from verenigingen.utils.secure_operations import secure_document_operation
 from verenigingen.utils.security.api_security_framework import (
@@ -430,7 +430,7 @@ class ContributionAmendmentRequest(Document):
             message=f"Failed to sync amendment {self.name} to Mollie.\n\nError: {error_message}",
         )
 
-        # Notify administrators
+        # Notify administrators using EmailService template
         try:
             from verenigingen.services.communication.email_service import get_email_service
 
@@ -452,39 +452,34 @@ class ContributionAmendmentRequest(Document):
                 membership = frappe.get_doc("Membership", self.membership)
                 member = frappe.get_doc("Member", membership.member)
 
-                message = f"""
-                <h3>Mollie Subscription Sync Failed</h3>
-
-                <p>A Mollie subscription sync operation failed and requires administrator attention.</p>
-
-                <h4>Amendment Details:</h4>
-                <ul>
-                    <li><strong>Amendment:</strong> {frappe.utils.escape_html(self.name)}</li>
-                    <li><strong>Type:</strong> {frappe.utils.escape_html(self.amendment_type)}</li>
-                    <li><strong>Member:</strong> {frappe.utils.escape_html(member.full_name)} ({frappe.utils.escape_html(member.name)})</li>
-                </ul>
-
-                <h4>Error:</h4>
-                <p>{frappe.utils.escape_html(error_message)}</p>
-
-                <p>
-                    <strong>Action Required:</strong> Please review and manually sync the subscription if needed.
-                </p>
-
-                <p>
-                    <a href="{frappe.utils.get_url()}/app/contribution-amendment-request/{self.name}">View Amendment</a>
-                </p>
-                """
-
-                email_service.send_email(
+                result = email_service.send_templated_email(
+                    template_name="mollie_sync_failed",
                     recipients=recipients,
-                    subject=f"Mollie Sync Failed: {member.full_name}",
-                    message=message,
+                    context={
+                        "amendment_id": self.name,
+                        "amendment_type": self.amendment_type,
+                        "member_name": member.full_name,
+                        "member_id": member.name,
+                        "requested_amount": frappe.format_value(self.requested_amount, "Currency")
+                        if self.requested_amount
+                        else None,
+                        "error_message": error_message,
+                        "amendment_link": frappe.utils.get_url()
+                        + "/app/contribution-amendment-request/"
+                        + self.name,
+                        "timestamp": frappe.utils.now_datetime().strftime("%Y-%m-%d %H:%M:%S"),
+                    },
                     reference_doctype="Contribution Amendment Request",
                     reference_name=self.name,
                 )
 
-                frappe.logger().info(f"Sent failure notification to {len(recipients)} administrators")
+                if result.get("success"):
+                    frappe.logger().info(f"Sent failure notification to {len(recipients)} administrators")
+                else:
+                    frappe.log_error(
+                        f"Failed to send Mollie sync failure notification: {result.get('message')}",
+                        "Mollie Sync Notification Error",
+                    )
 
         except Exception as email_error:
             frappe.log_error(
@@ -1047,38 +1042,43 @@ class ContributionAmendmentRequest(Document):
             )
 
     def send_rejection_notification(self):
-        """Send notification to requester about rejection (XSS-safe)"""
+        """Send notification to requester about rejection using EmailService template"""
         if not self.requested_by:
             return
 
         try:
-            # Escape all user-provided content to prevent XSS attacks
-            safe_name = escape_html(self.name)
-            safe_type = escape_html(self.amendment_type) if self.amendment_type else "N/A"
-            safe_reason = (
-                escape_html(self.rejection_reason) if self.rejection_reason else "No reason provided"
-            )
+            from verenigingen.services.communication.email_service import get_email_service
 
-            frappe.sendmail(
+            # Get member details for personalization
+            membership = frappe.get_doc("Membership", self.membership)
+            member = frappe.get_doc("Member", membership.member)
+
+            email_service = get_email_service()
+            result = email_service.send_templated_email(
+                template_name="amendment_rejected",
                 recipients=[self.requested_by],
-                subject=_("Membership Amendment Request Rejected"),
-                message=f"""
-                <h3>Amendment Request Rejected</h3>
-
-                <p>Your membership amendment request has been rejected.</p>
-
-                <p><strong>Details:</strong></p>
-                <ul>
-                    <li>Amendment ID: {safe_name}</li>
-                    <li>Type: {safe_type}</li>
-                    <li>Requested Amount: {frappe.format_value(self.requested_amount, 'Currency') if self.requested_amount else 'N/A'}</li>
-                    <li>Rejection Reason: {safe_reason}</li>
-                </ul>
-
-                <p>If you have questions about this decision, please contact the membership team.</p>
-                """,
-                now=True,
+                context={
+                    "member_name": member.full_name,
+                    "amendment_id": self.name,
+                    "amendment_type": self.amendment_type or "N/A",
+                    "requested_amount": frappe.format_value(self.requested_amount, "Currency")
+                    if self.requested_amount
+                    else None,
+                    "rejection_reason": self.rejection_reason or "No reason provided",
+                    "portal_link": frappe.utils.get_url()
+                    + "/app/contribution-amendment-request/"
+                    + self.name,
+                    "current_year": frappe.utils.now_datetime().year,
+                },
+                reference_doctype="Contribution Amendment Request",
+                reference_name=self.name,
             )
+
+            if not result.get("success"):
+                frappe.log_error(
+                    f"Failed to send rejection notification: {result.get('message')}",
+                    "Amendment Rejection Email Error",
+                )
         except Exception as e:
             frappe.log_error(f"Error sending rejection notification: {str(e)}")
 

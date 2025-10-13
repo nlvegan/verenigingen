@@ -21,7 +21,7 @@ Verenigingen is a comprehensive association management system designed specifica
 
 - **Complete Member Lifecycle**: From application to termination with automated workflows
 - **Financial Integration**: SEPA direct debit, eBoekhouden sync, and ERPNext integration
-- **Dutch Compliance**: ANBI, GDPR, and Belastingdienst reporting capabilities
+- **Dutch Compliance**: ANBI donation agreement support, GDPR compliance
 - **Portal Systems**: Self-service member and volunteer portals
 - **Modern Technology**: Built on Frappe Framework with responsive design
 

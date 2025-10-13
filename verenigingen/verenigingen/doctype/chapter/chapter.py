@@ -1096,30 +1096,6 @@ class Chapter(WebsiteGenerator):
 # ============================================================================
 
 
-def validate_chapter_access(doc, method=None):
-    """Validate chapter access permissions"""
-    try:
-        if frappe.session.user == "Administrator" or "System Manager" in frappe.get_roles():
-            return
-
-        settings = frappe.get_single("Verenigingen Settings")
-        if not settings.get("national_board_chapter"):
-            return
-
-        if doc.name == settings.national_board_chapter:
-            user_roles = frappe.get_roles()
-            if "Verenigingen Administrator" in user_roles and "System Manager" not in user_roles:
-                frappe.throw(
-                    _(
-                        "Verenigingen Administrators cannot edit the National Board chapter. Please contact an administrator."
-                    )
-                )
-
-    except Exception as e:
-        frappe.log_error(f"Error validating chapter access for {doc.name}: {str(e)}")
-        # Don't block access on validation errors
-
-
 def get_list_context(context):
     """Get list context for chapter list view"""
     context.allow_guest = True

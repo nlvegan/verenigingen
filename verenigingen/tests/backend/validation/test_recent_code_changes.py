@@ -217,8 +217,8 @@ class TestRecentCodeChanges(EnhancedTestCase):
         volunteer.insert()
         self.test_records.append(volunteer)
 
-        # Test get_default_expense_approver method
-        approver = volunteer.get_default_expense_approver()
+        # Test get_expense_approver_from_assignments method
+        approver = volunteer.get_expense_approver_from_assignments()
 
         # Should return a valid user email or "Administrator"
         self.assertIsInstance(approver, str)
@@ -273,13 +273,13 @@ class TestRecentCodeChanges(EnhancedTestCase):
         self.test_records.append(volunteer)
 
         # Test expense approver detection
-        approver = volunteer.get_default_expense_approver()
+        approver = volunteer.get_expense_approver_from_assignments()
 
         # Should return Administrator since board member creation was skipped
         self.assertEqual(approver, "Administrator")
 
     def test_expense_approver_query_simplification(self):
-        """Test that the simplified query logic works without SQL errors"""
+        """Test that the query logic works without SQL errors"""
         volunteer = frappe.get_doc(
             {
                 "doctype": "Volunteer",
@@ -292,11 +292,11 @@ class TestRecentCodeChanges(EnhancedTestCase):
 
         # This should not raise any SQL errors
         try:
-            approver = volunteer.get_default_expense_approver()
+            approver = volunteer.get_expense_approver_from_assignments()
             self.assertIsNotNone(approver)
             self.assertIsInstance(approver, str)
         except Exception as e:
-            self.fail(f"get_default_expense_approver raised an exception: {e}")
+            self.fail(f"get_expense_approver_from_assignments raised an exception: {e}")
 
     def test_chapter_assigned_date_field_removal(self):
         """Test that chapter_assigned_date field has been properly removed"""
@@ -380,7 +380,7 @@ class TestRecentCodeChanges(EnhancedTestCase):
         self.assertTrue(frappe.db.exists("Volunteer", volunteer.name))
 
         # Should be able to call expense approver method
-        approver = volunteer.get_default_expense_approver()
+        approver = volunteer.get_expense_approver_from_assignments()
         self.assertIsNotNone(approver)
 
     def test_debug_buttons_removal(self):

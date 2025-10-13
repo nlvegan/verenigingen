@@ -81,7 +81,6 @@ Detailed operational guides and procedures:
 - **[ENHANCED_TERMINATION_IMPLEMENTATION.md](manuals/ENHANCED_TERMINATION_IMPLEMENTATION.md)** - Member termination
 - **[SUSPENSION_SYSTEM_IMPLEMENTATION.md](manuals/SUSPENSION_SYSTEM_IMPLEMENTATION.md)** - Member suspension
 - **[VOLUNTEER_EXPENSE_PORTAL.md](manuals/VOLUNTEER_EXPENSE_PORTAL.md)** - Expense management
-- **[COMPREHENSIVE_EDGE_CASE_TESTING_SUMMARY.md](manuals/COMPREHENSIVE_EDGE_CASE_TESTING_SUMMARY.md)** - Edge case testing
 
 ### 🔄 **Fixes** (`/fixes/`)
 

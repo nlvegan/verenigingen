@@ -768,8 +768,8 @@ class TestERPNextExpenseEdgeCases(EnhancedTestCase):
         test_volunteer.insert()
 
         try:
-            # This should not raise any SQL errors with the new simplified logic
-            approver = test_volunteer.get_default_expense_approver()
+            # This should not raise any SQL errors with the logic
+            approver = test_volunteer.get_expense_approver_from_assignments()
 
             # Should return a valid result
             self.assertIsInstance(approver, str)
@@ -779,7 +779,7 @@ class TestERPNextExpenseEdgeCases(EnhancedTestCase):
             self.assertTrue(approver == "Administrator" or "@" in approver)
 
         except Exception as e:
-            self.fail(f"Simplified expense approver logic failed: {e}")
+            self.fail(f"Expense approver logic failed: {e}")
         # Note: cleanup handled automatically by EnhancedTestCase
 
     def test_expense_approver_treasurer_priority(self):
@@ -797,13 +797,13 @@ class TestERPNextExpenseEdgeCases(EnhancedTestCase):
         test_volunteer.insert()
 
         # Test basic functionality: method should return a valid approver
-        approver = test_volunteer.get_default_expense_approver()
-        
+        approver = test_volunteer.get_expense_approver_from_assignments()
+
         # Should get some form of valid approver (Administrator is acceptable fallback)
         self.assertIsNotNone(approver)
         self.assertIsInstance(approver, str)
         self.assertTrue(len(approver) > 0)
-        
+
         # Common valid approvers include Administrator or email addresses
         self.assertTrue(approver == "Administrator" or "@" in approver)
         

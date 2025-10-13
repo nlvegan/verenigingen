@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background-color: #dc3545; padding: 20px; border-radius: 8px 8px 0 0; }
+        .header h2 { margin: 0; color: #ffffff; }
+        .content { background-color: #ffffff; padding: 30px; border: 1px solid #e9ecef; }
+        .footer { background-color: #f8f9fa; padding: 20px; text-align: center; font-size: 12px; color: #6c757d; border-radius: 0 0 8px 8px; }
+        .error-box { background-color: #f8d7da; border-left: 4px solid #dc3545; padding: 15px; margin: 20px 0; border-radius: 4px; }
+        .action-box { background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 4px; }
+        .amendment-details { background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; }
+        .amendment-details td { padding: 8px 0; }
+        .button { display: inline-block; padding: 12px 24px; background-color: #dc3545; color: white; text-decoration: none; border-radius: 4px; margin: 20px 0; }
+        .icon { font-size: 48px; text-align: center; margin: 20px 0; color: #dc3545; }
+        code { background-color: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>⚠️ Mollie Sync Failure Alert</h2>
+        </div>
+
+        <div class="content">
+            <div class="icon">🔴</div>
+
+            <h3 style="text-align: center;">Mollie Subscription Sync Failed</h3>
+
+            <p>Dear Administrator,</p>
+
+            <p>A Mollie subscription sync operation has failed and requires your immediate attention.</p>
+
+            <div class="amendment-details">
+                <h4 style="margin-top: 0;">Amendment Details:</h4>
+                <table style="width: 100%;">
+                    <tr>
+                        <td><strong>Amendment:</strong></td>
+                        <td>{{ amendment_id|e }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Type:</strong></td>
+                        <td>{{ amendment_type|e }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Member:</strong></td>
+                        <td>{{ member_name|e }} ({{ member_id|e }})</td>
+                    </tr>
+                    {% if requested_amount %}
+                    <tr>
+                        <td><strong>Requested Amount:</strong></td>
+                        <td>{{ requested_amount|e }}</td>
+                    </tr>
+                    {% endif %}
+                </table>
+            </div>
+
+            <div class="error-box">
+                <h4 style="margin-top: 0;">Error Details:</h4>
+                <p><code>{{ error_message|e }}</code></p>
+            </div>
+
+            <div class="action-box">
+                <strong>Action Required:</strong>
+                <ul style="margin: 10px 0;">
+                    <li>Review the amendment request details</li>
+                    <li>Check Mollie dashboard for any related issues</li>
+                    <li>Manually sync the subscription if necessary</li>
+                    <li>Verify member's payment status</li>
+                </ul>
+            </div>
+
+            <center>
+                <a href="{{ amendment_link|e }}" class="button">View Amendment Request</a>
+            </center>
+
+            <p><strong>Next Steps:</strong></p>
+            <ol>
+                <li>Click the button above to access the amendment request</li>
+                <li>Review the error details and member information</li>
+                <li>Take appropriate action to resolve the sync issue</li>
+                <li>Consider contacting Mollie support if the issue persists</li>
+            </ol>
+
+            <p style="margin-top: 30px; font-size: 12px; color: #6c757d;">
+                <strong>Technical Note:</strong> This notification was triggered by a failed background sync job.
+                The amendment status has been updated to "Failed" in the system.
+            </p>
+        </div>
+
+        <div class="footer">
+            <p>This is an automated administrator alert.<br>
+            Timestamp: {{ timestamp|e }}<br>
+            System: {{ company_name|default('Verenigingen', true) }} Management Platform</p>
+        </div>
+    </div>
+</body>
+</html>

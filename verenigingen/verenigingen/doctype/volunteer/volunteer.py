@@ -1072,44 +1072,6 @@ class Volunteer(Document):
                 "Volunteer Account Creation Queue Error",
             )
 
-    def get_default_expense_approver(self):
-        """Get default expense approver for this volunteer"""
-        try:
-            # Try to find a volunteer with expense approval permissions
-            # This could be based on chapter leadership, team roles, etc.
-
-            # First check if there's a chapter board member available
-            if self.member:
-                # Get chapters this volunteer's member belongs to
-                member_chapters = frappe.get_all(
-                    "Chapter Member", filters={"member": self.member, "enabled": 1}, fields=["parent"]
-                )
-
-                for chapter in member_chapters:
-                    # Look for board members in this chapter who can approve expenses
-                    board_members = frappe.get_all(
-                        "Chapter Board Member", filters={"parent": chapter.parent}, fields=["volunteer"]
-                    )
-
-                    for board_member in board_members:
-                        if board_member.volunteer and board_member.volunteer != self.name:
-                            return board_member.volunteer
-
-            # Fallback: Try to find any user with expense approval permissions
-            approvers = frappe.get_all("User", filters={"enabled": 1}, fields=["name"])
-
-            for approver in approvers:
-                # Check if user has permission to approve expense claims
-                if frappe.has_permission("Expense Claim", "submit", user=approver.name):
-                    return approver.name
-
-            # Final fallback: return Administrator
-            return "Administrator"
-
-        except Exception as e:
-            frappe.log_error(f"Error getting default expense approver: {str(e)}", "Expense Approver Error")
-            return "Administrator"
-
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.MEMBER_DATA)
