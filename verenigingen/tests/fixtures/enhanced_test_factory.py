@@ -2486,6 +2486,19 @@ class EnhancedTestCase(FrappeTestCase):
                     # Fallback to direct creation only if secure operation fails
                     company.insert()
                     self.factory.track_document("Company", company.name, priority=1)
+
+            # Ensure Test Company has round_off_cost_center configured for GL entries
+            # This is required by ERPNext for invoice submission
+            test_company = self._get_test_company()
+            if test_company:
+                current_round_off = frappe.db.get_value("Company", test_company, "round_off_cost_center")
+                if not current_round_off:
+                    # Find a suitable cost center (non-group)
+                    cost_center = frappe.db.get_value("Cost Center",
+                        {"company": test_company, "is_group": 0}, "name")
+                    if cost_center:
+                        frappe.db.set_value("Company", test_company, "round_off_cost_center",
+                                          cost_center, update_modified=False)
                 
             # Ensure comprehensive fiscal year coverage
             from frappe.utils import getdate
@@ -2754,11 +2767,18 @@ class EnhancedTestCase(FrappeTestCase):
         else:
             income_account = income_account[0]
 
+        # Get cost center for ERPNext validation (required for invoice items)
+        cost_center = frappe.db.get_value("Company", company, "cost_center")
+        if not cost_center:
+            # Find any active cost center for this company
+            cost_center = frappe.db.get_value("Cost Center",
+                {"company": company, "is_group": 0}, "name")
+
         # Add invoice item with proper accounting setup
-        # If custom items are provided, ensure they have income_account
+        # If custom items are provided, ensure they have income_account and cost_center
         if "items" in kwargs:
             invoice_data["items"] = kwargs.pop("items")
-            # Ensure items exist and add income_account if not already present
+            # Ensure items exist and add required accounting fields
             for item in invoice_data["items"]:
                 # Ensure the item exists in the system
                 if "item_code" in item:
@@ -2766,6 +2786,9 @@ class EnhancedTestCase(FrappeTestCase):
                 # Add income_account if not already present
                 if "income_account" not in item:
                     item["income_account"] = income_account
+                # Add cost_center if not already present (required by ERPNext)
+                if "cost_center" not in item:
+                    item["cost_center"] = cost_center
         else:
             invoice_data["items"] = [{
                 "item_code": item_code,
@@ -2773,7 +2796,8 @@ class EnhancedTestCase(FrappeTestCase):
                 "rate": kwargs.get("grand_total", 100.0),
                 "amount": kwargs.get("grand_total", 100.0),
                 "uom": "Unit",
-                "income_account": income_account  # Required for ERPNext validation
+                "income_account": income_account,  # Required for ERPNext validation
+                "cost_center": cost_center  # Required for ERPNext validation
             }]
         
         invoice = frappe.get_doc(invoice_data)
