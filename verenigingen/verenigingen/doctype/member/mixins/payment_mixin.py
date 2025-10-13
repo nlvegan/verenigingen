@@ -585,63 +585,26 @@ class PaymentMixin:
             return (None, None)
 
     def _calculate_coverage_from_invoice_date(self, invoice_date, schedule_info):
-        """Calculate coverage period from invoice date and billing frequency"""
+        """
+        Calculate coverage period from invoice date and billing frequency.
+
+        CONSOLIDATED: Delegates to CoverageCalculator.calculate_billing_period() for consistent
+        coverage calculation logic across the application.
+        """
         try:
-            from frappe.utils import add_days, add_months, add_years, getdate
+            from verenigingen.services.billing.coverage_calculator import CoverageCalculator
 
-            invoice_date = getdate(invoice_date)
             billing_frequency = schedule_info.get("billing_frequency", "Daily")
+            custom_frequency_number = schedule_info.get("custom_frequency_number")
+            custom_frequency_unit = schedule_info.get("custom_frequency_unit")
 
-            # Calculate coverage based on billing frequency
-            if billing_frequency == "Daily":
-                # Daily billing: coverage is the same day
-                return (invoice_date, invoice_date)
-            elif billing_frequency == "Weekly":
-                # Weekly billing: coverage is 7 days from invoice date
-                return (invoice_date, add_days(invoice_date, 6))
-            elif billing_frequency == "Monthly":
-                # Monthly billing: coverage is 1 month from invoice date
-                end_date = add_months(invoice_date, 1)
-                end_date = add_days(end_date, -1)  # Last day of coverage month
-                return (invoice_date, end_date)
-            elif billing_frequency == "Quarterly":
-                # Quarterly billing: coverage is 3 months from invoice date
-                end_date = add_months(invoice_date, 3)
-                end_date = add_days(end_date, -1)
-                return (invoice_date, end_date)
-            elif billing_frequency == "Semi-Annual":
-                # Semi-annual billing: coverage is 6 months from invoice date
-                end_date = add_months(invoice_date, 6)
-                end_date = add_days(end_date, -1)
-                return (invoice_date, end_date)
-            elif billing_frequency == "Annual":
-                # Annual billing: coverage is 1 year from invoice date
-                end_date = add_years(invoice_date, 1)
-                end_date = add_days(end_date, -1)
-                return (invoice_date, end_date)
-            elif billing_frequency == "Custom":
-                # Custom frequency: calculate based on custom settings
-                number = schedule_info.get("custom_frequency_number", 1)
-                unit = schedule_info.get("custom_frequency_unit", "Days")
-
-                if unit == "Days":
-                    end_date = add_days(invoice_date, number - 1)
-                elif unit == "Weeks":
-                    end_date = add_days(invoice_date, (number * 7) - 1)
-                elif unit == "Months":
-                    end_date = add_months(invoice_date, number)
-                    end_date = add_days(end_date, -1)
-                elif unit == "Years":
-                    end_date = add_years(invoice_date, number)
-                    end_date = add_days(end_date, -1)
-                else:
-                    # Default to same day
-                    end_date = invoice_date
-
-                return (invoice_date, end_date)
-            else:
-                # Unknown frequency, default to same day
-                return (invoice_date, invoice_date)
+            # Delegate to coverage calculator service
+            return CoverageCalculator.calculate_billing_period(
+                billing_frequency,
+                invoice_date,
+                custom_frequency_number,
+                custom_frequency_unit
+            )
 
         except Exception as e:
             frappe.log_error(
@@ -718,8 +681,8 @@ class PaymentMixin:
         """
         Comprehensive IBAN validation and formatting using PaymentValidationService.
 
-        DELEGATE: This method now delegates to PaymentValidationService for validation orchestration.
-        Preserves backward compatibility while consolidating validation logic.
+        CONSOLIDATED: Delegates all validation and BIC derivation to PaymentValidationService.
+        The service handles IBAN validation, formatting, and automatic BIC derivation for Dutch banks.
 
         Args:
             iban: IBAN to validate and format
@@ -735,44 +698,49 @@ class PaymentMixin:
 
         from verenigingen.services.payment.validation_service import get_payment_validation_service
 
-        # Delegate IBAN validation to service
         service = get_payment_validation_service()
-        result = service.validate_iban_with_context(iban, context="member")
+
+        # Use comprehensive bank details validation with auto BIC derivation
+        # Only auto-derive BIC if IBAN changed or BIC is empty (performance optimization)
+        iban_changed = self.has_value_changed("iban") if not self.is_new() else True
+        should_derive_bic = hasattr(self, "bic") and (iban_changed or not self.bic)
+
+        # When deriving BIC, don't pass the old BIC to the service
+        # This ensures the service actually derives a new one
+        bic_for_validation = None if should_derive_bic else (self.bic if hasattr(self, "bic") else None)
+
+        result = service.validate_bank_details(
+            iban=iban,
+            bic=bic_for_validation,
+            account_holder_name=self.bank_account_name if hasattr(self, "bank_account_name") else None,
+            auto_derive_bic=should_derive_bic,
+            require_bic=False
+        )
 
         if not result.valid:
-            # Service already provides user-friendly error messages
+            # Service provides user-friendly error messages
             frappe.throw(result.message, title=_("Invalid IBAN"), exc=frappe.ValidationError)
 
-        # Get formatted IBAN from result
-        formatted_iban = result.data.get("formatted_iban", iban)
+        # Update BIC if it was derived by the service
+        if should_derive_bic and result.data.get("bic") and result.data.get("bic_derived"):
+            if self.bic != result.data["bic"]:
+                self.bic = result.data["bic"]
 
-        # Auto-derive BIC for supported IBANs (primarily Dutch)
-        # Only run derivation if IBAN changed or BIC is empty (performance optimization)
-        if hasattr(self, "bic"):
-            iban_changed = self.has_value_changed("iban") if not self.is_new() else True
-
-            if iban_changed or not self.bic:
-                from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
-
-                derived_bic = derive_bic_from_iban(iban)
-
-                if derived_bic:
-                    # Successfully derived BIC - update if different
-                    if self.bic != derived_bic:
-                        self.bic = derived_bic
-                # If derivation fails (international IBAN), preserve existing BIC value
-
-        return formatted_iban
+        return result.data.get("formatted_iban", iban)
 
     def track_iban_change(self):
-        """Track IBAN changes in history"""
+        """
+        Track IBAN changes in history.
+
+        NOTE: Cannot delegate to external manager during save due to recursion issues.
+        Keeps inline implementation but uses atomic SQL updates for consistency.
+        """
         try:
             # Get old IBAN from database
             old_iban = frappe.db.get_value("Member", self.name, "iban")
 
             if old_iban and old_iban != self.iban:
                 # Deactivate all previous IBAN history records atomically
-                # This prevents race conditions from concurrent updates
                 frappe.db.sql(
                     """
                     UPDATE `tabMember IBAN History`
@@ -796,15 +764,12 @@ class PaymentMixin:
                     },
                 )
 
-                # Log the change
                 frappe.logger().info(f"IBAN changed for member {self.name} from {old_iban} to {self.iban}")
 
-                # Check if SEPA mandates need to be updated
+                # Show SEPA mandate warning if applicable
                 if hasattr(self, "payment_method") and self.payment_method == "SEPA Direct Debit":
                     frappe.msgprint(
-                        _(
-                            "IBAN has been changed. Please review SEPA mandates as they may need to be updated."
-                        ),
+                        _("IBAN has been changed. Please review SEPA mandates as they may need to be updated."),
                         indicator="orange",
                         alert=True,
                     )

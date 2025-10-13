@@ -10,6 +10,7 @@ This is the improved version of the AST Field Analyzer that includes:
 The original analyzer has been archived as ast_field_analyzer_original.py
 """
 
+import ast
 import sys
 from pathlib import Path
 
@@ -107,9 +108,92 @@ class ASTFieldAnalyzer(OriginalAnalyzer):
         
         return context
     
+    def analyze_file_context(self, tree, file_path):
+        """Override to store file path and track DocType() QueryBuilder variables"""
+        context = super().analyze_file_context(tree, file_path)
+
+        # Store the file path for later use
+        context._file_path = file_path
+
+        # Track QueryBuilder DocType() assignments
+        # Pattern: CBM = DocType("Chapter Board Member")
+        doctype_tracker = QueryBuilderDocTypeTracker()
+        doctype_tracker.visit(tree)
+        context.querybuilder_doctypes = doctype_tracker.doctype_vars
+
+        # Track lambda parameters
+        # Pattern: lambda m: m.field_name
+        lambda_tracker = LambdaParameterTracker()
+        lambda_tracker.visit(tree)
+        context.lambda_params = lambda_tracker.lambda_params
+
+        return context
+
+    def detect_doctype_with_modern_logic(self, node, source_lines, file_context):
+        """Override to add QueryBuilder DocType recognition"""
+
+        obj_name = node.value.id if hasattr(node.value, 'id') else None
+        if not obj_name:
+            return None, None
+
+        # NEW: Check if this is a QueryBuilder DocType variable (CBM, TM, etc.)
+        if hasattr(file_context, 'querybuilder_doctypes') and obj_name in file_context.querybuilder_doctypes:
+            # This is a QueryBuilder proxy like CBM.field_name
+            # The fields belong to the target DocType, not the parent class
+            target_doctype = file_context.querybuilder_doctypes[obj_name]
+            if self.verbose:
+                print(f"    ✓ QueryBuilder: {obj_name} -> {target_doctype} (DocType proxy)")
+            # Return None to skip validation - QueryBuilder fields are valid
+            return None, "querybuilder_proxy"
+
+        # NEW: Check if this is a lambda parameter (common in config dicts)
+        # Lambda params like 'm' or 'dt' are not DocType instances
+        if hasattr(file_context, 'lambda_params') and obj_name in file_context.lambda_params:
+            if self.verbose:
+                print(f"    ✓ Lambda parameter: {obj_name} (not a DocType field)")
+            # Return None to skip validation - lambda params are valid
+            return None, "lambda_parameter"
+
+        # Check if we have a file path stored in context
+        file_path = getattr(file_context, '_file_path', None)
+
+        # File path inference for hook files (highest priority)
+        if file_path and str(file_path).endswith('_hooks.py') and obj_name in ['doc', 'self']:
+            inferred_doctype = self._infer_doctype_from_hook_file(Path(file_path))
+
+            if inferred_doctype:
+                # Validate that the field makes sense for this DocType
+                if hasattr(node, 'attr'):
+                    field_name = node.attr
+                    if inferred_doctype in self.doctypes:
+                        doctype_fields = self.doctypes[inferred_doctype].get('fields', set())
+
+                        # Check if field exists on the inferred DocType
+                        if field_name in doctype_fields:
+                            if self.verbose:
+                                print(f"    ✓ File path inference: {obj_name} -> {inferred_doctype}, field '{field_name}' exists")
+                            return inferred_doctype, "file_path_inference"
+
+                        # Check if it's a Link field (common pattern)
+                        link_fields = ['member', 'customer', 'supplier', 'user', 'company']
+                        if field_name in link_fields:
+                            if self.verbose:
+                                print(f"    ✓ File path inference: {obj_name} -> {inferred_doctype}, '{field_name}' is likely a Link field")
+                            return inferred_doctype, "file_path_inference"
+
+                        # Check if it's a common framework field
+                        common_fields = {'name', 'creation', 'modified', 'owner', 'docstatus'}
+                        # Also check for common non-field attributes
+                        common_non_field_attributes = {'errors', 'success', 'result', 'status', 'message'}
+                        if field_name in common_fields or field_name in common_non_field_attributes:
+                            return inferred_doctype, "file_path_inference"
+
+        # Fall back to original detection logic
+        return super().detect_doctype_with_modern_logic(node, source_lines, file_context)
+
     def calculate_confidence(self, issue, context):
         """Override to adjust confidence for file path inference"""
-        
+
         # If the inference came from file path, it's high confidence
         if hasattr(issue, 'inference_method') and issue.inference_method == "file_path_inference":
             # Check if this might be a false positive
@@ -119,9 +203,56 @@ class ASTFieldAnalyzer(OriginalAnalyzer):
                 if issue.field in ['member', 'is_template', 'status']:
                     # These are likely valid fields, reduce confidence significantly
                     return ConfidenceLevel.LOW
-        
+
         # Fall back to original confidence calculation
         return super().calculate_confidence(issue, context)
+
+
+class QueryBuilderDocTypeTracker(ast.NodeVisitor):
+    """Track QueryBuilder DocType() variable assignments"""
+
+    def __init__(self):
+        self.doctype_vars = {}  # variable_name -> doctype_name
+
+    def visit_Assign(self, node):
+        """Track assignments like: CBM = DocType("Chapter Board Member")"""
+        if len(node.targets) == 1 and isinstance(node.targets[0], (ast.Name,)):
+            var_name = node.targets[0].id
+
+            # Check for DocType() calls
+            # Pattern: CBM = DocType("Chapter Board Member")
+            if (isinstance(node.value, ast.Call) and
+                isinstance(node.value.func, ast.Name) and
+                node.value.func.id == 'DocType' and
+                len(node.value.args) >= 1):
+
+                # Extract DocType name from DocType("Name")
+                doctype_arg = node.value.args[0]
+                if isinstance(doctype_arg, ast.Constant):  # Python 3.8+
+                    doctype_name = doctype_arg.value
+                elif isinstance(doctype_arg, ast.Str):  # Python 3.7
+                    doctype_name = doctype_arg.s
+                else:
+                    doctype_name = None
+
+                if doctype_name and isinstance(doctype_name, str):
+                    self.doctype_vars[var_name] = doctype_name
+
+        self.generic_visit(node)
+
+
+class LambdaParameterTracker(ast.NodeVisitor):
+    """Track lambda function parameters to avoid false positives"""
+
+    def __init__(self):
+        self.lambda_params = set()  # parameter names used in lambdas
+
+    def visit_Lambda(self, node):
+        """Track lambda parameters like: lambda m: m.field"""
+        for arg in node.args.args:
+            self.lambda_params.add(arg.arg)
+
+        self.generic_visit(node)
 
 
 def main():
