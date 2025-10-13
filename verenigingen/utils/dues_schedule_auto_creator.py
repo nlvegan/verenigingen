@@ -112,8 +112,9 @@ def auto_create_missing_dues_schedules_scheduled():
     # Call the enhanced version that's defined later in this file
     result = auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=True)
 
-    # Send summary email if there were activities
-    if result.get("created_count", 0) > 0 or result.get("error_count", 0) > 0:
+    # Only send summary email if inner function didn't already send one
+    # (i.e., when there are errors but no creations)
+    if result.get("created_count", 0) == 0 and result.get("error_count", 0) > 0:
         _send_summary_email(result)
 
     return {

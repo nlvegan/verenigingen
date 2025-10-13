@@ -13,7 +13,7 @@ Provides a production-grade service for creating membership dues schedules with:
 Replaces the problematic cache-based retry queue with proper background job processing.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, ClassVar, Dict, Optional
 
 import frappe
 from frappe.utils import now
@@ -107,7 +107,7 @@ class DuesScheduleCreationService:
 
     # Retry configuration
     MAX_RETRIES = 3
-    RETRY_DELAYS = [60, 300, 1800]  # 1min, 5min, 30min in seconds
+    RETRY_DELAYS: ClassVar[list[int]] = [60, 300, 1800]  # 1min, 5min, 30min in seconds
     QUEUE_CONGESTION_THRESHOLD = 500  # Max pending jobs before backpressure
 
     # Circuit breaker configuration
@@ -199,7 +199,6 @@ class DuesScheduleCreationService:
                 return CreationResult(
                     success=True,
                     schedule_name=existing_schedule,
-                    error_category="duplicate",
                     already_exists=True,
                 )
 
@@ -251,7 +250,6 @@ class DuesScheduleCreationService:
                     custom_amount_reason=custom_amount_reason,
                     custom_amount_approved=custom_amount_approved,
                     retry_count=retry_count + 1,
-                    previous_error=error_str,
                 )
 
                 # Check if retry was deferred due to queue congestion
@@ -301,7 +299,6 @@ class DuesScheduleCreationService:
         custom_amount_reason: Optional[str],
         custom_amount_approved: int,
         retry_count: int,
-        previous_error: str,
     ) -> str:
         """
         Enqueue background job for retry with exponential backoff.
@@ -310,7 +307,6 @@ class DuesScheduleCreationService:
 
         Args:
             All parameters from create_schedule_with_retry
-            previous_error: Error that triggered the retry
 
         Returns:
             Job ID for tracking, or None if backpressure applied
