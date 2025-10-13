@@ -1009,10 +1009,13 @@ def generate_expulsion_report(filters=None):
 
         # Add disciplinary/expulsion filter using parameterized query
         disciplinary_types = ["Policy Violation", "Disciplinary Action", "Expulsion"]
-        conditions.append("ter.termination_type IN %s")
-        values.append(tuple(disciplinary_types))
+        # Build IN clause with proper number of placeholders
+        in_placeholders = ", ".join(["%s"] * len(disciplinary_types))
+        conditions.append(f"ter.termination_type IN ({in_placeholders})")
+        values.extend(disciplinary_types)  # Add each type individually to values list
 
-        # Get expulsion data
+        # Get expulsion data - safe from SQL injection via parameterized WHERE clause
+        where_clause = " AND ".join(conditions)
         query = f"""
             SELECT
                 ter.name as termination_request,
@@ -1028,11 +1031,11 @@ def generate_expulsion_report(filters=None):
                 ter.status
             FROM `tabMembership Termination Request` ter
             LEFT JOIN `tabMember` mem ON ter.member = mem.name
-            WHERE {' AND '.join(conditions)}
+            WHERE {where_clause}
             ORDER BY ter.termination_date DESC
         """
 
-        expulsions = frappe.db.sql(query, values, as_dict=True)
+        expulsions = frappe.db.sql(query, tuple(values), as_dict=True)
 
         # Get summary statistics
         summary = {
