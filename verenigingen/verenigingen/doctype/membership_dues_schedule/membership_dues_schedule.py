@@ -7,6 +7,8 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import add_days, add_months, add_years, flt, getdate, today
 
+from verenigingen.services.billing import DuplicateInvoiceDetector
+from verenigingen.utils.billing_period_calculator import calculate_billing_period, calculate_next_invoice_date
 from verenigingen.utils.member_utils import get_active_membership_for_member, get_member_chapters
 from verenigingen.utils.security.api_security_framework import (
     OperationType,
@@ -518,72 +520,6 @@ class MembershipDuesSchedule(Document):
                 f"Error validating financial constraints: {str(e)}", "Financial Validation Error"
             )
 
-    def validate_dues_rate_minimum(self):
-        """Legacy validation method - moved logic to validate_financial_constraints"""
-        # This method is kept for backward compatibility
-        pass
-
-    def validate_dues_rate_configuration_legacy(self):
-        """Legacy method - validates negative dues rates and minimum requirements"""
-        # Validate negative dues rates (zero is allowed for free memberships)
-        if self.dues_rate < 0:
-            frappe.throw("Dues rate cannot be negative")
-
-        # Single consolidated minimum validation
-        template_values = self.get_template_values()
-        min_contribution = template_values.get("minimum_amount", 0)
-        if min_contribution and self.dues_rate < min_contribution:
-            # Zero dues rates are allowed with reason (free memberships)
-            if self.dues_rate == 0:
-                self.custom_amount_reason = None
-                if not self.custom_amount_reason:
-                    frappe.throw("Zero dues rate memberships require a reason")
-                # Mark as custom amount for tracking
-                self.uses_custom_amount = 1
-            # Custom approved amounts can be below minimum
-            elif self.uses_custom_amount:
-                self.custom_amount_approved = None
-                if self.custom_amount_approved:
-                    pass  # Allow approved custom amounts below minimum
-            else:
-                # Auto-raise to minimum for non-custom amounts
-                self.dues_rate = min_contribution
-
-        # Check maximum contribution from Verenigingen Settings
-        settings = frappe.get_single("Verenigingen Settings")
-        if settings.maximum_fee_multiplier:
-            # Use suggested_amount from template (explicit configuration)
-            base_amount = template_values.get("suggested_amount", 0)
-            max_dues_rate = base_amount * settings.maximum_fee_multiplier
-
-            if self.dues_rate > max_dues_rate:
-                # Check if user has management permissions to override
-                user_roles = frappe.get_roles(frappe.session.user)
-                can_override = any(
-                    role in user_roles
-                    for role in ["System Manager", "Verenigingen Administrator", "Verenigingen Staff"]
-                )
-
-                if not can_override and (not self.uses_custom_amount or not self.custom_amount_approved):
-                    frappe.throw(
-                        f"Dues rate cannot exceed maximum: €{max_dues_rate:.2f} ({settings.maximum_fee_multiplier}x base fee - requires custom dues rate approval or Verenigingen Staff permissions)"
-                    )
-                elif can_override:
-                    # Auto-approve for managers
-                    self.uses_custom_amount = 1
-                    self.custom_amount_approved = 1
-                    self.custom_amount_approved_by = frappe.session.user
-                    self.custom_amount_approved_date = today()
-                    self.custom_amount_reason = None
-                    if not self.custom_amount_reason:
-                        self.custom_amount_reason = f"Approved by {frappe.session.user} (Manager Override)"
-
-        # Ensure currency precision (2 decimal places)
-        self.dues_rate = flt(self.dues_rate, 2)
-
-        # Additional template validation
-        self.validate_template_fields()
-
     def validate_template_fields(self):
         """Additional validation for template-specific fields"""
         if self.is_template:
@@ -708,17 +644,8 @@ class MembershipDuesSchedule(Document):
         """
         Coverage-based duplicate invoice prevention using efficient SQL overlap detection.
 
-        Prevents invoices with overlapping coverage periods by checking directly in SQL
-        rather than loading all invoices into memory.
+        Delegates to DuplicateInvoiceDetector service for all duplicate detection logic.
         """
-        if not self.member:
-            return {"can_generate": True, "reason": "No member - skipping duplicate check"}
-
-        # Get member's customer record
-        member_doc = frappe.get_doc("Member", self.member)
-        if not member_doc.customer:
-            return {"can_generate": True, "reason": "No customer - skipping duplicate check"}
-
         # Calculate the period to check - use billing period for Monthly, sequential for others
         if self.billing_frequency == "Monthly":
             # For monthly schedules, check if the current month is already covered
@@ -727,169 +654,11 @@ class MembershipDuesSchedule(Document):
             # For other frequencies, use the existing sequential logic
             proposed_coverage_start, proposed_coverage_end = self.calculate_next_coverage_period()
 
-        # ✅ IDEMPOTENCY: Check for duplicate/overlapping coverage in single query
-        # Only check SUBMITTED invoices (docstatus=1) - drafts are abandoned/incomplete data
-        # Optimized: Single query detects both exact duplicates and partial overlaps
-        overlapping_invoices = frappe.db.sql(
-            """
-            SELECT si.name, si.posting_date,
-                   si.custom_coverage_start_date, si.custom_coverage_end_date
-            FROM `tabSales Invoice` si
-            WHERE si.customer = %(customer)s
-            AND si.docstatus = 1
-            AND si.custom_coverage_start_date IS NOT NULL
-            AND si.custom_coverage_end_date IS NOT NULL
-            AND %(proposed_start)s <= si.custom_coverage_end_date
-            AND %(proposed_end)s >= si.custom_coverage_start_date
-            LIMIT 10
-        """,
-            {
-                "customer": member_doc.customer,
-                "proposed_start": proposed_coverage_start,
-                "proposed_end": proposed_coverage_end,
-            },
-            as_dict=True,
-        )
+        # Delegate to service
+        detector = DuplicateInvoiceDetector(self)
+        result = detector.check_for_duplicates(proposed_coverage_start, proposed_coverage_end)
 
-        if overlapping_invoices:
-            # Check if any are exact duplicates vs partial overlaps
-            exact_duplicates = [
-                inv
-                for inv in overlapping_invoices
-                if getdate(inv.custom_coverage_start_date) == getdate(proposed_coverage_start)
-                and getdate(inv.custom_coverage_end_date) == getdate(proposed_coverage_end)
-            ]
-
-            if exact_duplicates:
-                # Exact duplicate - same coverage period
-                invoice_details = ", ".join(
-                    [f"{inv.name} (posted {inv.posting_date})" for inv in exact_duplicates]
-                )
-                return {
-                    "can_generate": False,
-                    "reason": f"Duplicate coverage prevented: Invoice(s) {invoice_details} already cover exact period {proposed_coverage_start} to {proposed_coverage_end}",
-                }
-            else:
-                # Partial overlap - different but overlapping periods
-                invoice_list = ", ".join([inv.name for inv in overlapping_invoices])
-                return {
-                    "can_generate": False,
-                    "reason": f"Coverage overlap prevented: Invoice(s) {invoice_list} already cover overlapping period with {proposed_coverage_start} to {proposed_coverage_end}",
-                }
-
-        # Second check: Handle invoices with missing coverage dates using fallback logic
-        # Only process invoices newer than the most recent coverage to prevent processing ancient invoices
-
-        # First, find the most recent invoice with coverage dates
-        # Only check SUBMITTED invoices (docstatus=1)
-        latest_coverage_invoice = frappe.db.sql(
-            """
-            SELECT custom_coverage_end_date
-            FROM `tabSales Invoice` si
-            WHERE si.customer = %(customer)s
-            AND si.docstatus = 1
-            AND si.custom_coverage_end_date IS NOT NULL
-            ORDER BY si.custom_coverage_end_date DESC
-            LIMIT 1
-        """,
-            {"customer": member_doc.customer},
-            as_dict=True,
-        )
-
-        # If we have recent coverage and it's more than 30 days old, skip fallback entirely (gap reset logic)
-        if latest_coverage_invoice:
-            latest_coverage_end = getdate(latest_coverage_invoice[0].custom_coverage_end_date)
-            gap_days = (getdate(proposed_coverage_start) - latest_coverage_end).days
-
-            if gap_days > 30:
-                # Large gap detected - skip fallback processing entirely per gap reset logic
-                frappe.logger().info(
-                    f"Large coverage gap ({gap_days} days) detected for {member_doc.customer}. "
-                    f"Skipping fallback coverage processing per gap reset logic."
-                )
-                return {
-                    "can_generate": True,
-                    "reason": "No duplicates found (gap reset applied)",
-                    "gap_reset": True,
-                }
-
-            # Only check invoices newer than the most recent coverage
-            cutoff_date = latest_coverage_end
-        else:
-            # No coverage found - check all invoices (first-time generation)
-            cutoff_date = "1900-01-01"
-
-        invoices_needing_fallback = frappe.db.sql(
-            """
-            SELECT
-                si.name,
-                si.posting_date,
-                mds.last_invoice_date,
-                mds.next_invoice_date,
-                mds.billing_frequency
-            FROM `tabSales Invoice` si
-            LEFT JOIN `tabMembership Dues Schedule` mds ON mds.name = si.membership_dues_schedule_display
-            WHERE si.customer = %(customer)s
-            AND si.docstatus = 1
-            AND (si.custom_coverage_start_date IS NULL OR si.custom_coverage_end_date IS NULL)
-            AND si.posting_date > %(cutoff_date)s
-        """,
-            {
-                "customer": member_doc.customer,
-                "cutoff_date": cutoff_date,
-            },
-            as_dict=True,
-        )
-
-        # Process fallback cases - now only a small subset of invoices
-        overlapping_fallback_invoices = []
-        for inv in invoices_needing_fallback:
-            try:
-                # Derive coverage from invoice and schedule dates
-                inv_start, inv_end = self._derive_coverage_from_invoice_data(
-                    inv.posting_date,
-                    inv.last_invoice_date,
-                    inv.next_invoice_date,
-                    inv.billing_frequency or self.billing_frequency,
-                )
-
-                # Validate derived coverage dates
-                if not inv_start or not inv_end:
-                    frappe.log_error(
-                        f"Failed to derive coverage dates for invoice {inv.name}: "
-                        f"posting_date={inv.posting_date}, derived start={inv_start}, end={inv_end}",
-                        "Coverage Derivation Error",
-                    )
-                    continue
-
-                # Check for overlap with proposed period
-                if (
-                    getdate(proposed_coverage_start) <= inv_end
-                    and getdate(proposed_coverage_end) >= inv_start
-                ):
-                    overlapping_fallback_invoices.append(inv.name)
-
-            except Exception as e:
-                # Clean up HTML tags from error message to prevent formatting issues
-                import re
-
-                error_msg = str(e)
-                # Remove HTML tags for cleaner error logging
-                error_msg = re.sub("<[^<]+?>", "", error_msg)
-
-                frappe.log_error(
-                    f"Error processing fallback coverage for invoice {inv.name}: {error_msg}",
-                    "Coverage Fallback Error",
-                )
-                continue
-
-        if overlapping_fallback_invoices:
-            return {
-                "can_generate": False,
-                "reason": f"Coverage overlap prevented (fallback detection): Invoice(s) {', '.join(overlapping_fallback_invoices)} already cover period {proposed_coverage_start} to {proposed_coverage_end}",
-            }
-
-        return {"can_generate": True, "reason": "No duplicates found"}
+        return result.to_dict()
 
     def calculate_current_billing_period(self):
         """
@@ -899,196 +668,7 @@ class MembershipDuesSchedule(Document):
         Returns:
             tuple: (billing_start, billing_end) dates for the current period
         """
-        today_date = getdate(frappe.utils.today())
-
-        if self.billing_frequency == "Daily":
-            return today_date, today_date
-        elif self.billing_frequency == "Weekly":
-            # Weekly: Monday to Sunday of current week
-            days_since_monday = today_date.weekday()
-            period_start = add_days(today_date, -days_since_monday)
-            period_end = add_days(period_start, 6)
-            return period_start, period_end
-        elif self.billing_frequency == "Monthly":
-            # Monthly: First to last day of current month (could be enhanced with settings later)
-            period_start = today_date.replace(day=1)
-            next_month = add_months(period_start, 1)
-            period_end = add_days(next_month, -1)
-            return period_start, period_end
-        elif self.billing_frequency == "Quarterly":
-            # Quarterly: Start of current quarter to end of current quarter
-            current_quarter = ((today_date.month - 1) // 3) + 1
-            quarter_start_month = ((current_quarter - 1) * 3) + 1
-            period_start = today_date.replace(month=quarter_start_month, day=1)
-            period_end = add_days(add_months(period_start, 3), -1)
-            return period_start, period_end
-        elif self.billing_frequency == "Semi-Annual":
-            # Semi-annual: First or second half of the year
-            if today_date.month <= 6:
-                period_start = today_date.replace(month=1, day=1)
-                period_end = today_date.replace(month=6, day=30)
-            else:
-                period_start = today_date.replace(month=7, day=1)
-                period_end = today_date.replace(month=12, day=31)
-            return period_start, period_end
-        elif self.billing_frequency == "Annual":
-            # Annual: Current year
-            period_start = today_date.replace(month=1, day=1)
-            period_end = today_date.replace(month=12, day=31)
-            return period_start, period_end
-        else:
-            # Fallback: treat as monthly
-            period_start = today_date.replace(day=1)
-            next_month = add_months(period_start, 1)
-            period_end = add_days(next_month, -1)
-            return period_start, period_end
-
-    def _derive_coverage_from_invoice_data(
-        self, posting_date, last_invoice_date, next_invoice_date, billing_frequency
-    ):
-        """
-        Derive coverage period from invoice and schedule dates when explicit coverage dates are missing.
-
-        Includes comprehensive validation to prevent silent failures and ensure reliable results.
-
-        Args:
-            posting_date: Invoice posting date (required)
-            last_invoice_date: Previous invoice date from schedule (optional)
-            next_invoice_date: Next invoice date from schedule (optional)
-            billing_frequency: Billing frequency for period calculation (optional, defaults to schedule frequency)
-
-        Returns:
-            tuple: (start_date, end_date) for the coverage period
-
-        Raises:
-            ValueError: If unable to derive valid coverage dates
-        """
-        # Input validation
-        if not posting_date:
-            raise ValueError("posting_date is required for coverage derivation")
-
-        try:
-            posting_date = getdate(posting_date)
-        except Exception as e:
-            raise ValueError(f"Invalid posting_date format: {posting_date} - {str(e)}")
-
-        # Validate billing frequency
-        valid_frequencies = ["Daily", "Weekly", "Monthly", "Quarterly", "Semi-Annual", "Annual", "Custom"]
-        if billing_frequency and billing_frequency not in valid_frequencies:
-            frappe.log_error(
-                f"Unknown billing frequency '{billing_frequency}' for coverage derivation, using fallback logic",
-                "Coverage Derivation Warning",
-            )
-            billing_frequency = None
-
-        # Determine coverage start date with validation
-        coverage_start = None
-        if last_invoice_date:
-            try:
-                last_date = getdate(last_invoice_date)
-                coverage_start = add_days(last_date, 1)
-
-                # Sanity check: coverage start shouldn't be too far in the future from posting date
-                if coverage_start > add_days(posting_date, 365):
-                    frappe.log_error(
-                        f"Suspicious coverage start derivation: last_invoice_date={last_invoice_date}, "
-                        f"posting_date={posting_date}, derived start={coverage_start}. Using posting date instead.",
-                        "Coverage Derivation Warning",
-                    )
-                    coverage_start = posting_date
-
-                # Gap detection: if coverage would start too far in the past, reset forward to posting date
-                # This handles stuck schedules that haven't been invoiced for a long time
-                gap_days = (posting_date - coverage_start).days
-                max_gap_days = 30  # Configurable threshold - gaps larger than this trigger reset-forward
-
-                if gap_days > max_gap_days:
-                    frappe.log_error(
-                        f"Large coverage gap detected: {gap_days} days between last invoice coverage "
-                        f"({last_invoice_date}) and posting date ({posting_date}). "
-                        f"Resetting forward - coverage will start from posting date. "
-                        f"Historical gap handling should be done via remediation system.",
-                        "Coverage Gap Reset",
-                    )
-                    coverage_start = posting_date
-            except Exception as e:
-                frappe.log_error(
-                    f"Failed to parse last_invoice_date '{last_invoice_date}': {str(e)}. Using posting date.",
-                    "Coverage Derivation Warning",
-                )
-                coverage_start = posting_date
-        else:
-            # Fallback: coverage starts at posting date
-            coverage_start = posting_date
-
-        # Calculate coverage end based on billing frequency with validation
-        coverage_end = None
-
-        try:
-            if billing_frequency == "Daily":
-                coverage_end = coverage_start  # For daily, end equals start (same day coverage)
-            elif billing_frequency == "Weekly":
-                coverage_end = add_days(coverage_start, 6)
-            elif billing_frequency == "Monthly":
-                coverage_end = add_days(add_months(coverage_start, 1), -1)
-            elif billing_frequency == "Quarterly":
-                coverage_end = add_days(add_months(coverage_start, 3), -1)
-            elif billing_frequency == "Semi-Annual":
-                coverage_end = add_days(add_months(coverage_start, 6), -1)
-            elif billing_frequency == "Annual":
-                coverage_end = add_days(add_months(coverage_start, 12), -1)
-            else:
-                # Unknown frequency - use next_invoice_date if available, otherwise assume monthly
-                if next_invoice_date:
-                    try:
-                        next_date = getdate(next_invoice_date)
-                        coverage_end = add_days(next_date, -1)
-
-                        # Validation: next invoice date should be after coverage start
-                        if coverage_end <= coverage_start:
-                            frappe.log_error(
-                                f"Invalid coverage period derived from next_invoice_date: "
-                                f"start={coverage_start}, end={coverage_end}. Using monthly fallback.",
-                                "Coverage Derivation Warning",
-                            )
-                            coverage_end = add_days(add_months(coverage_start, 1), -1)
-                    except Exception as e:
-                        frappe.log_error(
-                            f"Failed to parse next_invoice_date '{next_invoice_date}': {str(e)}. Using monthly fallback.",
-                            "Coverage Derivation Warning",
-                        )
-                        coverage_end = add_days(add_months(coverage_start, 1), -1)
-                else:
-                    # Final fallback: assume monthly
-                    coverage_end = add_days(add_months(coverage_start, 1), -1)
-        except Exception as e:
-            # If all frequency-based calculations fail, use a simple monthly fallback
-            frappe.log_error(
-                f"Error calculating coverage end for frequency '{billing_frequency}': {str(e)}. Using monthly fallback.",
-                "Coverage Derivation Error",
-            )
-            coverage_end = add_days(add_months(coverage_start, 1), -1)
-
-        # Final validation
-        if not coverage_start or not coverage_end:
-            raise ValueError(
-                f"Failed to derive valid coverage dates: start={coverage_start}, end={coverage_end}"
-            )
-
-        if coverage_end <= coverage_start:
-            raise ValueError(
-                f"Invalid coverage period: end date ({coverage_end}) must be after start date ({coverage_start})"
-            )
-
-        # Sanity check: coverage period shouldn't exceed 2 years
-        if (coverage_end - coverage_start) > timedelta(days=730):
-            frappe.log_error(
-                f"Suspiciously long coverage period derived: {coverage_start} to {coverage_end} "
-                f"({(coverage_end - coverage_start).days} days). This may indicate a data issue.",
-                "Coverage Derivation Warning",
-            )
-
-        return coverage_start, coverage_end
+        return self.calculate_billing_period(frappe.utils.today())
 
     def get_latest_coverage_end_date(self):
         """
@@ -1215,86 +795,12 @@ class MembershipDuesSchedule(Document):
 
     def calculate_billing_period(self, invoice_date):
         """Calculate the billing period start and end dates for a given invoice date"""
-        invoice_date = getdate(invoice_date)
-
-        if self.billing_frequency == "Daily":
-            # For daily billing, the period is just the single day
-            return invoice_date, invoice_date
-        elif self.billing_frequency == "Weekly":
-            # Weekly period: Monday to Sunday
-            days_since_monday = invoice_date.weekday()
-            period_start = add_days(invoice_date, -days_since_monday)
-            period_end = add_days(period_start, 6)
-            return period_start, period_end
-        elif self.billing_frequency == "Monthly":
-            # Monthly period: 1st to last day of month
-            period_start = invoice_date.replace(day=1)
-            # Get last day of month
-            if invoice_date.month == 12:
-                next_month = invoice_date.replace(year=invoice_date.year + 1, month=1, day=1)
-            else:
-                next_month = invoice_date.replace(month=invoice_date.month + 1, day=1)
-            period_end = add_days(next_month, -1)
-            return period_start, period_end
-        elif self.billing_frequency == "Quarterly":
-            # Quarterly periods: Q1 (Jan-Mar), Q2 (Apr-Jun), Q3 (Jul-Sep), Q4 (Oct-Dec)
-            quarter = (invoice_date.month - 1) // 3 + 1
-            period_start = invoice_date.replace(month=(quarter - 1) * 3 + 1, day=1)
-            period_end_month = quarter * 3
-            if period_end_month == 12:
-                period_end = invoice_date.replace(month=12, day=31)
-            else:
-                next_quarter = invoice_date.replace(month=period_end_month + 1, day=1)
-                period_end = add_days(next_quarter, -1)
-            return period_start, period_end
-        elif self.billing_frequency == "Semi-Annual":
-            # Semi-annual: H1 (Jan-Jun), H2 (Jul-Dec)
-            if invoice_date.month <= 6:
-                period_start = invoice_date.replace(month=1, day=1)
-                period_end = invoice_date.replace(month=6, day=30)
-            else:
-                period_start = invoice_date.replace(month=7, day=1)
-                period_end = invoice_date.replace(month=12, day=31)
-            return period_start, period_end
-        elif self.billing_frequency == "Annual":
-            # Annual period: Jan 1 to Dec 31
-            period_start = invoice_date.replace(month=1, day=1)
-            period_end = invoice_date.replace(month=12, day=31)
-            return period_start, period_end
-        elif self.billing_frequency == "Custom":
-            # For custom frequency, use the custom settings (both required for custom billing)
-            frequency_number = getattr(self, "custom_frequency_number", None)
-            if not frequency_number or frequency_number < 1:
-                frequency_number = 1  # Safe default
-
-            frequency_unit = getattr(self, "custom_frequency_unit", None)
-            if not frequency_unit:
-                frequency_unit = "Months"  # Safe default
-
-            if frequency_unit == "Days":
-                # Custom daily periods
-                return invoice_date, invoice_date
-            elif frequency_unit == "Weeks":
-                # Custom weekly periods
-                days_since_monday = invoice_date.weekday()
-                period_start = add_days(invoice_date, -days_since_monday)
-                period_end = add_days(period_start, (frequency_number * 7) - 1)
-                return period_start, period_end
-            elif frequency_unit == "Months":
-                # Custom monthly periods
-                period_start = invoice_date.replace(day=1)
-                period_end = add_months(period_start, frequency_number)
-                period_end = add_days(period_end, -1)
-                return period_start, period_end
-            elif frequency_unit == "Years":
-                # Custom yearly periods
-                period_start = invoice_date.replace(month=1, day=1)
-                period_end = add_years(period_start, frequency_number)
-                period_end = add_days(period_end, -1)
-                return period_start, period_end
-
-        # Default fallback: treat as daily
-        return invoice_date, invoice_date
+        return calculate_billing_period(
+            billing_frequency=self.billing_frequency,
+            invoice_date=invoice_date,
+            custom_frequency_number=getattr(self, "custom_frequency_number", None),
+            custom_frequency_unit=getattr(self, "custom_frequency_unit", None),
+        )
 
     def validate_member_eligibility_for_invoice(self):
         """
@@ -2236,42 +1742,12 @@ class MembershipDuesSchedule(Document):
         if not from_date:
             from_date = self.next_invoice_date or today()
 
-        from_date = getdate(from_date)
-
-        if self.billing_frequency == "Daily":
-            return add_days(from_date, 1)
-        elif self.billing_frequency == "Monthly":
-            return add_months(from_date, 1)
-        elif self.billing_frequency == "Quarterly":
-            return add_months(from_date, 3)
-        elif self.billing_frequency == "Semi-Annual":
-            return add_months(from_date, 6)
-        elif self.billing_frequency == "Annual":
-            return add_years(from_date, 1)
-        elif self.billing_frequency == "Custom":
-            # Use custom frequency settings with validation
-            frequency_number = getattr(self, "custom_frequency_number", None)
-            if not frequency_number or frequency_number < 1:
-                frequency_number = 1  # Safe default
-
-            frequency_unit = getattr(self, "custom_frequency_unit", None)
-            if not frequency_unit:
-                frequency_unit = "Months"  # Safe default
-
-            if frequency_unit == "Days":
-                return add_days(from_date, frequency_number)
-            elif frequency_unit == "Weeks":
-                return add_days(from_date, frequency_number * 7)
-            elif frequency_unit == "Months":
-                return add_months(from_date, frequency_number)
-            elif frequency_unit == "Years":
-                return add_years(from_date, frequency_number)
-            else:
-                # Fallback to monthly if unit is invalid
-                return add_months(from_date, 1)
-        else:
-            # Unknown frequency - default to monthly
-            return add_months(from_date, 1)
+        return calculate_next_invoice_date(
+            billing_frequency=self.billing_frequency,
+            from_date=from_date,
+            custom_frequency_number=getattr(self, "custom_frequency_number", None),
+            custom_frequency_unit=getattr(self, "custom_frequency_unit", None),
+        )
 
     def pause_schedule(self, reason=None):
         """Pause the dues schedule"""

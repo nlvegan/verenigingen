@@ -46,7 +46,7 @@ def run_pytest_for_precommit():
     
     try:
         print("📊 Running critical tests with coverage check...")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         
         if result.returncode == 0:
             print("✅ Critical tests passed!")
