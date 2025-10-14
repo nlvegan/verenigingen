@@ -511,13 +511,16 @@ class MijnroodCSVImport(Document):
                                 f"Payment method should be 'Mollie' when subscription data exists, found: {member.payment_method}"
                             )
 
-                        # Check for incomplete subscription data
-                        if customer.custom_mollie_customer_id and not customer.custom_mollie_subscription_id:
-                            issues.append("Has Mollie Customer ID but missing Subscription ID")
-                        elif (
-                            customer.custom_mollie_subscription_id and not customer.custom_mollie_customer_id
-                        ):
-                            issues.append("Has Mollie Subscription ID but missing Customer ID")
+                        # CRITICAL ISSUE: Active subscriptions on terminated/banned/deceased members
+                        # These should have been cancelled but weren't - potential ongoing charges
+                        if customer.custom_mollie_subscription_id and member.status in [
+                            "Terminated",
+                            "Banned",
+                            "Deceased",
+                        ]:
+                            issues.append(
+                                f"Active Mollie subscription on {member.status} member - subscription should be cancelled"
+                            )
 
                         if issues:
                             validation_issues.append(f"Member {member_name}: {'; '.join(issues)}")
@@ -653,13 +656,23 @@ class MijnroodCSVImport(Document):
     def _update_member_fields(self, member_doc: Document, row_data: Dict):
         """Update member document fields from row data."""
 
+        # CRITICAL: Set system flags FIRST before any field modifications
+        # This ensures workflow validation is bypassed from the start
+        member_doc.flags.ignore_workflow = True  # Bypass workflow validation
+        member_doc._system_update = True  # Bypass fee override validation
+        member_doc._csv_import = True  # Mark as CSV import for other validations
+        member_doc._skip_workflow_validation = True
+        member_doc.flags.ignore_validate = False  # Still validate but with flags
+        member_doc.flags.ignore_mandatory = False  # Don't ignore mandatory fields
+
         # FIRST PRIORITY: Set status fields to prevent any workflow issues
         # CSV imported members are backend-created, not application-created
         member_doc.application_id = None  # Explicitly ensure no application ID
         member_doc.application_status = "Approved"  # Backend-created = pre-approved
 
         # Set status based on membership type (Lidmaatschapstype from CSV)
-        membership_type = row_data.get("membership_type", "").lower()
+        # Defensive: handle None values from CSV
+        membership_type = (row_data.get("membership_type") or "").lower()
         if membership_type in ["lid", "standard", "aspirant"]:
             member_doc.status = "Active"
             member_doc.application_status = "Approved"
@@ -691,18 +704,7 @@ class MijnroodCSVImport(Document):
             member_doc.status = "Active"  # Default for unknown types
             member_doc.application_status = "Approved"
 
-        # Set system flags early to ensure they're available during all validations
-        member_doc._system_update = True  # Bypass fee override validation
-        member_doc._csv_import = True  # Mark as CSV import for other validations
-        member_doc.flags.ignore_workflow = True  # Bypass workflow validation
-        member_doc._skip_workflow_validation = True
-
-        # Additional system flags to bypass validations
-        member_doc.flags.ignore_validate = False  # Still validate but with flags
-        member_doc.flags.ignore_mandatory = False  # Don't ignore mandatory fields
-
-        # Phone numbers are cleaned and validated in _clean_phone_number method
-        # No need to bypass framework validation
+        # Flags are already set at the top of this method - no need to repeat
 
         # Basic member information
         if row_data.get("member_id"):
@@ -1170,6 +1172,13 @@ class MijnroodCSVImport(Document):
     def _assign_member_to_chapter(self, member_doc: Document, chapter_name: str):
         """Assign member to chapter based on chapter name from CSV, with optional auto-creation."""
         try:
+            # CRITICAL: Ensure member has been saved and has a name before chapter operations
+            if not member_doc.name:
+                frappe.logger().error(
+                    f"Cannot assign member to chapter '{chapter_name}' - member not yet saved (no name)"
+                )
+                return
+
             # Check if the chapter exists
             if not frappe.db.exists("Chapter", chapter_name):
                 if self.auto_create_chapters:
