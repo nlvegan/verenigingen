@@ -106,7 +106,7 @@ from verenigingen.utils.termination_utils import validate_termination_readiness
 
 ```python
 from verenigingen.utils.payment_retry import schedule_payment_retry
-from verenigingen.utils.sepa_reconciliation import reconcile_sepa_payments
+from verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation import reconcile_bank_transactions
 ```
 
 ### Data Validation:

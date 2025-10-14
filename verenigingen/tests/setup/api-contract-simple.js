@@ -654,7 +654,7 @@ const API_SCHEMAS = {
     },
 
 	// Bank Reconciliation APIs
-	'verenigingen.verenigingen_payments.utils.sepa_reconciliation.import_bank_statement':
+	'verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation.import_bank_statement':
     {
     	args: {
     		type: 'object',

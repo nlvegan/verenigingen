@@ -556,7 +556,7 @@ describe('Financial API Contract Tests', () => {
 
 		test('validates complex nested objects', () => {
 			const apiName
-        = 'verenigingen.verenigingen_payments.utils.sepa_reconciliation.import_bank_statement';
+        = 'verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation.import_bank_statement';
 			const complexRequest = {
 				bank_account: 'NL-Bank-Account-001',
 				statement_data: 'base64encodeddata==',
@@ -573,7 +573,7 @@ describe('Financial API Contract Tests', () => {
 
 		test('validates comprehensive reconciliation response', () => {
 			const apiName
-        = 'verenigingen.verenigingen_payments.utils.sepa_reconciliation.import_bank_statement';
+        = 'verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation.import_bank_statement';
 			const complexResponse = {
 				success: true,
 				transactions_imported: 25,

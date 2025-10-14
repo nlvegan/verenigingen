@@ -33,7 +33,7 @@ class TestAllImports(EnhancedTestCase):
         # SEPA API modules
         import verenigingen.verenigingen_payments.api.sepa_batch_ui
         import verenigingen.api.sepa_reconciliation
-        import verenigingen.api.sepa_mandate_management
+        import verenigingen.verenigingen_payments.api.sepa_mandate_management
         
         self.assertTrue(True, "All API imports successful")
         
@@ -48,7 +48,7 @@ class TestAllImports(EnhancedTestCase):
         import verenigingen.utils.donation_emails
         import verenigingen.utils.expense_permissions
         import verenigingen.utils.sepa_notifications
-        import verenigingen.utils.sepa_reconciliation
+        import verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation
         
         # E-Boekhouden utils
         import verenigingen.e_boekhouden.utils.eboekhouden_rest_client
@@ -116,24 +116,26 @@ class TestAllImports(EnhancedTestCase):
         
     def test_debug_utility_imports(self):
         """Test debug utilities can be imported"""
-        # Only test if they exist (optional modules)
-        try:
-            import verenigingen.utils.debug.test_import_without_fallbacks
-            self.assertTrue(True, "Debug utilities imported")
-        except ImportError:
-            # Debug utilities are optional
-            pass
+        # Debug utilities removed - no longer in codebase
+        # try:
+        #     import verenigingen.utils.debug.test_import_without_fallbacks
+        #     self.assertTrue(True, "Debug utilities imported")
+        # except ImportError:
+        #     # Debug utilities are optional
+        #     pass
+        self.assertTrue(True, "Debug utilities test skipped (modules removed)")
             
     def test_migration_imports(self):
         """Test migration and patch imports"""
-        # Test that patches can be imported
-        try:
-            import verenigingen.patches.v1_0.update_member_statuses
-            # migrate_subscription_data patch removed - now using dues schedule system
-            self.assertTrue(True, "Migration patches imported")
-        except ImportError:
-            # Patches might not exist yet
-            pass
+        # Migration patches removed - no longer in codebase
+        # try:
+        #     import verenigingen.patches.v1_0.update_member_statuses
+        #     # migrate_subscription_data patch removed - now using dues schedule system
+        #     self.assertTrue(True, "Migration patches imported")
+        # except ImportError:
+        #     # Patches might not exist yet
+        #     pass
+        self.assertTrue(True, "Migration patches test skipped (modules removed)")
             
     def test_no_typo_imports(self):
         """Specifically test for common typos in import statements"""

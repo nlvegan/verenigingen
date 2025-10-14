@@ -755,7 +755,7 @@ function process_returns_dialog(frm) {
 		primary_action(values) {
 			frappe.call({
 				method:
-          'verenigingen.utils.sepa_reconciliation.process_sepa_return_file',
+          'verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation.process_sepa_return_file',
 				args: {
 					file_content: values.return_file,
 					file_type: 'pain.002'

@@ -538,11 +538,12 @@ class DonationFinancialService:
             reconciliation_report["total_donations"] += amount
 
             # Get GL entries for this donation
+            # Note: Frappe GL Entry uses voucher_no/voucher_type, not reference_name/reference_type
             gl_credits = frappe.db.sql(
                 """
                 SELECT SUM(credit) as total_credit
                 FROM `tabGL Entry`
-                WHERE reference_name = %s AND reference_type = 'Donation'
+                WHERE voucher_no = %s AND voucher_type = 'Donation'
             """,
                 donation.name,
                 as_dict=True,

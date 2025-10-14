@@ -17,7 +17,21 @@ from verenigingen.verenigingen_payments.clients.settlements_client import Settle
 
 
 class PaymentReconciliationManager:
-    """Manages automatic reconciliation of all payment types (SEPA, Mollie) with bank transactions"""
+    """
+    Manages automatic reconciliation of all payment types (SEPA, Mollie) with bank transactions.
+
+    Handles two distinct reconciliation workflows:
+
+    1. SEPA Direct Debit: Matches bank transactions to SEPA batches and invoices
+       - Used for member dues and recurring payments via SEPA
+
+    2. Mollie Settlement Reconciliation: Matches bulk settlement payouts to individual payments
+       - NOTE: This is NOT about matching individual Mollie transactions to invoices
+       - Mollie batches multiple payments and sends periodic settlement payouts
+       - This code reconciles those bulk settlement deposits in the bank account
+       - It breaks down each settlement into individual payment entries linked to invoices
+       - Individual Mollie payments are already processed via webhooks (see payment_webhook.py)
+    """
 
     def __init__(self):
         self.settings = frappe.get_single("Verenigingen Settings")
@@ -323,7 +337,20 @@ class PaymentReconciliationManager:
         return self.fuzzy_match_member_name(description, transaction["deposit"])
 
     def match_mollie_settlement(self, transaction):
-        """Match bank transaction with Mollie settlements"""
+        """
+        Match bank transaction with Mollie bulk settlement payouts.
+
+        IMPORTANT: This handles settlement reconciliation, not individual payment matching.
+
+        Context:
+        - Mollie processes individual payments throughout the day (via webhooks)
+        - Periodically (e.g., daily), Mollie batches these and sends a single settlement payout
+        - This method matches that bulk settlement deposit in your bank account
+        - It then reconciles which individual payments were included in the settlement
+
+        This is NOT the same as matching a Mollie payment to an invoice - that happens
+        in real-time via webhook (see integrations/mollie/api/payment_webhook.py).
+        """
 
         # Only check transactions on the configured Mollie bank account
         if (
@@ -632,7 +659,21 @@ class PaymentReconciliationManager:
         return payment_entry
 
     def process_mollie_settlement(self, bank_trans, settlement_id, settlement_data):
-        """Process a Mollie settlement by reconciling individual payments"""
+        """
+        Process a Mollie bulk settlement by breaking it down into individual payment entries.
+
+        Workflow:
+        1. Fetch all individual payments included in this settlement from Mollie API
+        2. For each payment, find the matching Sales Invoice (via metadata/description)
+        3. Create a Payment Entry linking that payment to its invoice
+        4. Use clearing account workflow (not direct bank account)
+        5. Calculate and record Mollie processing fees
+
+        This creates the accounting entries that connect:
+        - The bulk settlement deposit in your bank → Mollie Clearing Account
+        - Individual payments in Clearing Account → Customer invoices
+        - Processing fees as expenses
+        """
 
         try:
             # Get payments for this settlement from Mollie API
@@ -826,7 +867,17 @@ class PaymentReconciliationManager:
         return None
 
     def _create_mollie_payment_entry(self, bank_trans, invoice_name, mollie_payment, settlement_data):
-        """Create payment entry for a Mollie payment"""
+        """
+        Create payment entry for an individual Mollie payment within a settlement.
+
+        Uses clearing account workflow:
+        - paid_from: Mollie Clearing Account (not bank - settlement already deposited there)
+        - paid_to: Customer receivable account (invoice payment)
+
+        This is reconciliation accounting, not real-time payment processing.
+        The actual payment was already recorded when it arrived via webhook.
+        This creates the accounting link between the settlement and the invoice.
+        """
 
         from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 

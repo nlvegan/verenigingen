@@ -596,7 +596,7 @@ scheduler_events = {
         # SEPA payment retry processing
         "verenigingen.utils.payment_retry.execute_payment_retry",
         # Bank transaction reconciliation
-        "verenigingen.verenigingen_payments.utils.sepa_reconciliation.reconcile_bank_transactions",
+        "verenigingen.verenigingen_payments.utils.bank_transaction_reconciliation.reconcile_bank_transactions",
         # SEPA mandate expiry notifications
         "verenigingen.verenigingen_payments.utils.sepa_notifications.check_and_send_expiry_notifications",
         # Native expense approver sync
