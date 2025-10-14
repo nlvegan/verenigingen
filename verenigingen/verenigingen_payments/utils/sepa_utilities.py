@@ -3,9 +3,20 @@ SEPA Utility Functions
 
 This module contains utility functions extracted from the Direct Debit Batch system
 to improve code organization and reusability.
+
+DEPRECATION NOTICE:
+Several IBAN/BIC validation functions in this module are deprecated in favor of
+the canonical validators in verenigingen.utils.validation.iban_validator:
+- get_bic_from_iban() → Use iban_validator.derive_bic_from_iban() (supports 25+ banks vs 10)
+- validate_iban_format() → Use iban_validator.validate_iban() (includes MOD-97 checksum)
+- validate_dutch_iban() → Use iban_validator.validate_iban() (full validation)
+- format_iban_display() → Use iban_validator.format_iban() (identical functionality)
+
+See: docs/refactoring/PAYMENT_MODULE_DUPLICATION_AUDIT.md
 """
 
 import re
+import warnings
 from typing import Optional
 
 import frappe
@@ -19,44 +30,61 @@ class SEPAUtilities:
         """
         Derive BIC from IBAN for Dutch banks.
 
+        .. deprecated:: 1.0.0
+            Use :func:`verenigingen.utils.validation.iban_validator.derive_bic_from_iban` instead.
+            This function only supports 10 Dutch banks, while the canonical validator supports 25+.
+
+            **Migration Example**::
+
+                # Old (only 10 banks)
+                from verenigingen.verenigingen_payments.utils.sepa_utilities import SEPAUtilities
+                bic = SEPAUtilities.get_bic_from_iban(iban)
+
+                # New (25+ banks including BITV, FVLB, HAND, DHBN, NWAB, etc.)
+                from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
+                bic = derive_bic_from_iban(iban)
+
         Args:
             iban: International Bank Account Number
 
         Returns:
             BIC code if derivable from IBAN, None otherwise
         """
-        if not iban or len(iban) < 8:
-            return None
+        warnings.warn(
+            "SEPAUtilities.get_bic_from_iban() is deprecated. "
+            "Use iban_validator.derive_bic_from_iban() instead (supports 25+ banks vs 10). "
+            "Missing banks: BITV, FVLB, HAND, DHBN, NWAB, COBA, DEUT, FBHL, NNBA, AEGN, ZWLB, VOPA, RBRB, etc.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
-        # Remove spaces and convert to uppercase
-        clean_iban = iban.replace(" ", "").upper()
+        # Delegate to canonical implementation
+        from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
 
-        # For Dutch IBANs (NL), extract bank code from positions 4-7
-        if clean_iban.startswith("NL") and len(clean_iban) >= 8:
-            bank_code = clean_iban[4:8]
-
-            # Dutch bank code to BIC mapping
-            dutch_bank_bics = {
-                "ABNA": "ABNANL2A",  # ABN AMRO
-                "RABO": "RABONL2U",  # Rabobank
-                "INGB": "INGBNL2A",  # ING Bank
-                "TRIO": "TRIONL2U",  # Triodos Bank
-                "KNAB": "KNABNL2H",  # Knab
-                "BUNQ": "BUNQNL2A",  # bunq
-                "REVO": "REVOLT21",  # Revolut
-                "SNSB": "SNSBNL2A",  # SNS Bank
-                "ASNB": "ASNBNL21",  # ASN Bank
-                "REGB": "REGNL21",  # RegioBank
-            }
-
-            return dutch_bank_bics.get(bank_code)
-
-        return None
+        return derive_bic_from_iban(iban)
 
     @staticmethod
     def validate_iban_format(iban: str) -> bool:
         """
         Validate IBAN format using basic regex pattern.
+
+        .. deprecated:: 1.0.0
+            Use :func:`verenigingen.utils.validation.iban_validator.validate_iban` instead.
+            This function only does basic regex validation WITHOUT checksum verification.
+            The canonical validator includes proper MOD-97 checksum validation.
+
+            **Security Risk**: This function may accept invalid IBANs with incorrect checksums!
+
+            **Migration Example**::
+
+                # Old (NO checksum validation - security risk!)
+                from verenigingen.verenigingen_payments.utils.sepa_utilities import SEPAUtilities
+                is_valid = SEPAUtilities.validate_iban_format(iban)
+
+                # New (includes MOD-97 checksum validation)
+                from verenigingen.utils.validation.iban_validator import validate_iban
+                result = validate_iban(iban)
+                is_valid = result["valid"]
 
         Args:
             iban: International Bank Account Number to validate
@@ -64,21 +92,38 @@ class SEPAUtilities:
         Returns:
             True if IBAN format is valid, False otherwise
         """
-        if not iban:
-            return False
+        warnings.warn(
+            "SEPAUtilities.validate_iban_format() is deprecated. "
+            "Use iban_validator.validate_iban() instead. "
+            "This function lacks MOD-97 checksum validation and may accept invalid IBANs!",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
-        # Remove spaces and convert to uppercase
-        clean_iban = iban.replace(" ", "").upper()
+        # Delegate to canonical implementation
+        from verenigingen.utils.validation.iban_validator import validate_iban
 
-        # Basic IBAN format validation (2 letters + 2 digits + up to 30 alphanumeric)
-        pattern = r"^[A-Z]{2}[0-9]{2}[A-Z0-9]{1,30}$"
-
-        return bool(re.match(pattern, clean_iban))
+        result = validate_iban(iban)
+        return result["valid"]
 
     @staticmethod
     def format_iban_display(iban: str) -> str:
         """
         Format IBAN for display with spaces every 4 characters.
+
+        .. deprecated:: 1.0.0
+            Use :func:`verenigingen.utils.validation.iban_validator.format_iban` instead.
+            Both functions are functionally identical.
+
+            **Migration Example**::
+
+                # Old
+                from verenigingen.verenigingen_payments.utils.sepa_utilities import SEPAUtilities
+                formatted = SEPAUtilities.format_iban_display(iban)
+
+                # New
+                from verenigingen.utils.validation.iban_validator import format_iban
+                formatted = format_iban(iban)
 
         Args:
             iban: IBAN to format
@@ -86,16 +131,17 @@ class SEPAUtilities:
         Returns:
             Formatted IBAN string
         """
-        if not iban:
-            return ""
+        warnings.warn(
+            "SEPAUtilities.format_iban_display() is deprecated. "
+            "Use iban_validator.format_iban() instead (identical functionality).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
-        # Remove existing spaces and convert to uppercase
-        clean_iban = iban.replace(" ", "").upper()
+        # Delegate to canonical implementation
+        from verenigingen.utils.validation.iban_validator import format_iban
 
-        # Add spaces every 4 characters
-        formatted = " ".join(clean_iban[i : i + 4] for i in range(0, len(clean_iban), 4))
-
-        return formatted
+        return format_iban(iban) or ""
 
     @staticmethod
     def validate_dutch_iban(iban: str) -> bool:

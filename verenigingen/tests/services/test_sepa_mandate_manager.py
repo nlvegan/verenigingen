@@ -46,7 +46,9 @@ class TestSEPAMandateManager(EnhancedTestCase):
         # Test IBAN data
         self.valid_iban = "NL91ABNA0417164300"
         self.valid_iban_formatted = "NL91 ABNA 0417 1643 00"
-        self.alternative_iban = "NL02RABO0123456789"
+        # Generate valid RABO IBAN with correct checksum
+        from verenigingen.utils.validation.iban_validator import generate_test_iban
+        self.alternative_iban = generate_test_iban("RABO", "0123456789")
 
     def tearDown(self):
         """Clean up test data"""
@@ -101,7 +103,8 @@ class TestSEPAMandateManager(EnhancedTestCase):
         mandates = self.manager.get_active_mandates(self.test_member.name, iban=self.valid_iban)
 
         self.assertEqual(len(mandates), 1)
-        self.assertEqual(mandates[0].iban, self.valid_iban.replace(" ", "").upper())
+        # IBANs are stored formatted with spaces in the database
+        self.assertEqual(mandates[0].iban, self.valid_iban_formatted)
 
     def test_get_default_mandate(self):
         """Test getting default (most recent) mandate"""
@@ -283,7 +286,8 @@ class TestSEPAMandateManager(EnhancedTestCase):
 
     def test_create_mandate_with_custom_mandate_id(self):
         """Test creating mandate with custom mandate ID"""
-        custom_id = "CUSTOM-MANDATE-001"
+        # Use unique ID to avoid conflicts from test data leakage
+        custom_id = f"CUSTOM-MANDATE-{frappe.generate_hash(length=8)}"
 
         result = self.manager.create_mandate(
             member=self.test_member.name, iban=self.valid_iban, mandate_id=custom_id
@@ -387,8 +391,9 @@ class TestSEPAMandateManager(EnhancedTestCase):
             self.test_member.name, self.alternative_iban, status="Active", is_active=1
         )
 
-        # Change to new IBAN
-        new_iban = "NL39RABO0300065264"
+        # Change to new IBAN with valid checksum
+        from verenigingen.utils.validation.iban_validator import generate_test_iban
+        new_iban = generate_test_iban("RABO", "0300065264")
         result = self.manager.deactivate_mandates_for_iban_change(self.test_member.name, new_iban)
 
         self.assertTrue(result.valid)

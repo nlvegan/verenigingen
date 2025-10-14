@@ -17,6 +17,7 @@ cypress/downloads/
 
 # Test logs and results
 test-logs/
+logs/
 test-results/
 __pycache__/
 .pytest_cache/

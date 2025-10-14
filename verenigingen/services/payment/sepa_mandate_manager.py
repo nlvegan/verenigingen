@@ -127,8 +127,10 @@ class SEPAMandateManager:
             filters = {"member": member, "status": "Active", "is_active": 1}
 
             if iban:
-                # Normalize IBAN for comparison
-                filters["iban"] = self._normalize_iban(iban)
+                # Format IBAN to match database storage (IBANs are stored formatted with spaces)
+                from verenigingen.utils.validation.iban_validator import format_iban
+
+                filters["iban"] = format_iban(iban) or iban
 
             mandate_records = frappe.get_all(
                 "SEPA Mandate",

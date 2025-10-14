@@ -96,7 +96,6 @@ class ANBITestPersonas:
             donation.status = "Recurring"
             donation.paid = 1
             donation.payment_id = f"SEPA-ANNA-{donation_date.strftime('%Y%m')}"
-            donation.belastingdienst_reportable = 1
             donation.insert()
             donation.submit()
             
@@ -170,7 +169,6 @@ class ANBITestPersonas:
                 donation.donation_purpose_type = "Specific Goal"
                 donation.specific_goal_description = "Reforestation projects in Netherlands"
                 donation.paid = 1
-                donation.belastingdienst_reportable = 1
                 donation.insert()
                 donation.submit()
                 
@@ -238,7 +236,6 @@ class ANBITestPersonas:
             donation.periodic_donation_agreement = agreement.name
             donation.status = "Recurring"
             donation.paid = 1
-            donation.belastingdienst_reportable = 1
             donation.insert()
             donation.submit()
             
@@ -294,7 +291,6 @@ class ANBITestPersonas:
             donation.donation_purpose_type = "Campaign"
             donation.campaign_reference = "Tech4Good Campaign"
             donation.paid = 1
-            donation.belastingdienst_reportable = 1 if amount >= 500 else 0
             donation.insert()
             donation.submit()
         

@@ -1,0 +1,46 @@
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    <h2>Dear {{ donor_name|e }},</h2>
+
+    <p>Thank you for setting up a periodic donation agreement with us.</p>
+
+    <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <h3>Agreement Details</h3>
+        <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>Agreement Number:</strong></td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">{{ agreement_number|e }}</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>Start Date:</strong></td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">{{ start_date|e }}</td>
+            </tr>
+            {% if end_date %}
+            <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>End Date:</strong></td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">{{ end_date|e }}</td>
+            </tr>
+            {% endif %}
+            <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>Annual Amount:</strong></td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">€{{ annual_amount }}</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;"><strong>Payment Frequency:</strong></td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #dee2e6;">{{ payment_frequency|e }}</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px 0;"><strong>Payment Amount:</strong></td>
+                <td style="padding: 8px 0;">€{{ payment_amount }}</td>
+            </tr>
+        </table>
+    </div>
+
+    {% if anbi_eligible %}
+    <p>Your periodic donations are fully tax-deductible under Dutch ANBI regulations.</p>
+    {% endif %}
+
+    <p>If you have any questions, please don't hesitate to contact us at {{ organization_email|e }}.</p>
+
+    <p>With gratitude,<br>
+    {{ organization_name|e }}</p>
+</div>

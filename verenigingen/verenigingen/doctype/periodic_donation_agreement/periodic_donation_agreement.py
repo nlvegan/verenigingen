@@ -193,38 +193,74 @@ class PeriodicDonationAgreement(Document):
                 self.send_expiry_notification(days_to_expiry)
 
     def send_agreement_confirmation(self):
-        """Send confirmation email to donor"""
+        """Send confirmation email to donor using EmailService"""
         try:
+            from verenigingen.services.communication.email_service import get_email_service
+
             donor = frappe.get_doc("Donor", self.donor)
 
-            if donor.donor_email:
-                frappe.sendmail(
-                    recipients=[donor.donor_email],
-                    subject=_("Periodic Donation Agreement Confirmation - {0}").format(self.agreement_number),
-                    message=self.get_confirmation_email_content(),
-                    reference_doctype=self.doctype,
-                    reference_name=self.name,
-                )
+            if not donor.donor_email:
+                return
+
+            email_service = get_email_service()
+            context = {
+                "donor_name": self.donor_name,
+                "agreement_number": self.agreement_number,
+                "start_date": frappe.utils.formatdate(self.start_date),
+                "end_date": frappe.utils.formatdate(self.end_date) if self.end_date else "Lifetime",
+                "annual_amount": "{:,.2f}".format(flt(self.annual_amount)),
+                "payment_frequency": self.payment_frequency,
+                "payment_amount": "{:,.2f}".format(flt(self.payment_amount)),
+                "anbi_eligible": self.anbi_eligible,
+                "organization_name": frappe.defaults.get_global_default("company"),
+                "organization_email": frappe.db.get_single_value(
+                    "Verenigingen Settings", "member_contact_email"
+                ),
+            }
+
+            email_service.send_templated_email(
+                template_name="periodic_agreement_confirmation",
+                recipients=[donor.donor_email],
+                context=context,
+                subject=_("Periodic Donation Agreement Confirmation - {0}").format(self.agreement_number),
+                reference_doctype=self.doctype,
+                reference_name=self.name,
+            )
         except Exception as e:
             frappe.log_error(
                 f"Failed to send agreement confirmation: {str(e)}", "Periodic Donation Agreement Email Error"
             )
 
     def send_expiry_notification(self, days_remaining):
-        """Send expiry notification to donor"""
+        """Send expiry notification to donor using EmailService"""
         try:
+            from verenigingen.services.communication.email_service import get_email_service
+
             donor = frappe.get_doc("Donor", self.donor)
 
-            if donor.donor_email:
-                frappe.sendmail(
-                    recipients=[donor.donor_email],
-                    subject=_("Periodic Donation Agreement Expiring Soon - {0}").format(
-                        self.agreement_number
-                    ),
-                    message=self.get_expiry_email_content(days_remaining),
-                    reference_doctype=self.doctype,
-                    reference_name=self.name,
-                )
+            if not donor.donor_email:
+                return
+
+            email_service = get_email_service()
+            context = {
+                "donor_name": self.donor_name,
+                "agreement_number": self.agreement_number,
+                "end_date": frappe.utils.formatdate(self.end_date),
+                "days_remaining": days_remaining,
+                "organization_name": frappe.defaults.get_global_default("company"),
+                "organization_email": frappe.db.get_single_value(
+                    "Verenigingen Settings", "member_contact_email"
+                ),
+            }
+
+            email_service.send_templated_email(
+                template_name="periodic_agreement_expiry",
+                recipients=[donor.donor_email],
+                context=context,
+                subject=_("Periodic Donation Agreement Expiring Soon - {0}").format(self.agreement_number),
+                reference_doctype=self.doctype,
+                reference_name=self.name,
+            )
         except Exception as e:
             frappe.log_error(
                 f"Failed to send expiry notification: {str(e)}", "Periodic Donation Agreement Email Error"
@@ -326,33 +362,36 @@ class PeriodicDonationAgreement(Document):
         return True
 
     def send_cancellation_confirmation(self):
-        """Send cancellation confirmation to donor"""
+        """Send cancellation confirmation to donor using EmailService"""
         try:
+            from verenigingen.services.communication.email_service import get_email_service
+
             donor = frappe.get_doc("Donor", self.donor)
 
-            if donor.donor_email:
-                frappe.sendmail(
-                    recipients=[donor.donor_email],
-                    subject=_("Periodic Donation Agreement Cancelled - {0}").format(self.agreement_number),
-                    message=f"""
-                    <p>Dear {self.donor_name},</p>
+            if not donor.donor_email:
+                return
 
-                    <p>Your periodic donation agreement ({self.agreement_number}) has been cancelled
-                    as requested.</p>
+            email_service = get_email_service()
+            context = {
+                "donor_name": self.donor_name,
+                "agreement_number": self.agreement_number,
+                "cancellation_date": frappe.utils.formatdate(self.cancellation_date),
+                "organization_name": frappe.defaults.get_global_default("company"),
+                "organization_email": frappe.db.get_single_value(
+                    "Verenigingen Settings", "member_contact_email"
+                ),
+            }
 
-                    <p><strong>Cancellation Date:</strong> {frappe.utils.formatdate(self.cancellation_date)}</p>
+            email_service.send_templated_email(
+                template_name="periodic_agreement_cancellation",
+                recipients=[donor.donor_email],
+                context=context,
+                subject=_("Periodic Donation Agreement Cancelled - {0}").format(self.agreement_number),
+                reference_doctype=self.doctype,
+                reference_name=self.name,
+            )
 
-                    <p>Thank you for your past support. If you wish to set up a new agreement in the
-                    future, we would be happy to assist you.</p>
-
-                    <p>With gratitude,<br>
-                    Your Organization</p>
-                    """,
-                    reference_doctype=self.doctype,
-                    reference_name=self.name,
-                )
-
-                self.db_set("cancellation_confirmation_sent", 1)
+            self.db_set("cancellation_confirmation_sent", 1)
 
         except Exception as e:
             frappe.log_error(

@@ -11,7 +11,20 @@ class SEPAMandateMixin:
     """Mixin for SEPA mandate-related functionality"""
 
     def get_active_sepa_mandates(self):
-        """Get all active SEPA mandates for this member"""
+        """
+        Get all active SEPA mandates for this member
+
+        .. deprecated:: 2025-10-14
+            Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.get_active_mandates` instead.
+            This method will be removed in a future version.
+        """
+        import warnings
+
+        warnings.warn(
+            "get_active_sepa_mandates() is deprecated. Use SEPAMandateManager.get_active_mandates() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return frappe.get_all(
             "SEPA Mandate",
             filters={"member": self.name, "status": "Active", "is_active": 1},
@@ -26,7 +39,20 @@ class SEPAMandateMixin:
         )
 
     def get_default_sepa_mandate(self):
-        """Get the default SEPA mandate for this member"""
+        """
+        Get the default SEPA mandate for this member
+
+        .. deprecated:: 2025-10-14
+            Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.get_default_mandate` instead.
+            This method will be removed in a future version.
+        """
+        import warnings
+
+        warnings.warn(
+            "get_default_sepa_mandate() is deprecated. Use SEPAMandateManager.get_default_mandate() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         for link in self.sepa_mandates:
             if link.is_current and link.sepa_mandate:
                 try:
@@ -48,7 +74,20 @@ class SEPAMandateMixin:
         return None
 
     def has_active_sepa_mandate(self, purpose="memberships"):
-        """Check if member has an active SEPA mandate for a specific purpose"""
+        """
+        Check if member has an active SEPA mandate for a specific purpose
+
+        .. deprecated:: 2025-10-14
+            Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.has_active_mandate` instead.
+            This method will be removed in a future version.
+        """
+        import warnings
+
+        warnings.warn(
+            "has_active_sepa_mandate() is deprecated. Use SEPAMandateManager.has_active_mandate() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         filters = {"member": self.name, "status": "Active", "is_active": 1}
 
         if purpose == "memberships":
@@ -106,13 +145,21 @@ class SEPAMandateMixin:
         """
         Create a new SEPA mandate for this member with enhanced prefilling
 
-        DEPRECATED: This method is deprecated. Use SEPAService.create_mandate_enhanced() instead.
-        This method will be removed in a future version.
+        .. deprecated:: 2025-10-14
+            Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.create_mandate` instead.
+            This method will be removed in a future version.
         """
+        import warnings
+
+        warnings.warn(
+            "create_sepa_mandate() is deprecated. Use SEPAMandateManager.create_mandate() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         # Show deprecation warning to users
         frappe.msgprint(
             "This SEPA mandate creation method is deprecated. "
-            "Please use the enhanced service layer method for better validation and error handling.",
+            "Please use SEPAMandateManager.create_mandate() for better validation and error handling.",
             alert=True,
             indicator="orange",
         )

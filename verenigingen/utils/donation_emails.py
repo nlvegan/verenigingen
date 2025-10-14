@@ -111,7 +111,8 @@ def send_payment_confirmation(donation_id):
         )
 
         # Send ANBI receipt if applicable
-        if getattr(donation, "belastingdienst_reportable", False) and donation.anbi_agreement_number:
+        # Note: ANBI tracking is via separate ANBI Donation Agreement DocType
+        if donation.anbi_agreement_number:
             send_anbi_receipt(donation_id)
 
         donation.add_comment("Email", "Payment confirmation sent to {donor_email}")
@@ -130,7 +131,8 @@ def send_anbi_receipt(donation_id):
         donor = frappe.get_doc("Donor", donation.donor)
 
         # Only send for ANBI-eligible donations
-        if not getattr(donation, "belastingdienst_reportable", False) or not donation.anbi_agreement_number:
+        # Note: ANBI tracking is via separate ANBI Donation Agreement DocType
+        if not donation.anbi_agreement_number:
             return False
 
         donor_email = getattr(donor, "donor_email", "") or getattr(donor, "email", "")

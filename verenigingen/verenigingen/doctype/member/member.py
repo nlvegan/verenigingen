@@ -2580,7 +2580,24 @@ def assign_member_id(member_name):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def validate_mandate_creation(member, iban, mandate_id):
-    """Validate mandate creation parameters and check for existing mandates"""
+    """
+    Validate mandate creation parameters and check for existing mandates
+
+    .. deprecated:: 2025-10-14
+        Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.validate_mandate_creation` instead.
+        This function will be removed in a future version.
+    """
+    import warnings
+
+    warnings.warn(
+        "validate_mandate_creation() is deprecated. Use SEPAMandateManager.validate_mandate_creation() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    frappe.log_error(
+        "Deprecated function validate_mandate_creation() called. Migrate to SEPAMandateManager.",
+        "Deprecation Warning",
+    )
     try:
         # Check if member exists
         if not frappe.db.exists("Member", member):
@@ -2621,7 +2638,24 @@ def validate_mandate_creation(member, iban, mandate_id):
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.UTILITY)
 def derive_bic_from_iban(iban):
-    """Derive BIC code from IBAN"""
+    """
+    Derive BIC code from IBAN
+
+    .. deprecated:: 2025-10-14
+        Use :func:`verenigingen.services.payment.validation_service.PaymentValidationService.validate_bank_details` with auto_derive_bic=True instead.
+        This function will be removed in a future version.
+    """
+    import warnings
+
+    warnings.warn(
+        "derive_bic_from_iban() is deprecated. Use PaymentValidationService.validate_bank_details() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    frappe.log_error(
+        "Deprecated function derive_bic_from_iban() called. Migrate to PaymentValidationService.",
+        "Deprecation Warning",
+    )
     try:
         from verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch import (
             get_bic_from_iban,
@@ -2637,7 +2671,24 @@ def derive_bic_from_iban(iban):
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def deactivate_old_sepa_mandates(member, new_iban):
-    """Deactivate old SEPA mandates when IBAN changes"""
+    """
+    Deactivate old SEPA mandates when IBAN changes
+
+    .. deprecated:: 2025-10-14
+        Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.deactivate_mandates_for_iban_change` instead.
+        This function will be removed in a future version.
+    """
+    import warnings
+
+    warnings.warn(
+        "deactivate_old_sepa_mandates() is deprecated. Use SEPAMandateManager.deactivate_mandates_for_iban_change() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    frappe.log_error(
+        "Deprecated function deactivate_old_sepa_mandates() called. Migrate to SEPAMandateManager.",
+        "Deprecation Warning",
+    )
     try:
         # Get all active mandates for this member
         active_mandates = frappe.get_all(
@@ -2697,7 +2748,24 @@ def refresh_sepa_mandates(member):
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.FINANCIAL)
 def get_active_sepa_mandate(member, iban=None):
-    """Get active SEPA mandate for a member"""
+    """
+    Get active SEPA mandate for a member
+
+    .. deprecated:: 2025-10-14
+        Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.get_active_mandates` instead.
+        This function will be removed in a future version.
+    """
+    import warnings
+
+    warnings.warn(
+        "get_active_sepa_mandate() is deprecated. Use SEPAMandateManager.get_active_mandates() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    frappe.log_error(
+        "Deprecated function get_active_sepa_mandate() called. Migrate to SEPAMandateManager.",
+        "Deprecation Warning",
+    )
     try:
         filters = {"member": member, "status": "Active", "is_active": 1}
 
@@ -2762,7 +2830,24 @@ def create_and_link_mandate_enhanced(
     notes="",
     replace_existing=None,
 ):
-    """Create a new SEPA mandate and link it to the member"""
+    """
+    Create a new SEPA mandate and link it to the member
+
+    .. deprecated:: 2025-10-14
+        Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.create_mandate` instead.
+        This function will be removed in a future version.
+    """
+    import warnings
+
+    warnings.warn(
+        "create_and_link_mandate_enhanced() is deprecated. Use SEPAMandateManager.create_mandate() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    frappe.log_error(
+        "Deprecated function create_and_link_mandate_enhanced() called. Migrate to SEPAMandateManager.",
+        "Deprecation Warning",
+    )
     try:
         # Validate mandatory fields before proceeding
         if not member or not member.strip():

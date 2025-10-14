@@ -157,14 +157,6 @@ class Donation(Document):
         if anbi_date and not anbi_number:
             frappe.throw(_("ANBI Agreement Number is required when ANBI Agreement Date is provided"))
 
-        # Auto-set belastingdienst_reportable for larger donations using validation service
-        if self.amount and anbi_number:
-            from verenigingen.services.anbi_validation_service import ANBIValidationService
-
-            validator = ANBIValidationService()
-            if validator.should_mark_reportable(flt(self.amount)):
-                self.belastingdienst_reportable = 1
-
     def validate_periodic_donation_agreement(self):
         """Validate periodic donation agreement link"""
         if hasattr(self, "periodic_donation_agreement") and self.periodic_donation_agreement:
@@ -186,16 +178,19 @@ class Donation(Document):
             if not self.anbi_agreement_date and agreement.agreement_date:
                 self.anbi_agreement_date = agreement.agreement_date
 
-            # Mark as reportable for periodic donations
-            self.belastingdienst_reportable = 1
-
             # Set donation status as recurring if not already set
             if not self.status or self.status == "One-time":
                 self.status = "Recurring"
 
     def generate_anbi_report_data(self):
-        """Generate data for ANBI reporting to Belastingdienst"""
-        if not self.belastingdienst_reportable or not self.anbi_agreement_number:
+        """
+        Generate data for ANBI reporting to Belastingdienst
+
+        Note: ANBI reporting is handled via the separate ANBI Donation Agreement DocType.
+        This method provides basic donation data for backward compatibility but actual
+        ANBI compliance tracking should use the dedicated ANBI Agreement system.
+        """
+        if not self.anbi_agreement_number:
             return None
 
         donor_doc = frappe.get_doc("Donor", self.donor)
@@ -265,18 +260,24 @@ class Donation(Document):
 
     def after_insert(self):
         """Called after donation is created"""
-        # Send confirmation email for new donations
-        from verenigingen.utils.donation_emails import send_donation_confirmation
-
-        frappe.enqueue(send_donation_confirmation, donation_id=self.name, queue="short", timeout=300)
+        # Send confirmation email for new donations using EmailService
+        frappe.enqueue(
+            "verenigingen.verenigingen.doctype.donation.donation.send_donation_confirmation_email",
+            donation_id=self.name,
+            queue="short",
+            timeout=300,
+        )
 
     def on_update(self):
         """Called when donation is updated"""
-        # Send payment confirmation if marked as paid for first time
+        # Send payment confirmation if marked as paid for first time using EmailService
         if self.paid and self.has_value_changed("paid"):
-            from verenigingen.utils.donation_emails import send_payment_confirmation
-
-            frappe.enqueue(send_payment_confirmation, donation_id=self.name, queue="short", timeout=300)
+            frappe.enqueue(
+                "verenigingen.verenigingen.doctype.donation.donation.send_payment_confirmation_email",
+                donation_id=self.name,
+                queue="short",
+                timeout=300,
+            )
 
 
 @frappe.whitelist()
@@ -394,22 +395,10 @@ def create_mode_of_payment(method):
 @high_security_api(operation_type=OperationType.REPORTING)
 def get_anbi_donations_for_reporting(from_date, to_date):
     """Get all ANBI donations requiring Belastingdienst reporting"""
-    donations = frappe.get_all(
-        "Donation",
-        filters={
-            "belastingdienst_reportable": 1,
-            "donation_date": ["between", [from_date, to_date]],
-            "docstatus": 1,
-        },
-        fields=["name", "donor", "donation_date", "amount", "anbi_agreement_number", "anbi_agreement_date"],
-    )
+    from verenigingen.services.donation_reporting_service import DonationReportingService
 
-    report_data = []
-    for donation in donations:
-        donation_doc = frappe.get_doc("Donation", donation.name)
-        report_data.append(donation_doc.generate_anbi_report_data())
-
-    return [data for data in report_data if data]  # Filter out None values
+    service = DonationReportingService()
+    return service.get_anbi_donations_for_reporting(from_date, to_date)
 
 
 @frappe.whitelist()
@@ -451,116 +440,30 @@ def generate_anbi_agreement_number():
 @high_security_api(operation_type=OperationType.REPORTING)
 def get_donations_by_chapter(chapter, from_date=None, to_date=None):
     """Get all donations earmarked for a specific chapter"""
-    filters = {"chapter_reference": chapter, "donation_purpose_type": "Chapter", "docstatus": 1}
+    from verenigingen.services.donation_reporting_service import DonationReportingService
 
-    if from_date and to_date:
-        filters["donation_date"] = ["between", [from_date, to_date]]
-
-    donations = frappe.get_all(
-        "Donation",
-        filters=filters,
-        fields=["name", "donor", "donation_date", "amount", "donation_type", "paid"],
-        order_by="donation_date desc",
-    )
-
-    total_amount = sum(d.amount for d in donations if d.amount)
-    paid_amount = sum(d.amount for d in donations if d.amount and d.paid)
-
-    return {
-        "donations": donations,
-        "total_amount": total_amount,
-        "paid_amount": paid_amount,
-        "outstanding_amount": total_amount - paid_amount,
-        "count": len(donations),
-    }
+    service = DonationReportingService()
+    return service.get_donations_by_chapter(chapter, from_date, to_date)
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.REPORTING)
 def get_donations_by_campaign(campaign, from_date=None, to_date=None):
     """Get all donations for a specific campaign"""
-    filters = {"campaign": campaign, "donation_purpose_type": "Campaign", "docstatus": 1}
+    from verenigingen.services.donation_reporting_service import DonationReportingService
 
-    if from_date and to_date:
-        filters["donation_date"] = ["between", [from_date, to_date]]
-
-    donations = frappe.get_all(
-        "Donation",
-        filters=filters,
-        fields=["name", "donor", "donation_date", "amount", "donation_type", "paid"],
-        order_by="donation_date desc",
-    )
-
-    total_amount = sum(d.amount for d in donations if d.amount)
-    paid_amount = sum(d.amount for d in donations if d.amount and d.paid)
-
-    return {
-        "donations": donations,
-        "total_amount": total_amount,
-        "paid_amount": paid_amount,
-        "outstanding_amount": total_amount - paid_amount,
-        "count": len(donations),
-    }
+    service = DonationReportingService()
+    return service.get_donations_by_campaign(campaign, from_date, to_date)
 
 
 @frappe.whitelist()
 @high_security_api(operation_type=OperationType.REPORTING)
 def get_donation_summary_by_purpose(from_date=None, to_date=None):
     """Get donation summary grouped by purpose type"""
-    filters = {"docstatus": 1}
+    from verenigingen.services.donation_reporting_service import DonationReportingService
 
-    if from_date and to_date:
-        filters["donation_date"] = ["between", [from_date, to_date]]
-
-    donations = frappe.get_all(
-        "Donation",
-        filters=filters,
-        fields=["donation_purpose_type", "amount", "paid", "chapter_reference", "campaign"],
-    )
-
-    summary = {
-        "General": {"total": 0, "paid": 0, "count": 0},
-        "Campaign": {"total": 0, "paid": 0, "count": 0, "campaigns": {}},
-        "Chapter": {"total": 0, "paid": 0, "count": 0, "chapters": {}},
-        "Specific Goal": {"total": 0, "paid": 0, "count": 0},
-    }
-
-    for donation in donations:
-        purpose = donation.donation_purpose_type or "General"
-        amount = donation.amount or 0
-
-        if purpose in summary:
-            summary[purpose]["total"] += amount
-            summary[purpose]["count"] += 1
-            if donation.paid:
-                summary[purpose]["paid"] += amount
-
-            # Track individual campaigns and chapters
-            if purpose == "Campaign" and donation.campaign:
-                if donation.campaign not in summary["Campaign"]["campaigns"]:
-                    summary["Campaign"]["campaigns"][donation.campaign] = {
-                        "total": 0,
-                        "paid": 0,
-                        "count": 0,
-                    }
-                summary["Campaign"]["campaigns"][donation.campaign]["total"] += amount
-                summary["Campaign"]["campaigns"][donation.campaign]["count"] += 1
-                if donation.paid:
-                    summary["Campaign"]["campaigns"][donation.campaign]["paid"] += amount
-
-            elif purpose == "Chapter" and donation.chapter_reference:
-                if donation.chapter_reference not in summary["Chapter"]["chapters"]:
-                    summary["Chapter"]["chapters"][donation.chapter_reference] = {
-                        "total": 0,
-                        "paid": 0,
-                        "count": 0,
-                    }
-                summary["Chapter"]["chapters"][donation.chapter_reference]["total"] += amount
-                summary["Chapter"]["chapters"][donation.chapter_reference]["count"] += 1
-                if donation.paid:
-                    summary["Chapter"]["chapters"][donation.chapter_reference]["paid"] += amount
-
-    return summary
+    service = DonationReportingService()
+    return service.get_donation_summary_by_purpose(from_date, to_date)
 
 
 @frappe.whitelist()
@@ -595,48 +498,10 @@ def create_chapter_donation(donor, amount, chapter, date=None, donation_type=Non
 @high_security_api(operation_type=OperationType.REPORTING)
 def get_donation_accounting_summary(from_date=None, to_date=None):
     """Get donation accounting summary with GL account details"""
-    filters = {"docstatus": 1, "paid": 1}
+    from verenigingen.services.donation_reporting_service import DonationReportingService
 
-    if from_date and to_date:
-        filters["donation_date"] = ["between", [from_date, to_date]]
-
-    donations = frappe.get_all(
-        "Donation",
-        filters=filters,
-        fields=[
-            "name",
-            "amount",
-            "donation_purpose_type",
-            "chapter_reference",
-            "campaign",
-            "company",
-        ],
-    )
-
-    accounting_summary = {"total_donations": 0, "by_purpose": {}, "gl_entries": []}
-
-    for donation in donations:
-        amount = flt(donation.amount)
-        accounting_summary["total_donations"] += amount
-
-        purpose = donation.donation_purpose_type or "General"
-        if purpose not in accounting_summary["by_purpose"]:
-            accounting_summary["by_purpose"][purpose] = 0
-        accounting_summary["by_purpose"][purpose] += amount
-
-        # Get related GL entries for this donation
-        gl_entries = frappe.get_all(
-            "GL Entry",
-            filters={"voucher_no": donation.name, "voucher_type": "Payment Entry"},
-            fields=["account", "debit", "credit", "posting_date"],
-        )
-
-        for gl in gl_entries:
-            gl["donation"] = donation.name
-            gl["purpose"] = purpose
-            accounting_summary["gl_entries"].append(gl)
-
-    return accounting_summary
+    service = DonationReportingService()
+    return service.get_donation_accounting_summary(from_date, to_date)
 
 
 @frappe.whitelist()
@@ -696,50 +561,10 @@ def reconcile_donation_accounts():
 @high_security_api(operation_type=OperationType.REPORTING)
 def create_donation_allocation_report(chapter=None, from_date=None, to_date=None):
     """Create detailed allocation report for chapter or overall donations"""
-    filters = {"docstatus": 1}
+    from verenigingen.services.donation_reporting_service import DonationReportingService
 
-    if chapter:
-        filters["chapter_reference"] = chapter
-        filters["donation_purpose_type"] = "Chapter"
-
-    if from_date and to_date:
-        filters["donation_date"] = ["between", [from_date, to_date]]
-
-    donations = frappe.get_all(
-        "Donation",
-        filters=filters,
-        fields=[
-            "name",
-            "donor",
-            "donation_date",
-            "amount",
-            "paid",
-            "donation_purpose_type",
-            "chapter_reference",
-            "campaign",
-            "specific_goal_description",
-        ],
-    )
-
-    # Get donor details
-    for donation in donations:
-        if donation.donor:
-            donor_doc = frappe.get_doc("Donor", donation.donor)
-            donation["donor_name"] = getattr(donor_doc, "donor_name", "")
-            donation["donor_email"] = getattr(donor_doc, "donor_email", "")
-
-    report = {
-        "donations": donations,
-        "summary": {
-            "total_amount": sum(d.amount for d in donations if d.amount),
-            "paid_amount": sum(d.amount for d in donations if d.amount and d.paid),
-            "outstanding_amount": sum(d.amount for d in donations if d.amount and not d.paid),
-            "count": len(donations),
-        },
-        "filters_applied": {"chapter": chapter, "from_date": from_date, "to_date": to_date},
-    }
-
-    return report
+    service = DonationReportingService()
+    return service.create_donation_allocation_report(chapter, from_date, to_date)
 
 
 def update_campaign_progress(doc, method):
@@ -750,3 +575,117 @@ def update_campaign_progress(doc, method):
         )
 
         update_campaign_progress(doc.campaign)
+
+
+# Email sending functions using unified EmailService
+def send_donation_confirmation_email(donation_id):
+    """Send donation confirmation email using EmailService"""
+    try:
+        from verenigingen.services.communication.email_service import get_email_service
+
+        # Verify donation exists
+        if not frappe.db.exists("Donation", donation_id):
+            return False
+
+        donation = frappe.get_doc("Donation", donation_id)
+
+        # Verify donor exists
+        if not frappe.db.exists("Donor", donation.donor):
+            return False
+
+        donor = frappe.get_doc("Donor", donation.donor)
+        donor_email = getattr(donor, "donor_email", "") or getattr(donor, "email", "")
+
+        if not donor_email:
+            frappe.log_error(f"No email address for donor {donor.name}", "Donation Email")
+            return False
+
+        # Prepare context
+        settings = frappe.get_single("Verenigingen Settings")
+        context = {
+            "donation_id": donation.name,
+            "donation_amount": "{:,.2f}".format(flt(donation.amount)),
+            "donation_date": frappe.utils.formatdate(donation.donation_date),
+            "donation_status": donation.status,
+            "earmarking": donation.get_earmarking_summary()
+            if hasattr(donation, "get_earmarking_summary")
+            else "General Fund",
+            "donation_notes": donation.donation_notes or "",
+            "donor_name": donor.donor_name,
+            "donor_email": donor_email,
+            "organization_name": frappe.defaults.get_global_default("company"),
+            "organization_email": getattr(settings, "member_contact_email", ""),
+        }
+
+        # Send email via EmailService
+        email_service = get_email_service()
+        result = email_service.send_templated_email(
+            template_name="donation_confirmation",
+            recipients=[donor_email],
+            context=context,
+            subject=_("Thank you for your donation - {0}").format(donation.name),
+            reference_doctype="Donation",
+            reference_name=donation.name,
+        )
+
+        return result.success
+
+    except Exception as e:
+        frappe.log_error(f"Failed to send donation confirmation: {str(e)}", "Donation Email Error")
+        return False
+
+
+def send_payment_confirmation_email(donation_id):
+    """Send payment confirmation email using EmailService"""
+    try:
+        from verenigingen.services.communication.email_service import get_email_service
+
+        # Verify donation exists
+        if not frappe.db.exists("Donation", donation_id):
+            return False
+
+        donation = frappe.get_doc("Donation", donation_id)
+
+        # Verify donor exists
+        if not frappe.db.exists("Donor", donation.donor):
+            return False
+
+        donor = frappe.get_doc("Donor", donation.donor)
+        donor_email = getattr(donor, "donor_email", "") or getattr(donor, "email", "")
+
+        if not donor_email:
+            return False
+
+        # Prepare context
+        settings = frappe.get_single("Verenigingen Settings")
+        context = {
+            "donation_id": donation.name,
+            "donation_amount": "{:,.2f}".format(flt(donation.amount)),
+            "payment_date": frappe.utils.formatdate(donation.modified),
+            "payment_method": getattr(donation, "payment_method", donation.mode_of_payment),
+            "payment_reference": donation.payment_id or donation.name,
+            "earmarking": donation.get_earmarking_summary()
+            if hasattr(donation, "get_earmarking_summary")
+            else "General Fund",
+            "donor_name": donor.donor_name,
+            "donor_email": donor_email,
+            "organization_name": frappe.defaults.get_global_default("company"),
+            "organization_email": getattr(settings, "member_contact_email", ""),
+        }
+
+        # Send email via EmailService
+        email_service = get_email_service()
+        result = email_service.send_templated_email(
+            template_name="donation_payment_confirmation",
+            recipients=[donor_email],
+            context=context,
+            subject=_("Payment Received - Donation {0}").format(donation.name),
+            reference_doctype="Donation",
+            reference_name=donation.name,
+        )
+
+        return result.success
+
+    except Exception as e:
+        frappe.log_error(f"Failed to send payment confirmation: {str(e)}", "Payment Email Error")
+        return False

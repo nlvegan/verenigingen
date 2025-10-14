@@ -649,16 +649,24 @@ def create_and_link_mandate_enhanced(
     notes=None,
     replace_mandate=None,
 ):
-    """Create and link SEPA mandate - redirects to SEPAService
-
-    NOTE: Original implementation here used secure_document_operation throughout.
-    SEPAService should be enhanced with secure_document_operation in Phase 2B.
-
-    TODO Phase 2B:
-    - Add secure_document_operation to SEPAService.create_and_link_mandate_enhanced()
-    - Add mandate superseding logic (not just cancellation)
-    - Add member SEPA mandate link management with proper security
     """
+    Create and link SEPA mandate - redirects to SEPAService
+
+    .. deprecated:: 2025-10-14
+        Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.create_mandate` instead.
+        This function will be removed in a future version.
+    """
+    import warnings
+
+    warnings.warn(
+        "create_and_link_mandate_enhanced() is deprecated. Use SEPAMandateManager.create_mandate() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    frappe.log_error(
+        "Deprecated function create_and_link_mandate_enhanced() called. Migrate to SEPAMandateManager.",
+        "Deprecation Warning",
+    )
     from verenigingen.utils.services import sepa_service
 
     # SEPAService uses "replace_existing" parameter instead of "replace_mandate"
@@ -788,7 +796,24 @@ def create_and_link_mandate(
     used_for_memberships=1,
     used_for_donations=0,
 ):
-    """Create a new mandate and link it to the member in one atomic operation"""
+    """
+    Create a new mandate and link it to the member in one atomic operation
+
+    .. deprecated:: 2025-10-14
+        Use :func:`verenigingen.services.payment.sepa_mandate_manager.SEPAMandateManager.create_mandate` instead.
+        This function will be removed in a future version.
+    """
+    import warnings
+
+    warnings.warn(
+        "create_and_link_mandate() is deprecated. Use SEPAMandateManager.create_mandate() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    frappe.log_error(
+        "Deprecated function create_and_link_mandate() called. Migrate to SEPAMandateManager.",
+        "Deprecation Warning",
+    )
     if not member or not iban:
         frappe.throw(_("Member and IBAN are required"))
 
