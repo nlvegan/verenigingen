@@ -575,13 +575,13 @@ class SEPAService:
             Document: Prepared (not saved) SEPA Mandate document
         """
         from verenigingen.utils.boolean_utils import cbool
-        from verenigingen.verenigingen_payments.utils.sepa_utilities import SEPAUtilities
+        from verenigingen.utils.validation.iban_validator import format_iban
 
         mandate = frappe.new_doc("SEPA Mandate")
         mandate.mandate_id = mandate_id
         mandate.member = member
         # Normalize IBAN to standard format (with spaces every 4 characters)
-        mandate.iban = SEPAUtilities.format_iban_display(iban)
+        mandate.iban = format_iban(iban) or iban
         mandate.bic = bic if bic else SEPAService.derive_bic_from_iban(iban)
         mandate.account_holder_name = account_holder_name
         mandate.mandate_type = mandate_type

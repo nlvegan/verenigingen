@@ -161,44 +161,57 @@ class FinancialValidator:
         """
         Validate IBAN according to ISO 13616
 
+        .. deprecated:: 1.0.0
+            Use :func:`verenigingen.utils.validation.iban_validator.validate_iban` instead.
+            This method reimplements the entire MOD-97 checksum algorithm (~80 lines).
+            The canonical validator is well-tested and provides the same validation.
+
+            **Migration Example**::
+
+                # Old (reimplements MOD-97)
+                from verenigingen.verenigingen_payments.core.compliance.financial_validator import FinancialValidator
+                validator = FinancialValidator()
+                is_valid, error_msg = validator.validate_iban(iban)
+
+                # New (uses canonical validator)
+                from verenigingen.utils.validation.iban_validator import validate_iban
+                result = validate_iban(iban)
+                is_valid = result["valid"]
+                error_msg = result.get("message") if not is_valid else None
+
         Args:
             iban: IBAN string to validate
 
         Returns:
             Tuple of (is_valid, error_message)
         """
-        if not iban:
-            return False, "IBAN is required"
+        import warnings
 
-        # Remove spaces and convert to uppercase
-        iban = iban.replace(" ", "").upper()
+        warnings.warn(
+            "FinancialValidator.validate_iban() is deprecated. "
+            "Use iban_validator.validate_iban() instead. "
+            "This method reimplements ~80 lines of MOD-97 checksum validation that duplicates the canonical validator.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
-        # Check basic format (2 letters, 2 digits, then alphanumeric)
-        if not re.match(r"^[A-Z]{2}[0-9]{2}[A-Z0-9]+$", iban):
-            return False, "Invalid IBAN format"
+        # Delegate to canonical implementation
+        from verenigingen.utils.validation.iban_validator import validate_iban
 
-        # Check country code
-        country_code = iban[:2]
-        if country_code not in self.IBAN_LENGTHS:
-            return False, f"Unknown country code: {country_code}"
+        result = validate_iban(iban)
 
-        # Check length
-        expected_length = self.IBAN_LENGTHS[country_code]
-        if len(iban) != expected_length:
-            return (
-                False,
-                f"Invalid IBAN length for {country_code}: expected {expected_length}, got {len(iban)}",
-            )
-
-        # Validate checksum using mod 97 algorithm
-        if not self._validate_iban_checksum(iban):
-            return False, "Invalid IBAN checksum"
-
-        return True, None
+        if result["valid"]:
+            return True, None
+        else:
+            return False, result.get("message", "Invalid IBAN")
 
     def _validate_iban_checksum(self, iban: str) -> bool:
         """
         Validate IBAN checksum using mod 97 algorithm
+
+        .. deprecated:: 1.0.0
+            This internal method is no longer used. IBAN validation now delegates
+            to the canonical validator in iban_validator.py
 
         Args:
             iban: IBAN string (already sanitized)
@@ -206,19 +219,20 @@ class FinancialValidator:
         Returns:
             bool: True if checksum is valid
         """
-        # Move first 4 characters to end
-        rearranged = iban[4:] + iban[:4]
+        import warnings
 
-        # Convert letters to numbers (A=10, B=11, ..., Z=35)
-        numeric_string = ""
-        for char in rearranged:
-            if char.isdigit():
-                numeric_string += char
-            else:
-                numeric_string += str(ord(char) - ord("A") + 10)
+        warnings.warn(
+            "_validate_iban_checksum() is deprecated and no longer used internally. "
+            "Use iban_validator.validate_iban() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
-        # Calculate mod 97
-        return int(numeric_string) % 97 == 1
+        # Delegate to canonical implementation
+        from verenigingen.utils.validation.iban_validator import validate_iban
+
+        result = validate_iban(iban)
+        return result["valid"]
 
     def validate_amount(
         self,

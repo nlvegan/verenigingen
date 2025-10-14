@@ -288,11 +288,13 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
 
     def test_dutch_business_logic_compliance(self):
         """Test compliance with Dutch SEPA and banking standards"""
-        # Test Dutch IBAN validation
+        # Test Dutch IBAN validation - use valid IBANs with correct checksums
+        from verenigingen.utils.validation.iban_validator import generate_test_iban
+
         dutch_ibans = [
-            "NL91ABNA0417164300",  # ABN AMRO
-            "NL02RABO0000123456",  # Rabobank
-            "NL13INGB0000000001",  # ING Bank
+            "NL91ABNA0417164300",  # ABN AMRO - valid checksum
+            generate_test_iban("RABO", "0000123456"),  # Rabobank - valid checksum
+            generate_test_iban("INGB", "0000000001"),  # ING Bank - valid checksum
         ]
 
         for iban in dutch_ibans:
@@ -363,9 +365,15 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
 
     def _create_test_invoices_data(self, count: int = 5) -> List[Dict[str, Any]]:
         """Create test invoice data for validation testing"""
+        from verenigingen.utils.validation.iban_validator import generate_test_iban
+
         invoices = []
+        bank_codes = ["ABNA", "RABO", "INGB", "TRIO", "KNAB"]
 
         for i in range(count):
+            bank_code = bank_codes[i % len(bank_codes)]
+            test_iban = generate_test_iban(bank_code, f"{i:010d}")
+
             invoice_data = {
                 "name": f"INV-TEST-{i+1:03d}",
                 "customer": f"CUST-TEST-{i+1:03d}",
@@ -374,7 +382,7 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
                 "status": "Unpaid",
                 "due_date": datetime.now() + timedelta(days=30),
                 "posting_date": datetime.now() - timedelta(days=5),
-                "iban": f"NL{91+i:02d}ABNA041716{4300+i:04d}",
+                "iban": test_iban,
                 "mandate_reference": f"MAND-{i+1:03d}",
             }
             invoices.append(invoice_data)
@@ -383,6 +391,8 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
 
     def _create_test_batch_with_invoices(self, invoice_count: int = 5):
         """Create a test Direct Debit Batch with invoices"""
+        from verenigingen.utils.validation.iban_validator import generate_test_iban
+
         # Create new batch document
         batch_doc = frappe.new_doc("Direct Debit Batch")
         batch_doc.batch_date = today()
@@ -391,8 +401,15 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
         batch_doc.batch_type = "RCUR"
         batch_doc.currency = "EUR"
 
-        # Add test invoices
+        # Bank codes to cycle through for test variety
+        bank_codes = ["ABNA", "RABO", "INGB", "TRIO", "KNAB"]
+
+        # Add test invoices with valid IBANs
         for i in range(invoice_count):
+            bank_code = bank_codes[i % len(bank_codes)]
+            # Generate valid IBAN with correct checksum
+            test_iban = generate_test_iban(bank_code, f"{i:010d}")
+
             batch_doc.append(
                 "invoices",
                 {
@@ -401,7 +418,7 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
                     "member_name": f"Test Member {i+1}",
                     "amount": 25.00 + (i * 5),
                     "currency": "EUR",
-                    "iban": f"NL{91+i:02d}ABNA041716{4300+i:04d}",
+                    "iban": test_iban,
                     "mandate_reference": f"MAND-{i+1:03d}",
                     "status": "Pending",
                 },
@@ -415,15 +432,21 @@ class TestDirectDebitBatchRefactoring(EnhancedTestCase):
 
     def _create_test_members_with_mandates(self, count: int = 3) -> List[Dict[str, Any]]:
         """Create test members with SEPA mandates"""
+        from verenigingen.utils.validation.iban_validator import generate_test_iban
+
         members_data = []
+        bank_codes = ["ABNA", "RABO", "INGB"]
 
         for i in range(count):
+            bank_code = bank_codes[i % len(bank_codes)]
+            test_iban = generate_test_iban(bank_code, f"{i:010d}")
+
             # Create basic member data
             member_data = {
                 "first_name": f"Test{i+1}",
                 "last_name": f"Member{i+1}",
                 "email": f"test{i+1}@verenigingen.test",
-                "iban": f"NL{91+i:02d}ABNA041716{4300+i:04d}",
+                "iban": test_iban,
                 "mandate_reference": f"MAND-{i+1:03d}",
             }
 
@@ -464,11 +487,13 @@ class TestSEPAUtilities(unittest.TestCase):
 
     def test_iban_validation_edge_cases(self):
         """Test IBAN validation with edge cases"""
-        # Valid Dutch IBANs
+        from verenigingen.utils.validation.iban_validator import generate_test_iban
+
+        # Valid Dutch IBANs with correct checksums
         valid_ibans = [
-            "NL91ABNA0417164300",
-            "NL02RABO0000123456",
-            "NL13INGB0000000001",
+            "NL91ABNA0417164300",  # Valid checksum
+            generate_test_iban("RABO", "0000123456"),  # Valid checksum
+            generate_test_iban("INGB", "0000000001"),  # Valid checksum
         ]
 
         for iban in valid_ibans:
@@ -489,12 +514,15 @@ class TestSEPAUtilities(unittest.TestCase):
 
     def test_bic_derivation_completeness(self):
         """Test BIC derivation for all major Dutch banks"""
+        from verenigingen.utils.validation.iban_validator import generate_test_iban
+
+        # Generate valid IBANs with correct checksums for each bank
         test_cases = [
-            ("NL91ABNA0417164300", "ABNANL2A"),  # ABN AMRO
-            ("NL20RABO0123456789", "RABONL2U"),  # Rabobank
-            ("NL13INGB0000000001", "INGBNL2A"),  # ING Bank
-            ("NL59TRIO0123456789", "TRIONL2U"),  # Triodos Bank
-            ("NL06KNAB0123456789", "KNABNL2H"),  # Knab
+            ("NL91ABNA0417164300", "ABNANL2A"),  # ABN AMRO - valid checksum
+            (generate_test_iban("RABO", "0123456789"), "RABONL2U"),  # Rabobank - valid checksum
+            (generate_test_iban("INGB", "0000000001"), "INGBNL2A"),  # ING Bank - valid checksum
+            (generate_test_iban("TRIO", "0123456789"), "TRIONL2U"),  # Triodos Bank - valid checksum
+            (generate_test_iban("KNAB", "0123456789"), "KNABNL2H"),  # Knab - valid checksum
         ]
 
         for iban, expected_bic in test_cases:

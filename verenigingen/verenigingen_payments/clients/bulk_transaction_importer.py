@@ -987,156 +987,44 @@ class BulkTransactionImporter(MollieBaseClient):
         """
         Validate if account number is a valid IBAN format with comprehensive checks
 
+        .. deprecated:: 1.0.0
+            Use :func:`verenigingen.utils.validation.iban_validator.validate_iban` instead.
+            **SECURITY RISK:** This method only checks format (regex + country code) without
+            validating the MOD-97 checksum. It may accept IBANs with invalid checksums!
+
+            **Migration Example**::
+
+                # Old (basic validation, NO checksum!)
+                if self._validate_iban_format(account_number):
+                    consumer_iban = account_number
+
+                # New (full validation WITH checksum)
+                from verenigingen.utils.validation.iban_validator import validate_iban
+                result = validate_iban(account_number)
+                if result["valid"]:
+                    consumer_iban = account_number
+
         Args:
             account_number: Account number to validate
 
         Returns:
             True if valid IBAN format, False otherwise
         """
-        if not account_number:
-            return False
+        import warnings
 
-        # Remove spaces, hyphens and standardize
-        clean_account = account_number.replace(" ", "").replace("-", "").upper()
+        warnings.warn(
+            "BulkTransactionImporter._validate_iban_format() is deprecated. "
+            "Use iban_validator.validate_iban() instead. "
+            "SECURITY RISK: This method lacks MOD-97 checksum validation and may accept invalid IBANs!",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
-        # Length must be between 15-34 characters
-        if len(clean_account) < 15 or len(clean_account) > 34:
-            return False
+        # Delegate to canonical implementation
+        from verenigingen.utils.validation.iban_validator import validate_iban
 
-        # Must start with 2 letters (country code) + 2 digits (check digits)
-        if not (clean_account[:2].isalpha() and clean_account[2:4].isdigit()):
-            return False
-
-        # Rest must be alphanumeric only
-        if not clean_account[4:].isalnum():
-            return False
-
-        # Validate against known European country codes
-        valid_country_codes = {
-            "AD",
-            "AE",
-            "AL",
-            "AT",
-            "AZ",
-            "BA",
-            "BE",
-            "BG",
-            "BH",
-            "BR",
-            "BY",
-            "CH",
-            "CR",
-            "CY",
-            "CZ",
-            "DE",
-            "DK",
-            "DO",
-            "EE",
-            "EG",
-            "ES",
-            "FI",
-            "FO",
-            "FR",
-            "GB",
-            "GE",
-            "GI",
-            "GL",
-            "GR",
-            "GT",
-            "HR",
-            "HU",
-            "IE",
-            "IL",
-            "IS",
-            "IT",
-            "JO",
-            "KW",
-            "KZ",
-            "LB",
-            "LC",
-            "LI",
-            "LT",
-            "LU",
-            "LV",
-            "MC",
-            "MD",
-            "ME",
-            "MK",
-            "MR",
-            "MT",
-            "MU",
-            "NL",
-            "NO",
-            "PK",
-            "PL",
-            "PS",
-            "PT",
-            "QA",
-            "RO",
-            "RS",
-            "SA",
-            "SE",
-            "SI",
-            "SK",
-            "SM",
-            "TN",
-            "TR",
-            "UA",
-            "VG",
-            "XK",
-        }
-
-        country_code = clean_account[:2]
-        if country_code not in valid_country_codes:
-            return False
-
-        # Country-specific length validation for common European countries
-        country_lengths = {
-            "AD": 24,
-            "AT": 20,
-            "BE": 16,
-            "BG": 22,
-            "CH": 21,
-            "CY": 28,
-            "CZ": 24,
-            "DE": 22,
-            "DK": 18,
-            "EE": 20,
-            "ES": 24,
-            "FI": 18,
-            "FR": 27,
-            "GB": 22,
-            "GR": 27,
-            "HR": 21,
-            "HU": 28,
-            "IE": 22,
-            "IS": 26,
-            "IT": 27,
-            "LI": 21,
-            "LT": 20,
-            "LU": 20,
-            "LV": 21,
-            "MC": 27,
-            "ME": 22,
-            "MK": 19,
-            "MT": 31,
-            "NL": 18,
-            "NO": 15,
-            "PL": 28,
-            "PT": 25,
-            "RO": 24,
-            "RS": 22,
-            "SE": 24,
-            "SI": 19,
-            "SK": 24,
-            "SM": 27,
-        }
-
-        expected_length = country_lengths.get(country_code)
-        if expected_length and len(clean_account) != expected_length:
-            return False
-
-        return True
+        result = validate_iban(account_number)
+        return result["valid"]
 
     def _find_member_by_payment_details(self, consumer_name: str = None, consumer_iban: str = None) -> str:
         """

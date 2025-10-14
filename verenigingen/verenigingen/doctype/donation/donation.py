@@ -284,27 +284,11 @@ class Donation(Document):
 @critical_api(operation_type=OperationType.FINANCIAL)
 def create_donation_from_bank_transfer(donor, amount, date, bank_reference, donation_type=None):
     """Create donation from bank transfer details (payment-first architecture)"""
-    if not donation_type:
-        donation_type = frappe.db.get_single_value("Verenigingen Settings", "default_donation_type")
+    from verenigingen.services.donation_financial_service import DonationFinancialService
 
-    company = get_company_for_donations()
-    donation = frappe.get_doc(
-        {
-            "doctype": "Donation",
-            "company": company,
-            "donor": donor,
-            "donation_date": getdate(date),
-            "amount": flt(amount),
-            "mode_of_payment": "Bank Transfer",
-            "bank_reference": bank_reference,
-            "donation_type": donation_type,
-            "paid": 1,
-        }
-    ).insert()
-
-    donation.submit()
-    # Note: Payment Entry should be created separately by bank reconciliation system
-    return donation
+    return DonationFinancialService.create_donation_from_bank_transfer(
+        donor=donor, amount=amount, date=date, bank_reference=bank_reference, donation_type=donation_type
+    )
 
 
 def get_donor_by_email(email):
@@ -358,29 +342,16 @@ def get_company_for_donations():
 @critical_api(operation_type=OperationType.FINANCIAL)
 def create_sepa_donation(donor, amount, date, sepa_mandate, donation_type=None, recurring_frequency=None):
     """Create donation for SEPA direct debit"""
-    if not donation_type:
-        donation_type = frappe.db.get_single_value("Verenigingen Settings", "default_donation_type")
+    from verenigingen.services.donation_financial_service import DonationFinancialService
 
-    company = get_company_for_donations()
-    status = "Recurring" if recurring_frequency else "Promised"
-
-    donation = frappe.get_doc(
-        {
-            "doctype": "Donation",
-            "company": company,
-            "donor": donor,
-            "donation_date": getdate(date),
-            "amount": flt(amount),
-            "mode_of_payment": "SEPA Direct Debit",
-            "donation_type": donation_type,
-            "status": status,
-            "sepa_mandate": sepa_mandate,
-            "recurring_frequency": recurring_frequency,
-            "paid": 0,  # Will be marked paid when SEPA batch is processed
-        }
-    ).insert()
-
-    return donation
+    return DonationFinancialService.create_sepa_donation(
+        donor=donor,
+        amount=amount,
+        date=date,
+        sepa_mandate=sepa_mandate,
+        donation_type=donation_type,
+        recurring_frequency=recurring_frequency,
+    )
 
 
 def create_mode_of_payment(method):
@@ -470,28 +441,11 @@ def get_donation_summary_by_purpose(from_date=None, to_date=None):
 @critical_api(operation_type=OperationType.FINANCIAL)
 def create_chapter_donation(donor, amount, chapter, date=None, donation_type=None, notes=None):
     """Create a donation earmarked for a specific chapter"""
-    if not frappe.db.exists("Chapter", chapter):
-        frappe.throw(_("Chapter {0} does not exist").format(chapter))
+    from verenigingen.services.donation_financial_service import DonationFinancialService
 
-    if not donation_type:
-        donation_type = frappe.db.get_single_value("Verenigingen Settings", "default_donation_type")
-
-    company = get_company_for_donations()
-    donation = frappe.get_doc(
-        {
-            "doctype": "Donation",
-            "company": company,
-            "donor": donor,
-            "donation_date": getdate(date) if date else getdate(),
-            "amount": flt(amount),
-            "donation_type": donation_type,
-            "donation_purpose_type": "Chapter",
-            "chapter_reference": chapter,
-            "donation_notes": notes or f"Donation earmarked for {chapter}",
-        }
-    ).insert()
-
-    return donation
+    return DonationFinancialService.create_chapter_donation(
+        donor=donor, amount=amount, chapter=chapter, date=date, donation_type=donation_type, notes=notes
+    )
 
 
 @frappe.whitelist()
@@ -508,53 +462,9 @@ def get_donation_accounting_summary(from_date=None, to_date=None):
 @critical_api(operation_type=OperationType.FINANCIAL)
 def reconcile_donation_accounts():
     """Reconcile donation amounts with GL entries"""
-    # Get all paid donations
-    donations = frappe.get_all(
-        "Donation", filters={"paid": 1, "docstatus": 1}, fields=["name", "amount", "donation_date", "company"]
-    )
+    from verenigingen.services.donation_financial_service import DonationFinancialService
 
-    reconciliation_report = {"total_donations": 0, "total_gl_credits": 0, "discrepancies": [], "summary": {}}
-
-    for donation in donations:
-        amount = flt(donation.amount)
-        reconciliation_report["total_donations"] += amount
-
-        # Get GL entries for this donation
-        gl_credits = frappe.db.sql(
-            """
-            SELECT SUM(credit) as total_credit
-            FROM `tabGL Entry`
-            WHERE reference_name = %s AND reference_type = 'Donation'
-        """,
-            donation.name,
-            as_dict=True,
-        )
-
-        gl_credit_amount = flt(gl_credits[0].total_credit) if gl_credits and gl_credits[0].total_credit else 0
-        reconciliation_report["total_gl_credits"] += gl_credit_amount
-
-        # Check for discrepancies
-        if abs(amount - gl_credit_amount) > 0.01:  # Allow for minor rounding
-            reconciliation_report["discrepancies"].append(
-                {
-                    "donation": donation.name,
-                    "donation_amount": amount,
-                    "gl_amount": gl_credit_amount,
-                    "difference": amount - gl_credit_amount,
-                    "donation_date": donation.donation_date,
-                }
-            )
-
-    reconciliation_report["summary"] = {
-        "total_difference": reconciliation_report["total_donations"]
-        - reconciliation_report["total_gl_credits"],
-        "discrepancy_count": len(reconciliation_report["discrepancies"]),
-        "reconciliation_status": (
-            "Clean" if len(reconciliation_report["discrepancies"]) == 0 else "Needs Review"
-        ),
-    }
-
-    return reconciliation_report
+    return DonationFinancialService.reconcile_donation_accounts()
 
 
 @frappe.whitelist()

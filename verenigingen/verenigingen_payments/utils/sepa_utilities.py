@@ -148,33 +148,52 @@ class SEPAUtilities:
         """
         Validate Dutch IBAN format and checksum.
 
+        .. deprecated:: 1.0.0
+            Use :func:`verenigingen.utils.validation.iban_validator.validate_iban` instead.
+            This function has incomplete validation (see TODO comment in code).
+            The canonical validator provides full MOD-97 checksum validation.
+
+            **Security Risk**: This function may accept invalid Dutch IBANs!
+
+            **Migration Example**::
+
+                # Old (incomplete validation - see TODO in code)
+                from verenigingen.verenigingen_payments.utils.sepa_utilities import SEPAUtilities
+                is_valid = SEPAUtilities.validate_dutch_iban(iban)
+
+                # New (complete validation with MOD-97 checksum)
+                from verenigingen.utils.validation.iban_validator import validate_iban
+                result = validate_iban(iban)
+                is_valid = result["valid"] and iban.replace(" ", "").upper().startswith("NL")
+
         Args:
             iban: Dutch IBAN to validate
 
         Returns:
             True if valid Dutch IBAN, False otherwise
         """
+        warnings.warn(
+            "SEPAUtilities.validate_dutch_iban() is deprecated. "
+            "Use iban_validator.validate_iban() instead. "
+            "This function has incomplete validation (see TODO in original code) and may accept invalid IBANs!",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+        # Delegate to canonical implementation
+        from verenigingen.utils.validation.iban_validator import validate_iban
+
         if not iban:
             return False
 
+        # Validate using canonical validator
+        result = validate_iban(iban)
+        if not result["valid"]:
+            return False
+
+        # Check if Dutch IBAN
         clean_iban = iban.replace(" ", "").upper()
-
-        # Must be Dutch IBAN
-        if not clean_iban.startswith("NL"):
-            return False
-
-        # Must be exactly 18 characters for Dutch IBANs
-        if len(clean_iban) != 18:
-            return False
-
-        # Basic format validation
-        if not SEPAUtilities.validate_iban_format(clean_iban):
-            return False
-
-        # TODO: Add full IBAN checksum validation if needed
-        # For now, basic format validation is sufficient
-
-        return True
+        return clean_iban.startswith("NL")
 
 
 class BatchLoggingUtilities:

@@ -28,16 +28,14 @@ class DonationFinancialService:
         """
         results = {}
 
-        # Create payment history entry if needed
-        if self._should_create_payment_history():
+        # Create payment tracking entry if needed
+        if self._should_create_payment_entry():
             try:
-                payment_history_entry = self.create_payment_history_entry()
-                results["payment_history"] = (
-                    payment_history_entry.name if hasattr(payment_history_entry, "name") else "created"
-                )
+                payment_tracking = self.create_payment_tracking_entry()
+                results["payment_tracking"] = payment_tracking.payment_id if payment_tracking else "created"
             except Exception as e:
-                results["payment_history_error"] = str(e)
-                self.logger.error(f"Payment history entry creation failed: {str(e)}")
+                results["payment_tracking_error"] = str(e)
+                self.logger.error(f"Payment tracking entry creation failed: {str(e)}")
 
         # Create payment entry if needed
         if self._should_create_payment_entry():
@@ -59,55 +57,69 @@ class DonationFinancialService:
 
         return results
 
-    def create_payment_history_entry(self) -> Any:
-        """Create payment history entry for the donation using the new Payment History child table model"""
-        # Check if payment history entry already exists
+    def create_payment_tracking_entry(self) -> Any:
+        """
+        Create payment tracking entry in the Donation Payment child table
+
+        This tracks individual payments against a donation, particularly useful
+        for recurring donations that may have multiple payment attempts.
+        """
+        # Check if payment tracking entry already exists for this payment_id
         existing_entries = [
             entry
-            for entry in getattr(self.donation, "payment_history", [])
-            if entry.payment_id == getattr(self.donation, "payment_id", None)
+            for entry in getattr(self.donation, "payments", [])
+            if entry.payment_id == getattr(self.donation, "payment_id", None) and self.donation.payment_id
         ]
 
         if existing_entries:
-            self.logger.info(f"Payment history entry already exists for donation {self.donation.name}")
+            self.logger.info(f"Payment tracking entry already exists for donation {self.donation.name}")
             return existing_entries[0]
 
-        # Add payment history record to donation
-        payment_history = self.donation.append("payment_history", {})
-        payment_history.payment_date = self.donation.donation_date or nowdate()
-        payment_history.amount = flt(self.donation.amount)
-        payment_history.payment_method = getattr(self.donation, "mode_of_payment", "Manual")
-        payment_history.payment_id = getattr(self.donation, "payment_id", None)
-        payment_history.transaction_reference = getattr(self.donation, "bank_reference", None)
-        payment_history.payment_status = "Completed" if getattr(self.donation, "paid", False) else "Pending"
-        payment_history.notes = f"Donation: {getattr(self.donation, 'donation_purpose', 'General')}"
+        # Add payment tracking record to donation
+        payment_entry = self.donation.append("payments", {})
+        payment_entry.payment_date = self.donation.donation_date or nowdate()
+        payment_entry.amount = flt(self.donation.amount)
+        payment_entry.payment_method = getattr(self.donation, "mode_of_payment", None)
+        payment_entry.payment_id = getattr(self.donation, "payment_id", None)
+        payment_entry.payment_reference = getattr(self.donation, "bank_reference", None)
+        payment_entry.payment_status = "Paid" if getattr(self.donation, "paid", False) else "Pending"
 
-        # Save the donation with the payment history
+        # Save the donation with the payment tracking
         self.donation.save()
 
-        return payment_history
+        return payment_entry
 
     def create_payment_entry_for_sales_invoice(self, date: Optional[str] = None) -> Any:
         """Create payment entry for the donation's sales invoice"""
-        # Find the sales invoice for this donation using standardized query builder
-        from verenigingen.utils.validation_utilities import get_all_active_records
+        # Get customer for this donation
+        customer_name = self._get_customer_name()
+        if not customer_name:
+            frappe.throw(_("Customer not found for donor {0}").format(self.donation.donor))
 
-        sales_invoices = get_all_active_records("Sales Invoice", fields=["name"])
+        # Query sales invoice directly with filters (avoids N+1 query)
+        # Match by customer, amount, and unpaid status
+        sales_invoices = frappe.get_all(
+            "Sales Invoice",
+            filters={
+                "customer": customer_name,
+                "grand_total": flt(self.donation.amount),
+                "docstatus": 1,
+                "outstanding_amount": [">", 0],  # Only unpaid invoices
+            },
+            fields=["name", "customer"],
+            order_by="posting_date desc",
+            limit=1,
+        )
 
-        # Filter by donation reference (this would need to be added as a custom field)
-        sales_invoice = None
-        for si in sales_invoices:
-            si_doc = frappe.get_doc("Sales Invoice", si.name)
-            # Check if this SI is for our donation (by amount and customer matching)
-            if (
-                flt(si_doc.grand_total) == flt(self.donation.amount)
-                and si_doc.customer == self._get_customer_name()
-            ):
-                sales_invoice = si_doc
-                break
+        if not sales_invoices:
+            frappe.throw(
+                _("Sales Invoice not found for donation amount {0} and customer {1}").format(
+                    flt(self.donation.amount), customer_name
+                )
+            )
 
-        if not sales_invoice:
-            frappe.throw(_("Sales Invoice not found for this donation"))
+        # Load the matched sales invoice
+        sales_invoice = frappe.get_doc("Sales Invoice", sales_invoices[0].name)
 
         # Get accounting accounts
         accounts = self._get_accounting_accounts()
@@ -217,23 +229,6 @@ class DonationFinancialService:
 
         return summary
 
-    def _should_create_payment_history(self) -> bool:
-        """Check if payment history entry should be created"""
-        # Always create payment history entries for donations (replaces sales invoice creation)
-        # This maintains better financial tracking without creating unnecessary invoices
-
-        # Don't create duplicate entries if already exists
-        existing_entries = [
-            entry
-            for entry in getattr(self.donation, "payment_history", [])
-            if entry.payment_id == getattr(self.donation, "payment_id", None)
-        ]
-
-        if existing_entries:
-            return False
-
-        return True
-
     def _should_create_payment_entry(self) -> bool:
         """Check if payment entry should be created"""
         # Only create if donation is marked as paid
@@ -296,11 +291,14 @@ class DonationFinancialService:
         return accounts
 
     def _get_fund_designation_accounts(self) -> Dict[str, str]:
-        """Get mapping of fund designations to accounts"""
+        """
+        Get mapping of fund designations to accounts
+
+        This mapping is configured via Verenigingen Settings. Each fund type
+        maps to a specific GL account for proper earmarking accounting.
+        """
         settings = frappe.get_single("Verenigingen Settings")
 
-        # This would ideally be configurable in settings
-        # For now, return default mapping
         return {
             "General Fund": settings.get("general_fund_account"),
             "Emergency Fund": settings.get("emergency_fund_account"),
@@ -380,3 +378,210 @@ class DonationFinancialService:
 
         campaign = frappe.get_doc("Campaign", self.donation.campaign)
         return getattr(campaign, "project", None)
+
+    @staticmethod
+    def create_donation_from_bank_transfer(
+        donor: str, amount: float, date: str, bank_reference: str, donation_type: Optional[str] = None
+    ) -> Any:
+        """
+        Create donation from bank transfer details (payment-first architecture)
+
+        Args:
+            donor: Donor ID
+            amount: Donation amount
+            date: Donation date
+            bank_reference: Bank transaction reference
+            donation_type: Optional donation type override
+
+        Returns:
+            Created and submitted donation document
+        """
+        if not donation_type:
+            donation_type = frappe.db.get_single_value("Verenigingen Settings", "default_donation_type")
+
+        company = DonationFinancialService._get_company_for_donations()
+        donation = frappe.get_doc(
+            {
+                "doctype": "Donation",
+                "company": company,
+                "donor": donor,
+                "donation_date": getdate(date),
+                "amount": flt(amount),
+                "mode_of_payment": "Bank Transfer",
+                "bank_reference": bank_reference,
+                "donation_type": donation_type,
+                "paid": 1,
+            }
+        ).insert()
+
+        donation.submit()
+        # Note: Payment Entry should be created separately by bank reconciliation system
+        return donation
+
+    @staticmethod
+    def create_sepa_donation(
+        donor: str,
+        amount: float,
+        date: str,
+        sepa_mandate: str,
+        donation_type: Optional[str] = None,
+        recurring_frequency: Optional[str] = None,
+    ) -> Any:
+        """
+        Create donation for SEPA direct debit
+
+        Args:
+            donor: Donor ID
+            amount: Donation amount
+            date: Donation date
+            sepa_mandate: SEPA mandate reference
+            donation_type: Optional donation type override
+            recurring_frequency: Optional recurring frequency
+
+        Returns:
+            Created donation document (not submitted - SEPA batch will process)
+        """
+        if not donation_type:
+            donation_type = frappe.db.get_single_value("Verenigingen Settings", "default_donation_type")
+
+        company = DonationFinancialService._get_company_for_donations()
+        status = "Recurring" if recurring_frequency else "Promised"
+
+        donation = frappe.get_doc(
+            {
+                "doctype": "Donation",
+                "company": company,
+                "donor": donor,
+                "donation_date": getdate(date),
+                "amount": flt(amount),
+                "mode_of_payment": "SEPA Direct Debit",
+                "donation_type": donation_type,
+                "status": status,
+                "sepa_mandate": sepa_mandate,
+                "recurring_frequency": recurring_frequency,
+                "paid": 0,  # Will be marked paid when SEPA batch is processed
+            }
+        ).insert()
+
+        return donation
+
+    @staticmethod
+    def create_chapter_donation(
+        donor: str,
+        amount: float,
+        chapter: str,
+        date: Optional[str] = None,
+        donation_type: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> Any:
+        """
+        Create a donation earmarked for a specific chapter
+
+        Args:
+            donor: Donor ID
+            amount: Donation amount
+            chapter: Chapter ID
+            date: Optional donation date (defaults to today)
+            donation_type: Optional donation type override
+            notes: Optional notes
+
+        Returns:
+            Created donation document
+        """
+        if not frappe.db.exists("Chapter", chapter):
+            frappe.throw(_("Chapter {0} does not exist").format(chapter))
+
+        if not donation_type:
+            donation_type = frappe.db.get_single_value("Verenigingen Settings", "default_donation_type")
+
+        company = DonationFinancialService._get_company_for_donations()
+        donation = frappe.get_doc(
+            {
+                "doctype": "Donation",
+                "company": company,
+                "donor": donor,
+                "donation_date": getdate(date) if date else getdate(),
+                "amount": flt(amount),
+                "donation_type": donation_type,
+                "donation_purpose_type": "Chapter",
+                "chapter_reference": chapter,
+                "donation_notes": notes or f"Donation earmarked for {chapter}",
+            }
+        ).insert()
+
+        return donation
+
+    @staticmethod
+    def reconcile_donation_accounts() -> Dict[str, Any]:
+        """
+        Reconcile donation amounts with GL entries
+
+        Returns:
+            Dict with reconciliation report including discrepancies
+        """
+        # Get all paid donations
+        donations = frappe.get_all(
+            "Donation",
+            filters={"paid": 1, "docstatus": 1},
+            fields=["name", "amount", "donation_date", "company"],
+        )
+
+        reconciliation_report = {
+            "total_donations": 0,
+            "total_gl_credits": 0,
+            "discrepancies": [],
+            "summary": {},
+        }
+
+        for donation in donations:
+            amount = flt(donation.amount)
+            reconciliation_report["total_donations"] += amount
+
+            # Get GL entries for this donation
+            gl_credits = frappe.db.sql(
+                """
+                SELECT SUM(credit) as total_credit
+                FROM `tabGL Entry`
+                WHERE reference_name = %s AND reference_type = 'Donation'
+            """,
+                donation.name,
+                as_dict=True,
+            )
+
+            gl_credit_amount = (
+                flt(gl_credits[0].total_credit) if gl_credits and gl_credits[0].total_credit else 0
+            )
+            reconciliation_report["total_gl_credits"] += gl_credit_amount
+
+            # Check for discrepancies
+            if abs(amount - gl_credit_amount) > 0.01:  # Allow for minor rounding
+                reconciliation_report["discrepancies"].append(
+                    {
+                        "donation": donation.name,
+                        "donation_amount": amount,
+                        "gl_amount": gl_credit_amount,
+                        "difference": amount - gl_credit_amount,
+                        "donation_date": donation.donation_date,
+                    }
+                )
+
+        reconciliation_report["summary"] = {
+            "total_difference": reconciliation_report["total_donations"]
+            - reconciliation_report["total_gl_credits"],
+            "discrepancy_count": len(reconciliation_report["discrepancies"]),
+            "reconciliation_status": (
+                "Clean" if len(reconciliation_report["discrepancies"]) == 0 else "Needs Review"
+            ),
+        }
+
+        return reconciliation_report
+
+    @staticmethod
+    def _get_company_for_donations() -> str:
+        """Get company for donation operations"""
+        company = frappe.db.get_single_value("Verenigingen Settings", "donation_company")
+        if not company:
+            from verenigingen.utils import get_company
+
+            company = get_company()
+        return company

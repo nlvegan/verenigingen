@@ -288,28 +288,38 @@ class DonationReportingService:
         if from_date and to_date:
             filters["donation_date"] = ["between", [from_date, to_date]]
 
-        donations = frappe.get_all(
-            "Donation",
-            filters=filters,
-            fields=[
-                "name",
-                "donor",
-                "donation_date",
-                "amount",
-                "paid",
-                "donation_purpose_type",
-                "chapter_reference",
-                "campaign",
-                "specific_goal_description",
-            ],
+        # Use SQL to join donor data efficiently (avoids N+1 query)
+        donations = frappe.db.sql(
+            """
+            SELECT
+                d.name,
+                d.donor,
+                d.donation_date,
+                d.amount,
+                d.paid,
+                d.donation_purpose_type,
+                d.chapter_reference,
+                d.campaign,
+                d.specific_goal_description,
+                don.donor_name,
+                don.donor_email
+            FROM `tabDonation` d
+            LEFT JOIN `tabDonor` don ON d.donor = don.name
+            WHERE d.docstatus = 1
+                {chapter_filter}
+                {date_filter}
+            ORDER BY d.donation_date DESC
+        """.format(
+                chapter_filter="AND d.chapter_reference = %(chapter)s AND d.donation_purpose_type = 'Chapter'"
+                if chapter
+                else "",
+                date_filter="AND d.donation_date BETWEEN %(from_date)s AND %(to_date)s"
+                if from_date and to_date
+                else "",
+            ),
+            {"chapter": chapter, "from_date": from_date, "to_date": to_date},
+            as_dict=True,
         )
-
-        # Get donor details
-        for donation in donations:
-            if donation.donor:
-                donor_doc = frappe.get_doc("Donor", donation.donor)
-                donation["donor_name"] = getattr(donor_doc, "donor_name", "")
-                donation["donor_email"] = getattr(donor_doc, "donor_email", "")
 
         report = {
             "donations": donations,

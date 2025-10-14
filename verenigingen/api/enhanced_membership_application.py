@@ -1154,30 +1154,50 @@ def _is_valid_dutch_postal_code(postal_code):
 def _validate_iban_format(iban):
     """Validate IBAN format and checksum.
 
+    .. deprecated:: 1.0.0
+        Use :func:`verenigingen.utils.validation.iban_validator.validate_iban` instead.
+        **SECURITY RISK:** This method only checks basic format (length, country code) without
+        validating the MOD-97 checksum. It may accept IBANs with invalid checksums!
+
+        **Migration Example**::
+
+            # Old (basic validation, NO checksum!)
+            iban_validation = _validate_iban_format(iban)
+            if not iban_validation["valid"]:
+                return {"valid": False, "error": iban_validation["error"]}
+
+            # New (full validation WITH checksum)
+            from verenigingen.utils.validation.iban_validator import validate_iban
+            result = validate_iban(iban)
+            if not result["valid"]:
+                return {"valid": False, "error": result.get("message", "Invalid IBAN")}
+
     Args:
         iban (str): IBAN to validate
 
     Returns:
         dict: Validation result with valid/error structure
     """
-    iban = iban.replace(" ", "").upper()
+    import warnings
 
-    # Basic format check
-    if len(iban) < 15 or len(iban) > 34:
-        return {"valid": False, "error": "IBAN must be between 15-34 characters"}
+    warnings.warn(
+        "enhanced_membership_application._validate_iban_format() is deprecated. "
+        "Use iban_validator.validate_iban() instead. "
+        "SECURITY RISK: This method lacks MOD-97 checksum validation and may accept invalid IBANs!",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
-    if not iban[:2].isalpha():
-        return {"valid": False, "error": "IBAN must start with 2-letter country code"}
+    # Delegate to canonical implementation
+    from verenigingen.utils.validation.iban_validator import validate_iban
 
-    if not iban[2:4].isdigit():
-        return {"valid": False, "error": "IBAN check digits must be numeric"}
+    result = validate_iban(iban)
 
-    # For Dutch IBANs, enforce stricter validation
-    if iban.startswith("NL"):
-        if len(iban) != 18:
-            return {"valid": False, "error": "Dutch IBAN must be 18 characters long"}
-
-    return {"valid": True}
+    # Adapt canonical result to expected dict format
+    if result["valid"]:
+        return {"valid": True}
+    else:
+        return {"valid": False, "error": result.get("message", "Invalid IBAN")}
 
 
 def _is_valid_tussenvoegsel(tussenvoegsel):

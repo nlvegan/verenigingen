@@ -654,8 +654,15 @@ def update_membership_payment_status(membership_name):
 
 
 def get_bic_from_iban(iban):
-    """Try to determine BIC from IBAN - use SEPA utilities service"""
-    return SEPAUtilities.get_bic_from_iban(iban)
+    """
+    Try to determine BIC from IBAN.
+
+    Uses canonical iban_validator which supports 25+ Dutch banks
+    (including BITV, FVLB, HAND, DHBN, NWAB, COBA, DEUT, FBHL, NNBA, etc.)
+    """
+    from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
+
+    return derive_bic_from_iban(iban)
 
 
 @frappe.whitelist()
