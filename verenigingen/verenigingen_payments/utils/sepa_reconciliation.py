@@ -590,73 +590,45 @@ class PaymentReconciliationManager:
             return {}
 
     def create_payment_entry_from_transaction(self, bank_trans, invoice_name, batch_name=None):
-        """Create payment entry from bank transaction"""
+        """
+        Create payment entry from bank transaction for reconciliation.
 
-        from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+        Args:
+            bank_trans: Bank Transaction document
+            invoice_name: Sales Invoice name to reconcile
+            batch_name: Optional batch reference
 
-        # Get the invoice
-        invoice = frappe.get_doc("Sales Invoice", invoice_name)
+        Returns:
+            PaymentEntry: Created payment entry (submitted or draft depending on permissions)
 
-        # Create payment entry
-        payment_entry = get_payment_entry(
-            dt="Sales Invoice", dn=invoice.name, party_amount=bank_trans.deposit
+        Raises:
+            frappe.ValidationError: If payment creation fails validation
+            frappe.PermissionError: If user lacks create permission
+
+        Note:
+            Uses graceful degradation - creates draft entry if submit permission lacking,
+            allowing manual review instead of blocking reconciliation workflow.
+        """
+        from decimal import Decimal
+
+        from verenigingen.verenigingen_payments.services.payment import payment_entry_service
+
+        # Use consolidated payment entry creation service with graceful degradation
+        # This allows reconciliation to proceed even if user lacks submit permission
+        payment_entry = payment_entry_service.create_payment_entry_from_invoice(
+            invoice_name=invoice_name,
+            amount=Decimal(str(bank_trans.deposit)),
+            posting_date=bank_trans.date,
+            reference_no=bank_trans.reference_number or batch_name,
+            reference_date=bank_trans.date,
+            mode_of_payment="SEPA Direct Debit",
+            payment_type="Receive",
+            bank_transaction_name=bank_trans.name,
+            allow_draft_on_permission_failure=True,  # Graceful degradation for reconciliation
         )
 
-        # Set payment details
-        payment_entry.posting_date = bank_trans.date
-        payment_entry.reference_no = bank_trans.reference_number or batch_name
-        payment_entry.reference_date = bank_trans.date
-        payment_entry.mode_of_payment = "SEPA Direct Debit"
-
-        # Link to bank transaction
-        payment_entry.bank_transaction = bank_trans.name
-
-        # Validate and save with proper permissions
-        try:
-            payment_entry.insert()
-
-            # Only submit if user has submit permissions
-            if frappe.has_permission("Payment Entry", "submit"):
-                payment_entry.submit()
-            else:
-                frappe.log_error(
-                    f"User {frappe.session.user} cannot submit payment entry {payment_entry.name}",
-                    "SEPA Reconciliation Permission",
-                )
-                # Return draft payment entry for manual review
-
-        except frappe.ValidationError as e:
-            frappe.log_error(f"Payment entry validation failed: {str(e)}")
-            frappe.throw(_("Failed to create payment entry: {0}").format(str(e)))
-        except Exception as e:
-            frappe.log_error(f"Unexpected error creating payment entry: {str(e)}")
-            frappe.throw(_("Unexpected error in payment creation. Please check logs."))
-
-        # Update membership payment status with proper validation
-        if invoice.membership:
-            try:
-                if frappe.has_permission("Membership", "write"):
-                    membership = frappe.get_doc("Membership", invoice.membership)
-                    membership.payment_status = "Paid"
-                    membership.payment_date = bank_trans.date
-                    # Only ignore validation if absolutely necessary and user has proper permissions
-                    if frappe.has_permission("Membership", "submit"):
-                        membership.flags.ignore_validate_update_after_submit = True
-                        membership.save()
-                    else:
-                        frappe.log_error(
-                            f"Cannot update membership {invoice.membership} - insufficient permissions",
-                            "SEPA Reconciliation Permission",
-                        )
-                else:
-                    frappe.log_error(
-                        f"Cannot update membership {invoice.membership} - no write permission",
-                        "SEPA Reconciliation Permission",
-                    )
-            except Exception as e:
-                frappe.log_error(f"Error updating membership status: {str(e)}")
-                # Don't fail the entire reconciliation for membership update errors
-
+        # Note: Membership payment status update is handled by calling code if needed
+        # This keeps the service focused on payment entry creation only
         return payment_entry
 
     def process_mollie_settlement(self, bank_trans, settlement_id, settlement_data):

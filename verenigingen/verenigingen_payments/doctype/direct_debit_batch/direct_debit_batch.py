@@ -581,52 +581,37 @@ class DirectDebitBatch(Document):
 
 
 def create_payment_entry_for_invoice(invoice, payment_type, mode_of_payment, reference_no, reference_date):
-    """Create a payment entry for an invoice"""
-    try:
-        from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+    """
+    Create a payment entry for an invoice.
 
-        # Get the payment entry
-        payment_entry = get_payment_entry(
-            dt="Sales Invoice", dn=invoice.name, party_amount=invoice.outstanding_amount
-        )
+    Args:
+        invoice: Sales Invoice document
+        payment_type: Type of payment (Receive/Pay)
+        mode_of_payment: Payment method
+        reference_no: Payment reference number
+        reference_date: Payment reference date
 
-        # Set payment details
-        payment_entry.payment_type = payment_type
-        payment_entry.mode_of_payment = mode_of_payment
-        payment_entry.reference_no = reference_no
-        payment_entry.reference_date = reference_date
+    Returns:
+        PaymentEntry: Created and submitted payment entry
 
-        # Save and submit with proper permission validation
-        # Ensure user has Payment Entry create permissions for financial transactions
-        if not frappe.has_permission("Payment Entry", "create"):
-            handle_permission_error(
-                "F2001", {"user": frappe.session.user, "doctype": "Payment Entry", "operation": "create"}
-            )
+    Raises:
+        frappe.PermissionError: If user lacks payment entry permissions
+        frappe.ValidationError: If amount is invalid
+    """
+    from decimal import Decimal
 
-        payment_entry.insert()
+    from verenigingen.verenigingen_payments.services.payment import payment_entry_service
 
-        # Validate submit permissions separately
-        if not frappe.has_permission("Payment Entry", "submit", payment_entry):
-            handle_permission_error(
-                "F2001",
-                {
-                    "user": frappe.session.user,
-                    "doctype": "Payment Entry",
-                    "operation": "submit",
-                    "document_name": payment_entry.name,
-                },
-            )
-
-        payment_entry.submit()
-
-        frappe.logger().info(f"Created payment entry {payment_entry.name} for invoice {invoice.name}")
-        return payment_entry
-    except Exception as e:
-        frappe.log_error(
-            f"Error creating payment entry for invoice {invoice.name}: {str(e)}",
-            "Payment Entry Creation Error",
-        )
-        raise
+    # Use consolidated payment entry creation service
+    return payment_entry_service.create_payment_entry_from_invoice(
+        invoice_name=invoice.name,
+        amount=Decimal(str(invoice.outstanding_amount)),
+        posting_date=reference_date,
+        reference_no=reference_no,
+        reference_date=reference_date,
+        mode_of_payment=mode_of_payment,
+        payment_type=payment_type,
+    )
 
 
 def update_membership_payment_status(membership_name):

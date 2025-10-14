@@ -337,38 +337,23 @@ class BatchProcessingService:
 
         Raises:
             frappe.PermissionError: If user lacks payment entry permissions
+            frappe.ValidationError: If amount is invalid
             Exception: For other payment creation errors
         """
-        try:
-            # Get payment entry using ERPNext's built-in function
-            from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+        from decimal import Decimal
 
-            payment_entry = get_payment_entry(invoice.doctype, invoice.name)
-            payment_entry.mode_of_payment = mode_of_payment
-            payment_entry.reference_no = reference_no
-            payment_entry.reference_date = reference_date
-            payment_entry.paid_amount = invoice.outstanding_amount
-            payment_entry.received_amount = invoice.outstanding_amount
+        from verenigingen.verenigingen_payments.services.payment import payment_entry_service
 
-            # Insert and submit payment entry
-            payment_entry.insert()
-            payment_entry.submit()
-
-            return payment_entry
-
-        except frappe.PermissionError as e:
-            from verenigingen.verenigingen_payments.utils.financial_error_handler import (
-                handle_permission_error,
-            )
-
-            handle_permission_error(e, "create payment entry", f"invoice {invoice.name}")
-            raise
-        except Exception as e:
-            frappe.log_error(
-                f"Error creating payment entry for invoice {invoice.name}: {str(e)}",
-                "SEPA Payment Entry Creation Error",
-            )
-            raise
+        # Use consolidated payment entry creation service
+        return payment_entry_service.create_payment_entry_from_invoice(
+            invoice_name=invoice.name,
+            amount=Decimal(str(invoice.outstanding_amount)),
+            posting_date=reference_date,
+            reference_no=reference_no,
+            reference_date=reference_date,
+            mode_of_payment=mode_of_payment,
+            payment_type=payment_type,
+        )
 
     def _update_membership_payment_status(self, membership_name: str) -> None:
         """
