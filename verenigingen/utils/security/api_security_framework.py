@@ -529,9 +529,22 @@ class APISecurityFramework:
             # Invalidate all user role profile caches (nuclear option)
             # Get all cache keys matching the pattern and delete them
             try:
-                import redis
+                # Use Frappe's cache API to get Redis connection
+                cache = frappe.cache()
 
-                redis_client = frappe.cache.redis_client
+                # Try to get the underlying Redis client
+                # In Frappe v15, this is accessed through the internal attribute
+                if hasattr(cache, 'redis_cache'):
+                    redis_client = cache.redis_cache
+                elif hasattr(cache, 'get_redis_connection'):
+                    redis_client = cache.get_redis_connection()
+                else:
+                    # Fallback: manually clear known cache keys (less efficient but safe)
+                    frappe.logger("verenigingen.api_security").warning(
+                        "Cannot access Redis client directly - cache invalidation may be incomplete"
+                    )
+                    return
+
                 pattern = "user_role_profiles:*"
                 keys = redis_client.keys(pattern)
                 if keys:

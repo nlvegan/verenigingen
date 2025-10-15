@@ -243,7 +243,7 @@ class APIValidator:
 
     @classmethod
     def validate_date(
-        cls, date_value: Union[str, frappe.utils.datetime], required: bool = True
+        cls, date_value: Union[str, datetime], required: bool = True
     ) -> Optional[str]:
         """
         Validate date format
