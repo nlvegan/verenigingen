@@ -202,12 +202,14 @@ class Member(
             bool: True if chapter display should be updated
 
         Triggers:
-            - New records (always update)
+            - Existing records being updated (skip for brand new unsaved records)
             - Address field changes (pincode, city, state)
             - Explicit chapter assignment operations
         """
+        # Skip for new records that don't exist in DB yet - they won't have chapters
+        # Chapters are assigned after the member is created and saved
         if self.is_new():
-            return True  # Always update for new records to establish initial chapter
+            return False
 
         # Check if geographic fields have changed that affect chapter assignment
         chapter_related_fields = ["pincode", "city", "state"]

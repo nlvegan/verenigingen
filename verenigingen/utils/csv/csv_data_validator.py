@@ -92,6 +92,15 @@ class CSVDataValidator:
         for row_num, row in enumerate(csv_data, start=2):  # Start at 2 for header row
             try:
                 mapped_row = self.map_row_data(row, row_num)
+
+                # Check for "Dubbel" membership type - skip silently without error
+                # Note: clean_value() converts "Dubbel" → "Duplicate" via convert_membership_type()
+                if mapped_row.get("membership_type"):
+                    membership_type = str(mapped_row.get("membership_type", "")).lower().strip()
+                    if membership_type in ["dubbel", "duplicate"]:
+                        # Skip this row entirely - don't add to errors or data
+                        continue
+
                 row_errors = self.validate_row(mapped_row, row_num)
 
                 if row_errors:

@@ -186,6 +186,13 @@ class Volunteer(Document):
 
     def after_insert(self):
         """Actions after inserting new volunteer record"""
+        # Skip automatic account creation during bulk operations (CSV imports, etc.)
+        if getattr(frappe.flags, "bulk_member_operations", False):
+            frappe.logger().info(
+                f"Skipping automatic account creation for volunteer {self.name} due to bulk operations flag"
+            )
+            return
+
         # Skip automatic account creation during tests if flag is set
         if frappe.flags.get("skip_volunteer_account_creation", False):
             frappe.logger().info(

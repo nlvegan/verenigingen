@@ -421,6 +421,20 @@ class MembershipTerminationRequest(Document):
             results["member_updated"] = True
             results["actions_taken"].append("Updated member status to Terminated")
             frappe.logger().info(f"Member {member_doc.name} status updated to Terminated as final step")
+
+            # Recalculate total membership duration after termination
+            try:
+                member_doc.reload()  # Reload to get updated status
+                member_doc.calculate_cumulative_membership_duration()
+                member_doc.save(ignore_permissions=False)
+                results["actions_taken"].append("Recalculated total membership duration")
+                frappe.logger().info(
+                    f"Total membership duration recalculated for {member_doc.name}: {member_doc.cumulative_membership_duration}"
+                )
+            except Exception as duration_error:
+                error_msg = f"Failed to recalculate membership duration: {str(duration_error)}"
+                results["errors"].append(error_msg)
+                frappe.logger().error(f"Member {member_doc.name} duration calculation failed: {error_msg}")
         else:
             results["errors"].append("Failed to update member status")
             frappe.logger().error(

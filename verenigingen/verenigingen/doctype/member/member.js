@@ -2021,9 +2021,9 @@ function update_termination_status_html(frm, status) {
 }
 
 function add_termination_dashboard_indicators(frm, status) {
-	// Clear existing termination indicators to avoid duplicates
-	if (frm.dashboard && frm.dashboard.clear_headline) {
-		frm.dashboard.clear_headline();
+	// Track if we've already added termination indicators to prevent duplicates
+	if (frm._termination_indicators_added) {
+		return;
 	}
 
 	if (
@@ -2034,9 +2034,11 @@ function add_termination_dashboard_indicators(frm, status) {
 		const term_data = status.executed_requests[0];
 
 		// Use termination_date (when membership ended) instead of execution_date (system timestamp)
-		const display_date = term_data.termination_date || term_data.execution_date;
+		const raw_date = term_data.termination_date || term_data.execution_date;
 
-		if (display_date) {
+		if (raw_date) {
+			// Format date to show only date and time up to minute (no seconds/microseconds)
+			const display_date = frappe.datetime.str_to_user(raw_date);
 			frm.dashboard.add_indicator(
 				__('Terminated on {0}', [display_date]),
 				'red'
@@ -2044,16 +2046,19 @@ function add_termination_dashboard_indicators(frm, status) {
 		} else {
 			frm.dashboard.add_indicator(__('Membership Terminated'), 'red');
 		}
+		frm._termination_indicators_added = true;
 	} else if (status.pending_requests && status.pending_requests.length > 0) {
 		const pending = status.pending_requests[0];
 
 		if (pending.status === 'Pending Approval') {
 			frm.dashboard.add_indicator(__('Termination Pending Approval'), 'orange');
+			frm._termination_indicators_added = true;
 		} else if (pending.status === 'Approved') {
 			frm.dashboard.add_indicator(
 				__('Termination Approved - Awaiting Execution'),
 				'yellow'
 			);
+			frm._termination_indicators_added = true;
 		}
 	}
 }

@@ -431,10 +431,8 @@ class MijnroodCSVImport(Document):
             return f". User account creation failed: {str(e)}"
 
     def _process_bulk_volunteer_creation(self, processed_members: List[str]) -> str:
-        """Create volunteer records in bulk for successfully imported members"""
+        """Count volunteer records created inline during import (no bulk creation needed)"""
         try:
-            from verenigingen.utils.bulk_volunteer_creation import bulk_create_volunteers_for_members
-
             # Filter to only include active members
             active_members = [
                 member_name
@@ -446,33 +444,20 @@ class MijnroodCSVImport(Document):
                 frappe.logger().info("No active members to create volunteers for")
                 return ". No volunteer records created (no active members)"
 
-            frappe.logger().info(
-                f"Creating volunteers for {len(active_members)} active members (filtered from {len(processed_members)} total)"
-            )
+            # Count volunteers that were created inline during member import
+            volunteer_count = frappe.db.count("Volunteer", {"member": ["in", active_members]})
 
-            result = bulk_create_volunteers_for_members(member_names=active_members, batch_size=100)
-
-            summary_parts = []
-            if result.get("created", 0) > 0:
-                summary_parts.append(f"{result['created']} volunteers created")
-
-            if result.get("skipped", 0) > 0:
-                summary_parts.append(f"{result['skipped']} skipped")
-
-            if result.get("errors"):
-                summary_parts.append(f"{len(result['errors'])} errors")
-                frappe.logger().warning(f"Volunteer creation errors: {result['errors'][:5]}")
-
-            if summary_parts:
-                return f". Volunteers: {', '.join(summary_parts)}"
+            if volunteer_count > 0:
+                frappe.logger().info(f"Volunteers created inline: {volunteer_count}/{len(active_members)}")
+                return f". Volunteers: {volunteer_count} created inline during member import"
             else:
                 return ". No volunteer records created"
 
         except Exception as e:
-            error_msg = f"Error during bulk volunteer creation: {str(e)}"
-            frappe.log_error(frappe.get_traceback(), "Mijnrood Bulk Volunteer Creation Error")
+            error_msg = f"Error counting volunteers: {str(e)}"
+            frappe.log_error(frappe.get_traceback(), "Mijnrood Volunteer Count Error")
             frappe.logger().error(error_msg)
-            return f". Volunteer creation failed: {str(e)}"
+            return f". Volunteer count failed: {str(e)}"
 
     def _validate_mollie_data_preservation(self, processed_members: List[str]) -> List[str]:
         """Validate that Mollie subscription data was properly preserved during import"""
@@ -1054,11 +1039,6 @@ class MijnroodCSVImport(Document):
 
     def _create_related_records(self, member_doc: Document, row_data: Dict = None):
         """Create related records (address, termination) after successful member creation."""
-        frappe.log_error(
-            f"DEBUG: _create_related_records called for {member_doc.name}, status={member_doc.status}, "
-            f"has_dues_data={hasattr(member_doc, '_pending_dues_schedule_data')}",
-            "CSV Import Debug",
-        )
         try:
             # Update Customer with Mollie data if present
             if hasattr(member_doc, "_mollie_data") and member_doc._mollie_data:
@@ -1077,15 +1057,14 @@ class MijnroodCSVImport(Document):
             if hasattr(member_doc, "_pending_termination_data"):
                 self._create_termination_record(member_doc, member_doc._pending_termination_data)
 
+            # Create volunteer record BEFORE chapter assignment if enabled
+            # This prevents Frappe link validation errors due to volunteer autoname pattern VOL-{member}-####
+            if self.create_volunteer_records and member_doc.status == "Active":
+                self._create_volunteer_for_member(member_doc)
+
             # Create chapter assignment if chapter was provided
             if hasattr(member_doc, "_pending_chapter_assignment"):
                 self._assign_member_to_chapter(member_doc, member_doc._pending_chapter_assignment)
-
-            frappe.log_error(
-                f"DEBUG: Reached membership creation section for {member_doc.name}, "
-                f"status={member_doc.status}, has_dues={hasattr(member_doc, '_pending_dues_schedule_data')}",
-                "CSV Import Debug - Pre Membership",
-            )
 
             # Create membership and dues schedule for active members only
             # Use the Member's built-in method to ensure consistency with approval workflow
@@ -1100,11 +1079,6 @@ class MijnroodCSVImport(Document):
                         f"Member {member_doc.name} already has active membership {existing_membership}, skipping creation"
                     )
                 else:
-                    frappe.log_error(
-                        f"DEBUG: About to create membership for {member_doc.name}",
-                        "CSV Import Debug - Creating Membership",
-                    )
-
                     # For CSV imports, create membership and dues schedule WITHOUT initial invoice
                     # Historical members may have joined years ago with different rates, so we can't
                     # accurately create a catch-up invoice. Just set up the dues schedule for future billing.
@@ -1169,6 +1143,48 @@ class MijnroodCSVImport(Document):
             frappe.logger().error("Failed to create termination record for %s: %s", member_doc.name, str(e))
             # Don't fail the entire import for termination record issues
 
+    def _create_volunteer_for_member(self, member_doc: Document):
+        """Create a volunteer record for a single member during import."""
+        try:
+            # Check if volunteer already exists
+            if frappe.db.exists("Volunteer", {"member": member_doc.name}):
+                frappe.logger().info(f"Volunteer already exists for {member_doc.name}, skipping")
+                return
+
+            # Validate age requirement (must be 16+)
+            if member_doc.birth_date:
+                from dateutil.relativedelta import relativedelta
+
+                age = relativedelta(getdate(today()), getdate(member_doc.birth_date)).years
+                if age < 16:
+                    frappe.logger().info(f"Member {member_doc.name} too young for volunteer (age {age})")
+                    return
+
+            # Create volunteer record
+            volunteer_name = member_doc.full_name or f"{member_doc.first_name} {member_doc.last_name}".strip()
+            if not volunteer_name:
+                volunteer_name = member_doc.email
+
+            volunteer = frappe.get_doc(
+                {
+                    "doctype": "Volunteer",
+                    "volunteer_name": volunteer_name,
+                    "member": member_doc.name,
+                    "email": member_doc.email,
+                    "status": "New",
+                    "start_date": today(),
+                }
+            )
+
+            volunteer.flags.ignore_workflow = True
+            volunteer.insert()
+
+            frappe.logger().info(f"Created volunteer {volunteer.name} for {member_doc.name}")
+
+        except Exception as e:
+            # Don't fail member creation for volunteer issues
+            frappe.logger().error(f"Failed to create volunteer for {member_doc.name}: {str(e)}")
+
     def _assign_member_to_chapter(self, member_doc: Document, chapter_name: str):
         """Assign member to chapter based on chapter name from CSV, with optional auto-creation."""
         try:
@@ -1229,11 +1245,6 @@ class MijnroodCSVImport(Document):
     def _create_membership_from_import(self, member_doc: Document, row_data: dict):
         """Create a membership record using unified normal approval workflow."""
         try:
-            frappe.log_error(
-                f"DEBUG: _create_membership_from_import called for {member_doc.name}",
-                "CSV Import - Membership Creation Start",
-            )
-
             # Check if member already has an active membership to prevent duplicates
             existing_membership = frappe.db.get_value(
                 "Membership",
@@ -1242,20 +1253,14 @@ class MijnroodCSVImport(Document):
             )
 
             if existing_membership:
-                frappe.log_error(
-                    f"DEBUG: Member {member_doc.name} already has active membership {existing_membership}, skipping creation",
-                    "CSV Import - Duplicate Membership Skipped",
+                frappe.logger().info(
+                    f"Member {member_doc.name} already has active membership {existing_membership}, skipping creation"
                 )
                 return existing_membership
 
             # Use unified path (legacy path removed - unified is production-ready)
             frappe.logger().info(f"[CSV IMPORT] Creating membership for {member_doc.name}")
             membership_name = self._create_membership_unified_path(member_doc, row_data)
-
-            frappe.log_error(
-                f"DEBUG: Membership creation returned: {membership_name}",
-                "CSV Import - Membership Creation Result",
-            )
 
             if membership_name:
                 # Reload member doc to get latest version (membership creation may have updated it)

@@ -12,6 +12,9 @@
     "rate_limit_calls": 100,
     "rate_limit_period_seconds": 3600,
     "rate_limit_scope": "per_user",
+    "batch_rate_limit_calls": 10000,
+    "batch_rate_limit_period_seconds": 3600,
+    "apply_batch_limits_to": "Both",
     "audit_level": "minimal",
     "alert_on_execution": 0
   },

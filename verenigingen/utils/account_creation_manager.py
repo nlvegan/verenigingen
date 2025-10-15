@@ -448,7 +448,14 @@ class AccountCreationManager:
 
     def is_retryable_error(self, error):
         """Determine if an error is retryable"""
-        retryable_errors = ["timeout", "connection", "temporary", "deadlock", "lock wait timeout"]
+        retryable_errors = [
+            "timeout",
+            "connection",
+            "temporary",
+            "deadlock",
+            "lock wait timeout",
+            "rate limit",
+        ]
 
         error_str = str(error).lower()
         return any(keyword in error_str for keyword in retryable_errors)
@@ -689,6 +696,10 @@ def queue_bulk_account_creation_for_members(
 
     frappe.logger().info(f"Starting bulk account creation for {len(member_names)} members")
 
+    # Set bulk operations flag for COR rate limiting exemption
+    frappe.flags.bulk_account_creation = True
+    frappe.flags.in_background_job = True  # Mark as background operation
+
     # Set defaults
     if not roles:
         roles = ["Verenigingen Member"]
@@ -754,35 +765,54 @@ def queue_bulk_account_creation_for_members(
 
         try:
             for member in chunk_members:
-                try:
-                    # All member account requests use "Member" type
-                    # Employee creation is determined by requires_employee_creation() method
-                    request_type = "Member"
+                # Retry logic for COR rate limit errors
+                max_retries = 3
+                retry_delay = 0.5  # Start with 500ms delay
 
-                    request = frappe.get_doc(
-                        {
-                            "doctype": "Account Creation Request",
-                            "request_type": request_type,
-                            "source_record": member.name,
-                            "email": member.email,
-                            "full_name": member.full_name,
-                            "priority": priority,
-                            "role_profile": role_profile,
-                            "business_justification": "Bulk member import - account creation for portal access",
-                        }
-                    )
+                for attempt in range(max_retries):
+                    try:
+                        # All member account requests use "Member" type
+                        # Employee creation is determined by requires_employee_creation() method
+                        request_type = "Member"
 
-                    # Add requested roles
-                    for role in roles:
-                        request.append("requested_roles", {"role": role})
+                        request = frappe.get_doc(
+                            {
+                                "doctype": "Account Creation Request",
+                                "request_type": request_type,
+                                "source_record": member.name,
+                                "email": member.email,
+                                "full_name": member.full_name,
+                                "priority": priority,
+                                "role_profile": role_profile,
+                                "business_justification": "Bulk member import - account creation for portal access",
+                            }
+                        )
 
-                    request.insert()
-                    created_requests.append(request.name)
+                        # Add requested roles
+                        for role in roles:
+                            request.append("requested_roles", {"role": role})
 
-                except Exception as e:
-                    creation_errors.append(f"Failed to create request for {member.name}: {str(e)}")
-                    # Continue with other members in chunk even if one fails
-                    continue
+                        request.insert()
+                        created_requests.append(request.name)
+                        break  # Success - exit retry loop
+
+                    except Exception as e:
+                        error_str = str(e).lower()
+                        # Check if this is a rate limit error
+                        if "rate limit" in error_str and attempt < max_retries - 1:
+                            import time
+
+                            frappe.logger().warning(
+                                f"Rate limit hit creating request for {member.name}, "
+                                f"retrying after {retry_delay}s (attempt {attempt + 1}/{max_retries})"
+                            )
+                            time.sleep(retry_delay)
+                            retry_delay *= 2  # Exponential backoff
+                            continue
+                        else:
+                            # Not a rate limit error, or final attempt failed
+                            creation_errors.append(f"Failed to create request for {member.name}: {str(e)}")
+                            break  # Exit retry loop and continue with next member
 
             # Commit this chunk if successful
             frappe.db.commit()

@@ -7,41 +7,43 @@
  "engine": "InnoDB",
  "field_order": [
   "member_details_section",
-  "aanhef",
+  "full_name",
   "first_name",
   "middle_name",
   "tussenvoegsel",
   "last_name",
-  "full_name",
   "pronouns",
-  "birth_date",
-  "age",
+  "aanhef",
   "column_break_8",
-  "email",
-  "contact_number",
   "image",
   "status",
+  "birth_date",
+  "age",
   "member_id",
   "member_since",
-  "cumulative_membership_duration",
-  "member_end_date",
   "address_section",
   "primary_address",
   "address_display",
   "other_members_at_address",
+  "column_break_xrft",
+  "email",
+  "contact_number",
+  "accepts_optional_communications",
   "notes_section",
   "notes",
   "membership_tab",
   "membership_and_dues_section",
+  "cumulative_membership_duration",
   "current_membership_type",
   "current_membership_plan",
   "current_dues_schedule",
   "dues_rate",
-  "column_break_incg",
   "next_invoice_date",
+  "column_break_incg",
   "current_membership_start",
   "current_membership_end",
   "amendment_status_html",
+  "member_end_date",
   "termination_status_html",
   "fee_change_history_section",
   "fee_change_history",
@@ -98,8 +100,6 @@
   "review_notes",
   "interested_in_volunteering",
   "application_custom_fee",
-  "communication_preferences_section",
-  "accepts_optional_communications",
   "erpnext_integration_section",
   "customer",
   "contact",
@@ -352,12 +352,6 @@
    "read_only": 1
   },
   {
-   "collapsible": 1,
-   "fieldname": "communication_preferences_section",
-   "fieldtype": "Section Break",
-   "label": "Communication Preferences"
-  },
-  {
    "default": "1",
    "description": "Allow receiving newsletters, event announcements, and other non-essential communications",
    "fieldname": "accepts_optional_communications",
@@ -532,13 +526,13 @@
    "description": "Shows pending membership fee amendment requests",
    "fieldname": "amendment_status_html",
    "fieldtype": "HTML",
-   "label": "Amendment status",
+   "label": "Pending Membership Amendment status",
    "read_only": 1
   },
   {
    "fieldname": "address_section",
    "fieldtype": "Section Break",
-   "label": "Address"
+   "label": "Contact Details"
   },
   {
    "fetch_from": "primary_address.address_line1",
@@ -927,6 +921,10 @@
    "fieldtype": "Link",
    "label": "Volunteer record",
    "options": "Volunteer"
+  },
+  {
+   "fieldname": "column_break_xrft",
+   "fieldtype": "Column Break"
   }
  ],
  "links": [
@@ -951,27 +949,6 @@
    "link_fieldname": "member"
   },
   {
-   "group": "Transactions",
-   "link_doctype": "Payment Entry",
-   "link_fieldname": "party",
-   "table_fieldname": "references"
-  },
-  {
-   "group": "Financial",
-   "link_doctype": "Customer",
-   "link_fieldname": "member"
-  },
-  {
-   "group": "Financial",
-   "link_doctype": "Sales Invoice",
-   "link_fieldname": "member"
-  },
-  {
-   "group": "Financial",
-   "link_doctype": "SEPA Mandate",
-   "link_fieldname": "member"
-  },
-  {
    "group": "Volunteer",
    "link_doctype": "Volunteer",
    "link_fieldname": "member"
@@ -990,9 +967,30 @@
    "group": "Volunteer",
    "link_doctype": "User",
    "link_fieldname": "name"
+  },
+  {
+   "group": "Financial",
+   "link_doctype": "Customer",
+   "link_fieldname": "member"
+  },
+  {
+   "group": "Financial",
+   "link_doctype": "Sales Invoice",
+   "link_fieldname": "member"
+  },
+  {
+   "group": "Financial",
+   "link_doctype": "SEPA Mandate",
+   "link_fieldname": "member"
+  },
+  {
+   "group": "Transactions",
+   "link_doctype": "Payment Entry",
+   "link_fieldname": "party",
+   "table_fieldname": "references"
   }
  ],
- "modified": "2025-10-11 18:51:40.594428",
+ "modified": "2025-10-15 23:18:46.798489",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Member",
@@ -1091,7 +1089,7 @@
    "title": "Expired"
   },
   {
-   "color": "Gray",
+   "color": "Pink",
    "title": "Suspended"
   },
   {
@@ -1099,11 +1097,11 @@
    "title": "Banned"
   },
   {
-   "color": "Purple",
+   "color": "Cyan",
    "title": "Deceased"
   },
   {
-   "color": "Red",
+   "color": "Orange",
    "title": "Terminated"
   }
  ],
