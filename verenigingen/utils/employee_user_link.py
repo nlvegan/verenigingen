@@ -147,18 +147,26 @@ def create_employee_for_approved_volunteer(volunteer_doc):
             last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
 
         # Create employee manually since create_minimal_employee was removed
-        employee = frappe.get_doc(
-            {
-                "doctype": "Employee",
-                "first_name": first_name,
-                "last_name": last_name,
-                "personal_email": volunteer_doc.email,
-                "company": frappe.get_single("Verenigingen Settings").company,
-                "employee_name": f"{first_name} {last_name}",
-                "status": "Active",
-                "employment_type": "Volunteer",
-            }
-        )
+        employee_dict = {
+            "doctype": "Employee",
+            "first_name": first_name,
+            "last_name": last_name,
+            "personal_email": volunteer_doc.email,
+            "company": frappe.get_single("Verenigingen Settings").company,
+            "employee_name": f"{first_name} {last_name}",
+            "status": "Active",
+            "employment_type": "Volunteer",
+        }
+
+        # Set date_of_birth from member's birth_date
+        if member_doc and member_doc.birth_date:
+            employee_dict["date_of_birth"] = member_doc.birth_date
+
+        # Set date_of_joining from member's member_since
+        if member_doc and member_doc.member_since:
+            employee_dict["date_of_joining"] = member_doc.member_since
+
+        employee = frappe.get_doc(employee_dict)
 
         employee.insert()
         employee_id = employee.name
