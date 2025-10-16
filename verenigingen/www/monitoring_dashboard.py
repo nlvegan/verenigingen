@@ -375,7 +375,7 @@ def test_monitoring_system():
     """Test the monitoring system functionality"""
     try:
         # Create a test alert
-        from verenigingen.doctype.system_alert.system_alert import SystemAlert
+        from verenigingen.verenigingen.doctype.system_alert.system_alert import SystemAlert
 
         test_alert = SystemAlert.create_alert(
             alert_type="TEST_MONITORING",
